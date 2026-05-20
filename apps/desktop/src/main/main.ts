@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
+  AppSettings,
+  BotProvider,
   ConnectionEvent,
   CreateConnectionInput,
   CreateSessionInput,
-  BotProvider,
   SessionCommand,
   SessionEvent,
   SessionListFilter,
@@ -52,6 +53,7 @@ import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import { createSafeStorageCredentialStore } from './credential-store.js';
+import { maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', 'default');
 const store = createSessionStore(workspaceRoot);
@@ -276,12 +278,32 @@ function registerIpc(): void {
     Boolean(await credentialStore.getSecret(slug, 'api_key')),
   );
 
-  ipcMain.handle('settings:get', () => settingsStore.get());
-  ipcMain.handle('settings:update', (_event, patch: UpdateAppSettingsInput) => settingsStore.update(patch));
+  ipcMain.handle('settings:get', async () => maskAppSettings(await settingsStore.get()));
+  ipcMain.handle('settings:update', async (_event, patch: UpdateAppSettingsInput) => {
+    const normalizedPatch = await normalizeSettingsPatch(patch);
+    const next = await settingsStore.update(normalizedPatch);
+    await applySettingsRuntimeEffects(next, patch);
+    return maskAppSettings(next, patch);
+  });
   ipcMain.handle('settings:testNetworkProxy', () => settingsStore.testNetworkProxy());
-  ipcMain.handle('settings:testBotChannel', (_event, provider: BotProvider) =>
-    settingsStore.testBotChannel(provider),
-  );
+  ipcMain.handle('settings:testBotChannel', async (_event, provider: BotProvider) => {
+    const settings = await settingsStore.get();
+    const result = await testRuntimeBotChannel(provider, settings.botChat.channels[provider]);
+    await settingsStore.update({
+      botChat: {
+        channels: {
+          [provider]: {
+            connected: result.ok,
+            lastTestAt: Date.now(),
+            lastError: result.ok ? undefined : result.error,
+          },
+        },
+      },
+    });
+    const next = await settingsStore.get();
+    await applySettingsRuntimeEffects(next, { botChat: { channels: { [provider]: {} } } });
+    return toSettingsTestResult(provider, result);
+  });
   ipcMain.handle('settings:bots:listStatuses', () =>
     tryResult(async () => botRegistry.allStatuses(), 'BOTS_STATUS_FAILED'),
   );
@@ -338,8 +360,7 @@ function registerIpc(): void {
       const nextNetwork = applyNetworkPatch(toContractNetworkSettings(current.network), patch);
       const next = await settingsStore.update({ network: toAppNetworkPatch(nextNetwork) });
       const masked = maskNetworkSettings(toContractNetworkSettings(next.network));
-      setActiveProxy(toContractNetworkSettings(next.network).proxy);
-      mainWindow?.webContents.send('settings:network:changed', masked);
+      await applySettingsRuntimeEffects(next, { network: {} });
       return masked;
     }, 'NETWORK_PUT_FAILED'),
   );
@@ -352,6 +373,22 @@ function registerIpc(): void {
       return testProxyConnection({ ...input, proxy }, stored);
     }, 'NETWORK_TEST_FAILED'),
   );
+}
+
+async function normalizeSettingsPatch(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsInput> {
+  const current = await settingsStore.get();
+  return preserveSensitivePlaceholders(patch, current);
+}
+
+async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateAppSettingsInput): Promise<void> {
+  if (patch.network) {
+    const network = toContractNetworkSettings(settings.network);
+    setActiveProxy(network.proxy);
+    mainWindow?.webContents.send('settings:network:changed', maskNetworkSettings(network));
+  }
+  if (patch.botChat) {
+    await botRegistry.applySettings(settings.botChat);
+  }
 }
 
 async function streamEvents(sessionId: string, iterator: AsyncIterable<SessionEvent>): Promise<void> {
