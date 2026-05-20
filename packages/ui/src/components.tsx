@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
 import {
   Archive,
+  ArrowDown,
   Flag,
   MessageSquare,
   Plus,
@@ -250,6 +251,8 @@ export function SessionListPanel(props: {
   );
 }
 
+const SCROLL_BOTTOM_THRESHOLD = 64; // px
+
 export function ChatView(props: {
   messages: StoredMessage[];
   streamingText: string;
@@ -261,6 +264,30 @@ export function ChatView(props: {
   const chat = materializeChat(props.messages);
   const storedTools = materializeTools(props.messages);
   const tools = mergeTools(storedTools, props.tools);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+
+  // Auto-scroll on new content if the user is already at (or near) the
+  // bottom. If they've scrolled up to read history we don't yank them back.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !pinnedToBottom) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chat.length, props.streamingText, tools.length, pinnedToBottom]);
+
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setPinnedToBottom(distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD);
+  }
+
+  function scrollToBottom() {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    setPinnedToBottom(true);
+  }
 
   if (props.mode === 'skills') {
     return (
@@ -302,29 +329,41 @@ export function ChatView(props: {
         <span className="maka-chat-header-spacer" />
         <span className="modePill">Ask mode</span>
       </header>
-      <div className="maka-chat messages">
-        {chat.length === 0 && !props.streamingText && (
-          <div className="emptyChat compact">
-            <span className="eyebrow">Maka</span>
-            <h1>What should we work on?</h1>
-            <p>Describe the change, question, or investigation.</p>
-          </div>
-        )}
-        {chat.map((item) => (
-          <article key={item.id} className={`maka-message-row message ${item.role}`}>
-            <span>{item.role}</span>
-            <MessageBody role={item.role} text={item.text} />
-          </article>
-        ))}
-        {props.streamingText && (
-          <article className="maka-message-row message assistant streaming">
-            <span>assistant</span>
-            <div className="maka-bubble-assistant maka-bubble-streaming">
-              <Markdown text={props.streamingText} />
+      <div className="maka-chat-shell">
+        <div ref={scrollRef} className="maka-chat messages" onScroll={onScroll}>
+          {chat.length === 0 && !props.streamingText && (
+            <div className="emptyChat compact">
+              <span className="eyebrow">Maka</span>
+              <h1>What should we work on?</h1>
+              <p>Describe the change, question, or investigation.</p>
             </div>
-          </article>
+          )}
+          {chat.map((item) => (
+            <article key={item.id} className={`maka-message-row message ${item.role}`}>
+              <span>{item.role}</span>
+              <MessageBody role={item.role} text={item.text} />
+            </article>
+          ))}
+          {props.streamingText && (
+            <article className="maka-message-row message assistant streaming">
+              <span>assistant</span>
+              <div className="maka-bubble-assistant maka-bubble-streaming">
+                <Markdown text={props.streamingText} />
+              </div>
+            </article>
+          )}
+          {tools.length > 0 && <ToolActivity items={tools} />}
+        </div>
+        {!pinnedToBottom && (
+          <button
+            type="button"
+            className="maka-chat-jump-bottom"
+            onClick={scrollToBottom}
+            aria-label="Jump to latest message"
+          >
+            <ArrowDown size={16} strokeWidth={2} aria-hidden="true" />
+          </button>
         )}
-        {tools.length > 0 && <ToolActivity items={tools} />}
       </div>
     </main>
   );

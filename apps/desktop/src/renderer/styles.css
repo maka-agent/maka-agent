@@ -638,6 +638,56 @@ button:active {
   min-height: 0;
 }
 
+/* Wraps the scroll surface so the jump-to-bottom button can be absolutely
+   positioned over the chat without escaping the column. */
+.maka-chat-shell {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.maka-chat-jump-bottom {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground-70);
+  cursor: pointer;
+  box-shadow: var(--shadow-medium);
+  opacity: 1;
+  transition:
+    transform 180ms var(--ease-out-strong),
+    opacity 180ms ease-out,
+    background 120ms ease;
+}
+
+.maka-chat-jump-bottom:hover {
+  color: var(--foreground);
+  background: var(--foreground-3);
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.maka-chat-jump-bottom:active {
+  transform: translateX(-50%) scale(0.97);
+}
+
+@starting-style {
+  .maka-chat-jump-bottom {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+}
+
 .emptyChat {
   width: min(760px, 100%);
   margin: auto;
