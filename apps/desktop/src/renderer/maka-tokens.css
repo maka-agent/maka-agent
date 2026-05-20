@@ -469,13 +469,106 @@
     white-space: pre-wrap;
     word-wrap: break-word;
   }
-  /* Assistant: no bubble — just text on background, like an editor. */
+  /* Assistant: no bubble — just text on background, like an editor.
+     The bubble itself flows naturally; child markdown elements (h*, p, ul,
+     code blocks, tables, blockquotes) all need their own spacing/typography
+     so the content reads like a polished doc. */
   .maka-bubble-assistant {
     color: var(--foreground);
     line-height: 1.65;
     padding: 4px 0;
-    white-space: pre-wrap;
     word-wrap: break-word;
+  }
+  .maka-bubble-assistant > :first-child { margin-top: 0; }
+  .maka-bubble-assistant > :last-child { margin-bottom: 0; }
+  .maka-bubble-assistant p { margin: 0 0 12px; }
+  .maka-bubble-assistant h1,
+  .maka-bubble-assistant h2,
+  .maka-bubble-assistant h3,
+  .maka-bubble-assistant h4 {
+    margin: 18px 0 8px;
+    line-height: 1.25;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .maka-bubble-assistant h1 { font-size: 22px; }
+  .maka-bubble-assistant h2 { font-size: 19px; }
+  .maka-bubble-assistant h3 { font-size: 16px; }
+  .maka-bubble-assistant h4 { font-size: 14px; color: var(--foreground-80); }
+  .maka-bubble-assistant ul,
+  .maka-bubble-assistant ol {
+    margin: 0 0 12px;
+    padding-left: 22px;
+  }
+  .maka-bubble-assistant li { margin: 2px 0; }
+  .maka-bubble-assistant li > ul,
+  .maka-bubble-assistant li > ol { margin-bottom: 0; }
+  .maka-bubble-assistant a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid oklch(from var(--accent) l c h / 0.4);
+  }
+  .maka-bubble-assistant a:hover {
+    border-bottom-color: var(--accent);
+  }
+  .maka-bubble-assistant code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--foreground-5);
+  }
+  .maka-bubble-assistant pre {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--foreground-3);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre;
+  }
+  .maka-bubble-assistant pre code {
+    padding: 0;
+    background: transparent;
+    font-size: inherit;
+  }
+  .maka-bubble-assistant blockquote {
+    margin: 0 0 12px;
+    padding: 4px 14px;
+    border-left: 3px solid var(--foreground-20);
+    color: var(--foreground-70);
+  }
+  .maka-bubble-assistant table {
+    width: 100%;
+    margin: 0 0 12px;
+    border-collapse: collapse;
+    font-size: 13px;
+    overflow: hidden;
+    border-radius: 8px;
+  }
+  .maka-bubble-assistant th,
+  .maka-bubble-assistant td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .maka-bubble-assistant th {
+    color: var(--foreground-70);
+    font-weight: 600;
+    background: var(--foreground-3);
+  }
+  .maka-bubble-assistant hr {
+    margin: 16px 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  /* User: still a bubble, content stays verbatim (no markdown) */
+  .maka-bubble-user {
+    white-space: pre-wrap;
   }
   .maka-bubble-streaming::after {
     content: "▋";

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
+import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
 import {
   Archive,
   Flag,
@@ -9,6 +9,9 @@ import {
   Sparkles,
   SquarePen,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import type {
   PermissionRequestEvent,
   PermissionResponse,
@@ -310,18 +313,70 @@ export function ChatView(props: {
         {chat.map((item) => (
           <article key={item.id} className={`maka-message-row message ${item.role}`}>
             <span>{item.role}</span>
-            <pre className={item.role === 'user' ? 'maka-bubble-user' : 'maka-bubble-assistant'}>{item.text}</pre>
+            <MessageBody role={item.role} text={item.text} />
           </article>
         ))}
         {props.streamingText && (
           <article className="maka-message-row message assistant streaming">
             <span>assistant</span>
-            <pre className="maka-bubble-assistant maka-bubble-streaming">{props.streamingText}</pre>
+            <div className="maka-bubble-assistant maka-bubble-streaming">
+              <Markdown text={props.streamingText} />
+            </div>
           </article>
         )}
         {tools.length > 0 && <ToolActivity items={tools} />}
       </div>
     </main>
+  );
+}
+
+/**
+ * Renders an individual chat message body.
+ *
+ * - `user` messages stay verbatim (whitespace + line breaks preserved); the
+ *   user's literal input shouldn't be reinterpreted as markdown.
+ * - `assistant` / `system` (and anything else) flow through the markdown
+ *   renderer so code fences, lists, tables, and links display natively.
+ *
+ * Memoized because chat scroll re-renders the whole list on every streaming
+ * delta; this keeps already-final bubbles from re-parsing markdown.
+ */
+const MessageBody = memo(function MessageBody(props: { role: string; text: string }) {
+  if (props.role === 'user') {
+    return <div className="maka-bubble-user">{props.text}</div>;
+  }
+  return (
+    <div className="maka-bubble-assistant">
+      <Markdown text={props.text} />
+    </div>
+  );
+});
+
+const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
+
+function Markdown(props: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_PLUGINS}
+      components={{
+        // Force external links to open in a new window — Electron will route
+        // through the OS default browser when the renderer is configured to.
+        a: ({ children, href, ...rest }) => (
+          <a {...rest} href={href} target="_blank" rel="noreferrer noopener">
+            {children}
+          </a>
+        ),
+        // Inline `code` keeps the bubble's foreground color; only block code
+        // gets the framed treatment via `pre > code` in CSS.
+        code: ({ children, className, ...rest }) => (
+          <code {...rest} className={className}>
+            {children}
+          </code>
+        ),
+      }}
+    >
+      {props.text}
+    </ReactMarkdown>
   );
 }
 
