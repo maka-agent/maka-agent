@@ -24,13 +24,12 @@ import type {
   LlmConnection,
   NetworkProxySettings,
   SettingsSection,
-  SettingsTestResult,
   ThemePreference,
   UsageRange,
   UsageStats,
 } from '@maka/core';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
-import { useModalA11y } from '@maka/ui';
+import { useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 
 type SettingsNavItem = {
@@ -492,8 +491,8 @@ function NetworkSettingsPage(props: {
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<AppSettings>;
 }) {
   const proxy = props.settings.network.proxy;
-  const [result, setResult] = useState<SettingsTestResult | null>(null);
   const [testing, setTesting] = useState(false);
+  const toast = useToast();
 
   async function updateProxy(patch: Partial<NetworkProxySettings>) {
     await props.onUpdate({ network: { proxy: patch } });
@@ -501,9 +500,17 @@ function NetworkSettingsPage(props: {
 
   async function testProxy() {
     setTesting(true);
-    setResult(null);
     try {
-      setResult(await window.maka.settings.testNetworkProxy());
+      const result = await window.maka.settings.testNetworkProxy();
+      const latency = result.latencyMs !== undefined ? ` · ${result.latencyMs} ms` : '';
+      if (result.ok) {
+        toast.success('代理可达', `${result.message}${latency}`);
+      } else {
+        toast.error('代理测试失败', result.message);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error('代理测试出错', message);
     } finally {
       setTesting(false);
     }
@@ -579,7 +586,6 @@ function NetworkSettingsPage(props: {
             <button className="maka-button" type="button" disabled={testing} onClick={testProxy}>
               {testing ? '测试中…' : '测试当前配置'}
             </button>
-            {result && <span className="settingsInlineResult" data-ok={result.ok}>{result.message}{result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : ''}</span>}
           </div>
         </>
       )}
@@ -592,9 +598,9 @@ function BotChatSettingsPage(props: {
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<AppSettings>;
 }) {
   const [selected, setSelected] = useState<BotProvider>('telegram');
-  const [result, setResult] = useState<SettingsTestResult | null>(null);
   const [testing, setTesting] = useState(false);
   const channel = props.settings.botChat.channels[selected];
+  const toast = useToast();
 
   async function updateChannel(patch: Partial<typeof channel>) {
     await props.onUpdate({ botChat: { channels: { [selected]: patch } } });
@@ -602,9 +608,17 @@ function BotChatSettingsPage(props: {
 
   async function testChannel() {
     setTesting(true);
-    setResult(null);
     try {
-      setResult(await window.maka.settings.testBotChannel(selected));
+      const result = await window.maka.settings.testBotChannel(selected);
+      const platform = BOT_LABELS[selected].label;
+      if (result.ok) {
+        toast.success(`${platform} 连接成功`, result.message);
+      } else {
+        toast.error(`${platform} 连接失败`, result.message);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error('Bot 测试出错', message);
     } finally {
       setTesting(false);
     }
@@ -616,7 +630,6 @@ function BotChatSettingsPage(props: {
         {BOT_PROVIDERS.map((provider) => (
           <button key={provider} type="button" data-active={selected === provider} onClick={() => {
             setSelected(provider);
-            setResult(null);
           }}>
             <span className="settingsBotLogo">{BOT_LABELS[provider].label.slice(0, 2)}</span>
             <span>{BOT_LABELS[provider].label}</span>
@@ -655,7 +668,6 @@ function BotChatSettingsPage(props: {
           <button className="maka-button" type="button" disabled={testing} onClick={testChannel}>
             {testing ? '测试中…' : '测试并连接'}
           </button>
-          {result && <span className="settingsInlineResult" data-ok={result.ok}>{result.message}</span>}
         </div>
       </section>
     </div>

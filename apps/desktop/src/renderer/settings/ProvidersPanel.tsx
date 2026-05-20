@@ -11,6 +11,7 @@ import {
   type ProviderType,
   type UpdateConnectionInput,
 } from '@maka/core';
+import { useToast } from '@maka/ui';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -436,7 +437,7 @@ function ConnectionDetail(props: {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (defaults.authKind === 'none') {
@@ -468,9 +469,22 @@ function ConnectionDetail(props: {
 
   async function runTest() {
     setTesting(true);
-    setTestResult(null);
     try {
-      setTestResult(await props.bridge.test(connection.slug, { model: defaultModel }));
+      const result: ConnectionTestResult = await props.bridge.test(connection.slug, { model: defaultModel });
+      if (result.ok) {
+        toast.success(
+          `连接成功 · ${connection.name}`,
+          `${result.modelTested} · ${result.latencyMs} ms`,
+        );
+      } else {
+        toast.error(
+          `连接失败 · ${connection.name}`,
+          result.errorMessage || '检查 API key、Base URL 或代理设置后重试。',
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`连接测试出错 · ${connection.name}`, message);
     } finally {
       setTesting(false);
     }
@@ -562,13 +576,6 @@ function ConnectionDetail(props: {
         {!props.isDefault && <button className="maka-button" type="button" onClick={setAsDefault}>设为默认</button>}
         <button className="maka-button" data-variant="destructive" type="button" onClick={remove}>删除</button>
       </div>
-      {testResult && (
-        <p className="connectionStatus" data-ok={testResult.ok}>
-          {testResult.ok
-            ? `已连接（${testResult.latencyMs}ms）- ${testResult.modelTested}`
-            : testResult.errorMessage}
-        </p>
-      )}
     </div>
   );
 }
