@@ -76,7 +76,21 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const configuredByType = (type: ProviderType) =>
     connections.filter((connection) => connection.providerType === type).length;
 
-  if (loading) return <div className="providersPanel" aria-busy="true">Loading…</div>;
+  if (loading) {
+    return (
+      <div className="providersPanel providersLoading" aria-busy="true" aria-label="Loading providers">
+        <div className="providersLoadingStrip">
+          <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '34%' }} />
+          <div className="maka-skeleton maka-skeleton-line" data-size="sm" style={{ width: '52%' }} />
+        </div>
+        <div className="providersLoadingGrid">
+          {[0, 1, 2, 3, 4, 5].map((idx) => (
+            <div key={idx} className="maka-skeleton maka-skeleton-card" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="providersPanel providersMarketPanel">

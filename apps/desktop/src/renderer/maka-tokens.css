@@ -886,6 +886,44 @@
   animation: maka-shimmer 1.5s ease-in-out infinite;
 }
 
+/* Skeleton placeholder primitives — used while data is still in flight.
+   The base block carries the shimmer animation and a token-based tint so
+   they read the same in light + dark modes. Compose `.maka-skeleton-line`
+   widths via `style={{ width: '40%' }}` from the consuming component. */
+.maka-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--foreground-3);
+  border-radius: 6px;
+}
+.maka-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(from var(--foreground) l c h / 0.06) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: maka-shimmer 1.6s ease-in-out infinite;
+}
+.maka-skeleton-line {
+  height: 12px;
+  border-radius: 999px;
+}
+.maka-skeleton-line[data-size="lg"] { height: 16px; }
+.maka-skeleton-line[data-size="sm"] { height: 9px; }
+.maka-skeleton-card {
+  height: 92px;
+  border-radius: 14px;
+}
+.maka-skeleton-stack {
+  display: grid;
+  gap: 10px;
+}
+
 /* =============================================================================
    REDUCED-MOTION
 

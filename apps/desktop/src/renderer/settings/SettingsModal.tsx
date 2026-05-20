@@ -255,7 +255,7 @@ function SettingsSurface(props: {
 
         <div className="settingsPageContent">
           {loading ? (
-            <div className="settingsEmptyState" aria-busy="true">Loading…</div>
+            <SettingsSkeleton />
           ) : (
             <SettingsPage
               section={section}
@@ -357,6 +357,21 @@ function SettingsPage(props: {
       );
     }
   }
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="settingsLoadingSkeleton" aria-busy="true" aria-label="Loading settings">
+      <div className="maka-skeleton-stack">
+        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
+        <div className="maka-skeleton maka-skeleton-card" />
+        <div className="maka-skeleton maka-skeleton-line" data-size="sm" style={{ width: '60%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '85%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '48%' }} />
+      </div>
+    </div>
+  );
 }
 
 function ComingSoonPage(props: { copy: ComingSoonCopy }) {

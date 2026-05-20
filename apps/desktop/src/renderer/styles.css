@@ -1037,6 +1037,29 @@ button:active {
   color: var(--foreground-40);
 }
 
+.settingsLoadingSkeleton {
+  padding: 8px 0;
+  max-width: 540px;
+}
+
+.providersLoading {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 8px 4px;
+}
+
+.providersLoadingStrip {
+  display: grid;
+  gap: 8px;
+}
+
+.providersLoadingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(198px, 1fr));
+  gap: 10px;
+}
+
 .settingsMainPane {
   position: relative;
   min-width: 0;
