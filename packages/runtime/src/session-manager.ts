@@ -108,7 +108,7 @@ interface ActiveSession {
   backend: AgentBackend;
   /** Tracks the latest header we've read (used to short-circuit some reads). */
   cachedHeader: SessionHeader;
-  isStreaming: boolean;
+  activeStreams: number;
 }
 
 export class SessionManager {
@@ -169,7 +169,7 @@ export class SessionManager {
     if (previous.permissionMode === mode) return headerToSummary(previous);
 
     const active = this.active.get(sessionId);
-    if (active?.isStreaming) {
+    if (active && active.activeStreams > 0) {
       throw new Error('Cannot change permission mode while a turn is running');
     }
 
@@ -246,7 +246,7 @@ export class SessionManager {
     //    bookkeeping when the turn completes.
     let lastTs = this.deps.now();
     let sawCompletion = false;
-    active.isStreaming = true;
+    active.activeStreams += 1;
 
     try {
       for await (const ev of active.backend.send({
@@ -260,7 +260,7 @@ export class SessionManager {
         yield ev;
       }
     } finally {
-      active.isStreaming = false;
+      active.activeStreams = Math.max(0, active.activeStreams - 1);
       // 6. Update header timestamps + unread flag exactly once per turn.
       try {
         await this.deps.store.updateHeader(sessionId, {
@@ -327,7 +327,7 @@ export class SessionManager {
       header,
       store: this.deps.store,
     });
-    const entry: ActiveSession = { sessionId, backend, cachedHeader: header, isStreaming: false };
+    const entry: ActiveSession = { sessionId, backend, cachedHeader: header, activeStreams: 0 };
     this.active.set(sessionId, entry);
     return entry;
   }

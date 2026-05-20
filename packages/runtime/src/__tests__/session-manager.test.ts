@@ -70,6 +70,38 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
   });
 
+  test('keeps mode changes blocked until all overlapping turns finish', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    const firstGate = makeGate();
+    const secondGate = makeGate();
+    const gates = [firstGate, secondGate];
+    backends.register('fake', (ctx) => new TestBackend(ctx, gates.shift()));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(4_000) });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    const first = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' })[Symbol.asyncIterator]();
+    await first.next();
+    const second = manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' })[Symbol.asyncIterator]();
+    await second.next();
+
+    firstGate.release();
+    await first.next();
+    await first.next();
+
+    await expectRejects(
+      manager.setPermissionMode(session.id, 'execute'),
+      /Cannot change permission mode while a turn is running/,
+    );
+
+    secondGate.release();
+    await second.next();
+    await second.next();
+
+    const summary = await manager.setPermissionMode(session.id, 'execute');
+    expect(summary.permissionMode).toBe('execute');
+  });
+
   test('no-op mode changes do not append duplicate audit notes', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
