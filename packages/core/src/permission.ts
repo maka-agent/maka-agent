@@ -160,6 +160,11 @@ export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /^xargs\s+.*\b(rm|shred|truncate|dd)\b/,
 ];
 
+export const PIPE_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
+  /\|\s*xargs\b[^\n;&|]*\b(rm|shred|truncate|dd)\b/,
+  /\|\s*(sh|bash|zsh)\b/,
+];
+
 export const DESTRUCTIVE_GIT_PATTERNS: readonly RegExp[] = [
   /^git\s+reset\s+--hard\b/,
   /^git\s+push\s+(--force|-f)\b/,
@@ -174,6 +179,7 @@ export function categorizeBash(cmd: string): ToolCategory {
   const t = cmd.trim();
   if (PRIVILEGED_SHELL_PREFIXES.some((p) => t.startsWith(p))) return 'privileged';
   if (FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
+  if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
   if (DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(t))) return 'git_destructive';
   if (SAFE_SHELL_PREFIXES.some((p) => t === p || t.startsWith(p + ' '))) return 'shell_safe';
   return 'shell_unsafe';

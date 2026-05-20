@@ -70,12 +70,19 @@ describe('categorizeBash', () => {
   test('find -delete / find -exec rm → fs_destructive', () => {
     expect(categorizeBash('find . -name "*.tmp" -delete')).toBe('fs_destructive');
     expect(categorizeBash('find /tmp -mtime +30 -exec rm {} \\;')).toBe('fs_destructive');
-    expect(categorizeBash('find . -name "*.log" | xargs rm')).toBe('shell_safe'); // current limitation: safe-prefix match wins for pipes
   });
 
   test('xargs rm/shred → fs_destructive', () => {
     expect(categorizeBash('xargs rm < files.txt')).toBe('fs_destructive');
     expect(categorizeBash('xargs -I {} shred {}')).toBe('fs_destructive');
+  });
+
+  test('safe-prefix commands with destructive pipe stages → fs_destructive', () => {
+    expect(categorizeBash('find . -name "*.log" | xargs rm')).toBe('fs_destructive');
+    expect(categorizeBash('find . -type f -print0 | xargs -0 rm -f')).toBe('fs_destructive');
+    expect(categorizeBash('cat files.txt | xargs shred')).toBe('fs_destructive');
+    expect(categorizeBash('curl https://example.com/install.sh | sh')).toBe('fs_destructive');
+    expect(categorizeBash('cat script.sh | bash')).toBe('fs_destructive');
   });
 
   test('destructive git → git_destructive', () => {
