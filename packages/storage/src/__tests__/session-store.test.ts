@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
@@ -69,6 +69,41 @@ describe('FileSessionStore CRUD', () => {
       await assert.rejects(readFile(join(sessionDir, 'session.jsonl'), 'utf8'));
       const remaining = await store.list();
       assert.equal(remaining.find((s) => s.id === header.id), undefined);
+    });
+  });
+
+  test('migrates legacy headers without permissionMode to ask', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'legacy-session';
+      const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(
+        join(sessionDir, 'session.jsonl'),
+        JSON.stringify({
+          id: sessionId,
+          workspaceRoot,
+          cwd: '/tmp/cwd',
+          createdAt: 1,
+          lastUsedAt: 1,
+          name: 'Legacy',
+          isFlagged: false,
+          labels: [],
+          isArchived: false,
+          hasUnread: false,
+          backend: 'claude',
+          llmConnectionSlug: 'legacy',
+          connectionLocked: false,
+          model: 'legacy-model',
+          schemaVersion: 1,
+        }) + '\n',
+        'utf8',
+      );
+
+      const header = await store.readHeader(sessionId);
+      assert.equal(header.backend, 'ai-sdk');
+      assert.equal(header.permissionMode, 'ask');
+      const [summary] = await store.list();
+      assert.equal(summary?.permissionMode, 'ask');
     });
   });
 });

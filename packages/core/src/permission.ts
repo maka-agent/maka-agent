@@ -13,7 +13,12 @@
 // Mode + Tool categories
 // ============================================================================
 
-export type PermissionMode = 'explore' | 'ask' | 'execute';
+export const PERMISSION_MODES = ['explore', 'ask', 'execute'] as const;
+export type PermissionMode = typeof PERMISSION_MODES[number];
+
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value);
+}
 
 /** Canonical category names use Claude SDK terminology. Pi adapter MUST
  *  translate Pi-native tool names into these before they reach the runtime. */

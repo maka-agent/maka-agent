@@ -7,6 +7,7 @@ import type {
   LlmConnection,
   ModelInfo,
   PermissionResponse,
+  PermissionMode,
   SettingsTestResult,
   SessionCommand,
   SessionEvent,
@@ -44,6 +45,7 @@ declare global {
         unarchive(sessionId: string): Promise<void>;
         setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
         rename(sessionId: string, name: string): Promise<void>;
+        setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
         remove(sessionId: string): Promise<void>;
       };
       connections: {

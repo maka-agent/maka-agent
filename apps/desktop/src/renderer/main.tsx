@@ -75,6 +75,7 @@ function AppShell() {
     hasUnread: false,
     backend: 'fake',
     llmConnectionSlug: 'default',
+    permissionMode: 'ask',
   } : undefined);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   const sessionCounts = useMemo(() => countSessions(sessions), [sessions]);
