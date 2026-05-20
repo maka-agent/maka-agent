@@ -24,6 +24,7 @@ import {
 import { SettingsModal } from './settings/SettingsModal';
 import { ErrorBoundary } from './error-boundary';
 import { KeyboardHelpModal, useKeyboardHelp } from './keyboard-help';
+import { CommandPalette, buildCommandList, useCommandPalette } from './command-palette';
 import { applyTheme } from './theme';
 import './styles.css';
 
@@ -49,6 +50,7 @@ function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [helpOpen, closeHelp] = useKeyboardHelp();
+  const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const composerRef = useRef<ComposerHandle>(null);
   const activeStreaming = activeId ? streamingBySession[activeId] ?? '' : '';
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
@@ -449,6 +451,25 @@ function AppShell() {
         />
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}
+      {paletteOpen && (
+        <CommandPalette
+          onClose={closePalette}
+          commands={buildCommandList({
+            sessions: visibleSessions,
+            activeSessionId: activeId,
+            themePref,
+            onSelectSession: setActiveId,
+            onNewChat: () => void createSession(),
+            onOpenSettings: openSettings,
+            onOpenShortcuts: () => {
+              // useKeyboardHelp() exposes only close; trigger via window event
+              // simulation by dispatching a `?` keypress on the document.
+              window.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }));
+            },
+            onSetTheme: setThemePref,
+          })}
+        />
+      )}
     </div>
   );
 }
