@@ -115,6 +115,32 @@ function App() {
     if (!activeId && next[0] && next[0].lastMessageAt) setActiveId(next[0].id);
   }
 
+  // Hover-action callbacks for SessionListPanel. Each one calls the
+  // corresponding IPC and then refreshes the session list so the sidebar
+  // reflects the new state immediately.
+  async function flagSession(sessionId: string, flagged: boolean) {
+    await window.maka.sessions.setFlagged(sessionId, flagged);
+    await refreshSessions();
+  }
+  async function archiveSession(sessionId: string) {
+    await window.maka.sessions.archive(sessionId);
+    if (activeId === sessionId) setActiveId(undefined);
+    await refreshSessions();
+  }
+  async function unarchiveSession(sessionId: string) {
+    await window.maka.sessions.unarchive(sessionId);
+    await refreshSessions();
+  }
+  async function renameSession(sessionId: string, name: string) {
+    await window.maka.sessions.rename(sessionId, name);
+    await refreshSessions();
+  }
+  async function deleteSession(sessionId: string) {
+    await window.maka.sessions.remove(sessionId);
+    if (activeId === sessionId) setActiveId(undefined);
+    await refreshSessions();
+  }
+
   async function refreshConnections() {
     const [next, nextDefault] = await Promise.all([
       window.maka.connections.list(),
@@ -328,6 +354,13 @@ function App() {
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
             onNew={createSession}
+            rowActions={{
+              onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
+              onArchive: (sessionId) => void archiveSession(sessionId),
+              onUnarchive: (sessionId) => void unarchiveSession(sessionId),
+              onRename: (sessionId, name) => void renameSession(sessionId, name),
+              onDelete: (sessionId) => void deleteSession(sessionId),
+            }}
           />
         </div>
         <div

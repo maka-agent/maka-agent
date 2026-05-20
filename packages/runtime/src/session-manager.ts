@@ -54,6 +54,9 @@ export interface SessionStore {
   appendMessages(sessionId: string, ms: StoredMessage[]): Promise<void>;
   updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader>;
   archive(sessionId: string): Promise<void>;
+  unarchive(sessionId: string): Promise<void>;
+  setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
+  rename(sessionId: string, name: string): Promise<void>;
   remove(sessionId: string): Promise<void>;
 }
 
@@ -141,6 +144,22 @@ export class SessionManager {
   async archive(sessionId: string): Promise<void> {
     await this.deps.store.archive(sessionId);
     await this.disposeBackend(sessionId);
+  }
+
+  async unarchive(sessionId: string): Promise<void> {
+    await this.deps.store.unarchive(sessionId);
+  }
+
+  async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
+    await this.deps.store.setFlagged(sessionId, isFlagged);
+    const active = this.active.get(sessionId);
+    if (active) active.cachedHeader = { ...active.cachedHeader, isFlagged };
+  }
+
+  async renameSession(sessionId: string, name: string): Promise<void> {
+    await this.deps.store.rename(sessionId, name);
+    const active = this.active.get(sessionId);
+    if (active) active.cachedHeader = { ...active.cachedHeader, name };
   }
 
   async remove(sessionId: string): Promise<void> {

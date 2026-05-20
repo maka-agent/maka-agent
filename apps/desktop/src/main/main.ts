@@ -235,6 +235,15 @@ function registerIpc(): void {
     });
     void streamEvents(sessionId, iterator);
   });
+  ipcMain.handle('sessions:archive', (_event, sessionId: string) => runtime.archive(sessionId));
+  ipcMain.handle('sessions:unarchive', (_event, sessionId: string) => runtime.unarchive(sessionId));
+  ipcMain.handle('sessions:setFlagged', (_event, sessionId: string, isFlagged: boolean) =>
+    runtime.setFlagged(sessionId, isFlagged),
+  );
+  ipcMain.handle('sessions:rename', (_event, sessionId: string, name: string) =>
+    runtime.renameSession(sessionId, name),
+  );
+  ipcMain.handle('sessions:remove', (_event, sessionId: string) => runtime.remove(sessionId));
 
   ipcMain.handle('connections:list', () => connectionStore.list());
   ipcMain.handle('connections:getDefault', () => connectionStore.getDefault());

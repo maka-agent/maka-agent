@@ -1,16 +1,21 @@
-import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
+import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
 import {
   Archive,
+  ArchiveRestore,
   ArrowDown,
   Check,
   Copy,
   Flag,
   MessageSquare,
+  Pencil,
+  Pin,
+  PinOff,
   Plus,
   Search,
   Settings,
   Sparkles,
   SquarePen,
+  Trash2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -130,6 +135,18 @@ function Count(props: { value: number }) {
   return <small>{props.value}</small>;
 }
 
+export interface SessionRowActions {
+  /** Flag (pin) state toggle. */
+  onToggleFlag(sessionId: string, next: boolean): void;
+  /** Move to / out of the archive bucket. */
+  onArchive(sessionId: string): void;
+  onUnarchive(sessionId: string): void;
+  /** Rename via inline prompt. Receives the new (trimmed) name. */
+  onRename(sessionId: string, name: string): void;
+  /** Permanent removal — caller is responsible for the confirm gate. */
+  onDelete(sessionId: string): void;
+}
+
 export function SessionListPanel(props: {
   selection: NavSelection;
   sessionCounts: Record<SessionFilter, number>;
@@ -139,6 +156,7 @@ export function SessionListPanel(props: {
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
   onNew(): void;
+  rowActions?: SessionRowActions;
 }) {
   const isSessionFilter = (filter: SessionFilter) => props.selection.section === 'sessions' && props.selection.filter === filter;
   const title = props.selection.section === 'sessions' ? FILTER_LABEL[props.selection.filter] : 'Skills';
@@ -213,19 +231,13 @@ export function SessionListPanel(props: {
         ) : (
           <div className="maka-list-stack">
             {props.sessions.map((session) => (
-              <button
+              <SessionRow
                 key={session.id}
-                className="maka-list-row"
-                data-active={session.id === props.activeId}
-                type="button"
-                onClick={() => props.onSelectSession(session.id)}
-              >
-                <div>
-                  <div className="maka-list-row-name">{session.name}</div>
-                  <div className="maka-list-row-meta">{formatSessionMeta(session)}</div>
-                </div>
-                {session.hasUnread && <span className="maka-list-row-unread" />}
-              </button>
+                session={session}
+                active={session.id === props.activeId}
+                onSelect={props.onSelectSession}
+                actions={props.rowActions}
+              />
             ))}
           </div>
         )}
@@ -255,6 +267,108 @@ export function SessionListPanel(props: {
 }
 
 const SCROLL_BOTTOM_THRESHOLD = 64; // px
+
+function SessionRow(props: {
+  session: SessionSummary;
+  active: boolean;
+  onSelect(sessionId: string): void;
+  actions?: SessionRowActions;
+}) {
+  const { session, active, actions, onSelect } = props;
+
+  const stopPropagation = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
+
+  function handleRename(event: MouseEvent<HTMLButtonElement>) {
+    stopPropagation(event);
+    if (!actions) return;
+    const next = window.prompt('Rename this chat', session.name);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === session.name) return;
+    actions.onRename(session.id, trimmed);
+  }
+
+  function handleDelete(event: MouseEvent<HTMLButtonElement>) {
+    stopPropagation(event);
+    if (!actions) return;
+    const ok = window.confirm(
+      `Delete "${session.name}"? This permanently removes the session and all messages from disk.`,
+    );
+    if (!ok) return;
+    actions.onDelete(session.id);
+  }
+
+  return (
+    <div className="maka-list-row" data-active={active}>
+      <button
+        className="maka-list-row-main"
+        type="button"
+        onClick={() => onSelect(session.id)}
+      >
+        <div>
+          <div className="maka-list-row-name">{session.name}</div>
+          <div className="maka-list-row-meta">{formatSessionMeta(session)}</div>
+        </div>
+        {session.hasUnread && <span className="maka-list-row-unread" />}
+      </button>
+      {actions && (
+        <div className="maka-list-row-actions" aria-label="Session actions">
+          <button
+            type="button"
+            className="maka-list-row-action"
+            onClick={(event) => {
+              stopPropagation(event);
+              actions.onToggleFlag(session.id, !session.isFlagged);
+            }}
+            aria-label={session.isFlagged ? 'Unpin chat' : 'Pin chat'}
+            data-active={session.isFlagged}
+            title={session.isFlagged ? 'Unpin chat' : 'Pin chat'}
+          >
+            {session.isFlagged
+              ? <PinOff size={14} strokeWidth={1.75} aria-hidden="true" />
+              : <Pin size={14} strokeWidth={1.75} aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="maka-list-row-action"
+            onClick={handleRename}
+            aria-label="Rename chat"
+            title="Rename"
+          >
+            <Pencil size={14} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="maka-list-row-action"
+            onClick={(event) => {
+              stopPropagation(event);
+              session.isArchived
+                ? actions.onUnarchive(session.id)
+                : actions.onArchive(session.id);
+            }}
+            aria-label={session.isArchived ? 'Unarchive chat' : 'Archive chat'}
+            title={session.isArchived ? 'Unarchive' : 'Archive'}
+          >
+            {session.isArchived
+              ? <ArchiveRestore size={14} strokeWidth={1.75} aria-hidden="true" />
+              : <Archive size={14} strokeWidth={1.75} aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="maka-list-row-action maka-list-row-action-danger"
+            onClick={handleDelete}
+            aria-label="Delete chat"
+            title="Delete"
+          >
+            <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ChatView(props: {
   messages: StoredMessage[];

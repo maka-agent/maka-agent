@@ -40,6 +40,11 @@ declare global {
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
         subscribeEvents(sessionId: string, handler: (event: SessionEvent) => void): () => void;
+        archive(sessionId: string): Promise<void>;
+        unarchive(sessionId: string): Promise<void>;
+        setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
+        rename(sessionId: string, name: string): Promise<void>;
+        remove(sessionId: string): Promise<void>;
       };
       connections: {
         list(): Promise<LlmConnection[]>;

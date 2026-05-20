@@ -19,6 +19,9 @@ export interface SessionStore {
   appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void>;
   updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader>;
   archive(sessionId: string): Promise<void>;
+  unarchive(sessionId: string): Promise<void>;
+  setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
+  rename(sessionId: string, name: string): Promise<void>;
   remove(sessionId: string): Promise<void>;
 }
 
@@ -126,6 +129,23 @@ class FileSessionStore implements SessionStore {
 
   async archive(sessionId: string): Promise<void> {
     await this.updateHeader(sessionId, { isArchived: true, archivedAt: Date.now() });
+  }
+
+  async unarchive(sessionId: string): Promise<void> {
+    await this.updateHeader(sessionId, { isArchived: false, archivedAt: undefined });
+  }
+
+  async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
+    await this.updateHeader(sessionId, { isFlagged });
+  }
+
+  async rename(sessionId: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Session name cannot be empty');
+    // Cap length so a wildly long pasted name can't make the sidebar list
+    // unreadable; the layout itself also truncates with ellipsis.
+    const bounded = trimmed.length > 80 ? trimmed.slice(0, 80) : trimmed;
+    await this.updateHeader(sessionId, { name: bounded });
   }
 
   async remove(sessionId: string): Promise<void> {

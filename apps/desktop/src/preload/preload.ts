@@ -56,6 +56,21 @@ contextBridge.exposeInMainWorld('maka', {
       ipcRenderer.on(channel, listener);
       return () => ipcRenderer.off(channel, listener);
     },
+    archive(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('sessions:archive', sessionId);
+    },
+    unarchive(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('sessions:unarchive', sessionId);
+    },
+    setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
+      return ipcRenderer.invoke('sessions:setFlagged', sessionId, isFlagged);
+    },
+    rename(sessionId: string, name: string): Promise<void> {
+      return ipcRenderer.invoke('sessions:rename', sessionId, name);
+    },
+    remove(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('sessions:remove', sessionId);
+    },
   },
   connections: {
     list(): Promise<LlmConnection[]> {

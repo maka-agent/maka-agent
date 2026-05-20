@@ -403,20 +403,17 @@ button:active {
 }
 
 .maka-list-row {
+  position: relative;
   width: 100%;
   min-height: 64px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  align-items: stretch;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--foreground-2);
   color: var(--foreground);
-  cursor: pointer;
-  padding: 10px 12px;
-  text-align: left;
   box-shadow: var(--shadow-minimal-flat);
+  overflow: hidden;
 }
 
 .maka-list-row:hover {
@@ -427,6 +424,82 @@ button:active {
 .maka-list-row[data-active="true"] {
   background: oklch(from var(--accent) l c h / 0.08);
   border-color: oklch(from var(--accent) l c h / 0.18);
+}
+
+.maka-list-row-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.maka-list-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--foreground-2) 18%,
+    var(--foreground-2) 100%
+  );
+  opacity: 0;
+  transform: translateX(8px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms var(--ease-out-strong);
+  pointer-events: none;
+}
+
+.maka-list-row:hover .maka-list-row-actions,
+.maka-list-row:focus-within .maka-list-row-actions {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-actions {
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    oklch(from var(--accent) l c h / 0.10) 24%,
+    oklch(from var(--accent) l c h / 0.10) 100%
+  );
+}
+
+.maka-list-row-action {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-60);
+  cursor: pointer;
+}
+
+.maka-list-row-action:hover {
+  color: var(--foreground);
+  background: var(--foreground-5);
+}
+
+.maka-list-row-action[data-active="true"] {
+  color: var(--accent);
+}
+
+.maka-list-row-action-danger:hover {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.10);
 }
 
 .maka-list-row-name {
