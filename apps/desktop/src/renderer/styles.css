@@ -688,6 +688,88 @@ button:active {
   }
 }
 
+.maka-error-surface {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--background);
+}
+
+.maka-error-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  max-width: 640px;
+  padding: 22px 24px;
+  border: 1px solid oklch(from var(--destructive) l c h / 0.3);
+  border-radius: 16px;
+  background: var(--background-elevated);
+  box-shadow: var(--shadow-modal);
+}
+
+.maka-error-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive-text);
+}
+
+.maka-error-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.maka-error-copy h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.maka-error-copy p {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 56ch;
+}
+
+.maka-error-stack {
+  margin: 4px 0 0;
+  max-height: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--foreground-3);
+  color: var(--foreground-80);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.maka-error-actions .maka-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .emptyChat {
   width: min(760px, 100%);
   margin: auto;

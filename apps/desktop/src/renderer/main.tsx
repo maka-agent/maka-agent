@@ -19,6 +19,7 @@ import {
   type ToolActivityItem,
 } from '@maka/ui';
 import { SettingsModal } from './settings/SettingsModal';
+import { ErrorBoundary } from './error-boundary';
 import { applyTheme } from './theme';
 import './styles.css';
 
@@ -410,6 +411,8 @@ function countSessions(sessions: SessionSummary[]) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );
