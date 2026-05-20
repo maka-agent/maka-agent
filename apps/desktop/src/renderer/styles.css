@@ -1129,6 +1129,150 @@ button:active {
   font-size: 11px;
 }
 
+.maka-palette-backdrop {
+  padding-top: 12vh;
+  align-items: start;
+}
+
+.maka-palette-modal {
+  width: min(620px, calc(100vw - 48px));
+  max-height: 70vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.maka-palette-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.maka-palette-input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 16px;
+  outline: 0;
+}
+
+.maka-palette-input::placeholder {
+  color: var(--foreground-40);
+}
+
+.maka-palette-input-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.maka-palette-input-hint kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--foreground-5);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.maka-palette-list {
+  overflow-y: auto;
+  padding: 6px 6px 8px;
+}
+
+.maka-palette-group + .maka-palette-group {
+  margin-top: 6px;
+}
+
+.maka-palette-group-label {
+  padding: 8px 10px 4px;
+  color: var(--foreground-50);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.maka-palette-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13.5px;
+}
+
+.maka-palette-item[data-active="true"] {
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--foreground);
+}
+
+.maka-palette-icon {
+  display: grid;
+  place-items: center;
+  color: var(--foreground-50);
+}
+
+.maka-palette-item[data-active="true"] .maka-palette-icon {
+  color: var(--accent);
+}
+
+.maka-palette-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.maka-palette-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--foreground-50);
+  font-size: 13px;
+}
+
+.maka-palette-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--foreground-2);
+  color: var(--foreground-50);
+  font-size: 11px;
+}
+
+.maka-palette-footer kbd {
+  margin-right: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
 .emptyChat {
   width: min(760px, 100%);
   margin: auto;
