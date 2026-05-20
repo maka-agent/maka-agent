@@ -806,6 +806,454 @@ button:active {
 .settingsSurface[data-modal="true"] {
   position: relative;
   background: #fbfaf7;
+  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.settingsSidebar {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 22px 8px 22px 18px;
+  background: #fbfaf7;
+}
+
+.settingsSidebar header {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.settingsSidebar header span {
+  color: var(--foreground-50);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settingsSidebar nav {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.settingsNavItem {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground-70);
+  cursor: pointer;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.settingsNavItem:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.settingsNavItem[data-active="true"] {
+  background: #ffffff;
+  color: var(--foreground);
+  box-shadow:
+    0 1px 0 oklch(0 0 0 / 0.04),
+    inset 0 0 0 1px var(--border);
+}
+
+.settingsNavItem:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.settingsNavGlyph {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--foreground-60);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.settingsNavItem strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settingsMainPane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #fbfaf7;
+  padding: 24px 34px 74px 20px;
+}
+
+.settingsPageHeader {
+  min-height: 40px;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.settingsPageHeader h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 20px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.settingsPageContent {
+  min-height: 0;
+  overflow: auto;
+  padding-top: 16px;
+}
+
+.settingsStructuredPage {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.settingsPageIntro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsPageIntro p {
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: 12px;
+}
+
+.settingsEmptyState {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  color: var(--foreground-50);
+  font-size: 13px;
+}
+
+.settingsFormRow {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.settingsFormRow strong,
+.settingsField span,
+.settingsFormGrid label span {
+  display: block;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settingsFormRow small,
+.settingsField small {
+  display: block;
+  margin-top: 4px;
+  color: var(--foreground-50);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.settingsSwitch {
+  width: 34px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: #d2d2cf;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.settingsSwitch span {
+  width: 16px;
+  height: 16px;
+  display: block;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.16);
+  transition: transform 150ms ease;
+}
+
+.settingsSwitch[data-checked="true"] {
+  background: #244332;
+}
+
+.settingsSwitch[data-checked="true"] span {
+  transform: translateX(14px);
+}
+
+.settingsFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settingsFormGridProxy {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.8fr) minmax(84px, 0.5fr);
+}
+
+.settingsField,
+.settingsFormGrid label {
+  display: grid;
+  gap: 7px;
+}
+
+.settingsField input,
+.settingsFormGrid input,
+.settingsFormGrid select,
+.settingsUsageFilters input,
+.settingsUsageFilters select {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--foreground);
+  padding: 0 12px;
+  outline: none;
+}
+
+.settingsField input:focus,
+.settingsFormGrid input:focus,
+.settingsFormGrid select:focus,
+.settingsUsageFilters input:focus,
+.settingsUsageFilters select:focus {
+  border-color: oklch(from var(--accent) l c h / 0.3);
+}
+
+.settingsNotice {
+  border-radius: 12px;
+  background: #f7f2e6;
+  color: #8b641d;
+  padding: 11px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settingsActionRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settingsInlineResult {
+  color: var(--foreground-60);
+  font-size: 12px;
+}
+
+.settingsInlineResult[data-ok="true"] {
+  color: #2f6d48;
+}
+
+.settingsInlineResult[data-ok="false"] {
+  color: #a33f2f;
+}
+
+.settingsBotLayout {
+  min-height: 470px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 22px;
+}
+
+.settingsBotList {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  border-right: 1px solid var(--border);
+  padding-right: 22px;
+}
+
+.settingsBotList button {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground-70);
+  cursor: pointer;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.settingsBotList button[data-active="true"] {
+  background: var(--active);
+  color: var(--foreground);
+}
+
+.settingsBotList em {
+  color: #2f6d48;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.settingsBotLogo {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #e9effd;
+  color: #2850a7;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.settingsBotLogo[data-large="true"] {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+
+.settingsBotDetail {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.settingsBotHero {
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border-radius: 16px;
+  background: var(--foreground-5);
+  padding: 14px;
+}
+
+.settingsBotHero h3 {
+  margin: 2px 0 2px;
+  font-size: 15px;
+}
+
+.settingsBotHero small,
+.settingsHelpText {
+  color: var(--foreground-50);
+  font-size: 12px;
+}
+
+.settingsHelpText {
+  margin: 0;
+}
+
+.settingsUsagePage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.settingsUsageToolbar,
+.settingsUsageFilters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.settingsSegmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--foreground-5);
+  padding: 2px;
+}
+
+.settingsSegmented button {
+  min-height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground-60);
+  cursor: pointer;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.settingsSegmented button[data-active="true"] {
+  background: #ffffff;
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.08);
+}
+
+.settingsUsageSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settingsMetricCard {
+  min-height: 76px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border-radius: 14px;
+  background: var(--foreground-5);
+  padding: 12px;
+}
+
+.settingsMetricCard small,
+.settingsMetricCard span {
+  color: var(--foreground-50);
+  font-size: 11px;
+}
+
+.settingsMetricCard strong {
+  font-size: 18px;
+}
+
+.settingsStatsTable {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.settingsStatsTable th,
+.settingsStatsTable td {
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground-60);
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.settingsStatsTable th {
+  color: var(--foreground-70);
+  font-weight: 650;
 }
 
 .settingsHeader {

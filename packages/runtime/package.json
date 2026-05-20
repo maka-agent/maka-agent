@@ -17,7 +17,10 @@
     "./materializer": "./dist/materializer.js",
     "./async-queue": "./dist/async-queue.js",
     "./session-manager": "./dist/session-manager.js",
-    "./fake-backend": "./dist/fake-backend.js"
+    "./fake-backend": "./dist/fake-backend.js",
+    "./network/proxy-env": "./dist/network/proxy-env.js",
+    "./network/proxy-test": "./dist/network/proxy-test.js",
+    "./network/proxy-parser": "./dist/network/proxy-parser.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -30,6 +33,8 @@
     "@ai-sdk/openai-compatible": "^2.0.47",
     "@maka/core": "0.1.0",
     "ai": "^6.0.185",
+    "socks": "^2.8.9",
+    "undici": "^6.25.0",
     "zod": "^4.4.3"
   }
 }

@@ -106,3 +106,32 @@ export {
   migrateConnectionV1ToV2,
   validateSlug,
 } from './llm-connections.js';
+
+// settings.ts
+export type {
+  AppSettings,
+  BotChannelSettings,
+  BotChatSettings,
+  BotProvider,
+  NetworkProxySettings,
+  NetworkSettings,
+  ProxyProtocol,
+  SettingsSection,
+  SettingsTestResult,
+  UpdateAppSettingsInput,
+  UsageRange,
+  UsageRequestLog,
+  UsageSettings,
+  UsageStats,
+  UsageStatus,
+  UsageSummary,
+  UsageTab,
+} from './settings.js';
+export {
+  BOT_PROVIDERS,
+  DEFAULT_PROXY_BYPASS_DOMAINS,
+  createDefaultBotChannel,
+  createDefaultSettings,
+  mergeSettings,
+  normalizeSettings,
+} from './settings.js';

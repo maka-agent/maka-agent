@@ -3,15 +3,21 @@ import type {
   ConnectionEvent,
   ConnectionTestResult,
   CreateConnectionInput,
+  AppSettings,
+  BotProvider,
   LlmConnection,
   ModelInfo,
   PermissionResponse,
+  SettingsTestResult,
   SessionCommand,
   SessionEvent,
   SessionListFilter,
   SessionSummary,
   StoredMessage,
   UpdateConnectionInput,
+  UpdateAppSettingsInput,
+  UsageRange,
+  UsageStats,
 } from '@maka/core';
 import type { CreateSessionInput } from '@maka/core';
 
@@ -74,6 +80,23 @@ contextBridge.exposeInMainWorld('maka', {
       const listener = (_event: Electron.IpcRendererEvent, payload: ConnectionEvent) => handler(payload);
       ipcRenderer.on('connections:event', listener);
       return () => ipcRenderer.off('connections:event', listener);
+    },
+  },
+  settings: {
+    get(): Promise<AppSettings> {
+      return ipcRenderer.invoke('settings:get');
+    },
+    update(patch: UpdateAppSettingsInput): Promise<AppSettings> {
+      return ipcRenderer.invoke('settings:update', patch);
+    },
+    testNetworkProxy(): Promise<SettingsTestResult> {
+      return ipcRenderer.invoke('settings:testNetworkProxy');
+    },
+    testBotChannel(provider: BotProvider): Promise<SettingsTestResult> {
+      return ipcRenderer.invoke('settings:testBotChannel', provider);
+    },
+    usageStats(range?: UsageRange): Promise<UsageStats> {
+      return ipcRenderer.invoke('settings:usageStats', range);
     },
   },
   appWindow: {

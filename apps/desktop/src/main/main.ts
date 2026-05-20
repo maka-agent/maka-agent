@@ -6,11 +6,26 @@ import type {
   ConnectionEvent,
   CreateConnectionInput,
   CreateSessionInput,
+  BotProvider,
   SessionCommand,
   SessionEvent,
   SessionListFilter,
   UpdateConnectionInput,
+  UpdateAppSettingsInput,
+  UsageRange,
 } from '@maka/core';
+import type {
+  NetworkSettings as ContractNetworkSettings,
+  ProxySettings,
+  TestProxyInput,
+} from '@maka/core/settings/network-settings';
+import {
+  NETWORK_DEFAULTS,
+  SENSITIVE_PLACEHOLDER,
+  applySensitivePatch,
+  maskSensitive,
+} from '@maka/core/settings/network-settings';
+import { tryResult, type Result } from '@maka/core/settings/result';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -22,13 +37,15 @@ import {
   getAIModel,
   testConnection,
 } from '@maka/runtime';
+import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { createConnectionStore, createSessionStore } from '@maka/storage';
+import { createConnectionStore, createSessionStore, createSettingsStore } from '@maka/storage';
 import { createSafeStorageCredentialStore } from './credential-store.js';
 
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', 'default');
 const store = createSessionStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
+const settingsStore = createSettingsStore(workspaceRoot);
 const credentialStore = createSafeStorageCredentialStore(workspaceRoot);
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
@@ -235,6 +252,39 @@ function registerIpc(): void {
   ipcMain.handle('connections:hasSecret', async (_event, slug: string) =>
     Boolean(await credentialStore.getSecret(slug, 'api_key')),
   );
+
+  ipcMain.handle('settings:get', () => settingsStore.get());
+  ipcMain.handle('settings:update', (_event, patch: UpdateAppSettingsInput) => settingsStore.update(patch));
+  ipcMain.handle('settings:testNetworkProxy', () => settingsStore.testNetworkProxy());
+  ipcMain.handle('settings:testBotChannel', (_event, provider: BotProvider) =>
+    settingsStore.testBotChannel(provider),
+  );
+  ipcMain.handle('settings:usageStats', (_event, range?: UsageRange) =>
+    settingsStore.usageStats(range),
+  );
+
+  ipcMain.handle('settings:network:get', async (): Promise<Result<ContractNetworkSettings>> =>
+    tryResult(async () => maskNetworkSettings(toContractNetworkSettings((await settingsStore.get()).network)), 'NETWORK_GET_FAILED'),
+  );
+  ipcMain.handle('settings:network:put', async (_event, patch: Partial<ContractNetworkSettings>): Promise<Result<ContractNetworkSettings>> =>
+    tryResult(async () => {
+      const current = await settingsStore.get();
+      const nextNetwork = applyNetworkPatch(toContractNetworkSettings(current.network), patch);
+      const next = await settingsStore.update({ network: toAppNetworkPatch(nextNetwork) });
+      const masked = maskNetworkSettings(toContractNetworkSettings(next.network));
+      mainWindow?.webContents.send('settings:network:changed', masked);
+      return masked;
+    }, 'NETWORK_PUT_FAILED'),
+  );
+  ipcMain.handle('settings:network:test', async (_event, input: TestProxyInput = {}): Promise<Result<Awaited<ReturnType<typeof testProxyConnection>>>> =>
+    tryResult(async () => {
+      const stored = toContractNetworkSettings((await settingsStore.get()).network).proxy;
+      const proxy = input.proxy?.password === SENSITIVE_PLACEHOLDER
+        ? { ...input.proxy, password: stored.password }
+        : input.proxy;
+      return testProxyConnection({ ...input, proxy }, stored);
+    }, 'NETWORK_TEST_FAILED'),
+  );
 }
 
 async function streamEvents(sessionId: string, iterator: AsyncIterable<SessionEvent>): Promise<void> {
@@ -250,6 +300,73 @@ function emitConnectionListChanged(): void {
     ts: Date.now(),
   };
   mainWindow?.webContents.send('connections:event', event);
+}
+
+function toContractNetworkSettings(network: Awaited<ReturnType<typeof settingsStore.get>>['network']): ContractNetworkSettings {
+  const proxy = network.proxy;
+  return {
+    ...NETWORK_DEFAULTS,
+    proxy: {
+      ...NETWORK_DEFAULTS.proxy,
+      enabled: proxy.enabled,
+      type: proxy.protocol,
+      host: proxy.host,
+      port: proxy.port,
+      username: proxy.authEnabled && proxy.username ? proxy.username : undefined,
+      password: proxy.authEnabled && proxy.password ? proxy.password : undefined,
+      bypassList: proxy.bypassList.length > 0 ? proxy.bypassList : NETWORK_DEFAULTS.proxy.bypassList,
+    },
+  };
+}
+
+function toAppNetworkPatch(network: ContractNetworkSettings): NonNullable<UpdateAppSettingsInput['network']> {
+  return {
+    proxy: {
+      enabled: network.proxy.enabled,
+      protocol: network.proxy.type,
+      host: network.proxy.host,
+      port: network.proxy.port,
+      authEnabled: Boolean(network.proxy.username || network.proxy.password),
+      username: network.proxy.username ?? '',
+      password: typeof network.proxy.password === 'string' ? network.proxy.password : '',
+      bypassList: network.proxy.bypassList,
+    },
+  };
+}
+
+function applyNetworkPatch(
+  prev: ContractNetworkSettings,
+  patch: Partial<ContractNetworkSettings>,
+): ContractNetworkSettings {
+  const proxyPatch: Partial<ProxySettings> = patch.proxy ?? {};
+  const nextProxy: ProxySettings = {
+    ...prev.proxy,
+    ...stripUndefined(proxyPatch),
+    password: applySensitivePatch(
+      typeof prev.proxy.password === 'string' ? prev.proxy.password : undefined,
+      proxyPatch.password,
+    ),
+    bypassList: Array.isArray(proxyPatch.bypassList) ? proxyPatch.bypassList : prev.proxy.bypassList,
+  };
+  return {
+    ...prev,
+    ...stripUndefined(patch),
+    proxy: nextProxy,
+  };
+}
+
+function maskNetworkSettings(settings: ContractNetworkSettings): ContractNetworkSettings {
+  return {
+    ...settings,
+    proxy: {
+      ...settings.proxy,
+      password: maskSensitive(typeof settings.proxy.password === 'string' ? settings.proxy.password : undefined),
+    },
+  };
+}
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
 async function ensureBootstrapConnection(): Promise<void> {

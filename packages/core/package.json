@@ -15,7 +15,10 @@
     "./workspace": "./dist/workspace.js",
     "./runtime-inputs": "./dist/runtime-inputs.js",
     "./backend-types": "./dist/backend-types.js",
-    "./llm-connections": "./dist/llm-connections.js"
+    "./llm-connections": "./dist/llm-connections.js",
+    "./settings": "./dist/settings.js",
+    "./settings/network-settings": "./dist/settings/network-settings.js",
+    "./settings/result": "./dist/settings/result.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

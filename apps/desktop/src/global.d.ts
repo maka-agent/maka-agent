@@ -2,15 +2,21 @@ import type {
   ConnectionEvent,
   ConnectionTestResult,
   CreateConnectionInput,
+  AppSettings,
+  BotProvider,
   LlmConnection,
   ModelInfo,
   PermissionResponse,
+  SettingsTestResult,
   SessionCommand,
   SessionEvent,
   SessionListFilter,
   SessionSummary,
   StoredMessage,
   UpdateConnectionInput,
+  UpdateAppSettingsInput,
+  UsageRange,
+  UsageStats,
 } from '@maka/core';
 import type { CreateSessionInput } from '@maka/core';
 
@@ -37,6 +43,13 @@ declare global {
         fetchModels(slug: string): Promise<ModelInfo[]>;
         hasSecret(slug: string): Promise<boolean>;
         subscribeEvents(handler: (event: ConnectionEvent) => void): () => void;
+      };
+      settings: {
+        get(): Promise<AppSettings>;
+        update(patch: UpdateAppSettingsInput): Promise<AppSettings>;
+        testNetworkProxy(): Promise<SettingsTestResult>;
+        testBotChannel(provider: BotProvider): Promise<SettingsTestResult>;
+        usageStats(range?: UsageRange): Promise<UsageStats>;
       };
       appWindow: {
         subscribeOpenSettings(handler: () => void): () => void;
