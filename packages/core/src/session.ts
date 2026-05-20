@@ -64,6 +64,7 @@ export interface SessionSummary {
   lastMessageAt?: number;
   backend: BackendKind;
   llmConnectionSlug: string;
+  permissionMode: PermissionMode;
 }
 
 // ============================================================================

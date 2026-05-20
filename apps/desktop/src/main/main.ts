@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
+import {
+  isPermissionMode,
+} from '@maka/core';
 import type {
   AppSettings,
   BotProvider,
@@ -243,6 +246,12 @@ function registerIpc(): void {
   ipcMain.handle('sessions:rename', (_event, sessionId: string, name: string) =>
     runtime.renameSession(sessionId, name),
   );
+  ipcMain.handle('sessions:setPermissionMode', (_event, sessionId: string, mode: unknown) => {
+    if (!isPermissionMode(mode)) {
+      throw new Error(`Invalid permission mode: ${String(mode)}`);
+    }
+    return runtime.setPermissionMode(sessionId, mode);
+  });
   ipcMain.handle('sessions:remove', (_event, sessionId: string) => runtime.remove(sessionId));
 
   ipcMain.handle('connections:list', () => connectionStore.list());

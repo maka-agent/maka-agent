@@ -38,6 +38,7 @@ import type {
   SessionListFilter,
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
+import type { PermissionMode } from '@maka/core/permission';
 
 import type { AgentBackend } from './ai-sdk-backend.js';
 
@@ -107,6 +108,7 @@ interface ActiveSession {
   backend: AgentBackend;
   /** Tracks the latest header we've read (used to short-circuit some reads). */
   cachedHeader: SessionHeader;
+  isStreaming: boolean;
 }
 
 export class SessionManager {
@@ -160,6 +162,33 @@ export class SessionManager {
     await this.deps.store.rename(sessionId, name);
     const active = this.active.get(sessionId);
     if (active) active.cachedHeader = { ...active.cachedHeader, name };
+  }
+
+  async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
+    const previous = await this.deps.store.readHeader(sessionId);
+    if (previous.permissionMode === mode) return headerToSummary(previous);
+
+    const active = this.active.get(sessionId);
+    if (active?.isStreaming) {
+      throw new Error('Cannot change permission mode while a turn is running');
+    }
+
+    const next = await this.deps.store.updateHeader(sessionId, { permissionMode: mode });
+    await this.deps.store.appendMessage(sessionId, {
+      type: 'system_note',
+      id: this.deps.newId(),
+      ts: this.deps.now(),
+      kind: 'mode_change',
+      data: { from: previous.permissionMode, to: mode },
+    } satisfies SystemNoteMessage);
+
+    if (active) {
+      active.cachedHeader = next;
+      // AiSdkBackend snapshots the header at construction time. Rebuild the
+      // backend before the next turn so PermissionEngine receives the new mode.
+      await this.disposeBackend(sessionId);
+    }
+    return headerToSummary(next);
   }
 
   async remove(sessionId: string): Promise<void> {
@@ -217,6 +246,7 @@ export class SessionManager {
     //    bookkeeping when the turn completes.
     let lastTs = this.deps.now();
     let sawCompletion = false;
+    active.isStreaming = true;
 
     try {
       for await (const ev of active.backend.send({
@@ -230,6 +260,7 @@ export class SessionManager {
         yield ev;
       }
     } finally {
+      active.isStreaming = false;
       // 6. Update header timestamps + unread flag exactly once per turn.
       try {
         await this.deps.store.updateHeader(sessionId, {
@@ -296,7 +327,7 @@ export class SessionManager {
       header,
       store: this.deps.store,
     });
-    const entry: ActiveSession = { sessionId, backend, cachedHeader: header };
+    const entry: ActiveSession = { sessionId, backend, cachedHeader: header, isStreaming: false };
     this.active.set(sessionId, entry);
     return entry;
   }
@@ -327,6 +358,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     hasUnread: h.hasUnread,
     backend: h.backend,
     llmConnectionSlug: h.llmConnectionSlug,
+    permissionMode: h.permissionMode ?? 'ask',
   };
   if (h.lastMessageAt !== undefined) {
     summary.lastMessageAt = h.lastMessageAt;

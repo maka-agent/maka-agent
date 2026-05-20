@@ -8,6 +8,7 @@ import type {
   LlmConnection,
   ModelInfo,
   PermissionResponse,
+  PermissionMode,
   SettingsTestResult,
   SessionCommand,
   SessionEvent,
@@ -67,6 +68,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     rename(sessionId: string, name: string): Promise<void> {
       return ipcRenderer.invoke('sessions:rename', sessionId, name);
+    },
+    setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setPermissionMode', sessionId, mode);
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);

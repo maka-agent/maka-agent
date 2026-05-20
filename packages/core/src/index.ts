@@ -57,6 +57,7 @@ export type {
   PermissionResponse,
 } from './permission.js';
 export {
+  PERMISSION_MODES,
   PERMISSION_POLICY,
   BUILTIN_TOOL_CATEGORY,
   SAFE_SHELL_PREFIXES,
@@ -64,6 +65,7 @@ export {
   FS_DESTRUCTIVE_PATTERNS,
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
+  isPermissionMode,
   preToolUse,
 } from './permission.js';
 
