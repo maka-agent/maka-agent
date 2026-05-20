@@ -963,6 +963,80 @@ button:active {
   font-weight: 600;
 }
 
+.settingsNavItem {
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+}
+
+.settingsNavBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.settingsComingSoonPage {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.settingsComingSoonHero {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--foreground-3);
+}
+
+.settingsComingSoonIcon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--accent);
+}
+
+.settingsComingSoonHero h3 {
+  margin: 0 0 6px;
+  color: var(--foreground);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.settingsComingSoonHero p {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsComingSoonList {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsComingSoonList li::marker {
+  color: var(--foreground-40);
+}
+
 .settingsMainPane {
   position: relative;
   min-width: 0;
