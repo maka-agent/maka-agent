@@ -2,7 +2,6 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
   AppSettings,
-  BotProvider,
   SettingsTestResult,
   UpdateAppSettingsInput,
   UsageRange,
@@ -25,7 +24,6 @@ export interface SettingsStore {
   get(): Promise<AppSettings>;
   update(patch: UpdateAppSettingsInput): Promise<AppSettings>;
   testNetworkProxy(): Promise<SettingsTestResult>;
-  testBotChannel(provider: BotProvider): Promise<SettingsTestResult>;
   usageStats(range?: UsageRange): Promise<UsageStats>;
 }
 
@@ -82,34 +80,6 @@ class FileSettingsStore implements SettingsStore {
       message: `代理配置有效：${proxy.protocol}://${proxy.host}:${proxy.port}`,
       latencyMs: Date.now() - started,
       details: { bypassList: proxy.bypassList, autoBypassDomains: proxy.autoBypassDomains },
-    };
-  }
-
-  async testBotChannel(provider: BotProvider): Promise<SettingsTestResult> {
-    const started = Date.now();
-    const settings = await this.get();
-    const channel = settings.botChat.channels[provider];
-    if (!channel) return { ok: false, message: `未知机器人渠道：${provider}` };
-    if (!channel.token.trim()) return { ok: false, message: 'Bot Token 不能为空' };
-    if (provider === 'telegram' && !/^\d+:[\w-]+/.test(channel.token.trim())) {
-      return { ok: false, message: 'Telegram Bot Token 格式不正确' };
-    }
-    const next = await this.update({
-      botChat: {
-        channels: {
-          [provider]: {
-            enabled: true,
-            connected: true,
-            lastTestAt: Date.now(),
-            lastError: undefined,
-          },
-        },
-      },
-    });
-    return {
-      ok: next.botChat.channels[provider].connected,
-      message: `${provider} 配置已保存，等待 bridge runtime 接管连接。`,
-      latencyMs: Date.now() - started,
     };
   }
 

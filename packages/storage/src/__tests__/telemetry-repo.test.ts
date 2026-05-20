@@ -80,7 +80,8 @@ describe('FileTelemetryRepo', () => {
         { modelKey: 'openai:gpt-4o', inputUsdPer1M: 2.5, outputUsdPer1M: 10 },
       ]);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await flushWrites();
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
 });
@@ -90,7 +91,8 @@ async function withRepo(fn: (repo: ReturnType<typeof createTelemetryRepo>) => Pr
   try {
     await fn(createTelemetryRepo(root));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await flushWrites();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
 
@@ -132,5 +134,5 @@ function toolRecord(overrides: Record<string, unknown> = {}) {
 }
 
 function flushWrites(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
+  return new Promise((resolve) => setTimeout(resolve, 20));
 }
