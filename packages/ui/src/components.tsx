@@ -335,10 +335,23 @@ function ChatTab(props: { title: string; backend: string }) {
   );
 }
 
+const COMPOSER_MAX_HEIGHT = 240;
+
 export function Composer(props: { disabled?: boolean; hidden?: boolean; onSend(text: string): void; onStop(): void }) {
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   if (props.hidden) return null;
+
+  function autoResize() {
+    const el = textareaRef.current;
+    if (!el) return;
+    // Standard "reset to auto, then set to scrollHeight" trick so the
+    // textarea can both grow and shrink as the user edits. Cap at
+    // COMPOSER_MAX_HEIGHT so it never pushes the chat surface off-screen;
+    // overflow becomes an internal scroll past that.
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+  }
 
   function sendCurrent() {
     if (props.disabled) return;
@@ -348,6 +361,12 @@ export function Composer(props: { disabled?: boolean; hidden?: boolean; onSend(t
     if (!text) return;
     props.onSend(text);
     form?.reset();
+    // form.reset() empties the textarea but doesn't fire input — collapse
+    // manually so the composer snaps back to its single-row footprint.
+    if (textarea) {
+      textarea.style.height = '';
+      autoResize();
+    }
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -373,6 +392,8 @@ export function Composer(props: { disabled?: boolean; hidden?: boolean; onSend(t
           placeholder="Message Maka…"
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
+          onInput={autoResize}
+          rows={1}
           autoComplete="off"
           spellCheck={false}
         />

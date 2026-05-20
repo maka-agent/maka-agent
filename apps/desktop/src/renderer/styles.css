@@ -764,9 +764,13 @@ button:active {
 }
 
 .composer textarea {
-  height: 64px;
-  min-height: 64px;
-  max-height: 132px;
+  /* Auto-resizing textarea: starts at min-height for a single line, grows up
+     to max-height as the user adds lines, then scrolls internally. The JS
+     side caps at 240px (see `COMPOSER_MAX_HEIGHT` in @maka/ui). */
+  min-height: var(--h-composer-min, 56px);
+  max-height: 240px;
+  resize: none;
+  overflow-y: auto;
 }
 
 .composerActions > div {
