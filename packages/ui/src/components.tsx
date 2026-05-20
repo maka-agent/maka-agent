@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
 import {
   Archive,
   Flag,
@@ -29,6 +29,94 @@ const FILTER_LABEL: Record<SessionFilter, string> = {
   flagged: 'Flagged',
   archived: 'Archived',
 };
+
+/**
+ * Hook for accessible modal dialogs.
+ *
+ * - Saves the element that had focus before the modal opened.
+ * - Moves focus to the first focusable element inside the modal on mount
+ *   (or the container itself if no focusable child exists).
+ * - Traps Tab/Shift+Tab inside the modal.
+ * - Optionally closes the modal on Escape.
+ * - Restores focus to the previously-focused element on unmount.
+ *
+ * Implements rule "3. focus and dialogs (critical)" from the
+ * fixing-accessibility skill.
+ */
+export function useModalA11y(
+  containerRef: RefObject<HTMLElement | null>,
+  onEscape?: () => void,
+): void {
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const initial = getFocusable(container);
+    if (initial.length > 0) {
+      initial[0]!.focus({ preventScroll: true });
+    } else {
+      if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '-1');
+      container.focus({ preventScroll: true });
+    }
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (!container) return;
+      if (event.key === 'Escape' && onEscape) {
+        event.stopPropagation();
+        event.preventDefault();
+        onEscape();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = getFocusable(container);
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !container.contains(active))) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    }
+
+    container.addEventListener('keydown', onKeyDown);
+    return () => {
+      container.removeEventListener('keydown', onKeyDown);
+      // Defer restoration so any in-flight focus changes (e.g. clicking a
+      // button that unmounts the modal) settle before we yank focus back.
+      queueMicrotask(() => {
+        if (previouslyFocused && document.contains(previouslyFocused)) {
+          previouslyFocused.focus?.({ preventScroll: true });
+        }
+      });
+    };
+  }, [containerRef, onEscape]);
+}
+
+const FOCUSABLE_SELECTOR =
+  'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])';
+
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => !element.hasAttribute('inert') && isVisible(element),
+  );
+}
+
+function isVisible(element: HTMLElement): boolean {
+  if (element.hidden) return false;
+  // offsetParent is null for display:none ancestors and fixed-positioned roots,
+  // but our modal elements are always rendered visible — so this is a sufficient
+  // approximation without forcing layout.
+  return element.offsetParent !== null || element === document.activeElement;
+}
 
 function Count(props: { value: number }) {
   if (props.value <= 0) return null;
@@ -102,7 +190,9 @@ export function SessionListPanel(props: {
           <div className="maka-empty-state">
             <Sparkles className="maka-empty-state-icon" strokeWidth={1.5} />
             <div className="maka-empty-state-title">No skills yet</div>
-            <div className="maka-empty-state-body">Custom skills will appear here.</div>
+            <div className="maka-empty-state-body">
+              Maka loads skills from <code className="maka-empty-state-code">~/.maka/skills/</code>. Drop a folder with a <code className="maka-empty-state-code">SKILL.md</code> to register one.
+            </div>
           </div>
         ) : props.sessions.length === 0 ? (
           <div className="maka-empty-state">
@@ -240,30 +330,54 @@ function ChatTab(props: { title: string; backend: string }) {
     <div className="maka-chat-tab" title={props.title}>
       <MessageSquare className="maka-chat-tab-icon" strokeWidth={1.5} />
       <span>{props.title}</span>
-      <small>{props.backend}</small>
+      <span className="maka-chat-tab-backend">{props.backend}</span>
     </div>
   );
 }
 
 export function Composer(props: { disabled?: boolean; hidden?: boolean; onSend(text: string): void; onStop(): void }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   if (props.hidden) return null;
+
+  function sendCurrent() {
+    if (props.disabled) return;
+    const textarea = textareaRef.current;
+    const form = formRef.current;
+    const text = (textarea?.value ?? '').trim();
+    if (!text) return;
+    props.onSend(text);
+    form?.reset();
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const text = String(data.get('text') ?? '').trim();
-    if (!text) return;
-    props.onSend(text);
-    form.reset();
+    sendCurrent();
+  }
+
+  function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Skip when an IME composition is active so CJK input isn't interrupted.
+    if (event.nativeEvent.isComposing || event.key === 'Process') return;
+    if (event.key !== 'Enter') return;
+    if (event.shiftKey || event.altKey) return; // Shift+Enter / Alt+Enter inserts a newline.
+    event.preventDefault();
+    sendCurrent();
   }
 
   return (
-    <form className="maka-composer composer" onSubmit={submit}>
+    <form ref={formRef} className="maka-composer composer" onSubmit={submit}>
       <div className="maka-composer-inner composerInner">
-        <textarea name="text" placeholder="Message Maka..." disabled={props.disabled} />
+        <textarea
+          ref={textareaRef}
+          name="text"
+          placeholder="Message Maka…"
+          disabled={props.disabled}
+          onKeyDown={onTextareaKeyDown}
+          autoComplete="off"
+          spellCheck={false}
+        />
         <div className="maka-composer-toolbar composerActions">
-          <span>{props.disabled ? 'Waiting for permission' : 'Enter to send'}</span>
+          <span>{props.disabled ? 'Waiting for permission' : (<>Press <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline</>)}</span>
           <div>
             <button className="maka-button" type="button" onClick={props.onStop}>Stop</button>
             <button className="maka-button" data-variant="primary" type="submit" disabled={props.disabled}>Send</button>
@@ -313,6 +427,9 @@ export function PermissionDialog(props: {
   onRespond(response: PermissionResponse): void;
 }) {
   const [rememberForTurn, setRememberForTurn] = useState(false);
+  const dialogRef = useRef<HTMLElement>(null);
+  // No onEscape — a permission request requires an explicit allow/deny decision.
+  useModalA11y(dialogRef);
 
   function submit(decision: PermissionResponse['decision']) {
     props.onRespond({
@@ -324,7 +441,7 @@ export function PermissionDialog(props: {
 
   return (
     <div className="maka-modal-backdrop permissionBackdrop">
-      <section className="maka-modal permissionDialog" role="dialog" aria-modal="true" aria-labelledby="permissionTitle">
+      <section ref={dialogRef} className="maka-modal permissionDialog" role="dialog" aria-modal="true" aria-labelledby="permissionTitle">
         <div className="maka-modal-header">
           <h2 className="maka-modal-title" id="permissionTitle">Permission required</h2>
           <p className="maka-modal-subtitle">
@@ -352,11 +469,18 @@ export function PermissionDialog(props: {
 }
 
 function OverlayPreview(props: { content: ToolResultContent }) {
-  if (props.content.kind === 'text') return <pre>{props.content.text}</pre>;
-  if (props.content.kind === 'json') return <pre>{JSON.stringify(props.content.value, null, 2)}</pre>;
-  if (props.content.kind === 'terminal') return <pre>{props.content.stdout || props.content.stderr}</pre>;
-  if (props.content.kind === 'file_diff') return <pre>{props.content.diff}</pre>;
-  return <pre>{props.content.kind}</pre>;
+  const body = renderOverlayBody(props.content);
+  // Bound the height so a tool that prints kilobytes of output can't push the
+  // composer off-screen. Internal scroll is fine for inline preview.
+  return <pre className="maka-overlay-preview">{body}</pre>;
+}
+
+function renderOverlayBody(content: ToolResultContent): string {
+  if (content.kind === 'text') return content.text;
+  if (content.kind === 'json') return JSON.stringify(content.value, null, 2);
+  if (content.kind === 'terminal') return content.stdout || content.stderr;
+  if (content.kind === 'file_diff') return content.diff;
+  return content.kind;
 }
 
 function mergeTools(stored: ToolActivityItem[], live: ToolActivityItem[]): ToolActivityItem[] {
@@ -365,12 +489,28 @@ function mergeTools(stored: ToolActivityItem[], live: ToolActivityItem[]): ToolA
   return [...byId.values()];
 }
 
+// One shared formatter per renderer instance — `Intl.RelativeTimeFormat` is
+// cheap to allocate but pinning it avoids reading `navigator.language` on
+// every list render.
+const relativeTimeFormat: Intl.RelativeTimeFormat =
+  typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
+    ? new Intl.RelativeTimeFormat(
+        typeof navigator !== 'undefined' ? navigator.language : 'en',
+        { numeric: 'auto', style: 'narrow' },
+      )
+    : ({ format: (n: number, unit: Intl.RelativeTimeFormatUnit) => `${n}${unit[0]}` } as unknown as Intl.RelativeTimeFormat);
+
+const noMessagesYet =
+  typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('zh')
+    ? '暂无消息'
+    : 'No messages yet';
+
 function formatSessionMeta(session: SessionSummary): string {
-  if (!session.lastMessageAt) return 'No messages yet';
+  if (!session.lastMessageAt) return noMessagesYet;
   const diffMs = Date.now() - session.lastMessageAt;
   const diffMinutes = Math.max(1, Math.round(diffMs / 60_000));
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffMinutes < 60) return relativeTimeFormat.format(-diffMinutes, 'minute');
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${Math.round(diffHours / 24)}d ago`;
+  if (diffHours < 24) return relativeTimeFormat.format(-diffHours, 'hour');
+  return relativeTimeFormat.format(-Math.round(diffHours / 24), 'day');
 }

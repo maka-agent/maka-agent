@@ -76,7 +76,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const configuredByType = (type: ProviderType) =>
     connections.filter((connection) => connection.providerType === type).length;
 
-  if (loading) return <div className="providersPanel">Loading...</div>;
+  if (loading) return <div className="providersPanel" aria-busy="true">Loading…</div>;
 
   return (
     <div className="providersPanel providersMarketPanel">
@@ -380,7 +380,7 @@ function AddProviderForm(props: {
         <input
           value={baseUrl}
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          placeholder={defaults.baseUrl || 'https://...'}
+          placeholder={defaults.baseUrl || 'https://…'}
           disabled={isExperimental}
         />
       </label>
@@ -397,7 +397,7 @@ function AddProviderForm(props: {
       <div className="providerActions">
         <button className="maka-button" type="button" onClick={props.onCancel}>取消</button>
         <button className="maka-button" data-variant="primary" type="button" disabled={busy || isExperimental} onClick={submit}>
-          {busy ? '保存中...' : '保存供应商'}
+          {busy ? '保存中…' : '保存供应商'}
         </button>
       </div>
     </div>
@@ -529,7 +529,7 @@ function ConnectionDetail(props: {
             ))}
           </select>
           <button className="maka-button" type="button" disabled={fetchingModels || (needsSecret && !hasSecret)} onClick={refreshModels}>
-            {fetchingModels ? '拉取中...' : '从 API 刷新'}
+            {fetchingModels ? '拉取中…' : '从 API 刷新'}
           </button>
         </div>
       </label>
@@ -540,10 +540,10 @@ function ConnectionDetail(props: {
       )}
       <div className="providerActions">
         <button className="maka-button" data-variant="primary" type="button" disabled={busy} onClick={save}>
-          {busy ? '保存中...' : '保存修改'}
+          {busy ? '保存中…' : '保存修改'}
         </button>
         <button className="maka-button" type="button" disabled={testing || (needsSecret && !hasSecret)} onClick={runTest}>
-          {testing ? '测试中...' : '测试连接'}
+          {testing ? '测试中…' : '测试连接'}
         </button>
         {!props.isDefault && <button className="maka-button" type="button" onClick={setAsDefault}>设为默认</button>}
         <button className="maka-button" data-variant="destructive" type="button" onClick={remove}>删除</button>

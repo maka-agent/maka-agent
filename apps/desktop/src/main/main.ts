@@ -147,7 +147,7 @@ function installApplicationMenu(): void {
         submenu: [
           { role: 'about', label: 'About Maka' },
           {
-            label: 'Preferences...',
+            label: 'Preferences…',
             accelerator: 'CommandOrControl+,',
             click: () => mainWindow?.webContents.send('window:openSettings'),
           },

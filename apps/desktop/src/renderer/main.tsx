@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState, type CSSProperties, type PointerEvent } from 'react';
+import { StrictMode, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import type {
   ConnectionEvent,
@@ -54,7 +54,7 @@ function App() {
     void refreshConnections();
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
-    function onKeyDown(event: KeyboardEvent) {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === ',') {
         event.preventDefault();
         openSettings();
@@ -259,6 +259,35 @@ function App() {
     window.addEventListener('pointercancel', onUp);
   }
 
+  function onResizeHandleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keyboard-accessible separator (WAI-ARIA orientation=vertical convention):
+    //   ArrowLeft  → -10 px       ArrowRight → +10 px
+    //   Shift+Arrow → ±50 px       Home → min       End → max
+    const SMALL = 10;
+    const LARGE = 50;
+    const MIN = 240;
+    const MAX = 420;
+    let next = sessionListWidth;
+    switch (event.key) {
+      case 'ArrowLeft':
+        next = sessionListWidth - (event.shiftKey ? LARGE : SMALL);
+        break;
+      case 'ArrowRight':
+        next = sessionListWidth + (event.shiftKey ? LARGE : SMALL);
+        break;
+      case 'Home':
+        next = MIN;
+        break;
+      case 'End':
+        next = MAX;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setSessionListWidth(clamp(next, MIN, MAX));
+  }
+
   return (
     <div className="appFrame">
       <div
@@ -283,7 +312,13 @@ function App() {
           className="maka-resize-handle"
           role="separator"
           aria-label="Resize chat list"
+          aria-orientation="vertical"
+          aria-valuemin={240}
+          aria-valuemax={420}
+          aria-valuenow={sessionListWidth}
+          tabIndex={0}
           onPointerDown={startColumnResize}
+          onKeyDown={onResizeHandleKeyDown}
         />
         <div className="maka-panel maka-panel-detail maka-floating-panel">
           <div className="mainColumn">

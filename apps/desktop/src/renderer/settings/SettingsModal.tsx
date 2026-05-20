@@ -1,4 +1,23 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import {
+  BarChart3,
+  Bot,
+  CalendarDays,
+  Cpu,
+  Database,
+  Globe,
+  Info,
+  Network,
+  Palette,
+  Search,
+  Settings as SettingsIcon,
+  Sparkles,
+  User,
+  UserCircle,
+  Volume2,
+  X,
+  type LucideProps,
+} from 'lucide-react';
 import type {
   AppSettings,
   BotProvider,
@@ -10,30 +29,31 @@ import type {
   UsageStats,
 } from '@maka/core';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
+import { useModalA11y } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 
 type SettingsNavItem = {
   id: SettingsSection;
   label: string;
-  glyph: string;
+  Icon: ComponentType<LucideProps>;
   enabled: boolean;
 };
 
 const SETTINGS_NAV: SettingsNavItem[] = [
-  { id: 'general', label: '通用', glyph: 'GE', enabled: true },
-  { id: 'personalization', label: '个性化', glyph: 'PE', enabled: true },
-  { id: 'theme', label: '主题', glyph: 'TH', enabled: true },
-  { id: 'daily-review', label: '每日回顾', glyph: 'DR', enabled: true },
-  { id: 'models', label: '模型', glyph: 'MO', enabled: true },
-  { id: 'usage', label: '使用统计', glyph: 'US', enabled: true },
-  { id: 'voice-models', label: '语音模型', glyph: 'VO', enabled: true },
-  { id: 'open-gateway', label: '开放网关', glyph: 'GW', enabled: true },
-  { id: 'bot-chat', label: '机器人对话', glyph: 'BT', enabled: true },
-  { id: 'search', label: '搜索服务', glyph: 'SE', enabled: true },
-  { id: 'network', label: '网络', glyph: 'NW', enabled: true },
-  { id: 'data', label: '数据', glyph: 'DA', enabled: true },
-  { id: 'account', label: '账号', glyph: 'AC', enabled: true },
-  { id: 'about', label: '关于', glyph: 'AB', enabled: true },
+  { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true },
+  { id: 'personalization', label: '个性化', Icon: User, enabled: true },
+  { id: 'theme', label: '主题', Icon: Palette, enabled: true },
+  { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true },
+  { id: 'models', label: '模型', Icon: Cpu, enabled: true },
+  { id: 'usage', label: '使用统计', Icon: BarChart3, enabled: true },
+  { id: 'voice-models', label: '语音模型', Icon: Volume2, enabled: true },
+  { id: 'open-gateway', label: '开放网关', Icon: Sparkles, enabled: true },
+  { id: 'bot-chat', label: '机器人对话', Icon: Bot, enabled: true },
+  { id: 'search', label: '搜索服务', Icon: Search, enabled: true },
+  { id: 'network', label: '网络', Icon: Globe, enabled: true },
+  { id: 'data', label: '数据', Icon: Database, enabled: true },
+  { id: 'account', label: '账号', Icon: UserCircle, enabled: true },
+  { id: 'about', label: '关于', Icon: Info, enabled: true },
 ];
 
 const BOT_LABELS: Record<BotProvider, { label: string; help: string }> = {
@@ -52,17 +72,21 @@ export function SettingsModal(props: {
   onRefresh(): Promise<void>;
   onClose(): void;
 }) {
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') props.onClose();
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [props.onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Escape closes the modal, Tab/Shift+Tab cycles inside the dialog,
+  // focus restored to the trigger on close.
+  useModalA11y(dialogRef, props.onClose);
 
   return (
-    <div className="settingsModalBackdrop" role="presentation" onMouseDown={props.onClose}>
-      <div className="settingsModal" role="dialog" aria-modal="true" aria-label="Settings" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="settingsModalBackdrop" role="presentation" onClick={props.onClose}>
+      <div
+        ref={dialogRef}
+        className="settingsModal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onClick={(event) => event.stopPropagation()}
+      >
         <SettingsSurface
           connections={props.connections}
           defaultSlug={props.defaultSlug}
@@ -115,7 +139,7 @@ function SettingsSurface(props: {
     <main className="settingsSurface" data-modal="true">
       <aside className="settingsSidebar">
         <header>
-          <span>设置 ⌘,</span>
+          <span>设置 <kbd>⌘</kbd><kbd>,</kbd></span>
         </header>
         <nav aria-label="Settings sections">
           {SETTINGS_NAV.map((item) => (
@@ -127,7 +151,9 @@ function SettingsSurface(props: {
               disabled={!item.enabled}
               onClick={() => setSection(item.id)}
             >
-              <span className="settingsNavGlyph" aria-hidden="true">{item.glyph}</span>
+              <span className="settingsNavGlyph" aria-hidden="true">
+                <item.Icon size={16} strokeWidth={1.5} />
+              </span>
               <strong>{item.label}</strong>
             </button>
           ))}
@@ -137,12 +163,14 @@ function SettingsSurface(props: {
       <section className="settingsMainPane">
         <header className="settingsPageHeader">
           <h2>{activeItem.label}</h2>
-          <button className="settingsCloseButton" type="button" aria-label="Close settings" onClick={props.onClose}>×</button>
+          <button className="settingsCloseButton" type="button" aria-label="Close settings" onClick={props.onClose}>
+            <X strokeWidth={1.75} aria-hidden="true" />
+          </button>
         </header>
 
         <div className="settingsPageContent">
           {loading ? (
-            <div className="settingsEmptyState">Loading...</div>
+            <div className="settingsEmptyState" aria-busy="true">Loading…</div>
           ) : (
             <SettingsPage
               section={section}
@@ -326,7 +354,7 @@ function NetworkSettingsPage(props: {
 
           <div className="settingsActionRow">
             <button className="maka-button" type="button" disabled={testing} onClick={testProxy}>
-              {testing ? '测试中...' : '测试当前配置'}
+              {testing ? '测试中…' : '测试当前配置'}
             </button>
             {result && <span className="settingsInlineResult" data-ok={result.ok}>{result.message}{result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : ''}</span>}
           </div>
@@ -388,7 +416,7 @@ function BotChatSettingsPage(props: {
 
         <label className="settingsField">
           <span>{selected === 'telegram' || selected === 'discord' ? 'Bot Token' : 'App Secret / Token'}</span>
-          <input type="password" value={channel.token} onChange={(event) => updateChannel({ token: event.currentTarget.value })} placeholder="123456:ABC-DEF..." />
+          <input type="password" value={channel.token} onChange={(event) => updateChannel({ token: event.currentTarget.value })} placeholder="123456:ABC-DEF…" />
         </label>
 
         <label className="settingsField">
@@ -402,7 +430,7 @@ function BotChatSettingsPage(props: {
 
         <div className="settingsActionRow">
           <button className="maka-button" type="button" disabled={testing} onClick={testChannel}>
-            {testing ? '测试中...' : '测试并连接'}
+            {testing ? '测试中…' : '测试并连接'}
           </button>
           {result && <span className="settingsInlineResult" data-ok={result.ok}>{result.message}</span>}
         </div>
@@ -454,7 +482,7 @@ function UsageSettingsPage(props: {
           ]}
           onChange={(value) => void setRange(value as UsageRange)}
         />
-        <button className="maka-button" type="button" disabled={refreshing} onClick={refresh}>{refreshing ? '刷新中...' : '刷新'}</button>
+        <button className="maka-button" type="button" disabled={refreshing} onClick={refresh}>{refreshing ? '刷新中…' : '刷新'}</button>
       </div>
 
       <div className="settingsUsageSummary">
@@ -477,7 +505,7 @@ function UsageSettingsPage(props: {
       />
 
       <div className="settingsUsageFilters">
-        <input value={usage.modelFilter} onChange={(event) => void props.onUpdate({ usage: { modelFilter: event.currentTarget.value } })} placeholder="按模型筛选..." />
+        <input value={usage.modelFilter} onChange={(event) => void props.onUpdate({ usage: { modelFilter: event.currentTarget.value } })} placeholder="按模型筛选…" />
         <select value={usage.status} onChange={(event) => void props.onUpdate({ usage: { status: event.currentTarget.value as typeof usage.status } })}>
           <option value="all">全部状态</option>
           <option value="success">成功</option>

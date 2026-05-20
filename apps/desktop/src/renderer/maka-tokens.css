@@ -40,6 +40,12 @@
   --destructive: oklch(0.58 0.24 28);   /* red — errors, denied */
   --destructive-rgb: 180, 60, 50;
 
+  /* Settings hero green ("Solarpunk deep") — used for Done CTA, on-toggle
+     state, and provider mark backgrounds. Distinct from --accent so the
+     Settings surface keeps its own primary affordance. */
+  --brand-deep: oklch(0.32 0.05 152);
+  --brand-deep-hover: oklch(0.28 0.05 152);
+
   /* === text variants (mixed toward foreground for better contrast) === */
   --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
   --destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
@@ -136,6 +142,15 @@
   --radius-modal: 8px;
   --spacing: 0.25rem;          /* 4px base step */
 
+  /* === motion ===
+     Custom easing curves per emil-design-eng — the built-in CSS easings
+     are too weak to feel intentional. Use --ease-out-strong for UI
+     entrance/feedback, --ease-in-out-strong for on-screen movement,
+     --ease-drawer for iOS-style drawer/sheet motion. */
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
   /* sidebar / pane widths (use as max-inline-size on resizable panels) */
   --w-sidebar: 260px;
   --w-rail: 240px;
@@ -168,6 +183,11 @@
 
   /* foreground-N variants re-derive automatically via color-mix(), so the
      :root definitions above remain correct — no need to redefine here. */
+
+  /* Brand deep needs a slightly brighter hue in dark mode to maintain
+     legible contrast against the dark background. */
+  --brand-deep: oklch(0.62 0.10 152);
+  --brand-deep-hover: oklch(0.68 0.10 152);
 }
 
 /* =============================================================================
@@ -427,6 +447,15 @@
     margin: 0 auto;
     width: 100%;
     padding: 0 24px;
+    /* Subtle fade on first paint — uses @starting-style instead of a
+       keyframe so the transition is interruptible and stays smooth even
+       when messages are streaming in rapidly (emil-design-eng "Use CSS
+       transitions over keyframes for interruptible UI"). */
+    opacity: 1;
+    transition: opacity 240ms ease-out;
+  }
+  @starting-style {
+    .maka-message-row { opacity: 0; }
   }
   /* User bubble: 5% foreground overlay, no border, rounded */
   .maka-bubble-user {
@@ -468,6 +497,16 @@
     font-family: var(--font-mono);
     font-size: 12.5px;
     color: var(--foreground-80);
+    /* Same entrance as message rows — opacity + tiny lift on first paint. */
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      opacity 200ms ease-out,
+      transform 200ms var(--ease-out-strong),
+      border-color 160ms ease;
+  }
+  @starting-style {
+    .maka-tool { opacity: 0; transform: translateY(4px); }
   }
   .maka-tool-header {
     display: flex;
@@ -581,6 +620,12 @@
     -webkit-backdrop-filter: blur(6px);
     display: grid; place-items: center;
     z-index: var(--z-modal);
+    overscroll-behavior: contain;
+    opacity: 1;
+    transition: opacity 200ms ease-out;
+  }
+  @starting-style {
+    .maka-modal-backdrop { opacity: 0; }
   }
   .maka-modal {
     background: var(--background);
@@ -591,6 +636,16 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    transform: scale(1);
+    opacity: 1;
+    /* Modals keep transform-origin: center because they aren't anchored
+       to a trigger. */
+    transition:
+      transform 220ms var(--ease-out-strong),
+      opacity 200ms ease-out;
+  }
+  @starting-style {
+    .maka-modal { transform: scale(0.96); opacity: 0; }
   }
   .maka-modal-header {
     padding: 16px 20px 8px 20px;
@@ -660,4 +715,28 @@
   );
   background-size: 200% 100%;
   animation: maka-shimmer 1.5s ease-in-out infinite;
+}
+
+/* =============================================================================
+   REDUCED-MOTION
+
+   Users with `prefers-reduced-motion: reduce` get instant transitions and
+   animations everywhere — but we keep opacity/color changes meaningful (per
+   emil-design-eng: "Reduced motion means fewer and gentler animations, not
+   zero").
+
+   Strategy: cap durations to ~0.01ms so transitions still fire (state changes
+   are still observable to assistive tech) but feel instantaneous. Looping
+   animations get capped to a single iteration.
+============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
