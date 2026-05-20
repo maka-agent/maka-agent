@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isPermissionMode } from '@maka/core';
 import type {
   CreateSessionInput,
   SessionHeader,
@@ -195,18 +196,23 @@ class FileSessionStore implements SessionStore {
   }
 }
 
-type StoredSessionHeader = Omit<SessionHeader, 'backend'> & { backend: string };
+type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'permissionMode'> & {
+  backend: string;
+  permissionMode?: unknown;
+};
 
 function migrateHeader(header: StoredSessionHeader): SessionHeader {
+  const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
   if (header.backend === 'claude') {
-    return { ...header, backend: 'ai-sdk' };
+    return { ...header, backend: 'ai-sdk', permissionMode };
   }
   if (header.backend === 'pi') {
-    return { ...header, backend: 'fake' };
+    return { ...header, backend: 'fake', permissionMode };
   }
   return {
     ...header,
     backend: header.backend === 'ai-sdk' ? 'ai-sdk' : 'fake',
+    permissionMode,
   };
 }
 
@@ -221,6 +227,7 @@ function toSummary(header: SessionHeader): SessionSummary {
     lastMessageAt: header.lastMessageAt,
     backend: header.backend,
     llmConnectionSlug: header.llmConnectionSlug,
+    permissionMode: header.permissionMode,
   };
 }
 
