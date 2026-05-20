@@ -293,10 +293,8 @@ function SessionRow(props: {
   function handleDelete(event: MouseEvent<HTMLButtonElement>) {
     stopPropagation(event);
     if (!actions) return;
-    const ok = window.confirm(
-      `Delete "${session.name}"? This permanently removes the session and all messages from disk.`,
-    );
-    if (!ok) return;
+    // Delegation: the App-level handler owns the confirmation flow via the
+    // toast system (PR24), so SessionRow stays presentation-only.
     actions.onDelete(session.id);
   }
 

@@ -16,6 +16,8 @@ import {
   type NavSelection,
   PermissionDialog,
   SessionListPanel,
+  ToastProvider,
+  useToast,
   type ToolActivityItem,
 } from '@maka/ui';
 import { SettingsModal } from './settings/SettingsModal';
@@ -25,6 +27,15 @@ import { applyTheme } from './theme';
 import './styles.css';
 
 function App() {
+  return (
+    <ToastProvider>
+      <AppShell />
+    </ToastProvider>
+  );
+}
+
+function AppShell() {
+  const toastApi = useToast();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [navSelection, setNavSelection] = useState<NavSelection>({ section: 'sessions', filter: 'chats' });
@@ -136,9 +147,20 @@ function App() {
     await refreshSessions();
   }
   async function deleteSession(sessionId: string) {
+    const session = sessions.find((entry) => entry.id === sessionId);
+    const name = session?.name ?? 'this chat';
+    const ok = await toastApi.confirm({
+      title: `删除 "${name}"`,
+      description: '会话和全部消息会从磁盘上永久移除。该操作不可撤销。',
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
     await window.maka.sessions.remove(sessionId);
     if (activeId === sessionId) setActiveId(undefined);
     await refreshSessions();
+    toastApi.success(`已删除 ${name}`);
   }
 
   async function refreshConnections() {

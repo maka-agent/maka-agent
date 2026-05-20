@@ -843,6 +843,122 @@ button:active {
   gap: 6px;
 }
 
+.maka-toast-viewport {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: var(--z-overlay);
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 48px));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+.maka-toast {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--background);
+  box-shadow: var(--shadow-medium);
+  padding: 12px 14px;
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 200ms ease-out,
+    transform 220ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .maka-toast {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+.maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }
+.maka-toast[data-variant="warning"] { border-left: 3px solid var(--info); }
+.maka-toast[data-variant="error"]   { border-left: 3px solid var(--destructive); }
+.maka-toast[data-variant="info"]    { border-left: 3px solid var(--accent); }
+
+.maka-toast-icon {
+  margin-top: 2px;
+  color: var(--foreground-60);
+}
+.maka-toast[data-variant="success"] .maka-toast-icon { color: var(--success-text); }
+.maka-toast[data-variant="warning"] .maka-toast-icon { color: var(--info-text); }
+.maka-toast[data-variant="error"]   .maka-toast-icon { color: var(--destructive-text); }
+.maka-toast[data-variant="info"]    .maka-toast-icon { color: var(--accent); }
+
+.maka-toast-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-toast-copy strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.maka-toast-copy small {
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.maka-toast-action {
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.maka-toast-action:hover {
+  background: oklch(from var(--accent) l c h / 0.08);
+}
+
+.maka-toast-close {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground-50);
+  cursor: pointer;
+}
+
+.maka-toast-close:hover {
+  color: var(--foreground);
+  background: var(--foreground-5);
+}
+
+.maka-confirm-modal {
+  width: min(420px, calc(100vw - 48px));
+}
+
+.maka-confirm-backdrop {
+  /* Slightly opaque so destructive confirms feel weightier than regular
+     toast notifications. */
+  background: oklch(from var(--background) l c h / 0.7);
+}
+
 .maka-help-modal {
   width: min(680px, calc(100vw - 48px));
   max-height: calc(100vh - 96px);
