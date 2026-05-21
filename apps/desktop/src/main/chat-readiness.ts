@@ -1,16 +1,17 @@
-import { PROVIDER_DEFAULTS, type LlmConnection, type SessionHeader } from '@maka/core';
+import {
+  isConnectionReady,
+  type ChatConfigurationReason,
+  type LlmConnection,
+  type SessionHeader,
+} from '@maka/core';
 
 export const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 
-export type ChatConfigurationReason =
-  | 'missing_default_connection'
-  | 'connection_missing'
-  | 'connection_disabled'
-  | 'missing_api_key'
-  | 'missing_model'
-  | 'empty_model_list'
-  | 'model_not_enabled'
-  | 'fake_backend';
+// `ChatConfigurationReason` moved to `@maka/core/connection-readiness`
+// (PR110a) so the same taxonomy is shared between send-path,
+// onboarding, and quick-chat. Re-exported here for back-compat — any
+// future addition belongs in core, not here.
+export type { ChatConfigurationReason };
 
 export interface ReadyConnectionDeps {
   getConnection(slug: string): Promise<LlmConnection | null>;
@@ -43,6 +44,8 @@ export async function requireReadyConnection(
   deps: ReadyConnectionDeps,
   requestedModel?: string,
 ): Promise<ReadyConnection> {
+  // Slug missing / explicit 'fake' shortcut is checked before reaching
+  // the core helper because we lack a connection object to evaluate.
   if (!slug || slug === 'fake') {
     throw chatConfigurationError(
       '还没有配置默认模型。请到 设置 · 模型 添加 Anthropic / OpenAI / GLM 等 API key。',
@@ -57,45 +60,61 @@ export async function requireReadyConnection(
       'connection_missing',
     );
   }
-  if (!connection.enabled) {
-    throw chatConfigurationError(
-      `模型连接 "${connection.name}" 已禁用。请到 设置 · 模型 启用或选择其他默认模型。`,
-      'connection_disabled',
-    );
-  }
 
+  // PR110a: delegate the actual ready judgment to the pure core helper
+  // so onboarding / quick chat / send-path share a single source of
+  // truth. The desktop side only owns: (1) async secret lookup, (2)
+  // Chinese error copy, (3) the throw-error API the rest of main.ts
+  // expects.
   const apiKey = await deps.getApiKey(connection.slug);
-  if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) {
+  const verdict = isConnectionReady({
+    connection,
+    hasSecret: typeof apiKey === 'string' && apiKey.length > 0,
+    requestedModel,
+  });
+
+  if (verdict.ready === false) {
     throw chatConfigurationError(
-      `模型连接 "${connection.name}" 缺少 API key。请到 设置 · 模型 补齐密钥后再聊天。`,
-      'missing_api_key',
+      messageForReason(verdict.reason, connection, requestedModel),
+      verdict.reason,
     );
   }
 
-  const model = requestedModel || connection.defaultModel;
-  if (!model) {
-    throw chatConfigurationError(
-      `模型连接 "${connection.name}" 没有可用模型。请到 设置 · 模型 选择一个默认模型。`,
-      'missing_model',
-    );
-  }
-  if (connection.models) {
-    const allowedModels = new Set(connection.models.map((entry) => entry.id));
-    if (allowedModels.size === 0) {
-      throw chatConfigurationError(
-        `模型连接 "${connection.name}" 没有启用任何模型。请到 设置 · 模型 先添加模型。`,
-        'empty_model_list',
-      );
-    }
-    if (!allowedModels.has(model)) {
-      throw chatConfigurationError(
-        `模型 "${model}" 不在连接 "${connection.name}" 的启用模型列表中。请到 设置 · 模型 重新选择。`,
-        'model_not_enabled',
-      );
-    }
-  }
+  return { connection, apiKey: apiKey ?? '', model: verdict.model };
+}
 
-  return { connection, apiKey: apiKey ?? '', model };
+/**
+ * Map a core readiness reason to the Chinese error copy that
+ * `requireReadyConnection` has historically thrown. Centralized here
+ * so the copy stays close to its existing semantics (PR110a refactor
+ * is behavior-preserving — only the judgment moved to core).
+ */
+function messageForReason(
+  reason: ChatConfigurationReason,
+  connection: LlmConnection,
+  requestedModel: string | undefined,
+): string {
+  switch (reason) {
+    case 'connection_disabled':
+      return `模型连接 "${connection.name}" 已禁用。请到 设置 · 模型 启用或选择其他默认模型。`;
+    case 'missing_api_key':
+      return `模型连接 "${connection.name}" 缺少 API key。请到 设置 · 模型 补齐密钥后再聊天。`;
+    case 'missing_model':
+      return `模型连接 "${connection.name}" 没有可用模型。请到 设置 · 模型 选择一个默认模型。`;
+    case 'empty_model_list':
+      return `模型连接 "${connection.name}" 没有启用任何模型。请到 设置 · 模型 先添加模型。`;
+    case 'model_not_enabled': {
+      const model = requestedModel || connection.defaultModel;
+      return `模型 "${model}" 不在连接 "${connection.name}" 的启用模型列表中。请到 设置 · 模型 重新选择。`;
+    }
+    case 'fake_backend':
+      return '当前会话使用的是 FakeBackend，只能做开发演示。请到 设置 · 模型 添加真实模型后新建会话。';
+    case 'missing_default_connection':
+    case 'connection_missing':
+      // These reasons are handled before we reach isConnectionReady,
+      // but kept here for exhaustive switch.
+      return '还没有配置默认模型。请到 设置 · 模型 添加 Anthropic / OpenAI / GLM 等 API key。';
+  }
 }
 
 export async function assertSessionCanSend(
