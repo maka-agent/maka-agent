@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, screen, shell } from 'electron';
 import { isExternalUrl } from './external-link-guard.js';
+import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -92,7 +93,12 @@ const builtinTools = buildBuiltinTools().filter((tool) => tool.name !== 'Edit');
 let lookupPricing = buildPricingLookup();
 const botRegistry = new BotRegistry({
   onIncomingMessage: (message) => {
-    console.log('[bot] incoming message', message.platform, message.chatId);
+    // Only log incoming bot messages in dev — production stdout leaking
+    // platform + chatId is operational noise at best and a small privacy
+    // signal at worst (which bridges are connected, with what frequency).
+    if (process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === 'development') {
+      console.log('[bot] incoming message', message.platform, message.chatId);
+    }
   },
   onStatusChange: (status) => {
     mainWindow?.webContents.send('settings:bots:statusChanged', status);
@@ -135,12 +141,47 @@ const runtime = new SessionManager({
 
 let mainWindow: BrowserWindow | null = null;
 
+/**
+ * Guard against saved x/y referencing a display that no longer exists
+ * (laptop docked → undocked, external monitor unplugged). Walks the
+ * current display workAreas; if no display contains a meaningful
+ * overlap with the saved bounds, strip x/y so Electron centers the
+ * window on the primary display.
+ *
+ * "Meaningful overlap" = at least a 100×100 corner of the saved
+ * rectangle lies inside some display's workArea. Tighter than "any
+ * pixel intersects" so a 1px sliver still flagged-as-off-screen
+ * doesn't leave a tiny visible nub the user has to grab.
+ */
+function clampBoundsToVisibleDisplay(bounds: SavedBounds): SavedBounds {
+  if (bounds.x === undefined || bounds.y === undefined) return bounds;
+  const displays = screen.getAllDisplays();
+  if (displays.length === 0) return { width: bounds.width, height: bounds.height };
+  const visible = displays.some((display) => {
+    const wa = display.workArea;
+    const overlapX = Math.max(0, Math.min(bounds.x! + bounds.width, wa.x + wa.width) - Math.max(bounds.x!, wa.x));
+    const overlapY = Math.max(0, Math.min(bounds.y! + bounds.height, wa.y + wa.height) - Math.max(bounds.y!, wa.y));
+    return overlapX >= 100 && overlapY >= 100;
+  });
+  if (visible) return bounds;
+  // Off-screen: keep the size but drop the position so Electron centers.
+  return { width: bounds.width, height: bounds.height, isMaximized: bounds.isMaximized };
+}
+
 async function createWindow(): Promise<void> {
   await mkdir(workspaceRoot, { recursive: true });
   installApplicationMenu();
+  // Restore previously-saved bounds when available; first launch and
+  // legacy installs both fall back to the default 1240x820 frame. After
+  // load, validate the saved x/y against the current display layout — if
+  // the previous external monitor is gone, drop x/y so Electron centers
+  // the window on the primary display instead of opening it off-screen.
+  const savedBounds = await readSavedBounds(workspaceRoot, { width: 1240, height: 820 });
+  const bounds = clampBoundsToVisibleDisplay(savedBounds);
   mainWindow = new BrowserWindow({
-    width: 1240,
-    height: 820,
+    width: bounds.width,
+    height: bounds.height,
+    ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
     title: 'Maka',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 24, y: 24 },
@@ -205,6 +246,40 @@ async function createWindow(): Promise<void> {
         window.addEventListener('drop', block, true);
       })();
     `).catch(() => { /* renderer may not be ready; ignore */ });
+  });
+
+  // Restore maximized state after construction (BrowserWindow constructor
+  // doesn't accept it directly; calling here keeps the unmaximized bounds
+  // accurate for the next save).
+  if (bounds.isMaximized) {
+    mainWindow.maximize();
+  }
+
+  // Persist bounds across launches. Debounce so a continuous resize drag
+  // doesn't write the file on every frame; flush on close.
+  let saveTimer: NodeJS.Timeout | undefined;
+  const scheduleSave = () => {
+    if (!mainWindow) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (!mainWindow) return;
+      const next: SavedBounds = mainWindow.isMaximized()
+        ? { ...mainWindow.getNormalBounds(), isMaximized: true }
+        : { ...mainWindow.getBounds(), isMaximized: false };
+      void writeSavedBounds(workspaceRoot, next);
+    }, 400);
+  };
+  mainWindow.on('resize', scheduleSave);
+  mainWindow.on('move', scheduleSave);
+  mainWindow.on('maximize', scheduleSave);
+  mainWindow.on('unmaximize', scheduleSave);
+  mainWindow.on('close', () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    if (!mainWindow) return;
+    const final: SavedBounds = mainWindow.isMaximized()
+      ? { ...mainWindow.getNormalBounds(), isMaximized: true }
+      : { ...mainWindow.getBounds(), isMaximized: false };
+    void writeSavedBounds(workspaceRoot, final);
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
