@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { OnboardingMilestone, OnboardingState } from '@maka/core';
+import type { OnboardingState } from '@maka/core';
 import type { OnboardingSnapshot } from '../global';
 
 /**
@@ -149,22 +149,6 @@ const LIVE_DEPS: UseOnboardingSnapshotDeps = {
     };
   },
 };
-
-/**
- * Render-time helper: derive the `setMilestone` action without
- * requiring callers to import `window.maka.onboarding` directly.
- * Fire-and-forget; failures swallowed (the renderer must never block
- * on milestone writes — they're cosmetic progress markers).
- */
-export function fireSetMilestoneAndForget(
-  id: OnboardingMilestone['id'],
-  status: 'completed' | 'skipped',
-): void {
-  void window.maka.onboarding.setMilestone(id, status).catch(() => {
-    // Intentionally swallowed — milestones never gate UX. The dev
-    // console of main will already have logged any persistence error.
-  });
-}
 
 /**
  * Whether a snapshot's state is one of the actionable-by-user setup
