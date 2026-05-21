@@ -916,6 +916,40 @@ button:active {
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
 }
 
+/* Stale session — `backend='fake'` or `llmConnectionSlug` no longer
+ * resolves. Pairs with the chat-header banner (PR108e) so users can spot
+ * dead sessions in the sidebar list before clicking in. Visual treatment:
+ *
+ * - Row body dimmed via opacity reduction (preserves all underlying tones
+ *   but reads as "secondary"); active state remains fully opaque so the
+ *   currently-selected row never disappears just because it's stale.
+ * - A small amber pill labelled "已过期" sits next to the session name —
+ *   muted-warning tone, not destructive, because @xuan's send-path silent
+ *   rebind makes these sessions still functional.
+ */
+.maka-list-row[data-stale="true"] {
+  opacity: 0.7;
+}
+
+.maka-list-row[data-stale="true"][data-active="true"] {
+  opacity: 1;
+}
+
+.maka-list-row-stale-pill {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  /* Reuses the chat-header-alert warning tone tokens (--info + --info-text)
+   * for visual consistency with the banner that explains the same state. */
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
 /* Soft hover state on the primary row body — a tiny scale + background
    shift gives the row a sense of being "alive" without being noisy. */
 .maka-list-row:hover .maka-list-row-name {

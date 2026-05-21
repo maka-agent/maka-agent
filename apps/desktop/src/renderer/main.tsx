@@ -35,6 +35,7 @@ import { OnboardingHero } from './OnboardingHero';
 import { ProviderLogo } from './settings/ProvidersPanel';
 import { ArtifactPane } from './artifact-pane';
 import { deriveChatHeaderAlert } from './chat-header-alert';
+import { deriveStaleSessionIds } from './stale-sessions';
 import { applyDensity, applyTheme } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
@@ -78,6 +79,18 @@ function AppShell() {
   const streamingSessionIds = useMemo(
     () => new Set(Object.entries(streamingBySession).flatMap(([id, text]) => (text ? [id] : []))),
     [streamingBySession],
+  );
+  // Set of session ids whose backend / connection is no longer usable —
+  // drives the sidebar "已过期" pill (PR108g, paired with the PR108e chat
+  // header banner). Derivation is pure (see `stale-sessions.ts`) so the
+  // classifier is testable without a DOM.
+  const staleSessionIds = useMemo(
+    () =>
+      deriveStaleSessionIds({
+        sessions,
+        knownConnectionSlugs: new Set(connections.map((connection) => connection.slug)),
+      }),
+    [sessions, connections],
   );
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
   const activePermission = activeId ? permissionBySession[activeId] : undefined;
@@ -623,6 +636,7 @@ function AppShell() {
             activeId={activeId}
             skills={skills}
             streamingSessionIds={streamingSessionIds}
+            staleSessionIds={staleSessionIds}
             onSelect={setNavSelection}
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
