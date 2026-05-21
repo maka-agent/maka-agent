@@ -246,8 +246,6 @@ Each smoke path must include:
 
 ### 2.8 Visual regression
 
-Until screenshot diff automation exists, visual gates are manual but structured.
-
 Required screenshots for each new surface:
 
 - light desktop,
@@ -258,13 +256,30 @@ Required screenshots for each new surface:
 - error/failure,
 - active/focus state.
 
+Current automation:
+
+- `npm --workspace @maka/desktop run screenshots` captures all fixture
+  scenarios across light/dark, 1280/990 width, normal/reduced motion.
+- `npm --workspace @maka/desktop run screenshots:diff:stable` is the
+  blocking sanity gate for the stable subset (`artifact-pane`,
+  `first-run`, `artifact-errors`).
+- The stable gate fails only for capture/pipeline/viewport failures:
+  missing PNGs, corrupt PNGs, too-small/truncated PNGs, and wrong
+  dimensions.
+- Byte-size drift is a warning, not a blocker.
+
+Explicit limitation: the current PR-IR-02 gate is **not** a pixel-level
+visual regression test. It does not prove UI layout, color, typography,
+spacing, or focus rendering stayed correct. Reviewers must still inspect
+the screenshots for visual quality and use the smoke paths for behavior.
+
 Future automation target:
 
-- run fixture scenarios,
-- capture deterministic screenshots,
-- compare with baseline under a threshold,
-- save artifacts for review,
-- fail release on unexpected diff.
+- pilot pixel-level diff only on the stable subset first,
+- use calibrated tolerance instead of byte/SHA equality,
+- support ignored dynamic regions for timestamps/streaming/transient UI,
+- save diff artifacts for review,
+- expand beyond the stable subset only after the gate is quiet on main.
 
 ### 2.9 Security and privacy gates
 

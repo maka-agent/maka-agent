@@ -75,8 +75,31 @@ variant=… path=…`. The driver script greps for the marker, kills the
 subprocess, and copies the PNG into the canonical screenshots
 directory.
 
-PR-IR-02 (future) will add a diff CI gate against the committed
-baseline PNGs.
+### Automated screenshot sanity gate (PR-IR-02)
+
+`screenshots:diff:stable` is a blocking **capture sanity** gate for the
+stable baseline subset (`artifact-pane`, `first-run`, `artifact-errors`):
+
+```bash
+npm --workspace @maka/desktop run screenshots
+npm --workspace @maka/desktop run screenshots:diff:stable
+```
+
+It verifies that each expected stable PNG exists, is a valid PNG, is not
+truncated, and has the exact dimensions for its viewport/theme/motion
+variant. It also reports large byte-size drift as a warning.
+
+This gate does **not** verify pixel-level UI correctness. It catches
+capture pipeline regressions, broken fixtures, missing screenshots, and
+viewport sizing bugs. Human review of the screenshots is still required
+for visual details until pixel-level diff with calibrated tolerance and
+ignored dynamic regions is added.
+
+To promote the current stable subset after intentional visual changes:
+
+```bash
+npm --workspace @maka/desktop run screenshots:baseline:stable
+```
 
 ### Reduced-motion variant (PR-IR-04)
 
