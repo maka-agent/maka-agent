@@ -294,6 +294,14 @@ function AppShell() {
   async function applyVisualSmokeFixture() {
     const state = await window.maka.visualSmoke.getState();
     if (!state) return;
+    if (state.now) {
+      // Fixture-only clock freeze: screenshot baselines should not drift
+      // because relative timestamps or fetched-at labels crossed a minute
+      // boundary between two runs. Real users never receive a visual
+      // smoke state, so their Date API remains untouched.
+      Date.now = () => state.now!;
+    }
+    document.documentElement.setAttribute('data-maka-visual-smoke', 'true');
     if (state.streamingBySession) {
       setStreamingBySession((current) => ({ ...current, ...state.streamingBySession }));
     }
@@ -341,8 +349,21 @@ function AppShell() {
       // gives @starting-style + fonts + late-stream IPC time to flush.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          setTimeout(() => {
-            void window.maka.visualSmoke.capture({ scenario: state.scenario, variant });
+          setTimeout(async () => {
+            // Keep screenshot baselines free of focus rings / caret blink.
+            // Interaction-specific focus behavior is covered by node tests
+            // and manual smoke paths; auto-capture should measure layout.
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+            if ('fonts' in document) {
+              await document.fonts.ready;
+            }
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                void window.maka.visualSmoke.capture({ scenario: state.scenario, variant });
+              });
+            });
           }, 400);
         });
       });
