@@ -13,7 +13,14 @@ export type VisualSmokeScenario =
   | 'artifact-errors'
   | 'streaming-sidebar'
   | 'permission-destructive'
-  | 'stale-sessions';
+  | 'stale-sessions'
+  | 'settings-data'
+  | 'settings-personalization'
+  | 'settings-network'
+  | 'settings-bots'
+  | 'settings-about'
+  | 'settings-theme'
+  | 'settings-coming-soon';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;

@@ -68,6 +68,13 @@ const ALL_SCENARIOS = [
   'streaming-sidebar',
   'permission-destructive',
   'stale-sessions',
+  'settings-data',
+  'settings-personalization',
+  'settings-network',
+  'settings-bots',
+  'settings-about',
+  'settings-theme',
+  'settings-coming-soon',
 ];
 
 const VARIANTS = [

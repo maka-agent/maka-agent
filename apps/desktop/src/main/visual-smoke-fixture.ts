@@ -25,6 +25,20 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'streaming-sidebar',
   'permission-destructive',
   'stale-sessions',
+  // PR108j: per-Settings-section fixtures so the screenshot pipeline
+  // can capture each Settings sub-page in light + dark + narrow +
+  // reduced-motion variants. Each scenario reuses the standard
+  // connection / session seed and only differs in
+  // `openSettingsSection`. (Per-page state — displayName,
+  // assistantTone, network proxy, etc. — already comes from the
+  // default settings.json seed.)
+  'settings-data',
+  'settings-personalization',
+  'settings-network',
+  'settings-bots',
+  'settings-about',
+  'settings-theme',
+  'settings-coming-soon',
 ]);
 
 export interface VisualSmokeFixture {
@@ -154,6 +168,27 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // gate that an active+stale row still shows the "已过期" pill
       // (active highlight must not erase the warning signal).
       return { ...state, activeSessionId: STALE_FAKE_SESSION_ID };
+    // PR108j: Settings sub-page scenarios. Each just opens the relevant
+    // Settings section over the standard seed; per-page state lives in
+    // the shared settings.json defaults (already includes displayName
+    // = '建文' etc.). Active session stays TURN_SESSION_ID so the chat
+    // surface behind the modal shows a realistic context.
+    case 'settings-data':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'data' };
+    case 'settings-personalization':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'personalization' };
+    case 'settings-network':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'network' };
+    case 'settings-bots':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'bot-chat' };
+    case 'settings-about':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'about' };
+    case 'settings-theme':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'theme' };
+    case 'settings-coming-soon':
+      // Coming Soon pages share the same template; daily-review is the
+      // most representative one (per PR55 product-stance copy).
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'daily-review' };
     case 'all':
       return {
         ...state,

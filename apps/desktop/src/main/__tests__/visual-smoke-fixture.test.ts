@@ -208,6 +208,34 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  describe('settings sub-page scenarios (PR108j)', () => {
+    // Each scenario opens a specific Settings section over the shared
+    // connection/session seed. The seed file shape is identical to
+    // `provider-workspace` — the only difference is `openSettingsSection`.
+    const cases = [
+      { scenario: 'settings-data', expectedSection: 'data' },
+      { scenario: 'settings-personalization', expectedSection: 'personalization' },
+      { scenario: 'settings-network', expectedSection: 'network' },
+      { scenario: 'settings-bots', expectedSection: 'bot-chat' },
+      { scenario: 'settings-about', expectedSection: 'about' },
+      { scenario: 'settings-theme', expectedSection: 'theme' },
+      { scenario: 'settings-coming-soon', expectedSection: 'daily-review' },
+    ] as const;
+
+    for (const { scenario, expectedSection } of cases) {
+      it(`${scenario} opens Settings · ${expectedSection}`, () => {
+        const fixture = resolveVisualSmokeFixture(scenario, false);
+        assert.ok(fixture, `${scenario} should resolve`);
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.scenario, scenario);
+        assert.equal(state?.openSettingsSection, expectedSection);
+        // Active session is the standard turn fixture so the chat
+        // surface behind the modal renders meaningful context.
+        assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+      });
+    }
+  });
+
   it('stale-sessions seed reproduces the P0 workspace with active stale session', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-stale-'));
     try {
