@@ -25,6 +25,7 @@ import {
   Trash2,
   Wifi,
 } from 'lucide-react';
+import { redactSecrets } from './redact.js';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -1291,7 +1292,11 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
 }
 
 function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
-  const errorText = extractErrorText(props.result);
+  // Tool stderr / raw provider errors occasionally slip credential paths,
+  // bearer tokens, or API keys through main-side redaction. Apply a
+  // defensive UI-level mask before display *and* before clipboard copy so
+  // the user can't accidentally paste a credential into a bug report.
+  const errorText = redactSecrets(extractErrorText(props.result));
   const [copied, setCopied] = useState(false);
 
   async function copy() {
