@@ -138,6 +138,21 @@ export {
   validateSlug,
 } from './llm-connections.js';
 
+// model-catalog.ts
+export type {
+  BuildModelCatalogInput,
+  KnownModelCapabilities,
+  ModelCapabilitySource,
+  ModelCatalogAvailability,
+  ModelCatalogEntry,
+  ModelCatalogPricing,
+  ModelUnavailableReason,
+} from './model-catalog.js';
+export {
+  buildModelCatalogEntries,
+  validateChatDefaultModel,
+} from './model-catalog.js';
+
 // settings.ts
 export type {
   AppearanceSettings,

@@ -35,9 +35,11 @@ export interface ModelInfo {
   contextWindow?: number;
   maxOutputTokens?: number;
   capabilities?: {
+    chat?: boolean;
     vision?: boolean;
     reasoning?: boolean;
     functionCalling?: boolean;
+    imageGeneration?: boolean;
   };
 }
 
