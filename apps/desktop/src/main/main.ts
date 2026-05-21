@@ -449,7 +449,11 @@ function registerIpc(): void {
       throw new Error('No API key set for this connection');
     }
     try {
-      return await fetchProviderModels(connection, apiKey ?? '');
+      return {
+        models: await fetchProviderModels(connection, apiKey ?? ''),
+        source: 'fetched',
+        fetchedAt: Date.now(),
+      };
     } catch (error) {
       throw new Error(generalizedErrorMessage(error, 'Failed to fetch provider models'));
     }

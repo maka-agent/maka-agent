@@ -97,6 +97,8 @@ export type {
   ConnectionTestErrorClass,
   CreateConnectionInput,
   LlmConnection,
+  ModelDiscoveryResult,
+  ModelDiscoverySource,
   ModelInfo,
   ProviderCategory,
   ProviderDefaults,

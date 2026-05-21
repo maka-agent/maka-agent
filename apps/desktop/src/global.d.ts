@@ -5,6 +5,7 @@ import type {
   AppSettings,
   BotProvider,
   LlmConnection,
+  ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
   PermissionMode,
@@ -60,7 +61,7 @@ declare global {
         update(slug: string, patch: UpdateConnectionInput): Promise<LlmConnection>;
         delete(slug: string): Promise<void>;
         test(slug: string, opts?: { model?: string }): Promise<ConnectionTestResult>;
-        fetchModels(slug: string): Promise<ModelInfo[]>;
+        fetchModels(slug: string): Promise<ModelDiscoveryResult>;
         hasSecret(slug: string): Promise<boolean>;
         subscribeEvents(handler: (event: ConnectionEvent) => void): () => void;
       };

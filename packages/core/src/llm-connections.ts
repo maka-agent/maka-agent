@@ -41,6 +41,15 @@ export interface ModelInfo {
   };
 }
 
+export type ModelDiscoverySource = 'fetched' | 'fallback';
+
+export interface ModelDiscoveryResult {
+  models: ModelInfo[];
+  source: ModelDiscoverySource;
+  /** Unix ms timestamp when this list was produced. */
+  fetchedAt: number;
+}
+
 export type ConnectionLastTestStatus = 'verified' | 'needs_reauth' | 'error';
 
 export interface LlmConnection {

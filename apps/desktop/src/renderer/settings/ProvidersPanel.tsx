@@ -6,6 +6,7 @@ import {
   type ConnectionTestResult,
   type CreateConnectionInput,
   type LlmConnection,
+  type ModelDiscoveryResult,
   type ModelInfo,
   type ProviderCategory,
   type ProviderType,
@@ -21,7 +22,7 @@ export interface ConnectionsBridge {
   update(slug: string, patch: UpdateConnectionInput): Promise<LlmConnection>;
   delete(slug: string): Promise<void>;
   test(slug: string, opts?: { model?: string }): Promise<ConnectionTestResult>;
-  fetchModels(slug: string): Promise<ModelInfo[]>;
+  fetchModels(slug: string): Promise<ModelDiscoveryResult>;
   hasSecret(slug: string): Promise<boolean>;
 }
 
@@ -525,13 +526,14 @@ function ConnectionDetail(props: {
       // provider unavailable) rather than silently substituting the static
       // fallback list. Until then we still defensively handle the throw
       // case here so the UI is correct once the backend flips.
-      const list = await props.bridge.fetchModels(connection.slug);
+      const result = await props.bridge.fetchModels(connection.slug);
+      const list = result.models;
       setModels(list);
       // Mark as fetched even if list.length === 0. A provider that returned
       // an empty model list is a meaningful signal — the user should see
       // "0 fetched" rather than the static fallback being silently
       // substituted.
-      setModelSource('fetched');
+      setModelSource(result.source);
       await props.bridge.update(connection.slug, { models: list });
       await props.onChanged();
       if (!opts.silent) {

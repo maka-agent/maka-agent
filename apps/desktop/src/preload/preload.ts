@@ -6,6 +6,7 @@ import type {
   AppSettings,
   BotProvider,
   LlmConnection,
+  ModelDiscoveryResult,
   ModelInfo,
   PermissionResponse,
   PermissionMode,
@@ -106,7 +107,7 @@ contextBridge.exposeInMainWorld('maka', {
     test(slug: string, opts?: { model?: string }): Promise<ConnectionTestResult> {
       return ipcRenderer.invoke('connections:test', slug, opts);
     },
-    fetchModels(slug: string): Promise<ModelInfo[]> {
+    fetchModels(slug: string): Promise<ModelDiscoveryResult> {
       return ipcRenderer.invoke('connections:fetchModels', slug);
     },
     hasSecret(slug: string): Promise<boolean> {
