@@ -33,6 +33,7 @@ import { KeyboardHelpModal, useKeyboardHelp } from './keyboard-help';
 import { CommandPalette, buildCommandList, useCommandPalette } from './command-palette';
 import { OnboardingHero } from './OnboardingHero';
 import { ProviderLogo } from './settings/ProvidersPanel';
+import { ArtifactPane } from './artifact-pane';
 import { applyDensity, applyTheme } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
@@ -638,37 +639,40 @@ function AppShell() {
           onKeyDown={onResizeHandleKeyDown}
         />
         <div className="maka-panel maka-panel-detail maka-floating-panel">
-          <div className="mainColumn">
-            <ChatView
-              messages={messages}
-              streamingText={activeStreaming}
-              tools={liveTools}
-              activeSession={activeSessionForView}
-              activeConnectionLabel={activeConnectionLabel}
-              activeModelLabel={activeModelLabel}
-              activeProviderType={activeConnection?.providerType}
-              renderProviderMark={(type) => <ProviderLogo type={type} compact />}
-              userLabel={userLabel}
-              mode={navSelection.section}
-              connectionAlert={chatConnectionAlert}
-              emptyOverride={needsOnboarding ? (
-                <OnboardingHero
-                  onOpenSettings={() => setSettingsOpen(true)}
-                  onUseAnyway={() => composerRef.current?.focus()}
-                />
-              ) : undefined}
-              onNew={createSession}
-              onPromptSuggestion={(prompt) => composerRef.current?.setText(prompt)}
-              onPermissionModeChange={(mode) => void setPermissionMode(mode)}
-            />
-            <Composer
-              ref={composerRef}
-              hidden={navSelection.section !== 'sessions'}
-              disabled={Boolean(activePermission)}
-              streaming={activeStreaming.length > 0}
-              onSend={send}
-              onStop={stop}
-            />
+          <div className="maka-detail-with-artifacts">
+            <div className="mainColumn">
+              <ChatView
+                messages={messages}
+                streamingText={activeStreaming}
+                tools={liveTools}
+                activeSession={activeSessionForView}
+                activeConnectionLabel={activeConnectionLabel}
+                activeModelLabel={activeModelLabel}
+                activeProviderType={activeConnection?.providerType}
+                renderProviderMark={(type) => <ProviderLogo type={type} compact />}
+                userLabel={userLabel}
+                mode={navSelection.section}
+                connectionAlert={chatConnectionAlert}
+                emptyOverride={needsOnboarding ? (
+                  <OnboardingHero
+                    onOpenSettings={() => setSettingsOpen(true)}
+                    onUseAnyway={() => composerRef.current?.focus()}
+                  />
+                ) : undefined}
+                onNew={createSession}
+                onPromptSuggestion={(prompt) => composerRef.current?.setText(prompt)}
+                onPermissionModeChange={(mode) => void setPermissionMode(mode)}
+              />
+              <Composer
+                ref={composerRef}
+                hidden={navSelection.section !== 'sessions'}
+                disabled={Boolean(activePermission)}
+                streaming={activeStreaming.length > 0}
+                onSend={send}
+                onStop={stop}
+              />
+            </div>
+            <ArtifactPane sessionId={activeId} />
           </div>
         </div>
       </div>

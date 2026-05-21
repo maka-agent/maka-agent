@@ -113,6 +113,20 @@ declare global {
                 | 'open-failed';
             }
         >;
+        openArtifactPath(
+          artifactId: string,
+        ): Promise<
+          | { ok: true; opened: string }
+          | {
+              ok: false;
+              reason:
+                | 'unknown-key'
+                | 'not-allowed'
+                | 'missing'
+                | 'not-a-directory'
+                | 'open-failed';
+            }
+        >;
       };
       visualSmoke: {
         getState(): Promise<VisualSmokeState | null>;

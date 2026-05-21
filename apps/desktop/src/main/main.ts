@@ -62,7 +62,7 @@ import {
 } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { createArtifactStore, createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import { createArtifactStore, createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo, resolveArtifactPath } from '@maka/storage';
 import {
   assertSessionCanSend as assertHeaderCanSend,
   errorCode,
@@ -476,6 +476,44 @@ function registerIpc(): void {
     if (error) return { ok: false, reason: 'open-failed' };
     return { ok: true, opened: resolved.key };
   });
+  // Opens an artifact in Finder. Reuses the artifact-root realpath guard
+  // (mirrors PR56 open-path-guard) so renderer never assembles absolute
+  // paths — it only passes an artifactId; main looks up the record, runs
+  // the same prefix + symlink-escape check ArtifactStore uses for
+  // readText/readBinary, and only then hands the absolute path to
+  // `shell.openPath`. Failure-reason shape matches `app:openPath` so the
+  // renderer can route both through the same toast copy.
+  ipcMain.handle(
+    'app:openArtifactPath',
+    async (
+      _event,
+      artifactId: string,
+    ): Promise<
+      | { ok: true; opened: string }
+      | {
+          ok: false;
+          reason: 'unknown-key' | 'not-allowed' | 'missing' | 'not-a-directory' | 'open-failed';
+        }
+    > => {
+      const record = await artifactStore.get(artifactId);
+      if (!record) return { ok: false, reason: 'missing' };
+      if (record.status === 'deleted') return { ok: false, reason: 'missing' };
+      const artifactRoot = join(workspaceRoot, 'artifacts');
+      const resolved = await resolveArtifactPath({
+        artifactRoot,
+        relativePath: record.relativePath,
+      });
+      if (!resolved.ok) {
+        // Map storage-layer reasons onto the openPath taxonomy so toast
+        // routing in the renderer doesn't have to learn a second enum.
+        if (resolved.reason === 'not_allowed') return { ok: false, reason: 'not-allowed' };
+        return { ok: false, reason: 'missing' };
+      }
+      const error = await shell.openPath(resolved.path);
+      if (error) return { ok: false, reason: 'open-failed' };
+      return { ok: true, opened: record.name };
+    },
+  );
   ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
   ipcMain.handle('artifacts:list', (_event, sessionId: string, opts?: { includeDeleted?: boolean }) =>
     artifactStore.list(sessionId, opts),

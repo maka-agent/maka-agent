@@ -31,6 +31,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=connection-error npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=turn-narrative npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=streaming-sidebar npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=permission-destructive npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 ```
 
 Fixture mode is dev/test-only and refuses packaged builds. It seeds
@@ -382,6 +383,69 @@ must still flow through `window.maka`.
 - Settings, connection test, openPath, send/stop, or fixture state breaks
   after sandbox hardening.
 - A clicked markdown link or dropped file replaces the React app surface.
+
+---
+
+## Path 11 — Artifact pane (UI-02 follow-on, §9.1)
+
+**Precondition.** Fixture scenario `artifact-pane` — seeds a session named
+"Artifact Pane 验收" with 3 live artifacts (`report.html`, `patch.diff`,
+`notes.md`) under the workspace `artifacts/` root.
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
+```
+
+**Steps.**
+1. Launch Maka with the fixture above. The artifact session is activated
+   automatically via `visualSmoke.getState()`.
+2. Verify the right-side **ArtifactPane** is visible with a count badge of
+   **3** in the header and three rows in the list (newest first).
+3. Click the row for **report.html**. Confirm the preview region renders a
+   sandboxed `<iframe>` with the document body and a top status bar reading
+   *"此预览中已禁用外部链接 · 1 个链接"*.
+4. With DevTools open, inspect the iframe element. Its `sandbox` attribute
+   must be exactly `allow-scripts` — NO `allow-same-origin`,
+   `allow-top-navigation`, `allow-popups`, `allow-forms`, `allow-modals`.
+5. Click the disabled link inside the iframe. Nothing should happen (no
+   navigation, no popup, no console error in the parent renderer).
+6. Click the **patch.diff** row. Preview switches to a diff view with
+   red/green line coloring (`data-line="add"` / `data-line="del"`).
+7. Click the **notes.md** row. Preview switches to the markdown file
+   content rendered in a monospace `<pre>`.
+8. Take screenshots in light theme, dark theme, and a narrow window
+   (~900 px width) to verify layout regressions.
+9. Click the collapse toggle in the pane header. Pane should shrink to a
+   narrow strip; reload the page (⌘R / F5). Pane should still be
+   collapsed (persisted via localStorage `maka-artifact-pane-collapsed-v1`).
+10. Expand again. Verify the list still shows 3 artifacts after reload.
+
+**Pass signal.**
+- ArtifactPane header shows count `3` and three rows: `report.html`,
+  `patch.diff`, `notes.md`.
+- HTML preview renders inside an iframe whose only sandbox token is
+  `allow-scripts`. The status bar reads *"此预览中已禁用外部链接 · 1 个
+  链接"* (the fixture HTML contains one `<a href>`).
+- Diff preview shows the patch with red/green line tagging.
+- Markdown preview shows the raw file text in monospace.
+- Toolbar shows「在 Finder 中打开」+「另存为」for all kinds; only the
+  text-backed kinds (file / diff / html) additionally show「复制文本」 —
+  `image` / `pdf` rows do NOT (review gate #5).
+- Collapse state persists across reload via localStorage; the list still
+  has 3 entries after reload.
+
+**Fail signals.**
+- Blank pane despite the fixture seeding three artifacts (subscription /
+  list IPC regressed).
+- HTML preview shows raw HTML source as text instead of rendering inside
+  the iframe.
+- External-link status bar missing or count = 0 even though the fixture
+  HTML contains an `<a href="https://example.com">`.
+- Clicking a link inside the iframe navigates the parent renderer or opens
+  a popup (sandbox should block both).
+- `sandbox` attribute on the iframe contains any of `allow-same-origin`,
+  `allow-top-navigation`, `allow-popups`, `allow-forms`, `allow-modals`.
+- `image` or `pdf` rows render a 复制 button (binary kinds must not).
 
 ---
 
