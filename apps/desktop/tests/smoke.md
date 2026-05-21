@@ -449,6 +449,57 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 
 ---
 
+## Path 12 — Sidebar shows "已过期" pill for stale sessions
+
+**Precondition.** A workspace that contains at least one session with
+`backend='fake'` and/or `llmConnectionSlug` pointing at a removed
+connection — e.g. the actual end-user case that triggered the P0:
+
+```
+~/Library/Application Support/Maka/workspaces/default/sessions/
+  3b76ea22-… session.jsonl → backend=claude  slug=fake-claude
+  7280e103-… session.jsonl → backend=ai-sdk  slug=zai-coding-plan  ← OK
+  fff5cb61-… session.jsonl → backend=fake    slug=fake
+```
+
+If you don't have such a workspace, manually create a session via
+`MAKA_VISUAL_SMOKE_FIXTURE=first-run` and tamper with the resulting
+`session.jsonl` header to set `backend: "fake"`.
+
+**Steps.**
+1. Launch Maka against the workspace.
+2. Open the sidebar; observe the visible session rows.
+3. Click into a stale session so it becomes active.
+4. Click into the healthy session (`backend='ai-sdk'`, real slug).
+
+**Pass signals.**
+- Each stale session row is **dimmed (opacity ≈ 0.7)** AND shows a small
+  amber pill labelled **「已过期」** to the right of the session name.
+- The healthy session row is fully opaque, no pill.
+- When the stale session is **active** (clicked into):
+  - Row opacity is back to **1.0** (active highlight wins over dim).
+  - **「已过期」pill is still rendered** — the active highlight must not
+    erase the warning signal (@kenji review gate).
+  - Chat header surfaces the matching banner from PR108e:
+    `backend='fake'` → "会话已过期 · ..."; missing slug → "原连接已删除..."
+- Switching back to the healthy session removes both the pill and the
+  header banner; nothing else changes about the sidebar.
+
+**Fail signals.**
+- Stale row looks identical to the healthy row (pill missing OR dim
+  treatment missing).
+- Active stale row HIDES the pill (regression on @kenji's gate — once a
+  user clicks into a broken session the sidebar should still flag it as
+  broken; without this they think the session is fine).
+- Healthy row gets the pill / dim treatment (over-flagging — the
+  `staleSessionIds` Set should NOT include `slug`s that resolve to a
+  current connection).
+- Pill color matches the destructive (red) tone instead of warning
+  (amber); destructive is reserved for cases where send will actually
+  fail despite @xuan's silent rebind.
+
+---
+
 ## When to run
 
 - Before merging any large UI / runtime / credential / permission
