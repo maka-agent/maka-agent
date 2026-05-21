@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
@@ -702,6 +702,7 @@ function ModelTable(props: {
   onRefresh(): void;
 }) {
   const [query, setQuery] = useState('');
+  const listRef = useRef<HTMLUListElement>(null);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return props.modelChoices;
@@ -714,6 +715,49 @@ function ModelTable(props: {
         ? `实时拉取的 ${props.modelChoices.length} 个模型${formatFetchedAtSuffix(props.modelsFetchedAt)}`
         : '已成功调用 provider，但返回 0 个模型 — 该 provider 可能未对当前 API key 开放任何模型。'
       : `静态备用列表（${props.fallbackCount} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`;
+
+  // ARIA radiogroup keyboard pattern: arrow keys move focus between radios,
+  // Home/End jump to ends. Space/Enter on a focused radio just trigger
+  // the native button click. @kenji PR91 follow-up #1.
+  function onListKeyDown(event: ReactKeyboardEvent<HTMLUListElement>) {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
+    const list = listRef.current;
+    if (!list) return;
+    const radios = Array.from(list.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
+    if (radios.length === 0) return;
+    const currentIndex = radios.indexOf(document.activeElement as HTMLButtonElement);
+    let nextIndex = currentIndex;
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowRight':
+        nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % radios.length;
+        break;
+      case 'ArrowUp':
+      case 'ArrowLeft':
+        nextIndex = currentIndex < 0 ? radios.length - 1 : (currentIndex - 1 + radios.length) % radios.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = radios.length - 1;
+        break;
+    }
+    if (nextIndex === currentIndex) return;
+    event.preventDefault();
+    radios[nextIndex]?.focus({ preventScroll: false });
+    radios[nextIndex]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  // @kenji PR91 follow-up #2: when search filters out the currently-selected
+  // default, surface a one-line hint so the user doesn't lose track of which
+  // model is in effect. Click the hint to clear the search.
+  const defaultHidden =
+    query.trim().length > 0 &&
+    props.defaultModel.length > 0 &&
+    filtered.every((m) => m.id !== props.defaultModel);
 
   return (
     <div className="modelTable" data-source={props.modelSource}>
@@ -744,6 +788,17 @@ function ModelTable(props: {
         />
       )}
 
+      {defaultHidden && (
+        <button
+          type="button"
+          className="modelTableDefaultHint"
+          onClick={() => setQuery('')}
+          title="清空搜索"
+        >
+          当前默认 <code>{props.defaultModel}</code> 不在搜索结果中 · 点这里清空搜索
+        </button>
+      )}
+
       {props.modelChoices.length === 0 ? (
         <div className="modelTableEmpty">
           {props.modelSource === 'fetched'
@@ -753,7 +808,13 @@ function ModelTable(props: {
       ) : filtered.length === 0 ? (
         <div className="modelTableEmpty">没有匹配 “{query}” 的模型。</div>
       ) : (
-        <ul className="modelTableList" role="radiogroup" aria-label="默认模型">
+        <ul
+          ref={listRef}
+          className="modelTableList"
+          role="radiogroup"
+          aria-label="默认模型"
+          onKeyDown={onListKeyDown}
+        >
           {filtered.map((model) => {
             const isDefault = model.id === props.defaultModel;
             return (
@@ -764,6 +825,9 @@ function ModelTable(props: {
                   role="radio"
                   aria-checked={isDefault}
                   data-default={isDefault ? 'true' : undefined}
+                  // Only the active radio is in the tab order; arrow keys
+                  // move focus inside the group. Standard ARIA radiogroup.
+                  tabIndex={isDefault || (!props.defaultModel && filtered[0]?.id === model.id) ? 0 : -1}
                   onClick={() => props.onPickDefault(model.id)}
                 >
                   <span className="modelTableRowRadio" aria-hidden="true" />

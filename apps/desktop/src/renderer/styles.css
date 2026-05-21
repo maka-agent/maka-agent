@@ -4379,6 +4379,33 @@ button:active {
   text-align: center;
 }
 
+/* Surfaced when a search filter hides the currently-selected default
+ * (per @kenji PR91 follow-up). Click to clear the search. */
+.modelTableDefaultHint {
+  display: block;
+  text-align: left;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid oklch(from var(--accent) l c h / 0.22);
+  background: oklch(from var(--accent) l c h / 0.06);
+  color: var(--foreground);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+  width: 100%;
+}
+
+.modelTableDefaultHint:hover {
+  background: oklch(from var(--accent) l c h / 0.10);
+}
+
+.modelTableDefaultHint code {
+  font-family: var(--font-mono);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .modelTableList {
   margin: 0;
   padding: 0;
