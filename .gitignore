@@ -4,3 +4,6 @@ dist
 *.log
 *.tsbuildinfo
 .agents-workspace-data
+# PR-IR-01 captured screenshots — generated artifacts, not committed.
+# The committed baseline lives in `apps/desktop/tests/screenshots-baseline/`.
+apps/desktop/tests/screenshots/
