@@ -334,12 +334,7 @@ function SettingsPage(props: {
     case 'data':
       return <DataSettingsPage />;
     case 'account':
-      return (
-        <SettingsRows>
-          <SettingRow title="权限策略" detail="敏感工具调用前需要确认。" value="Ask" />
-          <SettingRow title="凭据保护" detail="API key 使用系统 safeStorage 加密。" value="Enabled" />
-        </SettingsRows>
-      );
+      return <AccountSettingsPage connections={props.connections} />;
     default: {
       const copy = COMING_SOON_PAGES[props.section];
       if (copy) {
@@ -446,6 +441,39 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string
   { value: 'dark', label: '深色', help: '始终使用深色界面。' },
   { value: 'auto', label: '跟随系统', help: '匹配 macOS 的当前 Light/Dark 偏好。' },
 ];
+
+function AccountSettingsPage(props: { connections: LlmConnection[] }) {
+  // Pull real per-connection state instead of the previous "Ask / Enabled"
+  // placeholders. The PermissionEngine + safeStorage are background facts the
+  // page should surface honestly, not vague labels.
+  const enabledCount = props.connections.filter((connection) => connection.enabled).length;
+  const totalCount = props.connections.length;
+  const defaultPermissionMode = '需要确认 (ask)';
+  return (
+    <SettingsRows>
+      <SettingRow
+        title="默认权限模式"
+        detail="新会话默认从 Ask 模式开始；可在 chat header 切到 Explore / Execute。"
+        value={defaultPermissionMode}
+      />
+      <SettingRow
+        title="凭据保护"
+        detail="API key 使用 Electron safeStorage 加密（macOS Keychain / Windows DPAPI / Linux libsecret）。"
+        value="启用"
+      />
+      <SettingRow
+        title="已配置模型连接"
+        detail={`共有 ${totalCount} 个 connection 在 settings 里登记。`}
+        value={`${enabledCount} 已启用 / ${totalCount} 总数`}
+      />
+      <SettingRow
+        title="审计日志"
+        detail="每个会话的 JSONL 留存所有消息、tool 调用、权限决策与 mode_change，永不离开本机。"
+        value="本地"
+      />
+    </SettingsRows>
+  );
+}
 
 function DataSettingsPage() {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof window.maka.app.info>> | null>(null);
