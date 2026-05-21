@@ -93,7 +93,7 @@ declare global {
         openPath(target: string): Promise<string>;
       };
       skills: {
-        list(): Promise<Array<{ id: string; name: string; description: string; path: string }>>;
+        list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>>;
       };
     };
   }

@@ -173,7 +173,7 @@ contextBridge.exposeInMainWorld('maka', {
     },
   },
   skills: {
-    list(): Promise<Array<{ id: string; name: string; description: string; path: string }>> {
+    list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>> {
       return ipcRenderer.invoke('skills:list');
     },
   },

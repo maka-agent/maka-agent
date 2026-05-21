@@ -150,6 +150,12 @@ export interface SkillEntry {
   name: string;
   description: string;
   path: string;
+  /**
+   * Tools the skill *declares* it would like to use. This is a request, not
+   * a grant — PermissionEngine still applies. We surface the list so users
+   * can see what a skill is asking for before they install / enable it.
+   */
+  declaredTools?: string[];
 }
 
 export interface SessionRowActions {
@@ -319,23 +325,38 @@ export function SessionListPanel(props: {
         {props.selection.section === 'skills' ? (
           (props.skills && props.skills.length > 0) ? (
             <div className="maka-list-stack">
-              {props.skills.map((skill) => (
-                <button
-                  key={skill.id}
-                  type="button"
-                  className="maka-list-row maka-skill-row"
-                  onClick={() => props.onOpenSkillFolder?.(skill.path)}
-                  title={`Open ${skill.path}`}
-                >
-                  <div className="maka-list-row-text">
-                    <div className="maka-list-row-name">{skill.name}</div>
-                    {skill.description && (
-                      <div className="maka-list-row-preview">{skill.description}</div>
-                    )}
-                    <div className="maka-list-row-meta">{skill.id}</div>
-                  </div>
-                </button>
-              ))}
+              {props.skills.map((skill) => {
+                const tools = skill.declaredTools ?? [];
+                const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
+                const hoverText = tools.length > 0
+                  ? `${skill.path}\n\nRequests: ${toolsLabel}\nPermissionEngine still applies — this is a declaration, not a grant.`
+                  : skill.path;
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    className="maka-list-row maka-skill-row"
+                    onClick={() => props.onOpenSkillFolder?.(skill.path)}
+                    title={hoverText}
+                  >
+                    <div className="maka-list-row-text">
+                      <div className="maka-list-row-name">{skill.name}</div>
+                      {skill.description && (
+                        <div className="maka-list-row-preview">{skill.description}</div>
+                      )}
+                      <div className="maka-list-row-meta">
+                        {skill.id}
+                        {tools.length > 0 && (
+                          <span className="maka-skill-tools" aria-label="Declared tools">
+                            <span className="maka-skill-tools-label">requests</span>
+                            <span>{toolsLabel}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="maka-empty-state">

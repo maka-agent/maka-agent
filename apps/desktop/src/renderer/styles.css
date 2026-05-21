@@ -841,6 +841,25 @@ button:active {
   line-height: 1.4;
 }
 
+.maka-skill-tools {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--foreground-60);
+}
+
+.maka-skill-tools-label {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: oklch(from var(--info) l c h / 0.12);
+  color: var(--info-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .maka-list-row[data-active="true"] .maka-list-row-preview {
   color: var(--foreground-70);
 }
