@@ -511,7 +511,10 @@ function PersonalizationSettingsPage(props: {
           spellCheck={false}
           style={{ minHeight: 84, resize: 'vertical', borderRadius: 12 }}
         />
-        <small>这段会拼到 system prompt 末尾。500 字符内。</small>
+        <small>
+          以低优先级用户偏好拼到 system prompt，500 字符内。Runtime 仍按权限策略和工具规则
+          独立判定 —— 此处不能写成"忽略前面规则"或"不要再询问"这种指令，会被忽略。
+        </small>
       </label>
 
       <div className="settingsActionRow">
