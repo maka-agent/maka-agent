@@ -3153,6 +3153,117 @@ button:active {
   gap: 8px;
 }
 
+/* Per-connection card on AccountSettingsPage. Status badge tone derives
+ * from the closed-form ConnectionUiStatus enum:
+ *   neutral / info / success / warning / destructive.
+ */
+.settingsConnectionList {
+  display: grid;
+  gap: 10px;
+}
+
+.settingsConnectionRow {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--foreground-2);
+}
+
+.settingsConnectionRow[data-status="verified"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+  background: oklch(from var(--success) l c h / 0.04);
+}
+.settingsConnectionRow[data-status="needs_reauth"] {
+  border-color: oklch(from var(--info) l c h / 0.30);
+  background: oklch(from var(--info) l c h / 0.06);
+}
+.settingsConnectionRow[data-status="error"] {
+  border-color: oklch(from var(--destructive) l c h / 0.30);
+  background: oklch(from var(--destructive) l c h / 0.05);
+}
+.settingsConnectionRow[data-status="not_configured"] {
+  border-color: oklch(from var(--info) l c h / 0.20);
+  background: oklch(from var(--info) l c h / 0.03);
+}
+.settingsConnectionRow[data-status="disabled"] {
+  opacity: 0.72;
+}
+
+.settingsConnectionRowHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsConnectionRowText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settingsConnectionRowText strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingsConnectionRowText small {
+  color: var(--foreground-50);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settingsConnectionBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  white-space: nowrap;
+}
+
+.settingsConnectionBadge[data-tone="success"] {
+  background: oklch(from var(--success) l c h / 0.12);
+  color: var(--success);
+}
+.settingsConnectionBadge[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+}
+.settingsConnectionBadge[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  font-weight: 700;
+}
+.settingsConnectionBadge[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.15);
+  color: var(--destructive);
+  font-weight: 700;
+}
+
+.settingsConnectionDetail {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settingsConnectionMeta {
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
 .providerEmpty,
 .providerCard,
 .settingsRow {

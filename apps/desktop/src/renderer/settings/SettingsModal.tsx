@@ -36,6 +36,11 @@ import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
 import { useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
+import {
+  connectionUiStatusFromRecord,
+  presentConnectionUiStatus,
+  type ConnectionUiStatus,
+} from '../connection-status';
 
 type SettingsNavItem = {
   id: SettingsSection;
@@ -641,9 +646,32 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string
 ];
 
 function AccountSettingsPage(props: { connections: LlmConnection[] }) {
-  // Pull real per-connection state instead of the previous "Ask / Enabled"
-  // placeholders. The PermissionEngine + safeStorage are background facts the
-  // page should surface honestly, not vague labels.
+  // Backend (xuan, 5ca1f8a) persists per-connection lastTestStatus. UI
+  // derives the display status from `enabled + hasSecret + defaultModel +
+  // lastTestStatus + authKind` per @kenji's status-contract priority list,
+  // so we never produce mixed labels like "disabled + verified".
+  const [secretMap, setSecretMap] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      props.connections.map(async (connection) => {
+        try {
+          const has = await window.maka.connections.hasSecret(connection.slug);
+          return [connection.slug, has] as const;
+        } catch {
+          return [connection.slug, false] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setSecretMap(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.connections]);
+
   const enabledCount = props.connections.filter((connection) => connection.enabled).length;
   const totalCount = props.connections.length;
   return (
@@ -670,29 +698,50 @@ function AccountSettingsPage(props: { connections: LlmConnection[] }) {
       {totalCount === 0 ? (
         <div className="settingsEmptyState">未配置任何模型连接。可在 设置 · 模型 添加。</div>
       ) : (
-        <div className="settingsRows">
-          {props.connections.map((connection) => {
-            // Per @kenji's contract: we surface configured vs not, but
-            // can't honestly say "verified" until backend adds a
-            // lastTestStatus enum. Until then, enabled = has-been-saved.
-            const status = connection.enabled ? '已启用，未验证' : '已禁用';
-            const subtitle = `${connection.providerType} · ${connection.defaultModel || 'no default model'}`;
-            return (
-              <div key={connection.slug} className="settingsRow">
-                <div>
-                  <strong>{connection.name}</strong>
-                  <small>{subtitle}</small>
-                </div>
-                <span>{status}</span>
-              </div>
-            );
-          })}
+        <div className="settingsConnectionList" role="list">
+          {props.connections.map((connection) => (
+            <AccountConnectionRow
+              key={connection.slug}
+              connection={connection}
+              hasSecret={secretMap[connection.slug] ?? false}
+            />
+          ))}
         </div>
       )}
       <p className="settingsHelpText">
-        显示 “{enabledCount} 已启用 / {totalCount} 总数”。一旦后端补上 lastTestStatus，
-        这里会区分 已配置 / 已验证 / 需要重新登录 / 错误 五种状态。
+        共 {totalCount} 个连接 · {enabledCount} 已启用。修改 API key / baseUrl / 默认模型会清掉「已验证」状态，
+        需要重新测试。失败的测试不会自动禁用连接 —— 禁用始终是用户动作。
       </p>
+    </div>
+  );
+}
+
+function AccountConnectionRow(props: { connection: LlmConnection; hasSecret: boolean }) {
+  const status: ConnectionUiStatus = connectionUiStatusFromRecord(props.connection, props.hasSecret);
+  const presentation = presentConnectionUiStatus(status);
+  const subtitle = `${props.connection.providerType} · ${props.connection.defaultModel || '未设默认模型'}`;
+  const lastTestAt = props.connection.lastTestAt
+    ? new Date(props.connection.lastTestAt).toLocaleString()
+    : null;
+  const lastTestMessage = props.connection.lastTestMessage;
+  return (
+    <div className="settingsConnectionRow" role="listitem" data-status={status}>
+      <div className="settingsConnectionRowHead">
+        <div className="settingsConnectionRowText">
+          <strong>{props.connection.name}</strong>
+          <small>{subtitle}</small>
+        </div>
+        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+          {presentation.label}
+        </span>
+      </div>
+      <p className="settingsConnectionDetail">{presentation.detail}</p>
+      {(lastTestAt || lastTestMessage) && (
+        <p className="settingsConnectionMeta">
+          {lastTestMessage && <span>{lastTestMessage}</span>}
+          {lastTestAt && <time dateTime={props.connection.lastTestAt}>{lastTestAt}</time>}
+        </p>
+      )}
     </div>
   );
 }
