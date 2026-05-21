@@ -23,6 +23,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'artifact-pane',
   'streaming-sidebar',
   'permission-destructive',
+  'stale-sessions',
 ]);
 
 export interface VisualSmokeFixture {
@@ -82,6 +83,11 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         permissionBySession: permissionState(),
         liveToolsBySession: permissionTools(),
       };
+    case 'stale-sessions':
+      // Active session intentionally a stale one — verifies the @kenji
+      // gate that an active+stale row still shows the "已过期" pill
+      // (active highlight must not erase the warning signal).
+      return { ...state, activeSessionId: STALE_FAKE_SESSION_ID };
     case 'all':
       return {
         ...state,
@@ -117,6 +123,19 @@ export async function seedVisualSmokeFixture(input: {
   await writeSession(input.workspaceRoot, errorSession(now), errorMessages(now));
   await writeSession(input.workspaceRoot, artifactSession(now), artifactMessages(now));
   await writeArtifacts(input.workspaceRoot, now);
+  // Stale-session fixture seeds three sessions reproducing the @WAWQAQ
+  // workspace state that triggered the P0:
+  //   - one healthy ai-sdk session (zai-live, correct slug)
+  //   - one fake backend session (FakeBackend)
+  //   - one legacy backend kind ('claude' with slug 'fake-claude')
+  // Together with the connection list (no `fake-claude` slug present),
+  // the renderer must mark the bottom two as stale + leave the first
+  // alone.
+  if (input.fixture.scenario === 'stale-sessions') {
+    await writeSession(input.workspaceRoot, staleFakeSession(now), staleFakeMessages(now));
+    await writeSession(input.workspaceRoot, staleLegacySession(now), staleLegacyMessages(now));
+    await writeSession(input.workspaceRoot, healthySession(now), healthyMessages(now));
+  }
 }
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
@@ -124,6 +143,9 @@ const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 const PERMISSION_SESSION_ID = 'visual-smoke-permission';
 const ERROR_SESSION_ID = 'visual-smoke-error';
 const ARTIFACT_SESSION_ID = 'visual-smoke-artifact';
+const STALE_FAKE_SESSION_ID = 'visual-smoke-stale-fake';
+const STALE_LEGACY_SESSION_ID = 'visual-smoke-stale-legacy';
+const HEALTHY_SESSION_ID = 'visual-smoke-healthy';
 
 async function writeSettings(workspaceRoot: string): Promise<void> {
   const settings = createDefaultSettings();
@@ -476,6 +498,14 @@ function header(input: {
   now: number;
   lastMessageAt: number;
   hasUnread?: boolean;
+  /**
+   * Override default `backend: 'ai-sdk'`. Used by stale-sessions fixture
+   * to seed FakeBackend + legacy backend kinds. SessionHeader's BackendKind
+   * union allows widening via `as unknown` for legacy values like
+   * 'claude' that no longer exist in the type.
+   */
+  backend?: SessionHeader['backend'] | 'claude';
+  connectionLocked?: boolean;
 }): SessionHeader {
   return {
     id: input.id,
@@ -489,13 +519,123 @@ function header(input: {
     labels: [],
     isArchived: false,
     hasUnread: input.hasUnread ?? false,
-    backend: 'ai-sdk',
+    // Legacy backend kinds like 'claude' aren't in the current BackendKind
+    // union but are needed for the stale-sessions reproduction. Forward
+    // the value verbatim into the JSONL so the renderer sees exactly what
+    // a real legacy workspace would have on disk.
+    backend: (input.backend ?? 'ai-sdk') as SessionHeader['backend'],
     llmConnectionSlug: input.connection,
-    connectionLocked: true,
+    connectionLocked: input.connectionLocked ?? true,
     model: input.model,
     permissionMode: 'ask',
     schemaVersion: 1,
   };
+}
+
+// Stale-sessions fixture seeds three sessions reproducing the on-disk
+// state that triggered the P0 (WAWQAQ workspace had `fake-claude` +
+// `backend=fake` sessions sitting next to a healthy `zai-coding-plan`
+// one). Locks the @kenji active-stale pill gate (active session is
+// intentionally one of the stale ones).
+function staleFakeSession(now: number): SessionHeader {
+  return header({
+    id: STALE_FAKE_SESSION_ID,
+    name: '旧的 FakeBackend 演示',
+    connection: 'fake',
+    model: 'fake-model',
+    now,
+    lastMessageAt: now - 4 * 24 * 3_600_000,
+    backend: 'fake',
+    connectionLocked: false,
+  });
+}
+
+function staleLegacySession(now: number): SessionHeader {
+  return header({
+    id: STALE_LEGACY_SESSION_ID,
+    name: '旧的 Claude backend 会话',
+    connection: 'fake-claude',
+    model: 'claude-3-sonnet',
+    now,
+    lastMessageAt: now - 7 * 24 * 3_600_000,
+    backend: 'claude' as SessionHeader['backend'],
+    connectionLocked: true,
+  });
+}
+
+function healthySession(now: number): SessionHeader {
+  return header({
+    id: HEALTHY_SESSION_ID,
+    name: '正常会话（Z.ai Live）',
+    connection: 'zai-live',
+    model: 'glm-5.1',
+    now,
+    lastMessageAt: now - 12 * 60_000,
+    backend: 'ai-sdk',
+  });
+}
+
+function staleFakeMessages(now: number): StoredMessage[] {
+  const turnId = 'stale-fake-turn-1';
+  return [
+    {
+      type: 'user',
+      id: 'stale-fake-msg-1',
+      turnId,
+      ts: now - 4 * 24 * 3_600_000,
+      text: '这是早期演示版会话，发送时应该会被 silent rebind。',
+    },
+    {
+      type: 'assistant',
+      id: 'stale-fake-msg-2',
+      turnId,
+      ts: now - 4 * 24 * 3_600_000 + 2_000,
+      text: '这是 FakeBackend 的回复占位文本。',
+      modelId: 'fake-model',
+    },
+  ];
+}
+
+function staleLegacyMessages(now: number): StoredMessage[] {
+  const turnId = 'stale-legacy-turn-1';
+  return [
+    {
+      type: 'user',
+      id: 'stale-legacy-msg-1',
+      turnId,
+      ts: now - 7 * 24 * 3_600_000,
+      text: '这是历史 Claude backend 留下的会话。slug fake-claude 已不在连接列表里。',
+    },
+    {
+      type: 'assistant',
+      id: 'stale-legacy-msg-2',
+      turnId,
+      ts: now - 7 * 24 * 3_600_000 + 3_000,
+      text: '占位回复。',
+      modelId: 'claude-3-sonnet',
+    },
+  ];
+}
+
+function healthyMessages(now: number): StoredMessage[] {
+  const turnId = 'healthy-turn-1';
+  return [
+    {
+      type: 'user',
+      id: 'healthy-msg-1',
+      turnId,
+      ts: now - 12 * 60_000,
+      text: '这是正常的 ai-sdk + zai-live 会话，sidebar 应该没有 "已过期" pill。',
+    },
+    {
+      type: 'assistant',
+      id: 'healthy-msg-2',
+      turnId,
+      ts: now - 12 * 60_000 + 1_500,
+      text: 'Z.ai Live fixture 路径的占位回复。',
+      modelId: 'glm-5.1',
+    },
+  ];
 }
 
 async function writeSession(workspaceRoot: string, session: SessionHeader, messages: StoredMessage[]): Promise<void> {

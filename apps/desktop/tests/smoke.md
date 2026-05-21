@@ -32,6 +32,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=turn-narrative npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=streaming-sidebar npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=permission-destructive npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=stale-sessions npm --workspace @maka/desktop run dev
 ```
 
 Fixture mode is dev/test-only and refuses packaged builds. It seeds
@@ -451,20 +452,21 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 
 ## Path 12 — Sidebar shows "已过期" pill for stale sessions
 
-**Precondition.** A workspace that contains at least one session with
-`backend='fake'` and/or `llmConnectionSlug` pointing at a removed
-connection — e.g. the actual end-user case that triggered the P0:
+**Precondition.** Fixture scenario `stale-sessions`:
 
-```
-~/Library/Application Support/Maka/workspaces/default/sessions/
-  3b76ea22-… session.jsonl → backend=claude  slug=fake-claude
-  7280e103-… session.jsonl → backend=ai-sdk  slug=zai-coding-plan  ← OK
-  fff5cb61-… session.jsonl → backend=fake    slug=fake
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=stale-sessions npm --workspace @maka/desktop run dev
 ```
 
-If you don't have such a workspace, manually create a session via
-`MAKA_VISUAL_SMOKE_FIXTURE=first-run` and tamper with the resulting
-`session.jsonl` header to set `backend: "fake"`.
+This seeds a workspace reproducing the on-disk state that triggered the
+P0 — three sessions in the sidebar:
+- 「旧的 FakeBackend 演示」 — `backend='fake'`, slug `fake` (stale)
+- 「旧的 Claude backend 会话」 — `backend='claude'`, slug `fake-claude` (stale, legacy)
+- 「正常会话（Z.ai Live）」 — `backend='ai-sdk'`, slug `zai-live` (healthy)
+
+The active session is intentionally the FakeBackend stale row — the
+fixture is designed to verify the @kenji active-stale gate (active row
+must still show the pill).
 
 **Steps.**
 1. Launch Maka against the workspace.
