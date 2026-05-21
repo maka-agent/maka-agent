@@ -54,7 +54,7 @@ const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'bot-chat', label: '机器人对话', Icon: Bot, enabled: true },
   { id: 'search', label: '搜索服务', Icon: Search, enabled: true, comingSoon: true },
   { id: 'network', label: '网络', Icon: Globe, enabled: true },
-  { id: 'data', label: '数据', Icon: Database, enabled: true, comingSoon: true },
+  { id: 'data', label: '数据', Icon: Database, enabled: true },
   { id: 'account', label: '账号', Icon: UserCircle, enabled: true },
   { id: 'about', label: '关于', Icon: Info, enabled: true },
 ];
@@ -109,17 +109,6 @@ const COMING_SOON_PAGES: Partial<Record<SettingsSection, ComingSoonCopy>> = {
       '主流引擎：Tavily / Brave Search / SerpAPI',
       '自托管选项：SearxNG、MetaSo、本地索引',
       '查询缓存与隐私模式（含网络代理路由）',
-    ],
-  },
-  data: {
-    Icon: Database,
-    headline: '即将推出 · 数据',
-    description:
-      '统一管理工作区数据：会话归档、设置备份、凭据导入导出，全部留在本机。',
-    bullets: [
-      '导出整个 workspace（sessions + settings + skills）为 .maka.zip',
-      '导入备份时按 schemaVersion 升级，缺字段补默认',
-      '清理旧会话与流式中断残留',
     ],
   },
 };
@@ -342,13 +331,10 @@ function SettingsPage(props: {
       );
     case 'personalization':
       return <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
+    case 'data':
+      return <DataSettingsPage />;
     case 'account':
-      return (
-        <SettingsRows>
-          <SettingRow title="权限策略" detail="敏感工具调用前需要确认。" value="Ask" />
-          <SettingRow title="凭据保护" detail="API key 使用系统 safeStorage 加密。" value="Enabled" />
-        </SettingsRows>
-      );
+      return <AccountSettingsPage connections={props.connections} />;
     default: {
       const copy = COMING_SOON_PAGES[props.section];
       if (copy) {
@@ -456,6 +442,139 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string
   { value: 'auto', label: '跟随系统', help: '匹配 macOS 的当前 Light/Dark 偏好。' },
 ];
 
+function AccountSettingsPage(props: { connections: LlmConnection[] }) {
+  // Pull real per-connection state instead of the previous "Ask / Enabled"
+  // placeholders. The PermissionEngine + safeStorage are background facts the
+  // page should surface honestly, not vague labels.
+  const enabledCount = props.connections.filter((connection) => connection.enabled).length;
+  const totalCount = props.connections.length;
+  return (
+    <div className="settingsStructuredPage">
+      <SettingsRows>
+        <SettingRow
+          title="默认权限模式"
+          detail="新会话默认从 Ask 模式开始；可在 chat header 切到 Explore / Execute。"
+          value="需要确认 (ask)"
+        />
+        <SettingRow
+          title="凭据保护"
+          detail="API key 使用 Electron safeStorage 加密（macOS Keychain / Windows DPAPI / Linux libsecret）。"
+          value="启用"
+        />
+        <SettingRow
+          title="审计日志"
+          detail="每个会话的 JSONL 留存所有消息、tool 调用、权限决策与 mode_change，永不离开本机。"
+          value="本地"
+        />
+      </SettingsRows>
+
+      <h3 className="settingsSubheading">模型连接</h3>
+      {totalCount === 0 ? (
+        <div className="settingsEmptyState">未配置任何模型连接。可在 设置 · 模型 添加。</div>
+      ) : (
+        <div className="settingsRows">
+          {props.connections.map((connection) => {
+            // Per @kenji's contract: we surface configured vs not, but
+            // can't honestly say "verified" until backend adds a
+            // lastTestStatus enum. Until then, enabled = has-been-saved.
+            const status = connection.enabled ? '已启用，未验证' : '已禁用';
+            const subtitle = `${connection.providerType} · ${connection.defaultModel || 'no default model'}`;
+            return (
+              <div key={connection.slug} className="settingsRow">
+                <div>
+                  <strong>{connection.name}</strong>
+                  <small>{subtitle}</small>
+                </div>
+                <span>{status}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="settingsHelpText">
+        显示 “{enabledCount} 已启用 / {totalCount} 总数”。一旦后端补上 lastTestStatus，
+        这里会区分 已配置 / 已验证 / 需要重新登录 / 错误 五种状态。
+      </p>
+    </div>
+  );
+}
+
+function DataSettingsPage() {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof window.maka.app.info>> | null>(null);
+  const toast = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.maka.app.info().then((next) => {
+      if (!cancelled) setInfo(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function openWorkspace() {
+    if (!info) return;
+    try {
+      const result = await window.maka.app.openPath(info.workspacePath);
+      if (result) toast.error('打开失败', result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error('打开失败', message);
+    }
+  }
+
+  async function copyPath() {
+    if (!info) return;
+    try {
+      await navigator.clipboard.writeText(info.workspacePath);
+      toast.success('已复制工作区路径');
+    } catch {
+      toast.error('复制失败', '剪贴板不可用');
+    }
+  }
+
+  return (
+    <div className="settingsStructuredPage">
+      <SettingsRows>
+        <SettingRow
+          title="工作区路径"
+          detail="会话、设置、credentials、skills 都存在这个目录下。"
+          value={info?.workspacePath ?? '正在加载…'}
+        />
+        <SettingRow
+          title="存储引擎"
+          detail="JSONL 会话、settings.json、SQLite usage stats、safeStorage 加密的 API key。"
+          value="本地文件"
+        />
+      </SettingsRows>
+      <div className="settingsActionRow">
+        <button
+          type="button"
+          className="maka-button"
+          data-variant="primary"
+          onClick={() => void openWorkspace()}
+          disabled={!info}
+        >
+          在 Finder / 资源管理器中打开
+        </button>
+        <button
+          type="button"
+          className="maka-button"
+          onClick={() => void copyPath()}
+          disabled={!info}
+        >
+          复制路径
+        </button>
+      </div>
+      <div className="settingsNotice">
+        提示：导出整个 workspace 为 .maka.zip、按 schemaVersion 升级导入备份等
+        能力会在 V0.2 阶段开放。现在可以在 Finder 里直接打包整个目录做手动备份。
+      </div>
+    </div>
+  );
+}
+
 function PersonalizationSettingsPage(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<AppSettings>;
@@ -511,7 +630,10 @@ function PersonalizationSettingsPage(props: {
           spellCheck={false}
           style={{ minHeight: 84, resize: 'vertical', borderRadius: 12 }}
         />
-        <small>这段会拼到 system prompt 末尾。500 字符内。</small>
+        <small>
+          以低优先级用户偏好拼到 system prompt，500 字符内。Runtime 仍按权限策略和工具规则
+          独立判定 —— 此处不能写成"忽略前面规则"或"不要再询问"这种指令，会被忽略。
+        </small>
       </label>
 
       <div className="settingsActionRow">

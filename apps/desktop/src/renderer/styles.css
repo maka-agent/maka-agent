@@ -449,8 +449,25 @@ button:active {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 4px;
   padding: 10px;
+}
+
+.maka-list-group {
+  display: grid;
+  gap: 6px;
+}
+
+.maka-list-group + .maka-list-group {
+  margin-top: 14px;
+}
+
+.maka-list-group-label {
+  padding: 0 4px 2px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .maka-list-row {
@@ -804,6 +821,47 @@ button:active {
   white-space: nowrap;
   color: var(--foreground-50);
   font-size: 12px;
+}
+
+.maka-list-row-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-list-row-preview {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.maka-skill-tools {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--foreground-60);
+}
+
+.maka-skill-tools-label {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: oklch(from var(--info) l c h / 0.12);
+  color: var(--info-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-preview {
+  color: var(--foreground-70);
 }
 
 .maka-list-row-unread {

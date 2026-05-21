@@ -145,6 +145,19 @@ function Count(props: { value: number }) {
   return <small>{props.value}</small>;
 }
 
+export interface SkillEntry {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  /**
+   * Tools the skill *declares* it would like to use. This is a request, not
+   * a grant — PermissionEngine still applies. We surface the list so users
+   * can see what a skill is asking for before they install / enable it.
+   */
+  declaredTools?: string[];
+}
+
 export interface SessionRowActions {
   /** Flag (pin) state toggle. */
   onToggleFlag(sessionId: string, next: boolean): void;
@@ -162,10 +175,12 @@ export function SessionListPanel(props: {
   sessionCounts: Record<SessionFilter, number>;
   sessions: SessionSummary[];
   activeId?: string;
+  skills?: SkillEntry[];
   onSelectSession(sessionId: string): void;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
   onNew(): void;
+  onOpenSkillFolder?(path: string): void;
   rowActions?: SessionRowActions;
 }) {
   const isSessionFilter = (filter: SessionFilter) => props.selection.section === 'sessions' && props.selection.filter === filter;
@@ -197,7 +212,38 @@ export function SessionListPanel(props: {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [props.selection.section]);
 
+  // List of filter ids in display order — used by Left/Right keyboard cycle.
+  const filterCycle: SessionFilter[] = ['chats', 'flagged', 'archived'];
+
   function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      // Left/Right inside the list cycles filter buckets (per @kenji's
+      // session-list-lifecycle contract). Only fires when the section is
+      // already `sessions` (skills section has its own logic).
+      if (props.selection.section !== 'sessions') return;
+      const current = filterCycle.indexOf(props.selection.filter);
+      if (current < 0) return;
+      const delta = event.key === 'ArrowRight' ? 1 : -1;
+      const next = filterCycle[(current + delta + filterCycle.length) % filterCycle.length];
+      if (next && next !== props.selection.filter) {
+        event.preventDefault();
+        props.onSelect({ section: 'sessions', filter: next });
+      }
+      return;
+    }
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      // Delete on a focused row opens the App-level confirmation (which
+      // toast.confirm()s); we do not delete silently per the lifecycle
+      // contract.
+      const active = document.activeElement as HTMLElement | null;
+      const row = active?.closest('.maka-list-row');
+      const sessionId = row?.querySelector<HTMLButtonElement>('.maka-list-row-main')?.dataset.sessionId;
+      if (sessionId && props.rowActions) {
+        event.preventDefault();
+        props.rowActions.onDelete(sessionId);
+      }
+      return;
+    }
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home' && event.key !== 'End') {
       return;
     }
@@ -308,13 +354,52 @@ export function SessionListPanel(props: {
       <section className="maka-session-list" aria-label={title}>
         <div className="maka-session-list-title">{title}</div>
         {props.selection.section === 'skills' ? (
-          <div className="maka-empty-state">
-            <Sparkles className="maka-empty-state-icon" strokeWidth={1.5} />
-            <div className="maka-empty-state-title">No skills yet</div>
-            <div className="maka-empty-state-body">
-              Maka loads skills from <code className="maka-empty-state-code">~/.maka/skills/</code>. Drop a folder with a <code className="maka-empty-state-code">SKILL.md</code> to register one.
+          (props.skills && props.skills.length > 0) ? (
+            <div className="maka-list-stack">
+              {props.skills.map((skill) => {
+                const tools = skill.declaredTools ?? [];
+                const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
+                const hoverText = tools.length > 0
+                  ? `${skill.path}\n\nRequests: ${toolsLabel}\nPermissionEngine still applies — this is a declaration, not a grant.`
+                  : skill.path;
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    className="maka-list-row maka-skill-row"
+                    onClick={() => props.onOpenSkillFolder?.(skill.path)}
+                    title={hoverText}
+                  >
+                    <div className="maka-list-row-text">
+                      <div className="maka-list-row-name">{skill.name}</div>
+                      {skill.description && (
+                        <div className="maka-list-row-preview">{skill.description}</div>
+                      )}
+                      <div className="maka-list-row-meta">
+                        {skill.id}
+                        {tools.length > 0 && (
+                          <span className="maka-skill-tools" aria-label="Declared tools">
+                            <span className="maka-skill-tools-label">requests</span>
+                            <span>{toolsLabel}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-          </div>
+          ) : (
+            <div className="maka-empty-state">
+              <Sparkles className="maka-empty-state-icon" strokeWidth={1.5} />
+              <div className="maka-empty-state-title">No skills yet</div>
+              <div className="maka-empty-state-body">
+                Drop a folder with a <code className="maka-empty-state-code">SKILL.md</code> under
+                the workspace <code className="maka-empty-state-code">skills/</code> directory.
+                See 关于 · 工作区 for the exact path.
+              </div>
+            </div>
+          )
         ) : props.sessions.length === 0 ? (
           <div className="maka-empty-state">
             <MessageSquare className="maka-empty-state-icon" strokeWidth={1.5} />
@@ -332,14 +417,19 @@ export function SessionListPanel(props: {
           </div>
         ) : (
           <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
-            {filteredSessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                active={session.id === props.activeId}
-                onSelect={props.onSelectSession}
-                actions={props.rowActions}
-              />
+            {groupSessionsForFilter(filteredSessions, props.selection).map((group) => (
+              <div key={group.label} className="maka-list-group">
+                <div className="maka-list-group-label">{group.label}</div>
+                {group.sessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === props.activeId}
+                    onSelect={props.onSelectSession}
+                    actions={props.rowActions}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}
@@ -461,14 +551,20 @@ function SessionRow(props: {
         <button
           className="maka-list-row-main"
           type="button"
+          data-session-id={session.id}
           onClick={() => onSelect(session.id)}
           onDoubleClick={(event) => {
             event.stopPropagation();
             if (actions) setEditing(true);
           }}
         >
-          <div>
+          <div className="maka-list-row-text">
             <div className="maka-list-row-name">{session.name}</div>
+            {session.lastMessagePreview && (
+              <div className="maka-list-row-preview" title={session.lastMessagePreview}>
+                {session.lastMessagePreview}
+              </div>
+            )}
             <div className="maka-list-row-meta">{formatSessionMeta(session)}</div>
           </div>
           {session.hasUnread && <span className="maka-list-row-unread" />}
@@ -587,6 +683,15 @@ export function ChatView(props: {
   const tools = mergeTools(storedTools, props.tools);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
+
+  // Reset to "pinned at bottom" whenever the active session changes. Without
+  // this, switching from a long history to a fresh chat would keep the
+  // previous scrollTop and the user wouldn't see their last message.
+  useEffect(() => {
+    setPinnedToBottom(true);
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [props.activeSession?.id]);
 
   // Auto-scroll on new content if the user is already at (or near) the
   // bottom. If they've scrolled up to read history we don't yank them back.
@@ -1323,6 +1428,68 @@ const noMessagesYet =
   typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('zh')
     ? '暂无消息'
     : 'No messages yet';
+
+interface SessionGroup {
+  label: string;
+  sessions: SessionSummary[];
+}
+
+/**
+ * In the Chats filter, pinned (flagged) sessions float to the top in their
+ * own section per the session-list-lifecycle contract, separate from the
+ * date-bucketed remainder. Other filters keep the date-bucket layout.
+ */
+function groupSessionsForFilter(sessions: SessionSummary[], selection: NavSelection): SessionGroup[] {
+  if (selection.section !== 'sessions' || selection.filter !== 'chats') {
+    return groupSessionsByTime(sessions);
+  }
+  const pinned = sessions.filter((session) => session.isFlagged);
+  const rest = sessions.filter((session) => !session.isFlagged);
+  const groups: SessionGroup[] = [];
+  if (pinned.length > 0) {
+    groups.push({ label: '已置顶', sessions: pinned });
+  }
+  return [...groups, ...groupSessionsByTime(rest)];
+}
+
+/**
+ * Cluster the session list into Today / Yesterday / Past 7 days / Past 30 days
+ * / Older buckets. Sorted by lastMessageAt descending within each group. Falls
+ * back to a single bucket if every session lacks a timestamp.
+ */
+function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
+  const now = Date.now();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayMs = startOfToday.getTime();
+  const yesterdayMs = todayMs - 24 * 60 * 60 * 1000;
+  const sevenDaysMs = todayMs - 7 * 24 * 60 * 60 * 1000;
+  const thirtyDaysMs = todayMs - 30 * 24 * 60 * 60 * 1000;
+
+  const buckets: SessionGroup[] = [
+    { label: '今天', sessions: [] },
+    { label: '昨天', sessions: [] },
+    { label: '过去 7 天', sessions: [] },
+    { label: '过去 30 天', sessions: [] },
+    { label: '更早', sessions: [] },
+    { label: '尚未发送', sessions: [] },
+  ];
+
+  for (const session of sessions) {
+    const at = session.lastMessageAt;
+    if (!at) {
+      buckets[5]!.sessions.push(session);
+      continue;
+    }
+    if (at >= todayMs) buckets[0]!.sessions.push(session);
+    else if (at >= yesterdayMs) buckets[1]!.sessions.push(session);
+    else if (at >= sevenDaysMs) buckets[2]!.sessions.push(session);
+    else if (at >= thirtyDaysMs) buckets[3]!.sessions.push(session);
+    else buckets[4]!.sessions.push(session);
+  }
+
+  return buckets.filter((group) => group.sessions.length > 0);
+}
 
 function formatSessionMeta(session: SessionSummary): string {
   if (!session.lastMessageAt) return noMessagesYet;

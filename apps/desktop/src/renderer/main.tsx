@@ -19,6 +19,7 @@ import {
   type NavSelection,
   PermissionDialog,
   SessionListPanel,
+  type SkillEntry,
   ToastProvider,
   useToast,
   type ToolActivityItem,
@@ -57,6 +58,7 @@ function AppShell() {
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [density, setDensity] = useState<UiDensity>('comfortable');
   const [userLabel, setUserLabel] = useState<string>('');
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [helpOpen, closeHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const composerRef = useRef<ComposerHandle>(null);
@@ -114,6 +116,7 @@ function AppShell() {
       applyTheme(pref);
       applyDensity(den);
     });
+    void window.maka.skills.list().then(setSkills).catch(() => setSkills([]));
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
     function onKeyDown(event: globalThis.KeyboardEvent) {
@@ -466,10 +469,12 @@ function AppShell() {
             sessionCounts={sessionCounts}
             sessions={visibleSessions}
             activeId={activeId}
+            skills={skills}
             onSelect={setNavSelection}
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
             onNew={createSession}
+            onOpenSkillFolder={(path) => void window.maka.app.openPath(path)}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
               onArchive: (sessionId) => void archiveSession(sessionId),
