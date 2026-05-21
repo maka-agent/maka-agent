@@ -47,7 +47,7 @@ function AppShell() {
   const toastApi = useToast();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
-  const [navSelection, setNavSelection] = useState<NavSelection>({ section: 'sessions', filter: 'chats' });
+  const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [streamingBySession, setStreamingBySession] = useState<Record<string, string>>({});
   const [liveToolsBySession, setLiveToolsBySession] = useState<Record<string, ToolActivityItem[]>>({});
@@ -163,6 +163,18 @@ function AppShell() {
   useEffect(() => {
     localStorage.setItem('maka-chat-list-width-v1', String(sessionListWidth));
   }, [sessionListWidth]);
+
+  // Persist sidebar nav selection so the app remembers what bucket the user
+  // had open (Chats / Pinned / Archived / Skills) across restarts. Strict
+  // localStorage availability check — Vite dev sometimes runs through a
+  // worker where it isn't defined.
+  useEffect(() => {
+    try {
+      localStorage.setItem('maka-nav-selection-v1', JSON.stringify(navSelection));
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [navSelection]);
 
   async function refreshSessions() {
     const next = await window.maka.sessions.list();
@@ -577,6 +589,24 @@ const modeDescriptions: Record<PermissionMode, string> = {
   ask: '所有敏感工具调用前都会停下来征求 allow / deny。',
   execute: '常见工具直通；只有破坏性操作仍然拦截。',
 };
+
+function readNavSelection(): NavSelection {
+  try {
+    const raw = localStorage.getItem('maka-nav-selection-v1');
+    if (!raw) return { section: 'sessions', filter: 'chats' };
+    const parsed = JSON.parse(raw) as NavSelection;
+    if (parsed.section === 'skills') return { section: 'skills' };
+    if (
+      parsed.section === 'sessions' &&
+      (parsed.filter === 'chats' || parsed.filter === 'flagged' || parsed.filter === 'archived')
+    ) {
+      return parsed;
+    }
+  } catch {
+    /* fall through */
+  }
+  return { section: 'sessions', filter: 'chats' };
+}
 
 function readSessionListWidth(): number {
   const stored = Number(localStorage.getItem('maka-chat-list-width-v1'));

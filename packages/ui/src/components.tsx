@@ -782,8 +782,19 @@ export function ChatView(props: {
             props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} />
           )}
           {chat.map((item) => (
-            <article key={item.id} className={`maka-message-row message ${item.role}`}>
-              <span>{messageRoleLabel(item.role, props.userLabel)}</span>
+            <article
+              key={item.id}
+              className={`maka-message-row message ${item.role}`}
+              title={item.ts ? formatAbsoluteTimestamp(item.ts) : undefined}
+            >
+              <span>
+                {messageRoleLabel(item.role, props.userLabel)}
+                {item.ts && (
+                  <small className="maka-message-time" aria-hidden="true">
+                    {formatRelativeTimestamp(item.ts)}
+                  </small>
+                )}
+              </span>
               <MessageBody role={item.role} text={item.text} />
             </article>
           ))}
@@ -1020,6 +1031,41 @@ function PermissionModeSwitcher(props: {
       })}
     </div>
   );
+}
+
+const messageTimeFormat = (() => {
+  if (typeof Intl === 'undefined' || typeof Intl.RelativeTimeFormat !== 'function') {
+    return { format: (n: number, unit: Intl.RelativeTimeFormatUnit) => `${n}${unit[0]}` } as unknown as Intl.RelativeTimeFormat;
+  }
+  return new Intl.RelativeTimeFormat(
+    typeof navigator !== 'undefined' ? navigator.language : 'en',
+    { numeric: 'auto', style: 'narrow' },
+  );
+})();
+
+const absoluteTimeFormat = (() => {
+  if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
+    return { format: (d: Date) => d.toISOString() } as unknown as Intl.DateTimeFormat;
+  }
+  return new Intl.DateTimeFormat(
+    typeof navigator !== 'undefined' ? navigator.language : 'en',
+    { dateStyle: 'medium', timeStyle: 'short' },
+  );
+})();
+
+function formatRelativeTimestamp(ts: number): string {
+  const diffMs = Date.now() - ts;
+  const diffSeconds = Math.round(diffMs / 1000);
+  if (diffSeconds < 60) return messageTimeFormat.format(-Math.max(1, diffSeconds), 'second');
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return messageTimeFormat.format(-diffMinutes, 'minute');
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return messageTimeFormat.format(-diffHours, 'hour');
+  return messageTimeFormat.format(-Math.round(diffHours / 24), 'day');
+}
+
+function formatAbsoluteTimestamp(ts: number): string {
+  return absoluteTimeFormat.format(new Date(ts));
 }
 
 function messageRoleLabel(role: string, userLabel?: string): string {

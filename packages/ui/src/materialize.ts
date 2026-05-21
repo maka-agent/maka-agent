@@ -4,6 +4,8 @@ export interface ChatItem {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
+  /** Wall-clock timestamp of the source StoredMessage; surfaced for hover meta. */
+  ts?: number;
 }
 
 export interface ToolActivityItem {
@@ -33,13 +35,14 @@ const SYSTEM_NOTE_LABELS: Record<string, string> = {
 export function materializeChat(messages: StoredMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
   for (const message of messages) {
-    if (message.type === 'user') items.push({ id: message.id, role: 'user', text: message.text });
-    if (message.type === 'assistant') items.push({ id: message.id, role: 'assistant', text: message.text });
+    if (message.type === 'user') items.push({ id: message.id, role: 'user', text: message.text, ts: message.ts });
+    if (message.type === 'assistant') items.push({ id: message.id, role: 'assistant', text: message.text, ts: message.ts });
     if (message.type === 'system_note' && VISIBLE_SYSTEM_NOTES.has(message.kind)) {
       items.push({
         id: message.id,
         role: 'system',
         text: SYSTEM_NOTE_LABELS[message.kind] ?? message.kind,
+        ts: message.ts,
       });
     }
   }

@@ -1715,6 +1715,14 @@ button:active {
 .message.assistant > span { color: var(--accent); }
 .message.system > span { color: var(--info-text); }
 
+.maka-message-time {
+  margin-left: 8px;
+  color: var(--foreground-40);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
 .message pre {
   margin: 0;
   font: inherit;

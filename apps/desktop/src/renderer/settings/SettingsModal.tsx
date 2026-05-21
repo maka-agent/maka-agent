@@ -176,7 +176,15 @@ function SettingsSurface(props: {
   onDensityChange(density: UiDensity): void;
   onUserLabelChange?(label: string): void;
 }) {
-  const [section, setSection] = useState<SettingsSection>('models');
+  const [section, setSection] = useState<SettingsSection>(() => readLastSettingsSection());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('maka-settings-section-v1', section);
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [section]);
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1106,6 +1114,19 @@ function SettingRow(props: { title: string; detail: string; value: string }) {
       <span>{props.value}</span>
     </div>
   );
+}
+
+function readLastSettingsSection(): SettingsSection {
+  try {
+    const value = localStorage.getItem('maka-settings-section-v1');
+    if (!value) return 'models';
+    if (SETTINGS_NAV.some((item) => item.id === value)) {
+      return value as SettingsSection;
+    }
+  } catch {
+    /* fall through */
+  }
+  return 'models';
 }
 
 function csvList(value: string): string[] {
