@@ -36,6 +36,8 @@ import { ProviderLogo } from './settings/ProvidersPanel';
 import { ArtifactPane } from './artifact-pane';
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
+import { deriveSessionStatusGroups } from './session-status-grouping';
+import { presentSessionStatus, sessionStatusAriaLabel } from './session-status-presentation';
 import { applyDensity, applyTheme } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
@@ -91,6 +93,15 @@ function AppShell() {
         knownConnectionSlugs: new Set(connections.map((connection) => connection.slug)),
       }),
     [sessions, connections],
+  );
+  // PR109b: status-grouped sidebar (design-system §9.8). The `chats`
+  // filter shows sessions grouped by SessionStatus (Pinned →
+  // Running → Waiting → Blocked → Active → Review → Done → Archived);
+  // `aborted` is dropped. Pinned (flagged) sessions float to the top
+  // in their own group, preserving the PR48 pin-floats behavior.
+  const sessionStatusGroups = useMemo(
+    () => deriveSessionStatusGroups(sessions, { pinFirst: true }),
+    [sessions],
   );
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
   const activePermission = activeId ? permissionBySession[activeId] : undefined;
@@ -153,6 +164,28 @@ function AppShell() {
     activeConnection?.lastTestStatus,
     defaultConnectionReady,
   ]);
+
+  // PR109b: chat header lifecycle status badge. Hidden for `active`
+  // (default) to avoid badge noise on healthy sessions; the only
+  // exception is when the session is blocked, where we also pull the
+  // generalized blocked-reason copy into the tooltip.
+  const chatSessionStatusBadge = useMemo(() => {
+    if (!activeSession) return undefined;
+    const status = activeSession.status;
+    if (status === 'active' || status === 'aborted') return undefined;
+    const presentation = presentSessionStatus(status);
+    const tooltip =
+      status === 'blocked'
+        ? sessionStatusAriaLabel(status, activeSession.blockedReason)
+        : presentation.label;
+    return {
+      status,
+      label: presentation.label,
+      tone: presentation.tone,
+      tooltip,
+    };
+  }, [activeSession?.id, activeSession?.status, activeSession?.blockedReason]);
+
   const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
     id: activeId,
     name: '新建对话',
@@ -700,6 +733,7 @@ function AppShell() {
             skills={skills}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
+            statusGroups={sessionStatusGroups}
             onSelect={setNavSelection}
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
@@ -741,6 +775,7 @@ function AppShell() {
                 userLabel={userLabel}
                 mode={navSelection.section}
                 connectionAlert={chatConnectionAlert}
+                sessionStatusBadge={chatSessionStatusBadge}
                 emptyOverride={needsOnboarding ? (
                   <OnboardingHero
                     onOpenSettings={() => setSettingsOpen(true)}

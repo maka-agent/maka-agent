@@ -41,6 +41,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=settings-bots npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=settings-about npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=settings-theme npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=settings-coming-soon npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=workstation-statuses npm --workspace @maka/desktop run dev
 ```
 
 Fixture mode is dev/test-only and refuses packaged builds. It seeds
@@ -656,6 +657,70 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors npm --workspace @maka/desktop run dev
 - Unsupported MIME displays mojibake/raw binary.
 - Save As reveals the file in Finder instead of opening a save dialog.
 - Canceling Save As shows an error toast.
+
+---
+
+## Path 14 — Workstation sidebar status grouping (§9.8)
+
+**Precondition.** Fixture scenario `workstation-statuses` — seeds 10
+sessions, one per non-aborted SessionStatus plus 4 blocked variants
+(one per SessionBlockedReason):
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=workstation-statuses npm --workspace @maka/desktop run dev
+```
+
+The active session is the running one so the chat header status
+badge ("进行中") is visible in the screenshot alongside the sidebar.
+
+**Steps.**
+1. Launch Maka with the fixture above. The "正在生成报告" session is
+   active.
+2. Observe the sidebar groups in order. Expected from top to bottom:
+   `进行中`, `等待你`, `已阻塞`, `会话`, `待审核`, `已完成`, `归档`.
+3. Hover each row's status icon. Tooltip reads the status label
+   (and the generalized blocked-reason copy for the 4 blocked rows
+   — never the raw enum identifier).
+4. Click the `归档` group header to toggle expanded state.
+5. Click any of the blocked rows. Verify the chat header status
+   badge updates with the matching reason copy.
+
+**Pass signals.**
+- Group ordering matches: `进行中 / 等待你 / 已阻塞 / 会话 / 待审核 /
+  已完成 / 归档`. `已取消` is NOT present (aborted sessions are
+  filtered out per §9.8).
+- Each non-active session row shows the SessionStatusIcon to the
+  left of the session name with the matching tone (running=accent
+  pulse, waiting=warning, blocked=destructive, review=info,
+  done=success, archived=muted).
+- Blocked rows show the generalized reason via hover tooltip:
+  - `缺少可用模型连接`
+  - `需要重新登录`
+  - `等待权限确认`
+  - `工具调用失败`
+  - `未知阻塞`
+- The chat header badge "进行中" is visible (because the active
+  session is running).
+- `归档` group is collapsed by default; clicking the header expands
+  it; expanded state persists across re-renders within the session
+  (but not across launches — that's intentional, archived is dormant).
+- All visible labels are Chinese; no raw enum strings leak to the UI.
+
+**Fail signals.**
+- Group ordering differs (e.g. `归档` floats to the top, or `已完成`
+  appears before `进行中`).
+- `已取消` group appears (filter regression — aborted sessions should
+  be hidden).
+- Blocked tooltips expose the raw enum (`NO_REAL_CONNECTION`, `auth`,
+  `permission_required`, `tool_failed`, `unknown` — these are
+  internal identifiers, not user copy).
+- `归档` group defaults to expanded (should be collapsed by default;
+  PR108k-yj convention).
+- Running session shows no spinning indicator (the `Loader2` icon
+  should spin via CSS `animation` unless `prefers-reduced-motion` is
+  active or `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1` is set).
+- Chat header lifecycle badge missing despite the active session
+  having `status !== 'active'`.
 
 ---
 

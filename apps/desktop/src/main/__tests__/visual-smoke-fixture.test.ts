@@ -287,6 +287,58 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('workstation-statuses seed creates one session per non-aborted SessionStatus + 4 blocked variants', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-ws-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('workstation-statuses', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.activeSessionId, 'visual-smoke-ws-running');
+
+      const expectedSessions = [
+        { id: 'visual-smoke-ws-running', status: 'running' },
+        { id: 'visual-smoke-ws-waiting', status: 'waiting_for_user' },
+        { id: 'visual-smoke-ws-blocked-auth', status: 'blocked', blockedReason: 'auth' },
+        { id: 'visual-smoke-ws-blocked-perm', status: 'blocked', blockedReason: 'permission_required' },
+        { id: 'visual-smoke-ws-blocked-tool', status: 'blocked', blockedReason: 'tool_failed' },
+        { id: 'visual-smoke-ws-blocked-unknown', status: 'blocked', blockedReason: 'unknown' },
+        { id: 'visual-smoke-ws-active', status: 'active' },
+        { id: 'visual-smoke-ws-review', status: 'review' },
+        { id: 'visual-smoke-ws-done', status: 'done' },
+        { id: 'visual-smoke-ws-archived', status: 'archived' },
+      ];
+
+      for (const expected of expectedSessions) {
+        const file = await readFile(join(workspaceRoot, 'sessions', expected.id, 'session.jsonl'), 'utf8');
+        const header = JSON.parse(file.split('\n')[0]!) as {
+          status: string;
+          blockedReason?: string;
+          isArchived: boolean;
+        };
+        assert.equal(header.status, expected.status, `${expected.id} should be ${expected.status}`);
+        if ('blockedReason' in expected && expected.blockedReason !== undefined) {
+          assert.equal(
+            header.blockedReason,
+            expected.blockedReason,
+            `${expected.id} should have blockedReason=${expected.blockedReason}`,
+          );
+        }
+        if (expected.status === 'archived') {
+          assert.equal(header.isArchived, true, `${expected.id} should be archived`);
+        }
+      }
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('artifact-pane seed creates file-backed artifact metadata without absolute paths', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-'));
     try {

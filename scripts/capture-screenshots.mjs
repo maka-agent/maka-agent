@@ -75,6 +75,7 @@ const ALL_SCENARIOS = [
   'settings-about',
   'settings-theme',
   'settings-coming-soon',
+  'workstation-statuses',
 ];
 
 const VARIANTS = [

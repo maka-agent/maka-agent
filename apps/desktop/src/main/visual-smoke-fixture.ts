@@ -39,6 +39,11 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-about',
   'settings-theme',
   'settings-coming-soon',
+  // PR109b: workstation-statuses — seed one session per SessionStatus
+  // (running / waiting_for_user / blocked × 4 reasons / active / review
+  // / done / archived) so the sidebar grouping screenshot covers every
+  // status badge + group header in one fixture.
+  'workstation-statuses',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -195,6 +200,13 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // Coming Soon pages share the same template; daily-review is the
       // most representative one (per PR55 product-stance copy).
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'daily-review' };
+    case 'workstation-statuses':
+      // Active session is the running one so the chat header status
+      // badge ("进行中") is visible in the screenshot alongside the
+      // sidebar grouping. Each session in the seed maps to one
+      // SessionStatus enum value (running / waiting_for_user / blocked
+      // × 4 reasons / review / done / archived / aborted (filtered)).
+      return { ...state, activeSessionId: WORKSTATION_RUNNING_SESSION_ID };
     case 'all':
       return {
         ...state,
@@ -243,11 +255,26 @@ export async function seedVisualSmokeFixture(input: {
     await writeSession(input.workspaceRoot, staleLegacySession(now), staleLegacyMessages(now));
     await writeSession(input.workspaceRoot, healthySession(now), healthyMessages(now));
   }
+  if (input.fixture.scenario === 'workstation-statuses') {
+    for (const seed of workstationStatusSessions(now)) {
+      await writeSession(input.workspaceRoot, seed.header, seed.messages);
+    }
+  }
 }
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 const PERMISSION_SESSION_ID = 'visual-smoke-permission';
+const WORKSTATION_RUNNING_SESSION_ID = 'visual-smoke-ws-running';
+const WORKSTATION_WAITING_SESSION_ID = 'visual-smoke-ws-waiting';
+const WORKSTATION_BLOCKED_AUTH_SESSION_ID = 'visual-smoke-ws-blocked-auth';
+const WORKSTATION_BLOCKED_PERM_SESSION_ID = 'visual-smoke-ws-blocked-perm';
+const WORKSTATION_BLOCKED_TOOL_SESSION_ID = 'visual-smoke-ws-blocked-tool';
+const WORKSTATION_BLOCKED_UNKNOWN_SESSION_ID = 'visual-smoke-ws-blocked-unknown';
+const WORKSTATION_ACTIVE_SESSION_ID = 'visual-smoke-ws-active';
+const WORKSTATION_REVIEW_SESSION_ID = 'visual-smoke-ws-review';
+const WORKSTATION_DONE_SESSION_ID = 'visual-smoke-ws-done';
+const WORKSTATION_ARCHIVED_SESSION_ID = 'visual-smoke-ws-archived';
 const ERROR_SESSION_ID = 'visual-smoke-error';
 const ARTIFACT_SESSION_ID = 'visual-smoke-artifact';
 const STALE_FAKE_SESSION_ID = 'visual-smoke-stale-fake';
@@ -597,6 +624,103 @@ function artifactMessages(now: number): StoredMessage[] {
   ];
 }
 
+/**
+ * PR109b workstation-statuses fixture seed. Returns one session per
+ * SessionStatus group + 4 blocked sub-rows (one per
+ * SessionBlockedReason), pre-staged with a brief 2-message history so
+ * the sidebar `lastMessagePreview` renders something realistic.
+ *
+ * Order in the array doesn't matter — the renderer's grouping helper
+ * places them in the locked group order regardless. The active
+ * session (`WORKSTATION_RUNNING_SESSION_ID`) is chosen as the running
+ * one so the chat header status badge ("进行中") shows in the
+ * screenshot alongside the sidebar grouping.
+ */
+function workstationStatusSessions(now: number): Array<{ header: SessionHeader; messages: StoredMessage[] }> {
+  const baseLastMessage = now - 2 * 60 * 1000;
+  const make = (input: {
+    id: string;
+    name: string;
+    status: SessionHeader['status'];
+    blockedReason?: SessionHeader['blockedReason'];
+    isArchived?: boolean;
+    isFlagged?: boolean;
+    lastMessageOffset: number;
+  }): { header: SessionHeader; messages: StoredMessage[] } => ({
+    header: header({
+      id: input.id,
+      name: input.name,
+      connection: 'zai-live',
+      model: 'glm-5.1',
+      now,
+      lastMessageAt: baseLastMessage - input.lastMessageOffset,
+      status: input.status,
+      ...(input.blockedReason ? { blockedReason: input.blockedReason } : {}),
+      ...(input.isArchived !== undefined ? { isArchived: input.isArchived } : {}),
+      ...(input.isFlagged !== undefined ? { isFlagged: input.isFlagged } : {}),
+    }),
+    messages: [
+      {
+        type: 'user',
+        id: `${input.id}-user`,
+        turnId: `${input.id}-turn`,
+        ts: baseLastMessage - input.lastMessageOffset - 10_000,
+        text: `这是 ${input.name} 的占位用户消息，用于状态分组截图验证。`,
+      },
+      {
+        type: 'assistant',
+        id: `${input.id}-assistant`,
+        turnId: `${input.id}-turn`,
+        ts: baseLastMessage - input.lastMessageOffset,
+        text: '占位回复。',
+        modelId: 'glm-5.1',
+      },
+    ],
+  });
+  return [
+    make({ id: WORKSTATION_RUNNING_SESSION_ID, name: '正在生成报告', status: 'running', lastMessageOffset: 1_000 }),
+    make({ id: WORKSTATION_WAITING_SESSION_ID, name: '等你确认权限', status: 'waiting_for_user', lastMessageOffset: 60_000 }),
+    make({
+      id: WORKSTATION_BLOCKED_AUTH_SESSION_ID,
+      name: 'GPT-5 鉴权失败',
+      status: 'blocked',
+      blockedReason: 'auth',
+      lastMessageOffset: 120_000,
+    }),
+    make({
+      id: WORKSTATION_BLOCKED_PERM_SESSION_ID,
+      name: '等待权限批准',
+      status: 'blocked',
+      blockedReason: 'permission_required',
+      lastMessageOffset: 180_000,
+    }),
+    make({
+      id: WORKSTATION_BLOCKED_TOOL_SESSION_ID,
+      name: '工具调用失败',
+      status: 'blocked',
+      blockedReason: 'tool_failed',
+      lastMessageOffset: 240_000,
+    }),
+    make({
+      id: WORKSTATION_BLOCKED_UNKNOWN_SESSION_ID,
+      name: '未知阻塞',
+      status: 'blocked',
+      blockedReason: 'unknown',
+      lastMessageOffset: 300_000,
+    }),
+    make({ id: WORKSTATION_ACTIVE_SESSION_ID, name: '可继续的会话', status: 'active', lastMessageOffset: 360_000 }),
+    make({ id: WORKSTATION_REVIEW_SESSION_ID, name: '待审核的长任务输出', status: 'review', lastMessageOffset: 420_000 }),
+    make({ id: WORKSTATION_DONE_SESSION_ID, name: '完成并已审核', status: 'done', lastMessageOffset: 480_000 }),
+    make({
+      id: WORKSTATION_ARCHIVED_SESSION_ID,
+      name: '归档的旧会话',
+      status: 'archived',
+      isArchived: true,
+      lastMessageOffset: 7 * 24 * 60 * 60 * 1000,
+    }),
+  ];
+}
+
 function header(input: {
   id: string;
   name: string;
@@ -613,6 +737,14 @@ function header(input: {
    */
   backend?: SessionHeader['backend'] | 'claude';
   connectionLocked?: boolean;
+  /**
+   * PR109b workstation-statuses fixture: override default
+   * `status: 'active'` so seeded sessions land in every status group.
+   */
+  status?: SessionHeader['status'];
+  blockedReason?: SessionHeader['blockedReason'];
+  isArchived?: boolean;
+  isFlagged?: boolean;
 }): SessionHeader {
   return {
     id: input.id,
@@ -622,10 +754,11 @@ function header(input: {
     lastUsedAt: input.lastMessageAt,
     lastMessageAt: input.lastMessageAt,
     name: input.name,
-    isFlagged: false,
+    isFlagged: input.isFlagged ?? false,
     labels: [],
-    isArchived: false,
-    status: 'active',
+    isArchived: input.isArchived ?? false,
+    status: input.status ?? 'active',
+    ...(input.blockedReason ? { blockedReason: input.blockedReason } : {}),
     statusUpdatedAt: input.lastMessageAt,
     hasUnread: input.hasUnread ?? false,
     // Legacy backend kinds like 'claude' aren't in the current BackendKind

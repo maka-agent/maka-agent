@@ -20,7 +20,8 @@ export type VisualSmokeScenario =
   | 'settings-bots'
   | 'settings-about'
   | 'settings-theme'
-  | 'settings-coming-soon';
+  | 'settings-coming-soon'
+  | 'workstation-statuses';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;

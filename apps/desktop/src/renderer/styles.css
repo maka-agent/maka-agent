@@ -970,6 +970,82 @@ button:active {
   opacity: 1;
 }
 
+/* PR109b: SessionStatusIcon — small inline icon next to session name
+ * representing lifecycle status. Tone-based color from the
+ * design-system token vocabulary; running spins via `animation`
+ * (capped under reduced-motion + visual-smoke per PR-IR-04). */
+.maka-list-row-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 4px;
+  width: 14px;
+  height: 14px;
+  color: var(--foreground-60);
+}
+.maka-list-row-status-icon[data-tone="accent"] {
+  color: var(--accent);
+}
+.maka-list-row-status-icon[data-tone="warning"] {
+  color: var(--info-text);
+}
+.maka-list-row-status-icon[data-tone="destructive"] {
+  color: var(--destructive);
+}
+.maka-list-row-status-icon[data-tone="info"] {
+  color: var(--info-text);
+}
+.maka-list-row-status-icon[data-tone="success"] {
+  /* Success uses the brand-deep tone introduced for Settings hero */
+  color: var(--brand-deep);
+}
+.maka-list-row-status-icon[data-tone="muted"] {
+  color: var(--foreground-40);
+}
+.maka-list-row-status-icon[data-status="running"] svg {
+  animation: maka-status-spin 1.2s linear infinite;
+}
+@keyframes maka-status-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row-status-icon[data-status="running"] svg {
+    animation: none;
+  }
+}
+[data-maka-visual-smoke="true"] .maka-list-row-status-icon[data-status="running"] svg {
+  animation: none;
+}
+
+/* Group label as a toggle button (archived group). Matches existing
+ * maka-list-group-label tone so the toggle doesn't visually fight
+ * non-collapsible groups. */
+.maka-list-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.maka-list-group-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.maka-list-group-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground-50);
+  font-size: 11px;
+}
+
 .maka-list-row-stale-pill {
   flex-shrink: 0;
   margin-left: 6px;
@@ -1202,6 +1278,54 @@ button:active {
   background: oklch(from var(--destructive) l c h / 0.14);
   color: var(--destructive);
   border-color: oklch(from var(--destructive) l c h / 0.28);
+}
+
+/* PR109b: chat header lifecycle status badge. Sits next to the
+ * ChatHeaderAlert pill but with different semantics — alert is an
+ * ephemeral fault signal; status is the settled lifecycle position.
+ * Tone matches the SessionStatusIcon mapping so the sidebar row + the
+ * header badge read as the same status. */
+.maka-chat-header-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-right: 6px;
+  -webkit-app-region: no-drag;
+}
+.maka-chat-header-status[data-tone="accent"] {
+  background: oklch(from var(--accent) l c h / 0.14);
+  color: var(--accent);
+  border-color: oklch(from var(--accent) l c h / 0.24);
+}
+.maka-chat-header-status[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.30);
+}
+.maka-chat-header-status[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.28);
+}
+.maka-chat-header-status[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.20);
+}
+.maka-chat-header-status[data-tone="success"] {
+  background: oklch(from var(--brand-deep) l c h / 0.14);
+  color: var(--brand-deep);
+  border-color: oklch(from var(--brand-deep) l c h / 0.28);
+}
+.maka-chat-header-status[data-tone="muted"] {
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  border-color: var(--border);
 }
 
 .maka-mode-switcher {

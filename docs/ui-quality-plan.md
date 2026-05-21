@@ -199,6 +199,8 @@ Rows are **all UI surfaces** in Maka. Columns are §1 gates 1–12.
 | Keyboard help modal | ✅ | n/a | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Error boundary | ✅ | n/a | ✅ | ❌ | ⚙️ | ❌ | ❌ | ✅ | ⚙️ | ✅ | ✅ | ✅ |
 | Artifact pane | ✅ | ⚙️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Session status grouping | ✅ | ✅ | ✅ | ✅ | ✅ | ⚙️ | ⚙️ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Session status icon + chat header badge | ✅ | ✅ | ✅ | ✅ | ✅ | ⚙️ | ⚙️ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Pending (month-1)** |   |   |   |   |   |   |   |   |   |   |   |   |
 | Quick Chat (§9.7) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Workstation shell (§9.8) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |

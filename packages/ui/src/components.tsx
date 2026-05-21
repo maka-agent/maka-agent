@@ -5,12 +5,18 @@ import {
   Archive,
   ArchiveRestore,
   ArrowDown,
+  Ban,
   Check,
+  ChevronRight,
+  CircleCheckBig,
   Copy,
+  Eye,
   FileEdit,
   Flag,
   GitMerge,
   HelpCircle,
+  Hourglass,
+  Loader2,
   MessageSquare,
   Pencil,
   Pin,
@@ -199,6 +205,21 @@ export function SessionListPanel(props: {
    * unaware of the connection store.
    */
   staleSessionIds?: Set<string>;
+  /**
+   * Pre-computed status-driven groups for the session list (PR109b).
+   * When provided, replaces the date-bucket grouping for the `chats`
+   * filter. Caller derives this via `deriveSessionStatusGroups()` from
+   * `apps/desktop/src/renderer/session-status-grouping.ts`. Each group
+   * carries its own collapsible/defaultExpanded flag so the panel
+   * doesn't have to know about Archived being closed by default.
+   */
+  statusGroups?: ReadonlyArray<{
+    id: string;
+    label: string;
+    sessions: SessionSummary[];
+    collapsible: boolean;
+    defaultExpanded: boolean;
+  }>;
   onSelectSession(sessionId: string): void;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
@@ -440,22 +461,30 @@ export function SessionListPanel(props: {
           </div>
         ) : (
           <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
-            {groupSessionsForFilter(filteredSessions, props.selection).map((group) => (
-              <div key={group.label} className="maka-list-group">
-                <div className="maka-list-group-label">{group.label}</div>
-                {group.sessions.map((session) => (
-                  <SessionRow
-                    key={session.id}
-                    session={session}
-                    active={session.id === props.activeId}
-                    streaming={props.streamingSessionIds?.has(session.id) ?? false}
-                    stale={props.staleSessionIds?.has(session.id) ?? false}
-                    onSelect={props.onSelectSession}
-                    actions={props.rowActions}
-                  />
-                ))}
-              </div>
-            ))}
+            <SessionListGroups
+              groups={
+                props.statusGroups && props.selection.section === 'sessions' && props.selection.filter === 'chats'
+                  ? props.statusGroups.map((g) => ({
+                      key: g.id,
+                      label: g.label,
+                      sessions: g.sessions,
+                      collapsible: g.collapsible,
+                      defaultExpanded: g.defaultExpanded,
+                    }))
+                  : groupSessionsForFilter(filteredSessions, props.selection).map((g) => ({
+                      key: g.label,
+                      label: g.label,
+                      sessions: g.sessions,
+                      collapsible: false,
+                      defaultExpanded: true,
+                    }))
+              }
+              activeId={props.activeId}
+              streamingSessionIds={props.streamingSessionIds}
+              staleSessionIds={props.staleSessionIds}
+              onSelectSession={props.onSelectSession}
+              rowActions={props.rowActions}
+            />
           </div>
         )}
       </section>
@@ -482,6 +511,219 @@ export function SessionListPanel(props: {
     </aside>
   );
 }
+
+/**
+ * Render an ordered list of session groups, supporting collapsibility
+ * per group. Used by SessionListPanel for both the legacy date-bucket
+ * grouping and the new status-driven grouping (PR109b).
+ *
+ * Each group has a header row with the group label + count. Collapsible
+ * groups show a chevron and toggle expanded state via local state.
+ * Expanded state is keyed on group `key` so the same group keeps its
+ * state across re-renders (e.g., archived stays collapsed even when
+ * sidebar refreshes).
+ */
+function SessionListGroups(props: {
+  groups: ReadonlyArray<{
+    key: string;
+    label: string;
+    sessions: SessionSummary[];
+    collapsible: boolean;
+    defaultExpanded: boolean;
+  }>;
+  activeId?: string;
+  streamingSessionIds?: Set<string>;
+  staleSessionIds?: Set<string>;
+  onSelectSession(sessionId: string): void;
+  rowActions?: SessionRowActions;
+}) {
+  const [expandedByKey, setExpandedByKey] = useState<Record<string, boolean>>(() => {
+    const out: Record<string, boolean> = {};
+    for (const g of props.groups) out[g.key] = g.defaultExpanded;
+    return out;
+  });
+  // Ensure newly-appearing groups inherit their defaultExpanded value
+  // without overriding user-toggled state.
+  useEffect(() => {
+    setExpandedByKey((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const g of props.groups) {
+        if (!(g.key in next)) {
+          next[g.key] = g.defaultExpanded;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [props.groups]);
+  return (
+    <>
+      {props.groups.map((group) => {
+        const expanded = expandedByKey[group.key] ?? group.defaultExpanded;
+        const toggle = () =>
+          setExpandedByKey((current) => ({ ...current, [group.key]: !expanded }));
+        return (
+          <div key={group.key} className="maka-list-group" data-collapsible={group.collapsible || undefined}>
+            {group.collapsible ? (
+              <button
+                type="button"
+                className="maka-list-group-label maka-list-group-toggle"
+                onClick={toggle}
+                aria-expanded={expanded}
+                aria-controls={`maka-list-group-body-${group.key}`}
+              >
+                <ChevronRight
+                  size={12}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                  style={{
+                    transform: expanded ? 'rotate(90deg)' : undefined,
+                    transition: 'transform 140ms var(--ease-out-strong)',
+                  }}
+                />
+                <span>{group.label}</span>
+                <span className="maka-list-group-count">{group.sessions.length}</span>
+              </button>
+            ) : (
+              <div className="maka-list-group-label">
+                <span>{group.label}</span>
+                {group.sessions.length > 1 && (
+                  <span className="maka-list-group-count">{group.sessions.length}</span>
+                )}
+              </div>
+            )}
+            {expanded && (
+              <div id={`maka-list-group-body-${group.key}`}>
+                {group.sessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === props.activeId}
+                    streaming={props.streamingSessionIds?.has(session.id) ?? false}
+                    stale={props.staleSessionIds?.has(session.id) ?? false}
+                    onSelect={props.onSelectSession}
+                    actions={props.rowActions}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Small inline icon next to the session name representing its
+ * lifecycle status (PR109b, design-system §9.8). Hidden for `active`
+ * since that's the default and would add visual noise to most rows.
+ *
+ * `aborted` is also hidden because aborted sessions are filtered out
+ * of the sidebar entirely; if one ever leaks through, no icon is
+ * better than a confusing one.
+ *
+ * Caller is expected to pass a session with a SessionStatus from
+ * `@maka/core` — typed as the SessionSummary from props avoids
+ * pulling the core type into this file's import list.
+ */
+function SessionStatusIcon(props: { session: SessionSummary }) {
+  const { session } = props;
+  const status = session.status;
+  // Active is the default; no icon to reduce noise.
+  if (status === 'active' || status === 'aborted') return null;
+  const Icon = STATUS_ICON_BY_STATUS[status as keyof typeof STATUS_ICON_BY_STATUS];
+  if (!Icon) return null;
+  const label = STATUS_LABEL_BY_STATUS[status as keyof typeof STATUS_LABEL_BY_STATUS];
+  const tone = STATUS_TONE_BY_STATUS[status as keyof typeof STATUS_TONE_BY_STATUS];
+  // `blocked` may attach a reason; we surface the generalized text in
+  // the tooltip without exposing the raw enum identifier (per @kenji
+  // i18n contract). The reason mapping lives in the renderer side; this
+  // file knows only the status itself, so the tooltip is just the
+  // status label.
+  const blockedDetail = status === 'blocked' && session.blockedReason
+    ? BLOCKED_REASON_TOOLTIP[session.blockedReason as keyof typeof BLOCKED_REASON_TOOLTIP] ?? null
+    : null;
+  const title = blockedDetail ? `${label} · ${blockedDetail}` : label;
+  return (
+    <span
+      className="maka-list-row-status-icon"
+      data-tone={tone}
+      data-status={status}
+      aria-label={title}
+      title={title}
+    >
+      <Icon size={12} strokeWidth={2} aria-hidden="true" />
+    </span>
+  );
+}
+
+/**
+ * Lifecycle status badge in the chat header (PR109b §9.8). Visual
+ * tone matches the SessionStatusIcon mapping so the sidebar row icon
+ * and the header badge read as the same status.
+ */
+function SessionStatusBadge(props: {
+  badge: {
+    status: string;
+    label: string;
+    tone: 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
+    tooltip?: string;
+  };
+}) {
+  return (
+    <span
+      className="maka-chat-header-status"
+      data-tone={props.badge.tone}
+      data-status={props.badge.status}
+      role="status"
+      aria-label={props.badge.tooltip ?? props.badge.label}
+      title={props.badge.tooltip ?? props.badge.label}
+    >
+      <span>{props.badge.label}</span>
+    </span>
+  );
+}
+
+// Keep these maps in sync with `apps/desktop/src/renderer/session-status-presentation.ts`.
+// The presentation helper is the authoritative source; we duplicate the
+// minimum subset here to keep @maka/ui independent of the renderer
+// workspace.
+const STATUS_ICON_BY_STATUS = {
+  running: Loader2,
+  waiting_for_user: Hourglass,
+  blocked: ShieldAlert,
+  review: Eye,
+  done: CircleCheckBig,
+  archived: Archive,
+} as const;
+
+const STATUS_LABEL_BY_STATUS = {
+  running: '进行中',
+  waiting_for_user: '等你确认',
+  blocked: '已阻塞',
+  review: '待审核',
+  done: '已完成',
+  archived: '已归档',
+} as const;
+
+const STATUS_TONE_BY_STATUS = {
+  running: 'accent',
+  waiting_for_user: 'warning',
+  blocked: 'destructive',
+  review: 'info',
+  done: 'success',
+  archived: 'muted',
+} as const;
+
+const BLOCKED_REASON_TOOLTIP = {
+  NO_REAL_CONNECTION: '缺少可用模型连接',
+  auth: '需要重新登录',
+  permission_required: '等待权限确认',
+  tool_failed: '工具调用失败',
+  unknown: '未知阻塞',
+} as const;
 
 const SCROLL_BOTTOM_THRESHOLD = 64; // px
 
@@ -606,6 +848,7 @@ function SessionRow(props: {
                   title="对话正在流式响应中"
                 />
               )}
+              <SessionStatusIcon session={session} />
               <span>{session.name}</span>
               {stale && (
                 <span
@@ -762,6 +1005,18 @@ export function ChatView(props: {
    * sending another doomed message.
    */
   connectionAlert?: ChatHeaderAlert;
+  /**
+   * Lifecycle status badge for the active session (PR109b, design-system
+   * §9.8). Separate from `connectionAlert` because the alert is an
+   * ephemeral fault signal while status is the session's settled
+   * lifecycle position. Hidden for `active` (default) to reduce noise.
+   */
+  sessionStatusBadge?: {
+    status: string;
+    label: string;
+    tone: 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
+    tooltip?: string;
+  };
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
   onPermissionModeChange?(mode: PermissionMode): void;
@@ -855,6 +1110,7 @@ export function ChatView(props: {
           <Plus strokeWidth={1.5} />
         </button>
         <span className="maka-chat-header-spacer" />
+        {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
         {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
         <PermissionModeSwitcher
           mode={props.activeSession.permissionMode}
