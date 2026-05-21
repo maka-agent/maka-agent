@@ -10,6 +10,7 @@ import type {
   SessionSummary,
   StoredMessage,
   ThemePreference,
+  UiDensity,
 } from '@maka/core';
 import {
   ChatView,
@@ -26,7 +27,7 @@ import { SettingsModal } from './settings/SettingsModal';
 import { ErrorBoundary } from './error-boundary';
 import { KeyboardHelpModal, useKeyboardHelp } from './keyboard-help';
 import { CommandPalette, buildCommandList, useCommandPalette } from './command-palette';
-import { applyTheme } from './theme';
+import { applyDensity, applyTheme } from './theme';
 import './styles.css';
 
 function App() {
@@ -50,6 +51,7 @@ function AppShell() {
   const [defaultConnection, setDefaultConnection] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
+  const [density, setDensity] = useState<UiDensity>('comfortable');
   const [helpOpen, closeHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const composerRef = useRef<ComposerHandle>(null);
@@ -90,8 +92,11 @@ function AppShell() {
     // default `auto` which still produces a correct result.
     void window.maka.settings.get().then((next) => {
       const pref = next.appearance?.theme ?? 'auto';
+      const den = next.appearance?.density ?? 'comfortable';
       setThemePref(pref);
+      setDensity(den);
       applyTheme(pref);
+      applyDensity(den);
     });
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
@@ -116,6 +121,10 @@ function AppShell() {
     const unsubscribe = applyTheme(themePref);
     return unsubscribe;
   }, [themePref]);
+
+  useEffect(() => {
+    applyDensity(density);
+  }, [density]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -472,6 +481,8 @@ function AppShell() {
           onClose={closeSettings}
           themePref={themePref}
           onThemeChange={setThemePref}
+          density={density}
+          onDensityChange={setDensity}
         />
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}

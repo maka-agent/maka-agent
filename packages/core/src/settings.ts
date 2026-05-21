@@ -72,9 +72,11 @@ export interface UsageSettings {
 }
 
 export type ThemePreference = 'light' | 'dark' | 'auto';
+export type UiDensity = 'compact' | 'comfortable' | 'spacious';
 
 export interface AppearanceSettings {
   theme: ThemePreference;
+  density: UiDensity;
 }
 
 export interface AppSettings {
@@ -196,6 +198,7 @@ export function createDefaultSettings(): AppSettings {
     },
     appearance: {
       theme: 'auto',
+      density: 'comfortable',
     },
   };
 }

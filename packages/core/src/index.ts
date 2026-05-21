@@ -122,6 +122,7 @@ export type {
   SettingsSection,
   SettingsTestResult,
   ThemePreference,
+  UiDensity,
   UpdateAppSettingsInput,
   UsageRange,
   UsageRequestLog,

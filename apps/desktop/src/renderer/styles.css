@@ -2244,6 +2244,47 @@ button:active {
   }
 }
 
+.settingsSubheading {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsSubheading + .settingsThemeOptions {
+  margin-top: -6px;
+}
+
+/* Density swatch: three rows of stacked lines that visualize the spacing
+   without needing real chat content. Each variant grows the gap. */
+.settingsDensitySwatch {
+  width: 56px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.settingsDensitySwatch span {
+  display: block;
+  height: 3px;
+  width: 70%;
+  border-radius: 2px;
+  background: var(--foreground-40);
+}
+
+.settingsDensitySwatch-compact { gap: 2px; }
+.settingsDensitySwatch-comfortable { gap: 5px; }
+.settingsDensitySwatch-spacious { gap: 8px; }
+.settingsDensitySwatch-spacious span { width: 78%; }
+
 .settingsBotLayout {
   min-height: 470px;
   display: grid;
