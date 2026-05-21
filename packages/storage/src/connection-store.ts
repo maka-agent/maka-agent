@@ -86,6 +86,18 @@ class FileConnectionStore implements ConnectionStore {
       const index = file.connections.findIndex((connection) => connection.slug === slug);
       if (index < 0) throw new Error(`No such connection: ${slug}`);
       const current = file.connections[index]!;
+      const updatesTestStatus =
+        Object.prototype.hasOwnProperty.call(patch, 'lastTestStatus')
+        || Object.prototype.hasOwnProperty.call(patch, 'lastTestAt')
+        || Object.prototype.hasOwnProperty.call(patch, 'lastTestMessage');
+      const clearsTestStatus =
+        !updatesTestStatus
+        && (
+          patch.apiKey !== undefined
+          || patch.baseUrl !== undefined
+          || patch.defaultModel !== undefined
+          || patch.models !== undefined
+        );
       const next: LlmConnection = {
         ...current,
         name: patch.name ?? current.name,
@@ -93,6 +105,9 @@ class FileConnectionStore implements ConnectionStore {
         defaultModel: patch.defaultModel ?? current.defaultModel,
         enabled: patch.enabled ?? current.enabled,
         models: patch.models ?? current.models,
+        lastTestStatus: updatesTestStatus ? patch.lastTestStatus : (clearsTestStatus ? undefined : current.lastTestStatus),
+        lastTestAt: updatesTestStatus ? patch.lastTestAt : (clearsTestStatus ? undefined : current.lastTestAt),
+        lastTestMessage: updatesTestStatus ? patch.lastTestMessage : (clearsTestStatus ? undefined : current.lastTestMessage),
         updatedAt: Date.now(),
       };
       file.connections[index] = next;

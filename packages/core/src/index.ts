@@ -90,7 +90,9 @@ export type { BackendSendInput, PermissionDecision } from './backend-types.js';
 // llm-connections.ts
 export type {
   ConnectionAuth,
+  ConnectionLastTestStatus,
   ConnectionTestResult,
+  ConnectionTestErrorClass,
   CreateConnectionInput,
   LlmConnection,
   ModelInfo,

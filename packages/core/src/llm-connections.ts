@@ -41,6 +41,8 @@ export interface ModelInfo {
   };
 }
 
+export type ConnectionLastTestStatus = 'verified' | 'needs_reauth' | 'error';
+
 export interface LlmConnection {
   slug: string;
   name: string;
@@ -49,16 +51,30 @@ export interface LlmConnection {
   defaultModel: string;
   enabled: boolean;
   models?: ModelInfo[];
+  lastTestStatus?: ConnectionLastTestStatus;
+  /** ISO timestamp of the last explicit connection test. */
+  lastTestAt?: string;
+  /** Generalized status message; never persist raw provider responses or secrets. */
+  lastTestMessage?: string;
   createdAt: number;
   updatedAt: number;
   extras?: Record<string, unknown>;
 }
+
+export type ConnectionTestErrorClass =
+  | 'auth'
+  | 'timeout'
+  | 'provider_unavailable'
+  | 'network'
+  | 'unknown';
 
 export interface ConnectionTestResult {
   ok: boolean;
   latencyMs?: number;
   modelTested?: string;
   errorMessage?: string;
+  statusCode?: number;
+  errorClass?: ConnectionTestErrorClass;
 }
 
 export interface ProviderDefaults {
@@ -300,6 +316,9 @@ export interface UpdateConnectionInput {
   enabled?: boolean;
   apiKey?: string;
   models?: ModelInfo[];
+  lastTestStatus?: ConnectionLastTestStatus;
+  lastTestAt?: string;
+  lastTestMessage?: string;
 }
 
 export function migrateConnectionV1ToV2(old: unknown): LlmConnection {

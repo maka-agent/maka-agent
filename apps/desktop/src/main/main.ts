@@ -65,6 +65,7 @@ import {
   requireReadyConnection,
 } from './chat-readiness.js';
 import { createSafeStorageCredentialStore } from './credential-store.js';
+import { connectionTestStatusPatch } from './connection-test-status.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
@@ -412,9 +413,12 @@ function registerIpc(): void {
     if (!connection) return { ok: false, errorMessage: `No such connection: ${slug}` };
     const apiKey = await credentialStore.getSecret(slug, 'api_key');
     if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) {
-      return { ok: false, errorMessage: 'No API key set for this connection' };
+      return { ok: false, errorMessage: 'No API key set for this connection', errorClass: 'auth' };
     }
-    return testConnection(connection, apiKey ?? '', opts?.model);
+    const result = await testConnection(connection, apiKey ?? '', opts?.model);
+    await connectionStore.update(slug, connectionTestStatusPatch(result));
+    emitConnectionListChanged();
+    return result;
   });
   ipcMain.handle('connections:fetchModels', async (_event, slug: string) => {
     const connection = await connectionStore.get(slug);
