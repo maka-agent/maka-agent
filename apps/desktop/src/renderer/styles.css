@@ -806,6 +806,28 @@ button:active {
   font-size: 12px;
 }
 
+.maka-list-row-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-list-row-preview {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-preview {
+  color: var(--foreground-70);
+}
+
 .maka-list-row-unread {
   width: 8px;
   height: 8px;

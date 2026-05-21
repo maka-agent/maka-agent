@@ -467,8 +467,13 @@ function SessionRow(props: {
             if (actions) setEditing(true);
           }}
         >
-          <div>
+          <div className="maka-list-row-text">
             <div className="maka-list-row-name">{session.name}</div>
+            {session.lastMessagePreview && (
+              <div className="maka-list-row-preview" title={session.lastMessagePreview}>
+                {session.lastMessagePreview}
+              </div>
+            )}
             <div className="maka-list-row-meta">{formatSessionMeta(session)}</div>
           </div>
           {session.hasUnread && <span className="maka-list-row-unread" />}
