@@ -448,30 +448,54 @@ function AccountSettingsPage(props: { connections: LlmConnection[] }) {
   // page should surface honestly, not vague labels.
   const enabledCount = props.connections.filter((connection) => connection.enabled).length;
   const totalCount = props.connections.length;
-  const defaultPermissionMode = '需要确认 (ask)';
   return (
-    <SettingsRows>
-      <SettingRow
-        title="默认权限模式"
-        detail="新会话默认从 Ask 模式开始；可在 chat header 切到 Explore / Execute。"
-        value={defaultPermissionMode}
-      />
-      <SettingRow
-        title="凭据保护"
-        detail="API key 使用 Electron safeStorage 加密（macOS Keychain / Windows DPAPI / Linux libsecret）。"
-        value="启用"
-      />
-      <SettingRow
-        title="已配置模型连接"
-        detail={`共有 ${totalCount} 个 connection 在 settings 里登记。`}
-        value={`${enabledCount} 已启用 / ${totalCount} 总数`}
-      />
-      <SettingRow
-        title="审计日志"
-        detail="每个会话的 JSONL 留存所有消息、tool 调用、权限决策与 mode_change，永不离开本机。"
-        value="本地"
-      />
-    </SettingsRows>
+    <div className="settingsStructuredPage">
+      <SettingsRows>
+        <SettingRow
+          title="默认权限模式"
+          detail="新会话默认从 Ask 模式开始；可在 chat header 切到 Explore / Execute。"
+          value="需要确认 (ask)"
+        />
+        <SettingRow
+          title="凭据保护"
+          detail="API key 使用 Electron safeStorage 加密（macOS Keychain / Windows DPAPI / Linux libsecret）。"
+          value="启用"
+        />
+        <SettingRow
+          title="审计日志"
+          detail="每个会话的 JSONL 留存所有消息、tool 调用、权限决策与 mode_change，永不离开本机。"
+          value="本地"
+        />
+      </SettingsRows>
+
+      <h3 className="settingsSubheading">模型连接</h3>
+      {totalCount === 0 ? (
+        <div className="settingsEmptyState">未配置任何模型连接。可在 设置 · 模型 添加。</div>
+      ) : (
+        <div className="settingsRows">
+          {props.connections.map((connection) => {
+            // Per @kenji's contract: we surface configured vs not, but
+            // can't honestly say "verified" until backend adds a
+            // lastTestStatus enum. Until then, enabled = has-been-saved.
+            const status = connection.enabled ? '已启用，未验证' : '已禁用';
+            const subtitle = `${connection.providerType} · ${connection.defaultModel || 'no default model'}`;
+            return (
+              <div key={connection.slug} className="settingsRow">
+                <div>
+                  <strong>{connection.name}</strong>
+                  <small>{subtitle}</small>
+                </div>
+                <span>{status}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="settingsHelpText">
+        显示 “{enabledCount} 已启用 / {totalCount} 总数”。一旦后端补上 lastTestStatus，
+        这里会区分 已配置 / 已验证 / 需要重新登录 / 错误 五种状态。
+      </p>
+    </div>
   );
 }
 
