@@ -63,6 +63,23 @@ const SCALE_FACTORS = [1, 2]; // Retina captures may be 2x or 3x; we accept 1x o
 const MIN_BYTES = 1024; // truncated PNG safety net
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+// Per @kenji review: size tolerance split into two tiers. Standard
+// scenarios (static UI) get ±15%; known-dynamic scenarios (streaming,
+// permission popovers) get ±25%. Out-of-tolerance is a warning unless
+// the scenario also reports `wrong_dimensions` — that's a hard fail.
+const DEFAULT_SIZE_TOLERANCE = 0.15;
+const DYNAMIC_SIZE_TOLERANCE = 0.25;
+const DYNAMIC_SCENARIOS = new Set([
+  'streaming-sidebar',
+  'permission-destructive',
+  // `all` scenario shows both streaming + permission overlays
+  'all',
+]);
+
+function sizeTolerance(scenario) {
+  return DYNAMIC_SCENARIOS.has(scenario) ? DYNAMIC_SIZE_TOLERANCE : DEFAULT_SIZE_TOLERANCE;
+}
+
 function parseArgs(argv) {
   const args = { manifest: false, updateBaseline: false };
   for (let i = 2; i < argv.length; i += 1) {
@@ -233,9 +250,43 @@ async function main() {
     process.exit(summary.failures.length === 0 ? 0 : 1);
   }
 
+  // Soft size-tolerance check against baseline (warning only). Per
+  // @kenji: dimensions/existence/non-empty are hard blocks; size drift
+  // is a warning — Electron rasterization noise routinely shifts bytes
+  // by single digits.
+  const sizeWarnings = [];
+  if (existsSync(MANIFEST_PATH)) {
+    try {
+      const baseline = JSON.parse(await readFile(MANIFEST_PATH, 'utf8'));
+      const baselineByKey = new Map(
+        baseline.entries.filter((e) => e.ok).map((e) => [`${e.scenario}/${e.variant}`, e.bytes]),
+      );
+      for (const entry of current.entries) {
+        if (!entry.ok || entry.bytes === undefined) continue;
+        const baseBytes = baselineByKey.get(`${entry.scenario}/${entry.variant}`);
+        if (baseBytes === undefined) continue;
+        const tolerance = sizeTolerance(entry.scenario);
+        const drift = Math.abs(entry.bytes - baseBytes) / baseBytes;
+        if (drift > tolerance) {
+          sizeWarnings.push({
+            scenario: entry.scenario,
+            variant: entry.variant,
+            baselineBytes: baseBytes,
+            currentBytes: entry.bytes,
+            driftPct: Math.round(drift * 1000) / 10,
+            tolerancePct: Math.round(tolerance * 100),
+          });
+        }
+      }
+    } catch {
+      // Baseline manifest unreadable — soft skip; sanity gate still
+      // catches real regressions.
+    }
+  }
+
   if (summary.failures.length > 0) {
     console.log('');
-    console.log('Failures:');
+    console.log('Failures (hard fail):');
     for (const entry of summary.failures) {
       const detail = entry.reason === 'wrong_dimensions'
         ? ` (got ${entry.dimensions?.width}×${entry.dimensions?.height})`
@@ -250,8 +301,22 @@ async function main() {
     console.log('  - corrupt_png:       capture pipeline produced an invalid file; re-run');
     console.log('  - too_small:         renderer didn\'t fully paint before capture; investigate fixture');
     console.log('  - wrong_dimensions:  fixture viewport bounds not honored; check main.ts read of MAKA_VISUAL_SMOKE_WIDTH/HEIGHT');
-    process.exit(1);
+    if (sizeWarnings.length > 0) console.log('  - (size drift warnings reported below; not blocking)');
   }
+
+  if (sizeWarnings.length > 0) {
+    console.log('');
+    console.log(`Size drift warnings (not blocking; ${sizeWarnings.length} entries):`);
+    for (const w of sizeWarnings) {
+      console.log(`  ${w.scenario}/${w.variant}.png  baseline ${w.baselineBytes} → current ${w.currentBytes}  (${w.driftPct}% > ${w.tolerancePct}% tolerance)`);
+    }
+    console.log('');
+    console.log('Large drift is usually OK (Electron rasterization noise) but watch for cliff-edge UI');
+    console.log('changes that produce a much larger / smaller PNG. Update baseline with `--update-baseline`');
+    console.log('after manual review.');
+  }
+
+  if (summary.failures.length > 0) process.exit(1);
 
   console.log('');
   console.log('[diff-screenshots] OK — all expected PNGs present with valid headers + dimensions.');
