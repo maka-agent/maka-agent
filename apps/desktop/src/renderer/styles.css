@@ -1,3 +1,10 @@
+/* Variable-axis Geist Sans + Mono — replaces system-ui as the primary
+   typeface per the taste-skill / redesign-skill recommendations
+   ("Inter and system fonts banned for premium aesthetic"). System fallback
+   remains so the app stays legible even if the font fails to load. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
 @import "./maka-tokens.css";
 
 :root {
@@ -1035,6 +1042,28 @@ button:active {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.maka-fake-backend-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 14px 0;
+  padding: 8px 12px;
+  border: 1px solid oklch(from var(--info) l c h / 0.3);
+  border-radius: 8px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.maka-fake-backend-banner svg {
+  flex: 0 0 auto;
+}
+
+.maka-fake-backend-banner strong {
+  font-weight: 600;
 }
 
 .maka-toast-viewport {

@@ -625,6 +625,8 @@ export function ChatView(props: {
     );
   }
 
+  const isFakeBackend = props.activeSession.backend === 'fake';
+
   return (
     <main className="maka-main detailPane">
       <header className="maka-chat-header">
@@ -646,6 +648,12 @@ export function ChatView(props: {
           onChange={props.onPermissionModeChange}
         />
       </header>
+      {isFakeBackend && (
+        <div className="maka-fake-backend-banner" role="status">
+          <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
+          <span>当前会话用的是 FakeBackend（echo 模拟）。要拿到真实 LLM 回复，请到 <strong>设置 · 模型</strong> 添加 Anthropic / OpenAI / GLM 等 API key。</span>
+        </div>
+      )}
       <div className="maka-chat-shell">
         <div ref={scrollRef} className="maka-chat messages" onScroll={onScroll}>
           {chat.length === 0 && !props.streamingText && (

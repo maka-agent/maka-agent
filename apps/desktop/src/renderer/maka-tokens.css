@@ -130,9 +130,11 @@
   --z-modal: 200;
   --z-overlay: 300;
 
-  /* === typography === */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* === typography ===
+     Primary face is Geist (variable). Falls back to system-ui so the app stays
+     legible if the bundled font fails to load. Mono pairs with Geist Mono. */
+  --font-sans: "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --font-default: var(--font-sans);
 
   /* === layout === */
@@ -265,6 +267,25 @@
   *:focus-visible {
     outline: none;
     box-shadow: 0 0 0 2px var(--ring);
+  }
+
+  /* Subtle film-grain overlay. Per the taste-skill and frontend-design
+     skill, fixed pointer-events-none noise breaks the digital flatness
+     without costing GPU repaints (it never enters a scroll container). */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: var(--z-overlay);
+    opacity: 0.04;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.9'/></svg>");
+    background-size: 200px 200px;
+  }
+  .dark body::after { opacity: 0.06; }
+  @media (prefers-reduced-motion: reduce) {
+    body::after { display: none; }
   }
 
   kbd {
