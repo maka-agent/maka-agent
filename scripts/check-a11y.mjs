@@ -14,13 +14,11 @@
  *  2. **Positive tabIndex** — `tabIndex={N}` with N > 0. Positive
  *     tabIndex breaks the natural DOM tab order; UI gate § 3.2 bans it.
  *
- *  3. **Icon-only links** — same as #1 but for `<a href>`.
- *
- *  4. **Dialog without label** — `role="dialog"` or `<dialog>` without a
- *     visible label (`aria-labelledby` or `aria-label`).
- *
  * Like `check-console.mjs`, this script lives outside ESLint to keep
  * tooling surface minimal. Run via `pretest` hook in @maka/desktop.
+ *
+ * Future rules should be added to the RULES array without changing the
+ * caller contract (e.g. icon-only links, dialog labels, input labels).
  *
  * To add a legitimate exception, add a `// a11y-allow: <reason>` comment
  * on the same line as the offending element. The allow-list is in-source,

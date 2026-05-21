@@ -1075,7 +1075,7 @@ attribute + 内容传递方式）：
   - 入口：用 `MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane` 启动
   - 期望可见：右侧 pane 展开，三行 list，preview 选择 report.html 后渲染沙箱 iframe
   - 失败信号：HTML 渲染失败但未显式提示、preview 内的 `<a>` 改变 renderer location
-- **smoke path**（smoke.md Path 12）：
+- **smoke path**（smoke.md Path 13）：
   - 入口：用 `MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors` 启动
   - 期望可见：deleted / unsupported_mime / missing 三类 failure copy + native
     Save As dialog；取消 Save As 不报错。
