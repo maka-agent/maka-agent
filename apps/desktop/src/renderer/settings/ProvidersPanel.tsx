@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { nextRadioId } from './model-table-keyboard';
 import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
@@ -716,47 +717,31 @@ function ModelTable(props: {
         : '已成功调用 provider，但返回 0 个模型 — 该 provider 可能未对当前 API key 开放任何模型。'
       : `静态备用列表（${props.fallbackCount} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`;
 
-  // ARIA radiogroup keyboard pattern: arrow keys move focus between radios,
-  // Home/End jump to ends. Space/Enter on a focused radio just trigger
-  // the native button click. @kenji PR91 follow-up #1.
+  // ARIA radiogroup keyboard pattern: arrow keys move focus AND select.
+  // Space/Enter on a focused radio just trigger the native button click.
+  // The pure `nextRadioId` helper is unit-tested in
+  // `apps/desktop/src/main/__tests__/model-table-keyboard.test.ts`.
   function onListKeyDown(event: ReactKeyboardEvent<HTMLUListElement>) {
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-      return;
-    }
     const list = listRef.current;
     if (!list) return;
     const radios = Array.from(list.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
     if (radios.length === 0) return;
-    const currentIndex = radios.indexOf(document.activeElement as HTMLButtonElement);
-    let nextIndex = currentIndex;
-    switch (event.key) {
-      case 'ArrowDown':
-      case 'ArrowRight':
-        nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % radios.length;
-        break;
-      case 'ArrowUp':
-      case 'ArrowLeft':
-        nextIndex = currentIndex < 0 ? radios.length - 1 : (currentIndex - 1 + radios.length) % radios.length;
-        break;
-      case 'Home':
-        nextIndex = 0;
-        break;
-      case 'End':
-        nextIndex = radios.length - 1;
-        break;
-    }
-    if (nextIndex === currentIndex) return;
+    const visibleIds = filtered.map((m) => m.id);
+    const currentId = (document.activeElement as HTMLElement | null)?.closest('button[role="radio"]')
+      ? radios[radios.indexOf(document.activeElement as HTMLButtonElement)]?.dataset.modelId
+      : undefined;
+    const nextId = nextRadioId(currentId, visibleIds, event.key);
+    if (nextId === null || nextId === currentId) return;
     event.preventDefault();
+    const nextIndex = visibleIds.indexOf(nextId);
     const next = radios[nextIndex];
     next?.focus({ preventScroll: false });
     next?.scrollIntoView({ block: 'nearest' });
     // ARIA radiogroup pattern (per @xuan PR92 follow-up): arrow keys move
-    // focus AND select. We can do this safely here because `onPickDefault`
-    // updates local form state only — the persistence happens on "保存修改",
-    // so scanning through models with the arrow keys doesn't write to disk
-    // on every keystroke.
-    const nextId = filtered[nextIndex]?.id;
-    if (nextId !== undefined) props.onPickDefault(nextId);
+    // focus AND select. Safe because `onPickDefault` updates local form
+    // state only — persistence happens on "保存修改", so scanning models
+    // with the arrow keys doesn't write to disk on every keystroke.
+    props.onPickDefault(nextId);
   }
 
   // @kenji PR91 follow-up #2: when search filters out the currently-selected
@@ -833,6 +818,7 @@ function ModelTable(props: {
                   role="radio"
                   aria-checked={isDefault}
                   data-default={isDefault ? 'true' : undefined}
+                  data-model-id={model.id}
                   // Only the active radio is in the tab order; arrow keys
                   // move focus inside the group. Standard ARIA radiogroup.
                   tabIndex={isDefault || (!props.defaultModel && filtered[0]?.id === model.id) ? 0 : -1}
