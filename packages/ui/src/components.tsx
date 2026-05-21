@@ -676,13 +676,13 @@ export function ChatView(props: {
           )}
           {chat.map((item) => (
             <article key={item.id} className={`maka-message-row message ${item.role}`}>
-              <span>{item.role}</span>
+              <span>{messageRoleLabel(item.role)}</span>
               <MessageBody role={item.role} text={item.text} />
             </article>
           ))}
           {props.streamingText && (
             <article className="maka-message-row message assistant streaming">
-              <span>assistant</span>
+              <span>{messageRoleLabel('assistant')}</span>
               <div className="maka-bubble-assistant maka-bubble-streaming">
                 <Markdown text={props.streamingText} />
               </div>
@@ -913,6 +913,14 @@ function PermissionModeSwitcher(props: {
       })}
     </div>
   );
+}
+
+function messageRoleLabel(role: string): string {
+  // Friendlier than the raw enum. Assistant uses the product name; user
+  // uses the CJK 你 (no name) since we don't have user identity yet.
+  if (role === 'user') return '你';
+  if (role === 'assistant') return 'Maka';
+  return role;
 }
 
 function ChatTab(props: {

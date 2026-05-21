@@ -1097,6 +1097,21 @@ button:active {
   min-height: 0;
 }
 
+/* Soft scrim at the top of the chat scroll area so headings + tabs read
+   as a distinct strata above scrolling content. The bottom edge stays
+   uncovered so the composer keeps a clear connection to the last message. */
+.maka-chat-shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--background) 0%, transparent 100%);
+  z-index: 1;
+}
+
 /* Wraps the scroll surface so the jump-to-bottom button can be absolutely
    positioned over the chat without escaping the column. */
 .maka-chat-shell {
@@ -1631,13 +1646,16 @@ button:active {
 
 .message > span {
   display: block;
-  margin-bottom: 5px;
-  color: var(--foreground-40);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
+
+.message.user > span { color: var(--foreground-60); }
+.message.assistant > span { color: var(--accent); }
+.message.system > span { color: var(--info-text); }
 
 .message pre {
   margin: 0;
