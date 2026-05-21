@@ -53,7 +53,10 @@ const STATUS_PRESENTATION: Record<SessionStatus, SessionStatusPresentation> = {
   review: { label: '待审核', tone: 'info', interactive: true },
   done: { label: '已完成', tone: 'success', interactive: true },
   archived: { label: '已归档', tone: 'muted', interactive: false },
-  aborted: { label: '已取消', tone: 'muted', interactive: false },
+  // @kenji review on PR109b: aborted is dormant history but the UI
+  // must NOT silently treat it as active. Renders a muted "已中止"
+  // badge so the user can see what they cancelled later.
+  aborted: { label: '已中止', tone: 'muted', interactive: false },
 };
 
 export function presentSessionStatus(status: SessionStatus): SessionStatusPresentation {

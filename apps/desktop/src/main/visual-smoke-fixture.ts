@@ -275,6 +275,7 @@ const WORKSTATION_ACTIVE_SESSION_ID = 'visual-smoke-ws-active';
 const WORKSTATION_REVIEW_SESSION_ID = 'visual-smoke-ws-review';
 const WORKSTATION_DONE_SESSION_ID = 'visual-smoke-ws-done';
 const WORKSTATION_ARCHIVED_SESSION_ID = 'visual-smoke-ws-archived';
+const WORKSTATION_ABORTED_SESSION_ID = 'visual-smoke-ws-aborted';
 const ERROR_SESSION_ID = 'visual-smoke-error';
 const ARTIFACT_SESSION_ID = 'visual-smoke-artifact';
 const STALE_FAKE_SESSION_ID = 'visual-smoke-stale-fake';
@@ -717,6 +718,14 @@ function workstationStatusSessions(now: number): Array<{ header: SessionHeader; 
       status: 'archived',
       isArchived: true,
       lastMessageOffset: 7 * 24 * 60 * 60 * 1000,
+    }),
+    // @kenji PR109b review: aborted must be visible (collapsed group).
+    // Seed one so the fixture covers the dormant-but-visible state.
+    make({
+      id: WORKSTATION_ABORTED_SESSION_ID,
+      name: '已中止的会话',
+      status: 'aborted',
+      lastMessageOffset: 14 * 24 * 60 * 60 * 1000,
     }),
   ];
 }

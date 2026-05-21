@@ -58,14 +58,25 @@ describe('deriveSessionStatusGroups', () => {
     );
   });
 
-  it('drops aborted sessions from the sidebar', () => {
+  it('renders aborted in its own group at the bottom, default collapsed', () => {
     const groups = deriveSessionStatusGroups([
       session({ id: 'a', status: 'aborted' }),
       session({ id: 'b', status: 'active' }),
     ]);
-    assert.equal(groups.length, 1);
-    assert.equal(groups[0]?.id, 'active');
-    assert.equal(groups[0]?.sessions[0]?.id, 'b');
+    // active group comes first, aborted at the bottom
+    assert.deepEqual(groups.map((g) => g.id), ['active', 'aborted']);
+    const abortedGroup = groups.find((g) => g.id === 'aborted');
+    assert.equal(abortedGroup?.collapsible, true);
+    assert.equal(abortedGroup?.defaultExpanded, false);
+    assert.equal(abortedGroup?.label, '已中止');
+  });
+
+  it('aborted group sorts after archived', () => {
+    const groups = deriveSessionStatusGroups([
+      session({ id: 'a', status: 'aborted' }),
+      session({ id: 'b', status: 'archived' }),
+    ]);
+    assert.deepEqual(groups.map((g) => g.id), ['archived', 'aborted']);
   });
 
   it('drops empty groups (no placeholder headers)', () => {
@@ -83,15 +94,20 @@ describe('deriveSessionStatusGroups', () => {
     assert.equal(groups[0]?.defaultExpanded, false);
   });
 
-  it('non-archived groups are NOT collapsible + default to expanded', () => {
-    const sessions = SESSION_STATUS_GROUP_ORDER
-      .filter((s) => s !== 'archived')
-      .map((status) => session({ id: status, status: status as SessionStatus }));
+  it('dormant groups (archived + aborted) are collapsible + default collapsed', () => {
+    const sessions = SESSION_STATUS_GROUP_ORDER.map((status) =>
+      session({ id: status, status: status as SessionStatus }),
+    );
     const groups = deriveSessionStatusGroups(sessions);
+    const dormant = new Set(['archived', 'aborted']);
     for (const group of groups) {
-      if (group.id === 'archived') continue;
-      assert.equal(group.collapsible, false, `${group.id} should not be collapsible`);
-      assert.equal(group.defaultExpanded, true, `${group.id} should default expanded`);
+      if (dormant.has(group.id)) {
+        assert.equal(group.collapsible, true, `${group.id} should be collapsible`);
+        assert.equal(group.defaultExpanded, false, `${group.id} should default collapsed`);
+      } else {
+        assert.equal(group.collapsible, false, `${group.id} should not be collapsible`);
+        assert.equal(group.defaultExpanded, true, `${group.id} should default expanded`);
+      }
     }
   });
 
@@ -193,12 +209,39 @@ describe('deriveSessionStatusGroups', () => {
       assert.equal(groups[0]?.label, '已置顶');
     });
 
-    it('with pinFirst, aborted+flagged sessions are still dropped (terminal trumps pin)', () => {
+    it('with pinFirst, aborted+flagged sessions still float to Pinned (pin priority is policy)', () => {
+      // Per @kenji PR109b review: pinning is an overlay priority, not a
+      // lifecycle filter. The Pinned group reflects user intent ("I want
+      // to see this"), even when the underlying status is terminal.
       const groups = deriveSessionStatusGroups(
         [session({ id: 'a', status: 'aborted', isFlagged: true })],
         { pinFirst: true },
       );
-      assert.deepEqual(groups, []);
+      assert.equal(groups.length, 1);
+      assert.equal(groups[0]?.id, 'pinned');
+      assert.equal(groups[0]?.sessions[0]?.id, 'a');
+    });
+  });
+
+  describe('@kenji review invariants', () => {
+    it('pinned+running session keeps its real lifecycle status (does NOT downgrade to active)', () => {
+      // Per @kenji review: "确保 pinned session 如果 running/blocked，
+      // 行内 status icon 仍显示真实 lifecycle，不要因为 Pinned group
+      // 把状态信号藏掉." The grouping helper preserves the original
+      // session object, so consumers reading `session.status` still
+      // see `running` even when the session lives in the Pinned group.
+      const sessions = [session({ id: 'a', status: 'running', isFlagged: true })];
+      const groups = deriveSessionStatusGroups(sessions, { pinFirst: true });
+      assert.equal(groups[0]?.id, 'pinned');
+      assert.equal(groups[0]?.sessions[0]?.status, 'running', 'pinned session preserves its real status');
+    });
+
+    it('aborted session is visible (not silently swallowed)', () => {
+      // Per @kenji review: aborted is dormant history, not invisible.
+      const groups = deriveSessionStatusGroups([session({ id: 'a', status: 'aborted' })]);
+      assert.equal(groups.length, 1);
+      assert.equal(groups[0]?.id, 'aborted');
+      assert.equal(groups[0]?.label, '已中止');
     });
   });
 

@@ -166,13 +166,15 @@ function AppShell() {
   ]);
 
   // PR109b: chat header lifecycle status badge. Hidden for `active`
-  // (default) to avoid badge noise on healthy sessions; the only
-  // exception is when the session is blocked, where we also pull the
-  // generalized blocked-reason copy into the tooltip.
+  // (default) to avoid badge noise on healthy sessions. Every other
+  // status — including `aborted` per @kenji review — surfaces a badge
+  // so the user knows the session's settled lifecycle position.
+  // Blocked also pulls the generalized blocked-reason copy into the
+  // tooltip without exposing the raw enum identifier.
   const chatSessionStatusBadge = useMemo(() => {
     if (!activeSession) return undefined;
     const status = activeSession.status;
-    if (status === 'active' || status === 'aborted') return undefined;
+    if (status === 'active') return undefined;
     const presentation = presentSessionStatus(status);
     const tooltip =
       status === 'blocked'
