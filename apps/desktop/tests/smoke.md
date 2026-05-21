@@ -450,7 +450,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 
 ---
 
-## Path 12 — Artifact pane failure states and Save As (§9.1)
+## Path 13 — Artifact pane failure states and Save As (§9.1)
 
 **Precondition.** Fixture scenario `artifact-errors` — seeds the normal
 artifact session plus three failure rows:
