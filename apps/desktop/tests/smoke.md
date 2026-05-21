@@ -32,6 +32,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=turn-narrative npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=streaming-sidebar npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=permission-destructive npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=stale-sessions npm --workspace @maka/desktop run dev
 ```
 
@@ -502,6 +503,53 @@ must still show the pill).
 
 ---
 
+## Path 13 — Artifact pane failure states and Save As (§9.1)
+
+**Precondition.** Fixture scenario `artifact-errors` — seeds the normal
+artifact session plus three failure rows:
+
+- `deleted.md` with `status: deleted` tombstone
+- `unsupported.bin` with binary bytes that fail MIME sniffing
+- `missing.md` metadata whose backing file is absent
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors npm --workspace @maka/desktop run dev
+```
+
+**Steps.**
+1. Launch Maka with the fixture above. The "Artifact Pane 验收" session
+   is activated automatically.
+2. Verify the pane count includes six rows, while deleted rows are
+   visually marked with an "已删除" badge.
+3. Select `deleted.md`. The preview must show the explicit deleted
+   failure state and must not read the backing file even if it exists.
+4. Select `unsupported.bin`. The preview must show "不支持的文件类型"
+   and must not display raw bytes or a copy button.
+5. Select `missing.md`. The preview must show "无法读取 artifact 文件".
+6. Select `report.html`, click「另存为」, cancel the save dialog. No error
+   toast should appear.
+7. Click「另存为」again and choose a temporary destination. The file should
+   be copied there and a success toast should appear.
+
+**Pass signal.**
+- `deleted.md`, `unsupported.bin`, and `missing.md` each render distinct
+  failure copy; no blank preview state.
+- Deleted artifact reads are blocked by tombstone semantics, not by file
+  absence.
+- Unsupported MIME never sends raw bytes into the renderer preview.
+- Save As uses a real OS save dialog and copies the artifact file; it no
+  longer aliases to "在 Finder 中打开".
+- Canceling Save As is silent.
+
+**Fail signals.**
+- Any failure row renders a blank preview.
+- Deleted artifact content remains readable.
+- Unsupported MIME displays mojibake/raw binary.
+- Save As reveals the file in Finder instead of opening a save dialog.
+- Canceling Save As shows an error toast.
+
+---
+
 ## When to run
 
 - Before merging any large UI / runtime / credential / permission
@@ -511,5 +559,5 @@ must still show the pill).
   `nextRadioId`, or PermissionDialog rendering.
 - Before tagging a release.
 
-Each path is < 1 minute. The full ten-path run is ~ 9–11 minutes.
+Each path is < 1 minute. The full path run is ~ 11–13 minutes.
 Worth doing.

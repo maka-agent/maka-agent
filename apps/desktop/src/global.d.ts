@@ -25,6 +25,7 @@ import type {
   ArtifactBinaryReadResult,
   ArtifactChangedEvent,
   ArtifactRecord,
+  ArtifactSaveResult,
   ArtifactTextReadResult,
 } from '@maka/core';
 import type {
@@ -127,6 +128,7 @@ declare global {
                 | 'open-failed';
             }
         >;
+        saveArtifactAs(artifactId: string): Promise<ArtifactSaveResult>;
       };
       visualSmoke: {
         getState(): Promise<VisualSmokeState | null>;

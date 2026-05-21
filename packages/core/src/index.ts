@@ -91,6 +91,8 @@ export type {
   ArtifactChangedReason,
   ArtifactKind,
   ArtifactReadFailureReason,
+  ArtifactSaveFailureReason,
+  ArtifactSaveResult,
   ArtifactRecord,
   ArtifactSource,
   ArtifactStatus,

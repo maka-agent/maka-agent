@@ -148,11 +148,14 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }
 
   async function saveAs(artifactId: string) {
-    // "另存为" in the MVP is "open in Finder" — the OS file browser already
-    // gives the user "Copy" / "Save to…" affordances on the file. A full
-    // showSaveDialog wiring is out of scope per the §9.1.3 toolbar spec
-    // ("打开 Finder / 复制路径 / 删除") and would need its own IPC contract.
-    await openInFinder(artifactId);
+    const result = await window.maka.app.saveArtifactAs(artifactId);
+    if (result.ok) {
+      const record = records.find((entry) => entry.id === artifactId);
+      toast.success('已另存 artifact', record?.name ?? result.saved);
+      return;
+    }
+    if (result.reason === 'canceled') return;
+    toast.error('另存失败', saveArtifactFailureCopy(result.reason));
   }
 
   async function deleteArtifact(artifactId: string) {
@@ -285,6 +288,21 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
 
 function isTextKind(kind: ArtifactKind): boolean {
   return kind === 'file' || kind === 'diff' || kind === 'html';
+}
+
+function saveArtifactFailureCopy(reason: string): string {
+  switch (reason) {
+    case 'not_found':
+      return 'artifact 文件不存在。';
+    case 'not_allowed':
+      return 'artifact 路径检查未通过。';
+    case 'deleted':
+      return 'artifact 已删除，不能另存。';
+    case 'write_failed':
+      return '目标位置无法写入。';
+    default:
+      return '无法保存 artifact。';
+  }
 }
 
 function KindIcon(props: { kind: ArtifactKind }) {

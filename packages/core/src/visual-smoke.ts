@@ -10,6 +10,7 @@ export type VisualSmokeScenario =
   | 'connection-error'
   | 'turn-narrative'
   | 'artifact-pane'
+  | 'artifact-errors'
   | 'streaming-sidebar'
   | 'permission-destructive'
   | 'stale-sessions';

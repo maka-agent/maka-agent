@@ -26,6 +26,7 @@ import type {
   ArtifactBinaryReadResult,
   ArtifactChangedEvent,
   ArtifactRecord,
+  ArtifactSaveResult,
   ArtifactTextReadResult,
 } from '@maka/core';
 import type {
@@ -202,6 +203,9 @@ contextBridge.exposeInMainWorld('maka', {
         }
     > {
       return ipcRenderer.invoke('app:openArtifactPath', artifactId);
+    },
+    saveArtifactAs(artifactId: string): Promise<ArtifactSaveResult> {
+      return ipcRenderer.invoke('app:saveArtifactAs', artifactId);
     },
   },
   visualSmoke: {

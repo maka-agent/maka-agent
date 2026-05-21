@@ -198,6 +198,44 @@ describe('visual smoke fixture mode', () => {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
+
+  it('artifact-errors seed covers deleted, missing, and unsupported MIME preview states', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-errors-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('artifact-errors', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.scenario, 'artifact-errors');
+      assert.equal(state?.activeSessionId, 'visual-smoke-artifact');
+
+      const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { id: string; name: string; relativePath: string; kind: string; status: string });
+      assert.deepEqual(metadata.map((record) => record.id), [
+        'artifact-report',
+        'artifact-patch',
+        'artifact-notes',
+        'artifact-deleted',
+        'artifact-unsupported',
+        'artifact-missing',
+      ]);
+      assert.equal(metadata.find((record) => record.id === 'artifact-deleted')?.status, 'deleted');
+      assert.equal(metadata.find((record) => record.id === 'artifact-unsupported')?.kind, 'image');
+      await assert.rejects(
+        readFile(join(workspaceRoot, 'artifacts', 'visual-smoke-artifact', 'artifact-missing-missing.md'), 'utf8'),
+        /ENOENT/,
+      );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 function fakeCredentialStore(secrets: string[] = []) {

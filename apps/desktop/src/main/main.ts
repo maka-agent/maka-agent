@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import { isExternalUrl } from './external-link-guard.js';
 import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, readFile, realpath } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
@@ -11,6 +11,7 @@ import {
 } from '@maka/core';
 import type {
   AppSettings,
+  ArtifactSaveResult,
   BotProvider,
   ConnectionEvent,
   CreateConnectionInput,
@@ -569,6 +570,33 @@ function registerIpc(): void {
       return { ok: true, opened: record.name };
     },
   );
+  ipcMain.handle('app:saveArtifactAs', async (_event, artifactId: string): Promise<ArtifactSaveResult> => {
+    const record = await artifactStore.get(artifactId);
+    if (!record) return { ok: false, reason: 'not_found' };
+    if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+    const resolved = await resolveArtifactPath({
+      artifactRoot: join(workspaceRoot, 'artifacts'),
+      relativePath: record.relativePath,
+    });
+    if (!resolved.ok) {
+      if (resolved.reason === 'not_allowed') return { ok: false, reason: 'not_allowed' };
+      return { ok: false, reason: 'not_found' };
+    }
+    const saveDialogOptions = {
+      title: `另存为 ${record.name}`,
+      defaultPath: record.name,
+    };
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, saveDialogOptions)
+      : await dialog.showSaveDialog(saveDialogOptions);
+    if (result.canceled || !result.filePath) return { ok: false, reason: 'canceled' };
+    try {
+      await copyFile(resolved.path, result.filePath);
+      return { ok: true, saved: record.name };
+    } catch {
+      return { ok: false, reason: 'write_failed' };
+    }
+  });
   ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
   ipcMain.handle('artifacts:list', (_event, sessionId: string, opts?: { includeDeleted?: boolean }) =>
     artifactStore.list(sessionId, opts),

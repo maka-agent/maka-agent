@@ -21,6 +21,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'connection-error',
   'turn-narrative',
   'artifact-pane',
+  'artifact-errors',
   'streaming-sidebar',
   'permission-destructive',
   'stale-sessions',
@@ -66,6 +67,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'connection-error':
       return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'account' };
     case 'artifact-pane':
+    case 'artifact-errors':
       return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
     case 'turn-narrative':
       return { ...state, activeSessionId: TURN_SESSION_ID };
@@ -122,7 +124,7 @@ export async function seedVisualSmokeFixture(input: {
   await writeSession(input.workspaceRoot, permissionSession(now), permissionMessages(now));
   await writeSession(input.workspaceRoot, errorSession(now), errorMessages(now));
   await writeSession(input.workspaceRoot, artifactSession(now), artifactMessages(now));
-  await writeArtifacts(input.workspaceRoot, now);
+  await writeArtifacts(input.workspaceRoot, now, input.fixture.scenario);
   // Stale-session fixture seeds three sessions reproducing the @WAWQAQ
   // workspace state that triggered the P0:
   //   - one healthy ai-sdk session (zai-live, correct slug)
@@ -648,9 +650,17 @@ async function writeSession(workspaceRoot: string, session: SessionHeader, messa
   );
 }
 
-async function writeArtifacts(workspaceRoot: string, now: number): Promise<void> {
+async function writeArtifacts(workspaceRoot: string, now: number, scenario: VisualSmokeScenario): Promise<void> {
   const root = join(workspaceRoot, 'artifacts');
-  const specs = [
+  const specs: Array<{
+    id: string;
+    name: string;
+    kind: ArtifactRecord['kind'];
+    mimeType?: string;
+    content: string | Uint8Array;
+    status?: ArtifactRecord['status'];
+    skipFile?: boolean;
+  }> = [
     {
       id: 'artifact-report',
       name: 'report.html',
@@ -699,14 +709,44 @@ async function writeArtifacts(workspaceRoot: string, now: number): Promise<void>
       ].join('\n'),
     },
   ];
+  if (scenario === 'artifact-errors') {
+    specs.push(
+      {
+        id: 'artifact-deleted',
+        name: 'deleted.md',
+        kind: 'file',
+        mimeType: 'text/markdown',
+        content: '# Deleted artifact\n\nThis file remains on disk but reads must be blocked by tombstone.',
+        status: 'deleted',
+      },
+      {
+        id: 'artifact-unsupported',
+        name: 'unsupported.bin',
+        kind: 'image',
+        mimeType: 'image/png',
+        content: Uint8Array.from([0x00, 0x01, 0x02, 0x03]),
+      },
+      {
+        id: 'artifact-missing',
+        name: 'missing.md',
+        kind: 'file',
+        mimeType: 'text/markdown',
+        content: '# Missing artifact',
+        skipFile: true,
+      },
+    );
+  }
 
   const records: ArtifactRecord[] = [];
   for (const spec of specs) {
     const relativePath = `${ARTIFACT_SESSION_ID}/${spec.id}-${spec.name}`;
     const path = join(root, relativePath);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, spec.content, 'utf8');
-    const size = await stat(path);
+    let sizeBytes = spec.content instanceof Uint8Array ? spec.content.byteLength : Buffer.byteLength(spec.content);
+    if (!spec.skipFile) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, spec.content);
+      sizeBytes = (await stat(path)).size;
+    }
     records.push({
       id: spec.id,
       sessionId: ARTIFACT_SESSION_ID,
@@ -715,10 +755,10 @@ async function writeArtifacts(workspaceRoot: string, now: number): Promise<void>
       name: spec.name,
       kind: spec.kind,
       relativePath,
-      sizeBytes: size.size,
-      mimeType: spec.mimeType,
+      sizeBytes,
+      ...(spec.mimeType ? { mimeType: spec.mimeType } : {}),
       source: 'fixture',
-      status: 'live',
+      status: spec.status ?? 'live',
     });
   }
 

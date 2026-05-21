@@ -936,6 +936,14 @@ artifacts: {
   >;
   /** Soft delete. */
   delete(artifactId: string): Promise<void>;
+  /**
+   * Open a native Save dialog and copy the artifact file to the chosen
+   * destination. Cancel is not an error toast.
+   */
+  saveAs(artifactId: string): Promise<
+    | { ok: true; saved: string }
+    | { ok: false; reason: 'canceled' | 'not_found' | 'not_allowed' | 'deleted' | 'write_failed' }
+  >;
   /** Subscribe to `artifacts:changed { reason: 'created' | 'deleted' | 'purged', artifactId, sessionId }`. */
   subscribeChanges(handler: (event: ArtifactChangedEvent) => void): () => void;
 };
@@ -1057,12 +1065,20 @@ attribute + 内容传递方式）：
 - **node:test**：
   - `__tests__/artifact-path-guard.test.ts` — 复用 open-path-guard 模式，钉 storagePath 必须在 artifacts/ 前缀
   - `__tests__/artifact-record.test.ts` — record 创建 / soft-delete 转换 / size 限制返回正确 reason
-- **fixture scenario**：新增 `artifact-pane`，seed 一个 session 含 3 artifacts：
-  `report.html`、`patch.diff`、`notes.md`（不超过 10KB）
+- **fixture scenario**：
+  - `artifact-pane` seed 一个 session 含 3 live artifacts：
+    `report.html`、`patch.diff`、`notes.md`（不超过 10KB）
+  - `artifact-errors` 在同 session 额外 seed `deleted.md` tombstone、
+    `unsupported.bin`、`missing.md` metadata-only record，用于 failure-state
+    screenshot/smoke。
 - **smoke path**（smoke.md 新增 Path 11）：
   - 入口：用 `MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane` 启动
   - 期望可见：右侧 pane 展开，三行 list，preview 选择 report.html 后渲染沙箱 iframe
   - 失败信号：HTML 渲染失败但未显式提示、preview 内的 `<a>` 改变 renderer location
+- **smoke path**（smoke.md Path 12）：
+  - 入口：用 `MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors` 启动
+  - 期望可见：deleted / unsupported_mime / missing 三类 failure copy + native
+    Save As dialog；取消 Save As 不报错。
 
 #### 9.1.8 PR 拆分
 

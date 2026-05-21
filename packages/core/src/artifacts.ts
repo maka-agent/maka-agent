@@ -50,3 +50,14 @@ export type ArtifactTextReadResult =
 export type ArtifactBinaryReadResult =
   | { ok: true; base64: string; mimeType: string }
   | { ok: false; reason: ArtifactBinaryReadFailureReason };
+
+export type ArtifactSaveFailureReason =
+  | 'canceled'
+  | 'not_found'
+  | 'not_allowed'
+  | 'deleted'
+  | 'write_failed';
+
+export type ArtifactSaveResult =
+  | { ok: true; saved: string }
+  | { ok: false; reason: ArtifactSaveFailureReason };
