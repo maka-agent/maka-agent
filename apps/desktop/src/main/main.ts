@@ -62,7 +62,7 @@ import {
 } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import { createArtifactStore, createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import {
   assertSessionCanSend as assertHeaderCanSend,
   errorCode,
@@ -87,6 +87,7 @@ const store = createSessionStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
+const artifactStore = createArtifactStore(workspaceRoot);
 const credentialStore = createSafeStorageCredentialStore(workspaceRoot);
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
@@ -476,6 +477,24 @@ function registerIpc(): void {
     return { ok: true, opened: resolved.key };
   });
   ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
+  ipcMain.handle('artifacts:list', (_event, sessionId: string, opts?: { includeDeleted?: boolean }) =>
+    artifactStore.list(sessionId, opts),
+  );
+  ipcMain.handle('artifacts:get', (_event, artifactId: string) => artifactStore.get(artifactId));
+  ipcMain.handle('artifacts:readText', (_event, artifactId: string) => artifactStore.readText(artifactId));
+  ipcMain.handle('artifacts:readBinary', (_event, artifactId: string) => artifactStore.readBinary(artifactId));
+  ipcMain.handle('artifacts:delete', async (_event, artifactId: string) => {
+    await artifactStore.delete(artifactId);
+    const artifact = await artifactStore.get(artifactId);
+    if (artifact) {
+      mainWindow?.webContents.send('artifacts:changed', {
+        reason: 'deleted',
+        artifactId,
+        sessionId: artifact.sessionId,
+        ts: Date.now(),
+      });
+    }
+  });
   ipcMain.handle('skills:list', async () => listInstalledSkills(workspaceRoot));
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {

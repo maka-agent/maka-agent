@@ -120,6 +120,35 @@ describe('visual smoke fixture mode', () => {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
+
+  it('artifact-pane seed creates file-backed artifact metadata without absolute paths', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('artifact-pane', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.activeSessionId, 'visual-smoke-artifact');
+
+      const metadata = (await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8'))
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { name: string; relativePath: string; kind: string; status: string });
+      assert.deepEqual(metadata.map((record) => record.name), ['report.html', 'patch.diff', 'notes.md']);
+      assert.deepEqual(metadata.map((record) => record.kind), ['html', 'diff', 'file']);
+      assert.equal(metadata.every((record) => !record.relativePath.startsWith('/')), true);
+      assert.equal(metadata.every((record) => record.status === 'live'), true);
+      const report = await readFile(join(workspaceRoot, 'artifacts', 'visual-smoke-artifact', 'artifact-report-report.html'), 'utf8');
+      assert.match(report, /外部链接应被禁用/);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 function fakeCredentialStore(secrets: string[] = []) {

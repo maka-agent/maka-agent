@@ -9,6 +9,7 @@ export type VisualSmokeScenario =
   | 'fetched-empty'
   | 'connection-error'
   | 'turn-narrative'
+  | 'artifact-pane'
   | 'streaming-sidebar'
   | 'permission-destructive';
 

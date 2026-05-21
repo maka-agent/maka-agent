@@ -22,6 +22,10 @@ import type {
   UsageRange,
   UsageStats,
   VisualSmokeState,
+  ArtifactBinaryReadResult,
+  ArtifactChangedEvent,
+  ArtifactRecord,
+  ArtifactTextReadResult,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -112,6 +116,14 @@ declare global {
       };
       visualSmoke: {
         getState(): Promise<VisualSmokeState | null>;
+      };
+      artifacts: {
+        list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
+        get(artifactId: string): Promise<ArtifactRecord | null>;
+        readText(artifactId: string): Promise<ArtifactTextReadResult>;
+        readBinary(artifactId: string): Promise<ArtifactBinaryReadResult>;
+        delete(artifactId: string): Promise<void>;
+        subscribeChanges(handler: (event: ArtifactChangedEvent) => void): () => void;
       };
       skills: {
         list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>>;

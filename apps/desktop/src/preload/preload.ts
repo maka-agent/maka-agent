@@ -23,6 +23,10 @@ import type {
   UsageRange,
   UsageStats,
   VisualSmokeState,
+  ArtifactBinaryReadResult,
+  ArtifactChangedEvent,
+  ArtifactRecord,
+  ArtifactTextReadResult,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -192,6 +196,28 @@ contextBridge.exposeInMainWorld('maka', {
   visualSmoke: {
     getState(): Promise<VisualSmokeState | null> {
       return ipcRenderer.invoke('visualSmoke:getState');
+    },
+  },
+  artifacts: {
+    list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]> {
+      return ipcRenderer.invoke('artifacts:list', sessionId, opts);
+    },
+    get(artifactId: string): Promise<ArtifactRecord | null> {
+      return ipcRenderer.invoke('artifacts:get', artifactId);
+    },
+    readText(artifactId: string): Promise<ArtifactTextReadResult> {
+      return ipcRenderer.invoke('artifacts:readText', artifactId);
+    },
+    readBinary(artifactId: string): Promise<ArtifactBinaryReadResult> {
+      return ipcRenderer.invoke('artifacts:readBinary', artifactId);
+    },
+    delete(artifactId: string): Promise<void> {
+      return ipcRenderer.invoke('artifacts:delete', artifactId);
+    },
+    subscribeChanges(handler: (event: ArtifactChangedEvent) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: ArtifactChangedEvent) => handler(payload);
+      ipcRenderer.on('artifacts:changed', listener);
+      return () => ipcRenderer.off('artifacts:changed', listener);
     },
   },
   skills: {

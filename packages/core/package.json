@@ -13,6 +13,7 @@
     "./permission": "./dist/permission.js",
     "./connections": "./dist/connections.js",
     "./workspace": "./dist/workspace.js",
+    "./artifacts": "./dist/artifacts.js",
     "./runtime-inputs": "./dist/runtime-inputs.js",
     "./visual-smoke": "./dist/visual-smoke.js",
     "./backend-types": "./dist/backend-types.js",

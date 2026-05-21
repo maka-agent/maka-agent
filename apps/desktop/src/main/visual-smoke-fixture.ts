@@ -1,6 +1,7 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
+  ArtifactRecord,
   LlmConnection,
   PermissionRequestEvent,
   SessionHeader,
@@ -19,6 +20,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'fetched-empty',
   'connection-error',
   'turn-narrative',
+  'artifact-pane',
   'streaming-sidebar',
   'permission-destructive',
 ]);
@@ -62,6 +64,8 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'connection-error':
       return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'account' };
+    case 'artifact-pane':
+      return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
     case 'turn-narrative':
       return { ...state, activeSessionId: TURN_SESSION_ID };
     case 'streaming-sidebar':
@@ -111,12 +115,15 @@ export async function seedVisualSmokeFixture(input: {
   await writeSession(input.workspaceRoot, streamingSession(now), streamingMessages(now));
   await writeSession(input.workspaceRoot, permissionSession(now), permissionMessages(now));
   await writeSession(input.workspaceRoot, errorSession(now), errorMessages(now));
+  await writeSession(input.workspaceRoot, artifactSession(now), artifactMessages(now));
+  await writeArtifacts(input.workspaceRoot, now);
 }
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 const PERMISSION_SESSION_ID = 'visual-smoke-permission';
 const ERROR_SESSION_ID = 'visual-smoke-error';
+const ARTIFACT_SESSION_ID = 'visual-smoke-artifact';
 
 async function writeSettings(workspaceRoot: string): Promise<void> {
   const settings = createDefaultSettings();
@@ -419,6 +426,48 @@ function errorMessages(now: number): StoredMessage[] {
   ];
 }
 
+function artifactSession(now: number): SessionHeader {
+  return header({
+    id: ARTIFACT_SESSION_ID,
+    name: 'Artifact Pane 验收',
+    connection: 'zai-live',
+    model: 'glm-5.1',
+    now,
+    lastMessageAt: now - 6 * 60_000,
+  });
+}
+
+function artifactMessages(now: number): StoredMessage[] {
+  const turnId = 'turn-artifact';
+  return [
+    {
+      type: 'user',
+      id: 'artifact-user',
+      turnId,
+      ts: now - 7 * 60_000,
+      text: '生成一个 HTML 报告、一个 diff 和一份 Markdown 说明，放到 artifact pane 里检查。',
+    },
+    {
+      type: 'tool_call',
+      id: 'artifact-tool',
+      turnId,
+      ts: now - 7 * 60_000 + 1_000,
+      toolName: 'Write',
+      displayName: '写入 artifact fixture',
+      intent: '生成 report.html / patch.diff / notes.md 三个 artifact',
+      args: { path: 'artifacts/visual-smoke' },
+    },
+    {
+      type: 'assistant',
+      id: 'artifact-assistant',
+      turnId,
+      ts: now - 6 * 60_000,
+      text: '已生成 3 个 artifact：HTML 报告、补丁 diff 和 Markdown 说明。请在右侧 Artifact pane 验证预览、大小限制与 HTML 沙箱边界。',
+      modelId: 'glm-5.1',
+    },
+  ];
+}
+
 function header(input: {
   id: string;
   name: string;
@@ -455,6 +504,88 @@ async function writeSession(workspaceRoot: string, session: SessionHeader, messa
   await writeFile(
     join(dir, 'session.jsonl'),
     [session, ...messages].map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+    'utf8',
+  );
+}
+
+async function writeArtifacts(workspaceRoot: string, now: number): Promise<void> {
+  const root = join(workspaceRoot, 'artifacts');
+  const specs = [
+    {
+      id: 'artifact-report',
+      name: 'report.html',
+      kind: 'html' as const,
+      mimeType: 'text/html',
+      content: [
+        '<!doctype html>',
+        '<html lang="zh-CN">',
+        '<meta charset="utf-8">',
+        '<title>Maka Artifact Smoke Report</title>',
+        '<style>body{font-family:system-ui;margin:24px;line-height:1.5}code{background:#eee;padding:2px 4px}</style>',
+        '<h1>Artifact Pane Smoke Report</h1>',
+        '<p>这个 HTML artifact 用于验证 sandboxed iframe view-only 预览。</p>',
+        '<p><a href="https://example.com">外部链接应被禁用</a></p>',
+        '<script>document.body.dataset.scriptRan = "true";</script>',
+        '</html>',
+      ].join('\n'),
+    },
+    {
+      id: 'artifact-patch',
+      name: 'patch.diff',
+      kind: 'diff' as const,
+      mimeType: 'text/x-diff',
+      content: [
+        'diff --git a/apps/desktop/src/renderer/ArtifactPane.tsx b/apps/desktop/src/renderer/ArtifactPane.tsx',
+        'new file mode 100644',
+        '--- /dev/null',
+        '+++ b/apps/desktop/src/renderer/ArtifactPane.tsx',
+        '@@ -0,0 +1,4 @@',
+        '+export function ArtifactPane() {',
+        '+  return <aside className="maka-artifact-pane" />;',
+        '+}',
+      ].join('\n'),
+    },
+    {
+      id: 'artifact-notes',
+      name: 'notes.md',
+      kind: 'file' as const,
+      mimeType: 'text/markdown',
+      content: [
+        '# Artifact Pane Notes',
+        '',
+        '- HTML preview is view-only.',
+        '- Deleted tombstones must block reads.',
+        '- Binary preview requires MIME sniff allow-list.',
+      ].join('\n'),
+    },
+  ];
+
+  const records: ArtifactRecord[] = [];
+  for (const spec of specs) {
+    const relativePath = `${ARTIFACT_SESSION_ID}/${spec.id}-${spec.name}`;
+    const path = join(root, relativePath);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, spec.content, 'utf8');
+    const size = await stat(path);
+    records.push({
+      id: spec.id,
+      sessionId: ARTIFACT_SESSION_ID,
+      turnId: 'turn-artifact',
+      createdAt: now - 6 * 60_000 + records.length * 1_000,
+      name: spec.name,
+      kind: spec.kind,
+      relativePath,
+      sizeBytes: size.size,
+      mimeType: spec.mimeType,
+      source: 'fixture',
+      status: 'live',
+    });
+  }
+
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    join(root, 'metadata.jsonl'),
+    records.map((record) => JSON.stringify(record)).join('\n') + '\n',
     'utf8',
   );
 }

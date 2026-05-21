@@ -83,6 +83,20 @@ export type {
 // workspace.ts
 export type { WorkspaceConfig } from './workspace.js';
 
+// artifacts.ts
+export type {
+  ArtifactBinaryReadFailureReason,
+  ArtifactBinaryReadResult,
+  ArtifactChangedEvent,
+  ArtifactChangedReason,
+  ArtifactKind,
+  ArtifactReadFailureReason,
+  ArtifactRecord,
+  ArtifactSource,
+  ArtifactStatus,
+  ArtifactTextReadResult,
+} from './artifacts.js';
+
 // runtime-inputs.ts
 export type { CreateSessionInput, UserMessageInput, SessionListFilter } from './runtime-inputs.js';
 
