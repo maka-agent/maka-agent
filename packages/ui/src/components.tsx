@@ -593,7 +593,7 @@ function SessionRow(props: {
             className="maka-list-row-action"
             onClick={startRename}
             aria-label="重命名对话"
-            title="Rename (double-click also works)"
+            title="重命名（双击行名也可）"
           >
             <Pencil size={14} strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -606,8 +606,8 @@ function SessionRow(props: {
                 ? actions.onUnarchive(session.id)
                 : actions.onArchive(session.id);
             }}
-            aria-label={session.isArchived ? 'Unarchive chat' : 'Archive chat'}
-            title={session.isArchived ? 'Unarchive' : 'Archive'}
+            aria-label={session.isArchived ? '取消归档对话' : '归档对话'}
+            title={session.isArchived ? '取消归档' : '归档'}
           >
             {session.isArchived
               ? <ArchiveRestore size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -618,7 +618,7 @@ function SessionRow(props: {
             className="maka-list-row-action maka-list-row-action-danger"
             onClick={handleDelete}
             aria-label="删除对话"
-            title="Delete"
+            title="删除"
           >
             <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -747,7 +747,7 @@ export function ChatView(props: {
     return (
       <main className="maka-main detailPane">
         <header className="maka-chat-header">
-          <ChatTab title="New Chat" />
+          <ChatTab title="新建对话" />
           <button className="maka-chat-tab-plus" type="button" aria-label="新建对话" onClick={props.onNew}>
             <Plus strokeWidth={1.5} />
           </button>

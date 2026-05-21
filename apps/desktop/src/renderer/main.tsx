@@ -111,7 +111,7 @@ function AppShell() {
   }, [activeConnection?.lastTestStatus]);
   const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
     id: activeId,
-    name: 'New Chat',
+    name: '新建对话',
     isFlagged: false,
     isArchived: false,
     labels: [],
@@ -333,7 +333,7 @@ function AppShell() {
       if (!activeId) {
         const session = await window.maka.sessions.create({
           permissionMode: 'ask',
-          name: text.slice(0, 42) || 'New Chat',
+          name: text.slice(0, 42) || '新建对话',
         });
         setActiveId(session.id);
         await refreshSessions();
