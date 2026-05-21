@@ -870,16 +870,24 @@ export interface ArtifactRecord {
   /** Discriminator. UI picks renderer per kind. */
   kind: ArtifactKind;
   /**
-   * Storage backing. All artifacts are **file-backed** under
-   * `{workspaceRoot}/artifacts/{sessionId}/{id}-{name}`. Renderer NEVER inlines
-   * artifact bytes into transcript JSONL — only the record metadata.
+   * **Relative** path under the artifact root. NEVER absolute. Layout:
+   *   `{sessionId}/{id}-{name}`
+   * Absolute path is reconstructed by main as
+   *   `{workspaceRoot}/artifacts/{relativePath}`
+   * with a `realpath()` check that the resolved path is still inside
+   * `{workspaceRoot}/artifacts/` — mirror of PR56 open-path-guard.
+   *
+   * Per @kenji constraint: renderer never sees absolute paths. All file
+   * IO goes through `readText`/`readBinary` IPC helpers (9.1.2). This
+   * keeps every future preview (HTML / PDF / image / export) sharing the
+   * same path-traversal defense surface instead of opening new ones.
    *
    * Why file-backed:
    *   - HTML must run in sandboxed iframe (§9.1.5)
    *   - Large outputs (PDFs, multi-MB diffs) can't survive in JSONL
    *   - Snapshot/diff/rollback (§9.9) needs stable file identity
    */
-  storagePath: string;
+  relativePath: string;
   /** Byte size of the file at storagePath; surfaced in UI list rows. */
   sizeBytes: number;
   /** Optional mime-type hint (e.g. 'text/html', 'application/pdf'); falls back to inference. */
@@ -909,9 +917,23 @@ artifacts: {
   list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
   get(artifactId: string): Promise<ArtifactRecord | null>;
   /** Read file content as text (for diff / file / html previews). */
-  readText(artifactId: string): Promise<{ ok: true; text: string } | { ok: false; reason: 'not_found' | 'too_large' | 'read_failed' }>;
-  /** Read file content as Buffer→base64 (for image / pdf previews). */
-  readBinary(artifactId: string): Promise<{ ok: true; base64: string; mimeType: string } | { ok: false; reason: 'not_found' | 'too_large' | 'read_failed' }>;
+  readText(artifactId: string): Promise<
+    | { ok: true; text: string }
+    | { ok: false; reason: 'not_found' | 'too_large' | 'read_failed' | 'not_allowed' | 'deleted' }
+  >;
+  /**
+   * Read file content as Buffer→base64 for image / pdf previews.
+   * **MIME allow-list** (@kenji constraint): only `image/png`, `image/jpeg`,
+   * `image/gif`, `image/webp`, `image/svg+xml`, `application/pdf` are returned
+   * inline. Unknown / non-allowed MIME → `reason: 'unsupported_mime'` (renderer
+   * shows metadata + "在 Finder 中打开" affordance; no raw binary reaches the
+   * preview component). MIME is sniffed at read time from the file content,
+   * NOT trusted from `record.kind` or `record.mimeType`.
+   */
+  readBinary(artifactId: string): Promise<
+    | { ok: true; base64: string; mimeType: string }
+    | { ok: false; reason: 'not_found' | 'too_large' | 'read_failed' | 'not_allowed' | 'deleted' | 'unsupported_mime' }
+  >;
   /** Soft delete. */
   delete(artifactId: string): Promise<void>;
   /** Subscribe to `artifacts:changed { reason: 'created' | 'deleted' | 'purged', artifactId, sessionId }`. */
@@ -919,9 +941,23 @@ artifacts: {
 };
 ```
 
-> **不允许通过 IPC 暴露 `storagePath` 给 renderer** — 任何文件读取都走 `readText`
-> / `readBinary` helper，main 验证 path 仍在 `{workspaceRoot}/artifacts/`
-> prefix 之内（防御 path traversal）。同 PR56 openPath 模式。
+> **不允许通过 IPC 暴露绝对路径给 renderer** — `ArtifactRecord.relativePath`
+> 是 artifact-root-relative；main 侧 `realpath()` 校验解析后仍在
+> `{workspaceRoot}/artifacts/` prefix（mirror PR56 open-path-guard）。任何
+> 文件读取走 `readText`/`readBinary` helper，**禁止**新增暴露绝对 path 的
+> IPC 方法。
+
+> 路径安全 contract（@kenji 2026-05-22 constraints）：
+> - record 字段：`relativePath`（无前导斜杠 + 无 `..`）
+> - main 端拼接：`join(workspaceRoot, 'artifacts', relativePath)`
+> - **realpath 双校验**：`realpath(artifactRoot)` + `realpath(target)`，再验
+>   target 在 root 内（symlink escape 防御 — mirror PR56 open-path-guard:
+>   `__tests__/open-path-guard.test.ts` 现有覆盖 symlink 越界 / `..` / URL
+>   schemes）
+> - 失败 → 返回 `'not_allowed'` reason，不返回 path 信息
+> - **删除-tombstone 不等于 path purge**（@kenji constraint #4）：当 record
+>   `status === 'deleted'`，`readText` / `readBinary` 立刻返回 `'deleted'`
+>   reason，**不读文件**；真正的 path purge 走单独 Settings · 数据 流程
 
 > 大小阈值：`readText` 上限 10MB，`readBinary` 上限 50MB。超过返回
 > `'too_large'`，UI 提示"打开 Finder 查看"（复用 PR56 openPath('artifact')）。
@@ -952,18 +988,42 @@ artifacts: {
 
 #### 9.1.5 HTML preview sandbox 契约
 
-HTML artifact 是最危险的 kind，**必须**满足：
+HTML artifact 是最危险的 kind，**必须**满足以下边界（按 @kenji 2026-05-22
+review 收紧 — DOM iframe 不能独立 partition / CSP，所以全部隔离靠 sandbox
+attribute + 内容传递方式）：
 
-1. **file-backed**：HTML 内容不嵌入 JSONL；preview 通过 `file://` URL 加载
-2. **sandboxed iframe**：`<iframe sandbox="allow-scripts" src="file://{storagePath}">`
-   - 不允许 `allow-same-origin`（防止 same-origin 攻击到 file:// 协议）
-   - 不允许 `allow-top-navigation`
-   - 不允许 `allow-popups`
-3. **CSP override**：渲染端的全局 CSP `default-src 'self'` 会阻止 file:// 加载；
-   ArtifactPane 这一个 iframe 必须在 main 注入特定 webContents partition + 单独的
-   permissive CSP。**禁止**把全局 CSP 放开。
-4. **导航拦截**：iframe 内任何 `<a href>` 点击走 PR96 `setWindowOpenHandler` →
-   `shell.openExternal`，永不在 iframe 内导航
+1. **file-backed**：HTML 内容不嵌入 transcript JSONL；renderer 不接 raw HTML
+   字符串到 iframe `srcdoc`，而是通过 main 的 `readText(artifactId)` 获取已
+   sandbox-prefix-validated 的文本，再交给 iframe `srcdoc` 渲染。这等价于
+   "内容来源 = 受控的 artifact 文件，不是任意网络/file:// 资源"。
+
+2. **iframe sandbox attribute**：
+   ```html
+   <iframe
+     sandbox="allow-scripts"
+     srcdoc={await readText(artifactId)}
+   />
+   ```
+   - **不允许** `allow-same-origin`（防止访问父 frame DOM / cookies / localStorage）
+   - **不允许** `allow-top-navigation`（防 iframe 替换主 renderer）
+   - **不允许** `allow-popups`（防新窗口逃逸）
+   - **不允许** `allow-forms`（防 form submit 外发数据）
+   - **不允许** `allow-modals`（防 alert/confirm 影响主 surface）
+
+3. **CSP 关系澄清**（@kenji constraint #1）：DOM `<iframe>` 本身不分配独立的
+   Electron `webContents partition`，**不允许**承诺一个 DOM iframe 做不到的隔
+   离层。当前 contract 不通过 CSP override 来获得隔离；隔离完全依赖 sandbox
+   attribute + `srcdoc` 内容控制。**未来**如果要给 artifact preview 加更强
+   隔离（如外部 site 渲染），单独引入 `<webview>` 或 BrowserView + 独立
+   partition 才能正确表述这条；目前 contract 不预先承诺。
+
+4. **导航拦截**：sandbox 已经禁了 top-navigation/popups，但任何在 iframe 内
+   `<a href>` 的点击仍走主 renderer 的 PR96 `setWindowOpenHandler` 路径 →
+   `shell.openExternal`。**永不**在 iframe 内导航替换内容。
+
+5. **CSP global 不动**：渲染端的全局 `Content-Security-Policy` 保留
+   `default-src 'self'; script-src 'self'`；artifact iframe 的安全完全靠
+   sandbox attribute 承担，**禁止**为了 artifact 把全局 CSP 放开。
 
 #### 9.1.6 Failure states
 
@@ -974,7 +1034,8 @@ HTML artifact 是最危险的 kind，**必须**满足：
 | **read_failed** | `readText/readBinary` 返回 `'not_found' / 'read_failed'` | preview 区显示 destructive 色「无法读取 artifact 文件 · 路径可能已被外部删除」+「在 Finder 中打开」按钮 |
 | **too_large** | 超出 10MB / 50MB 阈值 | preview 区显示 info 色「文件超出预览大小 · {sizeBytes} 字节」+「在 Finder 中打开」 |
 | **html_blocked** | iframe 加载失败（CSP / 路径错） | preview 区显示「HTML 预览被沙箱拒绝 · 在 Finder 中打开查看原文」 |
-| **deleted** | `status: 'deleted'` 但 includeDeleted=true | 行半透明 + "已删除" badge + 「恢复」操作（在 6 小时内可恢复） |
+| **deleted** | `status: 'deleted'` 但 includeDeleted=true | 行半透明 + "已删除" badge + 「恢复」操作（在 6 小时内可恢复）；preview 显式提示「此 artifact 已删除，预览已停止」；`readText`/`readBinary` 即使被调用也立即返回 `'deleted'` reason，**不会**读到原文件内容（@kenji constraint #4） |
+| **unsupported_mime** | `readBinary` sniff 出非 allow-list MIME | preview 显示 `kind` + size + 「在 Finder 中打开」+「另存为」；renderer 不接收 raw bytes |
 
 #### 9.1.7 Gate
 
@@ -997,7 +1058,18 @@ HTML artifact 是最危险的 kind，**必须**满足：
 |---|---|---|
 | **PR108a** | `@maka/core` 加 `artifacts.ts` + types；`@maka/storage` 加 artifact 存储；fixture seed 数据 | @xuan |
 | **PR108b** | renderer ArtifactPane shell + list + 3 preview kinds + sandbox iframe；smoke path 11 + fixture scenario `artifact-pane` | @yuejing |
-| **PR108c** | tool runtime 钩子（Bash/Write/Edit 等生成 ArtifactRecord）；node:test gate | @xuan |
+| **PR108c** | tool runtime 钩子；node:test gate | @xuan |
+
+**PR108c 范围澄清**（@kenji review #5 — 2026-05-22）：第一版**不做 LLM
+extractor**。runtime hook 只在 `Write` / `Edit` / `Bash` 工具明确产出**确定性
+artifact** 时记录：
+- `Write` → 1 个 `kind: 'file'` record（path 已知）
+- `Edit` → 1 个 `kind: 'diff'` record（patch 已知）
+- `Bash` → 仅当命令显式 redirect 到文件（`>` / `>>`）时生成 `kind: 'file'` record；
+  stdout/stderr 不自动 promote 成 artifact（避免噪声）
+
+未来 LLM extractor（从 assistant message 提取 ` ```html ` block 当 artifact）
+是 PR109+ 的独立工作，**不**塞进 PR108c。
 
 ### 9.2 ModelCatalogEntry capability / pricing / source enum — @kenji audit item 3
 
