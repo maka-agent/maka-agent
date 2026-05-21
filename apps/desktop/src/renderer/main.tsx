@@ -20,6 +20,7 @@ import {
   type ComposerHandle,
   type NavSelection,
   PermissionDialog,
+  redactSecrets,
   SessionListPanel,
   type SkillEntry,
   ToastProvider,
@@ -743,8 +744,21 @@ const modeDescriptions: Record<PermissionMode, string> = {
  * Serialize a conversation to a Markdown document suitable for pasting into
  * Notion / Obsidian / GitHub. One section per turn: `## 你` header for the
  * user message, optional `### 工具调用` block enumerating tool calls + their
- * result type, `## Maka` for the assistant answer. Drops persisted token_usage
- * / permission_decision rows — those are operational, not narrative.
+ * intent, `## Maka` for the assistant answer.
+ *
+ * Per @kenji's PR86 review, deliberate exclusions:
+ * - **thinking block** is never included — that's model working notes, not
+ *   the answer. If we ever add an "include thinking" toggle, it must be a
+ *   separate opt-in.
+ * - **token_usage / permission_decision / tool_result** rows dropped —
+ *   operational records, not narrative.
+ * - **tool intents** run through `redactSecrets` defensively in case a
+ *   model-authored intent happens to echo a path / token.
+ * - **assistant text** runs through `redactSecrets` defensively — backend
+ *   already redacts at write-time, but a fresh AI-SDK error path that
+ *   somehow lands a raw token in `text` shouldn't survive into a clipboard
+ *   export that the user is going to paste somewhere public.
+ * - **user text** left untouched (the user typed it, they own it).
  */
 function renderConversationMarkdown(sessionName: string, messages: StoredMessage[]): string {
   const lines: string[] = [];
@@ -785,7 +799,8 @@ function renderConversationMarkdown(sessionName: string, messages: StoredMessage
       lines.push('');
       for (const call of toolCalls) {
         const c = call as { toolName: string; intent?: string };
-        const intentSuffix = c.intent ? ` — ${c.intent}` : '';
+        const intent = c.intent ? redactSecrets(c.intent) : undefined;
+        const intentSuffix = intent ? ` — ${intent}` : '';
         lines.push(`- \`${c.toolName}\`${intentSuffix}`);
       }
       lines.push('');
@@ -794,7 +809,10 @@ function renderConversationMarkdown(sessionName: string, messages: StoredMessage
     if (assistant) {
       lines.push('## Maka');
       lines.push('');
-      lines.push((assistant as { text: string }).text);
+      // Defensive: backend redacts at write-time, but the export landing
+      // in the user's clipboard is a high-risk surface — paste destinations
+      // are external. Second-layer redaction is cheap insurance.
+      lines.push(redactSecrets((assistant as { text: string }).text));
       lines.push('');
     }
   }

@@ -4450,6 +4450,44 @@ button:active {
   background: oklch(from var(--accent) l c h / 0.06);
 }
 
+.enabledProviderChip[data-disabled="true"] {
+  opacity: 0.6;
+  filter: grayscale(0.4);
+}
+
+/* Status dot on each chip — peer to the chip name. data-test-status comes
+ * from `lastTestStatus` (PR61 schema). 'untested' shows a quiet neutral
+ * dot; 'verified' goes success; 'needs_reauth' warns; 'error' destructive.
+ * Sits at the chip's top-right, above the provider name. */
+.enabledProviderChip {
+  position: relative;
+}
+
+.enabledProviderChipStatus {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--foreground-20);
+}
+
+.enabledProviderChip[data-test-status="verified"] .enabledProviderChipStatus {
+  background: var(--success);
+  box-shadow: 0 0 0 3px oklch(from var(--success) l c h / 0.18);
+}
+
+.enabledProviderChip[data-test-status="needs_reauth"] .enabledProviderChipStatus {
+  background: var(--info);
+  box-shadow: 0 0 0 3px oklch(from var(--info) l c h / 0.20);
+}
+
+.enabledProviderChip[data-test-status="error"] .enabledProviderChipStatus {
+  background: var(--destructive);
+  box-shadow: 0 0 0 3px oklch(from var(--destructive) l c h / 0.20);
+}
+
 .enabledEmptyChip strong,
 .enabledProviderChip strong {
   display: block;

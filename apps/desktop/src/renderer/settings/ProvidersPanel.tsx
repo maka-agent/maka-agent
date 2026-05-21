@@ -75,6 +75,20 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     setSelectedSlug(null);
   }
 
+  function chipTitle(connection: LlmConnection): string {
+    if (!connection.enabled) return `${connection.name} · 已禁用`;
+    switch (connection.lastTestStatus) {
+      case 'verified':
+        return `${connection.name} · 已验证可用`;
+      case 'needs_reauth':
+        return `${connection.name} · 需要重新登录`;
+      case 'error':
+        return `${connection.name} · 上次连接失败`;
+      default:
+        return `${connection.name} · 未验证`;
+    }
+  }
+
   const configuredByType = (type: ProviderType) =>
     connections.filter((connection) => connection.providerType === type).length;
 
@@ -113,16 +127,20 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                 type="button"
                 className="enabledProviderChip"
                 data-default={connection.slug === defaultSlug}
+                data-test-status={connection.lastTestStatus ?? 'untested'}
+                data-disabled={connection.enabled ? undefined : 'true'}
                 onClick={() => {
                   setSelectedSlug(connection.slug);
                   setAddingType(null);
                 }}
+                title={chipTitle(connection)}
               >
                 <ProviderLogo type={connection.providerType} compact />
                 <span>
                   <strong>{connection.name}</strong>
                   <small>{providerDisplay(connection.providerType).name}</small>
                 </span>
+                <span className="enabledProviderChipStatus" aria-hidden="true" />
               </button>
             ))
           }
