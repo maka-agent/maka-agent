@@ -41,14 +41,17 @@ export async function proxiedFetch(
     else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
   }
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
       controller.abort(new Error('Fetch timeout'));
       void disposeDispatcher(true);
       reject(new Error('Fetch timeout'));
     }, timeoutMs);
-    controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+    controller.signal.addEventListener('abort', () => {
+      if (timer) clearTimeout(timer);
+    }, { once: true });
   });
 
   try {
@@ -58,7 +61,7 @@ export async function proxiedFetch(
     });
     return await Promise.race([request, timeout]) as unknown as Response;
   } finally {
-    controller.abort();
+    if (timer) clearTimeout(timer);
     await disposeDispatcher(timedOut);
   }
 }
