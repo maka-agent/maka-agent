@@ -83,10 +83,29 @@ export interface TurnViewModel {
   user?: ChatItem;
   tools: ToolActivityItem[];
   assistant?: ChatItem;
+  /**
+   * Anthropic-style reasoning that some providers expose alongside the
+   * assistant's final answer. Rendered in a collapsed `<details>` so the
+   * answer reads cleanly but the thinking is one click away when the
+   * user wants to verify the chain of reasoning.
+   */
+  assistantThinking?: string;
   /** System notes inside this turn that survive the VISIBLE_SYSTEM_NOTES gate. */
   notes: ChatItem[];
   /** Wall-clock ts of the earliest message in this turn — used for sorting. */
   startedAt: number;
+  /** Model id from the assistant message (if any), e.g. claude-sonnet-4-5. */
+  modelId?: string;
+  /** Wall-clock ms between earliest user/tool message and assistant message. */
+  durationMs?: number;
+  /** Token totals summed across all `token_usage` messages within the turn. */
+  tokens?: {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheCreation?: number;
+    costUsd?: number;
+  };
 }
 
 /**
@@ -125,6 +144,20 @@ export function materializeTurns(
       turn.user = { id: message.id, role: 'user', text: message.text, ts: message.ts };
     } else if (message.type === 'assistant') {
       turn.assistant = { id: message.id, role: 'assistant', text: message.text, ts: message.ts };
+      turn.modelId = message.modelId;
+      if (message.thinking?.text) {
+        turn.assistantThinking = message.thinking.text;
+      }
+      // Time-to-answer measured from the earliest message in this turn (usually
+      // the user's send) to the assistant message ts. Tool runs are inside
+      // this window, so the same metric captures both LLM latency and tool
+      // wall-time. We only compute this once the assistant message lands, so
+      // a streaming turn stays at undefined ("进行中" per kenji's PR82
+      // review) instead of ticking up against the current clock and forcing
+      // visible re-renders.
+      if (message.ts !== undefined && message.ts >= turn.startedAt) {
+        turn.durationMs = message.ts - turn.startedAt;
+      }
     } else if (message.type === 'system_note' && VISIBLE_SYSTEM_NOTES.has(message.kind)) {
       turn.notes.push({
         id: message.id,
@@ -134,6 +167,14 @@ export function materializeTurns(
       });
     } else if (message.type === 'tool_call') {
       turnsByMsg.set(message.id, turnId);
+    } else if (message.type === 'token_usage') {
+      const totals = turn.tokens ?? { input: 0, output: 0 };
+      totals.input += message.input;
+      totals.output += message.output;
+      if (message.cacheRead !== undefined) totals.cacheRead = (totals.cacheRead ?? 0) + message.cacheRead;
+      if (message.cacheCreation !== undefined) totals.cacheCreation = (totals.cacheCreation ?? 0) + message.cacheCreation;
+      if (message.costUsd !== undefined) totals.costUsd = (totals.costUsd ?? 0) + message.costUsd;
+      turn.tokens = totals;
     }
   }
 

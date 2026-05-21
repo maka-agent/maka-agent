@@ -535,6 +535,91 @@
     padding: 0 var(--ui-density-message-pad-x, 24px);
   }
 
+  /* Compact turn summary chips between the user message and the rest of
+   * the turn. Surfaces "用了哪个模型，跑了几个工具，耗时多少，token 多少"
+   * inline so each turn answers @kenji's UI-04 follow-up questions. */
+  .maka-turn-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 var(--ui-density-message-pad-x, 24px);
+    margin-top: -2px;
+  }
+
+  .maka-turn-summary-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--foreground-5);
+    color: var(--foreground-60);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+  }
+
+  .maka-turn-summary-chip code {
+    background: transparent;
+    color: inherit;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .maka-turn-summary-chip[data-kind="tools"] {
+    color: var(--accent);
+    background: oklch(from var(--accent) l c h / 0.08);
+  }
+
+  .maka-turn-summary-chip[data-kind="duration"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .maka-turn-summary-chip[data-kind="tokens"] {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  .maka-turn-summary-chip[data-state="in-progress"] {
+    background: oklch(from var(--accent) l c h / 0.10);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Optional reasoning block — collapsed by default, expandable to inspect
+   * the model's chain of thought without cluttering the answer. */
+  .maka-turn-thinking {
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border: 1px dashed oklch(from var(--accent) l c h / 0.25);
+    border-radius: 10px;
+    background: oklch(from var(--accent) l c h / 0.03);
+    font-size: 12.5px;
+    color: var(--foreground-70);
+  }
+
+  .maka-turn-thinking summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+
+  .maka-turn-thinking-body {
+    margin-top: 6px;
+    line-height: 1.55;
+    font-style: italic;
+    opacity: 0.9;
+  }
+
+  .maka-bubble-assistant-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
   /* The streaming bubble (out-of-band, before the in-progress turn is
    * fully persisted) sits at the bottom of the chat surface; give it the
    * same horizontal frame as a real turn message. */
