@@ -33,6 +33,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
 import { useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
+import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 
 type SettingsNavItem = {
   id: SettingsSection;
@@ -639,7 +640,9 @@ function DataSettingsPage() {
   async function openWorkspace() {
     if (!info) return;
     const result = await window.maka.app.openPath('workspace');
-    if (!result.ok) toast.error('打开失败', openPathFailureCopy(result.reason));
+    if (!result.ok) {
+      toast.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+    }
   }
 
   async function copyPath() {
@@ -691,23 +694,6 @@ function DataSettingsPage() {
       </div>
     </div>
   );
-}
-
-function openPathFailureCopy(reason: string): string {
-  switch (reason) {
-    case 'unknown-key':
-      return '未知的工作区目录。';
-    case 'not-allowed':
-      return '路径不在允许打开的工作区范围内。';
-    case 'missing':
-      return '目录不存在。';
-    case 'not-a-directory':
-      return '目标不是目录。';
-    case 'open-failed':
-      return '系统没有打开该目录。';
-    default:
-      return '无法打开目录。';
-  }
 }
 
 function PersonalizationSettingsPage(props: {

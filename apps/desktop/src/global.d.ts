@@ -90,7 +90,20 @@ declare global {
           osRelease: string;
           workspacePath: string;
         }>;
-        openPath(key: string): Promise<{ ok: true; opened: string } | { ok: false; reason: string }>;
+        openPath(
+          key: 'workspace' | 'skills',
+        ): Promise<
+          | { ok: true; opened: string }
+          | {
+              ok: false;
+              reason:
+                | 'unknown-key'
+                | 'not-allowed'
+                | 'missing'
+                | 'not-a-directory'
+                | 'open-failed';
+            }
+        >;
       };
       skills: {
         list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>>;

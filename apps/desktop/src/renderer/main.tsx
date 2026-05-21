@@ -31,6 +31,7 @@ import { CommandPalette, buildCommandList, useCommandPalette } from './command-p
 import { OnboardingHero } from './OnboardingHero';
 import { ProviderLogo } from './settings/ProvidersPanel';
 import { applyDensity, applyTheme } from './theme';
+import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
@@ -256,6 +257,16 @@ function AppShell() {
     setStreamingBySession({});
     setLiveToolsBySession({});
     setPermissionBySession({});
+  }
+
+  // Open the workspace's skills/ directory in Finder via the IPC allowlist.
+  // Earlier we silently dropped the structured failure result; surface it
+  // so missing-skills-dir / open-failed don't look like the button did nothing.
+  async function openSkillsFolder() {
+    const result = await window.maka.app.openPath('skills');
+    if (!result.ok) {
+      toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathFailureCopy(result.reason));
+    }
   }
 
   async function send(text: string): Promise<boolean> {
@@ -486,7 +497,7 @@ function AppShell() {
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
             onNew={createSession}
-            onOpenSkillFolder={() => void window.maka.app.openPath('skills')}
+            onOpenSkillFolder={() => void openSkillsFolder()}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
               onArchive: (sessionId) => void archiveSession(sessionId),
