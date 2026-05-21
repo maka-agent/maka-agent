@@ -210,28 +210,32 @@ async function createWindow(): Promise<void> {
 
 
 function installApplicationMenu(): void {
+  // App menu labels match the in-app Chinese-leaning UI per the PR69/70/71
+  // localization sweep. Role-based items (cut/copy/paste/reload/etc.) keep
+  // their OS-localized labels — those auto-translate when the user's system
+  // language matches; we only override the explicit `label` strings.
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
         label: 'Maka',
         submenu: [
-          { role: 'about', label: 'About Maka' },
+          { role: 'about', label: '关于 Maka' },
           {
-            label: 'Preferences…',
+            label: '设置…',
             accelerator: 'CommandOrControl+,',
             click: () => mainWindow?.webContents.send('window:openSettings'),
           },
           { type: 'separator' },
-          { role: 'hide', label: 'Hide Maka' },
+          { role: 'hide', label: '隐藏 Maka' },
           { role: 'hideOthers' },
           { role: 'unhide' },
           { type: 'separator' },
-          { role: 'quit', label: 'Quit Maka' },
+          { role: 'quit', label: '退出 Maka' },
         ],
       },
-      { label: 'File', submenu: [{ role: 'close' }] },
+      { label: '文件', submenu: [{ role: 'close' }] },
       {
-        label: 'Edit',
+        label: '编辑',
         submenu: [
           { role: 'undo' },
           { role: 'redo' },
@@ -243,7 +247,7 @@ function installApplicationMenu(): void {
         ],
       },
       {
-        label: 'View',
+        label: '视图',
         submenu: [
           { role: 'reload' },
           { role: 'toggleDevTools' },
@@ -255,7 +259,7 @@ function installApplicationMenu(): void {
           { role: 'togglefullscreen' },
         ],
       },
-      { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
+      { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
     ]),
   );
 }
