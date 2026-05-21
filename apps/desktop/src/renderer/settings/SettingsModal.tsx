@@ -443,6 +443,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 
 function AboutSettingsPage() {
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -469,14 +470,84 @@ function AboutSettingsPage() {
 
   const platformPretty = PLATFORM_LABEL[info.platform] ?? info.platform;
   const platformLine = `${platformPretty} ${info.osRelease} · ${info.arch}`;
+
+  async function copyEnvSummary() {
+    if (!info) return;
+    // Markdown block ready to paste into a bug report. Deliberately excludes
+    // workspacePath since that can leak the OS username; user can still copy
+    // it from the Data page if needed.
+    const summary = [
+      `**Maka** v${info.appVersion}`,
+      ``,
+      `- Electron: ${info.electronVersion}`,
+      `- Node: ${info.nodeVersion}`,
+      `- Chrome: ${info.chromeVersion}`,
+      `- Platform: ${platformPretty} ${info.osRelease}`,
+      `- Arch: ${info.arch}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(summary);
+      toast.success('已复制环境信息', '可直接粘贴到 bug report');
+    } catch {
+      toast.error('复制失败', '剪贴板不可用');
+    }
+  }
+
   return (
-    <SettingsRows>
-      <SettingRow title="Maka 版本" detail="Local development build." value={`v${info.appVersion}`} />
-      <SettingRow title="运行时" detail="Renderer + Electron + Node 三层版本号一并显示。" value={`Electron ${info.electronVersion} · Node ${info.nodeVersion} · Chrome ${info.chromeVersion}`} />
-      <SettingRow title="平台" detail="操作系统、版本和 CPU 架构。" value={platformLine} />
-      <SettingRow title="工作区" detail="会话、设置、credential 全部留在本地这条路径下。" value={info.workspacePath} />
-      <SettingRow title="存储" detail="JSONL sessions、settings.json、encrypted provider credentials。" value="Local" />
-    </SettingsRows>
+    <div className="settingsAboutPage">
+      <header className="settingsAboutHero">
+        <span className="settingsAboutLogo" aria-hidden="true">
+          <Sparkles size={26} strokeWidth={1.5} />
+        </span>
+        <div>
+          <div className="settingsAboutHeading">
+            <h2>Maka</h2>
+            <span className="settingsAboutVersion">v{info.appVersion}</span>
+            <span className="settingsAboutChannel">本地开发版</span>
+          </div>
+          <p className="settingsAboutTagline">本地优先的 AI 助手 · Electron + React + Vercel AI SDK</p>
+        </div>
+      </header>
+
+      <section className="settingsAboutPrivacy" aria-label="隐私与安全">
+        <h3>本地优先 · 隐私默认</h3>
+        <ul>
+          <li>所有会话、settings、credentials、skills 都保留在本机工作区，不上传到 Maka 服务器</li>
+          <li>provider API key 通过 Electron safeStorage 加密保存（macOS Keychain / Windows DPAPI / Linux libsecret）</li>
+          <li>Maka 不发送任何使用遥测；只在你显式启用时与所选 provider 通信</li>
+          <li>权限策略对工具调用做 risk 分类；高危操作需要在 chat 内明示授权</li>
+          <li>每个会话的 JSONL 留存所有消息、tool 调用、权限决策与 mode_change，永不离开本机</li>
+        </ul>
+      </section>
+
+      <SettingsRows>
+        <SettingRow
+          title="运行时"
+          detail="Renderer + Electron + Node 三层版本号一并显示。"
+          value={`Electron ${info.electronVersion} · Node ${info.nodeVersion} · Chrome ${info.chromeVersion}`}
+        />
+        <SettingRow title="平台" detail="操作系统、版本和 CPU 架构。" value={platformLine} />
+        <SettingRow
+          title="工作区"
+          detail="会话、设置、credential 全部留在本地这条路径下。"
+          value={info.workspacePath}
+        />
+        <SettingRow
+          title="存储"
+          detail="JSONL sessions、settings.json、SQLite usage stats、safeStorage 加密的 provider credentials。"
+          value="Local"
+        />
+      </SettingsRows>
+
+      <div className="settingsActionRow">
+        <button type="button" className="maka-button" onClick={() => void copyEnvSummary()}>
+          复制环境信息
+        </button>
+      </div>
+      <p className="settingsHelpText">
+        如果遇到问题，复制以上信息会同时带上版本号与平台细节，方便定位。复制内容不包含工作区路径（避免泄露用户名）。
+      </p>
+    </div>
   );
 }
 

@@ -2537,6 +2537,106 @@ button:active {
   gap: 10px;
 }
 
+.settingsAboutPage {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.settingsAboutHero {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--foreground-3);
+}
+
+.settingsAboutLogo {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--accent);
+}
+
+.settingsAboutHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+
+.settingsAboutHeading h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.settingsAboutVersion {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--foreground-70);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.05);
+}
+
+.settingsAboutChannel {
+  font-size: 11px;
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  font-weight: 600;
+}
+
+.settingsAboutTagline {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsAboutPrivacy {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid oklch(from var(--success) l c h / 0.24);
+  border-radius: 12px;
+  background: oklch(from var(--success) l c h / 0.04);
+}
+
+.settingsAboutPrivacy h3 {
+  margin: 0;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsAboutPrivacy ul {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsAboutPrivacy li::marker {
+  color: var(--success);
+}
+
 .settingsInlineResult {
   color: var(--foreground-60);
   font-size: 12px;
