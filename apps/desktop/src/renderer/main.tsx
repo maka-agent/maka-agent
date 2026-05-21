@@ -47,6 +47,8 @@ import {
   sessionStatusAriaLabel,
 } from './session-status-presentation';
 import { deriveTurnFooterActions } from './turn-footer-actions';
+import { readScrollMotionBehavior } from './scroll-motion-policy';
+import { deriveBranchBanner } from './branch-banner';
 import { applyDensity, applyTheme } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
@@ -295,12 +297,26 @@ function AppShell() {
   // PR109e-e: click handler for lineage badge → scroll target turn into
   // view. Avoids pulling a separate ref-tracker: relies on the
   // `data-turn-id` attribute the renderer already sets on each TurnView.
+  //
+  // @kenji PR109e review + @xuan PR109f follow-up: scrollIntoView with
+  // `behavior: 'smooth'` must respect both reduced-motion AND the
+  // visual-smoke capture entry (PR-IR-02). @xuan confirmed on main that
+  // visual-smoke always writes `data-maka-visual-smoke="true"` but
+  // `data-maka-reduced-motion="true"` is only set on the reduced
+  // variant — so the visual-smoke attribute is the broader signal for
+  // "deterministic capture, no animations". Three triggers collapse to
+  // `auto`:
+  //   1. `data-maka-reduced-motion="true"` — PR-IR-04 reduced variant
+  //   2. `data-maka-visual-smoke="true"` — PR-IR-02 any capture
+  //   3. `prefers-reduced-motion: reduce` — OS-level user preference
   function handleLineageBadgeClick(targetTurnId: string): void {
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-turn-id="${CSS.escape(targetTurnId)}"]`);
-      if (el && 'scrollIntoView' in el) {
-        (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      if (!el || !('scrollIntoView' in el)) return;
+      (el as HTMLElement).scrollIntoView({
+        behavior: readScrollMotionBehavior(),
+        block: 'center',
+      });
     });
   }
 
@@ -358,6 +374,30 @@ function AppShell() {
       tooltip,
     };
   }, [activeSession?.id, activeSession?.status, activeSession?.blockedReason]);
+
+  // PR109f: branched session banner. When the active session was
+  // created via `sessions:branchFromTurn`, its `parentSessionId` is
+  // set; render a banner above the chat surface so the user knows
+  // they're in a derived conversation and can jump back to the parent.
+  //
+  // `fromAbortedTurn` is heuristic: if the parent session is visible
+  // in our session list, we look up the source turn in its loaded
+  // messages and check `status === 'aborted'`. If we don't have those
+  // messages loaded (we only load the active session's messages), we
+  // fall back to no hint — better to under-explain than mislabel.
+  // v1: omit the fromAbortedTurn hint because checking it requires
+  // loading the parent's full message log. The session-status banner
+  // in §9.9 already covers "this branch may be from an abort" via the
+  // footer-tooltip path in PR109d. When parent-message preloading
+  // lands, pass the resolved aborted-turn flag as the third arg.
+  const branchBanner = useMemo(
+    () => deriveBranchBanner(activeSession, sessions),
+    [activeSession?.parentSessionId, sessions],
+  );
+
+  function handleBranchBannerClick(parentSessionId: string): void {
+    setActiveId(parentSessionId);
+  }
 
   const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
     id: activeId,
@@ -965,6 +1005,8 @@ function AppShell() {
                 turnFailedReasonLabels={turnFailedReasonLabels}
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
+                branchBanner={branchBanner}
+                onBranchBannerClick={handleBranchBannerClick}
                 emptyOverride={needsOnboarding ? (
                   <OnboardingHero
                     onOpenSettings={() => setSettingsOpen(true)}

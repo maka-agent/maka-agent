@@ -1042,6 +1042,26 @@ export function ChatView(props: {
   turnFailedReasonLabels?: Record<string, string>;
   turnLineageBadgesByTurn?: Record<string, TurnLineageBadge[]>;
   onLineageBadgeClick?: (targetTurnId: string) => void;
+  /**
+   * PR109f: when the active session is a branched session
+   * (`parentSessionId` set on its summary), show a banner above the
+   * chat surface so the user knows they're in a derived conversation
+   * and can jump back to the parent.
+   *
+   * Renderer (main.tsx) resolves the parent name from the connections /
+   * sessions list — @maka/ui never queries the storage layer directly.
+   */
+  branchBanner?: {
+    parentSessionId: string;
+    parentSessionName: string;
+    /**
+     * Set when the branch starting point was an aborted turn. UI shows
+     * "从中断前分支" copy so the user understands the branch starts
+     * from before the cancel point, not from the abort itself.
+     */
+    fromAbortedTurn?: boolean;
+  };
+  onBranchBannerClick?: (parentSessionId: string) => void;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
   onPermissionModeChange?(mode: PermissionMode): void;
@@ -1151,6 +1171,12 @@ export function ChatView(props: {
         </div>
       )}
       <div className="maka-chat-shell">
+        {props.branchBanner && (
+          <SessionBranchBanner
+            banner={props.branchBanner}
+            onClick={props.onBranchBannerClick}
+          />
+        )}
         <div ref={scrollRef} className="maka-chat messages" onScroll={onScroll}>
           {chat.length === 0 && !props.streamingText && (
             props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} userLabel={props.userLabel} />
@@ -1739,6 +1765,40 @@ export interface TurnFooterActionMeta {
   label: string;
   enabled: boolean;
   tooltip?: string;
+}
+
+/**
+ * Branched session banner (PR109f). Surfaces above the chat surface
+ * when the active session has `parentSessionId` set. Click jumps the
+ * user back to the parent session.
+ */
+function SessionBranchBanner(props: {
+  banner: {
+    parentSessionId: string;
+    parentSessionName: string;
+    fromAbortedTurn?: boolean;
+  };
+  onClick?: (parentSessionId: string) => void;
+}) {
+  const { banner } = props;
+  return (
+    <button
+      type="button"
+      className="maka-session-branch-banner"
+      data-from-aborted={banner.fromAbortedTurn || undefined}
+      onClick={() => props.onClick?.(banner.parentSessionId)}
+      aria-label={banner.fromAbortedTurn
+        ? `从中断前分支自 ${banner.parentSessionName} · 点击跳回原会话`
+        : `分自 ${banner.parentSessionName} · 点击跳回原会话`}
+    >
+      <GitBranch size={12} strokeWidth={2} aria-hidden="true" />
+      <span>
+        {banner.fromAbortedTurn
+          ? `从中断前分支自 ${banner.parentSessionName}`
+          : `分自 ${banner.parentSessionName}`}
+      </span>
+    </button>
+  );
 }
 
 /**
