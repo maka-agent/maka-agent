@@ -12,6 +12,37 @@
 import type { AttachmentRef, ToolResultContent } from './events.js';
 import type { PermissionMode } from './permission.js';
 
+export const SESSION_STATUSES = [
+  'active',
+  'running',
+  'waiting_for_user',
+  'blocked',
+  'review',
+  'done',
+  'archived',
+  'aborted',
+] as const;
+
+export type SessionStatus = typeof SESSION_STATUSES[number];
+
+export const SESSION_BLOCKED_REASONS = [
+  'NO_REAL_CONNECTION',
+  'auth',
+  'permission_required',
+  'tool_failed',
+  'unknown',
+] as const;
+
+export type SessionBlockedReason = typeof SESSION_BLOCKED_REASONS[number];
+
+export function isSessionStatus(value: unknown): value is SessionStatus {
+  return typeof value === 'string' && (SESSION_STATUSES as readonly string[]).includes(value);
+}
+
+export function isSessionBlockedReason(value: unknown): value is SessionBlockedReason {
+  return typeof value === 'string' && (SESSION_BLOCKED_REASONS as readonly string[]).includes(value);
+}
+
 // ============================================================================
 // Header (JSONL line 1)
 // ============================================================================
@@ -34,6 +65,9 @@ export interface SessionHeader {
 
   isArchived: boolean;
   archivedAt?: number;
+  status: SessionStatus;
+  blockedReason?: SessionBlockedReason;
+  statusUpdatedAt?: number;
 
   // Unread tracking
   lastReadMessageId?: string;
@@ -63,6 +97,9 @@ export interface SessionSummary {
   hasUnread: boolean;
   lastMessageAt?: number;
   lastMessagePreview?: string;
+  status: SessionStatus;
+  blockedReason?: SessionBlockedReason;
+  statusUpdatedAt?: number;
   backend: BackendKind;
   llmConnectionSlug: string;
   permissionMode: PermissionMode;
@@ -77,6 +114,7 @@ export type SessionChangedReason =
   | 'pinned'
   | 'renamed'
   | 'mode-change'
+  | 'status-change'
   | 'rebound';
 
 export interface SessionChangedEvent {

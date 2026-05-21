@@ -45,6 +45,8 @@ function header(): SessionHeader {
     isFlagged: false,
     labels: [],
     isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
     hasUnread: false,
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic-main',

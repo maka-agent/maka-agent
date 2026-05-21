@@ -14,12 +14,26 @@ describe('FileSessionStore CRUD', () => {
       await store.archive(header.id);
       const archived = await store.readHeader(header.id);
       assert.equal(archived.isArchived, true);
+      assert.equal(archived.status, 'archived');
       assert.equal(typeof archived.archivedAt, 'number');
 
       await store.unarchive(header.id);
       const restored = await store.readHeader(header.id);
       assert.equal(restored.isArchived, false);
+      assert.equal(restored.status, 'active');
       assert.equal(restored.archivedAt, undefined);
+    });
+  });
+
+  test('new sessions default to active status and include it in summaries', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Status' }));
+
+      assert.equal(header.status, 'active');
+      assert.equal(typeof header.statusUpdatedAt, 'number');
+      const [summary] = await store.list();
+      assert.equal(summary?.status, 'active');
+      assert.equal(summary?.statusUpdatedAt, header.statusUpdatedAt);
     });
   });
 
@@ -102,8 +116,45 @@ describe('FileSessionStore CRUD', () => {
       const header = await store.readHeader(sessionId);
       assert.equal(header.backend, 'ai-sdk');
       assert.equal(header.permissionMode, 'ask');
+      assert.equal(header.status, 'active');
       const [summary] = await store.list();
       assert.equal(summary?.permissionMode, 'ask');
+      assert.equal(summary?.status, 'active');
+    });
+  });
+
+  test('migrates archived legacy headers to archived status', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'legacy-archived';
+      const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(
+        join(sessionDir, 'session.jsonl'),
+        JSON.stringify({
+          id: sessionId,
+          workspaceRoot,
+          cwd: '/tmp/cwd',
+          createdAt: 1,
+          lastUsedAt: 2,
+          name: 'Legacy archived',
+          isFlagged: false,
+          labels: [],
+          isArchived: true,
+          archivedAt: 3,
+          hasUnread: false,
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          connectionLocked: false,
+          model: 'fake-model',
+          permissionMode: 'ask',
+          schemaVersion: 1,
+        }) + '\n',
+        'utf8',
+      );
+
+      const header = await store.readHeader(sessionId);
+      assert.equal(header.status, 'archived');
+      assert.equal(header.statusUpdatedAt, 3);
     });
   });
 

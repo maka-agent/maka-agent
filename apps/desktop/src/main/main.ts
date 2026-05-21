@@ -1020,6 +1020,9 @@ async function streamEvents(sessionId: string, iterator: AsyncIterable<SessionEv
         userAppendBroadcasted = true;
       }
       mainWindow?.webContents.send(`sessions:event:${sessionId}`, event);
+      if (isStatusChangingSessionEvent(event)) {
+        emitSessionsChanged('status-change', sessionId);
+      }
       if (!finalAppendBroadcasted && isFinalSessionEvent(event)) {
         emitSessionsChanged('message-appended', sessionId);
         finalAppendBroadcasted = true;
@@ -1046,13 +1049,33 @@ function isFinalSessionEvent(event: SessionEvent): boolean {
   return event.type === 'text_complete' || event.type === 'complete' || event.type === 'abort' || event.type === 'error';
 }
 
+function isStatusChangingSessionEvent(event: SessionEvent): boolean {
+  return event.type === 'permission_request' ||
+    event.type === 'permission_decision_ack' ||
+    event.type === 'complete' ||
+    event.type === 'abort' ||
+    event.type === 'error';
+}
+
 async function ensureSessionCanSend(sessionId: string): Promise<void> {
   const header = await store.readHeader(sessionId);
-  const result = await ensureSessionCanSendOrRebind(sessionId, header, {
-    readyConnectionDeps,
-    getDefaultSlug: () => connectionStore.getDefault(),
-    updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, patch),
-  });
+  let result: Awaited<ReturnType<typeof ensureSessionCanSendOrRebind>>;
+  try {
+    result = await ensureSessionCanSendOrRebind(sessionId, header, {
+      readyConnectionDeps,
+      getDefaultSlug: () => connectionStore.getDefault(),
+      updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, {
+        ...patch,
+        status: 'active',
+        blockedReason: undefined,
+        statusUpdatedAt: Date.now(),
+      }),
+    });
+  } catch (error) {
+    await runtime.setSessionStatus(sessionId, 'blocked', 'NO_REAL_CONNECTION').catch(() => {});
+    emitSessionsChanged('status-change', sessionId);
+    throw error;
+  }
   if (result.rebound) {
     emitSessionsChanged('rebound', sessionId, {
       connectionSlug: result.connectionSlug,

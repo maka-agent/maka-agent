@@ -37,6 +37,8 @@ export type {
   SessionSummary,
   SessionChangedEvent,
   SessionChangedReason,
+  SessionStatus,
+  SessionBlockedReason,
   BackendKind,
   StoredMessage,
   UserMessage,
@@ -46,6 +48,12 @@ export type {
   PermissionDecisionMessage,
   TokenUsageMessage,
   SystemNoteMessage,
+} from './session.js';
+export {
+  SESSION_STATUSES,
+  SESSION_BLOCKED_REASONS,
+  isSessionStatus,
+  isSessionBlockedReason,
 } from './session.js';
 
 // permission.ts

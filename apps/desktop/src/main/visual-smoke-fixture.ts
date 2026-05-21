@@ -625,6 +625,8 @@ function header(input: {
     isFlagged: false,
     labels: [],
     isArchived: false,
+    status: 'active',
+    statusUpdatedAt: input.lastMessageAt,
     hasUnread: input.hasUnread ?? false,
     // Legacy backend kinds like 'claude' aren't in the current BackendKind
     // union but are needed for the stale-sessions reproduction. Forward

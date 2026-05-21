@@ -25,6 +25,8 @@ import type {
 } from '@maka/core/events';
 import type {
   SessionHeader,
+  SessionBlockedReason,
+  SessionStatus,
   SessionSummary,
   StoredMessage,
   UserMessage,
@@ -166,6 +168,17 @@ export class SessionManager {
     await this.deps.store.unarchive(sessionId);
   }
 
+  async setSessionStatus(
+    sessionId: string,
+    status: SessionStatus,
+    blockedReason?: SessionBlockedReason,
+  ): Promise<SessionSummary> {
+    const next = await this.deps.store.updateHeader(sessionId, statusPatch(status, this.deps.now(), blockedReason));
+    const active = this.active.get(sessionId);
+    if (active) active.cachedHeader = next;
+    return headerToSummary(next);
+  }
+
   async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
     await this.deps.store.setFlagged(sessionId, isFlagged);
     const active = this.active.get(sessionId);
@@ -260,6 +273,8 @@ export class SessionManager {
     //    bookkeeping when the turn completes.
     let lastTs = this.deps.now();
     let sawCompletion = false;
+    let finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
+    await this.updateStatus(sessionId, 'running', undefined, lastTs);
     active.activeStreams += 1;
 
     try {
@@ -270,17 +285,34 @@ export class SessionManager {
         context: await this.deps.store.readMessages(sessionId),
       })) {
         lastTs = ev.ts;
-        if (ev.type === 'complete' || ev.type === 'abort') sawCompletion = true;
+        const transition = statusFromEvent(ev);
+        if (transition) {
+          await this.updateStatus(sessionId, transition.status, transition.blockedReason, ev.ts);
+        }
+        if (ev.type === 'complete' || ev.type === 'abort') {
+          sawCompletion = true;
+          finalStatus = transition ?? { status: 'active' };
+        }
+        if (ev.type === 'error') {
+          finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
+        }
         yield ev;
       }
+    } catch (error) {
+      finalStatus = { status: 'blocked', blockedReason: 'unknown' };
+      throw error;
     } finally {
       active.activeStreams = Math.max(0, active.activeStreams - 1);
+      const nextStatus = active.activeStreams > 0
+        ? { status: 'running' as const }
+        : (finalStatus ?? { status: 'active' as const });
       // 6. Update header timestamps + unread flag exactly once per turn.
       try {
         await this.deps.store.updateHeader(sessionId, {
           lastUsedAt: lastTs,
           lastMessageAt: lastTs,
           hasUnread: true,
+          ...statusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
         });
       } catch {
         // Swallow header-update failures; the turn already completed at the
@@ -304,6 +336,7 @@ export class SessionManager {
     const active = this.active.get(sessionId);
     if (!active) return;
     await active.backend.stop('user_stop');
+    await this.updateStatus(sessionId, 'aborted');
     // Append the abort SystemNote synchronously (matches §9 Step 6 step 4).
     await this.deps.store.appendMessage(sessionId, {
       type: 'system_note',
@@ -356,6 +389,17 @@ export class SessionManager {
       // best-effort
     }
   }
+
+  private async updateStatus(
+    sessionId: string,
+    status: SessionStatus,
+    blockedReason?: SessionBlockedReason,
+    ts = this.deps.now(),
+  ): Promise<void> {
+    const next = await this.deps.store.updateHeader(sessionId, statusPatch(status, ts, blockedReason));
+    const active = this.active.get(sessionId);
+    if (active) active.cachedHeader = next;
+  }
 }
 
 // ============================================================================
@@ -370,6 +414,9 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     isArchived: h.isArchived,
     labels: h.labels,
     hasUnread: h.hasUnread,
+    status: h.status,
+    ...(h.blockedReason ? { blockedReason: h.blockedReason } : {}),
+    ...(h.statusUpdatedAt !== undefined ? { statusUpdatedAt: h.statusUpdatedAt } : {}),
     backend: h.backend,
     llmConnectionSlug: h.llmConnectionSlug,
     permissionMode: h.permissionMode ?? 'ask',
@@ -382,6 +429,45 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
 
 function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
   return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch;
+}
+
+function statusPatch(
+  status: SessionStatus,
+  ts: number,
+  blockedReason?: SessionBlockedReason,
+): Pick<SessionHeader, 'status' | 'blockedReason' | 'statusUpdatedAt'> {
+  return {
+    status,
+    blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
+    statusUpdatedAt: ts,
+  };
+}
+
+function statusFromEvent(event: SessionEvent): { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined {
+  switch (event.type) {
+    case 'permission_request':
+      return { status: 'waiting_for_user', blockedReason: 'permission_required' };
+    case 'permission_decision_ack':
+      return event.decision === 'allow' ? { status: 'running' } : { status: 'aborted' };
+    case 'error':
+      return { status: 'blocked', blockedReason: blockedReasonFromErrorReason(event.reason) };
+    case 'abort':
+      return { status: 'aborted' };
+    case 'complete':
+      return event.stopReason === 'permission_handoff'
+        ? { status: 'waiting_for_user', blockedReason: 'permission_required' }
+        : { status: 'active' };
+    default:
+      return undefined;
+  }
+}
+
+function blockedReasonFromErrorReason(reason: string | undefined): SessionBlockedReason {
+  if (!reason) return 'unknown';
+  if (reason === 'permission_required') return 'permission_required';
+  if (reason === 'tool_failed') return 'tool_failed';
+  if (reason === 'auth' || reason.includes('api_key') || reason.includes('connection')) return 'NO_REAL_CONNECTION';
+  return 'unknown';
 }
 
 // Re-export the suppressed-unused types so this file is the canonical home

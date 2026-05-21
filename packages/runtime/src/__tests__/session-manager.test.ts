@@ -88,6 +88,7 @@ describe('SessionManager permission mode updates', () => {
     firstGate.release();
     await first.next();
     await first.next();
+    expect((await store.readHeader(session.id)).status).toBe('running');
 
     await expectRejects(
       manager.setPermissionMode(session.id, 'execute'),
@@ -97,6 +98,7 @@ describe('SessionManager permission mode updates', () => {
     secondGate.release();
     await second.next();
     await second.next();
+    expect((await store.readHeader(session.id)).status).toBe('active');
 
     const summary = await manager.setPermissionMode(session.id, 'execute');
     expect(summary.permissionMode).toBe('execute');
@@ -192,6 +194,74 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
     await iterator.next();
   });
+
+  test('marks a session running while a turn is in flight and active after completion', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    const gate = makeGate();
+    backends.register('fake', (ctx) => new TestBackend(ctx, gate));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(8_000) });
+    const session = await manager.createSession(makeInput());
+
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await iterator.next();
+    expect((await store.readHeader(session.id)).status).toBe('running');
+
+    gate.release();
+    await iterator.next();
+    await iterator.next();
+    const header = await store.readHeader(session.id);
+    expect(header.status).toBe('active');
+    expect(header.blockedReason).toBe(undefined);
+  });
+
+  test('marks permission handoff as waiting_for_user', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'complete', stopReason: 'permission_handoff' },
+    ]));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_000) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    const header = await store.readHeader(session.id);
+    expect(header.status).toBe('waiting_for_user');
+    expect(header.blockedReason).toBe(undefined);
+  });
+
+  test('marks backend errors as blocked with a generalized reason', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'error', recoverable: false, reason: 'tool_failed', message: 'Tool failed' },
+    ]));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(10_000) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    const header = await store.readHeader(session.id);
+    expect(header.status).toBe('blocked');
+    expect(header.blockedReason).toBe('tool_failed');
+  });
+
+  test('marks aborts as aborted', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'abort', reason: 'user_stop' },
+    ]));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(11_000) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    const header = await store.readHeader(session.id);
+    expect(header.status).toBe('aborted');
+  });
 });
 
 class TestBackend implements AgentBackend {
@@ -218,6 +288,38 @@ class TestBackend implements AgentBackend {
   }
 }
 
+type PartialEvent =
+  | Omit<Extract<SessionEvent, { type: 'permission_request' }>, 'id' | 'turnId' | 'ts'>
+  | Omit<Extract<SessionEvent, { type: 'complete' }>, 'id' | 'turnId' | 'ts'>
+  | Omit<Extract<SessionEvent, { type: 'error' }>, 'id' | 'turnId' | 'ts'>
+  | Omit<Extract<SessionEvent, { type: 'abort' }>, 'id' | 'turnId' | 'ts'>;
+
+class EventBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: BackendFactoryContext, private readonly events: PartialEvent[]) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    let index = 0;
+    for (const event of this.events) {
+      index += 1;
+      yield {
+        ...event,
+        id: `${input.turnId}-${index}`,
+        turnId: input.turnId,
+        ts: index,
+      } as SessionEvent;
+    }
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 class MemorySessionStore implements SessionStore {
   private headers = new Map<string, SessionHeader>();
   private messages = new Map<string, StoredMessage[]>();
@@ -234,6 +336,9 @@ class MemorySessionStore implements SessionStore {
       isFlagged: false,
       labels: input.labels ?? [],
       isArchived: false,
+      status: input.status ?? 'active',
+      ...(input.blockedReason ? { blockedReason: input.blockedReason } : {}),
+      statusUpdatedAt: 1,
       hasUnread: false,
       backend: input.backend,
       llmConnectionSlug: input.llmConnectionSlug,
@@ -277,11 +382,11 @@ class MemorySessionStore implements SessionStore {
   }
 
   async archive(sessionId: string): Promise<void> {
-    await this.updateHeader(sessionId, { isArchived: true });
+    await this.updateHeader(sessionId, { isArchived: true, status: 'archived', statusUpdatedAt: 1 });
   }
 
   async unarchive(sessionId: string): Promise<void> {
-    await this.updateHeader(sessionId, { isArchived: false });
+    await this.updateHeader(sessionId, { isArchived: false, status: 'active', blockedReason: undefined, statusUpdatedAt: 1 });
   }
 
   async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {

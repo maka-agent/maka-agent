@@ -160,6 +160,7 @@ function AppShell() {
     isArchived: false,
     labels: [],
     hasUnread: false,
+    status: 'active',
     backend: 'fake',
     llmConnectionSlug: 'default',
     permissionMode: 'ask',

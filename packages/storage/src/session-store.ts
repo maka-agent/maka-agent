@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isPermissionMode } from '@maka/core';
+import { isPermissionMode, isSessionBlockedReason, isSessionStatus } from '@maka/core';
 import type {
   CreateSessionInput,
   SessionHeader,
@@ -51,6 +51,9 @@ class FileSessionStore implements SessionStore {
       isFlagged: false,
       labels: input.labels ?? [],
       isArchived: false,
+      status: input.status ?? 'active',
+      ...(input.blockedReason ? { blockedReason: input.blockedReason } : {}),
+      statusUpdatedAt: now,
       hasUnread: false,
       backend: input.backend,
       llmConnectionSlug: input.llmConnectionSlug,
@@ -139,11 +142,18 @@ class FileSessionStore implements SessionStore {
   }
 
   async archive(sessionId: string): Promise<void> {
-    await this.updateHeader(sessionId, { isArchived: true, archivedAt: Date.now() });
+    const now = Date.now();
+    await this.updateHeader(sessionId, { isArchived: true, archivedAt: now, status: 'archived', statusUpdatedAt: now });
   }
 
   async unarchive(sessionId: string): Promise<void> {
-    await this.updateHeader(sessionId, { isArchived: false, archivedAt: undefined });
+    await this.updateHeader(sessionId, {
+      isArchived: false,
+      archivedAt: undefined,
+      status: 'active',
+      blockedReason: undefined,
+      statusUpdatedAt: Date.now(),
+    });
   }
 
   async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
@@ -206,24 +216,42 @@ class FileSessionStore implements SessionStore {
   }
 }
 
-type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'permissionMode'> & {
+type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'permissionMode' | 'status' | 'blockedReason'> & {
   backend: string;
   permissionMode?: unknown;
+  status?: unknown;
+  blockedReason?: unknown;
 };
 
 function migrateHeader(header: StoredSessionHeader): SessionHeader {
   const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
+  const status = resolveMigratedStatus(header);
+  const blockedReason = status === 'blocked' && isSessionBlockedReason(header.blockedReason)
+    ? header.blockedReason
+    : undefined;
+  const statusFields = {
+    status,
+    blockedReason,
+    statusUpdatedAt: header.statusUpdatedAt ?? header.archivedAt ?? header.lastMessageAt ?? header.lastUsedAt ?? header.createdAt,
+  };
   if (header.backend === 'claude') {
-    return { ...header, backend: 'ai-sdk', permissionMode };
+    return { ...header, ...statusFields, backend: 'ai-sdk', permissionMode };
   }
   if (header.backend === 'pi') {
-    return { ...header, backend: 'fake', permissionMode };
+    return { ...header, ...statusFields, backend: 'fake', permissionMode };
   }
   return {
     ...header,
+    ...statusFields,
     backend: header.backend === 'ai-sdk' ? 'ai-sdk' : 'fake',
     permissionMode,
   };
+}
+
+function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['status'] {
+  if (header.isArchived) return 'archived';
+  if (isSessionStatus(header.status) && header.status !== 'archived') return header.status;
+  return 'active';
 }
 
 function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
@@ -237,6 +265,9 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     hasUnread: header.hasUnread,
     lastMessageAt: header.lastMessageAt,
     ...(preview ? { lastMessagePreview: preview } : {}),
+    status: header.status,
+    ...(header.blockedReason ? { blockedReason: header.blockedReason } : {}),
+    ...(header.statusUpdatedAt !== undefined ? { statusUpdatedAt: header.statusUpdatedAt } : {}),
     backend: header.backend,
     llmConnectionSlug: header.llmConnectionSlug,
     permissionMode: header.permissionMode,

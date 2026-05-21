@@ -5,7 +5,7 @@
  */
 
 import type { AttachmentRef } from './events.js';
-import type { BackendKind } from './session.js';
+import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
 import type { PermissionMode } from './permission.js';
 
 export interface CreateSessionInput {
@@ -18,6 +18,8 @@ export interface CreateSessionInput {
   /** Falls back to the connection's defaultModel if omitted. */
   model?: string;
   permissionMode: PermissionMode;
+  status?: SessionStatus;
+  blockedReason?: SessionBlockedReason;
   labels?: string[];
 }
 
