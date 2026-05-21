@@ -75,46 +75,38 @@ variant=… path=…`. The driver script greps for the marker, kills the
 subprocess, and copies the PNG into the canonical screenshots
 directory.
 
-### Screenshot diff gate (PR-IR-02 stage 1)
+### Automated screenshot sanity gate (PR-IR-02)
 
-Compare the current capture set against the committed baseline:
+`screenshots:diff:stable` is a blocking **capture sanity** gate for the
+stable baseline subset (`artifact-pane`, `first-run`, `artifact-errors`):
 
 ```bash
-# Stable subset (3 scenarios × 8 variants = 24 PNGs)
+npm --workspace @maka/desktop run screenshots
 npm --workspace @maka/desktop run screenshots:diff:stable
-
-# Full 18 scenarios × 8 variants = 144 PNGs (after Step 2 rollout)
-npm --workspace @maka/desktop run screenshots:diff
 ```
 
-**What this gate catches**:
-- Missing / corrupt / truncated PNGs (renderer crashed, capture
-  IPC broken, viewport misconfigured)
-- Wrong dimensions (variant filename says `1280` but capture is `990`
-  — fixture viewport bounds were not honored by main.ts)
-- Variant matrix drift (driver added a variant the gate doesn't know
-  about, or vice-versa)
+It verifies that each expected stable PNG exists, is a valid PNG, is not
+truncated, and has the exact dimensions for its viewport/theme/motion
+variant. It also reports large byte-size drift as a warning.
 
-**What this gate does NOT catch**:
-- Pixel-level UI regressions inside the image. Electron + font
-  rasterization drift makes byte-level diff impractical as a blocker
-  for now; reviewers still need to eyeball PNG changes when promoting
-  a new baseline.
-- Layout shifts that keep total size + dimensions stable.
-- Color / contrast / opacity regressions.
+This gate does **not** verify pixel-level UI correctness. It catches
+capture pipeline regressions, broken fixtures, missing screenshots, and
+viewport sizing bugs. Human review of the screenshots is still required
+for visual details until pixel-level diff with calibrated tolerance and
+ignored dynamic regions (PR-IR-02 v3) is added.
 
-Pixel-level tolerance (PR-IR-02 v3) is queued: pilot on stable
-scenarios first (`artifact-pane` / `first-run` / `artifact-errors`),
-then expand once tolerance + ignored-region masks are tuned.
-
-When intentional UI changes break the baseline, promote a new
-snapshot:
+After Step 2 rollout (full 144 PNG baseline once fixture drift is
+resolved), use the same scripts without the `:stable` suffix:
 
 ```bash
-# After manual review of the PNG diffs
+npm --workspace @maka/desktop run screenshots:diff      # all 18 scenarios
+npm --workspace @maka/desktop run screenshots:baseline  # full promotion
+```
+
+To promote the current stable subset after intentional visual changes:
+
+```bash
 npm --workspace @maka/desktop run screenshots:baseline:stable
-# Or for the full set:
-npm --workspace @maka/desktop run screenshots:baseline
 ```
 
 ### Reduced-motion variant (PR-IR-04)
