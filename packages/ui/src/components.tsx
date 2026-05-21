@@ -867,7 +867,7 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
   );
 });
 
-function MessageCopyButton(props: { text: string }) {
+function MessageCopyButton(props: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -880,15 +880,18 @@ function MessageCopyButton(props: { text: string }) {
     }
   }
 
+  const baseLabel = props.label ?? '复制消息';
   return (
     <button
       type="button"
       className="maka-message-copy"
       onClick={copy}
-      aria-label={copied ? 'Copied' : 'Copy message'}
+      aria-label={copied ? `已复制 · ${baseLabel}` : baseLabel}
       data-copied={copied}
+      data-labelled={props.label ? 'true' : undefined}
     >
       {copied ? <Check size={14} strokeWidth={2} aria-hidden="true" /> : <Copy size={14} strokeWidth={1.75} aria-hidden="true" />}
+      {props.label && <span>{copied ? '已复制' : props.label}</span>}
     </button>
   );
 }
@@ -1139,6 +1142,70 @@ function avatarInitial(label: string): string {
 }
 
 /**
+ * Compact summary strip rendered between the user message and the tools/
+ * answer for the current turn. Surfaces the @kenji UI-04 follow-up
+ * questions: which model, how many tools, how long. Only renders when at
+ * least one signal is present so an in-flight first-render doesn't show
+ * an empty chip strip.
+ */
+function TurnSummary(props: { turn: TurnViewModel }) {
+  const { turn } = props;
+  const hasModel = Boolean(turn.modelId);
+  const hasTools = turn.tools.length > 0;
+  // Show duration only when the assistant has actually landed (durationMs
+  // is computed from assistant.ts). For in-progress turns we render an
+  // "进行中" pill instead of a number that would tick up forever — per
+  // @kenji's PR82 review.
+  const hasDuration = turn.durationMs !== undefined && turn.durationMs > 0;
+  const inProgress = turn.user !== undefined && turn.assistant === undefined;
+  const hasTokens = Boolean(turn.tokens && (turn.tokens.input > 0 || turn.tokens.output > 0));
+  // costUsd is only meaningful when present AND > 0 — never fabricate a
+  // "$0.00" hover, that reads as false precision (also @kenji PR82 review).
+  const hasCost = turn.tokens?.costUsd !== undefined && turn.tokens.costUsd > 0;
+  if (!hasModel && !hasTools && !hasDuration && !hasTokens && !inProgress) return null;
+  return (
+    <div className="maka-turn-summary" aria-label="turn summary">
+      {hasModel && (
+        <span className="maka-turn-summary-chip" data-kind="model" title={turn.modelId}>
+          <code>{turn.modelId}</code>
+        </span>
+      )}
+      {hasTools && (
+        <span className="maka-turn-summary-chip" data-kind="tools">
+          {turn.tools.length} 个工具
+        </span>
+      )}
+      {hasDuration ? (
+        <span className="maka-turn-summary-chip" data-kind="duration">
+          {formatTurnDuration(turn.durationMs!)}
+        </span>
+      ) : inProgress ? (
+        <span className="maka-turn-summary-chip" data-kind="duration" data-state="in-progress">
+          进行中
+        </span>
+      ) : null}
+      {hasTokens && (
+        <span
+          className="maka-turn-summary-chip"
+          data-kind="tokens"
+          title={hasCost ? `$${turn.tokens!.costUsd!.toFixed(4)}` : undefined}
+        >
+          {turn.tokens!.input.toLocaleString()} → {turn.tokens!.output.toLocaleString()} tok
+        </span>
+      )}
+    </div>
+  );
+}
+
+function formatTurnDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return `${m} m ${s} s`;
+}
+
+/**
  * Renders one conversational turn: user message → tools used → assistant
  * answer, in that order, as a single visual unit. Replaces the previous
  * "message stack + tools panel at end" layout so the user sees the
@@ -1157,6 +1224,8 @@ function TurnView(props: { turn: TurnViewModel; userLabel?: string }) {
           <MessageBody role="user" text={turn.user.text} />
         </article>
       )}
+      <TurnSummary turn={turn} />
+
       {turn.notes.map((note) => (
         <article
           key={note.id}
@@ -1178,7 +1247,23 @@ function TurnView(props: { turn: TurnViewModel; userLabel?: string }) {
           title={turn.assistant.ts ? formatAbsoluteTimestamp(turn.assistant.ts) : undefined}
         >
           <MessageMeta role="assistant" userLabel={props.userLabel} ts={turn.assistant.ts} />
-          <MessageBody role="assistant" text={turn.assistant.text} />
+          <div className="maka-bubble-assistant-stack">
+            {turn.assistantThinking && (
+              <details className="maka-turn-thinking">
+                <summary>
+                  <span>查看思考过程</span>
+                  <span className="maka-turn-thinking-note">模型推理草稿，不是最终答案</span>
+                </summary>
+                <div className="maka-turn-thinking-body">
+                  <Markdown text={turn.assistantThinking} />
+                  <div className="maka-turn-thinking-actions">
+                    <MessageCopyButton text={turn.assistantThinking} label="复制思考过程" />
+                  </div>
+                </div>
+              </details>
+            )}
+            <MessageBody role="assistant" text={turn.assistant.text} />
+          </div>
         </article>
       )}
     </section>
