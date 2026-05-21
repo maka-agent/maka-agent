@@ -80,14 +80,48 @@ function sizeTolerance(scenario) {
   return DYNAMIC_SCENARIOS.has(scenario) ? DYNAMIC_SIZE_TOLERANCE : DEFAULT_SIZE_TOLERANCE;
 }
 
+/**
+ * Per @kenji review: "stability" is a policy decision, not a property
+ * of any individual screenshot, so it lives in this script constant
+ * (NOT in the manifest schema). The `--subset stable` shorthand
+ * resolves to these scenarios — the staged baseline rollout starts
+ * here. Other scenarios become eligible after fixture determinism
+ * work + manual review.
+ */
+const STABLE_SCENARIOS = new Set(['artifact-pane', 'first-run', 'artifact-errors']);
+
+function resolveSubset(rawSubset) {
+  if (!rawSubset) return null;
+  // Special keyword: --subset stable
+  if (rawSubset.size === 1 && rawSubset.has('stable')) {
+    return new Set(STABLE_SCENARIOS);
+  }
+  return rawSubset;
+}
+
 function parseArgs(argv) {
-  const args = { manifest: false, updateBaseline: false };
+  const args = { manifest: false, updateBaseline: false, subset: null };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--manifest') args.manifest = true;
     else if (a === '--update-baseline') args.updateBaseline = true;
-    else if (a === '--help' || a === '-h') {
-      console.log('Usage: diff-screenshots.mjs [--manifest|--update-baseline]');
+    else if (a === '--subset') {
+      const value = argv[++i];
+      if (!value) {
+        console.error('[diff-screenshots] --subset requires a comma-separated list of scenarios');
+        process.exit(2);
+      }
+      args.subset = new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+    } else if (a === '--help' || a === '-h') {
+      console.log('Usage: diff-screenshots.mjs [--manifest|--update-baseline] [--subset stable|s1,s2,...]');
+      console.log('');
+      console.log('Options:');
+      console.log('  --subset stable       Only check the known-stable scenarios');
+      console.log(`                        (${[...STABLE_SCENARIOS].join(', ')}).`);
+      console.log('  --subset <scenarios>  Comma-separated explicit list (e.g. --subset');
+      console.log('                        artifact-pane,first-run).');
+      console.log('  --manifest            Write current manifest.json without comparing.');
+      console.log('  --update-baseline     Promote current captures to baseline.');
       process.exit(0);
     } else {
       console.error(`[diff-screenshots] unknown arg: ${a}`);
@@ -163,8 +197,15 @@ async function checkOne(root, scenario, variant) {
   return { ok: true, info: dims };
 }
 
-async function buildManifest(root) {
-  const scenarios = await listScenarios(root);
+async function buildManifest(root, subset) {
+  const allScenarios = await listScenarios(root);
+  const scenarios = subset
+    ? allScenarios.filter((s) => subset.has(s))
+    : allScenarios;
+  if (subset && scenarios.length === 0) {
+    console.error(`[diff-screenshots] --subset filtered out every scenario; nothing to compare.`);
+    process.exit(2);
+  }
   const entries = [];
   let mainSha = null;
   try {
@@ -215,8 +256,12 @@ async function main() {
     process.exit(2);
   }
 
-  const current = await buildManifest(SCREENSHOTS_DIR);
+  const subset = resolveSubset(args.subset);
+  const current = await buildManifest(SCREENSHOTS_DIR, subset);
   const summary = summarize(current);
+  if (subset) {
+    console.log(`[diff-screenshots] subset filter active: ${[...subset].join(', ')}`);
+  }
 
   console.log(`[diff-screenshots] manifest sanity check`);
   console.log(`  scenarios:        ${new Set(current.entries.map((e) => e.scenario)).size}`);

@@ -18,7 +18,9 @@
     "screenshots": "npm run build && node ../../scripts/capture-screenshots.mjs --all",
     "screenshots:single": "npm run build && node ../../scripts/capture-screenshots.mjs --scenario",
     "screenshots:diff": "node ../../scripts/diff-screenshots.mjs",
-    "screenshots:baseline": "node ../../scripts/diff-screenshots.mjs --update-baseline"
+    "screenshots:diff:stable": "node ../../scripts/diff-screenshots.mjs --subset stable",
+    "screenshots:baseline": "node ../../scripts/diff-screenshots.mjs --update-baseline",
+    "screenshots:baseline:stable": "node ../../scripts/diff-screenshots.mjs --update-baseline --subset stable"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
