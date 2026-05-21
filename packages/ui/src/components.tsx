@@ -631,6 +631,15 @@ export function ChatView(props: {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
+  // Reset to "pinned at bottom" whenever the active session changes. Without
+  // this, switching from a long history to a fresh chat would keep the
+  // previous scrollTop and the user wouldn't see their last message.
+  useEffect(() => {
+    setPinnedToBottom(true);
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [props.activeSession?.id]);
+
   // Auto-scroll on new content if the user is already at (or near) the
   // bottom. If they've scrolled up to read history we don't yank them back.
   useEffect(() => {
