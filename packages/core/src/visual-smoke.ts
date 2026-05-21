@@ -12,7 +12,8 @@ export type VisualSmokeScenario =
   | 'artifact-pane'
   | 'artifact-errors'
   | 'streaming-sidebar'
-  | 'permission-destructive';
+  | 'permission-destructive'
+  | 'stale-sessions';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;

@@ -1,0 +1,155 @@
+/**
+ * Tests for the stale-session classifier (sidebar pill, PR108g).
+ *
+ * The renderer derives `staleSessionIds: Set<string>` from `sessions` x
+ * `connections` and passes it to SessionListPanel; rows with matching ids
+ * get a dim treatment + "已过期" pill. We lock the classifier down here
+ * so future edits don't drift on what counts as stale.
+ */
+
+import { strict as assert } from 'node:assert';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import { deriveStaleSessionIds } from '../../renderer/stale-sessions.js';
+
+// Test runs from the desktop workspace root via `node --test dist/...`,
+// so `process.cwd()` is `apps/desktop`. Source styles.css lives at
+// `src/renderer/styles.css` — we read the source (not a built artifact)
+// because the renderer CSS isn't compiled into dist for the test build.
+const STYLES_PATH = join(process.cwd(), 'src', 'renderer', 'styles.css');
+
+function session(partial: { id: string; backend?: string; slug?: string }): {
+  id: string;
+  backend: string;
+  llmConnectionSlug: string;
+} {
+  return {
+    id: partial.id,
+    backend: partial.backend ?? 'ai-sdk',
+    llmConnectionSlug: partial.slug ?? 'zai-coding-plan',
+  };
+}
+
+describe('deriveStaleSessionIds', () => {
+  it('returns empty set when no sessions', () => {
+    const result = deriveStaleSessionIds({
+      sessions: [],
+      knownConnectionSlugs: new Set(['zai-coding-plan']),
+    });
+    assert.equal(result.size, 0);
+  });
+
+  it('flags sessions with backend="fake"', () => {
+    const result = deriveStaleSessionIds({
+      sessions: [
+        session({ id: 'a', backend: 'fake', slug: 'fake' }),
+        session({ id: 'b', backend: 'ai-sdk', slug: 'zai-coding-plan' }),
+      ],
+      knownConnectionSlugs: new Set(['zai-coding-plan']),
+    });
+    assert.deepEqual([...result], ['a']);
+  });
+
+  it('flags sessions whose slug is not in the known connections set', () => {
+    const result = deriveStaleSessionIds({
+      sessions: [
+        session({ id: 'a', backend: 'ai-sdk', slug: 'fake-claude' }),
+        session({ id: 'b', backend: 'ai-sdk', slug: 'zai-coding-plan' }),
+      ],
+      knownConnectionSlugs: new Set(['zai-coding-plan']),
+    });
+    assert.deepEqual([...result], ['a']);
+  });
+
+  it('flags legacy backend kinds (e.g. "claude") if connection also missing', () => {
+    const result = deriveStaleSessionIds({
+      sessions: [session({ id: 'a', backend: 'claude', slug: 'fake-claude' })],
+      knownConnectionSlugs: new Set(['zai-coding-plan']),
+    });
+    assert.deepEqual([...result], ['a']);
+  });
+
+  it('does NOT flag a session whose backend is unknown but slug resolves', () => {
+    // We don't penalize "future backend kind we don't know about" if the
+    // user's connection still exists. The chat-header banner + send-path
+    // guard handle the real readiness check.
+    const result = deriveStaleSessionIds({
+      sessions: [session({ id: 'a', backend: 'future-backend', slug: 'zai-coding-plan' })],
+      knownConnectionSlugs: new Set(['zai-coding-plan']),
+    });
+    assert.equal(result.size, 0);
+  });
+
+  it('reproduces the @WAWQAQ workspace scenario', () => {
+    // The on-disk state that triggered the P0 — defaultSlug + apiKey are
+    // correct in `llm-connections.json`, but two legacy sessions in
+    // sessions/ still reference dead backends:
+    //
+    //   3b76ea22  backend=claude       slug=fake-claude     ← stale
+    //   7280e103  backend=ai-sdk       slug=zai-coding-plan ← OK
+    //   fff5cb61  backend=fake         slug=fake            ← stale
+    //
+    // Without this classifier the user has to click into each session and
+    // see the chat-header banner to know which ones are broken.
+    const result = deriveStaleSessionIds({
+      sessions: [
+        session({ id: '3b76ea22', backend: 'claude', slug: 'fake-claude' }),
+        session({ id: '7280e103', backend: 'ai-sdk', slug: 'zai-coding-plan' }),
+        session({ id: 'fff5cb61', backend: 'fake', slug: 'fake' }),
+      ],
+      knownConnectionSlugs: new Set(['zai-coding-plan']),
+    });
+    assert.deepEqual([...result].sort(), ['3b76ea22', 'fff5cb61']);
+  });
+
+  it('flags everything when the connection store is empty', () => {
+    const result = deriveStaleSessionIds({
+      sessions: [
+        session({ id: 'a', backend: 'ai-sdk', slug: 'zai-coding-plan' }),
+        session({ id: 'b', backend: 'ai-sdk', slug: 'anthropic' }),
+      ],
+      knownConnectionSlugs: new Set(),
+    });
+    assert.deepEqual([...result].sort(), ['a', 'b']);
+  });
+});
+
+describe('stale session CSS contract (@kenji review gate)', () => {
+  // @kenji's PR108g review: "active stale row 不要因为 active state 取消所有
+  // warning 信号". Active state can restore opacity, but the pill must NOT
+  // disappear, and no rule may set `display: none` / `visibility: hidden`
+  // on the pill regardless of selector chain. This grep-style assertion
+  // catches that contract from a CSS regression — cheap second layer on
+  // top of the component-level invariant that `stale` prop is derived from
+  // `staleSessionIds.has(session.id)` (independent of active state).
+
+  it('inactive stale row dims, active stale row restores opacity', async () => {
+    const css = await readFile(STYLES_PATH, 'utf8');
+    // Inactive stale dimming rule must exist.
+    assert.match(
+      css,
+      /\.maka-list-row\[data-stale="true"\]\s*\{[\s\S]*?opacity:\s*0\.7/,
+      'expected `.maka-list-row[data-stale="true"]` opacity dim rule',
+    );
+    // Active stale restoration rule must exist.
+    assert.match(
+      css,
+      /\.maka-list-row\[data-stale="true"\]\[data-active="true"\]\s*\{[\s\S]*?opacity:\s*1/,
+      'expected active-stale opacity restore rule',
+    );
+  });
+
+  it('stale pill is never hidden by any CSS rule (active state preserves warning signal)', async () => {
+    const css = await readFile(STYLES_PATH, 'utf8');
+    // Any rule that targets `.maka-list-row-stale-pill` AND applies
+    // display: none / visibility: hidden / opacity: 0 is a regression on
+    // the @kenji gate. Scan the CSS body for those patterns.
+    const PILL_HIDE = /\.maka-list-row-stale-pill[^{]*\{[^}]*?(?:display:\s*none|visibility:\s*hidden|opacity:\s*0(?![\.\d]))/;
+    assert.doesNotMatch(
+      css,
+      PILL_HIDE,
+      'no CSS rule may hide `.maka-list-row-stale-pill` (active stale row must still show pill)',
+    );
+  });
+});

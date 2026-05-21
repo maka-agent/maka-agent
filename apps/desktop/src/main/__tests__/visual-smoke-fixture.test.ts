@@ -121,6 +121,55 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('stale-sessions seed reproduces the P0 workspace with active stale session', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-stale-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('stale-sessions', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const state = getVisualSmokeState(fixture);
+      // @kenji gate: active session intentionally one of the stale ones so
+      // the screenshot proves "active + stale → pill still visible".
+      assert.equal(state?.activeSessionId, 'visual-smoke-stale-fake');
+
+      // Connection list MUST NOT contain `fake` / `fake-claude` slugs —
+      // those are what makes the seeded sessions stale.
+      const connections = JSON.parse(
+        await readFile(join(workspaceRoot, 'llm-connections.json'), 'utf8'),
+      ) as { defaultSlug: string; connections: Array<{ slug: string }> };
+      const slugs = new Set(connections.connections.map((c) => c.slug));
+      assert.equal(slugs.has('fake'), false, 'fake slug must not be a real connection');
+      assert.equal(slugs.has('fake-claude'), false, 'fake-claude slug must not be a real connection');
+      assert.equal(slugs.has('zai-live'), true, 'zai-live must be in the connection list (healthy session uses it)');
+
+      // Three session.jsonl files: one for each session.
+      const sessionDirs = await Promise.all(
+        ['visual-smoke-stale-fake', 'visual-smoke-stale-legacy', 'visual-smoke-healthy'].map(async (id) => {
+          const file = await readFile(join(workspaceRoot, 'sessions', id, 'session.jsonl'), 'utf8');
+          return JSON.parse(file.split('\n')[0]!) as {
+            backend: string;
+            llmConnectionSlug: string;
+            model: string;
+          };
+        }),
+      );
+      assert.equal(sessionDirs[0]?.backend, 'fake');
+      assert.equal(sessionDirs[0]?.llmConnectionSlug, 'fake');
+      assert.equal(sessionDirs[1]?.backend, 'claude');
+      assert.equal(sessionDirs[1]?.llmConnectionSlug, 'fake-claude');
+      assert.equal(sessionDirs[2]?.backend, 'ai-sdk');
+      assert.equal(sessionDirs[2]?.llmConnectionSlug, 'zai-live');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('artifact-pane seed creates file-backed artifact metadata without absolute paths', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-'));
     try {

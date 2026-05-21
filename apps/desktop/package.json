@@ -13,7 +13,7 @@
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload/preload.cjs --external:electron",
     "build:renderer": "vite build",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/ui run build && node ../../scripts/check-console.mjs",
+    "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/ui run build && node ../../scripts/check-console.mjs && node ../../scripts/check-a11y.mjs",
     "test": "npm run build:main && node --test \"dist/main/**/*.test.js\""
   },
   "dependencies": {
