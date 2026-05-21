@@ -159,6 +159,31 @@ export {
   validateSlug,
 } from './llm-connections.js';
 
+// connection-readiness.ts (PR110a)
+export type {
+  ChatConfigurationReason,
+  IsConnectionReadyInput,
+  IsConnectionReadyResult,
+} from './connection-readiness.js';
+export {
+  isConnectionReady,
+  isRealConnection,
+} from './connection-readiness.js';
+
+// onboarding.ts (PR110a)
+export type {
+  DeriveOnboardingStateInput,
+  OnboardingMilestone,
+  OnboardingMilestoneId,
+  OnboardingState,
+} from './onboarding.js';
+export {
+  ONBOARDING_MILESTONE_IDS,
+  deriveOnboardingState,
+  isOnboardingMilestone,
+  sanitizeOnboardingMilestones,
+} from './onboarding.js';
+
 // model-catalog.ts
 export type {
   BuildModelCatalogInput,

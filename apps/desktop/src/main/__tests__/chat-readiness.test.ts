@@ -145,6 +145,45 @@ describe('chat readiness guard', () => {
     );
   });
 
+  test('PR110a regression: model_not_enabled error names the REQUESTED model, not defaultModel', async () => {
+    // @kenji PR110a review gate: when caller passes `requestedModel`,
+    // the failing reason MUST reference the requested model (not the
+    // connection's defaultModel). The refactor to delegate to core
+    // `isConnectionReady` must preserve this 1:1 mapping.
+    await assert.rejects(
+      () => requireReadyConnection(
+        'anthropic',
+        deps({
+          connection: connection({
+            defaultModel: 'claude-3-5-sonnet-20241022',
+            models: [{ id: 'claude-3-5-sonnet-20241022' }],
+          }),
+          apiKey: 'sk-test',
+        }),
+        'gpt-4o-NOT-IN-LIST', // the request that should appear in the error
+      ),
+      (error) => {
+        const message = (error as Error).message;
+        assert.match(message, /gpt-4o-NOT-IN-LIST/, 'requested model must appear in error copy');
+        assert.doesNotMatch(message, /claude-3-5-sonnet-20241022/, 'defaultModel must NOT leak into requested-model error');
+        assert.equal(errorReason(error), 'model_not_enabled');
+        return true;
+      },
+    );
+  });
+
+  test('PR110a regression: missing_model error fires when both requested and default are empty', async () => {
+    await assertRejectsReadiness(
+      'no requested, no default',
+      () => requireReadyConnection('custom', deps({
+        connection: connection({ slug: 'custom', defaultModel: '' }),
+        apiKey: 'sk-test',
+      })),
+      '没有可用模型',
+      'missing_model',
+    );
+  });
+
   test('classifies stale sessions that can be rebound to the current default model', () => {
     for (const reason of ['fake_backend', 'connection_missing', 'missing_model', 'empty_model_list', 'model_not_enabled']) {
       assert.equal(shouldRebindSessionToDefault(reason), true, reason);

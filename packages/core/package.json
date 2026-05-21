@@ -18,6 +18,8 @@
     "./visual-smoke": "./dist/visual-smoke.js",
     "./backend-types": "./dist/backend-types.js",
     "./llm-connections": "./dist/llm-connections.js",
+    "./connection-readiness": "./dist/connection-readiness.js",
+    "./onboarding": "./dist/onboarding.js",
     "./redaction": "./dist/redaction.js",
     "./settings": "./dist/settings.js",
     "./settings/network-settings": "./dist/settings/network-settings.js",
