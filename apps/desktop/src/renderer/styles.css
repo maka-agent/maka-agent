@@ -449,8 +449,25 @@ button:active {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 4px;
   padding: 10px;
+}
+
+.maka-list-group {
+  display: grid;
+  gap: 6px;
+}
+
+.maka-list-group + .maka-list-group {
+  margin-top: 14px;
+}
+
+.maka-list-group-label {
+  padding: 0 4px 2px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .maka-list-row {

@@ -365,14 +365,19 @@ export function SessionListPanel(props: {
           </div>
         ) : (
           <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
-            {filteredSessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                active={session.id === props.activeId}
-                onSelect={props.onSelectSession}
-                actions={props.rowActions}
-              />
+            {groupSessionsByTime(filteredSessions).map((group) => (
+              <div key={group.label} className="maka-list-group">
+                <div className="maka-list-group-label">{group.label}</div>
+                {group.sessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === props.activeId}
+                    onSelect={props.onSelectSession}
+                    actions={props.rowActions}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}
@@ -1361,6 +1366,50 @@ const noMessagesYet =
   typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('zh')
     ? '暂无消息'
     : 'No messages yet';
+
+interface SessionGroup {
+  label: string;
+  sessions: SessionSummary[];
+}
+
+/**
+ * Cluster the session list into Today / Yesterday / Past 7 days / Past 30 days
+ * / Older buckets. Sorted by lastMessageAt descending within each group. Falls
+ * back to a single bucket if every session lacks a timestamp.
+ */
+function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
+  const now = Date.now();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayMs = startOfToday.getTime();
+  const yesterdayMs = todayMs - 24 * 60 * 60 * 1000;
+  const sevenDaysMs = todayMs - 7 * 24 * 60 * 60 * 1000;
+  const thirtyDaysMs = todayMs - 30 * 24 * 60 * 60 * 1000;
+
+  const buckets: SessionGroup[] = [
+    { label: '今天', sessions: [] },
+    { label: '昨天', sessions: [] },
+    { label: '过去 7 天', sessions: [] },
+    { label: '过去 30 天', sessions: [] },
+    { label: '更早', sessions: [] },
+    { label: '尚未发送', sessions: [] },
+  ];
+
+  for (const session of sessions) {
+    const at = session.lastMessageAt;
+    if (!at) {
+      buckets[5]!.sessions.push(session);
+      continue;
+    }
+    if (at >= todayMs) buckets[0]!.sessions.push(session);
+    else if (at >= yesterdayMs) buckets[1]!.sessions.push(session);
+    else if (at >= sevenDaysMs) buckets[2]!.sessions.push(session);
+    else if (at >= thirtyDaysMs) buckets[3]!.sessions.push(session);
+    else buckets[4]!.sessions.push(session);
+  }
+
+  return buckets.filter((group) => group.sessions.length > 0);
+}
 
 function formatSessionMeta(session: SessionSummary): string {
   if (!session.lastMessageAt) return noMessagesYet;
