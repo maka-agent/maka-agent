@@ -119,6 +119,64 @@ describe('materializeTurns', () => {
     assert.equal(turns[0]?.user?.text, 'pre-turnId era');
   });
 
+  it('captures modelId, durationMs, and assistantThinking from the assistant message', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      {
+        type: 'assistant',
+        id: 'a1',
+        turnId: 't1',
+        ts: 5_100,
+        text: 'final',
+        modelId: 'claude-sonnet-4-5',
+        thinking: { text: 'first I considered...' },
+      } as StoredMessage,
+    ]);
+    assert.equal(turns[0]?.modelId, 'claude-sonnet-4-5');
+    assert.equal(turns[0]?.durationMs, 5000);
+    assert.equal(turns[0]?.assistantThinking, 'first I considered...');
+  });
+
+  it('leaves durationMs undefined when assistant message is missing (in-progress turn)', () => {
+    const turns = materializeTurns([userMsg('t1', 100, 'q')]);
+    assert.equal(turns[0]?.durationMs, undefined);
+    assert.equal(turns[0]?.assistantThinking, undefined);
+    // In-progress is the absence of assistant; UI renders "进行中" pill.
+    assert.equal(turns[0]?.assistant, undefined);
+  });
+
+  it('sums token_usage messages within the turn', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      {
+        type: 'token_usage',
+        id: 'tu-1',
+        turnId: 't1',
+        ts: 110,
+        input: 1000,
+        output: 200,
+        costUsd: 0.01,
+      } as StoredMessage,
+      {
+        type: 'token_usage',
+        id: 'tu-2',
+        turnId: 't1',
+        ts: 120,
+        input: 500,
+        output: 50,
+        costUsd: 0.005,
+      } as StoredMessage,
+      assistantMsg('t1', 200, 'a'),
+    ]);
+    assert.equal(turns[0]?.tokens?.input, 1500);
+    assert.equal(turns[0]?.tokens?.output, 250);
+    // Use a tolerance since FP add may produce 0.015000000000000001 etc.
+    assert.ok(
+      turns[0]?.tokens?.costUsd !== undefined &&
+        Math.abs(turns[0]!.tokens!.costUsd - 0.015) < 1e-6,
+    );
+  });
+
   it('merges live tool over persisted tool keeping the latest status', () => {
     // Persisted shows completed (server thinks it ended); live event says
     // it's actually still running. UI should prefer the live status so a

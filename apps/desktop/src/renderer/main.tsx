@@ -20,6 +20,7 @@ import {
   type ComposerHandle,
   type NavSelection,
   PermissionDialog,
+  redactSecrets,
   SessionListPanel,
   type SkillEntry,
   ToastProvider,
@@ -68,6 +69,13 @@ function AppShell() {
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
   const activeStreaming = activeId ? streamingBySession[activeId] ?? '' : '';
+  // Set of session ids with a live streaming delta — drives the sidebar
+  // pulse indicator. Recomputed on every streamingBySession change; cheap
+  // since the underlying map only has at most a handful of entries.
+  const streamingSessionIds = useMemo(
+    () => new Set(Object.entries(streamingBySession).flatMap(([id, text]) => (text ? [id] : []))),
+    [streamingBySession],
+  );
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
   const activePermission = activeId ? permissionBySession[activeId] : undefined;
   const activeSession = sessions.find((session) => session.id === activeId);
@@ -568,6 +576,7 @@ function AppShell() {
             sessions={visibleSessions}
             activeId={activeId}
             skills={skills}
+            streamingSessionIds={streamingSessionIds}
             onSelect={setNavSelection}
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
@@ -704,6 +713,20 @@ function AppShell() {
               }
             },
             onOpenSkillsFolder: () => openSkillsFolder(),
+            onExportActiveConversation: async () => {
+              if (!activeId) return;
+              const session = sessions.find((s) => s.id === activeId);
+              const markdown = renderConversationMarkdown(session?.name ?? '新建对话', messages);
+              try {
+                await navigator.clipboard.writeText(markdown);
+                toastApi.success(
+                  '已复制对话为 Markdown',
+                  `${markdown.split('\n').length} 行 · 可粘贴到 Notion / Obsidian / GitHub`,
+                );
+              } catch {
+                toastApi.error('复制失败', '剪贴板不可用');
+              }
+            },
           })}
         />
       )}
@@ -716,6 +739,86 @@ const modeDescriptions: Record<PermissionMode, string> = {
   ask: '所有敏感工具调用前都会停下来征求 allow / deny。',
   execute: '常见工具直通；只有破坏性操作仍然拦截。',
 };
+
+/**
+ * Serialize a conversation to a Markdown document suitable for pasting into
+ * Notion / Obsidian / GitHub. One section per turn: `## 你` header for the
+ * user message, optional `### 工具调用` block enumerating tool calls + their
+ * intent, `## Maka` for the assistant answer.
+ *
+ * Per @kenji's PR86 review, deliberate exclusions:
+ * - **thinking block** is never included — that's model working notes, not
+ *   the answer. If we ever add an "include thinking" toggle, it must be a
+ *   separate opt-in.
+ * - **token_usage / permission_decision / tool_result** rows dropped —
+ *   operational records, not narrative.
+ * - **tool intents** run through `redactSecrets` defensively in case a
+ *   model-authored intent happens to echo a path / token.
+ * - **assistant text** runs through `redactSecrets` defensively — backend
+ *   already redacts at write-time, but a fresh AI-SDK error path that
+ *   somehow lands a raw token in `text` shouldn't survive into a clipboard
+ *   export that the user is going to paste somewhere public.
+ * - **user text** left untouched (the user typed it, they own it).
+ */
+function renderConversationMarkdown(sessionName: string, messages: StoredMessage[]): string {
+  const lines: string[] = [];
+  lines.push(`# ${sessionName}`);
+  lines.push('');
+  lines.push(`*Exported ${new Date().toLocaleString()} from Maka.*`);
+  lines.push('');
+
+  // Group by turnId in encounter order so we preserve narrative flow.
+  const turnOrder: string[] = [];
+  const byTurn = new Map<string, StoredMessage[]>();
+  for (const m of messages) {
+    const tid = (m as { turnId?: string }).turnId ?? '__loose';
+    if (!byTurn.has(tid)) {
+      byTurn.set(tid, []);
+      turnOrder.push(tid);
+    }
+    byTurn.get(tid)!.push(m);
+  }
+
+  for (const tid of turnOrder) {
+    const turnMessages = byTurn.get(tid) ?? [];
+    const user = turnMessages.find((m) => m.type === 'user');
+    const assistant = turnMessages.find((m) => m.type === 'assistant');
+    const toolCalls = turnMessages.filter((m) => m.type === 'tool_call');
+
+    if (user) {
+      lines.push('---');
+      lines.push('');
+      lines.push('## 你');
+      lines.push('');
+      lines.push((user as { text: string }).text);
+      lines.push('');
+    }
+
+    if (toolCalls.length > 0) {
+      lines.push('### 工具调用');
+      lines.push('');
+      for (const call of toolCalls) {
+        const c = call as { toolName: string; intent?: string };
+        const intent = c.intent ? redactSecrets(c.intent) : undefined;
+        const intentSuffix = intent ? ` — ${intent}` : '';
+        lines.push(`- \`${c.toolName}\`${intentSuffix}`);
+      }
+      lines.push('');
+    }
+
+    if (assistant) {
+      lines.push('## Maka');
+      lines.push('');
+      // Defensive: backend redacts at write-time, but the export landing
+      // in the user's clipboard is a high-risk surface — paste destinations
+      // are external. Second-layer redaction is cheap insurance.
+      lines.push(redactSecrets((assistant as { text: string }).text));
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n').trim() + '\n';
+}
 
 function readNavSelection(): NavSelection {
   try {

@@ -807,11 +807,55 @@ button:active {
 }
 
 .maka-list-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.maka-list-row-name > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
-  font-weight: 600;
+  min-width: 0;
+}
+
+/* Small pulsing accent dot rendered when a session has live streaming
+ * delta in flight. Replaces the unread halo for streaming sessions so the
+ * indicator hierarchy is: streaming > unread > inactive. Respects
+ * prefers-reduced-motion. */
+.maka-list-row-streaming-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+  animation: maka-list-row-streaming-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes maka-list-row-streaming-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.18);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px oklch(from var(--accent) l c h / 0.05);
+    transform: scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row-streaming-dot {
+    animation: none;
+  }
+}
+
+.maka-list-row[data-streaming="true"] .maka-list-row-name > span {
+  color: var(--foreground);
 }
 
 .maka-list-row-meta {
@@ -4404,6 +4448,44 @@ button:active {
 .enabledProviderChip[data-default="true"] {
   border-color: oklch(from var(--accent) l c h / 0.22);
   background: oklch(from var(--accent) l c h / 0.06);
+}
+
+.enabledProviderChip[data-disabled="true"] {
+  opacity: 0.6;
+  filter: grayscale(0.4);
+}
+
+/* Status dot on each chip — peer to the chip name. data-test-status comes
+ * from `lastTestStatus` (PR61 schema). 'untested' shows a quiet neutral
+ * dot; 'verified' goes success; 'needs_reauth' warns; 'error' destructive.
+ * Sits at the chip's top-right, above the provider name. */
+.enabledProviderChip {
+  position: relative;
+}
+
+.enabledProviderChipStatus {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--foreground-20);
+}
+
+.enabledProviderChip[data-test-status="verified"] .enabledProviderChipStatus {
+  background: var(--success);
+  box-shadow: 0 0 0 3px oklch(from var(--success) l c h / 0.18);
+}
+
+.enabledProviderChip[data-test-status="needs_reauth"] .enabledProviderChipStatus {
+  background: var(--info);
+  box-shadow: 0 0 0 3px oklch(from var(--info) l c h / 0.20);
+}
+
+.enabledProviderChip[data-test-status="error"] .enabledProviderChipStatus {
+  background: var(--destructive);
+  box-shadow: 0 0 0 3px oklch(from var(--destructive) l c h / 0.20);
 }
 
 .enabledEmptyChip strong,

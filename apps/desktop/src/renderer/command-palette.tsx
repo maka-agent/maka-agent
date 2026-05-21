@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CornerDownLeft,
   Database,
+  Download,
   FolderOpen,
   Keyboard,
   MessageSquare,
@@ -84,6 +85,8 @@ export function buildCommandList(args: {
   onSetDefaultConnection?(slug: string): Promise<void> | void;
   onOpenWorkspace?(): Promise<void> | void;
   onOpenSkillsFolder?(): Promise<void> | void;
+  /** Copy the active conversation as Markdown to the clipboard. */
+  onExportActiveConversation?(): Promise<void> | void;
 }): Command[] {
   const cmds: Command[] = [
     {
@@ -190,6 +193,18 @@ export function buildCommandList(args: {
       Icon: FolderOpen,
       keywords: ['skills', 'folder', 'open', 'finder', '技能', '文件夹'],
       run: () => void args.onOpenSkillsFolder!(),
+    });
+  }
+  if (args.onExportActiveConversation && args.activeSessionId) {
+    cmds.push({
+      id: 'diag:export-conversation',
+      kind: 'action',
+      label: '导出当前对话为 Markdown',
+      hint: '复制到剪贴板',
+      group: '诊断',
+      Icon: Download,
+      keywords: ['export', 'markdown', 'copy', 'conversation', '导出', '对话', '剪贴板', 'md'],
+      run: () => void args.onExportActiveConversation!(),
     });
   }
   if (args.onTestConnection && args.defaultSlug) {

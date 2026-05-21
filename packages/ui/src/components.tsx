@@ -183,6 +183,13 @@ export function SessionListPanel(props: {
   sessions: SessionSummary[];
   activeId?: string;
   skills?: SkillEntry[];
+  /**
+   * Per-session-id boolean flag: true when the session has a live streaming
+   * delta in flight. Rendered as a small pulsing accent dot on the row.
+   * Caller (main.tsx) derives this from `streamingBySession` so the sidebar
+   * shows live activity without subscribing to the stream itself.
+   */
+  streamingSessionIds?: Set<string>;
   onSelectSession(sessionId: string): void;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
@@ -432,6 +439,7 @@ export function SessionListPanel(props: {
                     key={session.id}
                     session={session}
                     active={session.id === props.activeId}
+                    streaming={props.streamingSessionIds?.has(session.id) ?? false}
                     onSelect={props.onSelectSession}
                     actions={props.rowActions}
                   />
@@ -479,10 +487,12 @@ const PROMPT_SUGGESTIONS: Array<{ label: string; prompt: string }> = [
 function SessionRow(props: {
   session: SessionSummary;
   active: boolean;
+  /** This session has a live streaming delta in flight. */
+  streaming?: boolean;
   onSelect(sessionId: string): void;
   actions?: SessionRowActions;
 }) {
-  const { session, active, actions, onSelect } = props;
+  const { session, active, streaming, actions, onSelect } = props;
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -522,7 +532,7 @@ function SessionRow(props: {
   }
 
   return (
-    <div className="maka-list-row" data-active={active} data-editing={editing}>
+    <div className="maka-list-row" data-active={active} data-editing={editing} data-streaming={streaming ? 'true' : undefined}>
       {editing ? (
         <form
           className="maka-list-row-main"
@@ -566,15 +576,28 @@ function SessionRow(props: {
           }}
         >
           <div className="maka-list-row-text">
-            <div className="maka-list-row-name">{session.name}</div>
-            {session.lastMessagePreview && (
+            <div className="maka-list-row-name">
+              {streaming && (
+                <span
+                  className="maka-list-row-streaming-dot"
+                  aria-label="正在响应"
+                  title="对话正在流式响应中"
+                />
+              )}
+              <span>{session.name}</span>
+            </div>
+            {streaming ? (
+              <div className="maka-list-row-preview" data-streaming="true">
+                Maka 正在思考…
+              </div>
+            ) : session.lastMessagePreview ? (
               <div className="maka-list-row-preview" title={session.lastMessagePreview}>
                 {session.lastMessagePreview}
               </div>
-            )}
+            ) : null}
             <div className="maka-list-row-meta">{formatSessionMeta(session)}</div>
           </div>
-          {session.hasUnread && <span className="maka-list-row-unread" />}
+          {session.hasUnread && !streaming && <span className="maka-list-row-unread" />}
         </button>
       )}
       {actions && !editing && (
@@ -1410,7 +1433,7 @@ export const Composer = forwardRef<
         <textarea
           ref={textareaRef}
           name="text"
-          placeholder="Message Maka…"
+          placeholder="给 Maka 发消息…"
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
           onInput={autoResize}
