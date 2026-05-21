@@ -646,31 +646,17 @@ function ConnectionDetail(props: {
           />
         </label>
       )}
-      <label>
-        <span>默认模型</span>
-        <div className="providerModelRow">
-          <select value={defaultModel} onChange={(event) => setDefaultModel(event.currentTarget.value)}>
-            {modelChoices.map((model) => (
-              <option key={model.id} value={model.id}>{model.id}</option>
-            ))}
-          </select>
-          <button
-            className="maka-button"
-            type="button"
-            disabled={fetchingModels || (needsSecret && !hasSecret)}
-            onClick={() => void refreshModels()}
-          >
-            {fetchingModels ? '拉取中…' : '从 API 刷新'}
-          </button>
-        </div>
-        <small className="providerModelSource" data-source={modelSource}>
-          {modelSource === 'fetched'
-            ? models.length > 0
-              ? `实时拉取的 ${models.length} 个模型${formatFetchedAtSuffix(connection.modelsFetchedAt)}`
-              : '已成功调用 provider，但返回 0 个模型 — 该 provider 可能未对当前 API key 开放任何模型，请检查账户/方案。'
-            : `静态备用列表（${fallbackModels.length} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`}
-        </small>
-      </label>
+      <ModelTable
+        modelChoices={modelChoices}
+        defaultModel={defaultModel}
+        onPickDefault={(id) => setDefaultModel(id)}
+        modelSource={modelSource}
+        modelsFetchedAt={connection.modelsFetchedAt}
+        fallbackCount={fallbackModels.length}
+        canRefresh={!fetchingModels && !(needsSecret && !hasSecret)}
+        fetchingModels={fetchingModels}
+        onRefresh={() => void refreshModels()}
+      />
       {defaults.signupUrl && (
         <a className="providerExternalLink" href={defaults.signupUrl} target="_blank" rel="noreferrer">
           获取 API key
@@ -688,6 +674,137 @@ function ConnectionDetail(props: {
       </div>
     </div>
   );
+}
+
+/**
+ * UI-02 provider model workspace (per @kenji backlog item):
+ *
+ *   - Source/fetchedAt header (driven by persisted backend metadata)
+ *   - Search box to filter long catalogs
+ *   - Per-row default radio + capability chips (vision / reasoning /
+ *     function calling) when present
+ *   - Default model gets a tinted background + "默认" badge
+ *   - Empty state distinguishes "fetched 0" from "haven't fetched yet"
+ *   - Refresh button anchored to the header
+ *
+ * Replaces the dropdown + "从 API 刷新" pair the editor used to ship
+ * with. The picker is now a workspace, not a form field.
+ */
+function ModelTable(props: {
+  modelChoices: ModelInfo[];
+  defaultModel: string;
+  onPickDefault(id: string): void;
+  modelSource: 'fetched' | 'fallback';
+  modelsFetchedAt?: number;
+  fallbackCount: number;
+  canRefresh: boolean;
+  fetchingModels: boolean;
+  onRefresh(): void;
+}) {
+  const [query, setQuery] = useState('');
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return props.modelChoices;
+    return props.modelChoices.filter((m) => m.id.toLowerCase().includes(q));
+  }, [props.modelChoices, query]);
+
+  const headerLine =
+    props.modelSource === 'fetched'
+      ? props.modelChoices.length > 0
+        ? `实时拉取的 ${props.modelChoices.length} 个模型${formatFetchedAtSuffix(props.modelsFetchedAt)}`
+        : '已成功调用 provider，但返回 0 个模型 — 该 provider 可能未对当前 API key 开放任何模型。'
+      : `静态备用列表（${props.fallbackCount} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`;
+
+  return (
+    <div className="modelTable" data-source={props.modelSource}>
+      <header className="modelTableHeader">
+        <div className="modelTableHeaderText">
+          <strong>模型</strong>
+          <small>{headerLine}</small>
+        </div>
+        <button
+          className="maka-button"
+          type="button"
+          disabled={!props.canRefresh}
+          onClick={props.onRefresh}
+        >
+          {props.fetchingModels ? '拉取中…' : '从 API 刷新'}
+        </button>
+      </header>
+
+      {props.modelChoices.length > 6 && (
+        <input
+          type="search"
+          className="modelTableSearch"
+          placeholder={`在 ${props.modelChoices.length} 个模型中搜索…`}
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+      )}
+
+      {props.modelChoices.length === 0 ? (
+        <div className="modelTableEmpty">
+          {props.modelSource === 'fetched'
+            ? '拉取返回 0 个模型。请检查账号方案或重新拉取。'
+            : '尚无模型。点「从 API 刷新」拉取或先配置 API key。'}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="modelTableEmpty">没有匹配 “{query}” 的模型。</div>
+      ) : (
+        <ul className="modelTableList" role="radiogroup" aria-label="默认模型">
+          {filtered.map((model) => {
+            const isDefault = model.id === props.defaultModel;
+            return (
+              <li key={model.id}>
+                <button
+                  type="button"
+                  className="modelTableRow"
+                  role="radio"
+                  aria-checked={isDefault}
+                  data-default={isDefault ? 'true' : undefined}
+                  onClick={() => props.onPickDefault(model.id)}
+                >
+                  <span className="modelTableRowRadio" aria-hidden="true" />
+                  <code className="modelTableRowId">{model.id}</code>
+                  <ModelCapabilityChips model={model} />
+                  {isDefault && <span className="modelTableDefaultBadge">默认</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ModelCapabilityChips(props: { model: ModelInfo }) {
+  const caps = props.model.capabilities;
+  if (!caps) return null;
+  const chips: string[] = [];
+  if (caps.vision) chips.push('vision');
+  if (caps.reasoning) chips.push('reasoning');
+  if (caps.functionCalling) chips.push('tools');
+  if (props.model.contextWindow) {
+    // 200_000 → "200K", 1_000_000 → "1M". Compact for the row.
+    chips.push(formatContextWindow(props.model.contextWindow));
+  }
+  if (chips.length === 0) return null;
+  return (
+    <span className="modelTableChips">
+      {chips.map((c) => (
+        <span key={c} className="modelTableChip">{c}</span>
+      ))}
+    </span>
+  );
+}
+
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M ctx`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K ctx`;
+  return `${tokens} ctx`;
 }
 
 export function providerDisplay(type: ProviderType): { name: string; description: string; badge?: string } {
