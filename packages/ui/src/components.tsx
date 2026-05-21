@@ -867,7 +867,7 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
   );
 });
 
-function MessageCopyButton(props: { text: string }) {
+function MessageCopyButton(props: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -880,15 +880,18 @@ function MessageCopyButton(props: { text: string }) {
     }
   }
 
+  const baseLabel = props.label ?? '复制消息';
   return (
     <button
       type="button"
       className="maka-message-copy"
       onClick={copy}
-      aria-label={copied ? 'Copied' : 'Copy message'}
+      aria-label={copied ? `已复制 · ${baseLabel}` : baseLabel}
       data-copied={copied}
+      data-labelled={props.label ? 'true' : undefined}
     >
       {copied ? <Check size={14} strokeWidth={2} aria-hidden="true" /> : <Copy size={14} strokeWidth={1.75} aria-hidden="true" />}
+      {props.label && <span>{copied ? '已复制' : props.label}</span>}
     </button>
   );
 }
@@ -1247,9 +1250,15 @@ function TurnView(props: { turn: TurnViewModel; userLabel?: string }) {
           <div className="maka-bubble-assistant-stack">
             {turn.assistantThinking && (
               <details className="maka-turn-thinking">
-                <summary>查看思考过程</summary>
+                <summary>
+                  <span>查看思考过程</span>
+                  <span className="maka-turn-thinking-note">模型推理草稿，不是最终答案</span>
+                </summary>
                 <div className="maka-turn-thinking-body">
                   <Markdown text={turn.assistantThinking} />
+                  <div className="maka-turn-thinking-actions">
+                    <MessageCopyButton text={turn.assistantThinking} label="复制思考过程" />
+                  </div>
                 </div>
               </details>
             )}

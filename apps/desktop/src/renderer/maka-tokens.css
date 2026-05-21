@@ -601,10 +601,21 @@
   }
 
   .maka-turn-thinking summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     cursor: pointer;
     font-weight: 600;
     color: var(--accent);
     letter-spacing: 0.02em;
+  }
+
+  .maka-turn-thinking-note {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--foreground-50);
+    text-transform: uppercase;
   }
 
   .maka-turn-thinking-body {
@@ -612,6 +623,62 @@
     line-height: 1.55;
     font-style: italic;
     opacity: 0.9;
+  }
+
+  .maka-turn-thinking-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+  }
+
+  /* Task list checkboxes inside assistant markdown — remark-gfm gives us
+   * standard <input type="checkbox" disabled> nodes; this styles them to
+   * match the rest of the chat surface instead of the browser default. */
+  .maka-bubble-assistant ul.contains-task-list,
+  .maka-bubble-assistant ol.contains-task-list,
+  .maka-bubble-assistant ul li.task-list-item,
+  .maka-bubble-assistant ol li.task-list-item {
+    list-style: none;
+  }
+
+  .maka-bubble-assistant ul.contains-task-list,
+  .maka-bubble-assistant ol.contains-task-list {
+    padding-left: 4px;
+  }
+
+  .maka-bubble-assistant li.task-list-item {
+    padding-left: 2px;
+  }
+
+  .maka-bubble-assistant li.task-list-item > input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin: 0 8px 0 0;
+    border: 1.5px solid var(--foreground-40);
+    border-radius: 4px;
+    background: transparent;
+    vertical-align: text-bottom;
+    cursor: not-allowed; /* read-only — editing markdown isn't supported here */
+    position: relative;
+  }
+
+  .maka-bubble-assistant li.task-list-item > input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .maka-bubble-assistant li.task-list-item > input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: -1px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
   }
 
   .maka-bubble-assistant-stack {
@@ -843,6 +910,22 @@
       opacity 140ms ease,
       transform 140ms var(--ease-out-strong),
       color 120ms ease;
+  }
+
+  /* Labelled variant (e.g. "复制思考过程") — flows inline, doesn't absolute-
+   * position, and always visible since it's already inside a collapsible
+   * region the user has expanded. */
+  .maka-message-copy[data-labelled="true"] {
+    position: static;
+    width: auto;
+    height: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 1;
   }
   .maka-bubble-with-actions:hover .maka-message-copy,
   .maka-bubble-with-actions:focus-within .maka-message-copy,
