@@ -303,6 +303,15 @@ function AppShell() {
     if (state.liveToolsBySession) {
       setLiveToolsBySession((current) => ({ ...current, ...state.liveToolsBySession }));
     }
+    // PR-IR-04: apply reduced-motion attribute when the fixture asks for it.
+    // The matching CSS rule in styles.css collapses all animations to
+    // ~0.01ms so the screenshot pipeline can capture a reduced-motion
+    // variant without depending on the host OS accessibility setting.
+    // Real users never reach this code path (visualSmoke.getState returns
+    // null without MAKA_VISUAL_SMOKE_FIXTURE).
+    if (state.reducedMotion) {
+      document.documentElement.setAttribute('data-maka-reduced-motion', 'true');
+    }
     await refreshSessions();
     if (state.activeSessionId) {
       setActiveId(state.activeSessionId);

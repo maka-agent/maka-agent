@@ -43,6 +43,29 @@ button:active {
   }
 }
 
+/* PR-IR-04: Test-fixture-driven reduced-motion variant (per
+   docs/ui-quality-plan.md §5). Mirrors `prefers-reduced-motion: reduce`
+   via an attribute on `<html>` so visual smoke fixtures can capture a
+   "reduced motion" screenshot variant without depending on the host OS
+   accessibility setting.
+
+   The `data-maka-reduced-motion="true"` attribute is applied by the
+   renderer when `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1` is set in the env.
+   Real users still get motion as configured by their OS. */
+[data-maka-reduced-motion="true"] *,
+[data-maka-reduced-motion="true"] *::before,
+[data-maka-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  /* Scroll behavior + view transition durations also collapse */
+  scroll-behavior: auto !important;
+}
+
+[data-maka-reduced-motion="true"] button:active {
+  transform: none;
+}
+
 .appFrame {
   height: 100dvh;
   padding: 12px;

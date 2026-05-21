@@ -83,7 +83,11 @@ import {
   seedVisualSmokeFixture,
 } from './visual-smoke-fixture.js';
 
-const visualSmokeFixture = resolveVisualSmokeFixture(process.env.MAKA_VISUAL_SMOKE_FIXTURE, app.isPackaged);
+const visualSmokeFixture = resolveVisualSmokeFixture(
+  process.env.MAKA_VISUAL_SMOKE_FIXTURE,
+  app.isPackaged,
+  process.env.MAKA_VISUAL_SMOKE_REDUCED_MOTION,
+);
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
 const store = createSessionStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);

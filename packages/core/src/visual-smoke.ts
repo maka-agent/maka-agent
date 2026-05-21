@@ -34,4 +34,13 @@ export interface VisualSmokeState {
   streamingBySession?: Record<string, string>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
   liveToolsBySession?: Record<string, VisualSmokeLiveTool[]>;
+  /**
+   * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
+   * of the host OS setting. Triggered by `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1`
+   * env var in the main process. The renderer applies
+   * `data-maka-reduced-motion="true"` to `<html>` so the matching CSS
+   * rule in `styles.css` collapses every animation/transition to
+   * ~0.01ms.
+   */
+  reducedMotion?: boolean;
 }
