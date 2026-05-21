@@ -789,9 +789,15 @@ function PersonalizationSettingsPage(props: {
           assistantTone: assistantTone.trim().slice(0, 500),
         },
       });
-      toast.success('个性化已保存');
+      // Single toast either way. With warnings, surface generic policy
+      // statements (no raw user text echoed back, no specific keyword
+      // disclosed) per kenji's personalization-prompt-contract.
       const warnings = collectPersonalizationWarningCopy(result.warnings?.personalization ?? []);
-      if (warnings) toast.warning('个性化已按低优先级偏好保存', warnings);
+      if (warnings) {
+        toast.warning('已保存并做安全清理', warnings);
+      } else {
+        toast.success('个性化已保存');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error('保存失败', message);
@@ -851,9 +857,13 @@ function PersonalizationSettingsPage(props: {
 
 function collectPersonalizationWarningCopy(warnings: PersonalizationSettingsWarning[]): string | undefined {
   if (warnings.length === 0) return undefined;
+  // Copy per kenji's personalization-prompt-contract: enum -> generic policy
+  // statement. Never quote, name, or echo the matched phrase / keyword;
+  // each line describes the action taken + the invariant that still holds.
   const copy: Record<PersonalizationSettingsWarning, string> = {
-    'override-attempt': '检测到类似 system/developer/permission override 的指令式内容，已作为低优先级偏好处理。',
-    'sensitive-pattern': '检测到疑似密钥、token 或密码内容；不会在提示或日志里回显原文。',
+    'override-attempt':
+      '检测到可能尝试改变助手行为的内容，已按低优先级偏好处理；权限策略不受影响。',
+    'sensitive-pattern': '检测到疑似敏感凭据，已避免在提示或日志中回显原文。',
     'control-chars': '已清理不可见控制字符，避免影响提示结构。',
   };
   return warnings.map((warning) => copy[warning]).join('\n');
