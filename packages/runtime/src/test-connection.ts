@@ -36,9 +36,11 @@ export async function testConnection(
         return await probeGoogle(baseUrl, secret, testModel, t0);
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: message,
+      errorClass: message.toLowerCase().includes('timeout') ? 'timeout' : 'network',
       latencyMs: Date.now() - t0,
     };
   }
@@ -114,13 +116,22 @@ async function probeGoogle(
 }
 
 async function httpFailure(r: Response, t0: number): Promise<ConnectionTestResult> {
+  const statusCode = r.status;
   return {
     ok: false,
-    errorMessage: `${r.status} ${(await r.text()).slice(0, 200)}`,
+    errorMessage: `${statusCode} ${(await r.text()).slice(0, 200)}`,
+    statusCode,
+    errorClass: classifyHttpStatus(statusCode),
     latencyMs: Date.now() - t0,
   };
 }
 
 function stripTrailing(u: string): string {
   return u.replace(/\/+$/, '');
+}
+
+function classifyHttpStatus(statusCode: number): ConnectionTestResult['errorClass'] {
+  if (statusCode === 401 || statusCode === 403) return 'auth';
+  if (statusCode >= 500) return 'provider_unavailable';
+  return 'unknown';
 }
