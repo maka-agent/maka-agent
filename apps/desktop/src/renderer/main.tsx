@@ -202,6 +202,10 @@ function AppShell() {
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges((event) => {
       void refreshSessions();
+      if (event.reason === 'rebound') {
+        const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
+        toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);
+      }
       if (event.reason === 'deleted' && event.sessionId === activeIdRef.current) {
         setActiveId(undefined);
         setMessages([]);

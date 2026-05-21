@@ -76,12 +76,15 @@ export type SessionChangedReason =
   | 'message-appended'
   | 'pinned'
   | 'renamed'
-  | 'mode-change';
+  | 'mode-change'
+  | 'rebound';
 
 export interface SessionChangedEvent {
   type: 'sessions_changed';
   reason: SessionChangedReason;
   sessionId?: string;
+  connectionSlug?: string;
+  modelId?: string;
   ts: number;
 }
 

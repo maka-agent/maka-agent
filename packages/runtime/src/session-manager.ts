@@ -137,9 +137,23 @@ export class SessionManager {
     sessionId: string,
     patch: Partial<SessionHeader>,
   ): Promise<SessionSummary> {
-    const next = await this.deps.store.updateHeader(sessionId, patch);
     const active = this.active.get(sessionId);
-    if (active) active.cachedHeader = next;
+    const backendConfigChanged = changesBackendConfig(patch);
+    if (active && backendConfigChanged && active.activeStreams > 0) {
+      throw new Error('Cannot change backend configuration while a turn is running');
+    }
+
+    const next = await this.deps.store.updateHeader(sessionId, patch);
+    if (active) {
+      active.cachedHeader = next;
+      if (backendConfigChanged) {
+        // AgentBackend instances snapshot backend/model config at construction
+        // time. If a stale session is rebound to a real default connection, the
+        // next turn must build a fresh backend instead of reusing FakeBackend or
+        // an AiSdkBackend pointed at a deleted connection.
+        await this.disposeBackend(sessionId);
+      }
+    }
     return headerToSummary(next);
   }
 
@@ -364,6 +378,10 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     summary.lastMessageAt = h.lastMessageAt;
   }
   return summary;
+}
+
+function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
+  return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch;
 }
 
 // Re-export the suppressed-unused types so this file is the canonical home

@@ -4,9 +4,11 @@ import type { LlmConnection, SessionHeader } from '@maka/core';
 import {
   NO_REAL_CONNECTION_CODE,
   assertSessionCanSend,
+  ensureSessionCanSendOrRebind,
   errorCode,
   requireReadyConnection,
   errorReason,
+  shouldRebindSessionToDefault,
   type ReadyConnectionDeps,
 } from '../chat-readiness.js';
 
@@ -142,6 +144,99 @@ describe('chat readiness guard', () => {
       assertSessionCanSend(header(), deps({ connection: connection(), apiKey: 'sk-test' })),
     );
   });
+
+  test('classifies stale sessions that can be rebound to the current default model', () => {
+    for (const reason of ['fake_backend', 'connection_missing', 'missing_model', 'empty_model_list', 'model_not_enabled']) {
+      assert.equal(shouldRebindSessionToDefault(reason), true, reason);
+    }
+
+    for (const reason of ['missing_default_connection', 'connection_disabled', 'missing_api_key', undefined]) {
+      assert.equal(shouldRebindSessionToDefault(reason), false, String(reason));
+    }
+  });
+
+  test('rebinds stale ai-sdk sessions to a ready default connection before send', async () => {
+    const updates: unknown[] = [];
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header({ llmConnectionSlug: 'fake-claude', model: 'fake-model' }),
+      {
+        readyConnectionDeps: keyedDeps({
+          'zai-coding-plan': {
+            connection: connection({
+              slug: 'zai-coding-plan',
+              name: 'Z.AI Coding Plan',
+              providerType: 'zai-coding-plan',
+              defaultModel: 'glm-4.7',
+              models: [{ id: 'glm-4.7' }],
+            }),
+            apiKey: 'sk-zai',
+          },
+        }),
+        async getDefaultSlug() {
+          return 'zai-coding-plan';
+        },
+        async updateSession(_sessionId, patch) {
+          updates.push(patch);
+        },
+      },
+    );
+
+    assert.deepEqual(result, { rebound: true, connectionSlug: 'zai-coding-plan', modelId: 'glm-4.7' });
+    assert.deepEqual(updates, [{
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'zai-coding-plan',
+      model: 'glm-4.7',
+      connectionLocked: true,
+    }]);
+  });
+
+  test('rebinds old fake sessions to a ready default connection before send', async () => {
+    const updates: unknown[] = [];
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }),
+      {
+        readyConnectionDeps: keyedDeps({
+          anthropic: { connection: connection(), apiKey: 'sk-test' },
+        }),
+        async getDefaultSlug() {
+          return 'anthropic';
+        },
+        async updateSession(_sessionId, patch) {
+          updates.push(patch);
+        },
+      },
+    );
+
+    assert.deepEqual(result, {
+      rebound: true,
+      connectionSlug: 'anthropic',
+      modelId: 'claude-3-5-sonnet-20241022',
+    });
+    assert.equal(updates.length, 1);
+  });
+
+  test('keeps the original readiness error when no ready default exists for rebind', async () => {
+    await assertRejectsReadiness(
+      'fake session without ready default',
+      () => ensureSessionCanSendOrRebind(
+        'session-1',
+        header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }),
+        {
+          readyConnectionDeps: keyedDeps({}),
+          async getDefaultSlug() {
+            return null;
+          },
+          async updateSession() {
+            throw new Error('must not update');
+          },
+        },
+      ),
+      'FakeBackend',
+      'fake_backend',
+    );
+  });
 });
 
 async function assertRejectsReadiness(name: string, fn: () => Promise<unknown>, includes: string, reason: string): Promise<void> {
@@ -163,6 +258,17 @@ function deps(input: { connection?: LlmConnection | null; apiKey?: string | null
     },
     async getApiKey(_slug: string) {
       return input.apiKey ?? null;
+    },
+  };
+}
+
+function keyedDeps(entries: Record<string, { connection: LlmConnection; apiKey?: string | null }>): ReadyConnectionDeps {
+  return {
+    async getConnection(slug: string) {
+      return entries[slug]?.connection ?? null;
+    },
+    async getApiKey(slug: string) {
+      return entries[slug]?.apiKey ?? null;
     },
   };
 }

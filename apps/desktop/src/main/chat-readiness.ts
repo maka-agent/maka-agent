@@ -23,6 +23,21 @@ export interface ReadyConnection {
   model: string;
 }
 
+export interface SessionRebindDeps {
+  readyConnectionDeps: ReadyConnectionDeps;
+  getDefaultSlug(): Promise<string | null>;
+  updateSession(
+    sessionId: string,
+    patch: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model' | 'connectionLocked'>,
+  ): Promise<unknown>;
+}
+
+export interface SessionRebindResult {
+  rebound: boolean;
+  connectionSlug?: string;
+  modelId?: string;
+}
+
 export async function requireReadyConnection(
   slug: string | null | undefined,
   deps: ReadyConnectionDeps,
@@ -96,6 +111,39 @@ export async function assertSessionCanSend(
   await requireReadyConnection(header.llmConnectionSlug, deps, header.model);
 }
 
+export async function ensureSessionCanSendOrRebind(
+  sessionId: string,
+  header: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model'>,
+  deps: SessionRebindDeps,
+): Promise<SessionRebindResult> {
+  try {
+    await assertSessionCanSend(header, deps.readyConnectionDeps);
+    return { rebound: false };
+  } catch (error) {
+    if (!shouldRebindSessionToDefault(errorReason(error))) {
+      throw error;
+    }
+    const defaultSlug = await deps.getDefaultSlug();
+    let ready: ReadyConnection;
+    try {
+      ready = await requireReadyConnection(defaultSlug, deps.readyConnectionDeps);
+    } catch {
+      throw error;
+    }
+    await deps.updateSession(sessionId, {
+      backend: 'ai-sdk',
+      llmConnectionSlug: ready.connection.slug,
+      model: ready.model,
+      connectionLocked: true,
+    });
+    return {
+      rebound: true,
+      connectionSlug: ready.connection.slug,
+      modelId: ready.model,
+    };
+  }
+}
+
 export function chatConfigurationError(message: string, reason: ChatConfigurationReason): Error {
   const error = new Error(`${NO_REAL_CONNECTION_CODE}:${reason}: ${message}`);
   (error as Error & { code: string; reason: ChatConfigurationReason }).code = NO_REAL_CONNECTION_CODE;
@@ -119,4 +167,12 @@ export function errorReason(error: unknown): string | undefined {
     return String((error as { reason?: unknown }).reason);
   }
   return undefined;
+}
+
+export function shouldRebindSessionToDefault(reason: string | undefined): boolean {
+  return reason === 'fake_backend' ||
+    reason === 'connection_missing' ||
+    reason === 'missing_model' ||
+    reason === 'empty_model_list' ||
+    reason === 'model_not_enabled';
 }

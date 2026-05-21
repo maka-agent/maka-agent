@@ -114,6 +114,84 @@ describe('SessionManager permission mode updates', () => {
     expect(summary.permissionMode).toBe('ask');
     expect((await store.readMessages(session.id)).length).toBe(0);
   });
+
+  test('backend configuration updates rebuild an already-active backend', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    const built: string[] = [];
+    backends.register('fake', (ctx) => {
+      built.push(`${ctx.header.backend}:${ctx.header.llmConnectionSlug}:${ctx.header.model}`);
+      return new TestBackend(ctx);
+    });
+    backends.register('ai-sdk', (ctx) => {
+      built.push(`${ctx.header.backend}:${ctx.header.llmConnectionSlug}:${ctx.header.model}`);
+      return new TestBackend(ctx);
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(5_000) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    expect(built).toEqual(['fake:fake:fake-model']);
+
+    const summary = await manager.updateSession(session.id, {
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'zai-coding-plan',
+      model: 'glm-4.7',
+    });
+    expect(summary.backend).toBe('ai-sdk');
+    expect(summary.llmConnectionSlug).toBe('zai-coding-plan');
+    expect(store.disposeCount).toBe(1);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'again' }));
+    expect(built).toEqual(['fake:fake:fake-model', 'ai-sdk:zai-coding-plan:glm-4.7']);
+  });
+
+  test('metadata-only updates keep the active backend instance', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    const built: string[] = [];
+    backends.register('fake', (ctx) => {
+      built.push(ctx.header.name);
+      return new TestBackend(ctx);
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_000) });
+    const session = await manager.createSession(makeInput({ name: 'Before' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    await manager.updateSession(session.id, { name: 'After' });
+
+    expect(store.disposeCount).toBe(0);
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'again' }));
+    expect(built).toEqual(['Before']);
+  });
+
+  test('rejects backend configuration updates while a turn is actively streaming', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    const gate = makeGate();
+    backends.register('fake', (ctx) => new TestBackend(ctx, gate));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(7_000) });
+    const session = await manager.createSession(makeInput());
+
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await iterator.next();
+
+    await expectRejects(
+      manager.updateSession(session.id, {
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'zai-coding-plan',
+        model: 'glm-4.7',
+      }),
+      /Cannot change backend configuration while a turn is running/,
+    );
+    const header = await store.readHeader(session.id);
+    expect(header.backend).toBe('fake');
+    expect(header.llmConnectionSlug).toBe('fake');
+
+    gate.release();
+    await iterator.next();
+    await iterator.next();
+  });
 });
 
 class TestBackend implements AgentBackend {

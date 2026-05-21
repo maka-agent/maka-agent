@@ -65,7 +65,7 @@ import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createArtifactStore, createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo, resolveArtifactPath } from '@maka/storage';
 import {
-  assertSessionCanSend as assertHeaderCanSend,
+  ensureSessionCanSendOrRebind,
   errorCode,
   errorMessage,
   errorReason,
@@ -628,7 +628,7 @@ function registerIpc(): void {
   );
   ipcMain.handle('sessions:send', async (_event, sessionId: string, command: SessionCommand) => {
     if (command.type !== 'send') return;
-    await assertSessionCanSend(sessionId);
+    await ensureSessionCanSend(sessionId);
     const iterator = runtime.sendMessage(sessionId, {
       turnId: command.turnId || randomUUID(),
       text: command.text,
@@ -917,9 +917,19 @@ function isFinalSessionEvent(event: SessionEvent): boolean {
   return event.type === 'text_complete' || event.type === 'complete' || event.type === 'abort' || event.type === 'error';
 }
 
-async function assertSessionCanSend(sessionId: string): Promise<void> {
+async function ensureSessionCanSend(sessionId: string): Promise<void> {
   const header = await store.readHeader(sessionId);
-  await assertHeaderCanSend(header, readyConnectionDeps);
+  const result = await ensureSessionCanSendOrRebind(sessionId, header, {
+    readyConnectionDeps,
+    getDefaultSlug: () => connectionStore.getDefault(),
+    updateSession: (_sessionId, patch) => runtime.updateSession(_sessionId, patch),
+  });
+  if (result.rebound) {
+    emitSessionsChanged('rebound', sessionId, {
+      connectionSlug: result.connectionSlug,
+      modelId: result.modelId,
+    });
+  }
 }
 
 const readyConnectionDeps = {
@@ -949,13 +959,19 @@ function emitConnectionListChanged(): void {
   mainWindow?.webContents.send('connections:event', event);
 }
 
-function emitSessionsChanged(reason: SessionChangedReason, sessionId?: string): void {
+function emitSessionsChanged(
+  reason: SessionChangedReason,
+  sessionId?: string,
+  extra?: Pick<SessionChangedEvent, 'connectionSlug' | 'modelId'>,
+): void {
   const event: SessionChangedEvent = {
     type: 'sessions_changed',
     reason,
     ts: Date.now(),
   };
   if (sessionId) event.sessionId = sessionId;
+  if (extra?.connectionSlug) event.connectionSlug = extra.connectionSlug;
+  if (extra?.modelId) event.modelId = extra.modelId;
   mainWindow?.webContents.send('sessions:changed', event);
 }
 
