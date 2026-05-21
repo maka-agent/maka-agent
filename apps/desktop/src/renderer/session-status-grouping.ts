@@ -42,6 +42,7 @@ export const SESSION_STATUS_GROUP_ORDER = [
   'review',
   'done',
   'archived',
+  'aborted',
 ] as const satisfies readonly SessionStatus[];
 
 export type SessionStatusGroupId = (typeof SESSION_STATUS_GROUP_ORDER)[number];
@@ -84,10 +85,11 @@ const GROUP_LABEL: Record<SessionGroupId, string> = {
   review: '待审核',
   done: '已完成',
   archived: '归档',
+  aborted: '已中止',
 };
 
-const COLLAPSIBLE_GROUPS: ReadonlySet<SessionGroupId> = new Set(['archived']);
-const COLLAPSED_BY_DEFAULT: ReadonlySet<SessionGroupId> = new Set(['archived']);
+const COLLAPSIBLE_GROUPS: ReadonlySet<SessionGroupId> = new Set(['archived', 'aborted']);
+const COLLAPSED_BY_DEFAULT: ReadonlySet<SessionGroupId> = new Set(['archived', 'aborted']);
 
 /**
  * Sort sessions within a group. Matches `session-store.list()` ordering
@@ -119,8 +121,12 @@ export interface DeriveSessionStatusGroupsOptions {
 /**
  * Project a flat session list into status-grouped buckets in the
  * locked order. Empty groups are dropped from the output so the
- * sidebar doesn't render placeholder headers. `aborted` sessions are
- * always filtered out per the design rationale above.
+ * sidebar doesn't render placeholder headers.
+ *
+ * `aborted` sessions land in their own group at the bottom, default
+ * collapsed (same convention as `archived`). Per @kenji review on
+ * PR109b: aborted is dormant history, not silently swallowed — users
+ * who actually cancelled a session expect to see it later.
  *
  * When `pinFirst` is true, flagged sessions are pulled into a synthetic
  * "Pinned" group at the top and removed from their status-derived
@@ -136,7 +142,6 @@ export function deriveSessionStatusGroups(
     byStatus.set(status, []);
   }
   for (const session of sessions) {
-    if (session.status === 'aborted') continue;
     if (options.pinFirst && session.isFlagged) {
       pinned.push(session);
       continue;

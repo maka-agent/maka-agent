@@ -287,7 +287,7 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('workstation-statuses seed creates one session per non-aborted SessionStatus + 4 blocked variants', async () => {
+  it('workstation-statuses seed creates one session per SessionStatus including aborted + 4 blocked variants', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-ws-'));
     try {
       const fixture = resolveVisualSmokeFixture('workstation-statuses', false);
@@ -313,6 +313,7 @@ describe('visual smoke fixture mode', () => {
         { id: 'visual-smoke-ws-review', status: 'review' },
         { id: 'visual-smoke-ws-done', status: 'done' },
         { id: 'visual-smoke-ws-archived', status: 'archived' },
+        { id: 'visual-smoke-ws-aborted', status: 'aborted' },
       ];
 
       for (const expected of expectedSessions) {

@@ -631,8 +631,10 @@ function SessionListGroups(props: {
 function SessionStatusIcon(props: { session: SessionSummary }) {
   const { session } = props;
   const status = session.status;
-  // Active is the default; no icon to reduce noise.
-  if (status === 'active' || status === 'aborted') return null;
+  // Active is the default; no icon to reduce noise. Aborted retains a
+  // muted icon (per @kenji review on PR109b — aborted is dormant
+  // history that must remain visible, not silently swallowed as active).
+  if (status === 'active') return null;
   const Icon = STATUS_ICON_BY_STATUS[status as keyof typeof STATUS_ICON_BY_STATUS];
   if (!Icon) return null;
   const label = STATUS_LABEL_BY_STATUS[status as keyof typeof STATUS_LABEL_BY_STATUS];
@@ -697,6 +699,7 @@ const STATUS_ICON_BY_STATUS = {
   review: Eye,
   done: CircleCheckBig,
   archived: Archive,
+  aborted: Ban,
 } as const;
 
 const STATUS_LABEL_BY_STATUS = {
@@ -706,6 +709,7 @@ const STATUS_LABEL_BY_STATUS = {
   review: '待审核',
   done: '已完成',
   archived: '已归档',
+  aborted: '已中止',
 } as const;
 
 const STATUS_TONE_BY_STATUS = {
@@ -715,6 +719,7 @@ const STATUS_TONE_BY_STATUS = {
   review: 'info',
   done: 'success',
   archived: 'muted',
+  aborted: 'muted',
 } as const;
 
 const BLOCKED_REASON_TOOLTIP = {

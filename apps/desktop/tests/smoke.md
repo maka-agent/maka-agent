@@ -662,9 +662,9 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors npm --workspace @maka/desktop run dev
 
 ## Path 14 — Workstation sidebar status grouping (§9.8)
 
-**Precondition.** Fixture scenario `workstation-statuses` — seeds 10
-sessions, one per non-aborted SessionStatus plus 4 blocked variants
-(one per SessionBlockedReason):
+**Precondition.** Fixture scenario `workstation-statuses` — seeds 11
+sessions covering every SessionStatus (including aborted) plus 4
+blocked variants (one per SessionBlockedReason):
 
 ```bash
 MAKA_VISUAL_SMOKE_FIXTURE=workstation-statuses npm --workspace @maka/desktop run dev
@@ -677,7 +677,8 @@ badge ("进行中") is visible in the screenshot alongside the sidebar.
 1. Launch Maka with the fixture above. The "正在生成报告" session is
    active.
 2. Observe the sidebar groups in order. Expected from top to bottom:
-   `进行中`, `等待你`, `已阻塞`, `会话`, `待审核`, `已完成`, `归档`.
+   `进行中`, `等待你`, `已阻塞`, `会话`, `待审核`, `已完成`, `归档`,
+   `已中止`. Both `归档` and `已中止` are collapsed by default.
 3. Hover each row's status icon. Tooltip reads the status label
    (and the generalized blocked-reason copy for the 4 blocked rows
    — never the raw enum identifier).
@@ -687,12 +688,12 @@ badge ("进行中") is visible in the screenshot alongside the sidebar.
 
 **Pass signals.**
 - Group ordering matches: `进行中 / 等待你 / 已阻塞 / 会话 / 待审核 /
-  已完成 / 归档`. `已取消` is NOT present (aborted sessions are
-  filtered out per §9.8).
+  已完成 / 归档 / 已中止`. Both `归档` and `已中止` are collapsible
+  groups defaulting to collapsed; expanding either reveals its row(s).
 - Each non-active session row shows the SessionStatusIcon to the
   left of the session name with the matching tone (running=accent
   pulse, waiting=warning, blocked=destructive, review=info,
-  done=success, archived=muted).
+  done=success, archived=muted, aborted=muted).
 - Blocked rows show the generalized reason via hover tooltip:
   - `缺少可用模型连接`
   - `需要重新登录`
@@ -709,8 +710,8 @@ badge ("进行中") is visible in the screenshot alongside the sidebar.
 **Fail signals.**
 - Group ordering differs (e.g. `归档` floats to the top, or `已完成`
   appears before `进行中`).
-- `已取消` group appears (filter regression — aborted sessions should
-  be hidden).
+- `已中止` group is silently hidden (regression on @kenji PR109b
+  review — aborted is dormant but must remain visible).
 - Blocked tooltips expose the raw enum (`NO_REAL_CONNECTION`, `auth`,
   `permission_required`, `tool_failed`, `unknown` — these are
   internal identifiers, not user copy).
