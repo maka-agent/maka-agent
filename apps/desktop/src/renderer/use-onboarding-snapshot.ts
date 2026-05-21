@@ -1,0 +1,166 @@
+/**
+ * `useOnboardingSnapshot` — renderer hook over the PR110b IPC.
+ *
+ * @kenji + @xuan PR110c review gates:
+ *   1. Renderer NEVER re-derives provider readiness; only consumes
+ *      `onboarding:getSnapshot()`. Connections, secrets, default
+ *      slugs etc. are not touched.
+ *   2. Invalidation uses ONLY existing event channels —
+ *      `sessions:changed` and `connections:event`. No new event bus
+ *      for PR110c.
+ *   3. `refresh()` is provided for action-driven re-pulls (e.g.
+ *      "the user just clicked '打开设置 · 模型' so re-pull when the
+ *      modal closes").
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { OnboardingState } from '@maka/core';
+import type { OnboardingSnapshot } from '../global';
+
+/**
+ * Hook return type — `snapshot` is `null` while the initial getSnapshot
+ * IPC is still in flight, then settles to the latest derived value.
+ * `error` carries a generalized Chinese message if the IPC ever fails
+ * (`onboarding:getSnapshot` is best-effort; main treats it as
+ * non-throwing in current implementations, but we surface the slot
+ * defensively).
+ */
+export interface UseOnboardingSnapshotResult {
+  snapshot: OnboardingSnapshot | null;
+  error: string | null;
+  refresh: () => void;
+}
+
+export interface UseOnboardingSnapshotDeps {
+  /** Fetch the current snapshot. */
+  getSnapshot: () => Promise<OnboardingSnapshot>;
+  /**
+   * Subscribe to invalidation signals. The handler is fired
+   * (debounced internally by the caller if needed) whenever an
+   * upstream event suggests the snapshot may be stale. Return value
+   * is an unsubscribe function.
+   */
+  subscribeInvalidations: (onInvalidate: () => void) => () => void;
+}
+
+/**
+ * Pure-deps form. Renderer code uses `useOnboardingSnapshot()` (no
+ * args); tests pass injected `deps` to drive the hook with fakes
+ * (no IPC required).
+ *
+ * The hook is a thin React shell over `createOnboardingSnapshotPoller`
+ * — the React-less helper that owns the ticket-based stale-response
+ * defense. Tests target the pure poller directly so they don't need
+ * a DOM / React runtime.
+ */
+export function useOnboardingSnapshotImpl(deps: UseOnboardingSnapshotDeps): UseOnboardingSnapshotResult {
+  const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pollerRef = useRef<ReturnType<typeof createOnboardingSnapshotPoller> | null>(null);
+
+  if (pollerRef.current === null) {
+    pollerRef.current = createOnboardingSnapshotPoller(deps, {
+      onSnapshot: (next) => {
+        setSnapshot(next);
+        setError(null);
+      },
+      onError: (message) => {
+        setError(message);
+      },
+    });
+  }
+
+  useEffect(() => {
+    const poller = pollerRef.current!;
+    void poller.pull();
+    const unsubscribe = deps.subscribeInvalidations(() => {
+      void poller.pull();
+    });
+    return unsubscribe;
+  }, [deps]);
+
+  const refresh = useCallback(() => {
+    void pollerRef.current?.pull();
+  }, []);
+
+  return { snapshot, error, refresh };
+}
+
+/**
+ * React-less poller. Tracks an inflight ticket so older getSnapshot
+ * responses can't overwrite newer state, and routes results to the
+ * supplied callbacks. Extracted from `useOnboardingSnapshotImpl` so
+ * the stale-response defense is testable without a DOM / React.
+ */
+export interface OnboardingSnapshotPollerCallbacks {
+  onSnapshot(snapshot: OnboardingSnapshot): void;
+  onError(message: string): void;
+}
+
+export function createOnboardingSnapshotPoller(
+  deps: Pick<UseOnboardingSnapshotDeps, 'getSnapshot'>,
+  callbacks: OnboardingSnapshotPollerCallbacks,
+) {
+  let inflightTicket = 0;
+  return {
+    async pull(): Promise<void> {
+      const ticket = ++inflightTicket;
+      try {
+        const next = await deps.getSnapshot();
+        if (ticket !== inflightTicket) return; // newer pull won
+        callbacks.onSnapshot(next);
+      } catch (err) {
+        if (ticket !== inflightTicket) return;
+        callbacks.onError(err instanceof Error ? err.message : String(err));
+      }
+    },
+  };
+}
+
+/**
+ * Default renderer binding: subscribes to BOTH `sessions:changed`
+ * and `connections:event` so any session lifecycle (create / delete /
+ * archive / rebound / message-appended) or any connection change
+ * (verified / disabled / removed) invalidates the snapshot.
+ *
+ * Settings changes are NOT subscribed: there is no existing
+ * settings-wide event channel and PR110c is not inventing one. If a
+ * settings write changes onboarding state (e.g. user picks a default
+ * connection via the connection store IPCs), the resulting
+ * `connections:event` should fire and cover this.
+ *
+ * Callers that need a re-pull on a specific UI action (e.g. modal
+ * close) should call `refresh()` from the returned object.
+ */
+export function useOnboardingSnapshot(): UseOnboardingSnapshotResult {
+  // Bind to the live IPC bridge. `deps` is memoized as a module-level
+  // object so the effect deps stay stable across re-renders.
+  return useOnboardingSnapshotImpl(LIVE_DEPS);
+}
+
+const LIVE_DEPS: UseOnboardingSnapshotDeps = {
+  getSnapshot: () => window.maka.onboarding.getSnapshot(),
+  subscribeInvalidations(onInvalidate) {
+    const unsubscribeSessions = window.maka.sessions.subscribeChanges(() => onInvalidate());
+    const unsubscribeConnections = window.maka.connections.subscribeEvents(() => onInvalidate());
+    return () => {
+      unsubscribeSessions();
+      unsubscribeConnections();
+    };
+  },
+};
+
+/**
+ * Whether a snapshot's state is one of the actionable-by-user setup
+ * variants (kind starts with `needs_`). Returns false for ready_* and
+ * blocked.
+ */
+export function isSetupRequired(state: OnboardingState | undefined): boolean {
+  if (!state) return false;
+  return (
+    state.kind === 'needs_connection' ||
+    state.kind === 'needs_default_connection' ||
+    state.kind === 'needs_connection_credentials' ||
+    state.kind === 'needs_default_model'
+  );
+}

@@ -36,6 +36,7 @@ import { ErrorBoundary } from './error-boundary';
 import { KeyboardHelpModal, useKeyboardHelp } from './keyboard-help';
 import { CommandPalette, buildCommandList, useCommandPalette } from './command-palette';
 import { OnboardingHero } from './OnboardingHero';
+import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import { ProviderLogo } from './settings/ProvidersPanel';
 import { ArtifactPane } from './artifact-pane';
 import { deriveChatHeaderAlert } from './chat-header-alert';
@@ -408,15 +409,23 @@ function AppShell() {
   } : undefined);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   const sessionCounts = useMemo(() => countSessions(sessions), [sessions]);
-  // Aligns with @kenji's provider-onboarding-invariants 3-state taxonomy:
-  // `ready` when at least one enabled connection exists, `needs_onboarding`
-  // otherwise. We treat any-enabled as "ready" — backend (xuan) is the
-  // authoritative check on secret + model validity; this gate just decides
-  // which hero to show on an empty chat.
-  const needsOnboarding = useMemo(
-    () => !connections.some((connection) => connection.enabled),
-    [connections],
-  );
+  // PR110c: OnboardingState is now the single source of truth for
+  // first-run UI. The renderer never re-derives provider readiness;
+  // `useOnboardingSnapshot()` pulls the derived state from the main
+  // process (PR110a + PR110b contract) and reactively invalidates on
+  // `sessions:changed` + `connections:event`. The hero renders only
+  // when sessions.length === 0; any session (including archived /
+  // aborted) takes over with the existing chat surface.
+  const onboarding = useOnboardingSnapshot();
+  const [quickChatPending, setQuickChatPending] = useState(false);
+  const onboardingState = onboarding.snapshot?.state;
+  // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
+  // while the initial snapshot is in flight. Otherwise sessions.length===0
+  // + snapshot===null flashes the prompt-suggestion EmptyChatHero before
+  // the state-routed OnboardingHero mounts.
+  const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined;
+  const showOnboardingHero =
+    sessions.length === 0 && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
 
   useEffect(() => {
@@ -847,6 +856,59 @@ function AppShell() {
 
   function closeSettings() {
     setSettingsOpen(false);
+    // PR110c: re-pull onboarding snapshot when the user closes the
+    // Settings modal — they may have just configured a default
+    // connection or supplied a credential. Existing connections /
+    // sessions events cover most state changes, but a settings-only
+    // write (e.g. defaultSlug picked) may not always fire one.
+    onboarding.refresh();
+  }
+
+  /**
+   * PR110c: Quick Chat handler. Wires the OnboardingHero's
+   * `ready_empty` composer to the `quickChat:start` IPC.
+   *
+   * The discriminated-union result is handled here so the hero stays
+   * presentational:
+   *   - `{ ok: true; sessionId }` → setActiveId. The OnboardingHero
+   *     unmounts automatically as soon as sessions.length > 0
+   *     (which fires after the refresh).
+   *   - `{ ok: false; reason: 'setup_required' }` → the onboarding
+   *     snapshot will be invalidated by the subsequent sessions/
+   *     connections event, but call `refresh()` defensively so the
+   *     hero re-routes immediately in race scenarios.
+   *   - `{ ok: false; reason: 'send_failed' }` → surface the
+   *     generalized Chinese message via toast. The session may have
+   *     been created already, so we also call `refreshSessions()`.
+   */
+  async function handleQuickChatSubmit(prompt: string): Promise<void> {
+    if (quickChatPending) return;
+    setQuickChatPending(true);
+    try {
+      const result = await window.maka.quickChat.start({ prompt });
+      if (result.ok) {
+        await refreshSessions();
+        setActiveId(result.sessionId);
+        // If the prompt was non-empty, the main process has already
+        // started the send via the existing send path. If empty, we
+        // just opened a fresh session; focus the composer so the
+        // user can type without an extra click.
+        if (!prompt.trim()) {
+          composerRef.current?.focus();
+        }
+      } else if (result.reason === 'setup_required') {
+        // Defensive re-pull; the upstream events should cover this.
+        onboarding.refresh();
+      } else {
+        // send_failed — main already generalized the message.
+        await refreshSessions();
+        toastApi.error('开始对话失败', result.message);
+      }
+    } catch (error) {
+      toastApi.error('开始对话失败', cleanErrorMessage(error));
+    } finally {
+      setQuickChatPending(false);
+    }
   }
 
   function showModelSetupToast(description: string, reason?: string) {
@@ -1002,12 +1064,32 @@ function AppShell() {
                 onLineageBadgeClick={handleLineageBadgeClick}
                 branchBanner={branchBanner}
                 onBranchBannerClick={handleBranchBannerClick}
-                emptyOverride={needsOnboarding ? (
-                  <OnboardingHero
-                    onOpenSettings={() => setSettingsOpen(true)}
-                    onUseAnyway={() => composerRef.current?.focus()}
-                  />
-                ) : undefined}
+                emptyOverride={
+                  showOnboardingHero && onboardingState ? (
+                    <OnboardingHero
+                      state={onboardingState}
+                      onOpenSettings={(section) => {
+                        if (section) openSettingsSection(section);
+                        else openSettings();
+                      }}
+                      onQuickChatSubmit={(prompt) => {
+                        void handleQuickChatSubmit(prompt);
+                      }}
+                      quickChatPending={quickChatPending}
+                    />
+                  ) : isOnboardingLoading ? (
+                    // @kenji review: render a no-op skeleton while the
+                    // first snapshot resolves so EmptyChatHero doesn't
+                    // flash. Use an aria-busy live region so screen
+                    // readers know something is loading.
+                    <div
+                      className="maka-onboarding-loading"
+                      role="status"
+                      aria-busy="true"
+                      aria-label="加载中"
+                    />
+                  ) : undefined
+                }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.setText(prompt)}
                 onPermissionModeChange={(mode) => void setPermissionMode(mode)}
