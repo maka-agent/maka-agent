@@ -477,6 +477,24 @@ button:active {
   border-color: oklch(from var(--accent) l c h / 0.18);
 }
 
+/* Subtle left accent bar on the active row — matches Slack / Linear /
+   Telegram sidebar conventions. Positioned via the wrapper's `::before`
+   so it doesn't interfere with the row's grid. */
+.maka-list-row[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-name {
+  color: var(--accent);
+}
+
 .maka-list-row-main {
   flex: 1;
   min-width: 0;
@@ -789,10 +807,29 @@ button:active {
 }
 
 .maka-list-row-unread {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   background: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+}
+
+/* Soft hover state on the primary row body — a tiny scale + background
+   shift gives the row a sense of being "alive" without being noisy. */
+.maka-list-row:hover .maka-list-row-name {
+  color: var(--foreground);
+}
+
+.maka-list-row-main {
+  transition: transform 160ms var(--ease-out-strong);
+}
+
+.maka-list-row:hover .maka-list-row-main {
+  transform: translateX(1px);
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-main {
+  transform: translateX(0);
 }
 
 .maka-empty-state {
