@@ -1049,6 +1049,48 @@ button:active {
   -webkit-app-region: no-drag;
 }
 
+/* Inline credential-lifecycle pill in the chat header. Clickable when the
+ * caller provides onClick (jumps to Settings · 账号). Tone follows the
+ * 6-state ConnectionUiStatus surface tokens for visual continuity. */
+.maka-chat-header-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  margin-bottom: 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-out-strong);
+}
+.maka-chat-header-alert:hover {
+  transform: translateY(-1px);
+}
+.maka-chat-header-alert:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-chat-header-alert[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.20);
+}
+.maka-chat-header-alert[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.30);
+}
+.maka-chat-header-alert[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.28);
+}
+
 .maka-mode-switcher {
   display: inline-flex;
   align-items: center;

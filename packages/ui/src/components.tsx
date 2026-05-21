@@ -654,6 +654,15 @@ const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
 
 const PERMISSION_MODE_ORDER: PermissionMode[] = ['explore', 'ask', 'execute'];
 
+export interface ChatHeaderAlert {
+  /** Visual tone — drives badge color in the chat header. */
+  tone: 'info' | 'warning' | 'destructive';
+  /** Short label shown inside the chat header (e.g. "需要重新登录"). */
+  label: string;
+  /** Optional click handler — e.g. open Settings · 账号 to fix it. */
+  onClick?(): void;
+}
+
 export function ChatView(props: {
   messages: StoredMessage[];
   streamingText: string;
@@ -675,6 +684,13 @@ export function ChatView(props: {
    * the regular prompt-suggestion hero shows.
    */
   emptyOverride?: ReactNode;
+  /**
+   * Surfaces a small status pill in the chat header — used to expose a
+   * `needs_reauth` / `error` connection state from the credential
+   * lifecycle directly into the chat surface so the user notices before
+   * sending another doomed message.
+   */
+  connectionAlert?: ChatHeaderAlert;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
   onPermissionModeChange?(mode: PermissionMode): void;
@@ -764,6 +780,7 @@ export function ChatView(props: {
           <Plus strokeWidth={1.5} />
         </button>
         <span className="maka-chat-header-spacer" />
+        {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
         <PermissionModeSwitcher
           mode={props.activeSession.permissionMode}
           disabled={switcherDisabled}
@@ -988,6 +1005,29 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void }) {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Small actionable pill that surfaces a credential / readiness issue
+ * inline in the chat header. Kept neutral about the source — it just
+ * renders a tone + label and an optional click handler. The connection
+ * lifecycle helper in the desktop renderer decides when to mount this.
+ */
+function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
+  const { tone, label, onClick } = props.alert;
+  const Tag = onClick ? 'button' : 'span';
+  return (
+    <Tag
+      className="maka-chat-header-alert"
+      data-tone={tone}
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      aria-label={label}
+    >
+      <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
+      <span>{label}</span>
+    </Tag>
   );
 }
 

@@ -14,6 +14,7 @@ import type {
   UiDensity,
 } from '@maka/core';
 import {
+  type ChatHeaderAlert,
   ChatView,
   Composer,
   type ComposerHandle,
@@ -79,6 +80,34 @@ function AppShell() {
   // and isn't surfaced through the IPC `sessions:list`), so fall back to the
   // connection's default model for display purposes.
   const activeModelLabel = activeSession?.backend === 'fake' ? undefined : activeConnection?.defaultModel;
+
+  // Surface a credential-lifecycle alert directly in the chat header when
+  // the active session's connection is in `needs_reauth` or `error`. We
+  // skip the async hasSecret fetch here for simplicity — the chat header
+  // is a hint surface; AccountSettingsPage remains the authoritative
+  // detailed view. We only key off the persistent `lastTestStatus`.
+  const chatConnectionAlert = useMemo<ChatHeaderAlert | undefined>(() => {
+    if (!activeConnection) return undefined;
+    if (activeConnection.lastTestStatus === 'needs_reauth') {
+      return {
+        tone: 'warning',
+        label: '需要重新登录',
+        onClick: () => openSettingsSection('account'),
+      };
+    }
+    if (activeConnection.lastTestStatus === 'error') {
+      return {
+        tone: 'destructive',
+        label: '上次连接失败',
+        onClick: () => openSettingsSection('account'),
+      };
+    }
+    return undefined;
+    // openSettingsSection is stable enough for our purposes — main.tsx
+    // doesn't depend on it changing, and including it would force the
+    // effect to re-create on every render due to its function identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConnection?.lastTestStatus]);
   const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
     id: activeId,
     name: 'New Chat',
@@ -550,6 +579,7 @@ function AppShell() {
               renderProviderMark={(type) => <ProviderLogo type={type} compact />}
               userLabel={userLabel}
               mode={navSelection.section}
+              connectionAlert={chatConnectionAlert}
               emptyOverride={needsOnboarding ? (
                 <OnboardingHero
                   onOpenSettings={() => setSettingsOpen(true)}
