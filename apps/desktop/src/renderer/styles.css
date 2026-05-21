@@ -1815,6 +1815,166 @@ button:active {
   word-break: break-word;
 }
 
+/* File diff: each line tagged with data-line for add / del / hunk / meta /
+ * ctx so we can color the unified-diff payload like GitHub / VS Code. */
+.maka-tool-diff {
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  white-space: normal;
+}
+
+.maka-tool-diff-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--foreground-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.maka-tool-diff-paths code {
+  color: var(--foreground-70);
+  background: transparent;
+}
+
+.maka-tool-diff-body {
+  margin: 0;
+  padding: 6px 0;
+  max-height: 360px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre;
+  word-break: normal;
+}
+
+.maka-tool-diff-line {
+  display: block;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.maka-tool-diff-line[data-line="add"] {
+  background: oklch(from var(--success) l c h / 0.10);
+  color: var(--success-text);
+}
+
+.maka-tool-diff-line[data-line="del"] {
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive);
+}
+
+.maka-tool-diff-line[data-line="hunk"] {
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--foreground-70);
+  font-weight: 600;
+}
+
+.maka-tool-diff-line[data-line="meta"] {
+  color: var(--foreground-50);
+}
+
+.maka-tool-diff-line[data-line="ctx"] {
+  color: var(--foreground-70);
+}
+
+/* Terminal output: head row (cwd + cmd + exit badge) then optional stdout /
+ * stderr blocks with stderr tinted destructive. */
+.maka-tool-terminal {
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  white-space: normal;
+}
+
+.maka-tool-terminal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--foreground-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.maka-tool-terminal-cwd {
+  color: var(--foreground-50);
+  background: transparent;
+}
+
+.maka-tool-terminal-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--foreground);
+  background: transparent;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maka-tool-terminal-exit {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+}
+
+.maka-tool-terminal-exit[data-ok="true"] {
+  background: oklch(from var(--success) l c h / 0.14);
+  color: var(--success);
+}
+
+.maka-tool-terminal-exit[data-ok="false"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+}
+
+.maka-tool-terminal-empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--foreground-50);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.maka-tool-terminal-stream {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-tool-terminal-stream[data-stream="stdout"] {
+  color: var(--foreground);
+}
+
+.maka-tool-terminal-stream[data-stream="stderr"] {
+  border-top: 1px solid var(--border);
+  background: oklch(from var(--destructive) l c h / 0.04);
+  color: var(--destructive);
+}
+
 .composer {
   flex: 0 0 auto;
   padding-top: 10px;
