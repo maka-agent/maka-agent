@@ -25,6 +25,7 @@ import {
   Trash2,
   Wifi,
 } from 'lucide-react';
+import { redactSecrets } from './redact.js';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -1210,9 +1211,35 @@ const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
 };
 
 function isOpenByDefault(status: ToolActivityItem['status']): boolean {
-  // Show details inline while the call is in flight or blocking the user;
-  // collapse once it has settled so completed history doesn't drown the chat.
-  return status === 'pending' || status === 'waiting_permission' || status === 'running';
+  // Show details inline while the call is in flight or blocking the user; also
+  // for errored calls so the failure is visible without an extra click. Settled
+  // success / interruption collapse so completed history doesn't drown the chat.
+  return (
+    status === 'pending' ||
+    status === 'waiting_permission' ||
+    status === 'running' ||
+    status === 'errored'
+  );
+}
+
+function extractErrorText(result: ToolActivityItem['result']): string {
+  if (!result) return '';
+  switch (result.kind) {
+    case 'text':
+      return result.text;
+    case 'json':
+      try {
+        return JSON.stringify(result.value, null, 2);
+      } catch {
+        return String(result.value);
+      }
+    case 'terminal':
+      return result.stderr || result.stdout || `exit ${result.exitCode}`;
+    case 'file_diff':
+      return result.diff;
+    default:
+      return result.kind;
+  }
 }
 
 function formatDuration(ms: number | undefined): string | null {
@@ -1233,6 +1260,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
       </header>
       {props.items.map((item) => {
         const duration = formatDuration(item.durationMs);
+        const errored = item.status === 'errored';
         return (
           <details
             key={item.toolUseId}
@@ -1249,6 +1277,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
               </span>
             </summary>
             <div className="maka-tool-body">
+              {errored && <ToolErrorBanner result={item.result} />}
               {item.intent && <p className="maka-tool-intent">{item.intent}</p>}
               {item.args !== undefined && (
                 <pre className="maka-code toolArgs">{JSON.stringify(item.args, null, 2)}</pre>
@@ -1259,6 +1288,52 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
         );
       })}
     </section>
+  );
+}
+
+function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
+  // Tool stderr / raw provider errors occasionally slip credential paths,
+  // bearer tokens, or API keys through main-side redaction. Apply a
+  // defensive UI-level mask before display *and* before clipboard copy so
+  // the user can't accidentally paste a credential into a bug report.
+  const errorText = redactSecrets(extractErrorText(props.result));
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (!errorText) return;
+    try {
+      await navigator.clipboard.writeText(errorText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <div className="maka-tool-error" role="alert">
+      <span className="maka-tool-error-icon" aria-hidden="true">
+        <AlertOctagon size={16} strokeWidth={2} />
+      </span>
+      <div className="maka-tool-error-body">
+        <strong className="maka-tool-error-title">工具调用失败</strong>
+        {errorText && (
+          <p className="maka-tool-error-text">{errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}</p>
+        )}
+      </div>
+      {errorText && (
+        <button
+          type="button"
+          className="maka-button maka-tool-error-copy"
+          data-size="sm"
+          aria-label={copied ? '已复制错误信息' : '复制错误信息'}
+          onClick={() => void copy()}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          <span>{copied ? '已复制' : '复制'}</span>
+        </button>
+      )}
+    </div>
   );
 }
 

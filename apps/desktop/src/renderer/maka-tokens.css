@@ -859,6 +859,55 @@
     font-size: 12px;
     line-height: 1.4;
   }
+
+  /* Inline failure banner shown at the top of an errored tool body so the
+   * user sees what failed without expanding the result blob. The wrapper
+   * already paints a red border via [data-status="errored"]; this banner
+   * gives the failure a heading + copy-button affordance. */
+  .maka-tool-error {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    padding: 10px 12px;
+    margin: 0 0 10px;
+    border: 1px solid oklch(from var(--destructive) l c h / 0.30);
+    border-radius: 10px;
+    background: oklch(from var(--destructive) l c h / 0.08);
+  }
+  .maka-tool-error-icon {
+    display: grid;
+    place-items: center;
+    color: var(--destructive);
+    margin-top: 1px;
+  }
+  .maka-tool-error-body {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .maka-tool-error-title {
+    color: var(--destructive);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .maka-tool-error-text {
+    margin: 0;
+    color: var(--foreground-80);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .maka-tool-error-copy {
+    align-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+  }
   .maka-tool[data-status="waiting_permission"] { border-color: oklch(from var(--info) l c h / 0.4); }
   .maka-tool[data-status="running"]            { border-color: oklch(from var(--accent) l c h / 0.4); }
   .maka-tool[data-status="completed"]          { border-color: var(--border); }
