@@ -75,11 +75,11 @@ class FileSessionStore implements SessionStore {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       try {
-        const header = await this.readHeader(entry.name);
+        const { header, messages } = await this.readFileParts(entry.name);
         if (filter?.isArchived !== undefined && header.isArchived !== filter.isArchived) continue;
         if (filter?.isFlagged !== undefined && header.isFlagged !== filter.isFlagged) continue;
         if (filter?.labelSlug && !header.labels.includes(filter.labelSlug)) continue;
-        summaries.push(toSummary(header));
+        summaries.push(toSummary(header, messages));
       } catch {
         // Ignore malformed session folders in the sidebar.
       }
@@ -216,7 +216,8 @@ function migrateHeader(header: StoredSessionHeader): SessionHeader {
   };
 }
 
-function toSummary(header: SessionHeader): SessionSummary {
+function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
+  const preview = lastMessagePreview(messages);
   return {
     id: header.id,
     name: normalizeSessionName(header.name),
@@ -225,6 +226,7 @@ function toSummary(header: SessionHeader): SessionSummary {
     labels: header.labels,
     hasUnread: header.hasUnread,
     lastMessageAt: header.lastMessageAt,
+    ...(preview ? { lastMessagePreview: preview } : {}),
     backend: header.backend,
     llmConnectionSlug: header.llmConnectionSlug,
     permissionMode: header.permissionMode,
@@ -233,6 +235,32 @@ function toSummary(header: SessionHeader): SessionSummary {
 
 function normalizeSessionName(name: string): string {
   return name === 'New Session' ? 'New Chat' : name;
+}
+
+function lastMessagePreview(messages: StoredMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.type === 'user') {
+      const text = normalizePreviewText(message.text);
+      if (text) return truncatePreview(text);
+      if (message.attachments && message.attachments.length > 0) return '附件';
+    }
+    if (message.type === 'assistant') {
+      const text = normalizePreviewText(message.text);
+      if (text) return truncatePreview(text);
+    }
+  }
+  return undefined;
+}
+
+function normalizePreviewText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function truncatePreview(text: string, maxLength = 96): string {
+  const chars = Array.from(text);
+  if (chars.length <= maxLength) return text;
+  return `${chars.slice(0, maxLength - 1).join('')}…`;
 }
 
 export function createUserMessage(input: { turnId: string; text: string; attachments?: UserMessage['attachments'] }): UserMessage {

@@ -106,6 +106,66 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(summary?.permissionMode, 'ask');
     });
   });
+
+  test('derives lastMessagePreview from visible user and assistant messages', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Preview' }));
+
+      await store.appendMessages(header.id, [
+        { type: 'system_note', id: 'sys-1', ts: 1, kind: 'mode_change', data: { from: 'ask', to: 'execute' } },
+        { type: 'tool_call', id: 'tool-1', turnId: 't1', ts: 2, toolName: 'Read', args: { file: 'secret.ts' } },
+        { type: 'assistant', id: 'a1', turnId: 't1', ts: 3, text: 'Here is the latest answer.\nIt spans lines.', modelId: 'fake' },
+      ]);
+
+      const [summary] = await store.list();
+      assert.equal(summary?.lastMessagePreview, 'Here is the latest answer. It spans lines.');
+    });
+  });
+
+  test('lastMessagePreview skips internal-only tails, preserves emoji, and falls back for attachments', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Emoji' }));
+      const longText = `hello ${'🙂'.repeat(120)} tail`;
+
+      await store.appendMessages(header.id, [
+        {
+          type: 'user',
+          id: 'u1',
+          turnId: 't1',
+          ts: 1,
+          text: longText,
+        },
+        { type: 'system_note', id: 'sys-1', turnId: 't1', ts: 2, kind: 'session_resume' },
+      ]);
+
+      const [summary] = await store.list();
+      assert.equal(summary?.lastMessagePreview?.endsWith('…'), true);
+      assert.equal(summary?.lastMessagePreview?.includes('�'), false);
+      assert.equal(summary?.lastMessagePreview?.startsWith('hello 🙂'), true);
+    });
+
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Attachment' }));
+
+      await store.appendMessage(header.id, {
+        type: 'user',
+        id: 'u1',
+        turnId: 't1',
+        ts: 1,
+        text: '   ',
+        attachments: [{
+          kind: 'image',
+          name: 'shot.png',
+          mimeType: 'image/png',
+          bytes: 10,
+          ref: { kind: 'session_file', sessionId: header.id, relativePath: 'shot.png' },
+        }],
+      });
+
+      const [summary] = await store.list();
+      assert.equal(summary?.lastMessagePreview, '附件');
+    });
+  });
 });
 
 function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionInput {

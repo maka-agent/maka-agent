@@ -62,6 +62,7 @@ export interface SessionSummary {
   labels: string[];
   hasUnread: boolean;
   lastMessageAt?: number;
+  lastMessagePreview?: string;
   backend: BackendKind;
   llmConnectionSlug: string;
   permissionMode: PermissionMode;
