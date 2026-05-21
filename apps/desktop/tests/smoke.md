@@ -466,11 +466,16 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 7. Click the **notes.md** row. Preview switches to the markdown file
    content rendered in a monospace `<pre>`.
 8. Take screenshots in light theme, dark theme, and a narrow window
-   (~900 px width) to verify layout regressions.
+   (~900 px width). At narrow width, verify ArtifactPane renders as a
+   bottom sheet below the composer instead of a right rail.
 9. Click the collapse toggle in the pane header. Pane should shrink to a
    narrow strip; reload the page (⌘R / F5). Pane should still be
    collapsed (persisted via localStorage `maka-artifact-pane-collapsed-v1`).
 10. Expand again. Verify the list still shows 3 artifacts after reload.
+11. With keyboard focus inside the artifact list or preview, press
+    `Escape`. The pane collapses and focus returns to the composer. With
+    Command Palette / modal open, pressing `Escape` closes that overlay
+    normally; ArtifactPane must not steal Esc outside its own focus subtree.
 
 **Pass signal.**
 - ArtifactPane header shows count `3` and three rows: `report.html`,
@@ -485,6 +490,11 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
   `image` / `pdf` rows do NOT (review gate #5).
 - Collapse state persists across reload via localStorage; the list still
   has 3 entries after reload.
+- Narrow width shows ArtifactPane as a bottom sheet below the composer;
+  composer textarea and Send/Stop button remain visible and usable.
+- Esc inside the ArtifactPane focus subtree collapses the pane and returns
+  focus to the composer; Esc outside the pane keeps global modal/palette
+  priority intact.
 
 **Fail signals.**
 - Blank pane despite the fixture seeding three artifacts (subscription /
@@ -498,6 +508,10 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 - `sandbox` attribute on the iframe contains any of `allow-same-origin`,
   `allow-top-navigation`, `allow-popups`, `allow-forms`, `allow-modals`.
 - `image` or `pdf` rows render a 复制 button (binary kinds must not).
+- Narrow window keeps the pane as a squeezed right rail, covers the
+  composer, or makes the Send/Stop button unreachable.
+- ArtifactPane handles Esc while focus is in Command Palette / Settings /
+  permission dialogs.
 
 ---
 

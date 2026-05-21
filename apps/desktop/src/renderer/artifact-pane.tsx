@@ -197,6 +197,11 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
     });
   }
 
+  function dismissPaneToComposer() {
+    setCollapsed(true);
+    focusComposer();
+  }
+
   function handleListKeyDown(event: KeyboardEvent<HTMLUListElement>) {
     const action = nextArtifactListAction({
       currentSelectedId: selectedId ?? undefined,
@@ -205,6 +210,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
     });
     if (action.kind === 'noop') return;
     event.preventDefault();
+    event.stopPropagation();
     switch (action.kind) {
       case 'select':
         setSelectedId(action.targetId);
@@ -216,16 +222,27 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
         requestAnimationFrame(() => previewRef.current?.focus());
         break;
       case 'dismiss':
-        focusComposer();
+        dismissPaneToComposer();
         break;
     }
+  }
+
+  function handlePaneKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Escape') return;
+    const target = event.target;
+    if (!(target instanceof Node) || !event.currentTarget.contains(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismissPaneToComposer();
   }
 
   return (
     <aside
       className="maka-artifact-pane"
       data-collapsed={collapsed ? 'true' : 'false'}
+      data-layout="responsive-bottom-sheet"
       aria-label="Artifact 预览面板"
+      onKeyDown={handlePaneKeyDown}
     >
       <header className="maka-artifact-pane-header">
         <button

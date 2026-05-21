@@ -5348,17 +5348,43 @@ button:active {
   background: oklch(from var(--destructive) l c h / 0.10);
 }
 
-/* Narrow window: keep the pane visible but slim down. The chat column has
-   priority — we shrink the artifact pane first instead of forcing the
-   composer to truncate. */
-@media (max-width: 1100px) {
-  .maka-artifact-pane {
-    width: 300px;
+/* Narrow window: ArtifactPane becomes a bottom sheet below the composer
+   instead of continuing to shrink the chat column. This keeps the send path
+   visible and usable while preserving artifact access on small windows. */
+@media (max-width: 990px) {
+  .maka-detail-with-artifacts {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
   }
-}
 
-@media (max-width: 900px) {
   .maka-artifact-pane {
-    width: 260px;
+    width: 100%;
+    min-height: 220px;
+    max-height: min(42dvh, 360px);
+    grid-template-rows: auto minmax(82px, 0.8fr) minmax(0, 1fr) auto;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -8px 24px oklch(0 0 0 / 0.08);
+  }
+
+  .maka-artifact-pane[data-collapsed="true"] {
+    width: 100%;
+    min-height: 34px;
+    max-height: 34px;
+    grid-template-rows: auto;
+  }
+
+  .maka-artifact-list {
+    max-height: none;
+    padding: 6px;
+  }
+
+  .maka-artifact-preview {
+    min-height: 120px;
+  }
+
+  .maka-artifact-toolbar {
+    max-height: 76px;
+    overflow-y: auto;
   }
 }
