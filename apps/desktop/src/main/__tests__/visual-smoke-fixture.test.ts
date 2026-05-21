@@ -35,6 +35,41 @@ describe('visual smoke fixture mode', () => {
     assert.deepEqual(fixture, {
       scenario: 'provider-workspace',
       workspaceName: 'visual-smoke-provider-workspace',
+      reducedMotion: false,
+    });
+  });
+
+  describe('reduced-motion variant (PR-IR-04)', () => {
+    it('defaults to reducedMotion: false when env var unset', () => {
+      const fixture = resolveVisualSmokeFixture('all', false);
+      assert.equal(fixture?.reducedMotion, false);
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.reducedMotion, undefined);
+    });
+
+    it('accepts "1" / "true" / "yes" as truthy', () => {
+      for (const raw of ['1', 'true', 'yes', 'TRUE', ' yes ']) {
+        const fixture = resolveVisualSmokeFixture('all', false, raw);
+        assert.equal(fixture?.reducedMotion, true, `raw=${JSON.stringify(raw)}`);
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.reducedMotion, true, `raw=${JSON.stringify(raw)}`);
+      }
+    });
+
+    it('treats unrecognized values as false (fail-closed)', () => {
+      for (const raw of ['0', 'no', 'false', '', 'maybe']) {
+        const fixture = resolveVisualSmokeFixture('all', false, raw);
+        assert.equal(fixture?.reducedMotion, false, `raw=${JSON.stringify(raw)}`);
+      }
+    });
+
+    it('reduced motion flag works across all known scenarios', () => {
+      for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
+        const fixture = resolveVisualSmokeFixture(scenario, false, '1');
+        assert.equal(fixture?.reducedMotion, true, `scenario=${scenario}`);
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.reducedMotion, true, `scenario=${scenario}`);
+      }
     });
   });
 

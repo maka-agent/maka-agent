@@ -30,11 +30,20 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
 export interface VisualSmokeFixture {
   scenario: VisualSmokeScenario;
   workspaceName: string;
+  /**
+   * PR-IR-04: when `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1` is set alongside
+   * the scenario var, the renderer collapses all animations to ~0.01ms
+   * via the `[data-maka-reduced-motion="true"]` CSS path. Lets the
+   * screenshot pipeline capture a "reduced motion" variant for every
+   * surface without depending on the host OS accessibility setting.
+   */
+  reducedMotion: boolean;
 }
 
 export function resolveVisualSmokeFixture(
   rawScenario: string | undefined,
   isPackaged: boolean,
+  rawReducedMotion: string | undefined = undefined,
 ): VisualSmokeFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
@@ -44,10 +53,18 @@ export function resolveVisualSmokeFixture(
     throw new Error(`Unknown MAKA_VISUAL_SMOKE_FIXTURE scenario: ${rawScenario}`);
   }
   const scenario = rawScenario as VisualSmokeScenario;
+  const reducedMotion = parseReducedMotionFlag(rawReducedMotion);
   return {
     scenario,
     workspaceName: `visual-smoke-${scenario}`,
+    reducedMotion,
   };
+}
+
+function parseReducedMotionFlag(raw: string | undefined): boolean {
+  if (raw === undefined) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualSmokeState | null {
@@ -55,6 +72,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
   const state: VisualSmokeState = {
     enabled: true,
     scenario: fixture.scenario,
+    ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
   };
   switch (fixture.scenario) {
     case 'first-run':

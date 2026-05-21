@@ -42,6 +42,26 @@ are repeatable and real user workspaces are not touched. `visualSmoke`
 IPC returns `null` when the env var is unset; renderer smoke-only
 streaming / permission state must never appear in normal usage.
 
+### Reduced-motion variant (PR-IR-04)
+
+Combine `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1` with any of the above to
+collapse every animation/transition to ~0.01ms regardless of the host
+OS accessibility setting. Used by the screenshot pipeline (PR-IR-01) to
+capture a "reduced motion" variant per surface.
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane \
+  MAKA_VISUAL_SMOKE_REDUCED_MOTION=1 \
+  npm --workspace @maka/desktop run dev
+```
+
+Implementation: main process passes the flag through `VisualSmokeState`;
+renderer applies `data-maka-reduced-motion="true"` to `<html>`; CSS in
+`styles.css` matches that attribute selector with the same overrides as
+the `prefers-reduced-motion: reduce` media query. Real users never reach
+this code path because `visualSmoke.getState()` returns `null` unless
+`MAKA_VISUAL_SMOKE_FIXTURE` is set.
+
 ---
 
 ## Path 1 — First launch with no real model
