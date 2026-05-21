@@ -15,12 +15,11 @@
  *   5. Review                 — `review`
  *   6. Done                   — `done`
  *   7. Archived               — `archived` (default collapsed)
- *   8. Aborted (hidden)       — `aborted` is reachable only via filter
+ *   8. Aborted                — `aborted` (default collapsed)
  *
- * `aborted` is intentionally NOT shown in the default sidebar — it's a
- * terminal lifecycle state the user already saw end. Showing it would
- * inflate sidebar density without informational value. A future
- * `navSelection.filter === 'aborted'` view can surface them on demand.
+ * `aborted` is dormant history, but still user-visible. It lives in a
+ * bottom collapsed group like `archived`, so users can recover sessions
+ * they explicitly cancelled without adding noise to the active groups.
  *
  * Within each group sessions are ordered by `lastMessageAt` desc with
  * `id.localeCompare` secondary (matching storage layer's determinism
@@ -32,7 +31,7 @@ import type { SessionStatus, SessionSummary } from '@maka/core';
 /**
  * Stable group ordering. Used by both the renderer and node:test
  * gates; do NOT reorder without updating §9.8 docs and the smoke
- * Path. `aborted` is omitted on purpose (see file-level comment).
+ * Path.
  */
 export const SESSION_STATUS_GROUP_ORDER = [
   'running',

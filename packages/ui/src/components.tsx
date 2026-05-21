@@ -620,9 +620,8 @@ function SessionListGroups(props: {
  * lifecycle status (PR109b, design-system §9.8). Hidden for `active`
  * since that's the default and would add visual noise to most rows.
  *
- * `aborted` is also hidden because aborted sessions are filtered out
- * of the sidebar entirely; if one ever leaks through, no icon is
- * better than a confusing one.
+ * `aborted` is rendered as muted history: not an error, not active,
+ * and not silently swallowed.
  *
  * Caller is expected to pass a session with a SessionStatus from
  * `@maka/core` — typed as the SessionSummary from props avoids
