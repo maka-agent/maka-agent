@@ -72,8 +72,14 @@ import { connectionTestStatusPatch } from './connection-test-status.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
+import {
+  getVisualSmokeState,
+  resolveVisualSmokeFixture,
+  seedVisualSmokeFixture,
+} from './visual-smoke-fixture.js';
 
-const workspaceRoot = join(app.getPath('userData'), 'workspaces', 'default');
+const visualSmokeFixture = resolveVisualSmokeFixture(process.env.MAKA_VISUAL_SMOKE_FIXTURE, app.isPackaged);
+const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
 const store = createSessionStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
@@ -320,6 +326,7 @@ function registerIpc(): void {
     if (error) return { ok: false, reason: 'open-failed' };
     return { ok: true, opened: resolved.key };
   });
+  ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
   ipcMain.handle('skills:list', async () => listInstalledSkills(workspaceRoot));
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
@@ -790,7 +797,12 @@ async function ensureBootstrapConnection(): Promise<void> {
 registerIpc();
 
 app.whenReady().then(async () => {
-  await ensureBootstrapConnection();
+  if (visualSmokeFixture) {
+    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
+    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
+  } else {
+    await ensureBootstrapConnection();
+  }
   const settings = await settingsStore.get();
   setActiveProxy(toContractNetworkSettings(settings.network).proxy);
   await telemetryRepo.load();

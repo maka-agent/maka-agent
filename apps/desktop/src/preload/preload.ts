@@ -22,6 +22,7 @@ import type {
   UpdateAppSettingsResult,
   UsageRange,
   UsageStats,
+  VisualSmokeState,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -186,6 +187,11 @@ contextBridge.exposeInMainWorld('maka', {
         }
     > {
       return ipcRenderer.invoke('app:openPath', key);
+    },
+  },
+  visualSmoke: {
+    getState(): Promise<VisualSmokeState | null> {
+      return ipcRenderer.invoke('visualSmoke:getState');
     },
   },
   skills: {

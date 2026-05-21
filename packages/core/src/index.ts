@@ -86,6 +86,13 @@ export type { WorkspaceConfig } from './workspace.js';
 // runtime-inputs.ts
 export type { CreateSessionInput, UserMessageInput, SessionListFilter } from './runtime-inputs.js';
 
+// visual-smoke.ts
+export type {
+  VisualSmokeLiveTool,
+  VisualSmokeScenario,
+  VisualSmokeState,
+} from './visual-smoke.js';
+
 // backend-types.ts
 export type { BackendSendInput, PermissionDecision } from './backend-types.js';
 

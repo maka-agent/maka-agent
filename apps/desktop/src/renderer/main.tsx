@@ -162,6 +162,7 @@ function AppShell() {
       applyDensity(den);
     });
     void window.maka.skills.list().then(setSkills).catch(() => setSkills([]));
+    void applyVisualSmokeFixture();
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges((event) => {
       void refreshSessions();
@@ -248,6 +249,27 @@ function AppShell() {
     const next = await window.maka.sessions.list();
     setSessions(next);
     if (!activeId && next[0] && next[0].lastMessageAt) setActiveId(next[0].id);
+  }
+
+  async function applyVisualSmokeFixture() {
+    const state = await window.maka.visualSmoke.getState();
+    if (!state) return;
+    if (state.streamingBySession) {
+      setStreamingBySession((current) => ({ ...current, ...state.streamingBySession }));
+    }
+    if (state.permissionBySession) {
+      setPermissionBySession((current) => ({ ...current, ...state.permissionBySession }));
+    }
+    if (state.liveToolsBySession) {
+      setLiveToolsBySession((current) => ({ ...current, ...state.liveToolsBySession }));
+    }
+    await refreshSessions();
+    if (state.activeSessionId) {
+      setActiveId(state.activeSessionId);
+    }
+    if (state.openSettingsSection) {
+      openSettingsSection(state.openSettingsSection);
+    }
   }
 
   // Hover-action callbacks for SessionListPanel. Each one calls the

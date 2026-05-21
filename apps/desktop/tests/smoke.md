@@ -13,11 +13,38 @@ and follow the per-path preconditions. All paths happen in a single
 launched build (`npm --workspace @maka/desktop run dev` or a packaged
 build).
 
+For deterministic visual smoke, launch a dev build with an isolated
+fixture workspace:
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=all npm --workspace @maka/desktop run dev
+```
+
+Single-scenario launches are also supported:
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=first-run npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=provider-workspace npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=fallback-source npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=fetched-empty npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=connection-error npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=turn-narrative npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=streaming-sidebar npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=permission-destructive npm --workspace @maka/desktop run dev
+```
+
+Fixture mode is dev/test-only and refuses packaged builds. It seeds
+`workspaces/visual-smoke-*` from scratch on every launch, so screenshots
+are repeatable and real user workspaces are not touched. `visualSmoke`
+IPC returns `null` when the env var is unset; renderer smoke-only
+streaming / permission state must never appear in normal usage.
+
 ---
 
 ## Path 1 — First launch with no real model
 
 **Precondition.** Clean install, no enabled LlmConnection in settings.
+Fixture scenario: `first-run`.
 
 **Steps.**
 1. Launch Maka.
@@ -69,6 +96,7 @@ build).
 
 **Precondition.** A previously verified connection. The session you
 open uses this connection.
+Fixture scenario for the chat header state: `connection-error`.
 
 **Steps.**
 1. Settings · 模型 → pick the connection → corrupt the API key
@@ -141,6 +169,7 @@ the model picked.
 
 **Precondition.** A connection that lets the model invoke tools (e.g.
 default agent setup). User is in **Ask** permission mode.
+Fixture scenario: `permission-destructive`.
 
 **Important — do not actually run the destructive command.** The goal is
 to verify the *dialog presentation*, not to delete real files. Either:
@@ -185,6 +214,8 @@ to verify the *dialog presentation*, not to delete real files. Either:
 **Precondition.** A verified Z.ai or OpenAI-protocol connection with
 >6 models available. Settings open on 模型 → click into that
 connection.
+Fixture scenarios: `provider-workspace`, `fallback-source`, and
+`fetched-empty`.
 
 **Steps.**
 1. Verify the source line under the model count reads
@@ -225,6 +256,7 @@ connection.
 
 **Precondition.** Any verified connection. Active session with a
 multi-step exchange (user message → tool call → assistant final).
+Fixture scenario: `turn-narrative`.
 
 **Steps.**
 1. Ask: *"读一下 README.md 并总结"* (or any prompt that triggers a
@@ -258,6 +290,7 @@ multi-step exchange (user message → tool call → assistant final).
 ## Path 8 — Sidebar streaming + multi-session indicator (PR85)
 
 **Precondition.** At least two sessions exist. Open one of them.
+Fixture scenario: `streaming-sidebar`.
 
 **Steps.**
 1. Send a prompt in session A; let it start streaming.
@@ -287,6 +320,7 @@ multi-step exchange (user message → tool call → assistant final).
 
 **Precondition.** Maka running with at least one verified connection
 and an active chat session with several turns.
+Fixture scenario: `all`.
 
 **Steps.**
 1. Press ⌘K. Scan groups: 操作 / 主题 / 设置 / 诊断 / 连接 / 会话.

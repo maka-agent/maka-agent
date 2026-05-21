@@ -21,6 +21,7 @@ import type {
   UpdateAppSettingsResult,
   UsageRange,
   UsageStats,
+  VisualSmokeState,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -108,6 +109,9 @@ declare global {
                 | 'open-failed';
             }
         >;
+      };
+      visualSmoke: {
+        getState(): Promise<VisualSmokeState | null>;
       };
       skills: {
         list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>>;
