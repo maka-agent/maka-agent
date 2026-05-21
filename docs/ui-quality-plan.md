@@ -198,7 +198,7 @@ Rows are **all UI surfaces** in Maka. Columns are §1 gates 1–12.
 | Toast | ✅ | ⚙️ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Keyboard help modal | ✅ | n/a | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Error boundary | ✅ | n/a | ✅ | ❌ | ⚙️ | ❌ | ❌ | ✅ | ⚙️ | ✅ | ✅ | ✅ |
-| Artifact pane | ✅ | ⚙️ | ✅ | ✅ | ✅ | ⚙️ | ⚙️ | ✅ | ⚙️ | ✅ | ✅ | ✅ |
+| Artifact pane | ✅ | ⚙️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Pending (month-1)** |   |   |   |   |   |   |   |   |   |   |   |   |
 | Quick Chat (§9.7) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Workstation shell (§9.8) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -244,13 +244,38 @@ screen. Screenshots provide a regression baseline.
 
 ### PR-IR-02 — Screenshot diff CI gate
 
-**What.** Compare new screenshots from PR branch vs `main` baselines.
-Diff > N px or > X% area → CI fail. Reviewer can update baseline by
-deleting the old PNG.
+**Status (2026-05-22)**: Stage 1 live as `scripts/diff-screenshots.mjs`,
+committed baseline `apps/desktop/tests/screenshots-baseline/` covers 3
+stable scenarios × 8 variants = 24 PNGs (`artifact-pane` / `first-run`
+/ `artifact-errors`). `npm --workspace @maka/desktop run
+screenshots:diff:stable` exits 1 on hard failures (missing PNG /
+corrupt PNG / file < 1 KB / wrong dimensions); size drift is a soft
+warning.
 
-**Why.** Catch unintended visual regressions before merge.
+**Scope of the current gate (what it DOES catch)**:
+- Capture pipeline regression (renderer crashes before paint, IPC
+  contract broken, fixture seed throws)
+- Viewport misconfiguration (`MAKA_VISUAL_SMOKE_WIDTH/HEIGHT` not
+  honored in main.ts)
+- Truncated / empty PNGs (renderer paint settled before capture flush)
+- Schema drift (manifest format / variants list out of sync between
+  driver and gate)
 
-**Owner.** @yuejing.
+**What it does NOT catch (yet)**:
+- Pixel-level UI regressions inside the captured image. Electron + font
+  rasterization drift makes byte-level SHA256 useless as a blocker
+  (~70/88 PNGs change between runs even with @xuan's PR108k fixture
+  clock + Date.now freeze).
+- Layout shifts within the same viewport (need pixelmatch + ignored
+  dynamic regions).
+- Color / contrast regressions.
+
+**PR-IR-02 v3 (future)**: introduce `pixelmatch` + `pngjs` with
+tolerance + ignored regions. Pilot on stable subset
+(artifact-pane / first-run / artifact-errors) before expanding to all
+18 scenarios. Configure per-scenario tolerance based on observed drift.
+
+**Owner.** @yuejing. Baseline rollout coordinated with @xuan.
 
 ### PR-IR-03 — A11y assertion library
 
