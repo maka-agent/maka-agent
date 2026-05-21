@@ -1017,9 +1017,24 @@ attribute + 内容传递方式）：
    隔离（如外部 site 渲染），单独引入 `<webview>` 或 BrowserView + 独立
    partition 才能正确表述这条；目前 contract 不预先承诺。
 
-4. **导航拦截**：sandbox 已经禁了 top-navigation/popups，但任何在 iframe 内
-   `<a href>` 的点击仍走主 renderer 的 PR96 `setWindowOpenHandler` 路径 →
-   `shell.openExternal`。**永不**在 iframe 内导航替换内容。
+4. **外链 v1 = 完全禁用**（@kenji 2026-05-22 review #6 — corrects earlier
+   draft）：在没有 `allow-popups` 的 sandbox 里，iframe 内的 `<a href>` 点击
+   **不会**自动冒泡到主 renderer 的 `setWindowOpenHandler`；它们只是静默失
+   败或被 sandbox block。承诺 "PR96 接管 iframe 外链" 是文档错误。
+
+   PR108b 的 MVP 选择**安全优先**：
+   - iframe 内所有 navigation 一律被 sandbox 阻断（这是 default 行为）
+   - preview 顶部显示一行状态条："此预览中已禁用外部链接 · {N} 个链接"
+     （扫描 srcdoc 中 `<a href>` 个数，info 色）
+   - 用户想跳：在 toolbar 用「在 Finder 中打开」找到 HTML 源文件，浏览器
+     打开
+
+   未来扩展（**不**进 PR108b）：
+   - **HTML transform**：main 读取 HTML 时把 `<a href>` 改写为
+     `<button data-maka-link="..." />` + 注入 inline script 经 `postMessage`
+     向主 renderer 发外链请求；主 renderer 经 allowlist + `shell.openExternal`
+   - 或者：让 iframe 内 JS 通过 postMessage 与主 renderer 交互，主 renderer
+     作为唯一的 `shell.openExternal` 网关
 
 5. **CSP global 不动**：渲染端的全局 `Content-Security-Policy` 保留
    `default-src 'self'; script-src 'self'`；artifact iframe 的安全完全靠
