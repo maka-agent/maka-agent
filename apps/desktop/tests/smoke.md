@@ -725,40 +725,96 @@ badge ("进行中") is visible in the screenshot alongside the sidebar.
 
 ---
 
-## Path 15 — Turn control contract API (§9.9, PR109c)
+## Path 15 — Turn control contract API + UI (§9.9, PR109c / PR109d / PR109e / PR109f)
 
-**Scope.** PR109c is contract/runtime only. It does not add footer
-buttons yet; PR109d will add UI smoke coverage after consuming the
-IPC surface.
+**Scope.** PR109c shipped the contract/runtime; PR109d–f layer the
+UI on top: turn footer actions, aborted marker, failed banner,
+forward + reverse lineage badges, branched-session banner.
 
-**Automated coverage now.**
-- `TurnStatus = running / completed / aborted / failed` locked in
-  `@maka/core`.
-- Storage projects `TurnRecord[]` from JSONL `turn_state` messages and
-  legacy message-only turns.
-- Runtime tests cover:
-  - completed turn writes `completed`,
-  - backend error writes `failed` + `errorClass`,
-  - cancel/abort writes `aborted` and preserves partial output,
-  - retry creates a new sibling turn with `retriedFromTurnId`,
-  - regenerate creates a new sibling turn with `regeneratedFromTurnId`,
-  - branch creates a new session with `parentSessionId` +
-    `branchOfTurnId` and copies messages only to the selected boundary.
-- Desktop exposes:
-  - `sessions:listTurns`
-  - `sessions:retryTurn`
-  - `sessions:regenerateTurn`
-  - `sessions:branchFromTurn`
+**Fixture.** `turn-control-history` state family — three scenarios
+sharing one on-disk seed and differing only in active session:
 
-**Manual smoke after PR109d.**
-Use a future `turn-control-affordances` fixture and verify footer
-actions call the IPC handlers without optimistic status writes.
+| Scenario                          | Active session                        | What it verifies                                          |
+| --------------------------------- | ------------------------------------- | --------------------------------------------------------- |
+| `turn-control-history`            | `…-primary`                           | lineage badges, aborted marker, failed banner             |
+| `turn-control-branch-visible`     | `…-branch-visible`                    | branch banner copy `分自 ${primaryName}` renders          |
+| `turn-control-branch-orphan`      | `…-branch-orphan`                     | branch banner is ABSENT (parent missing from list)        |
 
-**Pass signals.**
+The three variants are the same state family — only the active session
+flips. The orphan branch's `parentSessionId` points to a session id
+that is intentionally **not** seeded on disk, so the renderer's
+`deriveBranchBanner()` resolves the parent as missing.
+
+**Run.**
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=turn-control-history MAKA_VISUAL_SMOKE_THEME=light \
+  MAKA_VISUAL_SMOKE_AUTO_CAPTURE=primary-light-1280 npm run dev
+```
+
+Repeat with `turn-control-branch-visible` and `turn-control-branch-orphan`.
+
+**Path 15 acceptance matrix (6 observable signals).**
+
+- **S1 — failed banner copy.** The `turn-failed` row in the primary
+  session renders a destructive banner with the Chinese generalized
+  phrase for `errorClass='timeout'` ("请求超时"). The raw enum
+  identifier (`timeout`) MUST NOT appear in the rendered DOM.
+  Sub-string check on screenshot DOM:
+  `not contains(/(timeout|auth|rate_limit|network|provider_unavailable|tool_failed|permission_required|unknown)/i)`.
+- **S2 — aborted turn marker.** The `turn-aborted` row shows a muted
+  inline marker "(已中断)" beside the assistant text; partial output is
+  preserved (the user can still read what was generated before abort).
+- **S3 — lineage badges scroll.**
+  - *Forward (descendant top):* on `turn-retry-new` the badge reads
+    "重试自 turn turn-ret" and clicking it scrolls `turn-retry-origin`
+    into the center of the viewport.
+  - *Reverse (origin footer):* on `turn-retry-origin` the badge reads
+    "已重试 → turn turn-ret" and clicking it scrolls `turn-retry-new`
+    into the center of the viewport.
+  - The same pair exists for regenerate (`turn-regen-origin` ↔
+    `turn-regen-new`) with "重新生成自" / "已重新生成 →".
+- **S4 — branch banner positive vs negative.**
+  - In `turn-control-branch-visible`, the chat header shows
+    `分自 ${primary.name}`. The banner is a clickable button that
+    navigates to the primary session.
+  - In `turn-control-branch-orphan`, NO banner appears in the chat
+    header — and there is no disabled/dead button placeholder either.
+    DOM check: `.maka-session-branch-banner` must not exist.
+- **S5 — visual-smoke collapses smooth scroll.** Lineage badge clicks
+  in any of the three variants use `scrollIntoView({ behavior: 'auto' })`
+  because the fixture sets `data-maka-visual-smoke="true"` on `<html>`.
+  Verified by `scroll-motion-policy.test.ts` (visual-smoke alone is
+  sufficient — the reduced-motion attribute is not required).
+- **S6 — no raw enum leak.** Across all three variants, the rendered
+  DOM contains no occurrence of `timeout`, `auth`, `rate_limit`,
+  `network`, `provider_unavailable`, `tool_failed`, `permission_required`,
+  `unknown` as standalone tokens (regex word boundary). The same gate
+  applies to `SessionBlockedReason` (`NO_REAL_CONNECTION` etc.).
+
+**Automated coverage backing the matrix.**
+
+- Helper tests:
+  - `session-status-presentation.test.ts` — S1, S6 (Chinese-only,
+    no raw enum)
+  - `turn-footer-actions.test.ts` — footer matrix per TurnStatus
+  - `branch-banner.test.ts` — S4 (missing parent → undefined)
+  - `scroll-motion-policy.test.ts` — S5 (visual-smoke alone → `auto`)
+  - `turn-control-matrix.test.ts` — cross-cutting matrix gate
+- Fixture seed tests in `visual-smoke-fixture.test.ts`:
+  - All three scenarios seed the same three sessions
+  - Primary session log carries the expected `turn_state` records
+    (retry, regenerate, aborted, failed with `errorClass='timeout'`)
+  - The orphan parent is **never** written to disk
+
+**Original PR109c contract gates (still apply).**
 - Old turns are immutable after retry/regenerate; no old assistant
   output is overwritten.
 - Branch from an aborted turn is allowed; the child session copies to
-  the interrupted turn boundary and can show "从中断前分支".
+  the interrupted turn boundary. Current UI surfaces "从中断前" only in
+  the branch action tooltip (PR109d); the session banner stays at
+  "分自 ${parentName}" until parent-turn preloading lands so it never
+  claims an aborted boundary without proof.
 - `SessionChangedReason` includes `turn-status-change` so renderer
   reloads turn metadata without pretending this is a session lifecycle
   status change.

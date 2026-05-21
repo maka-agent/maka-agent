@@ -76,6 +76,14 @@ const ALL_SCENARIOS = [
   'settings-theme',
   'settings-coming-soon',
   'workstation-statuses',
+  // PR109f (g): turn-control-history state family. Three scenarios
+  // share one on-disk seed and only differ in active session, so
+  // capture produces three deterministic screenshots covering primary
+  // (lineage / aborted / failed), visible-parent branch (banner), and
+  // orphan branch (no banner). See smoke.md Path 15.
+  'turn-control-history',
+  'turn-control-branch-visible',
+  'turn-control-branch-orphan',
 ];
 
 const VARIANTS = [

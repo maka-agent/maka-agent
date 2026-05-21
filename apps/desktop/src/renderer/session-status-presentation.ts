@@ -96,3 +96,33 @@ export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: Se
   if (status !== 'blocked') return presentation.label;
   return `${presentation.label} · ${describeBlockedReason(blockedReason)}`;
 }
+
+/**
+ * Generalized Chinese phrasing for a failed turn's `errorClass`
+ * (PR109e-d, design-system §9.9). Mirrors `describeBlockedReason()`
+ * pattern from PR109b — UI must never display the raw enum identifier.
+ *
+ * Recognized classes are written by the runtime via `classifyError()`,
+ * `classifyHttpStatus()`, and `event.reason` / `event.code`. The set is
+ * open-ended (any string the runtime emits is possible), so we map a
+ * known prefix-list and fall back to "未知错误" for anything else.
+ *
+ * Importantly, this helper accepts strings — not a typed enum — so
+ * future runtime additions (e.g. a new tool failure class) don't break
+ * the UI; they just fall through to the catch-all until the mapping
+ * is extended.
+ */
+export function describeTurnErrorClass(errorClass: string | undefined): string {
+  if (!errorClass) return '未知错误';
+  const lower = errorClass.toLowerCase();
+  if (lower === 'timeout' || lower.includes('timeout')) return '请求超时';
+  if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') return '鉴权失败';
+  if (lower === 'rate_limit' || lower.includes('rate')) return '触发模型速率限制';
+  if (lower === 'network' || lower.includes('network') || lower.includes('fetch') || lower.includes('econn')) {
+    return '网络错误';
+  }
+  if (lower === 'provider_unavailable' || /\b5\d\d\b/.test(lower)) return '模型服务暂不可用';
+  if (lower === 'tool_failed' || lower.includes('tool')) return '工具调用失败';
+  if (lower === 'permission_required' || lower.includes('permission')) return '等待权限确认';
+  return '未知错误';
+}

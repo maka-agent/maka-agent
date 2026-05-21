@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import { SESSION_BLOCKED_REASONS, SESSION_STATUSES } from '@maka/core';
 import {
   describeBlockedReason,
+  describeTurnErrorClass,
   presentSessionStatus,
   sessionStatusAriaLabel,
 } from '../../renderer/session-status-presentation.js';
@@ -118,5 +119,59 @@ describe('sessionStatusAriaLabel', () => {
     const text = sessionStatusAriaLabel('blocked');
     assert.match(text, /已阻塞/);
     assert.match(text, /未知阻塞/);
+  });
+});
+
+describe('describeTurnErrorClass (PR109e-d @kenji gate #3)', () => {
+  it('returns Chinese label for known timeout class', () => {
+    assert.match(describeTurnErrorClass('timeout'), /超时/);
+  });
+
+  it('returns Chinese label for known auth / 401 / 403 classes', () => {
+    for (const cls of ['auth', '401', '403']) {
+      assert.match(describeTurnErrorClass(cls), /鉴权/, `${cls} should map to 鉴权失败`);
+    }
+  });
+
+  it('returns Chinese label for rate_limit / rate_exceeded', () => {
+    for (const cls of ['rate_limit', 'rate_exceeded']) {
+      assert.match(describeTurnErrorClass(cls), /速率/, `${cls} should map to rate-limit phrasing`);
+    }
+  });
+
+  it('returns Chinese label for network / fetch / econn classes', () => {
+    for (const cls of ['network', 'fetch_failed', 'econnrefused']) {
+      assert.match(describeTurnErrorClass(cls), /网络/, `${cls} should map to network error`);
+    }
+  });
+
+  it('returns Chinese label for provider_unavailable / 5xx codes', () => {
+    for (const cls of ['provider_unavailable', '500', '503']) {
+      assert.match(describeTurnErrorClass(cls), /服务|不可用/, `${cls} should map to provider unavailable`);
+    }
+  });
+
+  it('returns Chinese label for tool_failed', () => {
+    assert.match(describeTurnErrorClass('tool_failed'), /工具/);
+  });
+
+  it('falls back to "未知错误" for unrecognized classes', () => {
+    for (const cls of [undefined, 'xyz', 'something_new', '']) {
+      assert.match(describeTurnErrorClass(cls), /未知/, `${JSON.stringify(cls)} should fall back to 未知错误`);
+    }
+  });
+
+  it('NEVER returns the raw enum identifier verbatim (Chinese-only)', () => {
+    // Per @kenji review: UI must not display the raw `errorClass`.
+    for (const cls of ['timeout', 'auth', 'rate_limit', 'network', 'tool_failed', 'provider_unavailable']) {
+      const text = describeTurnErrorClass(cls);
+      assert.match(text, /[一-鿿]/, `${cls} should produce Chinese text`);
+      assert.doesNotMatch(text, new RegExp(`\\b${cls}\\b`), `${cls} copy "${text}" leaks enum identifier`);
+    }
+  });
+
+  it('is case-insensitive', () => {
+    assert.equal(describeTurnErrorClass('TIMEOUT'), describeTurnErrorClass('timeout'));
+    assert.equal(describeTurnErrorClass('Network'), describeTurnErrorClass('network'));
   });
 });
