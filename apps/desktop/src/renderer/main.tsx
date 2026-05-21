@@ -27,6 +27,7 @@ import {
   type SkillEntry,
   ToastProvider,
   type TurnFooterActionMeta,
+  type TurnLineageBadge,
   useToast,
   type ToolActivityItem,
 } from '@maka/ui';
@@ -40,8 +41,14 @@ import { ArtifactPane } from './artifact-pane';
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
-import { presentSessionStatus, sessionStatusAriaLabel } from './session-status-presentation';
+import {
+  describeTurnErrorClass,
+  presentSessionStatus,
+  sessionStatusAriaLabel,
+} from './session-status-presentation';
 import { deriveTurnFooterActions } from './turn-footer-actions';
+import { readScrollMotionBehavior } from './scroll-motion-policy';
+import { deriveBranchBanner } from './branch-banner';
 import { applyDensity, applyTheme } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
@@ -202,31 +209,116 @@ function AppShell() {
     }
   }
 
-  const turnFooterActionsByTurn = useMemo(() => {
+  // PR109e: per-turn auxiliary view-model. Combines:
+  //  - footer actions (PR109d) — status + lineage + pending
+  //  - failed reason label (PR109e-d) — errorClass → Chinese via
+  //    describeTurnErrorClass, NEVER exposes raw enum
+  //  - lineage badges (PR109e-e) — forward "重试自 turn X" on the new
+  //    turn + reverse "已重试 → turn Y" on the origin, derived from
+  //    deriveTurnLineageMap (which already exists in @maka/ui).
+  const {
+    turnFooterActionsByTurn,
+    turnFailedReasonLabels,
+    turnLineageBadgesByTurn,
+  } = useMemo(() => {
     const turnsForLineage = materializeTurns(messages, liveTools);
     const lineage = deriveTurnLineageMap(turnsForLineage);
-    const byTurn: Record<string, ReadonlyArray<TurnFooterActionMeta>> = {};
+    const turnsById = new Map(turnsForLineage.map((t) => [t.turnId, t]));
+    const shortId = (turnId: string) => turnId.slice(0, 6);
+    const footer: Record<string, ReadonlyArray<TurnFooterActionMeta>> = {};
+    const failedLabels: Record<string, string> = {};
+    const badges: Record<string, TurnLineageBadge[]> = {};
     for (const turn of turnsForLineage) {
       const lineageEntry = lineage.get(turn.turnId);
-      // Compute pending per-turn from the global set (cheap; per turn
-      // has at most 4 possible action keys).
       const pendingForTurn = new Set<TurnFooterActionMeta['id']>();
       for (const id of ['retry', 'regenerate', 'branch', 'copy'] as const) {
         if (activeId && pendingTurnActions.has(pendingKeyOf(activeId, turn.turnId, id))) {
           pendingForTurn.add(id);
         }
       }
-      const actions = deriveTurnFooterActions({
+      footer[turn.turnId] = deriveTurnFooterActions({
         status: turn.status,
         hasContent: Boolean(turn.assistant?.text && turn.assistant.text.trim().length > 0),
         ...(lineageEntry?.retriedToTurnId ? { alreadyRetried: true } : {}),
         ...(lineageEntry?.regeneratedToTurnId ? { alreadyRegenerated: true } : {}),
         ...(pendingForTurn.size > 0 ? { pendingActions: pendingForTurn } : {}),
       });
-      byTurn[turn.turnId] = actions;
+      if (turn.status === 'failed') {
+        failedLabels[turn.turnId] = describeTurnErrorClass(turn.errorClass);
+      }
+      const turnBadges: TurnLineageBadge[] = [];
+      // Forward badges — pointing back at the origin
+      if (turn.retriedFromTurnId && turnsById.has(turn.retriedFromTurnId)) {
+        turnBadges.push({
+          id: `forward-retry-${turn.turnId}`,
+          label: `重试自 turn ${shortId(turn.retriedFromTurnId)}`,
+          tooltip: `这是对上一轮回答的重试`,
+          targetTurnId: turn.retriedFromTurnId,
+          direction: 'forward',
+        });
+      }
+      if (turn.regeneratedFromTurnId && turnsById.has(turn.regeneratedFromTurnId)) {
+        turnBadges.push({
+          id: `forward-regen-${turn.turnId}`,
+          label: `重新生成自 turn ${shortId(turn.regeneratedFromTurnId)}`,
+          tooltip: `保留旧回答，重新生成的并行回答`,
+          targetTurnId: turn.regeneratedFromTurnId,
+          direction: 'forward',
+        });
+      }
+      // Reverse badges — pointing at descendants (derived map)
+      if (lineageEntry?.retriedToTurnId && turnsById.has(lineageEntry.retriedToTurnId)) {
+        turnBadges.push({
+          id: `reverse-retry-${turn.turnId}`,
+          label: `已重试 → turn ${shortId(lineageEntry.retriedToTurnId)}`,
+          tooltip: `跳转到对此回答的重试`,
+          targetTurnId: lineageEntry.retriedToTurnId,
+          direction: 'reverse',
+        });
+      }
+      if (lineageEntry?.regeneratedToTurnId && turnsById.has(lineageEntry.regeneratedToTurnId)) {
+        turnBadges.push({
+          id: `reverse-regen-${turn.turnId}`,
+          label: `已重新生成 → turn ${shortId(lineageEntry.regeneratedToTurnId)}`,
+          tooltip: `跳转到对此回答的重新生成`,
+          targetTurnId: lineageEntry.regeneratedToTurnId,
+          direction: 'reverse',
+        });
+      }
+      if (turnBadges.length > 0) badges[turn.turnId] = turnBadges;
     }
-    return byTurn;
+    return {
+      turnFooterActionsByTurn: footer,
+      turnFailedReasonLabels: failedLabels,
+      turnLineageBadgesByTurn: badges,
+    };
   }, [activeId, messages, liveTools, pendingTurnActions]);
+
+  // PR109e-e: click handler for lineage badge → scroll target turn into
+  // view. Avoids pulling a separate ref-tracker: relies on the
+  // `data-turn-id` attribute the renderer already sets on each TurnView.
+  //
+  // @kenji PR109e review + @xuan PR109f follow-up: scrollIntoView with
+  // `behavior: 'smooth'` must respect both reduced-motion AND the
+  // visual-smoke capture entry (PR-IR-02). @xuan confirmed on main that
+  // visual-smoke always writes `data-maka-visual-smoke="true"` but
+  // `data-maka-reduced-motion="true"` is only set on the reduced
+  // variant — so the visual-smoke attribute is the broader signal for
+  // "deterministic capture, no animations". Three triggers collapse to
+  // `auto`:
+  //   1. `data-maka-reduced-motion="true"` — PR-IR-04 reduced variant
+  //   2. `data-maka-visual-smoke="true"` — PR-IR-02 any capture
+  //   3. `prefers-reduced-motion: reduce` — OS-level user preference
+  function handleLineageBadgeClick(targetTurnId: string): void {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-turn-id="${CSS.escape(targetTurnId)}"]`);
+      if (!el || !('scrollIntoView' in el)) return;
+      (el as HTMLElement).scrollIntoView({
+        behavior: readScrollMotionBehavior(),
+        block: 'center',
+      });
+    });
+  }
 
   async function handleTurnFooterAction(
     turnId: string,
@@ -282,6 +374,30 @@ function AppShell() {
       tooltip,
     };
   }, [activeSession?.id, activeSession?.status, activeSession?.blockedReason]);
+
+  // PR109f: branched session banner. When the active session was
+  // created via `sessions:branchFromTurn`, its `parentSessionId` is
+  // set; render a banner above the chat surface so the user knows
+  // they're in a derived conversation and can jump back to the parent.
+  //
+  // `fromAbortedTurn` is heuristic: if the parent session is visible
+  // in our session list, we look up the source turn in its loaded
+  // messages and check `status === 'aborted'`. If we don't have those
+  // messages loaded (we only load the active session's messages), we
+  // fall back to no hint — better to under-explain than mislabel.
+  // v1: omit the fromAbortedTurn hint because checking it requires
+  // loading the parent's full message log. The session-status banner
+  // in §9.9 already covers "this branch may be from an abort" via the
+  // footer-tooltip path in PR109d. When parent-message preloading
+  // lands, pass the resolved aborted-turn flag as the third arg.
+  const branchBanner = useMemo(
+    () => deriveBranchBanner(activeSession, sessions),
+    [activeSession?.parentSessionId, sessions],
+  );
+
+  function handleBranchBannerClick(parentSessionId: string): void {
+    setActiveId(parentSessionId);
+  }
 
   const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
     id: activeId,
@@ -886,6 +1002,11 @@ function AppShell() {
                 sessionStatusBadge={chatSessionStatusBadge}
                 turnFooterActionsByTurn={turnFooterActionsByTurn}
                 onTurnFooterAction={handleTurnFooterAction}
+                turnFailedReasonLabels={turnFailedReasonLabels}
+                turnLineageBadgesByTurn={turnLineageBadgesByTurn}
+                onLineageBadgeClick={handleLineageBadgeClick}
+                branchBanner={branchBanner}
+                onBranchBannerClick={handleBranchBannerClick}
                 emptyOverride={needsOnboarding ? (
                   <OnboardingHero
                     onOpenSettings={() => setSettingsOpen(true)}

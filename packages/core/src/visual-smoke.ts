@@ -21,7 +21,19 @@ export type VisualSmokeScenario =
   | 'settings-about'
   | 'settings-theme'
   | 'settings-coming-soon'
-  | 'workstation-statuses';
+  | 'workstation-statuses'
+  // PR109f (g): turn-control-history — seeds a primary session whose
+  // turn list covers retried / regenerated / aborted / failed and two
+  // branch sessions (one with visible parent showing the banner, one
+  // with a missing parent that must NOT render a banner). The three
+  // scenarios below share the same on-disk seed; they only differ in
+  // which session is the active one so auto-capture produces three
+  // deterministic screenshots covering both positive and negative
+  // banner cases without requiring manual clicks. Smoke Path 15 reads
+  // these fixtures.
+  | 'turn-control-history'
+  | 'turn-control-branch-visible'
+  | 'turn-control-branch-orphan';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;

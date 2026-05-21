@@ -369,6 +369,156 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  describe('turn-control-history seed (PR109f g, smoke Path 15)', () => {
+    it('seeds primary + visible-parent branch + orphan branch sharing one on-disk state', async () => {
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-turn-control-'));
+      try {
+        const fixture = resolveVisualSmokeFixture('turn-control-history', false);
+        assert.ok(fixture);
+        await seedVisualSmokeFixture({
+          workspaceRoot,
+          fixture,
+          credentialStore: fakeCredentialStore(),
+          now: 1_700_000_000_000,
+        });
+
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.activeSessionId, 'visual-smoke-turn-control-primary');
+
+        const primary = await readSessionHeader(workspaceRoot, 'visual-smoke-turn-control-primary');
+        assert.equal(primary.parentSessionId, undefined, 'primary has no parent');
+
+        const visible = await readSessionHeader(workspaceRoot, 'visual-smoke-turn-control-branch-visible');
+        assert.equal(
+          visible.parentSessionId,
+          'visual-smoke-turn-control-primary',
+          'visible branch points to seeded primary',
+        );
+        assert.equal(visible.branchOfTurnId, 'turn-retry-origin');
+
+        const orphan = await readSessionHeader(workspaceRoot, 'visual-smoke-turn-control-branch-orphan');
+        assert.equal(
+          orphan.parentSessionId,
+          'visual-smoke-turn-control-deleted-parent',
+          'orphan branch points to NON-existent parent',
+        );
+
+        // Negative case: the orphan parent must NOT be written to disk.
+        await assert.rejects(
+          readFile(
+            join(workspaceRoot, 'sessions', 'visual-smoke-turn-control-deleted-parent', 'session.jsonl'),
+            'utf8',
+          ),
+          /ENOENT/,
+        );
+      } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('primary session log covers retry / regenerate / aborted / failed turns with TurnState messages', async () => {
+      const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-turn-control-turns-'));
+      try {
+        const fixture = resolveVisualSmokeFixture('turn-control-history', false);
+        assert.ok(fixture);
+        await seedVisualSmokeFixture({
+          workspaceRoot,
+          fixture,
+          credentialStore: fakeCredentialStore(),
+          now: 1_700_000_000_000,
+        });
+
+        const messages = await readSessionMessages(workspaceRoot, 'visual-smoke-turn-control-primary');
+        const turnStates = messages.filter((m) => (m as { type?: string }).type === 'turn_state') as Array<{
+          turnId: string;
+          status: string;
+          retriedFromTurnId?: string;
+          regeneratedFromTurnId?: string;
+          errorClass?: string;
+          abortedAt?: number;
+        }>;
+
+        const byTurn = new Map(turnStates.map((s) => [s.turnId, s]));
+        assert.equal(byTurn.get('turn-baseline')?.status, 'completed');
+        assert.equal(byTurn.get('turn-aborted')?.status, 'aborted');
+        assert.ok(byTurn.get('turn-aborted')?.abortedAt, 'aborted turn carries abortedAt timestamp');
+        assert.equal(byTurn.get('turn-retry-origin')?.status, 'completed');
+        // Forward lineage (retry-new is descendant of retry-origin)
+        assert.equal(
+          byTurn.get('turn-retry-new')?.retriedFromTurnId,
+          'turn-retry-origin',
+          'retry-new lineage points back to origin (drives forward badge)',
+        );
+        // Regenerate lineage
+        assert.equal(byTurn.get('turn-regen-new')?.regeneratedFromTurnId, 'turn-regen-origin');
+        // Failed turn carries an errorClass that maps to "请求超时" via
+        // describeTurnErrorClass — locks the "no raw enum leak" gate
+        // even at the seed level.
+        assert.equal(byTurn.get('turn-failed')?.status, 'failed');
+        assert.equal(byTurn.get('turn-failed')?.errorClass, 'timeout');
+      } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('turn-control-branch-visible scenario flips active session to the visible-parent branch', () => {
+      const fixture = resolveVisualSmokeFixture('turn-control-branch-visible', false);
+      assert.ok(fixture);
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.activeSessionId, 'visual-smoke-turn-control-branch-visible');
+    });
+
+    it('turn-control-branch-orphan scenario flips active session to the orphan branch', () => {
+      const fixture = resolveVisualSmokeFixture('turn-control-branch-orphan', false);
+      assert.ok(fixture);
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.activeSessionId, 'visual-smoke-turn-control-branch-orphan');
+    });
+
+    it('all three turn-control-* scenarios write the same on-disk session set', async () => {
+      // Locks the @kenji review note: the three scenarios are a single
+      // state family that only differs in active-session selection. A
+      // future change that diverges their on-disk seed must update
+      // both this gate and the documentation in smoke.md Path 15.
+      const expected = new Set([
+        'visual-smoke-turn-control-primary',
+        'visual-smoke-turn-control-branch-visible',
+        'visual-smoke-turn-control-branch-orphan',
+      ]);
+
+      for (const scenario of ['turn-control-history', 'turn-control-branch-visible', 'turn-control-branch-orphan'] as const) {
+        const workspaceRoot = await mkdtemp(join(tmpdir(), `maka-visual-smoke-tc-${scenario}-`));
+        try {
+          const fixture = resolveVisualSmokeFixture(scenario, false);
+          assert.ok(fixture);
+          await seedVisualSmokeFixture({
+            workspaceRoot,
+            fixture,
+            credentialStore: fakeCredentialStore(),
+            now: 1_700_000_000_000,
+          });
+
+          // Every fixture must seed exactly the three turn-control
+          // sessions (the orphan parent stays unseeded by design).
+          for (const id of expected) {
+            const header = await readSessionHeader(workspaceRoot, id);
+            assert.equal(header.id, id, `${scenario} should seed ${id}`);
+          }
+          await assert.rejects(
+            readFile(
+              join(workspaceRoot, 'sessions', 'visual-smoke-turn-control-deleted-parent', 'session.jsonl'),
+              'utf8',
+            ),
+            /ENOENT/,
+            `${scenario} must not seed the orphan parent`,
+          );
+        } finally {
+          await rm(workspaceRoot, { recursive: true, force: true });
+        }
+      }
+    });
+  });
+
   it('artifact-errors seed covers deleted, missing, and unsupported MIME preview states', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-artifact-errors-'));
     try {
@@ -414,4 +564,31 @@ function fakeCredentialStore(secrets: string[] = []) {
       secrets.push(`${slug}:${field}`);
     },
   };
+}
+
+async function readSessionHeader(workspaceRoot: string, sessionId: string): Promise<{
+  id: string;
+  parentSessionId?: string;
+  branchOfTurnId?: string;
+  status: string;
+}> {
+  const file = await readFile(join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'), 'utf8');
+  const firstLine = file.split('\n')[0];
+  if (!firstLine) throw new Error(`session.jsonl for ${sessionId} is empty`);
+  return JSON.parse(firstLine) as {
+    id: string;
+    parentSessionId?: string;
+    branchOfTurnId?: string;
+    status: string;
+  };
+}
+
+async function readSessionMessages(workspaceRoot: string, sessionId: string): Promise<unknown[]> {
+  const file = await readFile(join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'), 'utf8');
+  // Skip the first line (the SessionHeader); the rest are StoredMessages.
+  return file
+    .split('\n')
+    .slice(1)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as unknown);
 }
