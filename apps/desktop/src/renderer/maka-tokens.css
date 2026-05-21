@@ -890,12 +890,24 @@
     max-width: 760px;
     margin: 0 auto;
     box-shadow: var(--shadow-minimal);
-    border-radius: 12px;
+    border-radius: 14px;
     background: var(--background);
-    padding: 10px 12px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    border: 1px solid var(--border);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  /* Composer focus ring — `:focus-within` lets the wrapping shell glow
+     when the textarea or any toolbar button is focused, instead of the
+     ugly textarea native outline. */
+  .maka-composer-inner:focus-within {
+    border-color: oklch(from var(--accent) l c h / 0.42);
+    box-shadow:
+      var(--shadow-minimal),
+      0 0 0 3px oklch(from var(--accent) l c h / 0.12);
   }
   .maka-composer textarea {
     appearance: none;

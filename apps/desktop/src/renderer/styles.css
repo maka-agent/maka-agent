@@ -1731,6 +1731,19 @@ button:active {
   overflow-y: auto;
 }
 
+.composer textarea:focus {
+  /* The focus ring lives on the wrapper (.maka-composer-inner:focus-within).
+     The textarea itself stays clean — no double ring. */
+  outline: 0;
+}
+
+.composerActions span kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--foreground-3);
+  border: 1px solid var(--border);
+}
+
 .composerActions > div {
   display: flex;
   align-items: center;
