@@ -29,6 +29,13 @@ export interface VisualSmokeLiveTool {
 export interface VisualSmokeState {
   enabled: true;
   scenario: VisualSmokeScenario;
+  /**
+   * Deterministic wall-clock timestamp for fixture rendering. The
+   * renderer uses it to freeze `Date.now()` while visual smoke mode is
+   * active so relative-time labels, fetched-at copy, and transient
+   * permission timestamps do not drift between screenshot runs.
+   */
+  now?: number;
   activeSessionId?: string;
   openSettingsSection?: SettingsSection;
   streamingBySession?: Record<string, string>;

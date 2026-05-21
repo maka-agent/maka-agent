@@ -27,6 +27,11 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'stale-sessions',
 ]);
 
+// Fixed clock for screenshot fixtures. All seeded timestamps and
+// transient smoke state derive from this value unless tests explicitly
+// pass `now`, so two baseline runs produce identical visible time copy.
+const VISUAL_SMOKE_NOW = Date.UTC(2026, 4, 22, 3, 0, 0);
+
 export interface VisualSmokeFixture {
   scenario: VisualSmokeScenario;
   workspaceName: string;
@@ -116,6 +121,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
   const state: VisualSmokeState = {
     enabled: true,
     scenario: fixture.scenario,
+    now: VISUAL_SMOKE_NOW,
     ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
     ...(fixture.autoCaptureVariant ? { autoCaptureVariant: fixture.autoCaptureVariant } : {}),
     ...(fixture.theme ? { theme: fixture.theme } : {}),
@@ -174,7 +180,7 @@ export async function seedVisualSmokeFixture(input: {
   credentialStore: Pick<CredentialStore, 'setSecret'>;
   now?: number;
 }): Promise<void> {
-  const now = input.now ?? Date.now();
+  const now = input.now ?? VISUAL_SMOKE_NOW;
   await rm(input.workspaceRoot, { recursive: true, force: true });
   await mkdir(input.workspaceRoot, { recursive: true });
   await writeSettings(input.workspaceRoot);
@@ -862,12 +868,12 @@ function streamingTools(): NonNullable<VisualSmokeState['liveToolsBySession']> {
 
 function permissionState(): NonNullable<VisualSmokeState['permissionBySession']> {
   return {
-    [PERMISSION_SESSION_ID]: permissionRequest(Date.now()),
+    [PERMISSION_SESSION_ID]: permissionRequest(VISUAL_SMOKE_NOW),
   };
 }
 
 function permissionTools(): NonNullable<VisualSmokeState['liveToolsBySession']> {
-  const request = permissionRequest(Date.now());
+  const request = permissionRequest(VISUAL_SMOKE_NOW);
   return {
     [PERMISSION_SESSION_ID]: [
       {

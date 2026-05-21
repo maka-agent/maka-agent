@@ -47,6 +47,7 @@ describe('visual smoke fixture mode', () => {
       assert.equal(fixture?.theme, null);
       const state = getVisualSmokeState(fixture);
       assert.equal(state?.theme, undefined);
+      assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     });
 
     it('accepts the closed enum light / dark / auto', () => {
@@ -130,6 +131,7 @@ describe('visual smoke fixture mode', () => {
     const state = getVisualSmokeState(fixture);
     assert.equal(state?.enabled, true);
     assert.equal(state?.scenario, 'first-run');
+    assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     assert.equal(state?.activeSessionId, undefined);
     assert.equal(state?.streamingBySession, undefined);
     assert.equal(state?.permissionBySession, undefined);

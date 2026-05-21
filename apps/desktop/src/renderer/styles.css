@@ -66,6 +66,18 @@ button:active {
   transform: none;
 }
 
+/* Visual smoke captures must be deterministic. We still exercise the
+   normal DOM for every scenario, but pause purely decorative animation,
+   transitions, and caret blink so screenshot hashes don't depend on the
+   exact millisecond when Electron captures the page. */
+[data-maka-visual-smoke="true"] *,
+[data-maka-visual-smoke="true"] *::before,
+[data-maka-visual-smoke="true"] *::after {
+  animation-play-state: paused !important;
+  transition-duration: 0.01ms !important;
+  caret-color: transparent !important;
+}
+
 .appFrame {
   height: 100dvh;
   padding: 12px;
