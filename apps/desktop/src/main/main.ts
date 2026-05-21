@@ -4,6 +4,7 @@ import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
+  generalizedErrorMessage,
   isPermissionMode,
 } from '@maka/core';
 import type {
@@ -427,7 +428,11 @@ function registerIpc(): void {
     if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) {
       throw new Error('No API key set for this connection');
     }
-    return fetchProviderModels(connection, apiKey ?? '');
+    try {
+      return await fetchProviderModels(connection, apiKey ?? '');
+    } catch (error) {
+      throw new Error(generalizedErrorMessage(error, 'Failed to fetch provider models'));
+    }
   });
   ipcMain.handle('connections:hasSecret', async (_event, slug: string) =>
     Boolean(await credentialStore.getSecret(slug, 'api_key')),
@@ -480,7 +485,7 @@ function registerIpc(): void {
           [provider]: {
             connected: result.ok,
             lastTestAt: Date.now(),
-            lastError: result.ok ? undefined : result.error,
+            lastError: result.ok ? undefined : generalizedErrorMessage(result.error ?? '', 'Bot connection test failed'),
           },
         },
       },

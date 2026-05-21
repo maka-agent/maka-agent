@@ -5,6 +5,7 @@ import type {
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
 } from '@maka/core';
+import { generalizedErrorMessage } from '@maka/core';
 import { SENSITIVE_PLACEHOLDER, maskSensitive } from '@maka/core/settings/network-settings';
 import type { BotTestResult } from '@maka/runtime';
 import { collectPersonalizationWarnings } from './personalization-prompt.js';
@@ -105,7 +106,7 @@ export function toSettingsTestResult(provider: BotProvider, result: BotTestResul
     ok: result.ok,
     message: result.ok
       ? `${provider} 连接测试成功${result.identity?.username ? `：${result.identity.username}` : ''}`
-      : result.error ?? `${provider} 连接测试失败`,
+      : generalizedErrorMessage(result.error ?? '', `${provider} 连接测试失败`),
     details: {
       ...(result.identity ? { identity: result.identity } : {}),
       ...(result.capabilities ? { capabilities: result.capabilities } : {}),

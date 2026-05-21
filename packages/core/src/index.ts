@@ -147,6 +147,12 @@ export {
   normalizeSettings,
 } from './settings.js';
 
+// redaction.ts
+export {
+  generalizedErrorMessage,
+  redactSecrets,
+} from './redaction.js';
+
 // usage-stats/types.ts
 export type {
   LlmCallRecord,

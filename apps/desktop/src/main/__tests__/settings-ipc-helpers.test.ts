@@ -89,6 +89,16 @@ describe('settings IPC helpers', () => {
     assert.equal(result.details?.hint, 'ready');
   });
 
+  test('redacts and generalizes bot test errors before returning SettingsTestResult', () => {
+    const result = toSettingsTestResult('telegram', {
+      ok: false,
+      error: '401 Authorization: Bearer sk-live-secret-token-value',
+    });
+
+    assert.equal(result.message, 'Authentication failed');
+    assert.equal(JSON.stringify(result).includes('sk-live-secret-token-value'), false);
+  });
+
   test('settings update result wraps settings and omits warnings for normal personalization', () => {
     const settings = createDefaultSettings();
     settings.personalization.assistantTone = '请简洁一点。';
