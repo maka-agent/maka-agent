@@ -38,6 +38,7 @@ import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
+const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
 
 function App() {
   return (
@@ -385,7 +386,7 @@ function AppShell() {
       return true;
     } catch (error) {
       if (isNoRealConnectionError(error)) {
-        showModelSetupToast(cleanErrorMessage(error));
+        showModelSetupToast(cleanErrorMessage(error), noRealConnectionReasonFromError(error));
       } else {
         toastApi.error('发送失败', cleanErrorMessage(error));
       }
@@ -459,7 +460,7 @@ function AppShell() {
         break;
       case 'error':
         if (isNoRealConnectionEvent(event)) {
-          showModelSetupToast(cleanEventMessage(event.message));
+          showModelSetupToast(cleanEventMessage(event.message), noRealConnectionReasonFromEvent(event));
         } else {
           toastApi.error('对话出错', event.message);
         }
@@ -508,10 +509,11 @@ function AppShell() {
     setSettingsOpen(false);
   }
 
-  function showModelSetupToast(description: string) {
+  function showModelSetupToast(description: string, reason?: string) {
+    const copy = modelSetupToastCopy(reason, description);
     toastApi.toast({
-      title: '未配置真实模型',
-      description,
+      title: copy.title,
+      description: copy.description,
       variant: 'error',
       duration: 8000,
       action: {
@@ -885,6 +887,15 @@ function isNoRealConnectionEvent(event: Extract<SessionEvent, { type: 'error' }>
   return event.code === NO_REAL_CONNECTION_CODE || event.message.includes(NO_REAL_CONNECTION_CODE);
 }
 
+function noRealConnectionReasonFromError(error: unknown): string | undefined {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.match(NO_REAL_CONNECTION_REASON_RE)?.[1];
+}
+
+function noRealConnectionReasonFromEvent(event: Extract<SessionEvent, { type: 'error' }>): string | undefined {
+  return event.reason ?? event.message.match(NO_REAL_CONNECTION_REASON_RE)?.[1];
+}
+
 function cleanErrorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   return cleanEventMessage(raw);
@@ -893,7 +904,21 @@ function cleanErrorMessage(error: unknown): string {
 function cleanEventMessage(message: string): string {
   return message
     .replace(/^Error invoking remote method '[^']+': Error: /, '')
+    .replace(NO_REAL_CONNECTION_REASON_RE, '')
     .replace(`${NO_REAL_CONNECTION_CODE}: `, '');
+}
+
+function modelSetupToastCopy(reason: string | undefined, fallback: string): { title: string; description: string } {
+  if (reason === 'connection_missing') {
+    return {
+      title: '连接已删除',
+      description: '该会话依赖的模型连接已删除，请到 设置 · 模型 重新选择或重建连接。',
+    };
+  }
+  return {
+    title: '未配置真实模型',
+    description: fallback,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -6,6 +6,7 @@ import {
   assertSessionCanSend,
   errorCode,
   requireReadyConnection,
+  errorReason,
   type ReadyConnectionDeps,
 } from '../chat-readiness.js';
 
@@ -16,41 +17,47 @@ describe('chat readiness guard', () => {
       slug: string | null | undefined;
       deps: ReadyConnectionDeps;
       includes: string;
+      reason: string;
     }> = [
       {
         name: 'no default model',
         slug: null,
         deps: deps(),
         includes: '还没有配置默认模型',
+        reason: 'missing_default_connection',
       },
       {
         name: 'implicit fake slug',
         slug: 'fake',
         deps: deps(),
         includes: '还没有配置默认模型',
+        reason: 'missing_default_connection',
       },
       {
         name: 'malformed model ref',
         slug: 'missing',
         deps: deps(),
         includes: '找不到模型连接 "missing"',
+        reason: 'connection_missing',
       },
       {
         name: 'disabled provider',
         slug: 'anthropic',
         deps: deps({ connection: connection({ enabled: false }), apiKey: 'sk-test' }),
         includes: '已禁用',
+        reason: 'connection_disabled',
       },
       {
         name: 'provider requires secret but has none',
         slug: 'anthropic',
         deps: deps({ connection: connection(), apiKey: null }),
         includes: '缺少 API key',
+        reason: 'missing_api_key',
       },
     ];
 
     for (const entry of table) {
-      await assertRejectsReadiness(entry.name, () => requireReadyConnection(entry.slug, entry.deps), entry.includes);
+      await assertRejectsReadiness(entry.name, () => requireReadyConnection(entry.slug, entry.deps), entry.includes, entry.reason);
     }
   });
 
@@ -62,6 +69,7 @@ describe('chat readiness guard', () => {
         apiKey: 'sk-test',
       })),
       '没有可用模型',
+      'missing_model',
     );
 
     await assertRejectsReadiness(
@@ -71,6 +79,7 @@ describe('chat readiness guard', () => {
         apiKey: 'sk-test',
       })),
       '没有启用任何模型',
+      'empty_model_list',
     );
 
     await assertRejectsReadiness(
@@ -84,6 +93,7 @@ describe('chat readiness guard', () => {
         apiKey: 'sk-test',
       }), 'gpt-4o'),
       '不在连接 "Anthropic" 的启用模型列表中',
+      'model_not_enabled',
     );
   });
 
@@ -111,18 +121,21 @@ describe('chat readiness guard', () => {
       'explicit fake session',
       () => assertSessionCanSend(header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }), deps()),
       'FakeBackend',
+      'fake_backend',
     );
 
     await assertRejectsReadiness(
       'old ai session after provider deletion',
       () => assertSessionCanSend(header({ llmConnectionSlug: 'deleted' }), deps()),
       '找不到模型连接 "deleted"',
+      'connection_missing',
     );
 
     await assertRejectsReadiness(
       'old ai session after key removal',
       () => assertSessionCanSend(header(), deps({ connection: connection(), apiKey: null })),
       '缺少 API key',
+      'missing_api_key',
     );
 
     await assert.doesNotReject(() =>
@@ -131,11 +144,12 @@ describe('chat readiness guard', () => {
   });
 });
 
-async function assertRejectsReadiness(name: string, fn: () => Promise<unknown>, includes: string): Promise<void> {
+async function assertRejectsReadiness(name: string, fn: () => Promise<unknown>, includes: string, reason: string): Promise<void> {
   await assert.rejects(
     fn,
     (error) => {
       assert.equal(errorCode(error), NO_REAL_CONNECTION_CODE, name);
+      assert.equal(errorReason(error), reason, name);
       assert.match((error as Error).message, new RegExp(escapeRegExp(includes)), name);
       return true;
     },

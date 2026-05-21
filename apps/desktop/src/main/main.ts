@@ -67,6 +67,7 @@ import {
   assertSessionCanSend as assertHeaderCanSend,
   errorCode,
   errorMessage,
+  errorReason,
   requireReadyConnection,
 } from './chat-readiness.js';
 import { createSafeStorageCredentialStore } from './credential-store.js';
@@ -791,6 +792,7 @@ async function streamEvents(sessionId: string, iterator: AsyncIterable<SessionEv
       ts: Date.now(),
       recoverable: false,
       code: errorCode(error),
+      reason: errorReason(error),
       message: errorMessage(error),
     } satisfies SessionEvent);
     if (!finalAppendBroadcasted) {

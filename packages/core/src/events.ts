@@ -183,6 +183,8 @@ export interface ErrorEvent extends BaseEvent {
   type: 'error';
   recoverable: boolean;
   code?: string;
+  /** Stable machine-readable reason for UI / telemetry routing. */
+  reason?: string;
   message: string;
   /** Adapter MUST scrub secrets before populating this field. */
   details?: string[] | Record<string, unknown>;

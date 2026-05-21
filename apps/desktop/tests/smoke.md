@@ -353,6 +353,38 @@ Fixture scenario: `all`.
 
 ---
 
+## Path 10 — Sandbox bridge sanity
+
+**Precondition.** Maka running in fixture mode (`MAKA_VISUAL_SMOKE_FIXTURE=all`)
+or a normal dev workspace with at least one configured provider. This path
+exists because the BrowserWindow renderer runs with `sandbox: true`,
+`contextIsolation: true`, and `nodeIntegration: false`; all app behavior
+must still flow through `window.maka`.
+
+**Steps.**
+1. Open Settings, change a harmless appearance preference, and close.
+2. ⌘K → "打开工作区文件夹"; verify the OS opens the allowlisted folder.
+3. ⌘K → "测试默认连接" in a configured workspace, or in fixture mode
+   click a connection test action and observe the toast path.
+4. In a real configured workspace, send a prompt and press Stop while
+   streaming. In fixture mode, verify the streaming sidebar row and
+   permission dialog still render from `visualSmoke.getState()`.
+
+**Pass signal.**
+- `window.maka.settings`, `window.maka.app.openPath`,
+  `window.maka.connections`, `window.maka.sessions`, and
+  `window.maka.visualSmoke` all respond through preload IPC.
+- No external page opens inside the Maka BrowserWindow; allowed http(s) /
+  mailto links go through the OS, and dropped files do not navigate the
+  renderer.
+
+**Fail signals.**
+- Settings, connection test, openPath, send/stop, or fixture state breaks
+  after sandbox hardening.
+- A clicked markdown link or dropped file replaces the React app surface.
+
+---
+
 ## When to run
 
 - Before merging any large UI / runtime / credential / permission
@@ -362,5 +394,5 @@ Fixture scenario: `all`.
   `nextRadioId`, or PermissionDialog rendering.
 - Before tagging a release.
 
-Each path is < 1 minute. The full nine-path run is ~ 8–10 minutes.
+Each path is < 1 minute. The full ten-path run is ~ 9–11 minutes.
 Worth doing.
