@@ -180,13 +180,153 @@ to verify the *dialog presentation*, not to delete real files. Either:
 
 ---
 
+## Path 6 — ModelTable workspace (UI-02)
+
+**Precondition.** A verified Z.ai or OpenAI-protocol connection with
+>6 models available. Settings open on 模型 → click into that
+connection.
+
+**Steps.**
+1. Verify the source line under the model count reads
+   *"实时拉取的 N 个模型（X 拉取）"* (green tone). Click "从 API
+   刷新" once; the line should update to "刚刚拉取" (or similar).
+2. With more than 6 models, type into the search box. Filter to a
+   substring that excludes the current default.
+3. Observe the hidden-default hint above the list: *"当前默认 `…` 不
+   在搜索结果中 · 点这里清空搜索"*. Click it; search clears, default
+   row visible.
+4. Tab into the model list; press ArrowDown several times.
+5. Press Home, then End.
+
+**Pass signal.**
+- Source label tone matches: success (green) for fetched, info for
+  fallback, fetched-empty branch for "0 models from provider".
+- ArrowDown/ArrowRight moves focus AND ticks the selected default
+  radio down by one. ArrowUp/ArrowLeft moves it up. Home jumps to
+  first row; End jumps to last.
+- The default radio dot and "默认" badge follow the active row.
+- Wrapping: ArrowDown on the last row wraps to first; ArrowUp on
+  the first wraps to last.
+- Hidden-default hint mounts only while search filters out the
+  default; disappears when search is cleared.
+
+**Fail signals.**
+- Source label says "实时拉取" but the cached models look stale (e.g.
+  `glm-4.5/4.6/4.7` exact fallback list) — that's the silent-fallback
+  regression PR91 closed.
+- ArrowDown only moves focus without selecting (UI-04 ARIA
+  radiogroup regression).
+- Search filter hides default with no hint — the user thinks the
+  default got deleted.
+
+---
+
+## Path 7 — Chat turn narrative (UI-04)
+
+**Precondition.** Any verified connection. Active session with a
+multi-step exchange (user message → tool call → assistant final).
+
+**Steps.**
+1. Ask: *"读一下 README.md 并总结"* (or any prompt that triggers a
+   Read tool call).
+2. Wait for the full turn to land.
+3. Observe the structure inside the chat surface.
+
+**Pass signal.**
+- The user message, the tool activity panel, and the assistant
+  answer are visually grouped as **one turn block** (`<section
+  class="maka-turn">`), not three free-floating items.
+- Below the user message, a summary chip strip shows the model id
+  (e.g. `claude-sonnet-4-5`), tool count (`1 个工具`), duration
+  (`X.X s`), and tokens (`N → N tok`).
+- If the model supplied thinking, a collapsed `<details>` block
+  *"查看思考过程 — 模型推理草稿，不是最终答案"* appears above the
+  assistant answer; expanding it shows the reasoning with its own
+  "复制思考过程" button.
+- For an in-progress turn (user sent, assistant hasn't landed),
+  the duration chip reads *"进行中"*, not a ticking ms count.
+
+**Fail signals.**
+- Tool activity at the very bottom of the chat instead of inside its
+  turn (old "message stack + tools panel" layout).
+- Thinking block included in the default "Copy message" button
+  (should be exclusive to the dedicated "复制思考过程" button).
+- Token cost hover shows `$0.0000` when costUsd isn't known.
+
+---
+
+## Path 8 — Sidebar streaming + multi-session indicator (PR85)
+
+**Precondition.** At least two sessions exist. Open one of them.
+
+**Steps.**
+1. Send a prompt in session A; let it start streaming.
+2. Without waiting for the stream to finish, switch to session B by
+   clicking in the sidebar.
+3. Observe session A's row in the sidebar.
+
+**Pass signal.**
+- Session A's row shows a small pulsing accent-tinted dot next to
+  the session name.
+- The row preview text shows *"Maka 正在思考…"* (overrides the
+  prior `lastMessagePreview`).
+- The unread halo dot is suppressed for streaming rows (streaming
+  takes precedence per PR85).
+- Once the stream completes, the pulse dot disappears and the row
+  may show the unread halo + the updated `lastMessagePreview`.
+
+**Fail signals.**
+- Streaming session looks identical to an idle session (lost the
+  indicator).
+- Pulse + unread dot both rendered at the same time (priority
+  violation).
+
+---
+
+## Path 9 — Command palette diagnostics + export (UI-05, PR86)
+
+**Precondition.** Maka running with at least one verified connection
+and an active chat session with several turns.
+
+**Steps.**
+1. Press ⌘K. Scan groups: 操作 / 主题 / 设置 / 诊断 / 连接 / 会话.
+2. Type "测试默认". The "测试默认连接 · {name}" command should
+   surface in the 诊断 group; press Enter.
+3. ⌘K again, type "导出". The "导出当前对话为 Markdown" command
+   should surface; press Enter.
+4. Paste the clipboard into a markdown viewer.
+5. ⌘K once more, type "设置 · 模型" and press Enter (with Settings
+   not currently open).
+
+**Pass signal.**
+- ⌘K palette opens with the same five-section nav (操作/主题/设置/
+  诊断/连接) plus the per-session entries at the bottom.
+- "测试默认连接" runs the connection test, surfaces a success or
+  failure toast, and the Account row's `lastTestStatus` badge
+  refreshes without closing the palette → reopening Settings.
+- "导出当前对话为 Markdown" lands a structured markdown doc on the
+  clipboard with `# {sessionName}` + `## 你` / `## Maka` sections;
+  thinking blocks are NOT included; tool calls appear as a bulleted
+  list with names + intent (intent passes through `redactSecrets`).
+- "设置 · 模型" opens Settings directly on the 模型 section, even if
+  Settings was already open on a different section.
+
+**Fail signals.**
+- "设置 · ..." command requires a second click to actually navigate
+  (warm-switch via `requestedSection` regressed).
+- Markdown export contains thinking blocks (security regression per
+  @kenji's PR86 review).
+
+---
+
 ## When to run
 
 - Before merging any large UI / runtime / credential / permission
   change to main.
 - After any change that touches `LlmConnection`, `sessions:changed`
-  payload shape, `ConnectionUiStatus` derivation, or PermissionDialog
-  rendering.
+  payload shape, `ConnectionUiStatus` derivation, `TurnViewModel`,
+  `nextRadioId`, or PermissionDialog rendering.
 - Before tagging a release.
 
-Each path is < 1 minute. The full run is < 5 minutes. Worth doing.
+Each path is < 1 minute. The full nine-path run is ~ 8–10 minutes.
+Worth doing.
