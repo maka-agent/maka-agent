@@ -190,6 +190,15 @@ export function SessionListPanel(props: {
    * shows live activity without subscribing to the stream itself.
    */
   streamingSessionIds?: Set<string>;
+  /**
+   * Per-session-id boolean flag: true when the session's backend / connection
+   * is stale (`backend='fake'` or `llmConnectionSlug` no longer resolves).
+   * The row dims + shows a small "已过期" pill so users notice in the list
+   * before clicking in and seeing the chat header banner. Caller derives this
+   * by joining `sessions` against `connections` — keeps SessionListPanel
+   * unaware of the connection store.
+   */
+  staleSessionIds?: Set<string>;
   onSelectSession(sessionId: string): void;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
@@ -440,6 +449,7 @@ export function SessionListPanel(props: {
                     session={session}
                     active={session.id === props.activeId}
                     streaming={props.streamingSessionIds?.has(session.id) ?? false}
+                    stale={props.staleSessionIds?.has(session.id) ?? false}
                     onSelect={props.onSelectSession}
                     actions={props.rowActions}
                   />
@@ -489,10 +499,16 @@ function SessionRow(props: {
   active: boolean;
   /** This session has a live streaming delta in flight. */
   streaming?: boolean;
+  /**
+   * This session's backend / connection is stale (FakeBackend or a removed
+   * connection slug). Dims the row + renders a small "已过期" pill so the
+   * user can spot broken sessions in the list before clicking in.
+   */
+  stale?: boolean;
   onSelect(sessionId: string): void;
   actions?: SessionRowActions;
 }) {
-  const { session, active, streaming, actions, onSelect } = props;
+  const { session, active, streaming, stale, actions, onSelect } = props;
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -532,7 +548,13 @@ function SessionRow(props: {
   }
 
   return (
-    <div className="maka-list-row" data-active={active} data-editing={editing} data-streaming={streaming ? 'true' : undefined}>
+    <div
+      className="maka-list-row"
+      data-active={active}
+      data-editing={editing}
+      data-streaming={streaming ? 'true' : undefined}
+      data-stale={stale ? 'true' : undefined}
+    >
       {editing ? (
         <form
           className="maka-list-row-main"
@@ -585,6 +607,19 @@ function SessionRow(props: {
                 />
               )}
               <span>{session.name}</span>
+              {stale && (
+                <span
+                  className="maka-list-row-stale-pill"
+                  // The pill semantics match the chat-header banner: the
+                  // session uses a backend / connection that no longer exists,
+                  // but @xuan's send-path silent rebind will swap to the
+                  // default on send. Tooltip explains why.
+                  title="此会话使用的 backend / 连接已不可用，发送时会切换到默认连接"
+                  aria-label="会话已过期"
+                >
+                  已过期
+                </span>
+              )}
             </div>
             {streaming ? (
               <div className="maka-list-row-preview" data-streaming="true">

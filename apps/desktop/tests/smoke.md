@@ -33,6 +33,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=streaming-sidebar npm --workspace @maka/desktop run de
 MAKA_VISUAL_SMOKE_FIXTURE=permission-destructive npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=stale-sessions npm --workspace @maka/desktop run dev
 ```
 
 Fixture mode is dev/test-only and refuses packaged builds. It seeds
@@ -447,6 +448,58 @@ MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 - `sandbox` attribute on the iframe contains any of `allow-same-origin`,
   `allow-top-navigation`, `allow-popups`, `allow-forms`, `allow-modals`.
 - `image` or `pdf` rows render a 复制 button (binary kinds must not).
+
+---
+
+## Path 12 — Sidebar shows "已过期" pill for stale sessions
+
+**Precondition.** Fixture scenario `stale-sessions`:
+
+```bash
+MAKA_VISUAL_SMOKE_FIXTURE=stale-sessions npm --workspace @maka/desktop run dev
+```
+
+This seeds a workspace reproducing the on-disk state that triggered the
+P0 — three sessions in the sidebar:
+- 「旧的 FakeBackend 演示」 — `backend='fake'`, slug `fake` (stale)
+- 「旧的 Claude backend 会话」 — `backend='claude'`, slug `fake-claude` (stale, legacy)
+- 「正常会话（Z.ai Live）」 — `backend='ai-sdk'`, slug `zai-live` (healthy)
+
+The active session is intentionally the FakeBackend stale row — the
+fixture is designed to verify the @kenji active-stale gate (active row
+must still show the pill).
+
+**Steps.**
+1. Launch Maka against the workspace.
+2. Open the sidebar; observe the visible session rows.
+3. Click into a stale session so it becomes active.
+4. Click into the healthy session (`backend='ai-sdk'`, real slug).
+
+**Pass signals.**
+- Each stale session row is **dimmed (opacity ≈ 0.7)** AND shows a small
+  amber pill labelled **「已过期」** to the right of the session name.
+- The healthy session row is fully opaque, no pill.
+- When the stale session is **active** (clicked into):
+  - Row opacity is back to **1.0** (active highlight wins over dim).
+  - **「已过期」pill is still rendered** — the active highlight must not
+    erase the warning signal (@kenji review gate).
+  - Chat header surfaces the matching banner from PR108e:
+    `backend='fake'` → "会话已过期 · ..."; missing slug → "原连接已删除..."
+- Switching back to the healthy session removes both the pill and the
+  header banner; nothing else changes about the sidebar.
+
+**Fail signals.**
+- Stale row looks identical to the healthy row (pill missing OR dim
+  treatment missing).
+- Active stale row HIDES the pill (regression on @kenji's gate — once a
+  user clicks into a broken session the sidebar should still flag it as
+  broken; without this they think the session is fine).
+- Healthy row gets the pill / dim treatment (over-flagging — the
+  `staleSessionIds` Set should NOT include `slug`s that resolve to a
+  current connection).
+- Pill color matches the destructive (red) tone instead of warning
+  (amber); destructive is reserved for cases where send will actually
+  fail despite @xuan's silent rebind.
 
 ---
 

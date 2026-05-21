@@ -107,7 +107,16 @@ function HtmlPreview(props: { record: ArtifactRecord }) {
   const externalLinkCount = (srcdoc.match(/<a\s[^>]*href=/gi) ?? []).length;
   return (
     <div className="maka-artifact-preview-html">
-      <div className="maka-artifact-preview-external-links-bar" role="status">
+      <div
+        className="maka-artifact-preview-external-links-bar"
+        // @kenji a11y gate #5: screen readers should announce "外链已禁用 · N
+        // links" when the user lands on an HTML artifact. `role="status"`
+        // plus `aria-live="polite"` makes the change get queued for AT
+        // without interrupting whatever the user is currently doing.
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         此预览中已禁用外部链接 · {externalLinkCount} 个链接
       </div>
       <iframe

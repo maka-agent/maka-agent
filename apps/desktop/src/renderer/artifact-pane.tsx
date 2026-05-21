@@ -29,7 +29,7 @@
  * collapsed) — adjustable in the future; the contract gate is that the
  * pane returns `null` when it shouldn't take space.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -49,6 +49,7 @@ import type {
 } from '@maka/core';
 import { useToast } from '@maka/ui';
 import { ArtifactPreview } from './artifact-preview';
+import { nextArtifactListAction } from './artifact-list-keyboard';
 import { openPathFailureCopy } from './open-path';
 
 const COLLAPSE_KEY = 'maka-artifact-pane-collapsed-v1';
@@ -176,6 +177,50 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
 
   // ---- render ------------------------------------------------------------
 
+  // @kenji a11y gate #1: artifact list is a SINGLE tab stop. ArrowUp/Down +
+  // Home/End move the selected artifact (preview follows). Enter focuses
+  // the preview area so a screen-reader user can land there directly. Esc
+  // returns focus to the chat composer — does NOT swallow the global
+  // Command Palette / modal Esc handler (the list only listens to Esc when
+  // its own children have focus).
+  const listRef = useRef<HTMLUListElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  function focusComposer() {
+    // Defer to the next frame so the Esc handler doesn't unfocus + refocus
+    // in the same tick.
+    requestAnimationFrame(() => {
+      const composer = document.querySelector<HTMLTextAreaElement>(
+        '.maka-composer textarea, [data-composer-textarea]',
+      );
+      composer?.focus();
+    });
+  }
+
+  function handleListKeyDown(event: KeyboardEvent<HTMLUListElement>) {
+    const action = nextArtifactListAction({
+      currentSelectedId: selectedId ?? undefined,
+      visibleIds: records.map((record) => record.id),
+      key: event.key,
+    });
+    if (action.kind === 'noop') return;
+    event.preventDefault();
+    switch (action.kind) {
+      case 'select':
+        setSelectedId(action.targetId);
+        break;
+      case 'activate':
+        setSelectedId(action.targetId);
+        // §9.1.3 Enter on selected row → focus preview surface so the
+        // screen reader announces the artifact contents.
+        requestAnimationFrame(() => previewRef.current?.focus());
+        break;
+      case 'dismiss':
+        focusComposer();
+        break;
+    }
+  }
+
   return (
     <aside
       className="maka-artifact-pane"
@@ -187,7 +232,13 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           type="button"
           className="maka-artifact-pane-collapse"
           onClick={() => setCollapsed((current) => !current)}
+          // @kenji a11y gate #3: aria-expanded reflects the actual visible
+          // content state (true when pane shows list + preview + toolbar,
+          // false when collapsed to chevron rail). aria-pressed retained
+          // since this is still a toggle button (a screen reader announces
+          // both "pressed" + "expanded" meaningfully).
           aria-pressed={collapsed}
+          aria-expanded={!collapsed}
           aria-label={collapsed ? '展开 artifact 面板' : '折叠 artifact 面板'}
           title={collapsed ? '展开 artifact 面板' : '折叠 artifact 面板'}
         >
@@ -203,17 +254,27 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
       {!collapsed && (
         <>
           <ul
+            ref={listRef}
             className="maka-artifact-list"
             role="listbox"
             aria-label="Artifact 列表"
+            aria-activedescendant={selectedId ? `maka-artifact-row-${selectedId}` : undefined}
+            tabIndex={0}
+            onKeyDown={handleListKeyDown}
           >
             {records.map((record) => (
               <li key={record.id} className="maka-artifact-list-item">
                 <button
+                  id={`maka-artifact-row-${record.id}`}
                   type="button"
                   className="maka-artifact-row"
                   role="option"
                   aria-selected={record.id === selectedId}
+                  // @kenji a11y gate #1: single tab stop in the list. Each
+                  // row gets tabIndex=-1 so the user reaches the list via
+                  // the list's own tabIndex, then drives selection with
+                  // ArrowUp/Down.
+                  tabIndex={-1}
                   data-selected={record.id === selectedId ? 'true' : 'false'}
                   data-deleted={record.status === 'deleted' ? 'true' : 'false'}
                   onClick={() => setSelectedId(record.id)}
@@ -233,7 +294,18 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               </li>
             ))}
           </ul>
-          <div className="maka-artifact-preview" data-empty={selected ? 'false' : 'true'}>
+          <div
+            ref={previewRef}
+            className="maka-artifact-preview"
+            data-empty={selected ? 'false' : 'true'}
+            // @kenji a11y gate #1: Enter from the list focuses this region
+            // so screen readers can announce the artifact contents. role +
+            // tabIndex=-1 make the div programmatically focusable without
+            // adding a Tab stop (the list is the single Tab stop).
+            role="region"
+            aria-label={selected ? `预览 ${selected.name}` : 'Artifact 预览'}
+            tabIndex={-1}
+          >
             {selected ? (
               <ArtifactPreview key={selected.id} record={selected} />
             ) : (
