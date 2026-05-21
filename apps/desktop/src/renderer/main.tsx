@@ -56,6 +56,7 @@ function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [density, setDensity] = useState<UiDensity>('comfortable');
+  const [userLabel, setUserLabel] = useState<string>('');
   const [helpOpen, closeHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const composerRef = useRef<ComposerHandle>(null);
@@ -106,8 +107,10 @@ function AppShell() {
     void window.maka.settings.get().then((next) => {
       const pref = next.appearance?.theme ?? 'auto';
       const den = next.appearance?.density ?? 'comfortable';
+      const name = next.personalization?.displayName ?? '';
       setThemePref(pref);
       setDensity(den);
+      setUserLabel(name);
       applyTheme(pref);
       applyDensity(den);
     });
@@ -499,6 +502,7 @@ function AppShell() {
               activeModelLabel={activeModelLabel}
               activeProviderType={activeConnection?.providerType}
               renderProviderMark={(type) => <ProviderLogo type={type} compact />}
+              userLabel={userLabel}
               mode={navSelection.section}
               emptyOverride={needsOnboarding ? (
                 <OnboardingHero
@@ -536,6 +540,7 @@ function AppShell() {
           onThemeChange={setThemePref}
           density={density}
           onDensityChange={setDensity}
+          onUserLabelChange={setUserLabel}
         />
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}

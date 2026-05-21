@@ -121,6 +121,7 @@ export type {
   ProxyProtocol,
   SettingsSection,
   SettingsTestResult,
+  PersonalizationSettings,
   ThemePreference,
   UiDensity,
   UpdateAppSettingsInput,

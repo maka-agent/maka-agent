@@ -44,7 +44,7 @@ type SettingsNavItem = {
 
 const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true },
-  { id: 'personalization', label: '个性化', Icon: User, enabled: true, comingSoon: true },
+  { id: 'personalization', label: '个性化', Icon: User, enabled: true },
   { id: 'theme', label: '主题', Icon: Palette, enabled: true },
   { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, comingSoon: true },
   { id: 'models', label: '模型', Icon: Cpu, enabled: true },
@@ -67,17 +67,6 @@ type ComingSoonCopy = {
 };
 
 const COMING_SOON_PAGES: Partial<Record<SettingsSection, ComingSoonCopy>> = {
-  personalization: {
-    Icon: User,
-    headline: '即将推出 · 个性化',
-    description:
-      '为每一台机器配置自己的助手语气、首选语言、默认 system prompt 和习惯化偏好。会在 V0.2 阶段连同记忆系统一起开放。',
-    bullets: [
-      '自定义助手语气：「严谨」「随意」「师生」「同事」等预设 + 自定义指令',
-      '界面语言独立于系统语言（中/英/日/韩）',
-      '记忆条目导入导出 + 跨设备同步',
-    ],
-  },
   'daily-review': {
     Icon: CalendarDays,
     headline: '即将推出 · 每日回顾',
@@ -154,6 +143,7 @@ export function SettingsModal(props: {
   onThemeChange(pref: ThemePreference): void;
   density: UiDensity;
   onDensityChange(density: UiDensity): void;
+  onUserLabelChange?(label: string): void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // Escape closes the modal, Tab/Shift+Tab cycles inside the dialog,
@@ -179,6 +169,7 @@ export function SettingsModal(props: {
           onThemeChange={props.onThemeChange}
           density={props.density}
           onDensityChange={props.onDensityChange}
+          onUserLabelChange={props.onUserLabelChange}
         />
       </div>
     </div>
@@ -194,6 +185,7 @@ function SettingsSurface(props: {
   onThemeChange(pref: ThemePreference): void;
   density: UiDensity;
   onDensityChange(density: UiDensity): void;
+  onUserLabelChange?(label: string): void;
 }) {
   const [section, setSection] = useState<SettingsSection>('models');
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
@@ -209,6 +201,9 @@ function SettingsSurface(props: {
   async function updateSettings(patch: Parameters<typeof window.maka.settings.update>[0]) {
     const next = await window.maka.settings.update(patch);
     setSettings(next);
+    if (patch.personalization?.displayName !== undefined) {
+      props.onUserLabelChange?.(next.personalization.displayName);
+    }
     return next;
   }
 
@@ -345,6 +340,8 @@ function SettingsPage(props: {
           onDensityChange={props.onDensityChange}
         />
       );
+    case 'personalization':
+      return <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
     case 'account':
       return (
         <SettingsRows>
@@ -458,6 +455,80 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string
   { value: 'dark', label: '深色', help: '始终使用深色界面。' },
   { value: 'auto', label: '跟随系统', help: '匹配 macOS 的当前 Light/Dark 偏好。' },
 ];
+
+function PersonalizationSettingsPage(props: {
+  settings: AppSettings;
+  onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<AppSettings>;
+}) {
+  const value = props.settings.personalization;
+  const [displayName, setDisplayName] = useState(value.displayName);
+  const [assistantTone, setAssistantTone] = useState(value.assistantTone);
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await props.onUpdate({
+        personalization: {
+          displayName: displayName.trim().slice(0, 60),
+          assistantTone: assistantTone.trim().slice(0, 500),
+        },
+      });
+      toast.success('个性化已保存');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error('保存失败', message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="settingsStructuredPage">
+      <label className="settingsField">
+        <span>显示名称</span>
+        <input
+          type="text"
+          value={displayName}
+          onChange={(event) => setDisplayName(event.currentTarget.value)}
+          placeholder="例如：JK"
+          maxLength={60}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
+      </label>
+
+      <label className="settingsField">
+        <span>助手语气偏好</span>
+        <textarea
+          value={assistantTone}
+          onChange={(event) => setAssistantTone(event.currentTarget.value)}
+          placeholder="一句话告诉助手期望的语气，比如：技术严谨 / 偏简洁 / 不要 emoji / 多反问。"
+          rows={4}
+          maxLength={500}
+          spellCheck={false}
+          style={{ minHeight: 84, resize: 'vertical', borderRadius: 12 }}
+        />
+        <small>这段会拼到 system prompt 末尾。500 字符内。</small>
+      </label>
+
+      <div className="settingsActionRow">
+        <button
+          type="button"
+          className="maka-button"
+          data-variant="primary"
+          disabled={saving}
+          onClick={() => void save()}
+        >
+          {saving ? '保存中…' : '保存'}
+        </button>
+        <p className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
+      </div>
+    </div>
+  );
+}
 
 const DENSITY_OPTIONS: Array<{ value: UiDensity; label: string; help: string }> = [
   { value: 'compact', label: '紧凑', help: '减小行间距与控件高度，更接近 IDE 风格。' },

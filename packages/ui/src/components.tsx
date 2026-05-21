@@ -569,6 +569,8 @@ export function ChatView(props: {
   /** Optional renderer for the provider mark; supplied by the desktop app to
    *  avoid bringing the full provider SVG library into @maka/ui. */
   renderProviderMark?(type: ProviderType): ReactNode;
+  /** Personalized user label shown on user messages. Falls back to "你". */
+  userLabel?: string;
   mode: NavSelection['section'];
   /**
    * When the user has no real LLM connection configured, the empty state
@@ -676,13 +678,13 @@ export function ChatView(props: {
           )}
           {chat.map((item) => (
             <article key={item.id} className={`maka-message-row message ${item.role}`}>
-              <span>{messageRoleLabel(item.role)}</span>
+              <span>{messageRoleLabel(item.role, props.userLabel)}</span>
               <MessageBody role={item.role} text={item.text} />
             </article>
           ))}
           {props.streamingText && (
             <article className="maka-message-row message assistant streaming">
-              <span>{messageRoleLabel('assistant')}</span>
+              <span>{messageRoleLabel('assistant', props.userLabel)}</span>
               <div className="maka-bubble-assistant maka-bubble-streaming">
                 <Markdown text={props.streamingText} />
               </div>
@@ -915,10 +917,11 @@ function PermissionModeSwitcher(props: {
   );
 }
 
-function messageRoleLabel(role: string): string {
-  // Friendlier than the raw enum. Assistant uses the product name; user
-  // uses the CJK 你 (no name) since we don't have user identity yet.
-  if (role === 'user') return '你';
+function messageRoleLabel(role: string, userLabel?: string): string {
+  if (role === 'user') {
+    const trimmed = userLabel?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : '你';
+  }
   if (role === 'assistant') return 'Maka';
   return role;
 }

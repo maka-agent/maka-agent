@@ -79,12 +79,20 @@ export interface AppearanceSettings {
   density: UiDensity;
 }
 
+export interface PersonalizationSettings {
+  /** How the assistant addresses the user. Empty falls back to "你". */
+  displayName: string;
+  /** Inline tone preference shown to the model in its system prompt. */
+  assistantTone: string;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   network: NetworkSettings;
   botChat: BotChatSettings;
   usage: UsageSettings;
   appearance: AppearanceSettings;
+  personalization: PersonalizationSettings;
 }
 
 export interface UsageRequestLog {
@@ -137,6 +145,7 @@ export type UpdateAppSettingsInput = Partial<{
   }>;
   usage: Partial<UsageSettings>;
   appearance: Partial<AppearanceSettings>;
+  personalization: Partial<PersonalizationSettings>;
 }>;
 
 export const BOT_PROVIDERS: BotProvider[] = [
@@ -200,6 +209,10 @@ export function createDefaultSettings(): AppSettings {
       theme: 'auto',
       density: 'comfortable',
     },
+    personalization: {
+      displayName: '',
+      assistantTone: '',
+    },
   };
 }
 
@@ -237,6 +250,10 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
       ...current.appearance,
       ...(patch.appearance ?? {}),
     },
+    personalization: {
+      ...current.personalization,
+      ...(patch.personalization ?? {}),
+    },
   };
 }
 
@@ -249,5 +266,6 @@ export function normalizeSettings(input: unknown): AppSettings {
     botChat: value.botChat,
     usage: value.usage,
     appearance: value.appearance,
+    personalization: value.personalization,
   });
 }
