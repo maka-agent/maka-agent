@@ -1033,6 +1033,15 @@ export function ChatView(props: {
    */
   turnFooterActionsByTurn?: Record<string, ReadonlyArray<TurnFooterActionMeta>>;
   onTurnFooterAction?: (turnId: string, actionId: TurnFooterActionMeta['id']) => void;
+  /**
+   * PR109e-d/e: per-turn metadata for failed banner + lineage badges.
+   * Renderer computes from materialized turns + lineage map + the
+   * generalized error-class mapping (`describeTurnErrorClass()`),
+   * keeping enum-to-Chinese translation outside @maka/ui.
+   */
+  turnFailedReasonLabels?: Record<string, string>;
+  turnLineageBadgesByTurn?: Record<string, TurnLineageBadge[]>;
+  onLineageBadgeClick?: (targetTurnId: string) => void;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
   onPermissionModeChange?(mode: PermissionMode): void;
@@ -1153,6 +1162,9 @@ export function ChatView(props: {
               userLabel={props.userLabel}
               footerActions={props.turnFooterActionsByTurn?.[turn.turnId]}
               onFooterAction={(actionId) => props.onTurnFooterAction?.(turn.turnId, actionId)}
+              failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
+              lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
+              onLineageBadgeClick={props.onLineageBadgeClick}
             />
           ))}
           {props.streamingText && (
@@ -1567,10 +1579,45 @@ function TurnView(props: {
    */
   footerActions?: ReadonlyArray<TurnFooterActionMeta>;
   onFooterAction?: (actionId: TurnFooterActionMeta['id']) => void;
+  /**
+   * PR109e-d: pre-translated Chinese phrase for a failed turn's
+   * `errorClass`. Caller computes via `describeTurnErrorClass()`.
+   * Undefined for non-failed turns or when the runtime didn't
+   * populate `errorClass`. UI never sees the raw enum identifier.
+   */
+  failedReasonLabel?: string;
+  /**
+   * PR109e-e: forward + reverse lineage badges. The renderer
+   * computes the labels (with short turn ids) and click targets;
+   * @maka/ui just renders the badge UI.
+   */
+  lineageBadges?: TurnLineageBadge[];
+  /** PR109e-e: invoked when the user clicks a lineage badge. The
+   *  renderer scrolls the target turn into view. */
+  onLineageBadgeClick?: (targetTurnId: string) => void;
 }) {
   const { turn } = props;
+  const forwardBadges = props.lineageBadges?.filter((b) => b.direction === 'forward') ?? [];
+  const reverseBadges = props.lineageBadges?.filter((b) => b.direction === 'reverse') ?? [];
   return (
     <section className="maka-turn" data-turn-id={turn.turnId}>
+      {forwardBadges.length > 0 && (
+        <div className="maka-turn-lineage-row" aria-label="本轮回答的来源">
+          {forwardBadges.map((badge) => (
+            <button
+              key={badge.id}
+              type="button"
+              className="maka-turn-lineage-badge"
+              data-direction="forward"
+              title={badge.tooltip ?? badge.label}
+              onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
+            >
+              <GitBranch size={11} strokeWidth={2} aria-hidden="true" />
+              <span>{badge.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {turn.user && (
         <article
           className="maka-message-row message user"
@@ -1631,8 +1678,39 @@ function TurnView(props: {
                 <em>(已中断)</em>
               </div>
             )}
+            {/* PR109e-d: failed turn AlertOctagon banner with generalized
+                Chinese copy (no raw `errorClass` leak per @kenji gate #3).
+                Caller passes the pre-translated `failedReasonLabel` —
+                @maka/ui doesn't know how to translate the runtime enum;
+                that mapping lives in `session-status-presentation.ts`
+                via `describeTurnErrorClass()`. */}
+            {turn.status === 'failed' && props.failedReasonLabel && (
+              <div className="maka-turn-failed-banner" role="alert">
+                <span className="maka-turn-failed-icon" aria-hidden="true">
+                  <AlertOctagon size={14} strokeWidth={2} />
+                </span>
+                <span>{props.failedReasonLabel}</span>
+              </div>
+            )}
             <MessageBody role="assistant" text={turn.assistant.text} />
           </div>
+          {reverseBadges.length > 0 && (
+            <div className="maka-turn-lineage-row maka-turn-lineage-row-reverse" aria-label="本轮回答的衍生">
+              {reverseBadges.map((badge) => (
+                <button
+                  key={badge.id}
+                  type="button"
+                  className="maka-turn-lineage-badge"
+                  data-direction="reverse"
+                  title={badge.tooltip ?? badge.label}
+                  onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
+                >
+                  <GitBranch size={11} strokeWidth={2} aria-hidden="true" />
+                  <span>{badge.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {props.footerActions && props.footerActions.length > 0 && (
             <TurnFooterActions
               actions={props.footerActions}
@@ -1661,6 +1739,30 @@ export interface TurnFooterActionMeta {
   label: string;
   enabled: boolean;
   tooltip?: string;
+}
+
+/**
+ * Lineage badge rendered on a turn, either pointing to its origin
+ * ("重试自 turn ${id}") or to a descendant ("已重试 → turn ${id}").
+ * Renderer (main.tsx) computes the labels and targets from the lineage
+ * map; @maka/ui renders the badge UI. PR109e-e.
+ */
+export interface TurnLineageBadge {
+  /** Stable key for React. */
+  id: string;
+  /** Chinese label. UI surfaces it verbatim — caller is responsible for
+   *  generalized phrasing (never expose enum identifiers). */
+  label: string;
+  /** Optional tooltip / aria-label override. Falls back to `label`. */
+  tooltip?: string;
+  /** Click target turn id. Renderer scrolls + highlights that turn. */
+  targetTurnId: string;
+  /**
+   * Forward = "this turn was retried/regenerated from another";
+   * reverse = "another turn descends from this one". UI shows them
+   * in different positions (forward at top, reverse at bottom).
+   */
+  direction: 'forward' | 'reverse';
 }
 
 function TurnFooterActions(props: {

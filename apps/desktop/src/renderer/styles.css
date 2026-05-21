@@ -5586,3 +5586,74 @@ button:active {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+
+/* PR109e-d: Failed turn banner. Lives above the assistant message body
+ * when turn.status === failed. Uses destructive tone — failed IS a
+ * fault state (distinct from aborted which is dormant muted).
+ * Copy is generalized Chinese (errorClass → Chinese phrase) per
+ * @kenji gate #3 — never exposes the raw enum identifier. */
+.maka-turn-failed-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: oklch(from var(--destructive) l c h / 0.10);
+  border: 1px solid oklch(from var(--destructive) l c h / 0.28);
+  color: var(--destructive);
+  font-size: 12px;
+  width: fit-content;
+}
+.maka-turn-failed-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* PR109e-e: Lineage badges. Forward badges sit at the top of the turn
+ * ("重试自 turn X"); reverse badges sit at the bottom ("已重试 →
+ * turn Y"). Same visual treatment + interactive button so screen
+ * readers and keyboard users can navigate. */
+.maka-turn-lineage-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.maka-turn-lineage-row-reverse {
+  margin-top: 6px;
+}
+.maka-turn-lineage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--foreground-5);
+  color: var(--foreground-70);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.maka-turn-lineage-badge:hover {
+  background: var(--foreground-10, oklch(from var(--foreground) l c h / 0.08));
+  color: var(--foreground);
+}
+.maka-turn-lineage-badge:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-turn-lineage-badge[data-direction="forward"] {
+  /* Subtle distinction: forward = info-tinted, reverse = success-tinted */
+  background: oklch(from var(--info) l c h / 0.08);
+  border-color: oklch(from var(--info) l c h / 0.20);
+  color: var(--info-text);
+}
+.maka-turn-lineage-badge[data-direction="reverse"] {
+  background: oklch(from var(--brand-deep) l c h / 0.08);
+  border-color: oklch(from var(--brand-deep) l c h / 0.20);
+  color: var(--brand-deep);
+}
