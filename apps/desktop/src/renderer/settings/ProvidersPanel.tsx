@@ -35,6 +35,42 @@ const CATALOG_TABS: Array<{ id: CatalogTab; label: string }> = [
   { id: 'local', label: '本地' },
 ];
 
+/**
+ * "（5 分钟前拉取）" style suffix for the model-source label. Uses
+ * Intl.RelativeTimeFormat when available so the localization matches the
+ * sidebar's session-meta format. Returns an empty string when no
+ * timestamp is available (e.g. legacy connections from before
+ * `modelsFetchedAt` was persisted by backend `94b482b`).
+ */
+function formatFetchedAtSuffix(modelsFetchedAt: number | undefined): string {
+  if (modelsFetchedAt === undefined) return '';
+  const diffMs = modelsFetchedAt - Date.now();
+  const absSec = Math.round(Math.abs(diffMs) / 1000);
+  if (typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function') {
+    const rtf = new Intl.RelativeTimeFormat(
+      typeof navigator !== 'undefined' ? navigator.language : 'en',
+      { numeric: 'auto', style: 'short' },
+    );
+    let value: number;
+    let unit: Intl.RelativeTimeFormatUnit;
+    if (absSec < 60) {
+      value = Math.round(diffMs / 1000);
+      unit = 'second';
+    } else if (absSec < 3600) {
+      value = Math.round(diffMs / 60_000);
+      unit = 'minute';
+    } else if (absSec < 86_400) {
+      value = Math.round(diffMs / 3_600_000);
+      unit = 'hour';
+    } else {
+      value = Math.round(diffMs / 86_400_000);
+      unit = 'day';
+    }
+    return `（${rtf.format(value, unit)}拉取）`;
+  }
+  return `（${new Date(modelsFetchedAt).toLocaleString()} 拉取）`;
+}
+
 export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const [connections, setConnections] = useState<LlmConnection[]>([]);
   const [defaultSlug, setDefaultSlug] = useState<string | null>(null);
@@ -75,7 +111,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     setSelectedSlug(null);
   }
 
-  function chipTitle(connection: LlmConnection): string {
+function chipTitle(connection: LlmConnection): string {
     if (!connection.enabled) return `${connection.name} · 已禁用`;
     switch (connection.lastTestStatus) {
       case 'verified':
@@ -630,7 +666,7 @@ function ConnectionDetail(props: {
         <small className="providerModelSource" data-source={modelSource}>
           {modelSource === 'fetched'
             ? models.length > 0
-              ? `实时拉取的 ${models.length} 个模型（最新一次成功）`
+              ? `实时拉取的 ${models.length} 个模型${formatFetchedAtSuffix(connection.modelsFetchedAt)}`
               : '已成功调用 provider，但返回 0 个模型 — 该 provider 可能未对当前 API key 开放任何模型，请检查账户/方案。'
             : `静态备用列表（${fallbackModels.length} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`}
         </small>
