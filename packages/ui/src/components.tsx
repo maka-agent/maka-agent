@@ -1230,7 +1230,7 @@ function TurnSummary(props: { turn: TurnViewModel }) {
   const hasCost = turn.tokens?.costUsd !== undefined && turn.tokens.costUsd > 0;
   if (!hasModel && !hasTools && !hasDuration && !hasTokens && !inProgress) return null;
   return (
-    <div className="maka-turn-summary" aria-label="turn summary">
+    <div className="maka-turn-summary" aria-label="本轮对话摘要">
       {hasModel && (
         <span className="maka-turn-summary-chip" data-kind="model" title={turn.modelId}>
           <code>{turn.modelId}</code>

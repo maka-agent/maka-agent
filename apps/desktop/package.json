@@ -16,7 +16,9 @@
     "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/ui run build && node ../../scripts/check-console.mjs && node ../../scripts/check-a11y.mjs",
     "test": "npm run build:main && node --test \"dist/main/**/*.test.js\"",
     "screenshots": "npm run build && node ../../scripts/capture-screenshots.mjs --all",
-    "screenshots:single": "npm run build && node ../../scripts/capture-screenshots.mjs --scenario"
+    "screenshots:single": "npm run build && node ../../scripts/capture-screenshots.mjs --scenario",
+    "screenshots:diff": "node ../../scripts/diff-screenshots.mjs",
+    "screenshots:baseline": "node ../../scripts/diff-screenshots.mjs --update-baseline"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",

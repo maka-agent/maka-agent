@@ -92,7 +92,13 @@ class FileArtifactStore implements ArtifactStore {
     return this.records
       .filter((record) => record.sessionId === sessionId)
       .filter((record) => opts.includeDeleted || record.status !== 'deleted')
-      .sort((a, b) => b.createdAt - a.createdAt)
+      // Secondary `id` sort for determinism when fixture artifacts share
+      // a frozen createdAt (PR108k-yj visual-smoke determinism).
+      .sort((a, b) => {
+        const tsDelta = b.createdAt - a.createdAt;
+        if (tsDelta !== 0) return tsDelta;
+        return a.id.localeCompare(b.id);
+      })
       .map((record) => ({ ...record }));
   }
 

@@ -34,6 +34,13 @@ MAKA_VISUAL_SMOKE_FIXTURE=permission-destructive npm --workspace @maka/desktop r
 MAKA_VISUAL_SMOKE_FIXTURE=artifact-pane npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=artifact-errors npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=stale-sessions npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-data npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-personalization npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-network npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-bots npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-about npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-theme npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-coming-soon npm --workspace @maka/desktop run dev
 ```
 
 Fixture mode is dev/test-only and refuses packaged builds. It seeds

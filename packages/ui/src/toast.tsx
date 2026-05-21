@@ -167,7 +167,7 @@ function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): 
       className="maka-toast-viewport"
       role="region"
       aria-live="polite"
-      aria-label="Notifications"
+      aria-label="通知"
     >
       {props.toasts.map((entry) => (
         <li key={entry.id} className="maka-toast" data-variant={entry.variant}>
@@ -191,7 +191,7 @@ function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): 
           <button
             type="button"
             className="maka-toast-close"
-            aria-label="Dismiss"
+            aria-label="关闭通知"
             onClick={() => props.onDismiss(entry.id)}
           >
             <X size={14} strokeWidth={1.75} aria-hidden="true" />

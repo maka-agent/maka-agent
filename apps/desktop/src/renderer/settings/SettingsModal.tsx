@@ -335,7 +335,7 @@ export function SettingsModal(props: {
         className="settingsModal"
         role="dialog"
         aria-modal="true"
-        aria-label="Settings"
+        aria-label="设置"
         onClick={(event) => event.stopPropagation()}
       >
         <SettingsSurface
@@ -467,7 +467,7 @@ function SettingsSurface(props: {
       <section className="settingsMainPane">
         <header className="settingsPageHeader">
           <h2>{activeItem.label}</h2>
-          <button className="settingsCloseButton" type="button" aria-label="Close settings" onClick={props.onClose}>
+          <button className="settingsCloseButton" type="button" aria-label="关闭设置" onClick={props.onClose}>
             <X strokeWidth={1.75} aria-hidden="true" />
           </button>
         </header>
@@ -610,7 +610,7 @@ function AboutSettingsPage() {
 
   if (!info) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="Loading about page">
+      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载关于页">
         <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
         <div className="maka-skeleton maka-skeleton-line" style={{ width: '70%' }} />
         <div className="maka-skeleton maka-skeleton-line" style={{ width: '52%' }} />
@@ -703,7 +703,7 @@ function AboutSettingsPage() {
 
 function SettingsSkeleton() {
   return (
-    <div className="settingsLoadingSkeleton" aria-busy="true" aria-label="Loading settings">
+    <div className="settingsLoadingSkeleton" aria-busy="true" aria-label="正在加载设置">
       <div className="maka-skeleton-stack">
         <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
         <div className="maka-skeleton maka-skeleton-card" />
@@ -1393,7 +1393,7 @@ function BotChatSettingsPage(props: {
 
   return (
     <div className="settingsBotLayout">
-      <nav className="settingsBotList" aria-label="Bot channels">
+      <nav className="settingsBotList" aria-label="机器人频道列表">
         {BOT_PROVIDERS.map((provider) => (
           <button key={provider} type="button" data-active={selected === provider} onClick={() => {
             setSelected(provider);

@@ -84,7 +84,17 @@ class FileSessionStore implements SessionStore {
         // Ignore malformed session folders in the sidebar.
       }
     }
-    return summaries.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+    // Secondary key on `id` (lexicographic) so sessions with identical
+    // lastMessageAt always sort in the same order — fixtures with
+    // multiple sessions seeded at the same frozen timestamp would
+    // otherwise drift across runs based on filesystem readdir order
+    // (PR108k-yj per @kenji visual-smoke determinism). Negligible cost
+    // for real users; identical lastMessageAt is rare in production.
+    return summaries.sort((a, b) => {
+      const tsDelta = (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
+      if (tsDelta !== 0) return tsDelta;
+      return a.id.localeCompare(b.id);
+    });
   }
 
   async readHeader(sessionId: string): Promise<SessionHeader> {
