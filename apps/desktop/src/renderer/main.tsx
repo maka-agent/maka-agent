@@ -419,6 +419,11 @@ function AppShell() {
   const onboarding = useOnboardingSnapshot();
   const [quickChatPending, setQuickChatPending] = useState(false);
   const onboardingState = onboarding.snapshot?.state;
+  // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
+  // while the initial snapshot is in flight. Otherwise sessions.length===0
+  // + snapshot===null flashes the prompt-suggestion EmptyChatHero before
+  // the state-routed OnboardingHero mounts.
+  const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined;
   const showOnboardingHero =
     sessions.length === 0 && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
@@ -1059,19 +1064,32 @@ function AppShell() {
                 onLineageBadgeClick={handleLineageBadgeClick}
                 branchBanner={branchBanner}
                 onBranchBannerClick={handleBranchBannerClick}
-                emptyOverride={showOnboardingHero && onboardingState ? (
-                  <OnboardingHero
-                    state={onboardingState}
-                    onOpenSettings={(section) => {
-                      if (section) openSettingsSection(section);
-                      else openSettings();
-                    }}
-                    onQuickChatSubmit={(prompt) => {
-                      void handleQuickChatSubmit(prompt);
-                    }}
-                    quickChatPending={quickChatPending}
-                  />
-                ) : undefined}
+                emptyOverride={
+                  showOnboardingHero && onboardingState ? (
+                    <OnboardingHero
+                      state={onboardingState}
+                      onOpenSettings={(section) => {
+                        if (section) openSettingsSection(section);
+                        else openSettings();
+                      }}
+                      onQuickChatSubmit={(prompt) => {
+                        void handleQuickChatSubmit(prompt);
+                      }}
+                      quickChatPending={quickChatPending}
+                    />
+                  ) : isOnboardingLoading ? (
+                    // @kenji review: render a no-op skeleton while the
+                    // first snapshot resolves so EmptyChatHero doesn't
+                    // flash. Use an aria-busy live region so screen
+                    // readers know something is loading.
+                    <div
+                      className="maka-onboarding-loading"
+                      role="status"
+                      aria-busy="true"
+                      aria-label="加载中"
+                    />
+                  ) : undefined
+                }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.setText(prompt)}
                 onPermissionModeChange={(mode) => void setPermissionMode(mode)}

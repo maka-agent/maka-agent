@@ -899,6 +899,14 @@ button:active {
   min-width: 120px;
 }
 
+/* @kenji PR110c review: loading slot rendered while the first
+   onboarding snapshot resolves. Empty visual — just blocks the
+   default EmptyChatHero so the user doesn't see prompt suggestions
+   flash before the state-routed hero mounts. */
+.maka-onboarding-loading {
+  min-height: 120px;
+}
+
 .maka-list-row-name {
   display: flex;
   align-items: center;
