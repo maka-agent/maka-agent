@@ -212,7 +212,38 @@ export function SessionListPanel(props: {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [props.selection.section]);
 
+  // List of filter ids in display order — used by Left/Right keyboard cycle.
+  const filterCycle: SessionFilter[] = ['chats', 'flagged', 'archived'];
+
   function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      // Left/Right inside the list cycles filter buckets (per @kenji's
+      // session-list-lifecycle contract). Only fires when the section is
+      // already `sessions` (skills section has its own logic).
+      if (props.selection.section !== 'sessions') return;
+      const current = filterCycle.indexOf(props.selection.filter);
+      if (current < 0) return;
+      const delta = event.key === 'ArrowRight' ? 1 : -1;
+      const next = filterCycle[(current + delta + filterCycle.length) % filterCycle.length];
+      if (next && next !== props.selection.filter) {
+        event.preventDefault();
+        props.onSelect({ section: 'sessions', filter: next });
+      }
+      return;
+    }
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      // Delete on a focused row opens the App-level confirmation (which
+      // toast.confirm()s); we do not delete silently per the lifecycle
+      // contract.
+      const active = document.activeElement as HTMLElement | null;
+      const row = active?.closest('.maka-list-row');
+      const sessionId = row?.querySelector<HTMLButtonElement>('.maka-list-row-main')?.dataset.sessionId;
+      if (sessionId && props.rowActions) {
+        event.preventDefault();
+        props.rowActions.onDelete(sessionId);
+      }
+      return;
+    }
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home' && event.key !== 'End') {
       return;
     }
@@ -386,7 +417,7 @@ export function SessionListPanel(props: {
           </div>
         ) : (
           <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
-            {groupSessionsByTime(filteredSessions).map((group) => (
+            {groupSessionsForFilter(filteredSessions, props.selection).map((group) => (
               <div key={group.label} className="maka-list-group">
                 <div className="maka-list-group-label">{group.label}</div>
                 {group.sessions.map((session) => (
@@ -520,6 +551,7 @@ function SessionRow(props: {
         <button
           className="maka-list-row-main"
           type="button"
+          data-session-id={session.id}
           onClick={() => onSelect(session.id)}
           onDoubleClick={(event) => {
             event.stopPropagation();
@@ -1400,6 +1432,24 @@ const noMessagesYet =
 interface SessionGroup {
   label: string;
   sessions: SessionSummary[];
+}
+
+/**
+ * In the Chats filter, pinned (flagged) sessions float to the top in their
+ * own section per the session-list-lifecycle contract, separate from the
+ * date-bucketed remainder. Other filters keep the date-bucket layout.
+ */
+function groupSessionsForFilter(sessions: SessionSummary[], selection: NavSelection): SessionGroup[] {
+  if (selection.section !== 'sessions' || selection.filter !== 'chats') {
+    return groupSessionsByTime(sessions);
+  }
+  const pinned = sessions.filter((session) => session.isFlagged);
+  const rest = sessions.filter((session) => !session.isFlagged);
+  const groups: SessionGroup[] = [];
+  if (pinned.length > 0) {
+    groups.push({ label: '已置顶', sessions: pinned });
+  }
+  return [...groups, ...groupSessionsByTime(rest)];
 }
 
 /**
