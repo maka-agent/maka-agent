@@ -10,6 +10,7 @@ import type {
   SessionSummary,
   StoredMessage,
   ThemePreference,
+  UiDensity,
 } from '@maka/core';
 import {
   ChatView,
@@ -26,7 +27,9 @@ import { SettingsModal } from './settings/SettingsModal';
 import { ErrorBoundary } from './error-boundary';
 import { KeyboardHelpModal, useKeyboardHelp } from './keyboard-help';
 import { CommandPalette, buildCommandList, useCommandPalette } from './command-palette';
-import { applyTheme } from './theme';
+import { OnboardingHero } from './OnboardingHero';
+import { ProviderLogo } from './settings/ProvidersPanel';
+import { applyDensity, applyTheme } from './theme';
 import './styles.css';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
@@ -52,6 +55,8 @@ function AppShell() {
   const [defaultConnection, setDefaultConnection] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
+  const [density, setDensity] = useState<UiDensity>('comfortable');
+  const [userLabel, setUserLabel] = useState<string>('');
   const [helpOpen, closeHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const composerRef = useRef<ComposerHandle>(null);
@@ -82,6 +87,15 @@ function AppShell() {
   } : undefined);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   const sessionCounts = useMemo(() => countSessions(sessions), [sessions]);
+  // Aligns with @kenji's provider-onboarding-invariants 3-state taxonomy:
+  // `ready` when at least one enabled connection exists, `needs_onboarding`
+  // otherwise. We treat any-enabled as "ready" — backend (xuan) is the
+  // authoritative check on secret + model validity; this gate just decides
+  // which hero to show on an empty chat.
+  const needsOnboarding = useMemo(
+    () => !connections.some((connection) => connection.enabled),
+    [connections],
+  );
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
 
   useEffect(() => {
@@ -92,8 +106,13 @@ function AppShell() {
     // default `auto` which still produces a correct result.
     void window.maka.settings.get().then((next) => {
       const pref = next.appearance?.theme ?? 'auto';
+      const den = next.appearance?.density ?? 'comfortable';
+      const name = next.personalization?.displayName ?? '';
       setThemePref(pref);
+      setDensity(den);
+      setUserLabel(name);
       applyTheme(pref);
+      applyDensity(den);
     });
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
@@ -118,6 +137,10 @@ function AppShell() {
     const unsubscribe = applyTheme(themePref);
     return unsubscribe;
   }, [themePref]);
+
+  useEffect(() => {
+    applyDensity(density);
+  }, [density]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -477,7 +500,16 @@ function AppShell() {
               activeSession={activeSessionForView}
               activeConnectionLabel={activeConnectionLabel}
               activeModelLabel={activeModelLabel}
+              activeProviderType={activeConnection?.providerType}
+              renderProviderMark={(type) => <ProviderLogo type={type} compact />}
+              userLabel={userLabel}
               mode={navSelection.section}
+              emptyOverride={needsOnboarding ? (
+                <OnboardingHero
+                  onOpenSettings={() => setSettingsOpen(true)}
+                  onUseAnyway={() => composerRef.current?.focus()}
+                />
+              ) : undefined}
               onNew={createSession}
               onPromptSuggestion={(prompt) => composerRef.current?.setText(prompt)}
               onPermissionModeChange={(mode) => void setPermissionMode(mode)}
@@ -506,6 +538,9 @@ function AppShell() {
           onClose={closeSettings}
           themePref={themePref}
           onThemeChange={setThemePref}
+          density={density}
+          onDensityChange={setDensity}
+          onUserLabelChange={setUserLabel}
         />
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}

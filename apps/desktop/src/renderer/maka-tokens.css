@@ -79,7 +79,12 @@
   --ring:          oklch(from var(--foreground) l c h / 0.25);
   --hover:         oklch(from var(--foreground) l c h / 0.04);
   --active:        oklch(from var(--foreground) l c h / 0.08);
-  --user-message-bubble: oklch(from var(--foreground) l c h / 0.05);
+  /* User bubble color is intentionally distinct from `--accent` so users can
+     re-tint the accent without ruining chat legibility (alma 42-theme §15.1).
+     Light: warm desaturated slate over the cream background. */
+  --chat-user-bg: oklch(0.94 0.005 270);
+  --chat-user-foreground: var(--foreground);
+  --user-message-bubble: var(--chat-user-bg);
   --selection:     oklch(from var(--accent) l c h / 0.2);
 
   /* === shadow opacity (subtle in light, stronger in dark) === */
@@ -159,6 +164,34 @@
   --h-titlebar: 36px;
   --h-toolbar: 40px;
   --h-composer-min: 56px;
+
+  /* === UI density ===
+     Three profiles map to the same set of tokens; see the `[data-ui-density]`
+     selectors below maka-tokens.css for the active values. Components read
+     these instead of hardcoded paddings so a single switch retunes the whole
+     surface (alma 42-theme-deep §7). */
+  --ui-density-message-gap: 18px;
+  --ui-density-message-pad-x: 24px;
+  --ui-density-message-pad-y: 10px;
+  --ui-density-composer-pad-y: 18px;
+  --ui-density-row-pad-y: 10px;
+}
+
+/* Comfortable is the default; selectors below tune only the deltas. */
+:root[data-ui-density="compact"] {
+  --ui-density-message-gap: 12px;
+  --ui-density-message-pad-x: 20px;
+  --ui-density-message-pad-y: 6px;
+  --ui-density-composer-pad-y: 12px;
+  --ui-density-row-pad-y: 7px;
+}
+
+:root[data-ui-density="spacious"] {
+  --ui-density-message-gap: 26px;
+  --ui-density-message-pad-x: 32px;
+  --ui-density-message-pad-y: 14px;
+  --ui-density-composer-pad-y: 24px;
+  --ui-density-row-pad-y: 14px;
 }
 
 /* =============================================================================
@@ -182,6 +215,12 @@
 
   --shadow-border-opacity: 0.15;
   --shadow-blur-opacity:   0.12;
+
+  /* Slate user bubble for dark mode — distinct from --accent and readable
+     against the dark background. */
+  --chat-user-bg: oklch(0.30 0.012 270);
+  --chat-user-foreground: oklch(0.96 0.004 270);
+  --user-message-bubble: var(--chat-user-bg);
 
   /* foreground-N variants re-derive automatically via color-mix(), so the
      :root definitions above remain correct — no need to redefine here. */
@@ -461,13 +500,13 @@
     padding: 24px 0 16px 0;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--ui-density-message-gap, 16px);
   }
   .maka-message-row {
     max-width: 760px;
     margin: 0 auto;
     width: 100%;
-    padding: 0 24px;
+    padding: 0 var(--ui-density-message-pad-x, 24px);
     /* Subtle fade on first paint — uses @starting-style instead of a
        keyframe so the transition is interruptible and stays smooth even
        when messages are streaming in rapidly (emil-design-eng "Use CSS
@@ -478,13 +517,14 @@
   @starting-style {
     .maka-message-row { opacity: 0; }
   }
-  /* User bubble: 5% foreground overlay, no border, rounded */
+  /* User bubble: tinted slate distinct from --accent, with a notched
+     top-right corner to mark direction. Matches alma 42-theme §15.1. */
   .maka-bubble-user {
-    background: var(--user-message-bubble);
-    border-radius: 12px;
+    background: var(--chat-user-bg);
+    border-radius: 18px 4px 18px 18px;
     padding: 10px 14px;
     line-height: 1.5;
-    color: var(--foreground);
+    color: var(--chat-user-foreground);
     max-width: 80%;
     margin-left: auto;
     white-space: pre-wrap;
@@ -539,12 +579,56 @@
     border-radius: 4px;
     background: var(--foreground-5);
   }
-  .maka-bubble-assistant pre {
+  /* Block code goes inside a maka-code-block wrapper that adds a language
+     pill + copy button on top of the pre. Pre keeps its monospace styling
+     but the border + radius now live on the wrapper so the header reads
+     as part of the same surface. */
+  .maka-bubble-assistant .maka-code-block {
     margin: 0 0 14px;
-    padding: 12px 14px;
     border: 1px solid var(--border);
     border-radius: 10px;
+    overflow: hidden;
     background: var(--foreground-3);
+  }
+  .maka-code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 10px 4px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--foreground-5);
+    color: var(--foreground-60);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+  .maka-code-block-lang {
+    text-transform: lowercase;
+  }
+  .maka-code-block-copy {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--foreground-50);
+    cursor: pointer;
+  }
+  .maka-code-block-copy:hover {
+    color: var(--foreground);
+    background: var(--foreground-10);
+  }
+  .maka-code-block-copy[data-copied="true"] {
+    color: var(--success-text);
+  }
+  .maka-bubble-assistant pre {
+    margin: 0;
+    padding: 12px 14px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     overflow-x: auto;
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -664,14 +748,21 @@
     background: oklch(from var(--success) l c h / 0.08);
     opacity: 1;
   }
+  /* Streaming caret — alma 42-theme uses the half-block glyph ▎ tinted with
+     --accent. Subtler than a full ▋ and gives the impression of motion via
+     the glyph shape itself; we still gently pulse opacity. */
   .maka-bubble-streaming::after {
-    content: "▋";
+    content: "▎";
     display: inline-block;
     margin-left: 2px;
-    color: var(--foreground-50);
-    animation: maka-cursor 1s steps(2) infinite;
+    color: var(--accent);
+    animation: maka-cursor 1.1s ease-in-out infinite;
+    vertical-align: -2px;
   }
-  @keyframes maka-cursor { 50% { opacity: 0; } }
+  @keyframes maka-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @media (prefers-reduced-motion: reduce) {
+    .maka-bubble-streaming::after { animation: none; opacity: 1; }
+  }
 
   /* ---- Tool activity ---------------------------------------------- */
 
@@ -792,19 +883,31 @@
 
   .maka-composer {
     border-top: 1px solid var(--border);
-    padding: 16px 24px 18px 24px;
+    padding: var(--ui-density-composer-pad-y, 16px) 24px var(--ui-density-composer-pad-y, 18px) 24px;
     background: var(--background);
   }
   .maka-composer-inner {
     max-width: 760px;
     margin: 0 auto;
     box-shadow: var(--shadow-minimal);
-    border-radius: 12px;
+    border-radius: 14px;
     background: var(--background);
-    padding: 10px 12px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    border: 1px solid var(--border);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  /* Composer focus ring — `:focus-within` lets the wrapping shell glow
+     when the textarea or any toolbar button is focused, instead of the
+     ugly textarea native outline. */
+  .maka-composer-inner:focus-within {
+    border-color: oklch(from var(--accent) l c h / 0.42);
+    box-shadow:
+      var(--shadow-minimal),
+      0 0 0 3px oklch(from var(--accent) l c h / 0.12);
   }
   .maka-composer textarea {
     appearance: none;
