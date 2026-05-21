@@ -303,6 +303,15 @@ function AppShell() {
     if (state.liveToolsBySession) {
       setLiveToolsBySession((current) => ({ ...current, ...state.liveToolsBySession }));
     }
+    // PR-IR-01b: theme override applied BEFORE the persisted user pref so
+    // the screenshot variant matches `<theme>-<viewport>-<motion>.png`
+    // exactly. `applyTheme` writes both the React state + the `.dark` class
+    // on the html element. Real users never hit this branch because
+    // `state` is null without `MAKA_VISUAL_SMOKE_FIXTURE`.
+    if (state.theme) {
+      applyTheme(state.theme);
+      setThemePref(state.theme);
+    }
     // PR-IR-04: apply reduced-motion attribute when the fixture asks for it.
     // The matching CSS rule in styles.css collapses all animations to
     // ~0.01ms so the screenshot pipeline can capture a reduced-motion

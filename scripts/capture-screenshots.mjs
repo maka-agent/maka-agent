@@ -71,15 +71,18 @@ const ALL_SCENARIOS = [
 ];
 
 const VARIANTS = [
-  // theme, viewport, motion, env extras
-  // Currently only light theme via default user settings — dark requires
-  // a settings preset which lives in the fixture seed; we'll wire that
-  // in a follow-up PR. Capturing light + (motion × viewport) gives us
-  // four PNGs per scenario which is a useful starting baseline.
-  { name: 'light-1280-motion', viewport: { width: 1280, height: 820 } },
-  { name: 'light-990-motion', viewport: { width: 990, height: 820 } },
-  { name: 'light-1280-reduced-motion', viewport: { width: 1280, height: 820 }, reducedMotion: true },
-  { name: 'light-990-reduced-motion', viewport: { width: 990, height: 820 }, reducedMotion: true },
+  // Theme × viewport × reduced-motion = 8 variants per scenario. Theme
+  // override (PR-IR-01b) lets us capture dark variants without per-
+  // fixture seed configuration — driver sets `MAKA_VISUAL_SMOKE_THEME`
+  // and the renderer applies it BEFORE persisted user pref.
+  { name: 'light-1280-motion', theme: 'light', viewport: { width: 1280, height: 820 } },
+  { name: 'light-990-motion', theme: 'light', viewport: { width: 990, height: 820 } },
+  { name: 'light-1280-reduced-motion', theme: 'light', viewport: { width: 1280, height: 820 }, reducedMotion: true },
+  { name: 'light-990-reduced-motion', theme: 'light', viewport: { width: 990, height: 820 }, reducedMotion: true },
+  { name: 'dark-1280-motion', theme: 'dark', viewport: { width: 1280, height: 820 } },
+  { name: 'dark-990-motion', theme: 'dark', viewport: { width: 990, height: 820 } },
+  { name: 'dark-1280-reduced-motion', theme: 'dark', viewport: { width: 1280, height: 820 }, reducedMotion: true },
+  { name: 'dark-990-reduced-motion', theme: 'dark', viewport: { width: 990, height: 820 }, reducedMotion: true },
 ];
 
 const CAPTURE_TIMEOUT_MS = 60_000;
@@ -133,6 +136,7 @@ async function captureSingle(scenario, variant) {
     MAKA_VISUAL_SMOKE_AUTO_CAPTURE: variant.name,
   };
   if (variant.reducedMotion) env.MAKA_VISUAL_SMOKE_REDUCED_MOTION = '1';
+  if (variant.theme) env.MAKA_VISUAL_SMOKE_THEME = variant.theme;
   // Force the BrowserWindow size via env so the bounds-restore path uses
   // the size we want for this variant. Falls back to default if absent.
   env.MAKA_VISUAL_SMOKE_WIDTH = String(variant.viewport.width);

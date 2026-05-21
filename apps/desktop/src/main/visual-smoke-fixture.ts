@@ -45,6 +45,12 @@ export interface VisualSmokeFixture {
    * — anything else fails closed.
    */
   autoCaptureVariant: string | null;
+  /**
+   * PR-IR-01b: theme override (light | dark | auto). null means "use
+   * the user's persisted theme preference". Unknown values fail closed
+   * to null.
+   */
+  theme: 'light' | 'dark' | 'auto' | null;
 }
 
 export function resolveVisualSmokeFixture(
@@ -52,6 +58,7 @@ export function resolveVisualSmokeFixture(
   isPackaged: boolean,
   rawReducedMotion: string | undefined = undefined,
   rawAutoCaptureVariant: string | undefined = undefined,
+  rawTheme: string | undefined = undefined,
 ): VisualSmokeFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
@@ -63,12 +70,26 @@ export function resolveVisualSmokeFixture(
   const scenario = rawScenario as VisualSmokeScenario;
   const reducedMotion = parseReducedMotionFlag(rawReducedMotion);
   const autoCaptureVariant = parseAutoCaptureVariant(rawAutoCaptureVariant);
+  const theme = parseThemeFlag(rawTheme);
   return {
     scenario,
     workspaceName: `visual-smoke-${scenario}`,
     reducedMotion,
     autoCaptureVariant,
+    theme,
   };
+}
+
+/**
+ * Validate the theme override. Accepts only the closed enum
+ * `light | dark | auto`; everything else fails closed to null
+ * (renderer falls back to the user's persisted preference).
+ */
+function parseThemeFlag(raw: string | undefined): 'light' | 'dark' | 'auto' | null {
+  if (raw === undefined) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'light' || normalized === 'dark' || normalized === 'auto') return normalized;
+  return null;
 }
 
 function parseReducedMotionFlag(raw: string | undefined): boolean {
@@ -97,6 +118,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     scenario: fixture.scenario,
     ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
     ...(fixture.autoCaptureVariant ? { autoCaptureVariant: fixture.autoCaptureVariant } : {}),
+    ...(fixture.theme ? { theme: fixture.theme } : {}),
   };
   switch (fixture.scenario) {
     case 'first-run':

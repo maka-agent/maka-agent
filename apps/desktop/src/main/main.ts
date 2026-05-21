@@ -88,6 +88,7 @@ const visualSmokeFixture = resolveVisualSmokeFixture(
   app.isPackaged,
   process.env.MAKA_VISUAL_SMOKE_REDUCED_MOTION,
   process.env.MAKA_VISUAL_SMOKE_AUTO_CAPTURE,
+  process.env.MAKA_VISUAL_SMOKE_THEME,
 );
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
 const store = createSessionStore(workspaceRoot);
@@ -259,7 +260,12 @@ async function createWindow(): Promise<void> {
   // but the BrowserWindow's `backgroundColor` shows during the first frame
   // before the renderer paints. Pick the right initial bg by reading the
   // persisted theme + system preference.
-  const themePref = (await settingsStore.get()).appearance?.theme ?? 'auto';
+  // PR-IR-01b: visual smoke theme override wins over the persisted user
+  // pref. This guarantees the BrowserWindow backgroundColor matches the
+  // theme variant we're about to screenshot, so the very first frame
+  // doesn't capture a light-on-dark or dark-on-light flash.
+  const persistedTheme = (await settingsStore.get()).appearance?.theme ?? 'auto';
+  const themePref = visualSmokeFixture?.theme ?? persistedTheme;
   const isDark =
     themePref === 'dark' ||
     (themePref === 'auto' && nativeTheme.shouldUseDarkColors);

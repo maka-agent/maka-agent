@@ -53,4 +53,12 @@ export interface VisualSmokeState {
    * regex `[a-zA-Z0-9._-]+`, e.g. `light-1280-motion`).
    */
   autoCaptureVariant?: string;
+  /**
+   * PR-IR-01b: theme override driven by `MAKA_VISUAL_SMOKE_THEME=light|dark|auto`.
+   * Lets the screenshot pipeline capture each scenario in both light
+   * and dark themes without requiring per-fixture seed updates. The
+   * renderer applies this BEFORE the user's persisted theme so the
+   * first paint already has the right palette.
+   */
+  theme?: 'light' | 'dark' | 'auto';
 }

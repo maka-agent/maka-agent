@@ -37,6 +37,32 @@ describe('visual smoke fixture mode', () => {
       workspaceName: 'visual-smoke-provider-workspace',
       reducedMotion: false,
       autoCaptureVariant: null,
+      theme: null,
+    });
+  });
+
+  describe('theme override (PR-IR-01b)', () => {
+    it('defaults to null when env var unset', () => {
+      const fixture = resolveVisualSmokeFixture('all', false);
+      assert.equal(fixture?.theme, null);
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.theme, undefined);
+    });
+
+    it('accepts the closed enum light / dark / auto', () => {
+      for (const raw of ['light', 'dark', 'auto', 'LIGHT', ' Dark ']) {
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
+        assert.equal(typeof fixture?.theme, 'string', `raw=${JSON.stringify(raw)}`);
+        const state = getVisualSmokeState(fixture);
+        assert.ok(state?.theme && ['light', 'dark', 'auto'].includes(state.theme), `raw=${JSON.stringify(raw)}`);
+      }
+    });
+
+    it('rejects unknown values (fail-closed)', () => {
+      for (const raw of ['solar', '', 'oklch', 'high-contrast', 'monochrome']) {
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
+        assert.equal(fixture?.theme, null, `raw=${JSON.stringify(raw)}`);
+      }
     });
   });
 
