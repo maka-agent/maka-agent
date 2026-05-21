@@ -133,6 +133,60 @@ const RULES = [
       return offenders;
     },
   },
+  {
+    name: 'dialog-missing-label',
+    /**
+     * Catches elements with `role="dialog"` that lack a label
+     * (`aria-label` or `aria-labelledby`). Without a label, screen
+     * readers announce "dialog" with no context.
+     */
+    scan(text) {
+      const offenders = [];
+      const DIALOG_RE = /<(\w+)\b([^>]*\brole\s*=\s*["']dialog["'][^>]*)>/g;
+      let match;
+      while ((match = DIALOG_RE.exec(text))) {
+        const attrs = match[2] ?? '';
+        // a11y-allow comment within the same element opening
+        const before = text.slice(Math.max(0, match.index - 200), match.index + match[0].length);
+        if (/\/\/\s*a11y-allow:/.test(before)) continue;
+        if (/\baria-label(?:ledby)?\s*=/.test(attrs)) continue;
+        const lineIndex = text.slice(0, match.index).split('\n').length;
+        offenders.push({ line: lineIndex, snippet: match[0].trim().slice(0, 120) });
+      }
+      return offenders;
+    },
+  },
+  {
+    name: 'icon-only-link',
+    /**
+     * Same shape as icon-only-button but for `<a href>` links — an
+     * anchor with only icon children needs an aria-label so AT can
+     * announce it.
+     */
+    scan(text) {
+      const offenders = [];
+      const stripped = text.replace(/\/\/.*$/gm, '');
+      const ANCHOR_OPEN_RE = /<a\s+([^>]*\bhref\s*=[^>]*)>/g;
+      let match;
+      while ((match = ANCHOR_OPEN_RE.exec(stripped))) {
+        const attrs = match[1] ?? '';
+        const start = match.index + match[0].length;
+        const close = stripped.indexOf('</a>', start);
+        if (close < 0) continue;
+        const body = stripped.slice(start, close);
+        const fullDecl = stripped.slice(Math.max(0, match.index - 200), close);
+        if (/\/\/\s*a11y-allow:/.test(fullDecl)) continue;
+        if (/\baria-label(?:ledby)?\s*=/.test(attrs)) continue;
+        const textOnly = body.replace(/<[^>]+>/g, '').replace(/\{[^}]*\}/g, '').trim();
+        if (textOnly.length > 0 && /[a-zA-Z一-鿿]/.test(textOnly)) continue;
+        if (/['"`][^'"`]*[a-zA-Z一-鿿][^'"`]*['"`]/.test(body)) continue;
+        if (/\{[^{}]*(label|name|text|title|alt|description|url|href|children|content|message)/i.test(body)) continue;
+        const lineIndex = text.slice(0, match.index).split('\n').length;
+        offenders.push({ line: lineIndex, snippet: match[0].trim() });
+      }
+      return offenders;
+    },
+  },
 ];
 
 async function main() {
@@ -161,8 +215,10 @@ async function main() {
   }
   console.error('');
   console.error('Fix options:');
-  console.error('  - icon-only-button → add `aria-label="<chinese label>"`');
-  console.error('  - positive-tabindex → use natural DOM order; `tabIndex={0}` or `tabIndex={-1}` only');
+  console.error('  - icon-only-button   → add `aria-label="<chinese label>"`');
+  console.error('  - icon-only-link     → add `aria-label="<chinese label>"`');
+  console.error('  - positive-tabindex  → use natural DOM order; `tabIndex={0}` or `tabIndex={-1}` only');
+  console.error('  - dialog-missing-label → add `aria-label` or `aria-labelledby` to the dialog element');
   console.error('');
   console.error('Genuine exceptions: add `// a11y-allow: <reason>` on the same line.');
   process.exit(1);
