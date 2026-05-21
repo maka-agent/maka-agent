@@ -4,8 +4,11 @@
 // 'auto') to an actual mode and toggles `.dark` on <html>. When the preference
 // is `auto`, the helper subscribes to the system `prefers-color-scheme` media
 // query so the app follows OS-level Light/Dark switches in real time.
+//
+// Also exposes `applyDensity()` which sets `data-ui-density` on <html>; CSS
+// reads the attribute to swap a coherent set of `--ui-density-*` tokens.
 
-import type { ThemePreference } from '@maka/core';
+import type { ThemePreference, UiDensity } from '@maka/core';
 
 const DARK_CLASS = 'dark';
 
@@ -53,4 +56,8 @@ function setDarkClass(isDark: boolean): void {
   // Lets native form controls and scrollbars pick up the right base colors per
   // the Vercel Web Interface Guidelines dark-mode rule.
   root.style.colorScheme = isDark ? 'dark' : 'light';
+}
+
+export function applyDensity(density: UiDensity): void {
+  document.documentElement.setAttribute('data-ui-density', density);
 }

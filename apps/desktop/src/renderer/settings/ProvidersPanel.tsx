@@ -245,7 +245,7 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
   );
 }
 
-function ProviderLogo(props: { type: ProviderType; compact?: boolean }) {
+export function ProviderLogo(props: { type: ProviderType; compact?: boolean }) {
   return (
     <span className="providerLogo" data-provider={props.type} data-compact={props.compact ? 'true' : undefined} aria-hidden="true">
       <ProviderLogoMark type={props.type} />
@@ -580,7 +580,7 @@ function ConnectionDetail(props: {
   );
 }
 
-function providerDisplay(type: ProviderType): { name: string; description: string; badge?: string } {
+export function providerDisplay(type: ProviderType): { name: string; description: string; badge?: string } {
   switch (type) {
     case 'anthropic':
       return { name: 'Anthropic', description: 'Claude API key，适合生产级 Agent。', badge: 'API' };

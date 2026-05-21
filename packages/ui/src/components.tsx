@@ -1,4 +1,4 @@
-import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import React, { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -33,6 +33,7 @@ import type {
   PermissionMode,
   PermissionRequestEvent,
   PermissionResponse,
+  ProviderType,
   SessionSummary,
   StoredMessage,
   ToolResultContent,
@@ -563,7 +564,20 @@ export function ChatView(props: {
   activeSession?: SessionSummary;
   activeConnectionLabel?: string;
   activeModelLabel?: string;
+  /** Renders a provider brand mark next to the model name in the chat tab. */
+  activeProviderType?: ProviderType;
+  /** Optional renderer for the provider mark; supplied by the desktop app to
+   *  avoid bringing the full provider SVG library into @maka/ui. */
+  renderProviderMark?(type: ProviderType): ReactNode;
+  /** Personalized user label shown on user messages. Falls back to "你". */
+  userLabel?: string;
   mode: NavSelection['section'];
+  /**
+   * When the user has no real LLM connection configured, the empty state
+   * defers to this slot. App renders `<OnboardingHero>` here; if undefined,
+   * the regular prompt-suggestion hero shows.
+   */
+  emptyOverride?: ReactNode;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
   onPermissionModeChange?(mode: PermissionMode): void;
@@ -619,7 +633,7 @@ export function ChatView(props: {
           <PermissionModeSwitcher mode="ask" disabled disabledReason="新建对话后再切换模式。" />
         </header>
         <div className="maka-chat messages">
-          <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} />
+          {props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} />}
         </div>
       </main>
     );
@@ -635,6 +649,9 @@ export function ChatView(props: {
           subtitle={props.activeModelLabel ?? props.activeConnectionLabel}
           subtitleHint={props.activeConnectionLabel && props.activeModelLabel
             ? `${props.activeConnectionLabel} · ${props.activeModelLabel}`
+            : undefined}
+          providerMark={props.activeProviderType && props.renderProviderMark
+            ? props.renderProviderMark(props.activeProviderType)
             : undefined}
         />
         <button className="maka-chat-tab-plus" type="button" aria-label="New chat" onClick={props.onNew}>
@@ -657,17 +674,17 @@ export function ChatView(props: {
       <div className="maka-chat-shell">
         <div ref={scrollRef} className="maka-chat messages" onScroll={onScroll}>
           {chat.length === 0 && !props.streamingText && (
-            <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} />
+            props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} />
           )}
           {chat.map((item) => (
             <article key={item.id} className={`maka-message-row message ${item.role}`}>
-              <span>{item.role}</span>
+              <span>{messageRoleLabel(item.role, props.userLabel)}</span>
               <MessageBody role={item.role} text={item.text} />
             </article>
           ))}
           {props.streamingText && (
             <article className="maka-message-row message assistant streaming">
-              <span>assistant</span>
+              <span>{messageRoleLabel('assistant', props.userLabel)}</span>
               <div className="maka-bubble-assistant maka-bubble-streaming">
                 <Markdown text={props.streamingText} />
               </div>
@@ -769,11 +786,66 @@ function Markdown(props: { text: string }) {
             {children}
           </code>
         ),
+        // Wrap block code with a language pill header + copy affordance.
+        // The pill is alma-inspired (40-markdown-deep §7a) — surfaces the
+        // detected language so users can verify hljs got it right.
+        pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
       }}
     >
       {props.text}
     </ReactMarkdown>
   );
+}
+
+function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
+  // Extract the language from the inner <code class="language-xxx hljs"> if
+  // there is one. react-markdown's `pre` always receives a single `code`
+  // child, but downstream rehype plugins may have layered classes on it.
+  const code = isElementWithClassName(children) ? children : null;
+  const lang = code?.props.className?.match(/language-([A-Za-z0-9_+-]+)/)?.[1]?.toLowerCase();
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    const text = collectCodeText(code?.props.children);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <div className="maka-code-block">
+      <div className="maka-code-block-header">
+        <span className="maka-code-block-lang">{lang ?? 'code'}</span>
+        <button
+          type="button"
+          className="maka-code-block-copy"
+          onClick={copy}
+          aria-label={copied ? 'Copied' : 'Copy code'}
+          data-copied={copied}
+        >
+          {copied
+            ? <Check size={12} strokeWidth={2} aria-hidden="true" />
+            : <Copy size={12} strokeWidth={1.75} aria-hidden="true" />}
+        </button>
+      </div>
+      <pre {...rest}>{children}</pre>
+    </div>
+  );
+}
+
+function isElementWithClassName(node: ReactNode): node is React.ReactElement<{ className?: string; children?: ReactNode }> {
+  return typeof node === 'object' && node !== null && 'props' in node;
+}
+
+function collectCodeText(children: ReactNode): string {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children)) return children.map(collectCodeText).join('');
+  if (isElementWithClassName(children)) return collectCodeText(children.props.children);
+  return '';
 }
 
 function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void }) {
@@ -845,10 +917,26 @@ function PermissionModeSwitcher(props: {
   );
 }
 
-function ChatTab(props: { title: string; subtitle?: string; subtitleHint?: string }) {
+function messageRoleLabel(role: string, userLabel?: string): string {
+  if (role === 'user') {
+    const trimmed = userLabel?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : '你';
+  }
+  if (role === 'assistant') return 'Maka';
+  return role;
+}
+
+function ChatTab(props: {
+  title: string;
+  subtitle?: string;
+  subtitleHint?: string;
+  providerMark?: ReactNode;
+}) {
   return (
     <div className="maka-chat-tab" title={props.subtitleHint ? `${props.title} · ${props.subtitleHint}` : props.title}>
-      <MessageSquare className="maka-chat-tab-icon" strokeWidth={1.5} />
+      {props.providerMark
+        ? <span className="maka-chat-tab-provider" aria-hidden="true">{props.providerMark}</span>
+        : <MessageSquare className="maka-chat-tab-icon" strokeWidth={1.5} />}
       <span>{props.title}</span>
       {props.subtitle && <span className="maka-chat-tab-backend">{props.subtitle}</span>}
     </div>

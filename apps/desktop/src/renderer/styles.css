@@ -477,6 +477,24 @@ button:active {
   border-color: oklch(from var(--accent) l c h / 0.18);
 }
 
+/* Subtle left accent bar on the active row — matches Slack / Linear /
+   Telegram sidebar conventions. Positioned via the wrapper's `::before`
+   so it doesn't interfere with the row's grid. */
+.maka-list-row[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-name {
+  color: var(--accent);
+}
+
 .maka-list-row-main {
   flex: 1;
   min-width: 0;
@@ -645,6 +663,132 @@ button:active {
   -webkit-box-orient: vertical;
 }
 
+/* Onboarding hero — first-run, no real connection configured. */
+.maka-onboarding {
+  width: min(760px, 100%);
+  margin: auto;
+  padding: 24px 28px 8vh;
+  display: grid;
+  gap: 24px;
+  color: var(--foreground);
+}
+
+.maka-onboarding header {
+  display: grid;
+  gap: 10px;
+}
+
+.maka-onboarding-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.maka-onboarding header h1 {
+  margin: 0;
+  max-width: 24ch;
+  color: var(--foreground);
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.maka-onboarding header p {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--foreground-60);
+  font-size: 14px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.maka-onboarding-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 10px;
+}
+
+.maka-onboarding-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background-elevated);
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms var(--ease-out-strong);
+}
+
+.maka-onboarding-card:hover {
+  border-color: oklch(from var(--accent) l c h / 0.32);
+  background: oklch(from var(--accent) l c h / 0.05);
+  transform: translateY(-1px);
+}
+
+.maka-onboarding-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.maka-onboarding-card-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.maka-onboarding-card-copy small {
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.maka-onboarding-card > :last-child {
+  color: var(--foreground-40);
+}
+
+.maka-onboarding-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.maka-onboarding-skip {
+  border: 0;
+  background: transparent;
+  color: var(--foreground-60);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+  padding: 6px 4px;
+}
+
+.maka-onboarding-skip:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
 .maka-list-row-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -663,10 +807,29 @@ button:active {
 }
 
 .maka-list-row-unread {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   background: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+}
+
+/* Soft hover state on the primary row body — a tiny scale + background
+   shift gives the row a sense of being "alive" without being noisy. */
+.maka-list-row:hover .maka-list-row-name {
+  color: var(--foreground);
+}
+
+.maka-list-row-main {
+  transition: transform 160ms var(--ease-out-strong);
+}
+
+.maka-list-row:hover .maka-list-row-main {
+  transform: translateX(1px);
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-main {
+  transform: translateX(0);
 }
 
 .maka-empty-state {
@@ -758,6 +921,28 @@ button:active {
   width: 14px;
   height: 14px;
   color: var(--foreground-50);
+}
+
+/* Real provider brand mark replaces the generic MessageSquare icon when
+   the chat has a real connection. The ProviderLogo already renders an
+   inline 32px square via .providerLogo[data-compact]; we just resize. */
+.maka-chat-tab-provider {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.maka-chat-tab-provider .providerLogo {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.maka-chat-tab-provider .providerLogo svg {
+  width: 70%;
+  height: 70%;
 }
 
 .maka-chat-tab span {
@@ -910,6 +1095,21 @@ button:active {
 
 .messages {
   min-height: 0;
+}
+
+/* Soft scrim at the top of the chat scroll area so headings + tabs read
+   as a distinct strata above scrolling content. The bottom edge stays
+   uncovered so the composer keeps a clear connection to the last message. */
+.maka-chat-shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--background) 0%, transparent 100%);
+  z-index: 1;
 }
 
 /* Wraps the scroll surface so the jump-to-bottom button can be absolutely
@@ -1446,13 +1646,16 @@ button:active {
 
 .message > span {
   display: block;
-  margin-bottom: 5px;
-  color: var(--foreground-40);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
+
+.message.user > span { color: var(--foreground-60); }
+.message.assistant > span { color: var(--accent); }
+.message.system > span { color: var(--info-text); }
 
 .message pre {
   margin: 0;
@@ -1526,6 +1729,19 @@ button:active {
   max-height: 240px;
   resize: none;
   overflow-y: auto;
+}
+
+.composer textarea:focus {
+  /* The focus ring lives on the wrapper (.maka-composer-inner:focus-within).
+     The textarea itself stays clean — no double ring. */
+  outline: 0;
+}
+
+.composerActions span kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--foreground-3);
+  border: 1px solid var(--border);
 }
 
 .composerActions > div {
@@ -2243,6 +2459,47 @@ button:active {
     grid-template-columns: 1fr;
   }
 }
+
+.settingsSubheading {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsSubheading + .settingsThemeOptions {
+  margin-top: -6px;
+}
+
+/* Density swatch: three rows of stacked lines that visualize the spacing
+   without needing real chat content. Each variant grows the gap. */
+.settingsDensitySwatch {
+  width: 56px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.settingsDensitySwatch span {
+  display: block;
+  height: 3px;
+  width: 70%;
+  border-radius: 2px;
+  background: var(--foreground-40);
+}
+
+.settingsDensitySwatch-compact { gap: 2px; }
+.settingsDensitySwatch-comfortable { gap: 5px; }
+.settingsDensitySwatch-spacious { gap: 8px; }
+.settingsDensitySwatch-spacious span { width: 78%; }
 
 .settingsBotLayout {
   min-height: 470px;
