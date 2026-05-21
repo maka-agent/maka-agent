@@ -273,6 +273,37 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
       { kind: 'blocked', reason: 'all_connections_unhealthy' },
     );
   });
+
+  // @kenji PR110a review gate: the slug carried by needs_connection_credentials
+  // (and needs_default_model) MUST be the current default's slug. The UI
+  // uses it to focus a setup panel; pointing it at an alt would route the
+  // user to a provider they did not choose.
+  it('case 18: default missing_api_key + alt empty_model_list → needs_connection_credentials { CURRENT default slug, not alt }', () => {
+    const a = realConnection({ slug: 'conn-default' });
+    const b = realConnection({ slug: 'conn-alt', models: [] }); // empty_model_list
+    const result = derive({
+      connections: [a, b],
+      defaultSlug: 'conn-default',
+      secrets: { 'conn-alt': true }, // alt has key; default doesn't
+    });
+    assert.deepEqual(result, { kind: 'needs_connection_credentials', connectionSlug: 'conn-default' });
+    // The alt is also broken (empty_model_list); we MUST NOT route the
+    // user to fix that one. The default's missing_api_key wins.
+    if (result.kind === 'needs_connection_credentials') {
+      assert.notEqual(result.connectionSlug, 'conn-alt');
+    }
+  });
+
+  it('case 19: needs_default_model slug is the CURRENT default, not an alt with the same issue', () => {
+    const a = realConnection({ slug: 'conn-default', defaultModel: 'stale', models: [{ id: 'fresh' }] });
+    const b = realConnection({ slug: 'conn-alt', defaultModel: 'also-stale', models: [{ id: 'something' }] });
+    const result = derive({
+      connections: [a, b],
+      defaultSlug: 'conn-default',
+      secrets: { 'conn-default': true, 'conn-alt': true },
+    });
+    assert.deepEqual(result, { kind: 'needs_default_model', connectionSlug: 'conn-default' });
+  });
 });
 
 // ---------------------------------------------------------------------------
