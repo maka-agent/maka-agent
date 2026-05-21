@@ -380,16 +380,11 @@ function AppShell() {
   // set; render a banner above the chat surface so the user knows
   // they're in a derived conversation and can jump back to the parent.
   //
-  // `fromAbortedTurn` is heuristic: if the parent session is visible
-  // in our session list, we look up the source turn in its loaded
-  // messages and check `status === 'aborted'`. If we don't have those
-  // messages loaded (we only load the active session's messages), we
-  // fall back to no hint — better to under-explain than mislabel.
-  // v1: omit the fromAbortedTurn hint because checking it requires
-  // loading the parent's full message log. The session-status banner
-  // in §9.9 already covers "this branch may be from an abort" via the
-  // footer-tooltip path in PR109d. When parent-message preloading
-  // lands, pass the resolved aborted-turn flag as the third arg.
+  // v1 intentionally omits the fromAbortedTurn hint because checking
+  // it requires loading the parent's full message log. The session
+  // banner stays at "分自 ${parentName}" until parent-message
+  // preloading lands; "从中断前" is only surfaced in the aborted
+  // turn's branch footer tooltip where the active turn status is known.
   const branchBanner = useMemo(
     () => deriveBranchBanner(activeSession, sessions),
     [activeSession?.parentSessionId, sessions],

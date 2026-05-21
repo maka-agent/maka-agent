@@ -789,7 +789,7 @@ Repeat with `turn-control-branch-visible` and `turn-control-branch-orphan`.
 - **S6 — no raw enum leak.** Across all three variants, the rendered
   DOM contains no occurrence of `timeout`, `auth`, `rate_limit`,
   `network`, `provider_unavailable`, `tool_failed`, `permission_required`,
-  `unknown` as standalone tokens (regex word boundary). The same gate
+  `unknown` as raw substrings. The same gate
   applies to `SessionBlockedReason` (`NO_REAL_CONNECTION` etc.).
 
 **Automated coverage backing the matrix.**
