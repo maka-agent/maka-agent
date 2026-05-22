@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import {
+  Activity,
   BarChart3,
   Bot,
   CalendarDays,
@@ -27,6 +28,10 @@ import type {
   CapabilityReadinessState,
   CapabilitySnapshot,
   CapabilitySnapshotCollection,
+  HealthSignal,
+  HealthSignalLayer,
+  HealthSignalStatus,
+  HealthSnapshot,
   LlmConnection,
   NetworkProxySettings,
   OsPermissionId,
@@ -42,7 +47,7 @@ import type {
   UsageStats,
 } from '@maka/core';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
-import { OS_PERMISSION_IDS } from '@maka/core';
+import { HEALTH_SIGNAL_LAYERS, OS_PERMISSION_IDS } from '@maka/core';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
 import { useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
@@ -87,6 +92,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'account', label: '账号', Icon: UserCircle, enabled: true, group: '数据与账号' },
   // Group 5: 其他
   { id: 'permissions', label: '权限与能力', Icon: ShieldCheck, enabled: true, group: '其他' },
+  { id: 'health', label: '健康', Icon: Activity, enabled: true, group: '其他' },
   { id: 'about', label: '关于', Icon: Info, enabled: true, group: '其他' },
 ];
 
@@ -592,6 +598,8 @@ function SettingsPage(props: {
       );
     case 'permissions':
       return <PermissionCenterPage />;
+    case 'health':
+      return <HealthCenterPage />;
     default: {
       const copy = COMING_SOON_PAGES[props.section];
       if (copy) {
@@ -1953,6 +1961,233 @@ function runtimeProbeTone(state: CapabilitySnapshot['runtimeProbe']['state']): '
   if (state === 'degraded') return 'destructive';
   if (state === 'not_run') return 'warning';
   return 'neutral';
+}
+
+/**
+ * PR-UI-9 — Health Center stub. Consumes `window.maka.health.getSnapshot()`
+ * (shipped by @xuan PR-HC-1).
+ *
+ * Hard contract (per @xuan): "validation/config/permission/runtime 别聚成
+ * 一个绿点". The UI groups signals by `layer` and renders each in its own
+ * section so the user sees WHICH layer is okay and WHICH is degraded.
+ *
+ * Status semantics ≠ tone-by-color only. `ok` (validation pass) on an LLM
+ * connection does NOT promote it to operational — that requires a runtime
+ * probe in PR-REAL-4. The detail copy below makes the distinction explicit.
+ *
+ * Read-only stub: no test buttons, no repair flows. Test/repair entries
+ * will be wired in PR-HC-2 once typed actions are exposed.
+ */
+const HEALTH_LAYER_COPY: Record<HealthSignalLayer, { label: string; description: string }> = {
+  configuration: { label: '配置', description: '是否填齐了 settings 里的必填项。' },
+  validation: { label: '验证', description: '凭据 / 端点的连通性测试结果，仅代表 validation 通过，不等于 agent 通路可用。' },
+  permission: { label: '系统权限', description: '所需 OS / TCC 权限是否已授权。' },
+  feature: { label: '功能开关', description: '功能是否被显式启用、是否已实现。' },
+  action_approval: { label: '操作审批', description: '每次工具调用 / 高危操作的审批策略状态。' },
+  memory_acceptance: { label: '记忆写入', description: '是否接受了 memory contract、是否启用了记忆写入。' },
+  runtime_probe: { label: '运行态探测', description: '最近一次真实运行（发送 / 流式 / 收发 smoke）的探测结果。' },
+  storage: { label: '存储', description: '工作区文件、JSONL、SQLite 等本地存储健康度。' },
+};
+
+const HEALTH_STATUS_COPY: Record<HealthSignalStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
+  ok: { label: '正常', tone: 'success' },
+  info: { label: '提示', tone: 'info' },
+  warning: { label: '警告', tone: 'warning' },
+  error: { label: '错误', tone: 'destructive' },
+  unknown: { label: '未知', tone: 'neutral' },
+};
+
+const HEALTH_SCOPE_LABEL: Record<HealthSignal['scope'], string> = {
+  app: '应用',
+  llm_connection: 'LLM 连接',
+  bot: '机器人',
+  capability: '能力',
+  storage: '存储',
+};
+
+function HealthCenterPage() {
+  const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    window.maka.health
+      .getSnapshot()
+      .then((next) => {
+        if (cancelled) return;
+        setSnapshot(next);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : '读取健康快照失败');
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  if (loading) {
+    return (
+      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载健康快照">
+        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '80%' }} />
+      </div>
+    );
+  }
+
+  if (error || !snapshot) {
+    return (
+      <div className="settingsHealthPage">
+        <div className="settingsHealthError" role="alert">
+          <strong>无法读取健康快照</strong>
+          <small>{error ?? '健康服务未返回数据。'}</small>
+          <button type="button" className="maka-button" onClick={() => setRefreshTick((tick) => tick + 1)}>
+            重新读取
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const checkedAtLabel = new Date(snapshot.checkedAt).toLocaleString();
+  const signalsByLayer = groupSignalsByLayer(snapshot.signals);
+  const blocksSendCount = snapshot.signals.filter((signal) => signal.blocksSend).length;
+  const blocksCapabilityCount = snapshot.signals.filter((signal) => signal.blocksCapability).length;
+
+  return (
+    <div className="settingsHealthPage">
+      <header className="settingsHealthIntro">
+        <div>
+          <h3>健康中心</h3>
+          <p>
+            按层级（配置 · 验证 · 权限 · 功能 · 操作审批 · 记忆 · 运行态 · 存储）展示当前快照。
+            <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于 validation 层，运行态需要 PR-REAL-4 接入实测探测。
+          </p>
+        </div>
+        <div className="settingsHealthMeta">
+          <span className="pill" data-tone="info">只读快照</span>
+          <small>最近一次读取：{checkedAtLabel}</small>
+          <button
+            type="button"
+            className="settingsHealthRefresh"
+            onClick={() => setRefreshTick((tick) => tick + 1)}
+          >
+            刷新
+          </button>
+        </div>
+      </header>
+
+      <section aria-label="健康摘要" className="settingsHealthSummary">
+        <HealthSummaryTile tone="success" label="正常" count={snapshot.summary.ok} />
+        <HealthSummaryTile tone="info" label="提示" count={snapshot.summary.info} />
+        <HealthSummaryTile tone="warning" label="警告" count={snapshot.summary.warning} />
+        <HealthSummaryTile tone="destructive" label="错误" count={snapshot.summary.error} />
+        <HealthSummaryTile tone="neutral" label="未知" count={snapshot.summary.unknown} />
+      </section>
+
+      {(blocksSendCount > 0 || blocksCapabilityCount > 0) && (
+        <div className="settingsHealthBlockers" role="status">
+          {blocksSendCount > 0 && (
+            <span className="pill" data-tone="destructive">
+              {blocksSendCount} 条 signal 会阻塞发送
+            </span>
+          )}
+          {blocksCapabilityCount > 0 && (
+            <span className="pill" data-tone="warning">
+              {blocksCapabilityCount} 条 signal 会阻塞 capability
+            </span>
+          )}
+        </div>
+      )}
+
+      {HEALTH_SIGNAL_LAYERS.map((layer) => {
+        const signals = signalsByLayer[layer];
+        if (!signals || signals.length === 0) return null;
+        const copy = HEALTH_LAYER_COPY[layer];
+        return (
+          <section key={layer} className="settingsHealthLayer" aria-label={`${copy.label} signals`}>
+            <header>
+              <h4>{copy.label}</h4>
+              <small>{copy.description}</small>
+            </header>
+            <ul className="settingsHealthSignalList">
+              {signals.map((signal) => (
+                <HealthSignalRow key={signal.id} signal={signal} />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+
+      <p className="settingsHealthFootnote">
+        想要从这里直接「测试连接」「重新探测」「修复凭据」？操作入口等 PR-HC-2 typed action IPC 接入后可用。
+        所有真正的运行态探测（PR-REAL-4 ToolOutputDelta + send/stream/abort smoke）落地后会自动出现在「运行态探测」层。
+      </p>
+    </div>
+  );
+}
+
+function HealthSummaryTile(props: {
+  tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive';
+  label: string;
+  count: number;
+}) {
+  return (
+    <div className="settingsHealthSummaryTile" data-tone={props.tone} data-empty={props.count === 0}>
+      <strong>{props.count}</strong>
+      <small>{props.label}</small>
+    </div>
+  );
+}
+
+function HealthSignalRow(props: { signal: HealthSignal }) {
+  const { signal } = props;
+  const statusCopy = HEALTH_STATUS_COPY[signal.status];
+  const checkedAtLabel = new Date(signal.checkedAt).toLocaleString();
+  return (
+    <li className="settingsHealthSignalRow" data-status={signal.status}>
+      <div className="settingsHealthSignalHeader">
+        <div className="settingsHealthSignalHeading">
+          <strong>{signal.label}</strong>
+          <small className="settingsHealthSignalScope">{HEALTH_SCOPE_LABEL[signal.scope]}</small>
+        </div>
+        <span className="pill" data-tone={statusCopy.tone}>{statusCopy.label}</span>
+      </div>
+      <p className="settingsHealthSignalMessage">{signal.message}</p>
+      {signal.detail && <small className="settingsHealthSignalDetail">{signal.detail}</small>}
+      <div className="settingsHealthSignalMeta">
+        <span>source: <code>{signal.source}</code></span>
+        <span>checked: {checkedAtLabel}</span>
+        {signal.blocksSend && <span className="settingsHealthSignalBlocker" data-tone="destructive">阻塞发送</span>}
+        {signal.blocksCapability && <span className="settingsHealthSignalBlocker" data-tone="warning">阻塞能力</span>}
+      </div>
+    </li>
+  );
+}
+
+function groupSignalsByLayer(signals: HealthSignal[]): Record<HealthSignalLayer, HealthSignal[]> {
+  const byLayer: Record<HealthSignalLayer, HealthSignal[]> = {
+    configuration: [],
+    validation: [],
+    permission: [],
+    feature: [],
+    action_approval: [],
+    memory_acceptance: [],
+    runtime_probe: [],
+    storage: [],
+  };
+  for (const signal of signals) {
+    byLayer[signal.layer].push(signal);
+  }
+  return byLayer;
 }
 
 function SettingsRows(props: { children: ReactNode }) {
