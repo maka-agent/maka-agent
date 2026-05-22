@@ -213,7 +213,13 @@ button:active {
 }
 
 .maka-session-search {
-  height: 34px;
+  /* PR-UI-LAYOUT-8: session-search refresh.
+   * - Background: `--foreground-2` (slight tint) → transparent so
+   *   the search input sits on the warm panel without its own band.
+   * - Border radius 8 → 10 (matches the new card / chip language).
+   * - Height 34 → 32 (tighter without losing tap target).
+   * - Focus state adds accent ring outside the border for clarity. */
+  height: 32px;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
@@ -221,16 +227,21 @@ button:active {
   margin: 0 10px 8px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--foreground-2);
+  border-radius: 10px;
+  background: transparent;
   color: var(--foreground-40);
   font-size: 13px;
-  transition: border-color 140ms ease, background 140ms ease;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.maka-session-search:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.08);
 }
 
 .maka-session-search:focus-within {
-  border-color: oklch(from var(--accent) l c h / 0.4);
+  border-color: oklch(from var(--accent) l c h / 0.42);
   background: var(--background);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.08);
 }
 
 .maka-session-search svg {
@@ -414,13 +425,22 @@ button:active {
 }
 
 .maka-nav-row:hover {
-  background: var(--hover);
+  background: oklch(from var(--foreground) l c h / 0.03);
 }
 
 .maka-nav-row[data-active="true"] {
-  background: oklch(from var(--foreground) l c h / 0.07);
+  /* PR-UI-LAYOUT-8: filter tabs (Chats / Pinned / Archived) now use
+   * a soft accent tint for the active state instead of a neutral
+   * `--foreground` tint. Matches the settings nav active state
+   * (PR-UI-LAYOUT-6) so navigation feels coherent across surfaces.
+   * The active row also picks up the accent color on the icon so
+   * the selection lands fast. */
+  background: oklch(from var(--accent) l c h / 0.06);
   color: var(--foreground);
   font-weight: 500;
+}
+.maka-nav-row[data-active="true"] .maka-nav-icon {
+  color: var(--accent);
 }
 
 .maka-nav-row span:nth-child(2) {
