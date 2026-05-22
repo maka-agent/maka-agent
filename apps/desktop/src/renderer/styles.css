@@ -3093,11 +3093,17 @@ button:active {
 }
 
 .settingsNavItem[data-active="true"] {
-  background: var(--background);
+  /* PR-UI-LAYOUT-6: after LAYOUT-1 shifted the canvas to warm cream
+   * and the modal bg matches `--background`, the previous active
+   * state (background `--background` + inset border) lost contrast
+   * because surround ≈ active. Switch to a subtle accent-tinted
+   * background so the selection reads at a glance, matching the
+   * "active glyph accent" PR-UI-11 introduced. */
+  background: oklch(from var(--accent) l c h / 0.06);
   color: var(--foreground);
   box-shadow:
-    0 1px 0 oklch(0 0 0 / 0.04),
-    inset 0 0 0 1px var(--border);
+    0 1px 0 oklch(0 0 0 / 0.03),
+    inset 0 0 0 1px oklch(from var(--accent) l c h / 0.18);
 }
 
 /* PR-UI-11: active nav item glyph picks up accent tint so the
