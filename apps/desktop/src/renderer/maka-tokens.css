@@ -1242,32 +1242,50 @@
   /* ---- Composer --------------------------------------------------- */
 
   .maka-composer {
-    border-top: 1px solid var(--border);
+    /* PR-UI-LAYOUT-8: remove the visible 1px divider between chat
+     * surface and composer — on the warm canvas the divider read as
+     * a strong horizontal line slicing the panel. The composer's
+     * own border + rounded chrome below is sufficient visual
+     * separation; no extra line needed. */
     padding: var(--ui-density-composer-pad-y, 16px) 24px var(--ui-density-composer-pad-y, 18px) 24px;
     background: var(--background);
   }
   .maka-composer-inner {
     max-width: 760px;
     margin: 0 auto;
-    box-shadow: var(--shadow-minimal);
-    border-radius: 14px;
-    background: var(--background);
-    padding: 12px 14px;
+    /* PR-UI-LAYOUT-8: composer chrome refresh.
+     * - Radius 14 → 16 (matches the new floating panel feel without
+     *   feeling like a pillow).
+     * - Background: var(--background-elevated) instead of plain
+     *   `--background` so the composer reads as "the thing you
+     *   type into" with a slight lift from the panel surface.
+     * - Padding 12/14 → 14/16 for more typing room.
+     * - Box shadow drops 3-layer `--shadow-minimal` for a single
+     *   1px ring + 4px soft glow that's calm at rest. */
+    box-shadow:
+      0 0 0 1px oklch(from var(--foreground) l c h / 0.04),
+      0 1px 3px oklch(from var(--foreground) l c h / 0.04);
+    border-radius: 16px;
+    background: var(--background-elevated);
+    padding: 14px 16px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     border: 1px solid var(--border);
-    transition: border-color 160ms ease, box-shadow 160ms ease;
+    transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
   }
 
   /* Composer focus ring — `:focus-within` lets the wrapping shell glow
      when the textarea or any toolbar button is focused, instead of the
-     ugly textarea native outline. */
+     ugly textarea native outline. PR-UI-LAYOUT-8: ring opacity dropped
+     slightly so the focus state feels alert without being aggressive. */
   .maka-composer-inner:focus-within {
-    border-color: oklch(from var(--accent) l c h / 0.42);
+    border-color: oklch(from var(--accent) l c h / 0.40);
+    background: var(--background);
     box-shadow:
-      var(--shadow-minimal),
-      0 0 0 3px oklch(from var(--accent) l c h / 0.12);
+      0 0 0 1px oklch(from var(--accent) l c h / 0.20),
+      0 0 0 4px oklch(from var(--accent) l c h / 0.08),
+      0 1px 3px oklch(from var(--foreground) l c h / 0.04);
   }
   .maka-composer textarea {
     appearance: none;
