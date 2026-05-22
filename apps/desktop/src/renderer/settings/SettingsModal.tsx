@@ -42,6 +42,7 @@ import type {
   UsageStats,
 } from '@maka/core';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
+import { OS_PERMISSION_IDS } from '@maka/core';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
 import { useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
@@ -1756,8 +1757,8 @@ function PermissionCenterPage() {
           <small>Maka 读到的 OS 级权限状态。撤销请前往「系统设置 → 隐私与安全性」。</small>
         </header>
         <ul className="settingsOsPermissionList">
-          {Object.values(permissions.permissions).map((snapshot) => (
-            <OsPermissionRow key={snapshot.id} snapshot={snapshot} />
+          {OS_PERMISSION_IDS.map((id) => (
+            <OsPermissionRow key={id} snapshot={permissions.permissions[id]} />
           ))}
         </ul>
       </section>
@@ -1831,6 +1832,20 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {(capability.canRevoke || capability.canPause) && (
+        <div className="settingsCapabilityActionHints" aria-label="未来可用的操作">
+          {capability.canPause && (
+            <span className="settingsCapabilityActionHint" data-disabled="true" title="操作入口等 PR-CU-0/1 typed action IPC 接入后可用">
+              可暂停 · 即将可用
+            </span>
+          )}
+          {capability.canRevoke && (
+            <span className="settingsCapabilityActionHint" data-disabled="true" title="操作入口等 PR-CU-0/1 typed action IPC 接入后可用">
+              可撤销 · 即将可用
+            </span>
+          )}
         </div>
       )}
       <div className="settingsCapabilityAuditSlot" aria-hidden={capability.auditEvents.length === 0}>

@@ -6261,6 +6261,27 @@ button:active {
   background: oklch(from var(--info) l c h / 0.10);
 }
 
+.settingsCapabilityActionHints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.settingsCapabilityActionHint {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--foreground-50);
+  background: var(--foreground-3);
+  border: 1px dashed var(--border);
+  cursor: not-allowed;
+}
+.settingsCapabilityActionHint[data-disabled="true"] {
+  opacity: 0.78;
+}
+
 .settingsCapabilityAuditSlot {
   border-top: 1px dashed var(--border);
   padding-top: 8px;
