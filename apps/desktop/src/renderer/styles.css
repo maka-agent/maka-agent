@@ -2508,7 +2508,8 @@ button:active {
   display: grid;
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  /* PR-UI-LAYOUT-9: card radius family alignment (8 → 10). */
+  border-radius: 10px;
   background: var(--background);
   white-space: normal;
 }
@@ -2578,7 +2579,8 @@ button:active {
   display: grid;
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  /* PR-UI-LAYOUT-9: card radius family alignment (8 → 10). */
+  border-radius: 10px;
   background: var(--background);
   white-space: normal;
 }
@@ -5897,21 +5899,34 @@ button:active {
 
 .maka-artifact-pane-collapse {
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-70);
+  /* PR-UI-LAYOUT-18: bumped 22→24 (more comfortable target) and
+   * radius 6→8 to join the card family. Background drops to
+   * transparent so the toggle sits lightly on the panel; hover
+   * tints subtly. Focus ring added. */
+  border-radius: 8px;
   cursor: pointer;
   padding: 0;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .maka-artifact-pane-collapse:hover {
-  background: var(--foreground-5);
+  background: var(--foreground-3);
+  color: var(--foreground);
+  border-color: oklch(from var(--foreground) l c h / 0.08);
+}
+
+.maka-artifact-pane-collapse:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 
 .maka-artifact-pane-title {

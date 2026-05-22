@@ -1079,7 +1079,11 @@
 
   .maka-tool {
     border: 1px solid var(--border);
-    border-radius: 8px;
+    /* PR-UI-LAYOUT-9: tool card chrome aligns with the new card
+     * language — radius 8 → 10 matches the chip / search / settings
+     * radius family; background `--foreground-2` tint stays so tool
+     * cards still feel like inline-code blocks on the warm canvas. */
+    border-radius: 10px;
     background: var(--foreground-2);
     padding: 8px 12px;
     margin-top: 8px;
