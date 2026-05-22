@@ -1369,16 +1369,26 @@ function collectCodeText(children: ReactNode): string {
 function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userLabel?: string }) {
   // Greet the user by name when they've set one in Personalization Settings.
   // Falls back to a neutral title so first-run users don't see "Hi 你, …".
+  //
+  // PR-UI-1 (@yuejing 2026-05-22): visual unification with OnboardingHero
+  // ReadyEmptyHero. Both heroes now use the same Sparkles-eyebrow chrome,
+  // same headline scale, same chip suggestion grid — so users don't see
+  // a jarring visual switch between "first-run" and "empty session" surfaces.
   const label = props.userLabel?.trim();
   return (
-    <div className="emptyChat compact">
-      <span className="eyebrow">Maka</span>
-      <h1>
-        {label
-          ? `${label}，今天想一起做点什么？`
-          : '想一起做点什么？'}
-      </h1>
-      <p>说一下你要改的、想问的、想查的；下面是几个常用起点。</p>
+    <section className="maka-hero maka-hero-empty-chat" aria-label="开始对话">
+      <header>
+        <span className="maka-hero-eyebrow">
+          <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+          <span>READY · 想一起做点什么？</span>
+        </span>
+        <h1>
+          {label
+            ? `${label}，今天想做点什么？`
+            : '直接说说你想做什么。'}
+        </h1>
+        <p>说一下你要改的、想问的、想查的；下面是几个常用起点，也可以直接在下方输入框里描述需求。</p>
+      </header>
       {props.onPromptSuggestion && (
         <ul className="maka-prompt-suggestions" aria-label="提示建议">
           {PROMPT_SUGGESTIONS.map((suggestion) => (
@@ -1395,7 +1405,7 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
 

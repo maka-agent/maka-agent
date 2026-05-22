@@ -2007,11 +2007,43 @@ button:active {
   font-size: 10px;
 }
 
+/* PR-UI-1 (@yuejing 2026-05-22): unified hero chrome.
+ *
+ * `.maka-hero` is the shared layout for both EmptyChatHero (after a
+ * session exists but has no messages) and OnboardingHero variants
+ * (first-run / setup / ready_empty / blocked). Same width / margin /
+ * gap / eyebrow / heading scale, so the visual switch between
+ * "first-run" and "empty session" no longer feels jarring.
+ *
+ * Legacy `.emptyChat` and `.eyebrow` are kept as aliases so any
+ * external CSS / smoke fixture references still match.
+ */
+.maka-hero,
 .emptyChat {
   width: min(760px, 100%);
   margin: auto;
-  padding: 0 24px 8vh;
+  padding: 24px 28px 8vh;
+  display: grid;
+  gap: 20px;
   color: var(--foreground);
+}
+
+.maka-hero header,
+.maka-hero-empty-chat header {
+  display: grid;
+  gap: 10px;
+}
+
+.maka-hero-eyebrow,
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .emptyChat.compact {
@@ -2019,16 +2051,7 @@ button:active {
   margin-bottom: auto;
 }
 
-.eyebrow {
-  display: inline-flex;
-  margin-bottom: 12px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
+.maka-hero h1,
 .emptyChat h1 {
   margin: 0;
   max-width: 28ch;
@@ -2038,6 +2061,7 @@ button:active {
   text-wrap: balance;
 }
 
+.maka-hero p,
 .emptyChat p {
   margin: 10px 0 0;
   max-width: 54ch;
