@@ -673,15 +673,26 @@ button:active {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  /* PR-UI-LAYOUT-26: row action toggles (rename / flag / archive)
+   * radius 6 → 8 to match the new tap-target family + add
+   * focus-visible ring; missing focus state was a a11y gap. */
+  border-radius: 8px;
   background: transparent;
   color: var(--foreground-60);
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 
 .maka-list-row-action:hover {
   color: var(--foreground);
   background: var(--foreground-5);
+}
+
+.maka-list-row-action:focus-visible {
+  outline: none;
+  color: var(--foreground);
+  background: var(--foreground-5);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 
 .maka-list-row-action[data-active="true"] {
@@ -691,6 +702,12 @@ button:active {
 .maka-list-row-action-danger:hover {
   color: var(--destructive-text);
   background: oklch(from var(--destructive) l c h / 0.10);
+}
+
+.maka-list-row-action-danger:focus-visible {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.10);
+  box-shadow: 0 0 0 3px oklch(from var(--destructive) l c h / 0.18);
 }
 
 .maka-list-row-rename-input {
