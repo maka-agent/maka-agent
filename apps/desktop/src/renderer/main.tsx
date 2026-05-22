@@ -57,7 +57,7 @@ import {
 import { deriveTurnFooterActions } from './turn-footer-actions';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { applyDensity, applyTheme } from './theme';
+import { applyDensity, applyTheme, applyThemePalette } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import './styles.css';
 
@@ -485,12 +485,14 @@ function AppShell() {
     void window.maka.settings.get().then((next) => {
       const pref = next.appearance?.theme ?? 'auto';
       const den = next.appearance?.density ?? 'comfortable';
+      const palette = next.appearance?.palette ?? 'default';
       const name = next.personalization?.displayName ?? '';
       setThemePref(pref);
       setDensity(den);
       setUserLabel(name);
       applyTheme(pref);
       applyDensity(den);
+      applyThemePalette(palette);
     });
     void window.maka.skills.list().then(setSkills).catch(() => setSkills([]));
     void applyVisualSmokeFixture();

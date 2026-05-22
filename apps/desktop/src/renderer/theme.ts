@@ -8,7 +8,7 @@
 // Also exposes `applyDensity()` which sets `data-ui-density` on <html>; CSS
 // reads the attribute to swap a coherent set of `--ui-density-*` tokens.
 
-import type { ThemePreference, UiDensity } from '@maka/core';
+import type { ThemePalette, ThemePreference, UiDensity } from '@maka/core';
 
 const DARK_CLASS = 'dark';
 
@@ -72,4 +72,27 @@ function setDarkClass(isDark: boolean): void {
 
 export function applyDensity(density: UiDensity): void {
   document.documentElement.setAttribute('data-ui-density', density);
+}
+
+/**
+ * PR-UI-2 (@yuejing 2026-05-22): apply a base46 palette by writing
+ * `data-maka-theme="<palette>"` on `<html>`. CSS variable overrides
+ * live in `maka-tokens.css`. `default` removes the attribute so the
+ * original Maka palette renders.
+ *
+ * Light/dark variants of each palette switch automatically with the
+ * existing `.dark` class — no separate IPC needed.
+ */
+export function applyThemePalette(palette: ThemePalette): void {
+  const root = document.documentElement;
+  if (palette === 'default') {
+    root.removeAttribute('data-maka-theme');
+  } else {
+    root.setAttribute('data-maka-theme', palette);
+  }
+  try {
+    localStorage.setItem('maka-theme-palette-v1', palette);
+  } catch {
+    /* localStorage unavailable; pre-React paint will fall back to default */
+  }
 }

@@ -100,9 +100,40 @@ export interface UsageSettings {
 export type ThemePreference = 'light' | 'dark' | 'auto';
 export type UiDensity = 'compact' | 'comfortable' | 'spacious';
 
+/**
+ * PR-UI-2 (@yuejing 2026-05-22): base46 palette catalog. Each value
+ * maps to a CSS `[data-maka-theme="..."]` selector in maka-tokens.css
+ * that overrides the 6 base color tokens (background / foreground /
+ * accent / info / success / destructive). `default` keeps the
+ * current Maka palette unchanged.
+ *
+ * Adding a new palette = add `<id>` here + add the matching
+ * `[data-maka-theme="<id>"]` block (light + dark) in maka-tokens.css.
+ */
+export const THEME_PALETTES = [
+  'default',
+  'onedark',
+  'catppuccin-mocha',
+  'tokyo-night',
+  'nord',
+] as const;
+
+export type ThemePalette = typeof THEME_PALETTES[number];
+
+export function isThemePalette(value: unknown): value is ThemePalette {
+  return typeof value === 'string' && (THEME_PALETTES as readonly string[]).includes(value);
+}
+
 export interface AppearanceSettings {
   theme: ThemePreference;
   density: UiDensity;
+  /**
+   * PR-UI-2: optional base46 palette override. When omitted or `default`,
+   * Maka renders the original purple-accent palette. Older settings.json
+   * files without this field continue to work — `normalizeSettings()`
+   * defaults missing values to `default`.
+   */
+  palette?: ThemePalette;
 }
 
 export interface PersonalizationSettings {
@@ -261,6 +292,7 @@ export function createDefaultSettings(): AppSettings {
     appearance: {
       theme: 'auto',
       density: 'comfortable',
+      palette: 'default',
     },
     personalization: {
       displayName: '',
