@@ -2219,6 +2219,32 @@ button:active {
   text-wrap: pretty;
 }
 
+/* PR-UI-LAYOUT-5: command-palette discoverability pill in
+ * EmptyChatHero — analog of 牛马AI's "Space 可以随时唤起 AI 输入"
+ * hint. Calm muted styling so it reads as a hint, not a CTA;
+ * gap between kbd glyphs uses the existing kbd token chrome
+ * (PR-UI-10). Hidden from a11y tree because the actual
+ * shortcut is exposed via the command palette dialog. */
+.maka-hero-palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 6px 10px 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.03);
+  color: var(--foreground-60);
+  font-size: 12px;
+  width: fit-content;
+}
+.maka-hero-palette-hint kbd {
+  font-size: 11px;
+}
+.maka-hero-palette-hint > span {
+  white-space: nowrap;
+}
+
 .message > span {
   display: block;
   margin-bottom: 6px;

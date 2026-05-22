@@ -1473,6 +1473,12 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
   /** Compose the headline when no name (greeting + tail). */
   headlineFallback: (greeting: string, tail: string) => string;
   intro: string;
+  /** PR-UI-LAYOUT-5: small discoverability hint for ⌘K command
+   *  palette — analog of 牛马AI's "Space 可以随时唤起 AI 输入".
+   *  We use ⌘K rather than Space because Cmd+K is the actual
+   *  Maka shortcut and Space conflicts with normal typing in
+   *  the composer. */
+  paletteHint: string;
   promptListLabel: string;
 }> = {
   zh: {
@@ -1493,6 +1499,7 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     headlineWithLabel: (greeting, label) => `${greeting} ${label}，今天想做点什么？`,
     headlineFallback: (greeting, tail) => `${greeting}，${tail}。`,
     intro: '说一下你要改的、想问的、想查的；下面是几个常用起点，也可以直接在下方输入框里描述需求。',
+    paletteHint: '唤起命令面板：搜索 · 设置 · 模型 · 主题 · 新对话 都在这里',
     promptListLabel: '提示建议',
   },
   en: {
@@ -1513,6 +1520,7 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     headlineWithLabel: (greeting, label) => `${greeting} ${label} — what shall we tackle today?`,
     headlineFallback: (greeting, tail) => `${greeting} — ${tail}.`,
     intro: 'Describe what you want to change, ask, or look up. Here are a few common starting points — or just type in the composer below.',
+    paletteHint: 'Open the command palette: search · settings · models · theme · new chat',
     promptListLabel: 'Prompt suggestions',
   },
 };
@@ -1552,6 +1560,10 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
           {label ? copy.headlineWithLabel(greeting, label) : copy.headlineFallback(greeting, greetingTail)}
         </h1>
         <p>{copy.intro}</p>
+        <span className="maka-hero-palette-hint" aria-hidden="true">
+          <kbd>⌘</kbd><kbd>K</kbd>
+          <span>{copy.paletteHint}</span>
+        </span>
       </header>
       {props.onPromptSuggestion && (
         <ul className="maka-prompt-suggestions" aria-label={copy.promptListLabel}>
