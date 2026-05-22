@@ -924,8 +924,15 @@
   .hljs-strong     { font-weight: 700; }
   .maka-bubble-assistant blockquote {
     margin: 0 0 12px;
-    padding: 4px 14px;
-    border-left: 3px solid var(--foreground-20);
+    /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
+     * Bump padding so the quote actually has air around it, switch
+     * left rule to accent at 28% so it visually anchors the quote
+     * without overpowering. Background tint at 4% gives the block
+     * a soft surface that matches the card / tool-card family. */
+    padding: 8px 16px;
+    border-left: 3px solid oklch(from var(--accent) l c h / 0.28);
+    background: oklch(from var(--accent) l c h / 0.04);
+    border-radius: 0 8px 8px 0;
     color: var(--foreground-70);
   }
   .maka-bubble-assistant table {
