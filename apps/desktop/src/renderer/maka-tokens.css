@@ -803,9 +803,22 @@
     color: var(--accent);
     text-decoration: none;
     border-bottom: 1px solid oklch(from var(--accent) l c h / 0.4);
+    /* PR-UI-LAYOUT-34: explicit transition so focus state animates
+     * smoothly. Also: explicit padding-inline + negative margin so
+     * the focus halo has hit area without pushing inline content
+     * around. */
+    padding: 0 2px;
+    margin: 0 -2px;
+    border-radius: 3px;
+    transition: border-bottom-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
   }
   .maka-bubble-assistant a:hover {
     border-bottom-color: var(--accent);
+  }
+  .maka-bubble-assistant a:focus-visible {
+    outline: none;
+    background: oklch(from var(--accent) l c h / 0.06);
+    box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.20);
   }
   .maka-bubble-assistant code {
     font-family: var(--font-mono);
