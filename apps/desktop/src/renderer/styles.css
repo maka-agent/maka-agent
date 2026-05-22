@@ -3553,6 +3553,7 @@ button:active {
 }
 
 .settingsField input,
+.settingsField textarea,
 .settingsFormGrid input,
 .settingsFormGrid select,
 .settingsUsageFilters input,
@@ -3569,7 +3570,20 @@ button:active {
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
+/* PR-UI-LAYOUT-23: textarea needs different chrome from input
+ * since it's multi-line. Override radius (999 pill→12 rounded
+ * rect), padding (0 12→10 12 for top/bottom breathing), and
+ * line-height. The focus halo selector below catches it. */
+.settingsField textarea {
+  border-radius: 12px;
+  padding: 10px 12px;
+  line-height: 1.5;
+  font-family: inherit;
+  font-size: 13px;
+}
+
 .settingsField input:focus,
+.settingsField textarea:focus,
 .settingsFormGrid input:focus,
 .settingsFormGrid select:focus,
 .settingsUsageFilters input:focus,
