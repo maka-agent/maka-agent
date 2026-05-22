@@ -5058,18 +5058,28 @@ button:active {
 .providerEditor input,
 .providerEditor select {
   min-width: 0;
-  min-height: 34px;
+  min-height: 36px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--background);
+  /* PR-UI-LAYOUT-22: provider editor inputs (used in the
+   * ConfigureProvider sheet) brought up to the LAYOUT-11/21 focus
+   * ring family. Was: radius 6 + border-only focus.
+   * Now: radius 8 + min-height 36 + 3px halo + smoother transition.
+   * Matches connectionForm inputs visually so users see the same
+   * "this is a focused input" signal everywhere. */
+  border-radius: 8px;
+  background: var(--background-elevated);
   color: var(--foreground);
-  padding: 0 10px;
+  padding: 0 12px;
   outline: none;
+  font-size: 13px;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
 .providerEditor input:focus,
 .providerEditor select:focus {
-  border-color: oklch(from var(--accent) l c h / 0.38);
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  background: var(--background);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.10);
 }
 
 .providerModelRow,
@@ -5174,11 +5184,15 @@ button:active {
   color: var(--foreground);
   font-size: 12px;
   font-family: var(--font-mono);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .modelTableSearch:focus {
   outline: none;
-  border-color: oklch(from var(--accent) l c h / 0.4);
+  /* PR-UI-LAYOUT-22: brought into the focus-ring family — was
+   * border-color only, now 3px accent halo to match the rest. */
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.10);
 }
 
 .modelTableEmpty {
