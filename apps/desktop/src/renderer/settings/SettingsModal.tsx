@@ -482,7 +482,7 @@ function SettingsSurface(props: {
                       <item.Icon size={16} strokeWidth={1.5} />
                     </span>
                     <strong>{item.label}</strong>
-                    {item.comingSoon && <em className="settingsNavBadge" aria-label="即将推出">Soon</em>}
+                    {item.comingSoon && <em className="settingsNavBadge" aria-label="路线图（尚未实现）">Roadmap</em>}
                   </button>
                 ))}
               </div>
@@ -751,6 +751,16 @@ function ComingSoonPage(props: { copy: ComingSoonCopy }) {
   const { Icon, headline, badge, description, status, willInclude, willNotDo, nextConfig } = props.copy;
   return (
     <section className="settingsComingSoonPage" aria-label={headline}>
+      {/* PR-UI-LAYOUT-17 (@yuejing 2026-05-22, per @kenji audit recommendation):
+       * make the "not yet implemented" state honest at first glance instead
+       * of leaning on the "Soon" nav badge alone. The roadmap banner gives
+       * users an immediate signal that this page is *describing* a planned
+       * surface, not configuring a working one. */}
+      <div className="settingsComingSoonBanner" role="status">
+        <span className="settingsComingSoonBannerDot" aria-hidden="true" />
+        <strong>路线图项</strong>
+        <span>该功能尚未实现；下面是当前 contract、边界与启用前需要的配置。</span>
+      </div>
       <div className="settingsComingSoonHero">
         <span className="settingsComingSoonIcon" aria-hidden="true">
           <Icon size={28} strokeWidth={1.5} />

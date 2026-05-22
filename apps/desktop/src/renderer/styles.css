@@ -3209,6 +3209,34 @@ button:active {
   gap: 18px;
 }
 
+/* PR-UI-LAYOUT-17: roadmap banner at top of every ComingSoonPage. */
+.settingsComingSoonBanner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed oklch(from var(--info) l c h / 0.32);
+  border-radius: 10px;
+  background: oklch(from var(--info) l c h / 0.06);
+  color: var(--foreground-80);
+  font-size: 12.5px;
+  line-height: 1.5;
+  width: fit-content;
+  max-width: 100%;
+}
+.settingsComingSoonBanner strong {
+  color: var(--info-text);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.settingsComingSoonBannerDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info);
+  flex: 0 0 auto;
+}
+
 .settingsComingSoonHero {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
