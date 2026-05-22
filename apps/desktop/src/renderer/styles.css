@@ -80,8 +80,17 @@ button:active {
 
 .appFrame {
   height: 100dvh;
-  padding: 12px;
-  background: var(--foreground-5);
+  /* PR-UI-LAYOUT-1: tightened 12 → 10 to match 牛马AI screenshot 1
+   * where the floating panels sit closer to the window edge. Same
+   * value all sides keeps the gap visually consistent. */
+  padding: 10px;
+  /* PR-UI-LAYOUT-1: shell canvas is now the warm-cream
+   * `--surface-canvas` (defined in maka-tokens.css). Sidebar + main
+   * floating panels use `--background` which is slightly lighter so
+   * the canvas-vs-card separation comes from this subtle delta plus
+   * the hairline border, instead of the previous heavy
+   * `--foreground-5` shell behind near-white cards. */
+  background: var(--surface-canvas);
   color: var(--foreground);
   font-size: var(--font-size-base);
   box-sizing: border-box;
@@ -93,6 +102,10 @@ button:active {
 
 .maka-shell-2col {
   display: grid;
+  /* PR-UI-LAYOUT-1: the middle column is the resize handle. We
+   * keep it at 8px so the keyboard separator still works, but it
+   * doubles as the visible gap between the two floating panels —
+   * 牛马AI runs ~6-8px between cards, which Maka now matches. */
   grid-template-columns:
     var(--maka-session-list-width, var(--w-sessionlist))
     8px
@@ -109,13 +122,20 @@ button:active {
 }
 
 .maka-floating-panel {
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
+  /* PR-UI-LAYOUT-1: softened panel chrome to match 牛马AI screenshot 1.
+   * Was: 14px radius + `--border-strong` + 3-layer shadow that read
+   * as "lifted card on a different surface".
+   * Now: 12px radius + thin `--border` + much lighter shadow that
+   * reads as "rounded subsection of the same warm sheet". This is
+   * what makes the sidebar feel integrated with the main area
+   * instead of a separate panel hovering over a darker shell. */
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--background);
   box-shadow:
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0, 0, 0, 0.06) 0 2px 4px -1px,
-    rgba(0, 0, 0, 0.04) 0 6px 12px -3px;
+    rgba(var(--foreground-rgb), 0.03) 0 0 0 1px,
+    rgba(0, 0, 0, 0.03) 0 1px 2px 0,
+    rgba(0, 0, 0, 0.02) 0 3px 6px -2px;
 }
 
 .maka-resize-handle {
