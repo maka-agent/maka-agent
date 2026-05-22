@@ -5102,10 +5102,23 @@ button:active {
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
+  /* PR-UI-LAYOUT-33: explicit padding + radius so the focus halo
+   * has a defined shape. Was a borderless inline link with no
+   * focus-visible — keyboard users couldn't see it. */
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 6px;
+  transition: background 120ms ease, box-shadow 120ms ease, text-decoration-color 120ms ease;
 }
 
 .providerExternalLink:hover {
   text-decoration: underline;
+}
+
+.providerExternalLink:focus-visible {
+  outline: none;
+  background: oklch(from var(--accent) l c h / 0.06);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 
 .providerModelRow select {
