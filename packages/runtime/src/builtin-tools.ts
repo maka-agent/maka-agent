@@ -10,7 +10,7 @@ import { promises as fs } from 'node:fs';
 import { exec, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { glob as nodeGlob } from 'node:fs/promises'; // Node 22+ stable glob
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 // Single source of truth for tool shape. AiSdkBackend exports them; we just
 // re-export here for back-compat with external callers that imported from
@@ -58,7 +58,7 @@ export function buildBuiltinTools(): MakaTool[] {
       }),
       permissionRequired: false,
       impl: async ({ path, offset, limit }, { cwd }) => {
-        const abs = resolve(cwd, path);
+        const abs = await resolveExistingInsideCwd(cwd, path, 'Read');
         const content = await fs.readFile(abs, 'utf8');
         if (offset === undefined && limit === undefined) return { content };
         const lines = content.split('\n');
@@ -111,7 +111,8 @@ export function buildBuiltinTools(): MakaTool[] {
       }),
       permissionRequired: false,
       impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
-        const base = relCwd ? resolve(cwd, relCwd) : cwd;
+        assertRelativeGlobPattern(pattern);
+        const base = relCwd ? await resolveExistingInsideCwd(cwd, relCwd, 'Glob cwd') : await fs.realpath(cwd);
         const files: string[] = [];
         for await (const f of nodeGlob(pattern, { cwd: base })) {
           files.push(typeof f === 'string' ? f : (f as any).name);
@@ -133,8 +134,8 @@ export function buildBuiltinTools(): MakaTool[] {
         const args = ['-n', '--no-heading', '--max-count=50'];
         if (glob) args.push('--glob', glob);
         args.push(pattern);
-        if (path) args.push(resolve(cwd, path));
-        else args.push(cwd);
+        const searchPath = path ? await resolveExistingInsideCwd(cwd, path, 'Grep') : await fs.realpath(cwd);
+        args.push(searchPath);
         const cmd = `rg ${args.map(shellEscape).join(' ')}`;
         try {
           const { stdout } = await execAsync(cmd, {
@@ -231,4 +232,31 @@ async function runStreamingShell(
 
 function shellEscape(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
+}
+
+async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+  if (isAbsolute(inputPath)) {
+    throw new Error(`${label} path must be relative to session cwd`);
+  }
+  const root = await fs.realpath(cwd);
+  const candidate = resolve(root, inputPath);
+  if (!isInside(root, candidate)) {
+    throw new Error(`${label} path must stay inside session cwd`);
+  }
+  const target = await fs.realpath(candidate);
+  if (!isInside(root, target)) {
+    throw new Error(`${label} path must stay inside session cwd`);
+  }
+  return target;
+}
+
+function isInside(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function assertRelativeGlobPattern(pattern: string): void {
+  if (isAbsolute(pattern) || pattern.split(/[\\/]+/).includes('..')) {
+    throw new Error('Glob pattern must stay inside session cwd');
+  }
 }
