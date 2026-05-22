@@ -3565,6 +3565,8 @@ button:active {
   color: var(--foreground);
   padding: 0 12px;
   outline: none;
+  /* PR-UI-LAYOUT-21: smooth focus transition for the halo below. */
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .settingsField input:focus,
@@ -3572,7 +3574,12 @@ button:active {
 .settingsFormGrid select:focus,
 .settingsUsageFilters input:focus,
 .settingsUsageFilters select:focus {
-  border-color: oklch(from var(--accent) l c h / 0.3);
+  /* PR-UI-LAYOUT-21: was border-only at 0.3 accent — keyboard
+   * focus was hard to see. Added a 3px accent halo (matches the
+   * connection form / nav-primary / button family) and bumped
+   * border opacity 0.3 → 0.42 for parity. */
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.12);
 }
 
 .settingsNotice {
