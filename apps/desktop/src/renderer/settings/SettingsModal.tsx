@@ -11,6 +11,7 @@ import {
   Palette,
   Search,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   User,
   UserCircle,
@@ -22,8 +23,16 @@ import type {
   AppSettings,
   BotProvider,
   BotReadinessState,
+  CapabilityId,
+  CapabilityReadinessState,
+  CapabilitySnapshot,
+  CapabilitySnapshotCollection,
   LlmConnection,
   NetworkProxySettings,
+  OsPermissionId,
+  OsPermissionSnapshot,
+  OsPermissionState,
+  PermissionSnapshot,
   PersonalizationSettingsWarning,
   SettingsSection,
   ThemePreference,
@@ -76,6 +85,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'data', label: '数据', Icon: Database, enabled: true, group: '数据与账号' },
   { id: 'account', label: '账号', Icon: UserCircle, enabled: true, group: '数据与账号' },
   // Group 5: 其他
+  { id: 'permissions', label: '权限与能力', Icon: ShieldCheck, enabled: true, group: '其他' },
   { id: 'about', label: '关于', Icon: Info, enabled: true, group: '其他' },
 ];
 
@@ -579,6 +589,8 @@ function SettingsPage(props: {
           onRefresh={props.onRefreshConnections}
         />
       );
+    case 'permissions':
+      return <PermissionCenterPage />;
     default: {
       const copy = COMING_SOON_PAGES[props.section];
       if (copy) {
@@ -1603,6 +1615,329 @@ function Switch(props: { checked: boolean; onChange(checked: boolean): void }) {
       <span />
     </button>
   );
+}
+
+/**
+ * PR-UI-8 — Permission Center stub. Consumes `window.maka.permissions.getSnapshot()`
+ * and `window.maka.capabilities.getSnapshot()` (both shipped by @xuan PR-REAL-2).
+ *
+ * Stage 1 Hard Gate contract:
+ * - Renders the live snapshot per capability with explicit four-layer breakdown
+ *   (OS permission · feature toggle · action approval · memory acceptance), so
+ *   the user can see WHY each capability lands on its readiness state.
+ * - Surfaces every OS permission separately at the bottom so users can verify
+ *   the underlying TCC state without re-deriving it from capabilities.
+ * - **Read-only by design.** @xuan/@kenji review (2026-05-22): the UI must
+ *   NOT pretend to revoke OS TCC or guide the user through grant flows here;
+ *   that lands in PR-CU-0 / PR-CU-1 once the drag-`.app` helper exists.
+ * - Audit hint slot is reserved (`auditEvents` is empty for now) — once
+ *   PR-REAL-3 wires the audit log, the slot fills without UI change.
+ */
+const CAPABILITY_READINESS_COPY: Record<CapabilityReadinessState, { label: string; detail: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
+  not_configured: { label: '未配置', detail: '需要先打开开关或完成配置才能启用。', tone: 'neutral' },
+  denied: { label: '系统拒绝', detail: '所需系统权限被拒绝或当前平台不支持。', tone: 'destructive' },
+  enabled: { label: '运行可用', detail: '配置、权限、运行态探测都已通过。', tone: 'success' },
+  degraded: { label: '运行降级', detail: '之前可用，但最近的运行态探测失败。', tone: 'warning' },
+  paused: { label: '已暂停', detail: '功能开关被显式关闭，但配置仍保留。', tone: 'info' },
+};
+
+const OS_PERMISSION_COPY: Record<OsPermissionId, { label: string; purpose: string }> = {
+  accessibility: { label: '辅助功能', purpose: 'Computer Use 需要它来读取窗口焦点 / 模拟键盘鼠标。' },
+  screen_recording: { label: '屏幕录制', purpose: 'Computer Use 与 Activity Recorder 需要它来读取窗口内容。' },
+  microphone: { label: '麦克风', purpose: 'Voice 通道需要它来采集语音输入。' },
+  notifications: { label: '通知', purpose: '权限申请、回顾完成等系统通知需要它。' },
+  automation: { label: '自动化（Apple Events）', purpose: 'Computer Use 控制其他 App 需要逐 target 授权。' },
+};
+
+const OS_PERMISSION_STATE_COPY: Record<OsPermissionState, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
+  unsupported: { label: '当前平台不支持', tone: 'neutral' },
+  unknown: { label: '无法读取状态', tone: 'neutral' },
+  not_determined: { label: '尚未授权', tone: 'warning' },
+  denied: { label: '已拒绝', tone: 'destructive' },
+  granted: { label: '已授权', tone: 'success' },
+};
+
+function PermissionCenterPage() {
+  const [permissions, setPermissions] = useState<PermissionSnapshot | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilitySnapshotCollection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      window.maka.permissions.getSnapshot(),
+      window.maka.capabilities.getSnapshot(),
+    ])
+      .then(([perm, caps]) => {
+        if (cancelled) return;
+        setPermissions(perm);
+        setCapabilities(caps);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : '读取权限快照失败');
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  if (loading) {
+    return (
+      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载权限快照">
+        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '80%' }} />
+      </div>
+    );
+  }
+
+  if (error || !permissions || !capabilities) {
+    return (
+      <div className="settingsPermissionPage">
+        <div className="settingsPermissionError" role="alert">
+          <strong>无法读取权限快照</strong>
+          <small>{error ?? '权限服务未返回数据。'}</small>
+          <button type="button" className="maka-button" onClick={() => setRefreshTick((tick) => tick + 1)}>
+            重新读取
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const checkedAtLabel = new Date(capabilities.checkedAt).toLocaleString();
+
+  return (
+    <div className="settingsPermissionPage">
+      <header className="settingsPermissionIntro">
+        <div>
+          <h3>权限与能力中心</h3>
+          <p>
+            这里只读取系统权限与功能能力的当前快照，不会代替你修改任何 OS 权限。
+            撤销与引导流程会在原生 helper 上线后单独提供。
+          </p>
+        </div>
+        <div className="settingsPermissionMeta">
+          <span className="pill" data-tone="info">只读快照</span>
+          <small>最近一次读取：{checkedAtLabel}</small>
+          <button
+            type="button"
+            className="settingsPermissionRefresh"
+            onClick={() => setRefreshTick((tick) => tick + 1)}
+          >
+            刷新
+          </button>
+        </div>
+      </header>
+
+      <section aria-label="功能能力" className="settingsPermissionSection">
+        <header>
+          <h4>功能能力</h4>
+          <small>每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。</small>
+        </header>
+        <ul className="settingsCapabilityList">
+          {capabilities.capabilities.map((capability) => (
+            <CapabilityRow key={capability.id} capability={capability} />
+          ))}
+        </ul>
+      </section>
+
+      <section aria-label="系统权限" className="settingsPermissionSection">
+        <header>
+          <h4>系统权限</h4>
+          <small>Maka 读到的 OS 级权限状态。撤销请前往「系统设置 → 隐私与安全性」。</small>
+        </header>
+        <ul className="settingsOsPermissionList">
+          {Object.values(permissions.permissions).map((snapshot) => (
+            <OsPermissionRow key={snapshot.id} snapshot={snapshot} />
+          ))}
+        </ul>
+      </section>
+
+      <p className="settingsPermissionFootnote">
+        想要新增「拖拽 .app 完成 Accessibility 授权」「逐 target 申请 Automation」「Screen Recording 引导」等真正能修改 OS 权限的流程？
+        正在 PR-CU-0 / PR-CU-1（Computer Use 原生 helper）路上，落地后会替换这里的只读视图。
+      </p>
+    </div>
+  );
+}
+
+function CapabilityRow(props: { capability: CapabilitySnapshot }) {
+  const { capability } = props;
+  const readinessCopy = CAPABILITY_READINESS_COPY[capability.readiness];
+  return (
+    <li className="settingsCapabilityRow" data-readiness={capability.readiness}>
+      <div className="settingsCapabilityHeader">
+        <div className="settingsCapabilityHeading">
+          <strong>{capability.label}</strong>
+          <small className="settingsCapabilityId">{prettyCapabilityId(capability.id)}</small>
+        </div>
+        <span className="pill" data-tone={readinessCopy.tone}>{readinessCopy.label}</span>
+      </div>
+      <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
+      <dl className="settingsCapabilityLayers">
+        <div>
+          <dt>功能开关</dt>
+          <dd data-tone={featureTone(capability.feature.state)}>
+            {featureLabel(capability.feature.state)}
+            {capability.feature.reason && <small>{capability.feature.reason}</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>配置</dt>
+          <dd data-tone={configurationTone(capability.configuration.state)}>
+            {configurationLabel(capability.configuration.state)}
+            {capability.configuration.reason && <small>{capability.configuration.reason}</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>操作审批</dt>
+          <dd data-tone={actionApprovalTone(capability.actionApproval.state)}>
+            {actionApprovalLabel(capability.actionApproval.state)}
+          </dd>
+        </div>
+        <div>
+          <dt>记忆写入</dt>
+          <dd data-tone={memoryAcceptanceTone(capability.memoryAcceptance.state)}>
+            {memoryAcceptanceLabel(capability.memoryAcceptance.state)}
+          </dd>
+        </div>
+        <div>
+          <dt>运行态探测</dt>
+          <dd data-tone={runtimeProbeTone(capability.runtimeProbe.state)}>
+            {runtimeProbeLabel(capability.runtimeProbe.state)}
+            {capability.runtimeProbe.reason && <small>{capability.runtimeProbe.reason}</small>}
+          </dd>
+        </div>
+      </dl>
+      {capability.osPermissions.length > 0 && (
+        <div className="settingsCapabilityOsPermissions">
+          <span>所需系统权限</span>
+          <ul>
+            {capability.osPermissions.map((req) => (
+              <li key={req.id}>
+                <span>{OS_PERMISSION_COPY[req.id]?.label ?? req.id}</span>
+                <em data-tone={OS_PERMISSION_STATE_COPY[req.status].tone}>
+                  {OS_PERMISSION_STATE_COPY[req.status].label}
+                </em>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="settingsCapabilityAuditSlot" aria-hidden={capability.auditEvents.length === 0}>
+        {capability.auditEvents.length === 0 ? (
+          <small>审计日志将在 PR-REAL-3 接入后显示。</small>
+        ) : (
+          <ul>
+            {capability.auditEvents.slice(-3).map((event, index) => (
+              <li key={`${capability.id}-audit-${index}`}>{event}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function OsPermissionRow(props: { snapshot: OsPermissionSnapshot }) {
+  const { snapshot } = props;
+  const copy = OS_PERMISSION_COPY[snapshot.id] ?? { label: snapshot.id, purpose: '' };
+  const stateCopy = OS_PERMISSION_STATE_COPY[snapshot.status];
+  return (
+    <li className="settingsOsPermissionRow" data-state={snapshot.status}>
+      <div>
+        <strong>{copy.label}</strong>
+        <small>{copy.purpose}</small>
+        {snapshot.reason && <small className="settingsOsPermissionReason">{snapshot.reason}</small>}
+      </div>
+      <span className="pill" data-tone={stateCopy.tone}>{stateCopy.label}</span>
+    </li>
+  );
+}
+
+function prettyCapabilityId(id: CapabilityId): string {
+  return id;
+}
+
+function featureLabel(state: CapabilitySnapshot['feature']['state']): string {
+  switch (state) {
+    case 'enabled': return '已开启';
+    case 'disabled': return '已关闭';
+    case 'not_available': return '尚未实现';
+  }
+}
+function featureTone(state: CapabilitySnapshot['feature']['state']): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
+  if (state === 'enabled') return 'success';
+  if (state === 'disabled') return 'info';
+  return 'neutral';
+}
+
+function configurationLabel(state: CapabilitySnapshot['configuration']['state']): string {
+  switch (state) {
+    case 'not_required': return '不需要配置';
+    case 'missing': return '缺少必要配置';
+    case 'present': return '已填写';
+  }
+}
+function configurationTone(state: CapabilitySnapshot['configuration']['state']): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
+  if (state === 'present') return 'success';
+  if (state === 'missing') return 'warning';
+  return 'neutral';
+}
+
+function actionApprovalLabel(state: CapabilitySnapshot['actionApproval']['state']): string {
+  switch (state) {
+    case 'not_required': return '不需要审批';
+    case 'required_per_action': return '每次调用都需审批';
+    case 'pending': return '审批挂起';
+    case 'approved': return '当前会话已批准';
+    case 'denied': return '当前会话已拒绝';
+  }
+}
+function actionApprovalTone(state: CapabilitySnapshot['actionApproval']['state']): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
+  if (state === 'approved') return 'success';
+  if (state === 'denied') return 'destructive';
+  if (state === 'pending') return 'warning';
+  if (state === 'required_per_action') return 'info';
+  return 'neutral';
+}
+
+function memoryAcceptanceLabel(state: CapabilitySnapshot['memoryAcceptance']['state']): string {
+  switch (state) {
+    case 'not_applicable': return '不涉及记忆写入';
+    case 'disabled': return '记忆写入已关闭';
+    case 'draft_required': return '需要先草拟 memory 协议';
+    case 'accepted': return '记忆写入已接受';
+  }
+}
+function memoryAcceptanceTone(state: CapabilitySnapshot['memoryAcceptance']['state']): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
+  if (state === 'accepted') return 'success';
+  if (state === 'draft_required') return 'warning';
+  return 'neutral';
+}
+
+function runtimeProbeLabel(state: CapabilitySnapshot['runtimeProbe']['state']): string {
+  switch (state) {
+    case 'not_available': return '尚无运行态探测';
+    case 'not_run': return '探测未运行';
+    case 'healthy': return '探测通过';
+    case 'degraded': return '探测降级';
+  }
+}
+function runtimeProbeTone(state: CapabilitySnapshot['runtimeProbe']['state']): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
+  if (state === 'healthy') return 'success';
+  if (state === 'degraded') return 'destructive';
+  if (state === 'not_run') return 'warning';
+  return 'neutral';
 }
 
 function SettingsRows(props: { children: ReactNode }) {

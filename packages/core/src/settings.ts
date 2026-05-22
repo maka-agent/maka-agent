@@ -15,6 +15,7 @@ export type SettingsSection =
   | 'network'
   | 'data'
   | 'account'
+  | 'permissions'
   | 'about';
 
 export type ProxyProtocol = 'http' | 'https' | 'socks5';

@@ -5994,12 +5994,342 @@ button:active {
 .maka-session-branch-banner[data-from-aborted] {
   /* Muted-warning tone so the user sees the branch starts from before
      the cancel point, not from the abort itself. */
-  border-color: oklch(from var(--warning) l c h / 0.28);
-  background: oklch(from var(--warning) l c h / 0.08);
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
   color: var(--warning-text);
 }
 .maka-session-branch-banner[data-from-aborted]:hover {
   background: oklch(from var(--warning) l c h / 0.14);
   border-color: oklch(from var(--warning) l c h / 0.42);
   color: var(--warning);
+}
+
+/* =============================================================================
+   PR-UI-8 — Permission Center page
+
+   Read-only consumption of PR-REAL-2 snapshots. The visual language is
+   intentionally calm and informational: cards, dl rows, pills. No revoke
+   buttons here — that lands in PR-CU-0/1.
+============================================================================= */
+
+.settingsPermissionPage {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settingsPermissionIntro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--foreground-3);
+}
+.settingsPermissionIntro h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.settingsPermissionIntro p {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  max-width: 52ch;
+}
+.settingsPermissionMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.settingsPermissionMeta small {
+  color: var(--foreground-60);
+  font-size: 0.75rem;
+}
+.settingsPermissionRefresh {
+  border: 1px solid var(--border);
+  background: var(--background);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--foreground-80);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.settingsPermissionRefresh:hover {
+  background: var(--foreground-5);
+  border-color: var(--border-strong);
+  color: var(--foreground);
+}
+.settingsPermissionRefresh:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settingsPermissionError {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid oklch(from var(--destructive) l c h / 0.30);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  border-radius: 12px;
+  color: var(--destructive-text);
+}
+.settingsPermissionError strong {
+  font-size: 0.9rem;
+}
+.settingsPermissionError small {
+  color: var(--foreground-70);
+  font-size: 0.8125rem;
+}
+.settingsPermissionError button {
+  align-self: flex-start;
+}
+
+.settingsPermissionSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settingsPermissionSection > header h4 {
+  margin: 0 0 2px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.settingsPermissionSection > header small {
+  color: var(--foreground-60);
+  font-size: 0.78rem;
+}
+
+.settingsCapabilityList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.settingsCapabilityRow {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.settingsCapabilityRow:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 1px 0 0 oklch(from var(--foreground) l c h / 0.03);
+}
+.settingsCapabilityRow[data-readiness="denied"] {
+  border-color: oklch(from var(--destructive) l c h / 0.28);
+}
+.settingsCapabilityRow[data-readiness="degraded"] {
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+}
+.settingsCapabilityRow[data-readiness="enabled"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+}
+
+.settingsCapabilityHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.settingsCapabilityHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settingsCapabilityHeading strong {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.settingsCapabilityId {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--foreground-50);
+}
+.settingsCapabilityDetail {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--foreground-70);
+  line-height: 1.5;
+}
+
+.settingsCapabilityLayers {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 12px;
+  padding: 10px 12px;
+  background: var(--foreground-3);
+  border-radius: 8px;
+}
+.settingsCapabilityLayers > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settingsCapabilityLayers dt {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--foreground-50);
+  margin: 0;
+}
+.settingsCapabilityLayers dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settingsCapabilityLayers dd small {
+  font-size: 0.7rem;
+  color: var(--foreground-50);
+}
+.settingsCapabilityLayers dd[data-tone="success"] { color: var(--success-text); }
+.settingsCapabilityLayers dd[data-tone="warning"] { color: var(--warning-text, var(--info-text)); }
+.settingsCapabilityLayers dd[data-tone="destructive"] { color: var(--destructive-text); }
+.settingsCapabilityLayers dd[data-tone="info"] { color: var(--info-text); }
+.settingsCapabilityLayers dd[data-tone="neutral"] { color: var(--foreground-70); }
+
+.settingsCapabilityOsPermissions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settingsCapabilityOsPermissions > span {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--foreground-50);
+}
+.settingsCapabilityOsPermissions ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.settingsCapabilityOsPermissions li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: var(--background);
+  color: var(--foreground-80);
+}
+.settingsCapabilityOsPermissions li em {
+  font-style: normal;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--foreground-5);
+  color: var(--foreground-70);
+}
+.settingsCapabilityOsPermissions li em[data-tone="success"] {
+  color: var(--success-text);
+  background: oklch(from var(--success) l c h / 0.10);
+}
+.settingsCapabilityOsPermissions li em[data-tone="warning"] {
+  color: var(--warning-text, var(--info-text));
+  background: oklch(from var(--warning, var(--info)) l c h / 0.10);
+}
+.settingsCapabilityOsPermissions li em[data-tone="destructive"] {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.10);
+}
+.settingsCapabilityOsPermissions li em[data-tone="info"] {
+  color: var(--info-text);
+  background: oklch(from var(--info) l c h / 0.10);
+}
+
+.settingsCapabilityAuditSlot {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+.settingsCapabilityAuditSlot small {
+  color: var(--foreground-50);
+  font-size: 0.72rem;
+}
+.settingsCapabilityAuditSlot ul {
+  list-style: disc;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.78rem;
+  color: var(--foreground-70);
+}
+
+.settingsOsPermissionList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.settingsOsPermissionRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+.settingsOsPermissionRow > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settingsOsPermissionRow strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.settingsOsPermissionRow small {
+  color: var(--foreground-60);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+.settingsOsPermissionReason {
+  color: var(--foreground-50);
+  font-size: 0.72rem !important;
+  font-style: italic;
+}
+.settingsOsPermissionRow[data-state="denied"] {
+  border-color: oklch(from var(--destructive) l c h / 0.30);
+}
+.settingsOsPermissionRow[data-state="not_determined"] {
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+}
+.settingsOsPermissionRow[data-state="granted"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+}
+
+.settingsPermissionFootnote {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--foreground-3);
+  color: var(--foreground-60);
+  font-size: 0.78rem;
+  line-height: 1.55;
 }
