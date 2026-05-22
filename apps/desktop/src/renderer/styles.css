@@ -351,18 +351,32 @@ button:active {
   margin: 0;
   padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  /* PR-UI-LAYOUT-16: "New chat" sidebar primary button radius
+   * 8 → 10 to match the card / chip / search family. Shadow
+   * softens from `--shadow-minimal` (3-layer) to a single 1px
+   * ring — on the warm canvas the heavier shadow felt like
+   * the button was hovering above the sidebar panel rather
+   * than sitting on it. Hover transitions added. */
+  border-radius: 10px;
   background: var(--background);
-  box-shadow: var(--shadow-minimal);
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.03);
   color: var(--foreground);
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
   text-align: left;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .maka-nav-primary:hover {
   background: var(--foreground-2);
+  border-color: oklch(from var(--foreground) l c h / 0.08);
+}
+
+.maka-nav-primary:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 
 .maka-nav-primary-icon {
