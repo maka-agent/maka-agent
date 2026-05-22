@@ -5423,7 +5423,9 @@ button:active {
   align-items: center;
   gap: 10px;
   border: 1px dashed var(--border);
-  border-radius: 13px;
+  /* PR-UI-LAYOUT-19: enabledProviderChip radius 13 → 12 to sit
+   * cleanly in the card family (12 for chip-ish surfaces). */
+  border-radius: 12px;
   background: var(--background);
   color: var(--foreground);
   padding: 10px 12px;
