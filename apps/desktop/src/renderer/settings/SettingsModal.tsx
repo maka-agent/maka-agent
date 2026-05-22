@@ -759,7 +759,13 @@ function ComingSoonPage(props: { copy: ComingSoonCopy }) {
       <div className="settingsComingSoonBanner" role="status">
         <span className="settingsComingSoonBannerDot" aria-hidden="true" />
         <strong>路线图项</strong>
-        <span>该功能尚未实现；下面是当前 contract、边界与启用前需要的配置。</span>
+        {/* PR-UI-LAYOUT-17 + @kenji review (#my-ai:9a8fb603 msg fb7fe5af):
+         * banner copy stays explicit about the unimplemented state and
+         * avoids operational verbs (启用 / connected / toggle / etc.)
+         * to prevent users from reading this page as a working
+         * surface. The page below describes capability, boundary, and
+         * the future configuration flow only. */}
+        <span>该功能尚未实现；下面是当前 contract、边界与未来的配置流程预览。</span>
       </div>
       <div className="settingsComingSoonHero">
         <span className="settingsComingSoonIcon" aria-hidden="true">
@@ -794,7 +800,7 @@ function ComingSoonPage(props: { copy: ComingSoonCopy }) {
         </ul>
       </ComingSoonSection>
 
-      <ComingSoonSection tone="config" title="下一步需要配置什么">
+      <ComingSoonSection tone="config" title="上线后的配置流程">
         <ul className="settingsComingSoonList">
           {nextConfig.map((bullet) => (
             <li key={bullet}>{bullet}</li>
