@@ -1,0 +1,168 @@
+/**
+ * Tests for the onboarding snapshot poller + isSetupRequired helper
+ * (PR110c).
+ *
+ * The React hook (`useOnboardingSnapshotImpl`) is a thin shell over
+ * `createOnboardingSnapshotPoller`. We test the pure poller here —
+ * stale-response defense, error handling — and verify the helper
+ * predicate `isSetupRequired`. The React wiring is covered by smoke
+ * + manual UI testing in PR110d.
+ */
+
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
+import type { OnboardingState } from '@maka/core';
+import {
+  createOnboardingSnapshotPoller,
+  isSetupRequired,
+} from '../../renderer/use-onboarding-snapshot.js';
+import type { OnboardingSnapshot } from '../../global.js';
+
+const READY_SNAPSHOT: OnboardingSnapshot = {
+  state: {
+    kind: 'ready_empty',
+    defaultConnectionSlug: 'a',
+    defaultModel: 'm',
+  } as OnboardingState,
+  milestones: [],
+};
+
+const NEEDS_CONNECTION_SNAPSHOT: OnboardingSnapshot = {
+  state: { kind: 'needs_connection' } as OnboardingState,
+  milestones: [],
+};
+
+describe('createOnboardingSnapshotPoller', () => {
+  it('routes a successful getSnapshot to onSnapshot', async () => {
+    const events: Array<{ type: 'snap' | 'err'; payload: unknown }> = [];
+    const poller = createOnboardingSnapshotPoller(
+      { getSnapshot: async () => READY_SNAPSHOT },
+      {
+        onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
+        onError: (m) => events.push({ type: 'err', payload: m }),
+      },
+    );
+    await poller.pull();
+    assert.deepEqual(events, [{ type: 'snap', payload: READY_SNAPSHOT }]);
+  });
+
+  it('routes a getSnapshot rejection to onError', async () => {
+    const events: Array<{ type: 'snap' | 'err'; payload: unknown }> = [];
+    const poller = createOnboardingSnapshotPoller(
+      {
+        getSnapshot: async () => {
+          throw new Error('ipc unavailable');
+        },
+      },
+      {
+        onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
+        onError: (m) => events.push({ type: 'err', payload: m }),
+      },
+    );
+    await poller.pull();
+    assert.deepEqual(events, [{ type: 'err', payload: 'ipc unavailable' }]);
+  });
+
+  it('older inflight response cannot overwrite newer state (ticket guard)', async () => {
+    let resolveFirst!: (snap: OnboardingSnapshot) => void;
+    let resolveSecond!: (snap: OnboardingSnapshot) => void;
+    let call = 0;
+    const events: Array<{ type: 'snap'; payload: OnboardingSnapshot }> = [];
+    const poller = createOnboardingSnapshotPoller(
+      {
+        getSnapshot: () =>
+          new Promise<OnboardingSnapshot>((resolve) => {
+            call += 1;
+            if (call === 1) resolveFirst = resolve;
+            else resolveSecond = resolve;
+          }),
+      },
+      {
+        onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
+        onError: () => {
+          /* not expected */
+        },
+      },
+    );
+    // Fire two overlapping pulls.
+    const pull1 = poller.pull();
+    const pull2 = poller.pull();
+    // Resolve the newer pull (#2) first.
+    resolveSecond(READY_SNAPSHOT);
+    await pull2;
+    assert.deepEqual(events, [{ type: 'snap', payload: READY_SNAPSHOT }]);
+    // Now resolve the stale pull (#1) — it must be ignored.
+    resolveFirst(NEEDS_CONNECTION_SNAPSHOT);
+    await pull1;
+    assert.deepEqual(
+      events,
+      [{ type: 'snap', payload: READY_SNAPSHOT }],
+      'stale response from earlier pull must not emit',
+    );
+  });
+
+  it('older inflight error cannot overwrite newer state', async () => {
+    let rejectFirst!: (err: Error) => void;
+    let resolveSecond!: (snap: OnboardingSnapshot) => void;
+    let call = 0;
+    const snaps: OnboardingSnapshot[] = [];
+    const errs: string[] = [];
+    const poller = createOnboardingSnapshotPoller(
+      {
+        getSnapshot: () =>
+          new Promise<OnboardingSnapshot>((resolve, reject) => {
+            call += 1;
+            if (call === 1) rejectFirst = reject;
+            else resolveSecond = resolve;
+          }),
+      },
+      {
+        onSnapshot: (s) => snaps.push(s),
+        onError: (m) => errs.push(m),
+      },
+    );
+    const pull1 = poller.pull();
+    const pull2 = poller.pull();
+    resolveSecond(READY_SNAPSHOT);
+    await pull2;
+    rejectFirst(new Error('stale failure'));
+    await pull1;
+    assert.equal(snaps.length, 1);
+    assert.equal(errs.length, 0, 'stale error from older pull must NOT emit');
+  });
+});
+
+describe('isSetupRequired', () => {
+  it('returns true for the four needs_* variants', () => {
+    for (const kind of [
+      'needs_connection',
+      'needs_default_connection',
+      'needs_connection_credentials',
+      'needs_default_model',
+    ] as const) {
+      const state =
+        kind === 'needs_connection_credentials' || kind === 'needs_default_model'
+          ? ({ kind, connectionSlug: 'a' } as OnboardingState)
+          : ({ kind } as OnboardingState);
+      assert.equal(isSetupRequired(state), true, `${kind} should be setup-required`);
+    }
+  });
+
+  it('returns false for ready_empty / ready_with_history / blocked / undefined', () => {
+    const ready: OnboardingState = {
+      kind: 'ready_empty',
+      defaultConnectionSlug: 'a',
+      defaultModel: 'm',
+    };
+    const withHistory: OnboardingState = {
+      kind: 'ready_with_history',
+      defaultConnectionSlug: 'a',
+      defaultModel: 'm',
+    };
+    const blocked: OnboardingState = { kind: 'blocked', reason: 'all_connections_unhealthy' };
+    assert.equal(isSetupRequired(ready), false);
+    assert.equal(isSetupRequired(withHistory), false);
+    assert.equal(isSetupRequired(blocked), false);
+    assert.equal(isSetupRequired(undefined), false);
+  });
+});

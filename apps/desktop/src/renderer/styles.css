@@ -841,6 +841,72 @@ button:active {
   text-decoration: underline;
 }
 
+/* PR110c: extended OnboardingHero variants. The setup variants
+   reuse the base `.maka-onboarding` chrome but skip the provider
+   grid; we add a compact body + a single CTA. */
+.maka-onboarding-setup header h1 {
+  font-size: 22px;
+}
+.maka-onboarding-setup header p {
+  margin-top: 8px;
+}
+.maka-onboarding-setup[data-tone="warning"] header h1 {
+  color: var(--warning, var(--foreground));
+}
+.maka-onboarding-slug {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--foreground-5, oklch(from var(--foreground) l c h / 0.06));
+  color: var(--foreground-80, oklch(from var(--foreground) l c h / 0.80));
+}
+
+/* Quick Chat composer (ready_empty branch). Looks similar to the
+   main composer but lives inside the hero card so the first-run
+   surface stays self-contained. */
+.maka-onboarding-ready header h1 {
+  font-size: 24px;
+}
+.maka-onboarding-quickchat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.maka-onboarding-quickchat-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 80px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--background-elevated, var(--background));
+  color: var(--foreground);
+  font: inherit;
+  line-height: 1.5;
+}
+.maka-onboarding-quickchat-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-onboarding-quickchat-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.maka-onboarding-quickchat .maka-button {
+  align-self: flex-end;
+  min-width: 120px;
+}
+
+/* @kenji PR110c review: loading slot rendered while the first
+   onboarding snapshot resolves. Empty visual — just blocks the
+   default EmptyChatHero so the user doesn't see prompt suggestions
+   flash before the state-routed hero mounts. */
+.maka-onboarding-loading {
+  min-height: 120px;
+}
+
 .maka-list-row-name {
   display: flex;
   align-items: center;
