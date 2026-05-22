@@ -7,6 +7,9 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
   generalizedErrorMessage,
+  buildHealthSnapshot,
+  healthSignalFromCapability,
+  healthSignalFromConnection,
   isPermissionMode,
 } from '@maka/core';
 import type {
@@ -930,6 +933,22 @@ function registerIpc(): void {
       botStatuses: botRegistry.allStatuses(),
       now: permissions.checkedAt,
     });
+  });
+  ipcMain.handle('health:getSnapshot', async () => {
+    const now = Date.now();
+    const permissions = buildPermissionSnapshot(now);
+    const settings = await settingsStore.get();
+    const capabilitySnapshot = buildCapabilitySnapshotCollection({
+      settings,
+      permissions,
+      botStatuses: botRegistry.allStatuses(),
+      now,
+    });
+    const connections = await connectionStore.list();
+    return buildHealthSnapshot(now, [
+      ...connections.map((connection) => healthSignalFromConnection(connection, now)),
+      ...capabilitySnapshot.capabilities.map(healthSignalFromCapability),
+    ]);
   });
 
   ipcMain.handle('settings:get', async () => maskAppSettings(await settingsStore.get()));

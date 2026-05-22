@@ -4,6 +4,7 @@ import type {
   CreateConnectionInput,
   AppSettings,
   BotProvider,
+  HealthSnapshot,
   LlmConnection,
   ModelDiscoveryResult,
   ModelInfo,
@@ -124,6 +125,9 @@ declare global {
       };
       capabilities: {
         getSnapshot(): Promise<CapabilitySnapshotCollection>;
+      };
+      health: {
+        getSnapshot(): Promise<HealthSnapshot>;
       };
       usage: {
         summary(query: UsageQuery): Promise<Result<UsageSummaryV2>>;

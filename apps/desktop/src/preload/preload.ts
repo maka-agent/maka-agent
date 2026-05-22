@@ -5,6 +5,7 @@ import type {
   CreateConnectionInput,
   AppSettings,
   BotProvider,
+  HealthSnapshot,
   LlmConnection,
   ModelDiscoveryResult,
   ModelInfo,
@@ -202,6 +203,11 @@ contextBridge.exposeInMainWorld('maka', {
   capabilities: {
     getSnapshot(): Promise<CapabilitySnapshotCollection> {
       return ipcRenderer.invoke('capabilities:getSnapshot');
+    },
+  },
+  health: {
+    getSnapshot(): Promise<HealthSnapshot> {
+      return ipcRenderer.invoke('health:getSnapshot');
     },
   },
   settings: {

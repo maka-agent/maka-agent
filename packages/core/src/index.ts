@@ -168,6 +168,25 @@ export {
   runtimeProbeFromBotReadiness,
 } from './capabilities.js';
 
+// health.ts
+export type {
+  HealthSignal,
+  HealthSignalLayer,
+  HealthSignalScope,
+  HealthSignalSource,
+  HealthSignalStatus,
+  HealthSnapshot,
+  HealthSnapshotSummary,
+} from './health.js';
+export {
+  HEALTH_SIGNAL_LAYERS,
+  HEALTH_SIGNAL_STATUSES,
+  buildHealthSnapshot,
+  healthSignalFromCapability,
+  healthSignalFromConnection,
+  isHealthSignalStatus,
+} from './health.js';
+
 // backend-types.ts
 export type { BackendSendInput, PermissionDecision } from './backend-types.js';
 
