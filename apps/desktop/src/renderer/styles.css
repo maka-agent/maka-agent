@@ -1348,13 +1348,18 @@ button:active {
 .maka-chat-tab-provider .providerLogo {
   width: 18px;
   height: 18px;
-  border-radius: 6px;
-  box-shadow: none;
+  /* 28% ratio matching the md / sm anchors (PR-UI-13). Previously 6px
+   * (33%) which made the chat-tab badge feel rounder than the sidebar
+   * chip and onboarding card. */
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 0.5px oklch(1 0 0 / 0.4);
 }
 
 .maka-chat-tab-provider .providerLogo svg {
-  width: 70%;
-  height: 70%;
+  /* Anchor to the same 72% inner ratio as md / sm so the brand mark
+   * reads the same at every size. */
+  width: 72%;
+  height: 72%;
 }
 
 .maka-chat-tab span {
@@ -5212,12 +5217,26 @@ button:active {
   font-weight: 600;
 }
 
+/* PR-UI-13 (@yuejing 2026-05-22): ProviderLogo size normalization.
+ *
+ * Audit §3.8 — "OnboardingHero (compact) 跟 ProvidersPanel (default)
+ * 大小不同，底图比例感觉不统一". Root cause: the compact override
+ * only resized width/height/border-radius, but inherited the default
+ * `0 8px 16px` drop shadow — at 32px the shadow extends ~25% beyond
+ * the icon, visually drifting from the default size. Border-radius
+ * ratios also drifted (29.5% default vs 31.25% compact vs 33% micro).
+ *
+ * Fix: pin a single ~27-28% border-radius ratio across all three
+ * sizes (md / sm / xs) and scale the drop shadow proportionally.
+ * Inner SVG keeps the existing 72% ratio so brand marks read the
+ * same at every size.
+ */
 .providerLogo {
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 13px;
+  border-radius: 12px; /* 27.3% — anchor ratio */
   background: var(--foreground-5);
   color: var(--brand-deep);
   box-shadow:
@@ -5228,7 +5247,13 @@ button:active {
 .providerLogo[data-compact="true"] {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: 9px; /* 28.1% — matches md ratio */
+  /* Scale the drop shadow with the icon so the visual weight stays
+   * proportional. Without this override the compact icon inherited
+   * the 44px-tuned shadow and felt heavier than the default. */
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.58),
+    0 4px 10px oklch(0.44 0.03 90 / 0.05);
 }
 
 .providerLogo svg {
