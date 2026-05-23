@@ -1,4 +1,4 @@
-import React, { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import React, { createContext, forwardRef, memo, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -35,6 +35,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { redactSecrets } from './redact.js';
+import { isMakaUri, parseMakaUri, type MakaUriDest } from './maka-uri.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1390,12 +1391,18 @@ function Markdown(props: { text: string }) {
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
       rehypePlugins={MARKDOWN_REHYPE_PLUGINS as never}
       components={{
-        // Force external links to open in a new window — Electron will route
-        // through the OS default browser when the renderer is configured to.
+        // PR-UI-RENDER-2: route `maka://` links through the internal
+        // URI parser so the assistant can drop in-app navigation
+        // affordances ("用账号登录 Settings → Account"). The parser
+        // is a strict allowlist; anything outside (`maka://tool/`,
+        // `maka://auth/`, malformed sections) renders as a
+        // non-clickable broken-link inline error. NEVER falls back
+        // to `openExternal` — internal-link routing must not become
+        // a hidden external-URL escape.
         a: ({ children, href, ...rest }) => (
-          <a {...rest} href={href} target="_blank" rel="noreferrer noopener">
+          <MarkdownLink href={href} {...rest}>
             {children}
-          </a>
+          </MarkdownLink>
         ),
         // Inline `code` keeps the bubble's foreground color; only block code
         // gets the framed treatment via `pre > code` in CSS.
@@ -1414,6 +1421,88 @@ function Markdown(props: { text: string }) {
     </ReactMarkdown>
   );
 }
+
+/**
+ * PR-UI-RENDER-2 — Markdown link router.
+ *
+ * Routes by parser result, NOT by string inspection in JSX:
+ *
+ *   parseMakaUri(href)
+ *     ├─ MakaUriDest      → <button onClick={dispatch(dest)}>
+ *     ├─ null AND isMakaUri  → broken-link inline error <span>
+ *     │                        (NOT a clickable element; NOT openExternal)
+ *     └─ null AND !isMakaUri → ordinary external link (Electron OS browser)
+ *
+ * The `MakaUriContext` provider in `main.tsx` injects the dispatcher
+ * once at the App root; consumers read it via `useContext`. If a
+ * Markdown island renders without a provider, valid `maka://` links
+ * still get the broken-link treatment (we don't trigger uninstalled
+ * navigation).
+ */
+function MarkdownLink(props: {
+  href?: string;
+  children?: ReactNode;
+  [key: string]: unknown;
+}) {
+  const { href, children, ...rest } = props;
+  const dispatch = useContext(MakaUriContext);
+
+  if (typeof href === 'string' && isMakaUri(href)) {
+    const dest = parseMakaUri(href);
+    if (dest && dispatch) {
+      // Valid internal link with an installed dispatcher.
+      // Render as a button (not <a>) so screen readers announce
+      // "button" rather than "link" — this is in-app navigation,
+      // not a hyperlink to a URL.
+      return (
+        <button
+          type="button"
+          className="maka-markdown-link maka-markdown-link-internal"
+          data-maka-uri-kind={dest.kind}
+          onClick={() => dispatch(dest)}
+        >
+          {children}
+        </button>
+      );
+    }
+    // Either parseMakaUri returned null (unsupported namespace /
+    // malformed section) OR no dispatcher is installed. Render as a
+    // non-clickable broken-link inline error. Plain `<span>` (no
+    // role) — we do not want screen readers to announce this as a
+    // link or button.
+    return (
+      <span
+        className="maka-markdown-link maka-markdown-link-broken"
+        title="内部链接无效"
+        aria-label="内部链接无效"
+      >
+        {children}
+      </span>
+    );
+  }
+
+  // Ordinary external link — Electron routes target=_blank through
+  // the OS default browser when the renderer is configured to.
+  return (
+    <a {...rest} href={href} className="maka-markdown-link maka-markdown-link-external" target="_blank" rel="noreferrer noopener">
+      {children}
+    </a>
+  );
+}
+
+/**
+ * PR-UI-RENDER-2 — context for the internal-link dispatcher.
+ *
+ * The desktop renderer installs the dispatcher once at the App root
+ * (see `apps/desktop/src/renderer/main.tsx`). The dispatcher takes a
+ * typed `MakaUriDest` and routes to whatever real navigation surface
+ * the app uses (e.g. `setNavSelection({section: 'settings', tab: ...})`
+ * for `kind: 'settings'`, or `composer.prefill(text)` for `kind:
+ * 'compose'`). The Markdown link renderer never invokes navigation
+ * directly — that's the dispatcher's job, and the dispatcher is the
+ * single chokepoint to add observability / consent prompts later.
+ */
+export const MakaUriContext = createContext<((dest: MakaUriDest) => void) | undefined>(undefined);
 
 function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
   // Extract the language from the inner <code class="language-xxx hljs"> if

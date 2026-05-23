@@ -6457,6 +6457,67 @@ button:active {
 }
 
 /* =============================================================================
+   PR-UI-RENDER-2 — Markdown link router visual states
+
+   Three states the Markdown link override can render:
+     - .maka-markdown-link-internal — valid maka:// link. Rendered as
+       a <button> so AT announces "button" not "link"; the action is
+       in-app navigation, not a hyperlink.
+     - .maka-markdown-link-broken — isMakaUri(href) but parseMakaUri
+       returned null (unsupported namespace, malformed section, etc.)
+       OR no MakaUriContext provider installed. Plain <span>, NOT
+       clickable, NOT announced as link/button.
+     - .maka-markdown-link-external — anything else. Ordinary <a>
+       with target=_blank, opens in OS default browser.
+   The internal/external variants share a base treatment; the broken
+   variant uses a dashed destructive underline so users can tell it
+   isn't actionable.
+============================================================================= */
+
+.maka-markdown-link {
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  border-radius: 2px;
+}
+
+.maka-markdown-link-internal {
+  /* Reset native <button> chrome so it visually flows with prose. */
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline solid var(--accent-50);
+  cursor: pointer;
+}
+.maka-markdown-link-internal:hover {
+  text-decoration-color: var(--accent);
+}
+.maka-markdown-link-internal:focus-visible {
+  outline: 2px solid oklch(from var(--accent) l c h / 0.42);
+  outline-offset: 2px;
+}
+.maka-markdown-link-internal:active {
+  transform: translateY(0.5px);
+}
+
+.maka-markdown-link-external {
+  color: var(--accent);
+  text-decoration: underline solid var(--accent-50);
+}
+.maka-markdown-link-external:hover {
+  text-decoration-color: var(--accent);
+}
+
+.maka-markdown-link-broken {
+  color: var(--destructive);
+  text-decoration: underline dashed oklch(from var(--destructive) l c h / 0.55);
+  cursor: not-allowed;
+}
+
+/* =============================================================================
    PR-UI-8 — Permission Center page
 
    Read-only consumption of PR-REAL-2 snapshots. The visual language is
