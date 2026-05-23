@@ -173,10 +173,73 @@ export function parseMakaUri(href: string): MakaUriDest | null {
  * Returns `true` even for invalid `maka:` URIs (unknown namespace,
  * malformed section); the caller distinguishes via `parseMakaUri`
  * and renders the broken-link inline error treatment.
+ *
+ * Strict (case-sensitive) `maka:` only. For the renderer's
+ * "candidate" probe — which needs to catch `Maka:` / `MAKA:` and
+ * route them to the broken-link inline error rather than letting
+ * them fall through to external `<a target=_blank>` — use
+ * `isMakaUriCandidate` instead.
  */
 export function isMakaUri(href: string): boolean {
   if (typeof href !== 'string') return false;
   return href.startsWith('maka:');
+}
+
+/**
+ * PR-UI-C2 review fixup (@kenji msg 7fb8d15c) — case-insensitive
+ * "looks like a maka: URI" probe.
+ *
+ * The strict `parseMakaUri` only accepts lowercase `maka:` (a
+ * security-relevant invariant: prompt-injected `Maka://settings/...`
+ * must NOT navigate). But the renderer needs a SEPARATE check to
+ * decide "is this trying to be an internal URI?" so case-variants
+ * route to the broken-link inline error, not to external
+ * `<a target=_blank>` (which would let the OS browser handle it).
+ *
+ * This helper recognizes `maka:` / `Maka:` / `MAKA:` / etc. as
+ * candidates. `parseMakaUri()` still rejects them — but the
+ * renderer sees `isMakaUriCandidate && parseMakaUri === null` and
+ * renders the broken-link `<span>`.
+ */
+export function isMakaUriCandidate(href: string): boolean {
+  if (typeof href !== 'string') return false;
+  return /^maka:/i.test(href);
+}
+
+/**
+ * PR-UI-C2 review fixup (@kenji msg 7fb8d15c + 73e92ef0) —
+ * explicit safe-scheme allowlist for the EXTERNAL link path.
+ *
+ * Without this gate, `MarkdownLink` would render any non-`maka:`
+ * href as `<a href=... target=_blank>` — including `javascript:`,
+ * `data:`, `file:`. Even though react-markdown's pipeline may
+ * sanitize some of these, the link chokepoint should not depend
+ * on that. Explicit allowlist here makes the boundary visible
+ * and inspectable in visual-smoke baselines.
+ *
+ * Allowed: `http:` (HTTP via OS browser), `https:` (HTTPS via OS
+ * browser), `mailto:` (default mail client). Everything else
+ * (incl. `javascript:`, `data:`, `file:`, `vbscript:`, custom
+ * schemes) returns `false` and the renderer falls back to the
+ * "unsafe link" broken-link inline error.
+ *
+ * Uses `new URL(href).protocol` for the check (not a naive
+ * prefix-match) — @kenji msg 73e92ef0: `mailto:` must be parsed
+ * as a real URL, not matched against a string prefix. A bare
+ * email or text like `mailto-info:contact` would otherwise slip
+ * past a prefix-only check.
+ */
+export function isSafeExternalScheme(href: string): boolean {
+  if (typeof href !== 'string') return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(href);
+  } catch {
+    return false;
+  }
+  // `URL.protocol` includes the trailing colon and is lowercased
+  // by the WHATWG URL spec for special schemes.
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:';
 }
 
 function isSettingsSection(value: string): value is SettingsSection {

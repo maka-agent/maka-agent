@@ -22,7 +22,12 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { isMakaUri, parseMakaUri } from '@maka/ui/maka-uri';
+import {
+  isMakaUri,
+  isMakaUriCandidate,
+  isSafeExternalScheme,
+  parseMakaUri,
+} from '@maka/ui/maka-uri';
 
 describe('parseMakaUri — scheme gate', () => {
   it('rejects non-maka schemes', () => {
@@ -230,5 +235,98 @@ describe('isMakaUri', () => {
     assert.equal(isMakaUri(null), false);
     // @ts-expect-error — intentional bad input
     assert.equal(isMakaUri(undefined), false);
+  });
+});
+
+describe('isMakaUriCandidate — case-insensitive renderer probe (@kenji msg 7fb8d15c)', () => {
+  // The renderer needs to catch ANY case-variant of `maka:` so that
+  // `Maka://settings/account` etc. route to the broken-link inline
+  // error rather than falling through to external `<a target=_blank>`.
+  // `parseMakaUri` still strictly accepts only lowercase `maka:`,
+  // so case-variants here cause `parseMakaUri === null` AND
+  // `isMakaUriCandidate === true` → broken-link render.
+
+  it('returns true for lowercase maka:', () => {
+    assert.equal(isMakaUriCandidate('maka://settings/account'), true);
+  });
+
+  it('returns true for uppercase / mixed-case scheme', () => {
+    assert.equal(isMakaUriCandidate('Maka://settings/account'), true);
+    assert.equal(isMakaUriCandidate('MAKA://settings/account'), true);
+    assert.equal(isMakaUriCandidate('MaKa://compose?text=hi'), true);
+  });
+
+  it('returns false for other schemes', () => {
+    assert.equal(isMakaUriCandidate('https://example.com/'), false);
+    assert.equal(isMakaUriCandidate('javascript:alert(1)'), false);
+    assert.equal(isMakaUriCandidate('makafake://oops'), false);
+  });
+
+  it('returns false for non-strings', () => {
+    // @ts-expect-error — defensive
+    assert.equal(isMakaUriCandidate(null), false);
+    // @ts-expect-error — defensive
+    assert.equal(isMakaUriCandidate(undefined), false);
+    // @ts-expect-error — defensive
+    assert.equal(isMakaUriCandidate(42), false);
+  });
+
+  it('case-variants are candidate=true but parseMakaUri=null → renderer renders broken-link', () => {
+    // The two halves of the gate combined: this is the contract the
+    // renderer relies on for "Maka://... must NOT navigate".
+    for (const href of ['Maka://settings/account', 'MAKA://compose?text=hi', 'MaKa://settings/health']) {
+      assert.equal(isMakaUriCandidate(href), true, `candidate true for ${href}`);
+      assert.equal(parseMakaUri(href), null, `parseMakaUri null for ${href}`);
+    }
+  });
+});
+
+describe('isSafeExternalScheme — explicit external allowlist (@kenji msg 7fb8d15c + 73e92ef0)', () => {
+  it('accepts http: / https: / mailto: only', () => {
+    assert.equal(isSafeExternalScheme('http://example.com'), true);
+    assert.equal(isSafeExternalScheme('https://example.com/path?q=1'), true);
+    assert.equal(isSafeExternalScheme('mailto:user@example.com'), true);
+  });
+
+  it('rejects dangerous schemes', () => {
+    assert.equal(isSafeExternalScheme('javascript:alert(1)'), false);
+    assert.equal(isSafeExternalScheme('data:text/html,<script>alert(1)</script>'), false);
+    assert.equal(isSafeExternalScheme('file:///etc/passwd'), false);
+    assert.equal(isSafeExternalScheme('vbscript:msgbox("x")'), false);
+  });
+
+  it('rejects maka: scheme (handled by the internal path, not external)', () => {
+    assert.equal(isSafeExternalScheme('maka://settings/account'), false);
+    assert.equal(isSafeExternalScheme('Maka://settings/account'), false);
+  });
+
+  it('rejects custom / unknown schemes', () => {
+    assert.equal(isSafeExternalScheme('ms-excel://something'), false);
+    assert.equal(isSafeExternalScheme('telnet://host'), false);
+    assert.equal(isSafeExternalScheme('ftp://host'), false);
+  });
+
+  it('rejects garbage / unparseable hrefs', () => {
+    assert.equal(isSafeExternalScheme(''), false);
+    assert.equal(isSafeExternalScheme('not a url'), false);
+    assert.equal(isSafeExternalScheme('://no-scheme'), false);
+  });
+
+  it('rejects bare emails without mailto: prefix (parser must see real mailto URL)', () => {
+    // @kenji msg 73e92ef0: bare `user@example.com` is not a URL and
+    // must not auto-link. The C2 PR doesn't introduce email
+    // autolinking; this test locks that we don't accidentally
+    // accept it via a prefix-match shortcut.
+    assert.equal(isSafeExternalScheme('user@example.com'), false);
+    assert.equal(isSafeExternalScheme('mailto-info:contact'), false);
+  });
+
+  it('rejects non-strings', () => {
+    // @ts-expect-error — defensive
+    assert.equal(isSafeExternalScheme(null), false);
+    // @ts-expect-error — defensive
+    assert.equal(isSafeExternalScheme(undefined), false);
+    // @ts-expect-error — defensive
+    assert.equal(isSafeExternalScheme(42), false);
   });
 });

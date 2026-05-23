@@ -35,7 +35,12 @@ import {
   Wifi,
 } from 'lucide-react';
 import { redactSecrets } from './redact.js';
-import { isMakaUri, parseMakaUri, type MakaUriDest } from './maka-uri.js';
+import {
+  isMakaUriCandidate,
+  isSafeExternalScheme,
+  parseMakaUri,
+  type MakaUriDest,
+} from './maka-uri.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1447,7 +1452,14 @@ function MarkdownLink(props: {
   const { href, children, ...rest } = props;
   const dispatch = useContext(MakaUriContext);
 
-  if (typeof href === 'string' && isMakaUri(href)) {
+  // PR-UI-C2 review fixup (@kenji msg 7fb8d15c): case-insensitive
+  // candidate probe so `Maka://` / `MAKA://` / `MaKa://` route to
+  // the broken-link inline error rather than falling through to
+  // the external `<a target=_blank>` path. `parseMakaUri` still
+  // strictly accepts only lowercase `maka:`, so case-variants
+  // hit the `internal-link-broken` rendering with the "内部链接
+  // 无效" copy.
+  if (typeof href === 'string' && isMakaUriCandidate(href)) {
     const dest = parseMakaUri(href);
     if (dest && dispatch) {
       // Valid internal link with an installed dispatcher.
@@ -1466,13 +1478,14 @@ function MarkdownLink(props: {
       );
     }
     // Either parseMakaUri returned null (unsupported namespace /
-    // malformed section) OR no dispatcher is installed. Render as a
-    // non-clickable broken-link inline error. Plain `<span>` (no
-    // role) — we do not want screen readers to announce this as a
-    // link or button.
+    // malformed section / case-variant scheme) OR no dispatcher
+    // is installed. Render as a non-clickable broken-link inline
+    // error. Plain `<span>` (no role) so screen readers do not
+    // announce it as a link or button.
     return (
       <span
         className="maka-markdown-link maka-markdown-link-broken"
+        data-reason="internal-invalid"
         title="内部链接无效"
         aria-label="内部链接无效"
       >
@@ -1481,12 +1494,30 @@ function MarkdownLink(props: {
     );
   }
 
-  // Ordinary external link — Electron routes target=_blank through
-  // the OS default browser when the renderer is configured to.
+  // PR-UI-C2 review fixup (@kenji msg 7fb8d15c): explicit safe-
+  // scheme gate on the external path. Only `http:` / `https:` /
+  // `mailto:` are rendered as `<a target=_blank>`. Anything else
+  // (`javascript:`, `data:`, `file:`, `vbscript:`, custom schemes,
+  // garbage / unparseable hrefs) renders as a non-clickable
+  // "link unsafe" inline error. Distinct copy + data-reason from
+  // the internal-invalid case so visual-smoke baselines can
+  // distinguish which gate fired.
+  if (typeof href === 'string' && isSafeExternalScheme(href)) {
+    return (
+      <a {...rest} href={href} className="maka-markdown-link maka-markdown-link-external" target="_blank" rel="noreferrer noopener">
+        {children}
+      </a>
+    );
+  }
   return (
-    <a {...rest} href={href} className="maka-markdown-link maka-markdown-link-external" target="_blank" rel="noreferrer noopener">
+    <span
+      className="maka-markdown-link maka-markdown-link-broken"
+      data-reason="unsafe-scheme"
+      title="链接不安全"
+      aria-label="链接不安全"
+    >
       {children}
-    </a>
+    </span>
   );
 }
 
