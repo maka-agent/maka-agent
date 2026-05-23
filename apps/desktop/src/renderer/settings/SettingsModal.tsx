@@ -1645,7 +1645,7 @@ function Switch(props: { checked: boolean; onChange(checked: boolean): void }) {
 const CAPABILITY_READINESS_COPY: Record<CapabilityReadinessState, { label: string; detail: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
   not_configured: { label: '未配置', detail: '需要先打开开关或完成配置才能启用。', tone: 'neutral' },
   denied: { label: '系统拒绝', detail: '所需系统权限被拒绝或当前平台不支持。', tone: 'destructive' },
-  enabled: { label: '运行可用', detail: '配置、权限、运行态探测都已通过。', tone: 'success' },
+  enabled: { label: '运行可用', detail: '当前快照标记为可用，具体层级见下方。', tone: 'success' },
   degraded: { label: '运行降级', detail: '之前可用，但最近的运行态探测失败。', tone: 'warning' },
   paused: { label: '已暂停', detail: '功能开关被显式关闭，但配置仍保留。', tone: 'info' },
 };
@@ -1773,7 +1773,7 @@ function PermissionCenterPage() {
 
       <p className="settingsPermissionFootnote">
         想要新增「拖拽 .app 完成 Accessibility 授权」「逐 target 申请 Automation」「Screen Recording 引导」等真正能修改 OS 权限的流程？
-        正在 PR-CU-0 / PR-CU-1（Computer Use 原生 helper）路上，落地后会替换这里的只读视图。
+        权限引导模块（Computer Use 原生 helper）接入后会替换这里的只读视图。
       </p>
     </div>
   );
@@ -1845,12 +1845,12 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
       {(capability.canRevoke || capability.canPause) && (
         <div className="settingsCapabilityActionHints" aria-label="未来可用的操作">
           {capability.canPause && (
-            <span className="settingsCapabilityActionHint" data-disabled="true" title="操作入口等 PR-CU-0/1 typed action IPC 接入后可用">
+            <span className="settingsCapabilityActionHint" data-disabled="true" title="权限引导模块接入后提供">
               可暂停 · 即将可用
             </span>
           )}
           {capability.canRevoke && (
-            <span className="settingsCapabilityActionHint" data-disabled="true" title="操作入口等 PR-CU-0/1 typed action IPC 接入后可用">
+            <span className="settingsCapabilityActionHint" data-disabled="true" title="权限引导模块接入后提供">
               可撤销 · 即将可用
             </span>
           )}
@@ -1858,7 +1858,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
       )}
       <div className="settingsCapabilityAuditSlot" aria-hidden={capability.auditEvents.length === 0}>
         {capability.auditEvents.length === 0 ? (
-          <small>审计日志将在 PR-REAL-3 接入后显示。</small>
+          <small>审计日志接入后显示。</small>
         ) : (
           <ul>
             {capability.auditEvents.slice(-3).map((event, index) => (
@@ -2069,7 +2069,7 @@ function HealthCenterPage() {
           <h3>健康中心</h3>
           <p>
             按层级（配置 · 验证 · 权限 · 功能 · 操作审批 · 记忆 · 运行态 · 存储）展示当前快照。
-            <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于 validation 层，运行态需要 PR-REAL-4 接入实测探测。
+            <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于 validation 层，运行态需要运行态探测接入后实测。
           </p>
         </div>
         <div className="settingsHealthMeta">
@@ -2128,8 +2128,8 @@ function HealthCenterPage() {
       })}
 
       <p className="settingsHealthFootnote">
-        想要从这里直接「测试连接」「重新探测」「修复凭据」？操作入口等 PR-HC-2 typed action IPC 接入后可用。
-        所有真正的运行态探测（PR-REAL-4 ToolOutputDelta + send/stream/abort smoke）落地后会自动出现在「运行态探测」层。
+        想要从这里直接「测试连接」「重新探测」「修复凭据」？运行态修复操作接入后显示。
+        所有真正的运行态探测落地后会自动出现在「运行态探测」层。
       </p>
     </div>
   );
