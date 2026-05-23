@@ -4954,7 +4954,11 @@ button:active {
 .providerCatalogTitle strong {
   min-width: 0;
   overflow-wrap: normal;
-  font-size: 12px;
+  /* PR-UI-LAYOUT-37: title bumped 12→13px (provider name was
+   * unreadably small for a card title — most peer cards in the
+   * settings use 13-14px). Tile grid `minmax(198px, 1fr)` still
+   * fits comfortably; checked on 1280-width baseline. */
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
 }
@@ -4974,8 +4978,11 @@ button:active {
 
 .providerCatalogCopy small {
   color: var(--foreground-50);
-  font-size: 11px;
-  line-height: 1.35;
+  /* PR-UI-LAYOUT-37: description bumped 11→12px so the helper
+   * line under each provider name is readable without forcing
+   * the user to lean in. */
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .providerCatalogSoon {
