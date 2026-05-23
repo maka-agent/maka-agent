@@ -38,6 +38,7 @@ describe('visual smoke fixture mode', () => {
       reducedMotion: false,
       autoCaptureVariant: null,
       theme: null,
+      locale: null,
     });
   });
 
@@ -64,6 +65,57 @@ describe('visual smoke fixture mode', () => {
         const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, raw);
         assert.equal(fixture?.theme, null, `raw=${JSON.stringify(raw)}`);
       }
+    });
+  });
+
+  describe('UI locale override (PR-UI-VISUAL-SMOKE-LOCALE)', () => {
+    it('defaults to null when MAKA_VISUAL_SMOKE_LOCALE unset', () => {
+      const fixture = resolveVisualSmokeFixture('all', false);
+      assert.equal(fixture?.locale, null);
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.locale, undefined);
+    });
+
+    it('accepts the closed enum zh / en (case + whitespace tolerant)', () => {
+      for (const raw of ['zh', 'en', 'ZH', ' En ', 'EN']) {
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, raw);
+        assert.ok(fixture?.locale, `raw=${JSON.stringify(raw)}`);
+        assert.ok(['zh', 'en'].includes(fixture!.locale!), `raw=${JSON.stringify(raw)}`);
+        const state = getVisualSmokeState(fixture);
+        assert.ok(state?.locale && ['zh', 'en'].includes(state.locale), `raw=${JSON.stringify(raw)}`);
+      }
+    });
+
+    it('rejects unknown locale values (fail-closed to navigator detection)', () => {
+      // Cover regional variants too — we deliberately only accept the
+      // bare `zh` / `en` short codes. `zh-CN` etc. fail closed so the
+      // override is unambiguous; users wanting CN locale set `zh`.
+      for (const raw of ['', 'es', 'ja', 'zh-CN', 'en-US', 'auto', 'system']) {
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, raw);
+        assert.equal(fixture?.locale, null, `raw=${JSON.stringify(raw)}`);
+      }
+    });
+
+    it('locale flag carries through into VisualSmokeState across all known scenarios', () => {
+      for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
+        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, undefined, 'zh');
+        assert.equal(fixture?.locale, 'zh', `scenario=${scenario}`);
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.locale, 'zh', `scenario=${scenario}`);
+      }
+    });
+
+    it('locale is independent from theme / reduced-motion / auto-capture', () => {
+      const fixture = resolveVisualSmokeFixture('all', false, '1', 'light-1280-motion', 'dark', 'en');
+      assert.equal(fixture?.locale, 'en');
+      assert.equal(fixture?.theme, 'dark');
+      assert.equal(fixture?.reducedMotion, true);
+      assert.equal(fixture?.autoCaptureVariant, 'light-1280-motion');
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.locale, 'en');
+      assert.equal(state?.theme, 'dark');
+      assert.equal(state?.reducedMotion, true);
+      assert.equal(state?.autoCaptureVariant, 'light-1280-motion');
     });
   });
 

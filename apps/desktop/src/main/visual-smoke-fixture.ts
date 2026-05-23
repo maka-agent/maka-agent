@@ -88,6 +88,16 @@ export interface VisualSmokeFixture {
    * to null.
    */
   theme: 'light' | 'dark' | 'auto' | null;
+  /**
+   * PR-UI-VISUAL-SMOKE-LOCALE: UI locale override (zh | en). null
+   * means "let `detectUiLocale()` read `navigator.language`". When set,
+   * the renderer applies `data-maka-visual-smoke-locale=<value>` to
+   * `<html>` so `detectUiLocale()` returns the locked value
+   * deterministically — same fixture, same locale, same screenshot
+   * across hosts. Driven by env var
+   * `MAKA_VISUAL_SMOKE_LOCALE=zh|en`. Unknown values fail closed.
+   */
+  locale: 'zh' | 'en' | null;
 }
 
 export function resolveVisualSmokeFixture(
@@ -96,6 +106,7 @@ export function resolveVisualSmokeFixture(
   rawReducedMotion: string | undefined = undefined,
   rawAutoCaptureVariant: string | undefined = undefined,
   rawTheme: string | undefined = undefined,
+  rawLocale: string | undefined = undefined,
 ): VisualSmokeFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
@@ -108,12 +119,14 @@ export function resolveVisualSmokeFixture(
   const reducedMotion = parseReducedMotionFlag(rawReducedMotion);
   const autoCaptureVariant = parseAutoCaptureVariant(rawAutoCaptureVariant);
   const theme = parseThemeFlag(rawTheme);
+  const locale = parseLocaleFlag(rawLocale);
   return {
     scenario,
     workspaceName: `visual-smoke-${scenario}`,
     reducedMotion,
     autoCaptureVariant,
     theme,
+    locale,
   };
 }
 
@@ -126,6 +139,18 @@ function parseThemeFlag(raw: string | undefined): 'light' | 'dark' | 'auto' | nu
   if (raw === undefined) return null;
   const normalized = raw.trim().toLowerCase();
   if (normalized === 'light' || normalized === 'dark' || normalized === 'auto') return normalized;
+  return null;
+}
+
+/**
+ * Validate the UI locale override. Accepts only the closed enum
+ * `zh | en`; everything else fails closed to null (renderer falls
+ * back to `navigator.language` detection). PR-UI-VISUAL-SMOKE-LOCALE.
+ */
+function parseLocaleFlag(raw: string | undefined): 'zh' | 'en' | null {
+  if (raw === undefined) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'zh' || normalized === 'en') return normalized;
   return null;
 }
 
@@ -157,6 +182,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     ...(fixture.reducedMotion ? { reducedMotion: true } : {}),
     ...(fixture.autoCaptureVariant ? { autoCaptureVariant: fixture.autoCaptureVariant } : {}),
     ...(fixture.theme ? { theme: fixture.theme } : {}),
+    ...(fixture.locale ? { locale: fixture.locale } : {}),
   };
   switch (fixture.scenario) {
     case 'first-run':

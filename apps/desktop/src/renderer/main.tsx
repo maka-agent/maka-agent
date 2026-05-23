@@ -591,6 +591,14 @@ function AppShell() {
     if (state.reducedMotion) {
       document.documentElement.setAttribute('data-maka-reduced-motion', 'true');
     }
+    // PR-UI-VISUAL-SMOKE-LOCALE: lock UI locale BEFORE the first
+    // React render so `detectUiLocale()` returns the deterministic
+    // value on the very first paint. Without this, `navigator.language`
+    // would leak the host OS locale into screenshot baselines and
+    // make cross-host CI diffs flaky.
+    if (state.locale) {
+      document.documentElement.setAttribute('data-maka-visual-smoke-locale', state.locale);
+    }
     await refreshSessions();
     if (state.activeSessionId) {
       setActiveId(state.activeSessionId);

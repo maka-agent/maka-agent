@@ -88,4 +88,17 @@ export interface VisualSmokeState {
    * first paint already has the right palette.
    */
   theme?: 'light' | 'dark' | 'auto';
+  /**
+   * PR-UI-VISUAL-SMOKE-LOCALE: UI locale override driven by
+   * `MAKA_VISUAL_SMOKE_LOCALE=zh|en`. PR-UI-14's `detectUiLocale()`
+   * reads `navigator.language` by default, which makes screenshot
+   * baselines drift between hosts (e.g. a CI machine on en-US vs a
+   * Mac mini on zh-CN renders different placeholder text in the
+   * same fixture). When set, the renderer applies
+   * `data-maka-visual-smoke-locale="zh|en"` to `<html>` and
+   * `detectUiLocale()` reads that BEFORE `navigator.language`.
+   * Unrecognized values fall back to undefined (renderer uses
+   * navigator detection as today).
+   */
+  locale?: 'zh' | 'en';
 }
