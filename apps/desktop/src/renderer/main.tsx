@@ -807,8 +807,9 @@ function AppShell() {
         // streaming. We dedupe by `seq` (per-toolCallId monotonic from
         // runtime) and insert in sorted order, so out-of-order delivery
         // or `tool_result`-vs-delta races repair without flicker.
-        // Runtime already redacts secrets at chunk granularity; UI only
-        // surfaces the `redacted` flag as an inline hint.
+        // Runtime already redacts secrets at chunk granularity; the
+        // renderer still runs a secondary redaction/cap pass inside
+        // `appendToolOutputChunk` before text reaches React state.
         appendToolOutputChunk(sessionId, event.toolUseId, {
           seq: event.seq,
           stream: event.stream,
