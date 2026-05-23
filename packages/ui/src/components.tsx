@@ -2332,6 +2332,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
                   chunks={item.outputChunks}
                   live={item.status === 'running' || item.status === 'pending'}
                   interrupted={item.status === 'interrupted'}
+                  truncated={item.outputTruncated === true}
                 />
               )}
               {item.result && <OverlayPreview content={item.result} />}
@@ -2356,6 +2357,13 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
  * instead of pretending the chunk arrived clean. Empty redacted
  * chunks (runtime suppressed everything) collapse to just the hint.
  *
+ * `truncated: true` (PR-UI-12 fixup #2, @kenji A3 msg 365ff8b9) flips
+ * a "已截断" pill in the header counts row. This means
+ * `applyToolOutputChunk` dropped chunks (per-tool count or
+ * total-char cap) or tail-truncated a single oversize chunk. Users
+ * see explicitly that the displayed stream is bounded — they should
+ * use Finder / external viewer if they need the full output.
+ *
  * Auto-scroll: while `live` is true, we anchor to the bottom on every
  * chunk update so users see the latest output. Once the tool reaches
  * terminal (`tool_result`), auto-scroll stops so users can scroll up
@@ -2365,6 +2373,7 @@ function ToolOutputStream(props: {
   chunks: ToolOutputChunk[];
   live: boolean;
   interrupted: boolean;
+  truncated: boolean;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -2397,6 +2406,15 @@ function ToolOutputStream(props: {
           {stdoutCount > 0 && <span>stdout {stdoutCount}</span>}
           {stderrCount > 0 && <span data-stream="stderr">stderr {stderrCount}</span>}
           {redactedCount > 0 && <span data-redacted="true">已脱敏 {redactedCount}</span>}
+          {props.truncated && (
+            <span
+              className="maka-tool-output-stream-truncated-tag"
+              data-truncated="true"
+              title="部分输出已截断；完整内容请通过工具栏「在 Finder 中打开」查看"
+            >
+              已截断
+            </span>
+          )}
         </span>
       </header>
       <pre ref={preRef} className="maka-tool-output-stream-body">

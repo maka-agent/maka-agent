@@ -6714,6 +6714,18 @@ button:active {
 .maka-tool-output-stream-counts span[data-redacted="true"] {
   color: var(--warning-text, var(--info-text));
 }
+/* PR-UI-12 fixup #2 (@kenji A3 msg 365ff8b9) — "已截断" pill fires
+   when applyToolOutputChunk dropped chunks (per-tool cap) or
+   truncated a single oversize chunk. Same chrome family as the
+   redacted tag so it reads as another counts-row signal. */
+.maka-tool-output-stream-counts span[data-truncated="true"] {
+  color: var(--warning-text, var(--info-text));
+  border: 1px solid oklch(from var(--warning) l c h / 0.30);
+  background: oklch(from var(--warning) l c h / 0.06);
+  border-radius: 4px;
+  padding: 0 4px;
+  cursor: help;
+}
 
 .maka-tool-output-stream-body {
   margin: 0;
