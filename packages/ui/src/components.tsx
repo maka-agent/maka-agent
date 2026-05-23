@@ -1055,6 +1055,14 @@ export interface ChatHeaderAlert {
 export function ChatView(props: {
   messages: StoredMessage[];
   streamingText: string;
+  /**
+   * PR-UI-LAYOUT-42: Anthropic extended-thinking stream from
+   * `ThinkingDeltaEvent` (`@maka/core/events`). When non-empty, a
+   * collapsible "Reasoning" panel renders above the streaming text
+   * so users with thinking models see the live reasoning while the
+   * answer is being composed. Empty string = no thinking active.
+   */
+  thinkingText?: string;
   tools: ToolActivityItem[];
   activeSession?: SessionSummary;
   activeConnectionLabel?: string;
@@ -1261,12 +1269,25 @@ export function ChatView(props: {
               onLineageBadgeClick={props.onLineageBadgeClick}
             />
           ))}
-          {props.streamingText && (
+          {(props.streamingText || props.thinkingText) && (
             <article className="maka-message-row maka-turn-streaming message assistant streaming">
               <MessageMeta role="assistant" userLabel={props.userLabel} />
-              <div className="maka-bubble-assistant maka-bubble-streaming">
-                <Markdown text={props.streamingText} />
-              </div>
+              {/* PR-UI-LAYOUT-42: Reasoning panel for Anthropic-style
+               * extended thinking. Renders ABOVE the streaming
+               * answer because thinking always precedes the
+               * answer. Default-open during streaming so the user
+               * sees the model reasoning; users can collapse it
+               * if too verbose. The panel disappears entirely on
+               * text_complete / abort / error (parent clears the
+               * thinkingBySession entry). */}
+              {props.thinkingText && (
+                <ReasoningPanel text={props.thinkingText} live={!props.streamingText} />
+              )}
+              {props.streamingText && (
+                <div className="maka-bubble-assistant maka-bubble-streaming">
+                  <Markdown text={props.streamingText} />
+                </div>
+              )}
             </article>
           )}
           {/* Defensive: if any tool ended up outside a turn (e.g. legacy
@@ -2116,6 +2137,40 @@ const STATUS_FOOTER_PRIORITY: Record<TurnFooterActionMeta['id'], 'primary' | 'se
   branch: 'secondary',
   copy: 'secondary',
 };
+
+/**
+ * PR-UI-LAYOUT-42 — ReasoningPanel: collapsible "thinking" panel for
+ * Anthropic-style extended thinking. Renders the live
+ * `ThinkingDeltaEvent.text` (or final `ThinkingCompleteEvent.text`)
+ * accumulated by the renderer in `thinkingBySession`.
+ *
+ * Default-open during streaming so the user sees the live reasoning;
+ * collapses to a single-line summary if user clicks the header. The
+ * panel itself is wrapped in a `<details>` for native keyboard a11y
+ * (Space/Enter toggles).
+ *
+ * `live=true` means thinking is still streaming (no text yet). Adds
+ * a small pulse dot in the header so users see motion.
+ *
+ * The text inside is rendered as `<pre>` so the model's
+ * step-by-step reasoning preserves indentation / line breaks. We
+ * don't pipe through Markdown — thinking is usually plain prose +
+ * occasional code, and full markdown would slow the streaming.
+ */
+function ReasoningPanel(props: { text: string; live: boolean }) {
+  return (
+    <details className="maka-reasoning-panel" data-live={props.live ? 'true' : undefined} open>
+      <summary className="maka-reasoning-panel-header">
+        {props.live && <span className="maka-reasoning-panel-dot" aria-hidden="true" />}
+        <span className="maka-reasoning-panel-label">
+          {props.live ? '正在思考…' : '思考过程'}
+        </span>
+        <span className="maka-reasoning-panel-chevron" aria-hidden="true">›</span>
+      </summary>
+      <pre className="maka-reasoning-panel-body">{props.text}</pre>
+    </details>
+  );
+}
 
 function MessageMeta(props: { role: string; userLabel?: string; ts?: number }) {
   const label = messageRoleLabel(props.role, props.userLabel);

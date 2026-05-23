@@ -74,6 +74,18 @@ function AppShell() {
   const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [streamingBySession, setStreamingBySession] = useState<Record<string, string>>({});
+  /**
+   * PR-UI-LAYOUT-42 (@kenji alma renderer audit, alma-re docs/12-renderer.md §15.3):
+   * Alma displays Anthropic-style `reasoning_content` (extended thinking)
+   * in a collapsible "Reasoning" panel above the assistant answer.
+   * Maka already emits `ThinkingDeltaEvent` / `ThinkingCompleteEvent`
+   * from `@ai-sdk/anthropic` (events.ts:76-88) but the renderer drops
+   * them on the floor — users with thinking models see nothing while
+   * the model is reasoning. This map accumulates thinking text per
+   * session so the chat surface can render the panel below the
+   * existing streaming text.
+   */
+  const [thinkingBySession, setThinkingBySession] = useState<Record<string, string>>({});
   const [liveToolsBySession, setLiveToolsBySession] = useState<Record<string, ToolActivityItem[]>>({});
   const [permissionBySession, setPermissionBySession] = useState<Record<string, PermissionRequestEvent | undefined>>({});
   const [connections, setConnections] = useState<LlmConnection[]>([]);
@@ -89,6 +101,7 @@ function AppShell() {
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
   const activeStreaming = activeId ? streamingBySession[activeId] ?? '' : '';
+  const activeThinking = activeId ? thinkingBySession[activeId] ?? '' : '';
   // Set of session ids with a live streaming delta — drives the sidebar
   // pulse indicator. Recomputed on every streamingBySession change; cheap
   // since the underlying map only has at most a handful of entries.
@@ -778,6 +791,10 @@ function AppShell() {
 
   function clearStreaming(sessionId: string) {
     setStreamingBySession((current) => ({ ...current, [sessionId]: '' }));
+    // PR-UI-LAYOUT-42: thinking is part of the same streaming turn —
+    // any clearStreaming caller (abort / error / complete) means the
+    // turn is done, so the Reasoning panel should also collapse.
+    setThinkingBySession((current) => ({ ...current, [sessionId]: '' }));
   }
 
   function handleEvent(sessionId: string, event: SessionEvent) {
@@ -791,6 +808,21 @@ function AppShell() {
       case 'text_complete':
         clearStreaming(sessionId);
         void refreshMessages(sessionId);
+        break;
+      case 'thinking_delta':
+        // PR-UI-LAYOUT-42: Anthropic extended thinking stream. Accumulate
+        // per-session so the Reasoning panel can render the live text.
+        setThinkingBySession((current) => ({
+          ...current,
+          [sessionId]: (current[sessionId] ?? '') + event.text,
+        }));
+        break;
+      case 'thinking_complete':
+        // PR-UI-LAYOUT-42: final thinking block — keep visible until the
+        // model emits text. text_complete will then collapse the panel.
+        // (Don't clear here, otherwise the panel flicker-disappears as
+        // soon as thinking finishes but before the answer starts.)
+        setThinkingBySession((current) => ({ ...current, [sessionId]: event.text }));
         break;
       case 'tool_start':
         upsertTool(sessionId, event.toolUseId, {
@@ -1225,6 +1257,7 @@ function AppShell() {
               <ChatView
                 messages={messages}
                 streamingText={activeStreaming}
+                thinkingText={activeThinking}
                 tools={liveTools}
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
