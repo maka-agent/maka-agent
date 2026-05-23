@@ -59,6 +59,14 @@ export interface VisualSmokeState {
   activeSessionId?: string;
   openSettingsSection?: SettingsSection;
   streamingBySession?: Record<string, string>;
+  /**
+   * PR-UI-LAYOUT-42: per-session thinking buffer for fixtures that
+   * want to seed the ReasoningPanel mid-stream. Mirrors
+   * `streamingBySession` shape. Empty string = no live thinking
+   * (panel hidden). Set this in a fixture to capture the panel's
+   * live-streaming visual state in a screenshot.
+   */
+  thinkingBySession?: Record<string, string>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
   liveToolsBySession?: Record<string, VisualSmokeLiveTool[]>;
   /**

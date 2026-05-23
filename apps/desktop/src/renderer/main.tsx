@@ -582,6 +582,12 @@ function AppShell() {
     if (state.streamingBySession) {
       setStreamingBySession((current) => ({ ...current, ...state.streamingBySession }));
     }
+    if (state.thinkingBySession) {
+      // PR-UI-LAYOUT-42: mirror streamingBySession init pattern so
+      // visual smoke fixtures can seed the ReasoningPanel mid-stream
+      // and capture a deterministic screenshot of the live state.
+      setThinkingBySession((current) => ({ ...current, ...state.thinkingBySession }));
+    }
     if (state.permissionBySession) {
       setPermissionBySession((current) => ({ ...current, ...state.permissionBySession }));
     }
