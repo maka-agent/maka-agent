@@ -1224,6 +1224,315 @@ contract case):
 
 ---
 
+## Path 18 — Computer Use overlay threat model (PR-UI-CU-0)
+
+**Status**: contract-only. No Maka Computer Use implementation
+exists yet. This path locks the gate criteria a future PR-UI-CU-1
+(overlay implementation) and PR-RUNTIME-CU (action runner) MUST
+satisfy before merge. The threat model is captured here so the
+implementation cannot be reviewed against an aspirational verbal
+description; the gate is what reviewers grep.
+
+Reference: Alma's `AlmaComputerUse` helper (separate signed bundle,
+`LSUIElement`, AX + ScreenCaptureKit + CGEvent, NDJSON over a Unix
+socket) is the architectural prior art that informs these
+boundaries. Maka's eventual implementation does not have to mirror
+the same wire shape, but each contract below applies regardless of
+whether the runner lives in a helper process or inline in the main
+process.
+
+Doc convention is the same as Path 17:
+- **Contract invariant** — 1-3 final-state bullets the gate will enforce
+- **Source-gate grep** — patterns the merge reviewer will run when
+  PR-UI-CU-1 lands; today these all fail-closed by absence
+- **Deferred** — items intentionally left to PR-UI-CU-1 or
+  PR-RUNTIME-CU
+
+### S12 — Permission source: TCC-only, never claimed by the renderer
+
+**Contract invariant.**
+- Computer Use permission ALWAYS comes from macOS TCC
+  (`com.apple.tcc` → `kTCCServiceAccessibility` +
+  `kTCCServiceScreenCapture`). The renderer NEVER asserts CU
+  permission; it only displays a state derived from a main-process
+  IPC that queried TCC.
+- A CU action MUST NOT be initiated unless both TCC permissions are
+  granted at the moment of the action; cached "previously granted"
+  state is insufficient because user can revoke at any time via
+  System Settings → Privacy & Security.
+- The renderer's CU affordance (button enabled / disabled / first-
+  run setup) reflects this live TCC status; no path lets the
+  renderer fake a granted state.
+
+**Source-gate grep.**
+- Renderer never calls TCC-affecting APIs directly. Search for
+  `ApplicationServices` / `kTCCService` / `AXIsProcessTrusted` —
+  must only appear in main process (or a separately-signed helper)
+  source, never under `apps/desktop/src/renderer/`.
+- Renderer CU state derives from a typed IPC result; no path
+  builds the "permission granted" state from a renderer-local
+  boolean.
+
+**Deferred.**
+- Per-action TCC verification (a CU action that begins must
+  re-check TCC at action-start) — wired in PR-RUNTIME-CU.
+- TCC prompt UX (when permission missing, surface a typed
+  `MissingPermissionState` from the runtime; the renderer shows a
+  "Open System Settings → ..." affordance via `app:openExternal`
+  with the canonical TCC URL pre-allowlisted in the openExternal
+  guard) — wired in PR-UI-CU-1.
+
+### S13 — Overlay lifecycle: action-scoped, never persistent
+
+**Contract invariant.**
+- The CU overlay (the highlight ring / target box / cursor halo
+  that shows where Maka is about to click) exists ONLY during an
+  in-flight CU action. It is mounted on action-begin and unmounted
+  on action-end. No idle / "ambient" overlay state.
+- Overlay teardown MUST fire on every action-terminating event:
+  `tool_complete` / `tool_error` / abort / runtime crash / user
+  closes Maka / permission revoked mid-action.
+- No overlay state survives across sessions, across LLM turns, or
+  across renderer reloads. A renderer mount with no in-flight CU
+  action MUST NOT render the overlay component at all.
+
+**Source-gate grep.**
+- `<ComputerUseOverlay>` (or equivalent) renderer mount must be
+  gated by a per-session in-flight CU action — likely a
+  `liveToolsBySession[sessionId]` entry whose tool name matches a
+  known CU verb. No `&& true` / `&& isDev` overrides.
+- Teardown must be wired in the same lifecycle bag as
+  `clearStreaming(sessionId)`-style cleanup. Look for the parallel
+  `clearComputerUseOverlay(sessionId)` (or equivalent) in
+  abort/error/complete branches.
+- No `setTimeout` / `setInterval` keeps the overlay alive past the
+  action; teardown is event-driven only.
+
+**Deferred.**
+- Reduced-motion: overlay animations respect
+  `prefers-reduced-motion` (same `data-maka-reduced-motion` channel
+  Path 17 S1-S11 use) — wired in PR-UI-CU-1.
+
+### S14 — Focus + click pass-through: overlay must never steal input
+
+**Contract invariant.**
+- The overlay window MUST set
+  `ignoresMouseEvents = true` (NSWindow) and equivalent for
+  keyboard (no `acceptsFirstResponder`). It is purely a visual
+  affordance; the underlying app is what receives clicks /
+  keystrokes from the CU runtime.
+- Overlay never becomes a `<button>` / `<a>` / tab-order target /
+  ARIA-interactive element in the renderer. The user CANNOT
+  interact with the overlay itself; their input lands on the
+  target app (or, if Maka window is foreground, on Maka).
+- Overlay `pointer-events: none` (CSS) is the renderer-side mirror
+  of the AppKit `ignoresMouseEvents` constraint. Both must hold;
+  the AppKit setting is load-bearing because CSS alone doesn't
+  stop the OS-level window from grabbing focus on click.
+
+**Source-gate grep.**
+- `<ComputerUseOverlay>` root element carries `pointer-events: none`
+  (CSS class or inline style) and NEVER mounts inside a
+  `<button>` / `<a>` / role-button context.
+- The overlay window (if a separate AppKit window in the main
+  process) is configured with `ignoresMouseEvents = true` and
+  `acceptsFirstResponder = false`. Grep main process: any
+  `new BrowserWindow({ ... })` flagged as the CU overlay window
+  must set these. No `focusable: true`.
+- No keyboard event handler attaches to the overlay
+  (`addEventListener('keydown'` / `onKeyDown`).
+
+**Deferred.**
+- Multi-monitor placement: overlay placement on the active screen
+  the action targets — wired in PR-RUNTIME-CU.
+
+### S15 — Screenshot + coordinate trust boundary: runtime owns, renderer displays
+
+**Contract invariant.**
+- Coordinate authority: ONLY the runtime (main process or signed
+  helper) decides where to click / type / scroll. The renderer
+  NEVER initiates a raw `{x, y}` click. The renderer's role is
+  display-only: it shows the runtime's planned action as overlay,
+  and surfaces user abort.
+- Screenshots are sensitive: a screenshot capture can include
+  passwords, banking, private chat. CU screenshots MUST run through
+  the existing renderer redaction chokepoint (the same `redactSecrets`
+  + per-payload cap pattern Path 17 S1-S6 lock for tool/thinking/
+  assistant text) BEFORE entering React state OR the artifact pane
+  OR session log persistence.
+- Image payload caps follow C3 (S5): base64 length compare, no
+  decode. Oversize screenshots fall back to `{ kind:
+  'unsupported', reason: 'oversize' }` with a user-facing
+  "screenshot too large to display inline" copy. The runtime side
+  saves the file to the workspace artifact directory; the
+  renderer displays a Finder-open affordance, never inline-base64
+  for an oversize capture.
+- The metadata MIME the runtime claims (e.g. `image/png`) is
+  user-controllable when the screenshot comes from an external
+  pipeline; the renderer MUST re-validate via main-process sniffed
+  MIME (same `normalizeAllowedImageMime` allowlist used in S5).
+
+**Source-gate grep.**
+- Renderer never imports a coordinate-click IPC and never calls
+  `window.maka.computerUse.click({ x, y })` from user input
+  handlers. The only caller path is the LLM-driven
+  `tool_use(computer-use:*)` event flow that arrives via
+  `session.subscribeEvents`.
+- CU screenshot delivery into the artifact pane goes through
+  `applyToolOutputChunk` (S1) for any text component + the
+  artifact preview registry (S5) for the image component. No
+  separate "fast path" that skips redaction.
+- Look for `data:image/...;base64,` strings in renderer code —
+  these may ONLY come from `safeMime + base64` post the
+  `decideImageReadOutcome` chokepoint.
+
+**Deferred.**
+- OCR / "what's on screen" extraction: when the runtime extracts
+  text from a screenshot via Vision / accessibility tree, the
+  extracted text MUST also flow through `redactSecrets` before the
+  LLM receives it (covered by S16 below).
+
+### S16 — Log + screen-state redaction: runtime-side, before LLM sees it
+
+**Contract invariant.**
+- Any text Maka extracts from a screen — OCR output, AX tree dump,
+  selected-text query result, clipboard sample — MUST run through
+  the runtime's `redactSecrets` (the `@maka/runtime` import of the
+  same helper renderer uses) BEFORE it lands in the LLM's tool
+  result message, BEFORE it lands in the session log, and BEFORE
+  it lands in the artifact pane.
+- Screenshots themselves are NOT text; they don't go through
+  `redactSecrets` (binary image data). But the metadata captured
+  alongside (window title, app bundle id, focused element label,
+  URL bar contents) IS text and IS subject to redaction.
+- The runtime-side redaction is the SOURCE-OF-TRUTH gate. The
+  renderer's `applyToolOutputChunk` secondary redaction (S1) is
+  defense-in-depth, not the primary boundary — CU
+  screen-state can contain credentials the model would never
+  intentionally emit but a capture-without-redaction would leak.
+
+**Source-gate grep.**
+- Every CU action handler in `@maka/runtime` that returns
+  `ToolResultContent` containing screen-derived text must call
+  `redactSecrets(value)` on that text before constructing the
+  result. No `JSON.stringify(rawScreenState)` straight into a
+  result block.
+- Session log writer must call redact before `appendToLog`;
+  look for any path that bypasses the existing log redaction wrap.
+
+**Deferred.**
+- Per-app redaction policies (e.g. 1Password / browser password
+  field detection → drop entirely rather than mask) — beyond
+  initial scope; locked here only as a known gap to revisit.
+
+### S17 — Fail-closed: every gate failure aborts the action, never silently continues
+
+**Contract invariant.**
+- TCC permission missing at action-start → action returns
+  `ToolResultContent` with `error: 'permission_missing'`. No
+  retry; no "best-effort" partial click.
+- Overlay setup failure (window creation rejected, monitor not
+  available, focus-pass-through assertion failed) → action
+  returns `error: 'overlay_failed'`. The action does NOT proceed
+  without the overlay — the user's safety affordance MUST be
+  visible before any click lands.
+- Coordinate validation failure (target coordinate outside any
+  screen bounds, NaN, negative, > screen width/height) → action
+  returns `error: 'invalid_coordinate'`. No clamp / no snap-to-
+  edge; bad input means abort.
+- Screenshot capture failure → action returns
+  `error: 'capture_failed'`. The runtime does NOT fabricate a
+  blank screenshot to satisfy the LLM contract; the LLM sees the
+  error and decides whether to retry.
+- Sensitivity check failure (e.g. the target window is a known
+  password field, or the OS is in fast-user-switching mid-state)
+  → action returns `error: 'sensitivity_blocked'`. No bypass.
+
+**Source-gate grep.**
+- Every `catch` inside a CU action handler converts to a typed
+  error in the `ToolResultContent`. Look for swallowed `catch`
+  blocks (`catch (e) {}` or `catch { return … defaultState }`) —
+  these MUST NOT exist in the CU path.
+- No `try / catch` returns "success-shaped" content with a soft
+  error string; the result is either `kind: 'tool_result'` with
+  `error` set OR a true success. No middle ground.
+- Closed error enum: `permission_missing` / `overlay_failed` /
+  `invalid_coordinate` / `capture_failed` / `sensitivity_blocked` /
+  `aborted` / `timeout`. Adding a new error mode is a type-surgery
+  change AND a smoke.md S17 update.
+
+**Deferred.**
+- Per-action timeout policy: each CU verb has a max-wall-time;
+  blow past it → `error: 'timeout'`. Default and per-verb
+  override table — wired in PR-RUNTIME-CU.
+
+### S18 — Abort semantics: <100ms teardown, no orphan clicks
+
+**Contract invariant.**
+- User-initiated abort (Esc, "Cancel" button in chat, close Maka,
+  switch session) MUST tear down the in-flight CU action within
+  100 ms. By "tear down" we mean:
+  - Overlay window destroyed
+  - Pending coordinate dispatch cancelled (the next planned
+    `CGEventPost` MUST NOT fire after the abort signal lands)
+  - Runtime tool state marked `aborted` (status enum), result
+    block returned with `error: 'aborted'`
+  - All ephemeral state (target coordinate, planned action,
+    screenshot in flight) cleared from main-process memory
+- An action that ABORTS mid-stream (after a click landed, before
+  the planned next click) MUST report `error: 'aborted'` AND must
+  include in its result block the count of completed sub-steps,
+  so the LLM knows how much of a multi-step plan was actually
+  performed. No silently-completed partial sequences.
+- Permission revocation detected during action (e.g. user toggled
+  off Accessibility in System Settings) is a special case of
+  abort: same `<100ms` teardown, `error: 'permission_missing'`
+  (not `'aborted'`, because the cause differs from user intent).
+
+**Source-gate grep.**
+- `AbortSignal` (or equivalent cancellation token) is threaded
+  through every CU action handler — no handler is "fire and
+  forget" without an abort hook.
+- Renderer abort affordance (Esc in chat, Cancel button) wires
+  through to `window.maka.computerUse.abort(actionId)`. No
+  fake-shaped local UI revert that pretends to abort without
+  reaching the runtime.
+- Permission-revoked detection: runtime checks TCC at every
+  action step; if revocation observed mid-action, raises the
+  abort signal internally with the `'permission_missing'` error.
+
+**Deferred.**
+- Per-step granularity: long CU sequences ("open browser, search,
+  click first result") can be a single LLM tool call. Abort
+  granularity at sub-step level (vs whole-sequence) — wired in
+  PR-RUNTIME-CU.
+
+---
+
+**Cross-cutting notes (not gates, but record for future PR-UI-CU-1
+/ PR-RUNTIME-CU reviewers).**
+
+- Maka's eventual CU implementation does NOT have to use a separate
+  signed helper bundle like Alma's. Inline-in-main-process is also
+  acceptable, provided ALL the boundaries above hold. The main-
+  process Electron context is already a trust boundary vs the
+  renderer; an additional process boundary is defense-in-depth, not
+  a contract requirement.
+- The Maka workspace's existing IPC allowlist patterns
+  (`app:openExternal`, `app:openPath`, etc.) are the model: each
+  surface is a named, typed IPC channel with input validation in
+  main process. CU should follow the same shape.
+- The `redactSecrets` helper currently lives in `@maka/ui`. A CU
+  threat model implementation will need a runtime-side import
+  path (already exists at `@maka/runtime` re-export); the renderer
+  defense-in-depth in `@maka/ui` stays unchanged.
+- This Path 18 is contract-only. PR-UI-CU-1 (overlay
+  implementation) and PR-RUNTIME-CU (action runner) will land each
+  S12-S18 gate's targeted tests + source-grep CI hooks; until
+  then, the gates fail-closed by absence (no CU code exists).
+
+---
+
 ## When to run
 
 - Before merging any large UI / runtime / credential / permission
