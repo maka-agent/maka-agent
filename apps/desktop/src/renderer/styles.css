@@ -3445,7 +3445,14 @@ button:active {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: var(--background);
-  padding: 24px 34px 74px 20px;
+  /* PR-UI-LAYOUT-36: equalize horizontal padding (was asymmetric
+   * 34 right / 20 left, content used to drift toward the left
+   * edge of the main pane). 26px both sides matches the 牛马AI
+   * settings interior spacing in screenshots 2/3/4. Bottom kept
+   * at 74px because the absolute-positioned "完成" CTA lives
+   * there. Top trimmed 24 → 22 so the header h2 sits a touch
+   * closer to the modal top border. */
+  padding: 22px 26px 74px 26px;
 }
 
 .settingsPageHeader {
