@@ -873,11 +873,21 @@ function AppShell() {
         // done" and "answer streaming".
         setThinkingBySession((current) => {
           const applied = applyThinkingComplete(event.text);
-          if (applied.truncated) {
-            setThinkingTruncatedBySession((flags) =>
-              flags[sessionId] ? flags : { ...flags, [sessionId]: true },
-            );
-          }
+          // PR-UI-C0 review nit #1 (@kenji msg 68ca6bc7): `complete`
+          // is the replace path — the final payload is the source of
+          // truth. If earlier deltas triggered the cap but the final
+          // complete fits clean, the `已截断` pill should reset to
+          // match reality, not remain monotonically true. Overwrite
+          // the per-session truncated flag with `applied.truncated`.
+          setThinkingTruncatedBySession((flags) => {
+            if ((flags[sessionId] === true) === applied.truncated) return flags;
+            if (applied.truncated) {
+              return { ...flags, [sessionId]: true };
+            }
+            const next = { ...flags };
+            delete next[sessionId];
+            return next;
+          });
           return { ...current, [sessionId]: applied.text };
         });
         break;
