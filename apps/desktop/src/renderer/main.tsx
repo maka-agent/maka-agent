@@ -22,6 +22,8 @@ import {
   Composer,
   type ComposerHandle,
   deriveTurnLineageMap,
+  type MakaUriDest,
+  MakaUriContext,
   materializeTurns,
   type NavSelection,
   PermissionDialog,
@@ -990,6 +992,41 @@ function AppShell() {
   }
 
   /**
+   * PR-UI-RENDER-2 — single chokepoint for the Markdown internal-URI
+   * router. Receives a typed `MakaUriDest` from the link override in
+   * `<Markdown>` and dispatches to the existing app navigation
+   * surfaces:
+   *
+   *   - `kind: 'settings'` → `openSettingsSection(section)` (existing
+   *     Settings modal jump, persisted via localStorage).
+   *   - `kind: 'compose'` → write text into the composer via
+   *     `composerRef.current.setText(...)` and focus it. We do NOT
+   *     auto-submit the prompt; the user still presses Enter. That
+   *     keeps an injected `maka://compose?text=ransfer my keys...`
+   *     from sending without a human in the loop.
+   *
+   * No other cases exist today by design — the parser only emits
+   * these two discriminants. If a new variant is added in `MakaUriDest`,
+   * TypeScript's exhaustiveness check below trips and a new branch
+   * must be wired here (and in smoke.md Path 17).
+   */
+  function dispatchMakaUri(dest: MakaUriDest) {
+    switch (dest.kind) {
+      case 'settings':
+        openSettingsSection(dest.section);
+        return;
+      case 'compose':
+        composerRef.current?.setText(dest.text);
+        composerRef.current?.focus();
+        return;
+      default: {
+        const _exhaustive: never = dest;
+        return _exhaustive;
+      }
+    }
+  }
+
+  /**
    * Opens Settings and jumps directly to the named section. Writes the section
    * to localStorage (so the next cold-open lands there too) and threads it
    * through `requestedSection` so an already-open Settings modal switches
@@ -1319,6 +1356,15 @@ function AppShell() {
           onKeyDown={onResizeHandleKeyDown}
         />
         <div className="maka-panel maka-panel-detail maka-floating-panel">
+          {/* PR-UI-RENDER-2: install the internal-URI dispatcher
+              for any Markdown rendered inside ChatView (assistant
+              answers, thinking panels, streaming bubbles). Wrapping
+              at the detail-panel level keeps the provider scoped to
+              the chat surface — Markdown rendered elsewhere (e.g.
+              About settings) doesn't auto-route maka:// links,
+              which is correct: those surfaces shouldn't be a
+              navigation entry point. */}
+          <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
             <div className="mainColumn">
               <ChatView
@@ -1384,6 +1430,7 @@ function AppShell() {
             </div>
             <ArtifactPane sessionId={activeId} />
           </div>
+          </MakaUriContext.Provider>
         </div>
       </div>
       {activePermission && (

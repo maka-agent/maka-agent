@@ -7,6 +7,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./maka-uri": "./dist/maka-uri.js",
     "./smooth-stream": "./dist/smooth-stream.js"
   },
   "scripts": {
