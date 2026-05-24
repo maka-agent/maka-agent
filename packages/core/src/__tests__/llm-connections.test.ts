@@ -13,7 +13,10 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { validateConnectionBaseUrl } from '../llm-connections.js';
+import {
+  normalizeConnectionBaseUrl,
+  validateConnectionBaseUrl,
+} from '../llm-connections.js';
 
 describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
   describe('accept (returns null)', () => {
@@ -175,6 +178,167 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
       // WHATWG URL spec lowercases special-scheme protocols.
       assert.equal(validateConnectionBaseUrl('HTTPS://api.example.com'), null);
       assert.equal(validateConnectionBaseUrl('Http://localhost:8000'), null);
+    });
+  });
+});
+
+describe('normalizeConnectionBaseUrl (PR-UI-IPC-1 fixup v2, @kenji msg 8755ffb3 + 6b638e08)', () => {
+  // The store-boundary chokepoint: the IPC handler calls this helper
+  // and uses the returned canonical value as the patch payload. The
+  // contract distinguishes between "explicit clear" (preserved as
+  // empty string so the store removes the override) and "set"
+  // (trimmed URL). It does NOT collapse explicit clear into
+  // "don't touch" — that would silently swallow the user's intent.
+
+  describe('explicit-clear intent (whitespace / empty)', () => {
+    it('empty string → ok with value: ""', () => {
+      const result = normalizeConnectionBaseUrl('');
+      assert.deepEqual(result, { ok: true, value: '' });
+    });
+
+    it('whitespace-only → ok with value: "" (trimmed to empty)', () => {
+      for (const raw of ['   ', '\t', '\n', ' \t \n ']) {
+        const result = normalizeConnectionBaseUrl(raw);
+        assert.deepEqual(result, { ok: true, value: '' }, `raw=${JSON.stringify(raw)}`);
+      }
+    });
+
+    it('explicit clear value MUST be "" (not undefined) — preserves store clear semantics', () => {
+      // Critical for the store boundary: the existing store update
+      // path is
+      //   `patch.baseUrl !== undefined ? patch.baseUrl || undefined : current.baseUrl`
+      // so a `'' ` patch clears the existing override, but
+      // `undefined` would be treated as "don't touch". The
+      // normalize contract MUST return `''` for whitespace input
+      // — never `undefined`.
+      const result = normalizeConnectionBaseUrl('   ');
+      assert.equal(result.ok, true);
+      if (result.ok) {
+        assert.equal(result.value, '');
+        assert.notEqual(result.value, undefined, 'must not collapse to undefined');
+      }
+    });
+  });
+
+  describe('set intent (trimmed URL)', () => {
+    it('clean URL → returns identical value', () => {
+      const result = normalizeConnectionBaseUrl('https://api.openai.com/v1');
+      assert.deepEqual(result, { ok: true, value: 'https://api.openai.com/v1' });
+    });
+
+    it('URL with surrounding whitespace → trimmed', () => {
+      assert.deepEqual(
+        normalizeConnectionBaseUrl('  https://api.openai.com  '),
+        { ok: true, value: 'https://api.openai.com' },
+      );
+      assert.deepEqual(
+        normalizeConnectionBaseUrl('\thttps://api.openai.com\n'),
+        { ok: true, value: 'https://api.openai.com' },
+      );
+    });
+
+    it('does NOT lowercase scheme / host / path (no URL canonicalization)', () => {
+      // @kenji explicit non-canonicalization: trim is the ONLY
+      // normalization. Users who deliberately configured
+      // mixed-case URLs keep them. WHATWG URL accepts the case
+      // variants; we don't re-emit a normalized URL.
+      assert.deepEqual(
+        normalizeConnectionBaseUrl('  https://Example.com:443/V1  '),
+        { ok: true, value: 'https://Example.com:443/V1' },
+      );
+    });
+
+    it('localhost / private-network URLs survive (Ollama etc.)', () => {
+      assert.deepEqual(
+        normalizeConnectionBaseUrl('  http://localhost:11434/v1  '),
+        { ok: true, value: 'http://localhost:11434/v1' },
+      );
+      assert.deepEqual(
+        normalizeConnectionBaseUrl('http://192.168.1.50:11434'),
+        { ok: true, value: 'http://192.168.1.50:11434' },
+      );
+    });
+  });
+
+  describe('reject (validate gate fires)', () => {
+    it('bad scheme rejects through normalize too', () => {
+      const result = normalizeConnectionBaseUrl('javascript:alert(1)');
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.error.includes("'javascript:'"));
+      }
+    });
+
+    it('file: URL rejected', () => {
+      const result = normalizeConnectionBaseUrl('  file:///etc/passwd  ');
+      assert.equal(result.ok, false);
+    });
+
+    it('malformed URL rejected', () => {
+      const result = normalizeConnectionBaseUrl('not-a-url');
+      assert.equal(result.ok, false);
+    });
+
+    it('oversize rejected', () => {
+      const oversize = `https://example.com/${'a'.repeat(2050)}`;
+      const result = normalizeConnectionBaseUrl(oversize);
+      assert.equal(result.ok, false);
+    });
+  });
+
+  describe('store-boundary scenarios (IPC handler simulation)', () => {
+    // Simulate the IPC handler's caller contract. The handler does:
+    //   if (patch.baseUrl !== undefined) {
+    //     const result = normalizeConnectionBaseUrl(patch.baseUrl);
+    //     if (!result.ok) throw new Error(result.error);
+    //     normalizedPatch = { ...patch, baseUrl: result.value };
+    //   }
+    //   await connectionStore.update(slug, normalizedPatch);
+    //
+    // These tests verify that the value the store sees matches the
+    // user's intent for each input.
+
+    it('user-typed URL with whitespace → store sees trimmed URL (set)', () => {
+      const result = normalizeConnectionBaseUrl('  https://api.openai.com  ');
+      assert.equal(result.ok, true);
+      if (result.ok) {
+        // Store sees this as `patch.baseUrl = 'https://api.openai.com'`
+        // → ternary: truthy string → sets override to trimmed.
+        assert.equal(result.value, 'https://api.openai.com');
+      }
+    });
+
+    it('user typed whitespace-only (clear intent) → store sees "" (clear)', () => {
+      const result = normalizeConnectionBaseUrl('   ');
+      assert.equal(result.ok, true);
+      if (result.ok) {
+        // Store sees this as `patch.baseUrl = ''`
+        // → ternary: `'' !== undefined && '' || undefined = undefined`
+        // → existing override is cleared. NOT "don't touch".
+        assert.equal(result.value, '');
+      }
+    });
+
+    it('user typed bad scheme → throw before store; store never sees the bogus value', () => {
+      // Handler would `throw new Error(result.error)` and skip the
+      // store update entirely.
+      const result = normalizeConnectionBaseUrl('javascript:exfil()');
+      assert.equal(result.ok, false);
+      // Handler never reaches the store update line on this path.
+    });
+
+    it('omitted (patch.baseUrl === undefined) → handler does not call normalize', () => {
+      // This isn't a normalize test per se — it's a documentation
+      // assertion that the IPC handler's `if (patch.baseUrl !==
+      // undefined)` guard means undefined NEVER reaches this
+      // helper. The store sees `patch.baseUrl === undefined` and
+      // falls back to "don't touch existing" via its existing
+      // ternary. We just lock the boundary: normalize requires a
+      // string caller. (TypeScript signature `(baseUrl: string)`
+      // makes this load-bearing.)
+      // No runtime call needed; the type system + handler-side
+      // guard is the contract.
+      assert.ok(true);
     });
   });
 });

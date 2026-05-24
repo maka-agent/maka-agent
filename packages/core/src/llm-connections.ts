@@ -334,11 +334,20 @@ export function validateSlug(slug: string): string | null {
  * Provider/setupMode-specific further restrictions are a separate
  * future PR.
  *
+ * **Pair with `normalizeConnectionBaseUrl` for the IPC site.**
+ * This function only validates; it does NOT trim or canonicalize.
+ * The IPC handler should use `normalizeConnectionBaseUrl` so the
+ * store only ever sees the canonical form (trimmed URL or
+ * undefined) — not raw whitespace-padded input. See @kenji msg
+ * 8755ffb3.
+ *
  * Accepts:
- *   - `undefined` / empty string: no override, fall back to provider
- *     default. Returns `null` (valid). The caller treats this as
- *     "user wants the provider's canonical baseUrl".
- *   - `http:` / `https:` schemes parsing as valid `URL`.
+ *   - `undefined` / empty string / whitespace-only: no override,
+ *     fall back to provider default. Returns `null` (valid). The
+ *     caller treats this as "user wants the provider's canonical
+ *     baseUrl".
+ *   - `http:` / `https:` schemes parsing as valid `URL` (case-
+ *     insensitive scheme via WHATWG URL spec).
  *
  * Rejects (returns error message):
  *   - Any other scheme (`file:`, `javascript:`, `data:`, `vbscript:`,
@@ -372,6 +381,65 @@ export function validateConnectionBaseUrl(baseUrl: string | undefined | null): s
     return `baseUrl scheme '${parsed.protocol}' is not allowed (use http: or https:)`;
   }
   return null;
+}
+
+/**
+ * PR-UI-IPC-1 review fixup v2 (@kenji msg 8755ffb3 + 6b638e08):
+ * IPC-site chokepoint that BOTH validates AND normalizes `baseUrl`.
+ * Replaces the raw-input passthrough that the validate-only path
+ * allowed.
+ *
+ * The blocker the original v1 had:
+ *   - `validateConnectionBaseUrl('   ')` returned `null` ("valid"),
+ *     but the IPC handler then passed the raw `'   '` to the store,
+ *     which on `update` treats truthy string as set-override and
+ *     could persist whitespace.
+ *   - `validateConnectionBaseUrl('  https://api.openai.com  ')`
+ *     returned `null`, but the store persisted the whitespace-
+ *     padded raw string.
+ *
+ * Caller contract:
+ *
+ * The caller calls this helper ONLY when it has a string value
+ * (the IPC handler already decides whether `baseUrl` is in the
+ * patch at all; absent / undefined means "don't touch" for
+ * update, "use provider default" for create — neither needs
+ * validation).
+ *
+ * Return shape:
+ *   - `{ ok: false, error }` — bad scheme / malformed / oversize.
+ *   - `{ ok: true, value: '<trimmed URL>' }` — accepted override.
+ *     Caller sets the store payload's `baseUrl` to this value.
+ *   - `{ ok: true, value: '' }` — EXPLICIT CLEAR INTENT (user
+ *     typed whitespace meaning "remove my override"). Caller must
+ *     preserve this as `''` so the store's existing clear semantics
+ *     (`patch.baseUrl !== undefined ? patch.baseUrl || undefined :
+ *     current.baseUrl`) treat it as "clear existing override". DO
+ *     NOT convert to `undefined` — that would be "don't touch" and
+ *     silently swallow the user's clear intent.
+ *
+ * The trim is the only canonicalization performed. We deliberately
+ * do NOT change scheme/host case, strip default ports, drop
+ * fragments, etc. — that's a different normalization (URL
+ * canonicalization) and could surprise users who deliberately
+ * configured `https://Example.com:443/V1`. Trim is the minimum
+ * needed to prevent whitespace from becoming a stored override.
+ */
+export function normalizeConnectionBaseUrl(
+  baseUrl: string,
+): { ok: true; value: string } | { ok: false; error: string } {
+  // Validate first so bad schemes / malformed / oversize reject
+  // before we report a normalized value.
+  const error = validateConnectionBaseUrl(baseUrl);
+  if (error !== null) {
+    return { ok: false, error };
+  }
+  // Validate accepted. Trim is the only canonicalization. An empty
+  // trimmed value is the explicit-clear intent (user typed
+  // whitespace = "remove my override"); preserve it as `''` so the
+  // store's existing clear semantics fire. The caller must NOT
+  // convert this to `undefined` — see contract note above.
+  return { ok: true, value: baseUrl.trim() };
 }
 
 export interface CreateConnectionInput {

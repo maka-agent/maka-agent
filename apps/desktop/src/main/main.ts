@@ -12,7 +12,7 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
-  validateConnectionBaseUrl,
+  normalizeConnectionBaseUrl,
 } from '@maka/core';
 import type {
   AppSettings,
@@ -755,37 +755,64 @@ function registerIpc(): void {
     emitConnectionListChanged();
   });
   ipcMain.handle('connections:create', async (_event, input: CreateConnectionInput) => {
-    // PR-UI-IPC-1 (@kenji msg 35260e29): scheme allowlist gate before
-    // the store / credentialStore ever sees the input. baseUrl is a
-    // credentials-exfiltration boundary — `javascript:` /
-    // `file:///etc/passwd` / garbage MUST NOT persist. Localhost and
-    // private-network URLs are intentionally allowed (Ollama,
-    // LM Studio, vLLM). See `validateConnectionBaseUrl` JSDoc.
-    const baseUrlError = validateConnectionBaseUrl(input.baseUrl);
-    if (baseUrlError !== null) {
-      throw new Error(baseUrlError);
+    // PR-UI-IPC-1 (@kenji msg 35260e29 + 8755ffb3 + 6b638e08):
+    // baseUrl is a credentials-exfiltration boundary. Normalize
+    // BEFORE the store ever sees the input — `javascript:` /
+    // `file:///etc/passwd` / garbage MUST NOT persist, AND raw
+    // whitespace-padded strings MUST NOT slip past as overrides.
+    // Localhost and private-network URLs are intentionally allowed
+    // (Ollama, LM Studio, vLLM). See `normalizeConnectionBaseUrl`
+    // JSDoc.
+    //
+    // Construct a NEW `normalizedInput` rather than mutating
+    // `input` — avoids any chance of later handler logic or
+    // reference aliasing seeing the raw renderer payload.
+    let normalizedInput: CreateConnectionInput = input;
+    if (input.baseUrl !== undefined) {
+      const result = normalizeConnectionBaseUrl(input.baseUrl);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      // For create, a trimmed-to-empty value (`''`) means "no
+      // override; use provider default". The store's existing
+      // ternary (`...(input.baseUrl ? { baseUrl: input.baseUrl } : {})`)
+      // already treats falsy as omit, so passing `''` is safe and
+      // semantically equivalent to omitting. Pass the trimmed
+      // canonical value either way so the store only ever sees
+      // safe text.
+      normalizedInput = { ...input, baseUrl: result.value };
     }
-    const connection = await connectionStore.create(input);
-    if (input.apiKey) {
-      await credentialStore.setSecret(connection.slug, 'api_key', input.apiKey);
+    const connection = await connectionStore.create(normalizedInput);
+    if (normalizedInput.apiKey) {
+      await credentialStore.setSecret(connection.slug, 'api_key', normalizedInput.apiKey);
     }
     emitConnectionListChanged();
     return connection;
   });
   ipcMain.handle('connections:update', async (_event, slug: string, patch: UpdateConnectionInput) => {
-    // PR-UI-IPC-1 (@kenji msg 35260e29): same scheme allowlist gate
-    // on update. `patch.baseUrl === undefined` means "don't touch"
-    // and is accepted; an explicit string is validated through the
-    // closed allowlist before reaching the store.
+    // PR-UI-IPC-1 same boundary on update. `patch.baseUrl ===
+    // undefined` means "don't touch" — skip validation entirely and
+    // don't include the key in the normalized patch.
+    //
+    // EXPLICIT CLEAR INTENT: when the user types whitespace into
+    // the baseUrl form field, the renderer sends a string (often
+    // `''` or `'   '`). After normalize, that becomes `''`, which
+    // the store's existing
+    // `patch.baseUrl !== undefined ? patch.baseUrl || undefined : current.baseUrl`
+    // clears as an explicit override removal. Preserve that —
+    // don't convert to `undefined` (which would silently swallow
+    // the clear intent as "don't touch"). @kenji msg 6b638e08.
+    let normalizedPatch: UpdateConnectionInput = patch;
     if (patch.baseUrl !== undefined) {
-      const baseUrlError = validateConnectionBaseUrl(patch.baseUrl);
-      if (baseUrlError !== null) {
-        throw new Error(baseUrlError);
+      const result = normalizeConnectionBaseUrl(patch.baseUrl);
+      if (!result.ok) {
+        throw new Error(result.error);
       }
+      normalizedPatch = { ...patch, baseUrl: result.value };
     }
-    const connection = await connectionStore.update(slug, patch);
-    if (patch.apiKey !== undefined) {
-      if (patch.apiKey) await credentialStore.setSecret(slug, 'api_key', patch.apiKey);
+    const connection = await connectionStore.update(slug, normalizedPatch);
+    if (normalizedPatch.apiKey !== undefined) {
+      if (normalizedPatch.apiKey) await credentialStore.setSecret(slug, 'api_key', normalizedPatch.apiKey);
       else await credentialStore.deleteSecret(slug, 'api_key');
     }
     emitConnectionListChanged();
