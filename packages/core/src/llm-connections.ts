@@ -314,6 +314,66 @@ export function validateSlug(slug: string): string | null {
   return null;
 }
 
+/**
+ * PR-UI-IPC-1 (@kenji msg 35260e29 + 2e495eb7): connection `baseUrl`
+ * scheme allowlist gate.
+ *
+ * The renderer can submit any string for `CreateConnectionInput.baseUrl`
+ * / `UpdateConnectionInput.baseUrl`; the AI SDK fetch downstream
+ * normally rejects non-HTTP schemes, but the IPC boundary should
+ * not depend on that. A successful persist of a bogus baseUrl
+ * (`javascript:`, `file:///etc/passwd`, garbage) means the bad URL
+ * lives on disk and could later be loaded into an HTTP client
+ * configured to honor it (or worse, leak the user's API key to an
+ * attacker-controlled scheme handler).
+ *
+ * This is a credentials-exfiltration boundary, not a usability gate
+ * — we intentionally do NOT block private-network / localhost URLs
+ * (Ollama, LM Studio, vLLM and other local providers need
+ * `http://localhost:11434`, `http://127.0.0.1:8000`, etc. to work).
+ * Provider/setupMode-specific further restrictions are a separate
+ * future PR.
+ *
+ * Accepts:
+ *   - `undefined` / empty string: no override, fall back to provider
+ *     default. Returns `null` (valid). The caller treats this as
+ *     "user wants the provider's canonical baseUrl".
+ *   - `http:` / `https:` schemes parsing as valid `URL`.
+ *
+ * Rejects (returns error message):
+ *   - Any other scheme (`file:`, `javascript:`, `data:`, `vbscript:`,
+ *     `chrome-extension:`, `app:`, `maka:`, custom).
+ *   - Malformed URL strings the `URL` constructor throws on.
+ *   - Pathological lengths (> 2048 chars — defense against
+ *     adversarial inputs; real-world baseUrls are < 100 chars).
+ *
+ * Returns `null` on accept, an error string on reject. Mirrors
+ * `validateSlug`'s shape.
+ */
+export function validateConnectionBaseUrl(baseUrl: string | undefined | null): string | null {
+  // No baseUrl override is valid — the caller falls back to the
+  // provider default.
+  if (baseUrl === undefined || baseUrl === null) return null;
+  const trimmed = baseUrl.trim();
+  if (trimmed === '') return null;
+  if (trimmed.length > 2048) {
+    return 'baseUrl must be 2048 characters or fewer';
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return 'baseUrl must be a valid URL';
+  }
+  // Closed scheme allowlist. `URL.protocol` includes the trailing
+  // colon and is lowercased by the WHATWG URL spec for special
+  // schemes.
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return `baseUrl scheme '${parsed.protocol}' is not allowed (use http: or https:)`;
+  }
+  return null;
+}
+
 export interface CreateConnectionInput {
   slug: string;
   name: string;

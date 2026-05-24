@@ -220,6 +220,7 @@ export {
   backendKindOf,
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
+  validateConnectionBaseUrl,
   validateSlug,
 } from './llm-connections.js';
 

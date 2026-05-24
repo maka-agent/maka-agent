@@ -12,6 +12,7 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  validateConnectionBaseUrl,
 } from '@maka/core';
 import type {
   AppSettings,
@@ -754,6 +755,16 @@ function registerIpc(): void {
     emitConnectionListChanged();
   });
   ipcMain.handle('connections:create', async (_event, input: CreateConnectionInput) => {
+    // PR-UI-IPC-1 (@kenji msg 35260e29): scheme allowlist gate before
+    // the store / credentialStore ever sees the input. baseUrl is a
+    // credentials-exfiltration boundary — `javascript:` /
+    // `file:///etc/passwd` / garbage MUST NOT persist. Localhost and
+    // private-network URLs are intentionally allowed (Ollama,
+    // LM Studio, vLLM). See `validateConnectionBaseUrl` JSDoc.
+    const baseUrlError = validateConnectionBaseUrl(input.baseUrl);
+    if (baseUrlError !== null) {
+      throw new Error(baseUrlError);
+    }
     const connection = await connectionStore.create(input);
     if (input.apiKey) {
       await credentialStore.setSecret(connection.slug, 'api_key', input.apiKey);
@@ -762,6 +773,16 @@ function registerIpc(): void {
     return connection;
   });
   ipcMain.handle('connections:update', async (_event, slug: string, patch: UpdateConnectionInput) => {
+    // PR-UI-IPC-1 (@kenji msg 35260e29): same scheme allowlist gate
+    // on update. `patch.baseUrl === undefined` means "don't touch"
+    // and is accepted; an explicit string is validated through the
+    // closed allowlist before reaching the store.
+    if (patch.baseUrl !== undefined) {
+      const baseUrlError = validateConnectionBaseUrl(patch.baseUrl);
+      if (baseUrlError !== null) {
+        throw new Error(baseUrlError);
+      }
+    }
     const connection = await connectionStore.update(slug, patch);
     if (patch.apiKey !== undefined) {
       if (patch.apiKey) await credentialStore.setSecret(slug, 'api_key', patch.apiKey);
