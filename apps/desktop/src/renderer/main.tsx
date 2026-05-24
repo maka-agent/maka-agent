@@ -723,6 +723,16 @@ function AppShell(props: {
     if (state.locale) {
       document.documentElement.setAttribute('data-maka-visual-smoke-locale', state.locale);
     }
+    // PR-UI-VISUAL-SMOKE-TIMEZONE (@kenji msg 45486cdf): mirror the
+    // locale attribute pattern. When `MAKA_VISUAL_SMOKE_TIMEZONE` is
+    // set and validates against `Intl.DateTimeFormat`, the IANA name
+    // lands on `<html>` so any date / time formatting helper can
+    // opt in by reading `document.documentElement.dataset.makaVisualSmokeTz`.
+    // The attribute alone is the contract; per-call timezone
+    // consumption is up to individual formatters as they migrate.
+    if (state.timezone) {
+      document.documentElement.setAttribute('data-maka-visual-smoke-tz', state.timezone);
+    }
     await refreshSessions();
     if (state.activeSessionId) {
       setActiveId(state.activeSessionId);

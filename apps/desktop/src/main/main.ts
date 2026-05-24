@@ -102,6 +102,7 @@ const visualSmokeFixture = resolveVisualSmokeFixture(
   process.env.MAKA_VISUAL_SMOKE_AUTO_CAPTURE,
   process.env.MAKA_VISUAL_SMOKE_THEME,
   process.env.MAKA_VISUAL_SMOKE_LOCALE,
+  process.env.MAKA_VISUAL_SMOKE_TIMEZONE,
 );
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
 const store = createSessionStore(workspaceRoot);

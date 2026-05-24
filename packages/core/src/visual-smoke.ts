@@ -131,4 +131,23 @@ export interface VisualSmokeState {
    * navigator detection as today).
    */
   locale?: 'zh' | 'en';
+  /**
+   * PR-UI-VISUAL-SMOKE-TIMEZONE: IANA timezone override driven by
+   * `MAKA_VISUAL_SMOKE_TIMEZONE=<IANA name>`. Mirrors the locale
+   * override pattern: when set, the renderer applies
+   * `data-maka-visual-smoke-tz="<IANA>"` to `<html>` so any date /
+   * time formatting helper can read it BEFORE falling back to the
+   * host system timezone.
+   *
+   * Validation is via `Intl.DateTimeFormat(undefined, { timeZone })`
+   * (throws RangeError on invalid IANA names). Invalid timezone
+   * values fall back to undefined (renderer uses host system
+   * timezone as today). Same scope as locale: contract + attribute
+   * write only; per-call timezone consumption is up to individual
+   * formatters as they're added.
+   *
+   * Real users never receive a visual smoke state, so their Date
+   * formatting remains untouched.
+   */
+  timezone?: string;
 }

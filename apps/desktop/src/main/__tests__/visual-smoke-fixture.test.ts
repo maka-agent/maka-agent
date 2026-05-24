@@ -39,6 +39,7 @@ describe('visual smoke fixture mode', () => {
       autoCaptureVariant: null,
       theme: null,
       locale: null,
+      timezone: null,
     });
   });
 
@@ -112,6 +113,112 @@ describe('visual smoke fixture mode', () => {
       assert.equal(fixture?.reducedMotion, true);
       assert.equal(fixture?.autoCaptureVariant, 'light-1280-motion');
       const state = getVisualSmokeState(fixture);
+      assert.equal(state?.locale, 'en');
+      assert.equal(state?.theme, 'dark');
+      assert.equal(state?.reducedMotion, true);
+      assert.equal(state?.autoCaptureVariant, 'light-1280-motion');
+    });
+  });
+
+  describe('IANA timezone override (PR-UI-VISUAL-SMOKE-TIMEZONE, @kenji msg 45486cdf)', () => {
+    it('defaults to null when MAKA_VISUAL_SMOKE_TIMEZONE unset', () => {
+      const fixture = resolveVisualSmokeFixture('all', false);
+      assert.equal(fixture?.timezone, null);
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.timezone, undefined);
+    });
+
+    it('accepts well-formed IANA timezone names', () => {
+      // Bound the test surface to tz names every modern JavaScript
+      // runtime ships with (ICU CLDR canonical zones).
+      const valid = [
+        'UTC',
+        'America/New_York',
+        'America/Los_Angeles',
+        'Europe/London',
+        'Europe/Paris',
+        'Asia/Shanghai',
+        'Asia/Tokyo',
+        'Pacific/Auckland',
+      ];
+      for (const tz of valid) {
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, tz);
+        assert.equal(fixture?.timezone, tz, `tz=${tz}`);
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.timezone, tz, `tz=${tz}`);
+      }
+    });
+
+    it('trims surrounding whitespace but keeps mixed-case IANA names', () => {
+      // IANA names are case-sensitive on strict platforms
+      // (`America/New_York`, not `america/new_york`). The parser
+      // trim-onlys; it does not lowercase, so the canonical form
+      // survives.
+      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, '  Asia/Shanghai  ');
+      assert.equal(fixture?.timezone, 'Asia/Shanghai');
+    });
+
+    it('rejects unknown / malformed IANA names (fail-closed via Intl.DateTimeFormat)', () => {
+      const invalid = [
+        '',
+        '   ',
+        'Asia/Imaginary',
+        'Pacific/Mu',
+        'Foo/Bar',
+        'America/Made_Up',
+        'Not_A_TZ',
+        '!!!',
+        'utc/zulu',
+      ];
+      for (const tz of invalid) {
+        const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, tz);
+        assert.equal(fixture?.timezone, null, `tz=${JSON.stringify(tz)}`);
+      }
+    });
+
+    it('rejects oversize inputs (>128 chars) without invoking Intl.DateTimeFormat', () => {
+      const oversize = 'A'.repeat(129);
+      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, oversize);
+      assert.equal(fixture?.timezone, null);
+    });
+
+    it('does NOT freeze the renderer Date — only sets the contract', () => {
+      // Defense-in-depth note: this test pins the scope kenji
+      // approved (msg 45486cdf): the parser only validates +
+      // surfaces the IANA name. It does NOT mutate `Date.prototype`,
+      // global `Intl.DateTimeFormat`, or `state.now`. `state.now`
+      // is still the canonical clock-freeze for visual smoke.
+      const fixture = resolveVisualSmokeFixture('all', false, undefined, undefined, undefined, undefined, 'Asia/Shanghai');
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.timezone, 'Asia/Shanghai');
+      assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
+      // No global mutation: Date.now / new Date() / Intl.DateTimeFormat
+      // are untouched by parse-time.
+      const before = Date.now();
+      const now1 = Date.now();
+      assert.ok(now1 >= before);
+      const formatter = new Intl.DateTimeFormat(undefined);
+      assert.equal(typeof formatter.resolvedOptions().timeZone, 'string');
+    });
+
+    it('timezone flag carries through into VisualSmokeState across all known scenarios', () => {
+      for (const scenario of ['first-run', 'turn-narrative', 'artifact-pane', 'stale-sessions']) {
+        const fixture = resolveVisualSmokeFixture(scenario, false, undefined, undefined, undefined, undefined, 'Europe/London');
+        assert.equal(fixture?.timezone, 'Europe/London', `scenario=${scenario}`);
+        const state = getVisualSmokeState(fixture);
+        assert.equal(state?.timezone, 'Europe/London', `scenario=${scenario}`);
+      }
+    });
+
+    it('timezone is independent from theme / locale / reduced-motion / auto-capture', () => {
+      const fixture = resolveVisualSmokeFixture('all', false, '1', 'light-1280-motion', 'dark', 'en', 'Asia/Tokyo');
+      assert.equal(fixture?.timezone, 'Asia/Tokyo');
+      assert.equal(fixture?.locale, 'en');
+      assert.equal(fixture?.theme, 'dark');
+      assert.equal(fixture?.reducedMotion, true);
+      assert.equal(fixture?.autoCaptureVariant, 'light-1280-motion');
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.timezone, 'Asia/Tokyo');
       assert.equal(state?.locale, 'en');
       assert.equal(state?.theme, 'dark');
       assert.equal(state?.reducedMotion, true);

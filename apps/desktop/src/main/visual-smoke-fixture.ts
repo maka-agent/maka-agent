@@ -105,6 +105,18 @@ export interface VisualSmokeFixture {
    * `MAKA_VISUAL_SMOKE_LOCALE=zh|en`. Unknown values fail closed.
    */
   locale: 'zh' | 'en' | null;
+  /**
+   * PR-UI-VISUAL-SMOKE-TIMEZONE: IANA timezone override. null means
+   * "use the host system timezone" (current behavior). When set, the
+   * renderer applies `data-maka-visual-smoke-tz=<IANA>` to `<html>`
+   * so any date/time formatting helper that opts in can read the
+   * locked value deterministically — same fixture, same timezone,
+   * same screenshot across hosts. Driven by env var
+   * `MAKA_VISUAL_SMOKE_TIMEZONE=<IANA name>`. Validation via
+   * `Intl.DateTimeFormat(undefined, { timeZone })`; invalid values
+   * fail closed to null.
+   */
+  timezone: string | null;
 }
 
 export function resolveVisualSmokeFixture(
@@ -114,6 +126,7 @@ export function resolveVisualSmokeFixture(
   rawAutoCaptureVariant: string | undefined = undefined,
   rawTheme: string | undefined = undefined,
   rawLocale: string | undefined = undefined,
+  rawTimezone: string | undefined = undefined,
 ): VisualSmokeFixture | null {
   if (!rawScenario) return null;
   if (isPackaged) {
@@ -127,6 +140,7 @@ export function resolveVisualSmokeFixture(
   const autoCaptureVariant = parseAutoCaptureVariant(rawAutoCaptureVariant);
   const theme = parseThemeFlag(rawTheme);
   const locale = parseLocaleFlag(rawLocale);
+  const timezone = parseTimezoneFlag(rawTimezone);
   return {
     scenario,
     workspaceName: `visual-smoke-${scenario}`,
@@ -134,6 +148,7 @@ export function resolveVisualSmokeFixture(
     autoCaptureVariant,
     theme,
     locale,
+    timezone,
   };
 }
 
@@ -159,6 +174,44 @@ function parseLocaleFlag(raw: string | undefined): 'zh' | 'en' | null {
   const normalized = raw.trim().toLowerCase();
   if (normalized === 'zh' || normalized === 'en') return normalized;
   return null;
+}
+
+/**
+ * Validate the IANA timezone override.
+ * PR-UI-VISUAL-SMOKE-TIMEZONE (@kenji msg 45486cdf).
+ *
+ * Unlike locale, timezone has no finite enum — there are hundreds
+ * of IANA timezone names plus aliases. The validation gate is the
+ * Intl.DateTimeFormat constructor: passing an unknown `timeZone`
+ * throws RangeError, so we try / catch and fall back to null on
+ * any failure. This catches:
+ *   - undefined / empty string
+ *   - malformed strings (`Asia/Imaginary`, `Foo`)
+ *   - case-mismatch IANA aliases (some platforms accept
+ *     `america/new_york` lowercase, some don't — we keep the
+ *     raw input; if `Intl.DateTimeFormat` accepts it, that's the
+ *     answer for THIS runtime)
+ *   - any future input shape we don't anticipate
+ *
+ * Length cap (128 chars) defends against pathological inputs;
+ * real IANA names are < 40 chars.
+ *
+ * Trim-only normalization (no toLowerCase): IANA names are
+ * mixed-case (`America/New_York`, `Asia/Shanghai`); lowering
+ * them breaks the lookup on strict platforms.
+ */
+function parseTimezoneFlag(raw: string | undefined): string | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.length > 128) return null;
+  try {
+    // Construct a formatter purely to validate the timeZone option;
+    // throws RangeError on invalid IANA names.
+    new Intl.DateTimeFormat(undefined, { timeZone: trimmed });
+  } catch {
+    return null;
+  }
+  return trimmed;
 }
 
 function parseReducedMotionFlag(raw: string | undefined): boolean {
@@ -190,6 +243,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     ...(fixture.autoCaptureVariant ? { autoCaptureVariant: fixture.autoCaptureVariant } : {}),
     ...(fixture.theme ? { theme: fixture.theme } : {}),
     ...(fixture.locale ? { locale: fixture.locale } : {}),
+    ...(fixture.timezone ? { timezone: fixture.timezone } : {}),
   };
   switch (fixture.scenario) {
     case 'first-run':
