@@ -293,6 +293,123 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(turns[0]?.partialOutputRetained, true);
     });
   });
+
+  // PR-UI-IPC-2 (@kenji msg 0474c3fe + @xuan msg 88d96a87):
+  // session-name normalize contract is enforced at the store
+  // boundary by `normalizeUserSessionName`. These integration
+  // tests verify that the create + rename + (derived) branch
+  // paths all converge on the same chokepoint — locking @xuan's
+  // merge-gate criterion "all write entry points use same helper".
+  describe('normalizeUserSessionName store-boundary integration (PR-UI-IPC-2)', () => {
+    test('create with control chars in name → store persists sanitized name', async () => {
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: 'multi\nline\tname' }));
+        const persisted = await store.readHeader(header.id);
+        assert.equal(persisted.name, 'multi line name');
+      });
+    });
+
+    test('create with bidi RLO spoof → spoof char replaced before persistence', async () => {
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: 'safe‮evil' }));
+        const persisted = await store.readHeader(header.id);
+        assert.ok(!persisted.name.includes('‮'), 'RLO must be stripped at store boundary');
+        assert.equal(persisted.name, 'safe evil');
+      });
+    });
+
+    test('create with zero-width injection ("ad\\u200Bmin") → ZWSP removed', async () => {
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: 'ad​min' }));
+        const persisted = await store.readHeader(header.id);
+        assert.equal(persisted.name, 'admin');
+      });
+    });
+
+    test('create with undefined name → uses canonical "New Chat" default', async () => {
+      await withStore(async (store) => {
+        const input = makeInput();
+        delete (input as Partial<CreateSessionInput>).name;
+        const header = await store.create(input);
+        const persisted = await store.readHeader(header.id);
+        assert.equal(persisted.name, 'New Chat');
+      });
+    });
+
+    test('create with explicit empty string name → REJECT (no silent default fallback)', async () => {
+      // Per @xuan caller-semantics lock: empty-after-sanitize on
+      // an EXPLICIT input must reject, not silently use the
+      // default. Default is reserved for the truly omitted
+      // (undefined) case.
+      await withStore(async (store) => {
+        await assert.rejects(store.create(makeInput({ name: '' })), /cannot be empty/);
+        await assert.rejects(store.create(makeInput({ name: '   ' })), /cannot be empty/);
+        await assert.rejects(store.create(makeInput({ name: '\n\n' })), /cannot be empty/);
+      });
+    });
+
+    test('rename with control chars → sanitized at store boundary (replaces v1 inline trim/cap)', async () => {
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: 'Old' }));
+        await store.rename(header.id, 'new\x00name\x1b[31mwith\x7fcontrols');
+        const persisted = await store.readHeader(header.id);
+        assert.ok(!persisted.name.includes('\x00'));
+        assert.ok(!persisted.name.includes('\x1b'));
+        assert.ok(!persisted.name.includes('\x7f'));
+        // Each control replaced with single space, then collapsed:
+        assert.equal(persisted.name, 'new name [31mwith controls');
+      });
+    });
+
+    test('rename with non-string runtime type rejects (TS signature is not enough at IPC boundary)', async () => {
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: 'Valid' }));
+        // Intentionally cast around the TS signature to simulate an
+        // IPC payload that didn't honor the type contract.
+        await assert.rejects(store.rename(header.id, null as unknown as string), /must be a string/);
+        await assert.rejects(store.rename(header.id, 42 as unknown as string), /must be a string/);
+      });
+    });
+
+    test('rename with 100-char input → capped to 80 code points', async () => {
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: 'Old' }));
+        await store.rename(header.id, 'a'.repeat(100));
+        const persisted = await store.readHeader(header.id);
+        assert.equal(Array.from(persisted.name).length, 80);
+      });
+    });
+
+    test('create with emoji at the cap boundary → surrogate pair never cut in half', async () => {
+      // 79 ASCII + 1 emoji = 80 code points, 81 UTF-16 code units.
+      // Naive `.slice(0, 80)` would cut the emoji's high-surrogate
+      // and leave an invalid lone low-surrogate. The helper uses
+      // code-point iteration to prevent this.
+      await withStore(async (store) => {
+        const header = await store.create(makeInput({ name: `${'a'.repeat(79)}🦊` }));
+        const persisted = await store.readHeader(header.id);
+        assert.ok(persisted.name.endsWith('🦊'), 'emoji must be intact at cap boundary');
+      });
+    });
+
+    test('branch derived name with control-char parent → sanitized', async () => {
+      // Simulates the runtime branch path: derived name is
+      // `${parent} · 分支`. If parent.name has somehow accumulated
+      // dirty bytes (legacy session, manual file edit), the
+      // derived name passed to `store.create` still goes through
+      // the same normalize gate.
+      await withStore(async (store) => {
+        const dirtyParent = 'parent\nwith\ttabs';
+        // Simulate runtime's `name: input.name ?? '${header.name} · 分支'`
+        const derived = `${dirtyParent} · 分支`;
+        const branchHeader = await store.create(makeInput({ name: derived }));
+        const persisted = await store.readHeader(branchHeader.id);
+        assert.ok(!persisted.name.includes('\n'), 'newline in derived must be sanitized');
+        assert.ok(!persisted.name.includes('\t'), 'tab in derived must be sanitized');
+        assert.equal(persisted.name, 'parent with tabs · 分支');
+      });
+    });
+  });
 });
 
 function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionInput {
