@@ -14,6 +14,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   deriveConnectionUiStatus,
+  presentConnectionUiStatus,
   type ConnectionUiStatusInput,
 } from '../../renderer/connection-status.js';
 
@@ -129,5 +130,45 @@ describe('deriveConnectionUiStatus', () => {
         'needs_reauth',
       );
     });
+  });
+});
+
+describe('presentConnectionUiStatus copy gates (PR-UI-AUDIT-1, @kenji msg 7a16aa0b)', () => {
+  // Locks the provider-auth contract invariant (Path 17 S11 D1):
+  // `verified` is a credential-validation result only. The label
+  // and detail MUST NOT conflate validation with operational
+  // readiness ("可用" / "运行可用" / "ready" / etc.).
+  //
+  // History: the prior label "已验证可用" read as "validated and
+  // operational" — a direct contract violation. This block fails
+  // closed if a future change reintroduces operational language
+  // into the `verified` presentation.
+
+  it('verified label is credential-only, no operational claim', () => {
+    const presentation = presentConnectionUiStatus('verified');
+    assert.equal(presentation.label, '凭据已验证');
+    // Negative gate: the operational synonyms must not appear in
+    // the label.
+    assert.ok(!presentation.label.includes('可用'), 'verified label must not say 可用');
+    assert.ok(!presentation.label.includes('运行'), 'verified label must not say 运行');
+    assert.ok(!presentation.label.includes('operational'), 'verified label must not say operational');
+  });
+
+  it('verified detail acknowledges credential test scope and points to runtime probe', () => {
+    const presentation = presentConnectionUiStatus('verified');
+    // Detail can mention 运行态 as long as it's framed as
+    // "needs separate verification", not "this status proves it".
+    assert.ok(
+      presentation.detail.includes('运行态') || presentation.detail.includes('独立验证'),
+      'verified detail should explicitly distinguish credential validation from runtime readiness',
+    );
+  });
+
+  it('configured / not_configured / needs_reauth / error labels do not falsely claim ready state', () => {
+    for (const status of ['configured', 'not_configured', 'needs_reauth', 'error'] as const) {
+      const presentation = presentConnectionUiStatus(status);
+      assert.ok(!presentation.label.includes('运行可用'), `${status} label must not say 运行可用`);
+      assert.ok(!presentation.label.includes('凭据已验证'), `${status} label must not say 凭据已验证`);
+    }
   });
 });

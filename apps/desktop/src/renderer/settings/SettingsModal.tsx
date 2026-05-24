@@ -153,7 +153,15 @@ function navGroupSummary(args: {
       if (!defaultConnection) {
         return { text: '未设默认模型', tone: 'warning' };
       }
-      return { text: `${enabled} 个连接可用` };
+      // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): "可用" implied runtime
+      // readiness (operational), but this count is purely
+      // `connections.filter(c => c.enabled).length` — an enabled
+      // connection may still be un-validated, needs-reauth, or
+      // erroring. Use "已启用" to describe the actual user-toggle
+      // state without claiming runtime availability. Matches the
+      // provider-auth contract Path 17 S11 D1 lock
+      // (`enabled / validated / operational` are three distinct concepts).
+      return { text: `${enabled} 个已启用连接` };
     }
     case '集成': {
       const proxyOn = args.settings.network?.proxy?.enabled ?? false;

@@ -101,8 +101,13 @@ const STATUS_PRESENTATION: Record<ConnectionUiStatus, StatusPresentation> = {
     tone: 'info',
   },
   verified: {
-    label: '已验证可用',
-    detail: '最近一次测试成功。修改 key/baseUrl/默认模型会清掉此状态。',
+    // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): credential validation
+    // label only. Provider-auth contract (Path 17 S11 D1) draws a
+    // hard line between `validated` and `operational` — agent
+    // send / stream / interrupt readiness is a separate runtime
+    // probe, not implied by credential test passing.
+    label: '凭据已验证',
+    detail: '最近一次测试成功。修改 key/baseUrl/默认模型会清掉此状态。运行态可达性需独立验证。',
     tone: 'success',
   },
   needs_reauth: {
