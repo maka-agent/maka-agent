@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { deriveTurnRecords, isPermissionMode, isSessionBlockedReason, isSessionStatus } from '@maka/core';
+import { deriveTurnRecords, isPermissionMode, isSessionBlockedReason, isSessionStatus, normalizeUserSessionName } from '@maka/core';
 import type {
   CreateSessionInput,
   SessionHeader,
@@ -45,13 +45,31 @@ class FileSessionStore implements SessionStore {
   async create(input: CreateSessionInput): Promise<SessionHeader> {
     const now = Date.now();
     const id = randomUUID();
+    // PR-UI-IPC-2 (@kenji msg 0474c3fe + @xuan msg 88d96a87):
+    // session name write contract. If caller passed undefined,
+    // use the canonical default; otherwise normalize the
+    // user-supplied name through the same `normalizeUserSessionName`
+    // gate that `rename` and `branchFromTurn` use. Empty-after-
+    // sanitize on an explicit input is a REJECT — we do NOT
+    // silently fall back to default, that would swallow the
+    // user's intent (per @xuan caller-semantics lock).
+    let resolvedName: string;
+    if (input.name === undefined) {
+      resolvedName = 'New Chat';
+    } else {
+      const normalized = normalizeUserSessionName(input.name);
+      if (!normalized.ok) {
+        throw new Error(normalized.error);
+      }
+      resolvedName = normalized.value;
+    }
     const header: SessionHeader = {
       id,
       workspaceRoot: this.workspaceRoot,
       cwd: input.cwd,
       createdAt: now,
       lastUsedAt: now,
-      name: input.name ?? 'New Chat',
+      name: resolvedName,
       isFlagged: false,
       labels: input.labels ?? [],
       isArchived: false,
@@ -172,12 +190,16 @@ class FileSessionStore implements SessionStore {
   }
 
   async rename(sessionId: string, name: string): Promise<void> {
-    const trimmed = name.trim();
-    if (!trimmed) throw new Error('Session name cannot be empty');
-    // Cap length so a wildly long pasted name can't make the sidebar list
-    // unreadable; the layout itself also truncates with ellipsis.
-    const bounded = trimmed.length > 80 ? trimmed.slice(0, 80) : trimmed;
-    await this.updateHeader(sessionId, { name: bounded });
+    // PR-UI-IPC-2: same `normalizeUserSessionName` chokepoint as
+    // create + branch. Replaces the older inline trim + length-80
+    // cap with the shared helper so all three write paths go
+    // through a single contract (control char strip, bidi/zero-
+    // width defense, NFC, code-point cap, typed reject).
+    const normalized = normalizeUserSessionName(name);
+    if (!normalized.ok) {
+      throw new Error(normalized.error);
+    }
+    await this.updateHeader(sessionId, { name: normalized.value });
   }
 
   async remove(sessionId: string): Promise<void> {

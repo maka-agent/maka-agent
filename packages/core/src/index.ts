@@ -236,6 +236,13 @@ export {
   isRealConnection,
 } from './connection-readiness.js';
 
+// session-name.ts (PR-UI-IPC-2)
+export type { NormalizeSessionNameResult } from './session-name.js';
+export {
+  SESSION_NAME_MAX_CODE_POINTS,
+  normalizeUserSessionName,
+} from './session-name.js';
+
 // provider-auth.ts (PR-AUTH-0)
 export type {
   ProviderAuthAction,
