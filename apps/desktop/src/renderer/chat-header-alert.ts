@@ -41,10 +41,26 @@ export interface ChatHeaderAlertInput {
    */
   hasActiveConnection: boolean;
   /**
-   * True when there's a default connection in the store AND it's enabled.
-   * Cheap renderer-side proxy for "send-path silent rebind can succeed" —
-   * the backend remains authoritative if the API key is missing (will
-   * raise `missing_api_key` at send time).
+   * Cheap renderer-side **hint** that "send-path silent rebind can succeed".
+   * Computed as `(defaultConnection exists) && defaultConnection.enabled` —
+   * it is NOT a send-readiness fact. The backend remains authoritative;
+   * a `true` value here does NOT promise that `requireReadyConnection`
+   * will succeed (e.g. `missing_api_key` / `missing_model` / `model_not_enabled`
+   * are still gated by `isConnectionReady` at send time).
+   *
+   * Per PR-HEALTH-1 (xuan msg `e4887ffd`, I3 lock):
+   *   - Use this only to choose the `warning` vs `destructive` tone of the
+   *     header copy. Do NOT use it as a send gate, and do NOT propagate it
+   *     into IPC payloads or canonical health snapshots.
+   *   - When this is `true` but send still hard-fails (e.g. default exists
+   *     + enabled, but `hasSecret === false`), the user sees a warning
+   *     banner *and* a send-time error. That is the documented behaviour;
+   *     `requireReadyConnection` returns the canonical reason — the banner
+   *     is a heads-up, not a contract.
+   *   - The accurate canonical readiness signal is `OnboardingState.kind`
+   *     in `ready_empty` / `ready_with_history`; future work may swap this
+   *     proxy for an onboarding-derived field, but PR-HEALTH-1 leaves the
+   *     proxy in place with this semantic lock + targeted test D8.
    */
   defaultConnectionReady: boolean;
   /**

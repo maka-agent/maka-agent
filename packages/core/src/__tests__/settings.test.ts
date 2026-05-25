@@ -59,6 +59,150 @@ describe('bot readiness settings contract', () => {
 
     expect(normalized.botChat.channels.discord.readiness).toBe('configured');
   });
+
+  /*
+   * PR-HEALTH-1 (xuan msg `e4887ffd`, I1) — write-path single-authority
+   * gate: persisted `readiness` must be coerced to be consistent with
+   * current credential state. Locks F1 / F3 from the audit catalog
+   * (`notes/pr-health-0-audit-report.md`).
+   *
+   * Without this gate, a `mergeSettings({channels:{telegram:{token:''}}})`
+   * over `{readiness:'credentials_valid', token:'X'}` would persist
+   * stale `'credentials_valid'` even though credentials no longer
+   * exist. Capability snapshot → Health Center then surfaces a
+   * "configured / verified" UI for a channel with zero credentials.
+   */
+  describe('I1 — write-path coerces stale credential-claiming readiness (F1 / F3)', () => {
+    test('F1: persisted credentials_valid + token cleared → downgrades to scaffolded', () => {
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.telegram.enabled = true;
+      legacy.botChat.channels.telegram.token = '';
+      legacy.botChat.channels.telegram.appId = undefined;
+      legacy.botChat.channels.telegram.appSecret = undefined;
+      // Simulate stale persisted state from a previous credential-valid run.
+      legacy.botChat.channels.telegram.readiness = 'credentials_valid';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.telegram.readiness).toBe('scaffolded');
+    });
+
+    test('F1b: persisted operational + token cleared → downgrades to scaffolded', () => {
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.feishu.enabled = true;
+      legacy.botChat.channels.feishu.token = '';
+      legacy.botChat.channels.feishu.appId = undefined;
+      legacy.botChat.channels.feishu.appSecret = undefined;
+      legacy.botChat.channels.feishu.readiness = 'operational';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.feishu.readiness).toBe('scaffolded');
+    });
+
+    test('F1c: persisted degraded + token cleared → downgrades to scaffolded', () => {
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.discord.enabled = true;
+      legacy.botChat.channels.discord.token = '';
+      legacy.botChat.channels.discord.appId = undefined;
+      legacy.botChat.channels.discord.appSecret = undefined;
+      legacy.botChat.channels.discord.readiness = 'degraded';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.discord.readiness).toBe('scaffolded');
+    });
+
+    test('F1d: persisted configured + token cleared → downgrades to scaffolded', () => {
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.wecom.enabled = true;
+      legacy.botChat.channels.wecom.token = '';
+      legacy.botChat.channels.wecom.appId = undefined;
+      legacy.botChat.channels.wecom.appSecret = undefined;
+      legacy.botChat.channels.wecom.readiness = 'configured';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.wecom.readiness).toBe('scaffolded');
+    });
+
+    test('F1e: appId-only credentials keep credential-claiming readiness', () => {
+      // The credential trio is `token` OR `appId` OR `appSecret`. Any one
+      // present is enough to keep a credential-claiming readiness.
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.feishu.enabled = true;
+      legacy.botChat.channels.feishu.token = '';
+      legacy.botChat.channels.feishu.appId = 'fei-app-id';
+      legacy.botChat.channels.feishu.appSecret = undefined;
+      legacy.botChat.channels.feishu.readiness = 'credentials_valid';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.feishu.readiness).toBe('credentials_valid');
+    });
+
+    test('F1f: appSecret-only credentials keep credential-claiming readiness', () => {
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.feishu.enabled = true;
+      legacy.botChat.channels.feishu.token = '';
+      legacy.botChat.channels.feishu.appId = undefined;
+      legacy.botChat.channels.feishu.appSecret = 'fei-app-secret';
+      legacy.botChat.channels.feishu.readiness = 'credentials_valid';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.feishu.readiness).toBe('credentials_valid');
+    });
+
+    test('F3: mergeSettings clearing token over operational state then normalize → scaffolded', () => {
+      // End-to-end flow: existing settings have a credential-valid channel;
+      // user issues a settings update that clears the token. The merge +
+      // normalize pipeline must produce a state without the stale
+      // credential claim.
+      const current = createDefaultSettings();
+      current.botChat.channels.telegram.enabled = true;
+      current.botChat.channels.telegram.token = 'live-token';
+      current.botChat.channels.telegram.readiness = 'operational';
+
+      const merged = mergeSettings(current, {
+        botChat: {
+          channels: {
+            telegram: { token: '' },
+          },
+        },
+      });
+      const normalized = normalizeSettings(merged);
+
+      expect(normalized.botChat.channels.telegram.token).toBe('');
+      expect(normalized.botChat.channels.telegram.readiness).toBe('scaffolded');
+    });
+
+    test('F3b: coerce never UPGRADES scaffolded → configured (write-path stays down-only)', () => {
+      // Even when credentials are present, the coerce path does NOT
+      // promote a persisted 'scaffolded' to 'configured' — that is the
+      // live bridge / explicit-readiness write path's responsibility.
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.discord.enabled = true;
+      legacy.botChat.channels.discord.token = 'discord-token';
+      // Explicit persisted scaffolded should survive coerce (no upgrade).
+      legacy.botChat.channels.discord.readiness = 'scaffolded';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.discord.readiness).toBe('scaffolded');
+    });
+
+    test('non-credential-claiming readiness (unscaffolded / scaffolded) passes through unchanged', () => {
+      const legacy = createDefaultSettings();
+      legacy.botChat.channels.qq.enabled = false;
+      legacy.botChat.channels.qq.token = '';
+      legacy.botChat.channels.qq.readiness = 'unscaffolded';
+
+      const normalized = normalizeSettings(legacy);
+
+      expect(normalized.botChat.channels.qq.readiness).toBe('unscaffolded');
+    });
+  });
 });
 
 describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () => {

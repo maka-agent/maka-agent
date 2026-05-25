@@ -90,7 +90,12 @@ describe('HealthSignal contract', () => {
       errorClass: 'auth',
     }, 30);
     expect(failed?.status).toBe('warning');
-    expect(failed?.blocksSend).toBe(true);
+    // PR-HEALTH-1 (xuan msg `e4887ffd` + kenji msg `bd8ee4c1`, I2 — demote):
+    // historical runtime_probe error is surfaced as a warning, NOT a send
+    // gate. The previous behavior (`blocksSend === true`) impersonated a
+    // current send block from a historical observation. `requireReadyConnection`
+    // remains the authoritative send gate.
+    expect(failed?.blocksSend).toBe(false);
     expect(failed?.detail).toContain('errorClass=auth');
   });
 
@@ -99,12 +104,128 @@ describe('HealthSignal contract', () => {
     expect(healthSignalFromConnectionRuntime(connection({ defaultModel: '' }), undefined, 30)).toBe(undefined);
   });
 
+  /*
+   * PR-HEALTH-1 — I2 lock (B-series from audit catalog):
+   * runtime_probe blocksSend must always be `false`. The signal is a
+   * historical observation surfaced for visibility, not a current send
+   * gate. Send gating belongs to `isConnectionReady` (connection-readiness.ts)
+   * and `requireReadyConnection` (chat-readiness.ts) only.
+   */
+  describe('I2 — runtime_probe blocksSend is always false (demote)', () => {
+    function probeRow(overrides: { status: 'success' | 'error' | 'aborted'; ts?: number; errorClass?: string }) {
+      return {
+        id: `usage_${overrides.status}`,
+        ts: overrides.ts ?? 100,
+        connectionSlug: 'zai',
+        providerId: 'zai-coding-plan',
+        modelId: 'glm-4.7',
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 2,
+        costUsd: 0,
+        latencyMs: 250,
+        status: overrides.status,
+        ...(overrides.errorClass ? { errorClass: overrides.errorClass } : {}),
+      };
+    }
+
+    test('B2: verified credential + historical runtime probe error → warning + blocksSend=false', () => {
+      const result = healthSignalFromConnectionRuntime(
+        connection({ lastTestStatus: 'verified' }),
+        probeRow({ status: 'error', errorClass: 'network' }),
+        300,
+      );
+      expect(result?.status).toBe('warning');
+      expect(result?.layer).toBe('runtime_probe');
+      expect(result?.blocksSend).toBe(false);
+    });
+
+    test('B5: no runtime probe history → unknown status, blocksSend=false', () => {
+      const result = healthSignalFromConnectionRuntime(
+        connection({ lastTestStatus: 'verified' }),
+        undefined,
+        300,
+      );
+      expect(result?.status).toBe('unknown');
+      expect(result?.blocksSend).toBe(false);
+    });
+
+    test('success runtime probe → ok status, blocksSend=false', () => {
+      const result = healthSignalFromConnectionRuntime(
+        connection({ lastTestStatus: 'verified' }),
+        probeRow({ status: 'success' }),
+        300,
+      );
+      expect(result?.status).toBe('ok');
+      expect(result?.blocksSend).toBe(false);
+    });
+
+    test('aborted runtime probe → info status, blocksSend=false', () => {
+      const result = healthSignalFromConnectionRuntime(
+        connection({ lastTestStatus: 'verified' }),
+        probeRow({ status: 'aborted' }),
+        300,
+      );
+      expect(result?.status).toBe('info');
+      expect(result?.blocksSend).toBe(false);
+    });
+
+    test('runtime probe error does NOT impersonate a send gate regardless of credential state', () => {
+      // Even pathological combinations (verified credential + every kind
+      // of probe error) must never produce blocksSend=true. Send gating
+      // is the exclusive domain of isConnectionReady / requireReadyConnection.
+      for (const errorClass of ['auth', 'timeout', 'provider_unavailable', 'network', 'unknown']) {
+        const result = healthSignalFromConnectionRuntime(
+          connection({ lastTestStatus: 'verified' }),
+          probeRow({ status: 'error', errorClass }),
+          300,
+        );
+        expect(result?.blocksSend).toBe(false);
+      }
+    });
+  });
+
   test('missing default model blocks send at configuration layer', () => {
     const result = healthSignalFromConnection(connection({ defaultModel: '' }), 20);
 
     expect(result.status).toBe('warning');
     expect(result.layer).toBe('configuration');
     expect(result.blocksSend).toBe(true);
+  });
+
+  /*
+   * PR-HEALTH-1 — E1 lock (three-layer separation):
+   * Connection auth state and bot capability readiness must derive
+   * independently. The Health snapshot must surface BOTH as separate
+   * signals — neither layer should impersonate the other.
+   */
+  test('E1: bot capability operational + connection unverified → two independent signals', () => {
+    const connectionUnverified = healthSignalFromConnection(connection({
+      lastTestStatus: undefined,
+    }), 20);
+    const botOperational = healthSignalFromCapability(capability('bot:telegram', 'enabled', {
+      runtimeProbe: { state: 'healthy', source: 'bot_registry', lastCheckedAt: 15 },
+    }));
+
+    // Connection layer reports its own status (unknown because no test yet),
+    // independent of the bot layer.
+    expect(connectionUnverified.scope).toBe('llm_connection');
+    expect(connectionUnverified.status).toBe('unknown');
+
+    // Bot capability layer reports its own status from runtime probe,
+    // independent of the connection's lastTestStatus.
+    expect(botOperational.scope).toBe('bot');
+    expect(botOperational.status).toBe('ok');
+
+    // Combined snapshot keeps both layers distinct — neither one is
+    // derived from the other; the user sees per-layer truth.
+    const snapshot = buildHealthSnapshot(30, [connectionUnverified, botOperational]);
+    expect(snapshot.signals.length).toBe(2);
+    expect(snapshot.signals.some((s) => s.scope === 'llm_connection')).toBe(true);
+    expect(snapshot.signals.some((s) => s.scope === 'bot')).toBe(true);
   });
 
   test('capability denied and degraded remain distinct health errors', () => {

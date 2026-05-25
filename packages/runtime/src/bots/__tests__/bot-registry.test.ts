@@ -82,26 +82,95 @@ describe('BotRegistry', () => {
     assert.equal(registry.getStatus('discord').reason, 'disabled');
   });
 
-  test('credentials_valid remains non-operational without a runtime bridge probe', async () => {
+  // PR-HEALTH-1 (xuan msg `e4887ffd`, I1 — read-path single-authority):
+  // Previously `scaffoldStatus` inherited the persisted
+  // `settings.readiness === 'credentials_valid'` directly into
+  // `BotStatus.readiness`. That let stale credential claims survive across
+  // settings reloads even after a live bridge had never probed. Post-fix,
+  // unimplemented platforms ONLY use `readinessFromSettings` (computed
+  // fresh from the channel's CURRENT facts). Credential-valid / operational
+  // are reserved for the live bridge write path (SimpleBotBridge etc.).
+  test('unimplemented platform with credentials downgrades persisted credentials_valid to configured', () => {
+    // F1b in audit catalog. Settings claim credentials_valid was persisted;
+    // since feishu has no live bridge, the read path must NOT honor the
+    // claim — it returns `configured` (credentials present, never probed).
+    const registry = new BotRegistry({
+      onIncomingMessage: () => {},
+      onStatusChange: () => {},
+    });
+
+    return registry
+      .applySettings(settingsWith({
+        feishu: {
+          enabled: true,
+          token: 'tenant-token',
+          appId: 'cli_123',
+          appSecret: 'secret',
+          connected: true,
+          readiness: 'credentials_valid',
+        },
+      }))
+      .then(() => {
+        const status = registry.getStatus('feishu');
+        assert.equal(status.running, false);
+        assert.equal(
+          status.readiness,
+          'configured',
+          'persisted credentials_valid must NOT flow through to read path for unimplemented platforms',
+        );
+        assert.notEqual(status.readiness, 'operational');
+      });
+  });
+
+  test('unimplemented platform with no credentials reports scaffolded (regardless of persisted state)', async () => {
+    // F1 in audit catalog. Even with a stale persisted credentials_valid,
+    // an empty credential trio means scaffoldStatus must return scaffolded.
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
       onStatusChange: () => {},
     });
 
     await registry.applySettings(settingsWith({
-      feishu: {
+      wecom: {
         enabled: true,
-        token: 'tenant-token',
-        appId: 'cli_123',
-        appSecret: 'secret',
-        connected: true,
+        token: '',
+        appId: undefined,
+        appSecret: undefined,
         readiness: 'credentials_valid',
       },
     }));
 
-    assert.equal(registry.getStatus('feishu').running, false);
-    assert.equal(registry.getStatus('feishu').readiness, 'credentials_valid');
-    assert.notEqual(registry.getStatus('feishu').readiness, 'operational');
+    const status = registry.getStatus('wecom');
+    assert.equal(status.readiness, 'scaffolded');
+    assert.equal(status.reason, 'unimplemented');
+  });
+
+  test('unimplemented platform with persisted operational + no credentials reports scaffolded', async () => {
+    // Tighter coercion: even operational is downgraded for the read path
+    // when credentials are absent. Live bridge would write its own
+    // operational state on a per-reconcile basis; persisted operational
+    // alone is not honored.
+    const registry = new BotRegistry({
+      onIncomingMessage: () => {},
+      onStatusChange: () => {},
+    });
+
+    await registry.applySettings(settingsWith({
+      discord: {
+        enabled: true,
+        token: '',
+        appId: undefined,
+        appSecret: undefined,
+        readiness: 'operational',
+      },
+    }));
+
+    const status = registry.getStatus('discord');
+    assert.equal(
+      status.readiness,
+      'scaffolded',
+      'persisted operational with no credentials must NOT survive into read path',
+    );
   });
 });
 
