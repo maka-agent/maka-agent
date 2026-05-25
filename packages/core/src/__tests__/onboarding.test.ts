@@ -361,6 +361,31 @@ describe('deriveOnboardingState invariants', () => {
     deriveOnboardingState({ connections, defaultSlug: 'a', sessions, secrets });
     assert.equal(JSON.stringify({ connections, sessions, secrets }), before);
   });
+
+  // PR-HEALTH-1 — E2 lock (three-layer separation):
+  // OnboardingState must NOT consider `lastTestStatus`. Credential test
+  // outcome is a validation-layer concern; onboarding answers
+  // "fact: do you have a usable real connection set as default?" which
+  // is a configuration-layer concern. Flipping lastTestStatus across all
+  // states must produce the SAME OnboardingState — the two layers are
+  // independent.
+  it('E2: flipping lastTestStatus does not change OnboardingState (validation ≠ onboarding)', () => {
+    const baseSession = [session('s1')];
+    for (const lastTestStatus of [undefined, 'verified', 'needs_reauth', 'error'] as const) {
+      const conn = realConnection({ slug: 'a', lastTestStatus });
+      const result = derive({
+        connections: [conn],
+        defaultSlug: 'a',
+        sessions: baseSession,
+        secrets: { a: true },
+      });
+      assert.equal(
+        result.kind,
+        'ready_with_history',
+        `lastTestStatus=${lastTestStatus} must produce ready_with_history (credential test is validation-layer, not onboarding-layer)`,
+      );
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

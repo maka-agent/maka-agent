@@ -202,4 +202,78 @@ describe('deriveChatHeaderAlert', () => {
       assert.equal(result?.label, '连接已删除');
     });
   });
+
+  describe('D8 — defaultConnectionReady is a tone hint, NOT a send-readiness fact', () => {
+    // PR-HEALTH-1 (xuan msg `e4887ffd`, I3 lock):
+    //
+    // `defaultConnectionReady` is computed in the renderer as
+    // `(defaultConnection exists) && defaultConnection.enabled`. It does
+    // NOT inspect `hasSecret` / `defaultModel` / `models`, so a connection
+    // that exists + is enabled but lacks an API key still flips this hint
+    // to `true`. Send-time then hard-fails via `requireReadyConnection`
+    // with `reason='missing_api_key'`.
+    //
+    // The user sees:
+    //   - banner: WARNING tone ("发送时会切换到默认连接")
+    //   - send-time: hard error ("缺少 API key")
+    //
+    // That is the documented behaviour. The banner is a heads-up; the
+    // backend send gate is authoritative. This test locks the contract so
+    // any future change MUST either:
+    //   (a) propagate the hint into a canonical readiness IPC, OR
+    //   (b) keep the proxy + this test green.
+
+    it('warning tone when fake + defaultConnectionReady=true even if send WILL hard-fail', () => {
+      // Mimic the user's mental model: legacy fake session, real default
+      // connection exists + enabled, but its API key was never saved.
+      // The renderer only knows existence + enabled — NOT hasSecret —
+      // so it shows the warning rebind banner. The send call will then
+      // throw `missing_api_key`. The banner does NOT promise success.
+      const result = deriveChatHeaderAlert(
+        input({
+          backend: 'fake',
+          hasActiveConnection: false,
+          defaultConnectionReady: true,
+        }),
+      );
+      assert.equal(result?.tone, 'warning', 'banner is a heads-up not a contract');
+      assert.match(
+        result?.label ?? '',
+        /发送时会切换到默认连接/,
+        'label hints rebind without promising send success',
+      );
+      // Defensive: the banner must NOT claim send will succeed, must NOT
+      // surface "ready" / "可用" / "operational" wording.
+      assert.doesNotMatch(result?.label ?? '', /可用|ready|operational/i);
+      assert.doesNotMatch(result?.tooltip ?? '', /必定成功|保证发送|guaranteed/i);
+    });
+
+    it('missing-connection banner with defaultConnectionReady=true: same heads-up semantics', () => {
+      const result = deriveChatHeaderAlert(
+        input({
+          backend: 'ai-sdk',
+          hasActiveConnection: false,
+          defaultConnectionReady: true,
+        }),
+      );
+      assert.equal(result?.tone, 'warning');
+      assert.match(result?.label ?? '', /发送时会切换到默认连接/);
+      assert.doesNotMatch(result?.label ?? '', /可用|ready|operational/i);
+    });
+
+    it('defaultConnectionReady=true does NOT silence credential lifecycle alerts', () => {
+      // If the active connection itself is in needs_reauth / error, the
+      // banner must still surface — defaultConnectionReady is irrelevant
+      // here because we're not in a rebind scenario.
+      const reauth = deriveChatHeaderAlert(
+        input({ lastTestStatus: 'needs_reauth', defaultConnectionReady: true }),
+      );
+      assert.equal(reauth?.label, '需要重新登录');
+
+      const errored = deriveChatHeaderAlert(
+        input({ lastTestStatus: 'error', defaultConnectionReady: true }),
+      );
+      assert.equal(errored?.label, '上次连接失败');
+    });
+  });
 });

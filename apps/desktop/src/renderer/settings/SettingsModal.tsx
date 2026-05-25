@@ -68,6 +68,12 @@ import {
   presentConnectionUiStatus,
   type ConnectionUiStatus,
 } from '../connection-status';
+import {
+  NAV_GROUP_ORDER,
+  deriveNavGroupSummary,
+  type NavGroupSummary,
+  type SettingsNavGroup,
+} from './nav-group-summary';
 
 type SettingsNavItem = {
   id: SettingsSection;
@@ -79,9 +85,10 @@ type SettingsNavItem = {
   group: SettingsNavGroup;
 };
 
-export type SettingsNavGroup = '基础' | 'AI' | '集成' | '数据与账号' | '其他';
-
-const NAV_GROUP_ORDER: SettingsNavGroup[] = ['基础', 'AI', '集成', '数据与账号', '其他'];
+// `SettingsNavGroup` + `NAV_GROUP_ORDER` moved to `nav-group-summary.ts`
+// (PR-HEALTH-1) so the H1/H2 group-summary assertions can be pinned with
+// node:test without a DOM / React.
+export type { SettingsNavGroup };
 
 export const SETTINGS_NAV: SettingsNavItem[] = [
   // Group 1: 基础 — 通用偏好、个性化、主题
@@ -120,89 +127,12 @@ function groupedNav(): Array<{ group: SettingsNavGroup; items: SettingsNavItem[]
   });
 }
 
-interface NavGroupSummary {
-  /** Short text rendered next to the group label, e.g. "3 verified · 1 needs reauth". */
-  text: string;
-  /** Tone drives color (info / warning / destructive). undefined → neutral. */
-  tone?: 'info' | 'warning' | 'destructive';
-}
-
-/**
- * Per @kenji's PR75 review: group labels shouldn't be just visual dividers
- * — they should summarize the live state of the group so the nav doubles
- * as a navigation map. We surface this as a small line below the group
- * heading, distinct from the persistent uppercase label.
- */
-function navGroupSummary(args: {
-  group: SettingsNavGroup;
-  connections: LlmConnection[];
-  defaultSlug: string | null;
-  settings: AppSettings;
-}): NavGroupSummary | undefined {
-  // Keep summaries terse — @kenji's PR78 review: "不要让 nav 变成第二个详情页".
-  // One short sentence, max ~14 chars, tone-coded for urgency.
-  switch (args.group) {
-    case 'AI': {
-      const enabled = args.connections.filter((c) => c.enabled).length;
-      if (enabled === 0) {
-        return { text: '尚未启用任何连接', tone: 'info' };
-      }
-      const errored = args.connections.filter(
-        (c) => c.enabled && c.lastTestStatus === 'error',
-      ).length;
-      const needsReauth = args.connections.filter(
-        (c) => c.enabled && c.lastTestStatus === 'needs_reauth',
-      ).length;
-      if (errored > 0) {
-        return { text: `${errored} 个连接出错`, tone: 'destructive' };
-      }
-      if (needsReauth > 0) {
-        return { text: `${needsReauth} 个需重登`, tone: 'warning' };
-      }
-      const defaultConnection = args.connections.find((c) => c.slug === args.defaultSlug);
-      if (!defaultConnection) {
-        return { text: '未设默认模型', tone: 'warning' };
-      }
-      // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): "可用" implied runtime
-      // readiness (operational), but this count is purely
-      // `connections.filter(c => c.enabled).length` — an enabled
-      // connection may still be un-validated, needs-reauth, or
-      // erroring. Use "已启用" to describe the actual user-toggle
-      // state without claiming runtime availability. Matches the
-      // provider-auth contract Path 17 S11 D1 lock
-      // (`enabled / validated / operational` are three distinct concepts).
-      return { text: `${enabled} 个已启用连接` };
-    }
-    case '集成': {
-      const proxyOn = args.settings.network?.proxy?.enabled ?? false;
-      const botChannels = args.settings.botChat?.channels ?? ({} as Record<string, { enabled?: boolean } | undefined>);
-      const enabledBots = Object.values(botChannels).filter(
-        (channel) => channel?.enabled ?? false,
-      ).length;
-      return {
-        text: `${proxyOn ? '代理已开' : '直连'} · ${enabledBots} 个机器人`,
-      };
-    }
-    case '数据与账号': {
-      const errored = args.connections.filter(
-        (c) => c.enabled && c.lastTestStatus === 'error',
-      ).length;
-      const needsReauth = args.connections.filter(
-        (c) => c.enabled && c.lastTestStatus === 'needs_reauth',
-      ).length;
-      if (errored + needsReauth > 0) {
-        return {
-          text: `${errored + needsReauth} 个凭据需处理`,
-          tone: errored > 0 ? 'destructive' : 'warning',
-        };
-      }
-      return { text: '凭据本地加密' };
-    }
-    case '基础':
-    case '其他':
-      return undefined;
-  }
-}
+// `navGroupSummary` + its return type extracted to
+// `./nav-group-summary.ts` (PR-HEALTH-1, msg `e4887ffd`). The renderer
+// uses the imported `deriveNavGroupSummary` below; the H1/H2 assertions
+// are pinned in `apps/desktop/src/main/__tests__/nav-group-summary.test.ts`.
+const navGroupSummary = deriveNavGroupSummary;
+export type { NavGroupSummary };
 
 /**
  * V0.2 product-stance copy for Coming Soon Settings pages. The shape is

@@ -109,13 +109,26 @@ function defaultStatus(platform: BotPlatform): BotStatus {
 }
 
 function scaffoldStatus(platform: BotPlatform, settings: BotChannelSettings): BotStatus {
-  const readiness = settings.readiness === 'credentials_valid'
-    ? 'credentials_valid'
-    : readinessFromSettings(settings);
+  // PR-HEALTH-1 (xuan msg `e4887ffd`, I1 — bot readiness single-authority,
+  // read path): the previous behavior inherited `settings.readiness ===
+  // 'credentials_valid'` blindly, which leaked stale persisted state into
+  // `BotStatus.readiness` for unimplemented platforms (everything except
+  // telegram in V0.2). The settings write path (settings.ts
+  // `coerceReadinessForCurrentState`) already downgrades implausible
+  // persisted states; this read path drops the special-case to make the
+  // gate doubly safe.
+  //
+  // Authoritative readiness sources, post-PR-HEALTH-1:
+  //   1. Live bridge (`SimpleBotBridge` for telegram) — writes its own
+  //      `readiness` field during lifecycle; surfaced via `BotBridge.getStatus()`.
+  //   2. Settings-derived for unimplemented platforms — computed FRESH
+  //      from current `channel.{enabled, token, appId, appSecret}` via
+  //      `readinessFromSettings`. Persisted `settings.readiness` is no
+  //      longer trusted at the read boundary.
   return {
     platform,
     running: false,
-    readiness,
+    readiness: readinessFromSettings(settings),
     reason: settings.token.trim() || settings.appId || settings.appSecret
       ? 'scaffold-only'
       : 'unimplemented',

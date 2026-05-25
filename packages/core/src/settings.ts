@@ -462,13 +462,25 @@ function normalizeBotChannel(
 ): BotChannelSettings {
   const hasExplicitReadiness = rawChannel && 'readiness' in rawChannel;
   const connected = channel.connected === true;
+  const candidateReadiness = hasExplicitReadiness && isBotReadinessState(rawChannel?.readiness)
+    ? channel.readiness
+    : (connected ? 'credentials_valid' : readinessFromChannel(channel));
   return {
     ...channel,
     provider,
     connected,
-    readiness: hasExplicitReadiness && isBotReadinessState(rawChannel?.readiness)
-      ? channel.readiness
-      : (connected ? 'credentials_valid' : readinessFromChannel(channel)),
+    // PR-HEALTH-1 (xuan msg `e4887ffd`, I1 — bot readiness single-authority,
+    // write path): coerce the persisted readiness to be consistent with
+    // current credential state. The previous behavior trusted whatever was
+    // on disk, so `mergeSettings({channels:{telegram:{token:''}}})` over
+    // `{readiness:'credentials_valid', token:'X'}` would persist a stale
+    // `'credentials_valid'` even though credentials no longer exist.
+    // `coerceReadinessForCurrentState` downgrades credential-claiming states
+    // (`configured` / `credentials_valid` / `operational` / `degraded`)
+    // back to `'scaffolded'` when no credentials remain. Live bridges keep
+    // their own authoritative readiness via `BotStatus`; they are not
+    // affected by this settings-write coerce path.
+    readiness: coerceReadinessForCurrentState(channel, candidateReadiness),
     readinessReason: typeof channel.readinessReason === 'string' ? channel.readinessReason : undefined,
     readinessUpdatedAt: typeof channel.readinessUpdatedAt === 'number' && Number.isFinite(channel.readinessUpdatedAt)
       ? channel.readinessUpdatedAt
@@ -480,4 +492,46 @@ function readinessFromChannel(channel: BotChannelSettings): BotReadinessState {
   if (!channel.enabled) return 'scaffolded';
   if (!channel.token.trim() && !channel.appId && !channel.appSecret) return 'scaffolded';
   return 'configured';
+}
+
+/**
+ * PR-HEALTH-1 (xuan msg `e4887ffd`, I1 lock): downgrade a persisted
+ * `BotReadinessState` to be consistent with the channel's current
+ * credential state.
+ *
+ * Why: `mergeSettings` spreads a `channelPatch` over the current channel.
+ * If the user clears `token` without explicitly patching `readiness`, the
+ * prior `'credentials_valid'` (or any other credential-claiming state)
+ * survives. That stale value then surfaces through
+ * `bot-registry.scaffoldStatus()` into `BotStatus.readiness`, which the
+ * capability snapshot maps into `CapabilityRuntimeProbeSignal.state` —
+ * producing a "configured / verified" UI for a channel that actually has
+ * no credentials.
+ *
+ * Rule: credential-claiming readiness (`'configured'` / `'credentials_valid'`
+ * / `'operational'` / `'degraded'`) requires SOMETHING in the credential
+ * trio (`token` / `appId` / `appSecret`). When all three are empty,
+ * downgrade to `'scaffolded'`. `'unscaffolded'` and `'scaffolded'` are
+ * always consistent with any credential state, so they pass through.
+ *
+ * Note: this is a write-path consistency gate, not an operational probe.
+ * Even when credentials exist, we do NOT promote `'scaffolded'` to
+ * `'configured'` here — that is the live bridge / connection-test path's
+ * responsibility. We only downgrade; never upgrade.
+ */
+function coerceReadinessForCurrentState(
+  channel: BotChannelSettings,
+  candidate: BotReadinessState,
+): BotReadinessState {
+  const hasCredentials =
+    channel.token.trim().length > 0 || Boolean(channel.appId) || Boolean(channel.appSecret);
+  const claimsCredentials =
+    candidate === 'configured' ||
+    candidate === 'credentials_valid' ||
+    candidate === 'operational' ||
+    candidate === 'degraded';
+  if (claimsCredentials && !hasCredentials) {
+    return 'scaffolded';
+  }
+  return candidate;
 }

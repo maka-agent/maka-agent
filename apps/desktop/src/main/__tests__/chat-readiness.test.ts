@@ -184,6 +184,30 @@ describe('chat readiness guard', () => {
     );
   });
 
+  // PR-HEALTH-1 — E4 lock (three-layer separation):
+  // requireReadyConnection (send gate) must NOT consider lastTestStatus.
+  // Credential test outcome is a validation-layer concern; the send gate
+  // answers "fact: can we attempt a real send right now?" — credentials
+  // exist, model is enabled, backend is real. lastTestStatus is advisory
+  // (a past observation); send-time is when we find out for real.
+  test('E4: lastTestStatus does NOT gate requireReadyConnection (send path stays validation-independent)', async () => {
+    for (const lastTestStatus of [undefined, 'verified', 'needs_reauth', 'error'] as const) {
+      const ready = await requireReadyConnection(
+        'anthropic',
+        deps({
+          connection: connection({ lastTestStatus }),
+          apiKey: 'sk-test',
+        }),
+      );
+      assert.equal(
+        ready.connection.slug,
+        'anthropic',
+        `lastTestStatus=${lastTestStatus} must NOT block send (validation ≠ send gate)`,
+      );
+      assert.equal(ready.model, 'claude-3-5-sonnet-20241022');
+    }
+  });
+
   test('classifies stale sessions that can be rebound to the current default model', () => {
     for (const reason of ['fake_backend', 'connection_missing', 'missing_model', 'empty_model_list', 'model_not_enabled']) {
       assert.equal(shouldRebindSessionToDefault(reason), true, reason);
