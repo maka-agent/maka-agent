@@ -223,6 +223,47 @@ export {
   stripSearchTrackingParams,
 } from './search.js';
 
+// memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.
+export type {
+  DraftMemoryEntry,
+  DurableMemoryEntry,
+  MemoryBlockReason,
+  MemoryCandidateSource,
+  MemoryCapabilitySnapshot,
+  MemoryEntry,
+  MemoryMode,
+  MemoryPersistenceState,
+  MemoryResult,
+  MemoryScope,
+  MemorySource,
+  MemorySourceResolution,
+  MemoryUsePolicy,
+  MemoryWriteRequest,
+  MemoryWriteRequestContext,
+} from './memory.js';
+export {
+  MEMORY_BLOCK_REASONS,
+  MEMORY_CANDIDATE_SOURCES,
+  MEMORY_CONTENT_MAX_CODE_POINTS,
+  MEMORY_MODES,
+  MEMORY_PERSISTENCE_STATES,
+  MEMORY_SCOPES,
+  MEMORY_SOURCES,
+  MEMORY_USE_POLICIES,
+  isMemoryCandidateSource,
+  isMemoryMode,
+  isMemoryPersistenceState,
+  isMemoryScope,
+  isMemorySource,
+  isMemoryUsePolicy,
+  normalizeMemoryContent,
+  normalizeMemoryMode,
+  normalizeMemoryPersistenceState,
+  normalizeMemoryScope,
+  normalizeMemorySource,
+  validateMemoryWriteRequest,
+} from './memory.js';
+
 // backend-types.ts
 export type { BackendSendInput, PermissionDecision } from './backend-types.js';
 
