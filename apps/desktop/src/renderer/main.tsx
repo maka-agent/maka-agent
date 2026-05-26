@@ -754,6 +754,25 @@ function AppShell(props: {
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
     }
+    // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
+    // kenji `b3d156e9`): when the fixture sets `focusActiveRow`,
+    // focus the active row's button after the next paint so the
+    // row's `:focus-within` triggers and the `.maka-list-row-actions`
+    // overlay becomes visible. The auto-capture then shows the
+    // actions cluster against the slim row, proving the time meta
+    // + unread dot are hidden underneath (no overlap with the
+    // action icons — the bug WAWQAQ flagged). Two RAFs let React
+    // commit the active selection before we query the DOM.
+    if (state.focusActiveRow) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const activeRowButton = document.querySelector<HTMLButtonElement>(
+            '.maka-list-row[data-active="true"] .maka-list-row-main',
+          );
+          activeRowButton?.focus({ preventScroll: true });
+        });
+      });
+    }
     // PR-IR-01: when MAKA_VISUAL_SMOKE_AUTO_CAPTURE is set, snap a
     // screenshot once the fixture has settled and the renderer has
     // committed. We wait two RAFs + a small idle delay so async layout
@@ -771,7 +790,16 @@ function AppShell(props: {
             // Keep screenshot baselines free of focus rings / caret blink.
             // Interaction-specific focus behavior is covered by node tests
             // and manual smoke paths; auto-capture should measure layout.
-            if (document.activeElement instanceof HTMLElement) {
+            //
+            // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 exception (WAWQAQ
+            // msg `5dd1c348`): when the fixture asks for a focused
+            // active row (e.g. the `sidebar-row-actions-visible`
+            // scenario, which proves the action overlay doesn't
+            // overlap the time meta), the blur step would defeat the
+            // whole point of the capture. Skip the blur in that
+            // narrow case; other captures still get a clean (focusless)
+            // baseline.
+            if (!state.focusActiveRow && document.activeElement instanceof HTMLElement) {
               document.activeElement.blur();
             }
             if ('fonts' in document) {

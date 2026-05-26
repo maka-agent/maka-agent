@@ -838,6 +838,23 @@ button:active {
   pointer-events: auto;
 }
 
+/* PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`):
+ * when row actions appear, hide the meta (time) and unread dot so
+ * they don't show through the absolute-positioned actions overlay.
+ * The gradient bg below was supposed to mask them visually but
+ * couldn't match every row state (transparent default vs hover bg
+ * vs accent-tinted selected bg), so the time text leaked through
+ * the actions cluster on selected rows ("9m ago" overlapping with
+ * 📌 ✏️ 📦 🗑️). `visibility: hidden` preserves layout (the auto
+ * grid column still reserves the time slot), so the actions slide
+ * in without shifting anything around them. */
+.maka-list-row:hover .maka-list-row-meta,
+.maka-list-row:hover .maka-list-row-unread,
+.maka-list-row:focus-within .maka-list-row-meta,
+.maka-list-row:focus-within .maka-list-row-unread {
+  visibility: hidden;
+}
+
 .maka-list-row[data-active="true"] .maka-list-row-actions {
   background: linear-gradient(
     to right,

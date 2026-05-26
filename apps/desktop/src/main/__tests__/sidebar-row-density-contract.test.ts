@@ -103,6 +103,40 @@ describe('sidebar session row density CSS contract (PR-SIDEBAR-IA-0 Phase 3)', (
     );
   });
 
+  it('meta + unread dot HIDE on :hover AND :focus-within so they do not show through the actions overlay', async () => {
+    // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`):
+    // when the absolute-positioned `.maka-list-row-actions` overlay
+    // becomes visible (hover / focus-within), the time meta and
+    // unread dot underneath would visually leak through the
+    // gradient mask — especially on accent-tinted selected rows
+    // where the gradient (`--foreground-3`) is the wrong color.
+    // The fix hides them via `visibility: hidden` so they don't
+    // overlap. Layout is preserved (the grid auto column still
+    // reserves the slot) so actions slide in without shifting
+    // anything.
+    const css = await readFile(STYLES_PATH, 'utf8');
+    assert.match(
+      css,
+      /\.maka-list-row:hover\s+\.maka-list-row-meta[\s\S]{0,200}visibility:\s*hidden/,
+      'CSS must hide `.maka-list-row-meta` on `:hover` (no overlap with action overlay per WAWQAQ 5dd1c348)',
+    );
+    assert.match(
+      css,
+      /\.maka-list-row:focus-within\s+\.maka-list-row-meta[\s\S]{0,200}visibility:\s*hidden/,
+      'CSS must hide `.maka-list-row-meta` on `:focus-within` (no overlap on the clicked/active row)',
+    );
+    assert.match(
+      css,
+      /\.maka-list-row:hover\s+\.maka-list-row-unread[\s\S]{0,200}visibility:\s*hidden/,
+      'CSS must also hide `.maka-list-row-unread` on `:hover` (unread dot occupies the same auto column as meta)',
+    );
+    assert.match(
+      css,
+      /\.maka-list-row:focus-within\s+\.maka-list-row-unread[\s\S]{0,200}visibility:\s*hidden/,
+      'CSS must hide `.maka-list-row-unread` on `:focus-within` (per xuan `bcf4304d` — full 4-selector lock)',
+    );
+  });
+
   it('row actions reveal on :hover AND :focus-within (keyboard a11y)', async () => {
     // Per xuan `2d4526b5`: actions must be reachable via keyboard.
     // The reveal rule must include both `:hover` and `:focus-within`

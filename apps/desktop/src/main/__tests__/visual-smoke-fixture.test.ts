@@ -507,6 +507,46 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action overlay shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
+    // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
+    // kenji `b3d156e9`): the sidebar-row-actions-visible scenario
+    // reuses the 60-session seed so the sidebar is identical to
+    // the long-sessions baseline; differs only in
+    // `VisualSmokeState.focusActiveRow=true`, which the renderer
+    // reads to focus the active row's button after mount. That
+    // triggers `:focus-within` and reveals the
+    // `.maka-list-row-actions` overlay — the screenshot then proves
+    // the time meta / unread dot are correctly hidden underneath.
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-row-actions-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('sidebar-row-actions-visible', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const state = getVisualSmokeState(fixture);
+      // focusActiveRow is the contract the renderer reads.
+      assert.equal(state?.focusActiveRow, true, 'focusActiveRow must be true so the renderer focuses the active row button');
+      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+
+      // Same 60-session seed actually lands on disk so the sidebar
+      // is fully populated for the actions-visible capture.
+      const file = await readFile(
+        join(workspaceRoot, 'sessions', 'visual-smoke-sidebar-long-00', 'session.jsonl'),
+        'utf8',
+      );
+      const header = JSON.parse(file.split('\n')[0]!) as { id: string; status: string };
+      assert.equal(header.id, 'visual-smoke-sidebar-long-00');
+      assert.equal(header.status, 'active');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('sidebar-search-modal-open shares the 60-session seed and sets searchModalOpen for auto-open (PR-SIDEBAR-IA-0 Phase 2 fixup v3)', async () => {
     // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): the
     // sidebar-search-modal-open scenario reuses the 60-session seed

@@ -71,7 +71,15 @@ export type VisualSmokeScenario =
   // without requiring an interaction. The opener uses
   // `VisualSmokeState.searchModalOpen=true`; real users never
   // receive a visual smoke state.
-  | 'sidebar-search-modal-open';
+  | 'sidebar-search-modal-open'
+  // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
+  // kenji `b3d156e9`): seed the same 60-session sidebar and
+  // programmatically focus the active row's button after mount
+  // so the absolute-positioned `.maka-list-row-actions` overlay
+  // becomes visible (via `:focus-within`). Verifies that the
+  // time meta + unread dot do NOT leak through the action icons
+  // — the bug WAWQAQ flagged.
+  | 'sidebar-row-actions-visible';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;
@@ -178,4 +186,19 @@ export interface VisualSmokeState {
    * affects the production app.
    */
   searchModalOpen?: boolean;
+  /**
+   * PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
+   * kenji `b3d156e9`): when `true`, the renderer focuses the
+   * active row's `.maka-list-row-main` button after mount so the
+   * row's `:focus-within` triggers and the absolute-positioned
+   * `.maka-list-row-actions` overlay becomes visible. The capture
+   * then shows the actions cluster — without this hint, default
+   * captures never have any focused row, so the overlap fix
+   * (`.maka-list-row:focus-within .maka-list-row-meta {
+   * visibility: hidden }`) can't be screenshot-verified.
+   *
+   * Currently set only by the `sidebar-row-actions-visible`
+   * scenario.
+   */
+  focusActiveRow?: boolean;
 }
