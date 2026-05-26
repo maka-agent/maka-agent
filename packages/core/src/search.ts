@@ -52,11 +52,38 @@ export interface WebFetchRequest {
   refresh?: boolean;
 }
 
+/**
+ * Optional navigation target for a `SearchResult`.
+ *
+ * PR-SEARCH-1.5 (@xuan msg `772d8198`): a closed discriminated union so
+ * source-kind-specific identifiers (thread sessionId / turnId, future
+ * memory entry id, future activity timestamp range, etc.) stay typed and
+ * isolated. Adding a new variant is an explicit contract change.
+ *
+ * Today only `'thread'` exists. `web` / `web_fetch` results continue to
+ * use `SearchResult.url` for navigation; they do NOT need a `target`.
+ *
+ * Note: thread navigation deliberately does NOT use `maka://session/<id>`
+ * URIs — `packages/ui/src/maka-uri.ts:24` defers that scheme until a real
+ * session navigation contract exists. Consumers of `SearchResultTarget`
+ * route via the existing renderer-side session-pane state (sessionId →
+ * load session, turnId → scroll-into-view), NOT via a URL router.
+ */
+export type SearchResultTarget =
+  | { kind: 'thread'; sessionId: string; turnId?: string };
+
 export interface SearchResult {
   source: SearchSourceKind;
   citationIndex?: number;
   title: string;
   url?: string;
+  /**
+   * Closed-union navigation target. Populated for source kinds whose
+   * navigation does NOT map to a URL — currently only `thread`. Future
+   * memory/activity variants extend this union without polluting the
+   * top-level shape.
+   */
+  target?: SearchResultTarget;
   snippet?: string;
   summary?: string;
   markdown?: string;
