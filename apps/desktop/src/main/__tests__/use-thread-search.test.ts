@@ -460,3 +460,116 @@ describe('buildContentSearchCommands — palette commands per state', () => {
     assert.equal(cmds[0]!.hint, '<script>alert(1)</script>');
   });
 });
+
+// ---------------------------------------------------------------------------
+// disabled flag — xuan fixup `fd675604`
+// ---------------------------------------------------------------------------
+
+describe('disabled flag on status tiles (xuan fd675604)', () => {
+  it('loading tile is disabled', () => {
+    const cmds = buildContentSearchCommands({ kind: 'loading', query: 'hello' });
+    assert.equal(cmds[0]!.disabled, true);
+  });
+
+  it('blocked tile is disabled', () => {
+    const cmds = buildContentSearchCommands({
+      kind: 'blocked',
+      query: 'hello',
+      reason: 'incognito_active',
+      message: 'Search is disabled while incognito is active.',
+    });
+    assert.equal(cmds[0]!.disabled, true);
+  });
+
+  it('error tile is disabled', () => {
+    const cmds = buildContentSearchCommands({
+      kind: 'error',
+      query: 'hello',
+      reason: 'parse_error',
+      message: 'Search failed.',
+    });
+    assert.equal(cmds[0]!.disabled, true);
+  });
+
+  it('empty results tile is disabled', () => {
+    const cmds = buildContentSearchCommands({ kind: 'results', query: 'hello', hits: [] });
+    assert.equal(cmds[0]!.disabled, true);
+  });
+
+  it('hit commands are NOT disabled (must be activatable)', () => {
+    const cmds = buildContentSearchCommands(
+      {
+        kind: 'results',
+        query: 'hello',
+        hits: [
+          { sessionId: 's1', title: 'A' },
+          { sessionId: 's2', title: 'B', snippet: 'snip' },
+        ],
+      },
+      () => undefined,
+    );
+    for (const cmd of cmds) {
+      assert.notEqual(cmd.disabled, true, `hit command "${cmd.label}" should NOT be disabled`);
+    }
+  });
+
+  // Pin the `commit()` semantics through a pure simulation. We do not
+  // mount the real React palette here, but we can simulate the
+  // `commit(cmd)` decision tree: a `disabled` command's `run()` must
+  // NOT be invoked, and the simulated `onClose` callback must NOT
+  // fire. The actual CommandPalette uses this exact gate in
+  // `command-palette.tsx commit()`.
+  it('simulated commit() on disabled blocked tile does NOT fire run or close', () => {
+    let runCalled = 0;
+    let closeCalled = 0;
+    const cmds = buildContentSearchCommands({
+      kind: 'blocked',
+      query: 'hello',
+      reason: 'incognito_active',
+      message: 'Search is disabled while incognito is active.',
+    });
+    // Override `run` to a counter so we can assert it doesn't fire.
+    const cmd = { ...cmds[0]!, run: () => { runCalled++; } };
+
+    // Mirror the production commit() gate:
+    //   if (!cmd) return;
+    //   if (cmd.disabled) return;
+    //   cmd.run();
+    //   props.onClose();
+    function simulatedCommit(c: typeof cmd | undefined, onClose: () => void) {
+      if (!c) return;
+      if (c.disabled) return;
+      c.run();
+      onClose();
+    }
+    simulatedCommit(cmd, () => { closeCalled++; });
+
+    assert.equal(runCalled, 0, 'disabled command MUST NOT fire run()');
+    assert.equal(closeCalled, 0, 'disabled command MUST NOT close palette');
+  });
+
+  it('simulated commit() on enabled hit tile DOES fire run and close', () => {
+    let runCalled = 0;
+    let closeCalled = 0;
+    const cmds = buildContentSearchCommands(
+      {
+        kind: 'results',
+        query: 'hello',
+        hits: [{ sessionId: 's-target', title: 'hit' }],
+      },
+      () => undefined,
+    );
+    const cmd = { ...cmds[0]!, run: () => { runCalled++; } };
+
+    function simulatedCommit(c: typeof cmd | undefined, onClose: () => void) {
+      if (!c) return;
+      if (c.disabled) return;
+      c.run();
+      onClose();
+    }
+    simulatedCommit(cmd, () => { closeCalled++; });
+
+    assert.equal(runCalled, 1);
+    assert.equal(closeCalled, 1);
+  });
+});

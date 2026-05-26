@@ -349,6 +349,11 @@ export function CommandPalette(props: {
 
   function commit(cmd: Command | undefined) {
     if (!cmd) return;
+    // xuan `fd675604`: disabled commands are inert. We MUST NOT fire
+    // their `run()` and MUST NOT close the palette — that would make
+    // a status tile (blocked / loading / error / empty) look like a
+    // user action.
+    if (cmd.disabled) return;
     cmd.run();
     props.onClose();
   }
@@ -427,7 +432,9 @@ export function CommandPalette(props: {
                       type="button"
                       role="option"
                       aria-selected={active}
+                      aria-disabled={cmd.disabled ? true : undefined}
                       data-active={active}
+                      data-disabled={cmd.disabled ? true : undefined}
                       className="maka-palette-item"
                       onMouseEnter={() => setHighlight(index)}
                       onClick={() => commit(cmd)}

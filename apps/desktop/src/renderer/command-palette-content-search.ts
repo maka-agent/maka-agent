@@ -42,13 +42,17 @@ export function buildContentSearchCommands(
           group: '内容搜索',
           Icon: Search,
           keywords: [],
+          // xuan `fd675604`: status tiles MUST be inert. `commit()`
+          // gates on `disabled` and returns without firing run/close.
+          disabled: true,
           run: () => undefined,
         },
       ];
     case 'blocked':
       // xuan `6e7372c5`: fixed Chinese main text + generalized hint;
-      // no result count, no body. `run` is a no-op so the entry stays
-      // visible but inert.
+      // no result count, no body. xuan `fd675604`: must be truly
+      // disabled — `disabled: true` makes `commit()` skip both
+      // `run()` and palette close.
       return [
         {
           id: 'thread-search:blocked',
@@ -58,6 +62,7 @@ export function buildContentSearchCommands(
           group: '内容搜索',
           Icon: EyeOff,
           keywords: ['incognito', 'privacy', '隐私', '停用'],
+          disabled: true,
           run: () => undefined,
         },
       ];
@@ -71,6 +76,7 @@ export function buildContentSearchCommands(
           group: '内容搜索',
           Icon: Search,
           keywords: [],
+          disabled: true,
           run: () => undefined,
         },
       ];
@@ -85,6 +91,7 @@ export function buildContentSearchCommands(
             group: '内容搜索',
             Icon: Search,
             keywords: [],
+            disabled: true,
             run: () => undefined,
           },
         ];

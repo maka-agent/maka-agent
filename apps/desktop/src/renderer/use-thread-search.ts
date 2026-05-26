@@ -39,8 +39,14 @@ export const THREAD_SEARCH_MIN_QUERY_CODE_POINTS = 2;
 /** Debounce window (ms) between keystrokes and IPC dispatch. */
 export const THREAD_SEARCH_DEBOUNCE_MS = 180;
 
-/** Result limit handed to the IPC. Reuses core SEARCH_DEFAULT_LIMIT semantically. */
-export const THREAD_SEARCH_DEFAULT_LIMIT = 5;
+/**
+ * Result limit handed to the IPC. Matches core `SEARCH_MAX_LIMIT=10`
+ * — bumped from 5 to 10 per xuan `fd675604` to align with the scope
+ * messaged in `9fb2ab60`. The backend still clamps to
+ * `SEARCH_MAX_LIMIT`, so this just makes the renderer ask for the
+ * full set.
+ */
+export const THREAD_SEARCH_DEFAULT_LIMIT = 10;
 
 /**
  * Discriminated state union the consumer pattern-matches on.
