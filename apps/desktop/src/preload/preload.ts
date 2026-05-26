@@ -11,6 +11,9 @@ import type {
   ModelInfo,
   PermissionResponse,
   PermissionMode,
+  SearchErrorReason,
+  SearchRequest,
+  SearchResult,
   SettingsTestResult,
   SessionCommand,
   SessionChangedEvent,
@@ -208,6 +211,16 @@ contextBridge.exposeInMainWorld('maka', {
   health: {
     getSnapshot(): Promise<HealthSnapshot> {
       return ipcRenderer.invoke('health:getSnapshot');
+    },
+  },
+  search: {
+    // PR-SEARCH-2: local thread search. Renderer sends a `SearchRequest`
+    // (source must be 'thread'); main responds with `SearchResult[]` or
+    // an error envelope. The query body never leaves the device — the
+    // helper is local-only and the IPC handler never emits the query
+    // into telemetry.
+    thread(request: SearchRequest): Promise<SearchResult[] | { ok: false; reason: SearchErrorReason; message: string }> {
+      return ipcRenderer.invoke('search:thread', request);
     },
   },
   settings: {

@@ -1,0 +1,276 @@
+/**
+ * Local thread / session search — bounded scan, no FTS5.
+ *
+ * Anchors:
+ *   - Plan: `notes/pr-search-1-report.md` (yuejing; xuan sign-off `038d7196`).
+ *   - Contract: `@maka/core/search` (PR-SEARCH-0 + PR-SEARCH-1.5 `SearchResultTarget`).
+ *   - Implementation lane greenlight: xuan msg `074714c7`.
+ *
+ * Scope (this module, PR-SEARCH-2):
+ *   - Pure helper. Accepts an injected `ThreadSearchDeps` so unit tests can
+ *     supply fake `listSessions` / `readMessages` without an Electron runtime.
+ *   - Bounded substring scan over user-visible message types only:
+ *       UserMessage / AssistantMessage / ToolCallMessage / ToolResultMessage.
+ *     Excluded: SystemNoteMessage / TokenUsageMessage / TurnStateMessage /
+ *     PermissionDecisionMessage.
+ *   - Excludes sessions with `backend === 'fake'` (visual-smoke fixtures).
+ *   - Snippets are redacted via `@maka/core/redaction.redactSecrets()`.
+ *   - `ToolResultMessage.content` is JSON-serialized for scan and capped to
+ *     the first `TOOL_RESULT_SCAN_CAP_BYTES` bytes (worst-case bound).
+ *   - Result limits come from `@maka/core/search.normalizeSearchLimit`
+ *     (default 5, max `SEARCH_MAX_LIMIT=10`).
+ *   - Total payload bytes (sum of snippets) capped at `TOTAL_PAYLOAD_CAP_BYTES`.
+ *   - Per-result snippet capped at `SNIPPET_MAX_CODE_POINTS`.
+ *   - Returns `SearchResult[]` per PR-SEARCH-0 shape with
+ *     `source: 'thread'` and `target: { kind:'thread', sessionId, turnId? }`
+ *     per PR-SEARCH-1.5. `url` is left undefined (thread navigation does NOT
+ *     use `maka://session` — see `packages/ui/src/maka-uri.ts:24`).
+ *
+ * Hard no-go (enforced by source gate at review):
+ *   - No `fetch` / `XMLHttpRequest` / `new WebSocket` / `BrowserWindow`.
+ *   - No `electron` imports — runs in main but stays Electron-agnostic via DI.
+ *   - No FTS5 / SQLite / better-sqlite3.
+ *   - No telemetry emission of query body.
+ *   - No `maka://session` URI construction.
+ */
+
+import { normalizeSearchLimit, normalizeSearchQuery, redactSecrets } from '@maka/core';
+import type {
+  SearchErrorReason,
+  SearchRequest,
+  SearchResult,
+  SessionSummary,
+  StoredMessage,
+} from '@maka/core';
+
+/** Max scan bytes per ToolResultMessage.content (JSON-serialized). */
+export const TOOL_RESULT_SCAN_CAP_BYTES = 10_240;
+
+/** Max code points retained in a result snippet. */
+export const SNIPPET_MAX_CODE_POINTS = 240;
+
+/** Half-window of snippet context characters on each side of the match. */
+export const SNIPPET_CONTEXT_HALF = 80;
+
+/** Cap on total snippet bytes (UTF-8) summed across all results. */
+export const TOTAL_PAYLOAD_CAP_BYTES = 64 * 1024;
+
+/** Max sessions scanned per query (newest first by lastMessageAt). */
+export const MAX_SESSIONS_SCANNED = 200;
+
+/** Returned source kind — locked to `'thread'` in v1. */
+export const THREAD_SOURCE = 'thread' as const;
+
+/**
+ * Pure dependency injection. Production wiring binds these to the real
+ * runtime; tests pass in-memory fakes.
+ */
+export interface ThreadSearchDeps {
+  listSessions(): Promise<SessionSummary[]>;
+  readMessages(sessionId: string): Promise<StoredMessage[]>;
+}
+
+/**
+ * Public API surface. The IPC handler in `main.ts` wraps this; nothing
+ * else should call it directly.
+ */
+export async function runThreadSearch(
+  request: SearchRequest,
+  deps: ThreadSearchDeps,
+): Promise<SearchResult[] | { ok: false; reason: SearchErrorReason; message: string }> {
+  // Source enum gate — this module only handles `'thread'`. Other source
+  // kinds are routed elsewhere or rejected by the IPC handler before
+  // reaching here.
+  if (request.source !== THREAD_SOURCE) {
+    return { ok: false, reason: 'disabled', message: 'thread search only handles source=thread' };
+  }
+
+  // Query / limit normalization via @maka/core helpers — single
+  // chokepoint, never bypass.
+  const queryResult = normalizeSearchQuery(request.query);
+  if (!queryResult.ok) {
+    return queryResult;
+  }
+  const limitResult = normalizeSearchLimit(request.limit);
+  if (!limitResult.ok) {
+    return limitResult;
+  }
+
+  const queryFolded = foldForMatch(queryResult.value);
+  const maxResults = limitResult.value;
+
+  const sessions = (await deps.listSessions())
+    // Exclude fake-backend sessions — visual-smoke fixtures and
+    // similar dev-only state should not surface as real chat hits.
+    .filter((session) => session.backend !== 'fake')
+    // Newest first by lastMessageAt; secondary by id for determinism.
+    .sort((a, b) => {
+      const ts = (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
+      if (ts !== 0) return ts;
+      return a.id.localeCompare(b.id);
+    })
+    .slice(0, MAX_SESSIONS_SCANNED);
+
+  const results: SearchResult[] = [];
+  let totalBytes = 0;
+  let truncated = false;
+
+  for (const session of sessions) {
+    if (results.length >= maxResults) {
+      truncated = true;
+      break;
+    }
+    let messages: StoredMessage[];
+    try {
+      messages = await deps.readMessages(session.id);
+    } catch {
+      // Skip unreadable sessions silently — they shouldn't break the
+      // whole search. Generalized error never leaks into a result.
+      continue;
+    }
+
+    for (const message of messages) {
+      if (results.length >= maxResults) {
+        truncated = true;
+        break;
+      }
+
+      const candidate = collectSearchableText(message);
+      if (candidate === undefined) continue;
+
+      const hit = findMatch(candidate, queryFolded);
+      if (hit === undefined) continue;
+
+      // Build the snippet, redact secrets, cap length.
+      const snippet = capCodePoints(
+        redactSecrets(buildSnippet(candidate, hit, SNIPPET_CONTEXT_HALF)),
+        SNIPPET_MAX_CODE_POINTS,
+      );
+
+      const snippetBytes = Buffer.byteLength(snippet, 'utf8');
+      if (totalBytes + snippetBytes > TOTAL_PAYLOAD_CAP_BYTES) {
+        truncated = true;
+        break;
+      }
+      totalBytes += snippetBytes;
+
+      const turnId = (message as { turnId?: string }).turnId;
+      results.push({
+        source: THREAD_SOURCE,
+        title: session.name,
+        snippet,
+        // PR-SEARCH-1.5: navigation target via discriminated union; no
+        // `url` field for thread results (maka://session is deferred).
+        target: {
+          kind: 'thread',
+          sessionId: session.id,
+          ...(turnId ? { turnId } : {}),
+        },
+      });
+    }
+  }
+
+  if (truncated && results.length > 0) {
+    results[results.length - 1] = { ...results[results.length - 1]!, truncated: true };
+  }
+
+  return results;
+}
+
+/**
+ * Extract user-visible text from a stored message. Returns `undefined`
+ * for excluded message kinds (system notes, token usage, turn state,
+ * permission decisions). This is the only "what counts as user-visible
+ * content" gate; adding new searchable surfaces requires extending
+ * this switch + a corresponding test.
+ *
+ * For ToolResultMessage, the `content` is JSON-serialized and capped
+ * at `TOOL_RESULT_SCAN_CAP_BYTES` so a 100 MB tool result doesn't
+ * inflate scan time.
+ */
+export function collectSearchableText(message: StoredMessage): string | undefined {
+  switch (message.type) {
+    case 'user':
+      return message.text;
+    case 'assistant':
+      // Include `thinking.text` so users searching for assistant
+      // reasoning hit the right turn; thinking is user-visible content.
+      if (message.thinking?.text) {
+        return message.text + '\n' + message.thinking.text;
+      }
+      return message.text;
+    case 'tool_call':
+      return [message.toolName, message.displayName ?? '', message.intent ?? '']
+        .filter((s) => s.length > 0)
+        .join('\n');
+    case 'tool_result': {
+      // Bounded JSON-serialize. The cap protects against pathological
+      // multi-MB tool outputs (file dumps, etc.).
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(message.content);
+      } catch {
+        return undefined;
+      }
+      if (Buffer.byteLength(serialized, 'utf8') > TOOL_RESULT_SCAN_CAP_BYTES) {
+        // Truncate to the cap. Use byte-safe slice via Buffer.
+        const buf = Buffer.from(serialized, 'utf8').subarray(0, TOOL_RESULT_SCAN_CAP_BYTES);
+        return buf.toString('utf8');
+      }
+      return serialized;
+    }
+    case 'permission_decision':
+    case 'token_usage':
+    case 'turn_state':
+    case 'system_note':
+      // Excluded — not user-typed / not user-visible content.
+      return undefined;
+  }
+}
+
+/**
+ * NFC + lowercase canonicalization for substring match. NOT a security
+ * boundary — purely for case-insensitive + composed-form matching.
+ *
+ * Public for tests; production callers use `runThreadSearch` only.
+ */
+export function foldForMatch(value: string): string {
+  return value.normalize('NFC').toLowerCase();
+}
+
+/**
+ * Find the index of the first occurrence of `queryFolded` in `text`
+ * (after the same fold operation). Returns the index in the original
+ * (unfolded) text — JS `String.prototype.toLowerCase()` preserves
+ * code-point indexing for ASCII and most CJK, which is what we need
+ * for snippet extraction. Returns `undefined` on no match.
+ */
+export function findMatch(text: string, queryFolded: string): number | undefined {
+  const folded = foldForMatch(text);
+  const idx = folded.indexOf(queryFolded);
+  return idx >= 0 ? idx : undefined;
+}
+
+/**
+ * Extract a context window around the match. Pure substring + ellipsis
+ * marker; no HTML, no markup. Caller is responsible for redaction +
+ * length cap afterward.
+ */
+export function buildSnippet(text: string, matchIndex: number, halfWindow: number): string {
+  const start = Math.max(0, matchIndex - halfWindow);
+  const end = Math.min(text.length, matchIndex + halfWindow);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < text.length ? '…' : '';
+  return prefix + text.slice(start, end).replace(/\s+/g, ' ').trim() + suffix;
+}
+
+/**
+ * Cap a string to at most `maxCodePoints` code points. Uses
+ * `Array.from` so surrogate pairs (emoji) are not split. Appends
+ * an ellipsis when truncated.
+ */
+export function capCodePoints(value: string, maxCodePoints: number): string {
+  const codePoints = Array.from(value);
+  if (codePoints.length <= maxCodePoints) return value;
+  return codePoints.slice(0, maxCodePoints - 1).join('') + '…';
+}

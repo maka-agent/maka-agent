@@ -24,6 +24,7 @@ import type {
   BranchFromTurnInput,
   RegenerateTurnInput,
   RetryTurnInput,
+  SearchRequest,
   SessionCommand,
   SessionChangedEvent,
   SessionChangedReason,
@@ -35,6 +36,7 @@ import type {
   UpdateAppSettingsInput,
   UsageRange,
 } from '@maka/core';
+import { runThreadSearch } from './search/thread-search.js';
 import type {
   PricingConfig,
   UsageGroupBy,
@@ -689,6 +691,19 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:readMessages', (_event, sessionId: string) => runtime.getMessages(sessionId));
   ipcMain.handle('sessions:listTurns', (_event, sessionId: string) => runtime.listTurns(sessionId));
+  // PR-SEARCH-2: local thread search. Renderer-facing channel; the pure
+  // helper in `./search/thread-search.ts` enforces all gates (G1 snippet
+  // redaction, G2 fake-backend exclude, G4 caps, G5 case-fold + NFC,
+  // G9 tool_result scan cap, G10 system/meta exclusion). The helper
+  // receives the runtime via DI so unit tests stay Electron-agnostic.
+  // We deliberately do NOT log the request body — query text never enters
+  // telemetry.
+  ipcMain.handle('search:thread', async (_event, request: SearchRequest) => {
+    return runThreadSearch(request, {
+      listSessions: () => runtime.listSessions(),
+      readMessages: (sessionId: string) => runtime.getMessages(sessionId),
+    });
+  });
   ipcMain.handle('sessions:stop', (_event, sessionId: string) => runtime.stopSession(sessionId));
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, response),

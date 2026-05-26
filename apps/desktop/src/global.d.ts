@@ -10,6 +10,9 @@ import type {
   ModelInfo,
   PermissionResponse,
   PermissionMode,
+  SearchErrorReason,
+  SearchRequest,
+  SearchResult,
   SettingsTestResult,
   SessionCommand,
   SessionChangedEvent,
@@ -128,6 +131,14 @@ declare global {
       };
       health: {
         getSnapshot(): Promise<HealthSnapshot>;
+      };
+      search: {
+        thread(
+          request: SearchRequest,
+        ): Promise<
+          | SearchResult[]
+          | { ok: false; reason: SearchErrorReason; message: string }
+        >;
       };
       usage: {
         summary(query: UsageQuery): Promise<Result<UsageSummaryV2>>;
