@@ -24,7 +24,22 @@ export type SearchErrorReason =
   | 'aborted'
   | 'needs_human_browser'
   | 'provider_error'
-  | 'parse_error';
+  | 'parse_error'
+  // PR-SEARCH-2.5 (xuan msg `57ca05cd` + `a91c61c6`): incognito gate.
+  // Returned when the workspace is currently incognito and search is
+  // disabled by policy. ALSO returned when the workspace privacy
+  // authority returned a malformed snapshot (`validateWorkspacePrivacyContext`
+  // failed) — fail-closed behavior treats unverifiable state as
+  // incognito to preserve privacy. The two paths share this reason so
+  // consumers do not need an extra UI state; the `message` field
+  // distinguishes them when needed:
+  //   - active: "Search is disabled while incognito is active."
+  //   - malformed: "Search is disabled because workspace privacy state could not be verified."
+  // The state is user-visible (the user toggled incognito on, or the
+  // system failed closed), so exposing the reason is intentional —
+  // the data we don't expose is session content / result counts /
+  // snippets.
+  | 'incognito_active';
 
 export type SearchSourceSnapshot =
   | { kind: 'thread'; provider: 'local'; enabled: true }

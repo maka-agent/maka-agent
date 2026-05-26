@@ -36,6 +36,7 @@ import type {
   UsageRange,
 } from '@maka/core';
 import { runThreadSearch } from './search/thread-search.js';
+import { defaultWorkspacePrivacyContext } from '@maka/core/incognito';
 import type {
   PricingConfig,
   UsageGroupBy,
@@ -702,9 +703,22 @@ function registerIpc(): void {
     // through to the helper, which runs an object-shape guard and
     // returns an `invalid_query` error envelope for null / non-object
     // / missing-field payloads. Never throws across the IPC boundary.
+    //
+    // PR-SEARCH-2.5 (@xuan `2c55b975`): wire `getPrivacyContext` to
+    // the main-authority workspace privacy state.
+    //
+    // **STUB ONLY** — currently returns `defaultWorkspacePrivacyContext()`
+    // which is always `{ incognitoActive: false }`. This is NOT a
+    // renderer payload and NOT a settings toggle. When the real
+    // workspace privacy authority lands (a future settings IPC or
+    // session-scoped flag), swap this lambda for the real main-owned
+    // source. The helper validates whatever shape is returned via
+    // `validateWorkspacePrivacyContext`, so a future drift in
+    // authority source is automatically fail-closed.
     return runThreadSearch(request, {
       listSessions: () => runtime.listSessions(),
       readMessages: (sessionId: string) => runtime.getMessages(sessionId),
+      getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
     });
   });
   ipcMain.handle('sessions:stop', (_event, sessionId: string) => runtime.stopSession(sessionId));

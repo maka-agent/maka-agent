@@ -88,6 +88,11 @@ function systemNoteMessage(text: string): StoredMessage {
   };
 }
 
+/**
+ * Default `getPrivacyContext` returns a not-incognito context. Tests
+ * that want to exercise the incognito gate override this via
+ * `makeDepsWithPrivacy`.
+ */
 function makeDeps(map: Record<string, { session: SessionSummary; messages: StoredMessage[] }>) {
   return {
     async listSessions() {
@@ -96,6 +101,39 @@ function makeDeps(map: Record<string, { session: SessionSummary; messages: Store
     async readMessages(sessionId: string) {
       return map[sessionId]?.messages ?? [];
     },
+    async getPrivacyContext(): Promise<unknown> {
+      return { incognitoActive: false };
+    },
+  };
+}
+
+/**
+ * Spy-deps for the privacy gate tests. Tracks how many times
+ * `listSessions` / `readMessages` were invoked so the test can assert
+ * "early return before scan".
+ */
+function makeSpyDeps(
+  map: Record<string, { session: SessionSummary; messages: StoredMessage[] }>,
+  privacyPayload: unknown,
+) {
+  let listCalls = 0;
+  let readCalls = 0;
+  const deps = {
+    async listSessions() {
+      listCalls++;
+      return Object.values(map).map((entry) => entry.session);
+    },
+    async readMessages(sessionId: string) {
+      readCalls++;
+      return map[sessionId]?.messages ?? [];
+    },
+    async getPrivacyContext(): Promise<unknown> {
+      return privacyPayload;
+    },
+  };
+  return {
+    deps,
+    counts: () => ({ list: listCalls, read: readCalls }),
   };
 }
 
@@ -283,6 +321,172 @@ describe('G2 — fake-backend sessions excluded', () => {
     );
     if (!Array.isArray(result)) assert.fail('expected results');
     assert.equal(result.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G3 — incognito gate (PR-SEARCH-2.5)
+// ---------------------------------------------------------------------------
+
+describe('G3 — incognito gate (PR-SEARCH-2.5 @xuan 2c55b975)', () => {
+  /*
+   * Pinned via xuan msg `2c55b975`:
+   *   - active incognito → return error envelope with reason='incognito_active'
+   *   - malformed privacy context → fail-closed with the SAME reason
+   *     (UI sees one blocked state, not two)
+   *   - both paths MUST NOT call listSessions / readMessages
+   *   - `incognitoActive=false` does not bypass other gates
+   */
+
+  it('G3a: incognitoActive=true returns incognito_active envelope (no scan)', async () => {
+    const { deps, counts } = makeSpyDeps(
+      {
+        s1: { session: session({ id: 's1' }), messages: [userMessage('hello world')] },
+      },
+      { incognitoActive: true },
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    assert.equal(result.reason, 'incognito_active');
+    assert.match(result.message, /incognito/);
+    const c = counts();
+    assert.equal(c.list, 0, 'listSessions must NOT be called when incognito');
+    assert.equal(c.read, 0, 'readMessages must NOT be called when incognito');
+  });
+
+  it('G3b: malformed privacy context (null) fails closed with incognito_active (no scan)', async () => {
+    const { deps, counts } = makeSpyDeps(
+      {
+        s1: { session: session({ id: 's1' }), messages: [userMessage('hello world')] },
+      },
+      null,
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    assert.equal(result.reason, 'incognito_active');
+    assert.match(result.message, /privacy state could not be verified/);
+    const c = counts();
+    assert.equal(c.list, 0);
+    assert.equal(c.read, 0);
+  });
+
+  it('G3b: malformed privacy context (missing field) fails closed', async () => {
+    const { deps, counts } = makeSpyDeps(
+      { s1: { session: session({ id: 's1' }), messages: [userMessage('hello')] } },
+      {}, // missing incognitoActive
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    assert.equal(result.reason, 'incognito_active');
+    assert.match(result.message, /privacy state could not be verified/);
+    const c = counts();
+    assert.equal(c.list, 0);
+    assert.equal(c.read, 0);
+  });
+
+  it('G3b: malformed privacy context (non-boolean field) fails closed', async () => {
+    const { deps, counts } = makeSpyDeps(
+      { s1: { session: session({ id: 's1' }), messages: [userMessage('hello')] } },
+      { incognitoActive: 'true' }, // string, not boolean
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    assert.equal(result.reason, 'incognito_active');
+    assert.match(result.message, /privacy state could not be verified/);
+    const c = counts();
+    assert.equal(c.list, 0);
+    assert.equal(c.read, 0);
+  });
+
+  it('G3b: malformed privacy context (non-object) fails closed', async () => {
+    const { deps, counts } = makeSpyDeps(
+      { s1: { session: session({ id: 's1' }), messages: [userMessage('hello')] } },
+      'not-an-object',
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    assert.equal(result.reason, 'incognito_active');
+    const c = counts();
+    assert.equal(c.list, 0);
+    assert.equal(c.read, 0);
+  });
+
+  it('G3b: malformed privacy context (array) fails closed', async () => {
+    const { deps } = makeSpyDeps(
+      { s1: { session: session({ id: 's1' }), messages: [userMessage('hello')] } },
+      [],
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    assert.equal(result.reason, 'incognito_active');
+  });
+
+  it('G3c: incognitoActive=false does NOT bypass other gates (empty query still invalid_query)', async () => {
+    const { deps } = makeSpyDeps(
+      { s1: { session: session({ id: 's1' }), messages: [userMessage('hello')] } },
+      { incognitoActive: false },
+    );
+    const result = await runThreadSearch(
+      { source: 'thread', query: '   ', limit: 5 },
+      deps,
+    );
+    if (Array.isArray(result)) assert.fail('expected error envelope');
+    // The empty-query gate fires BEFORE the privacy gate. This proves
+    // the order: query normalize → privacy. (If privacy fired first, we
+    // would not even get to invalid_query.)
+    assert.equal(result.reason, 'invalid_query');
+  });
+
+  it('G3 message distinguishes active vs malformed paths (consumers can read message for diagnostics)', async () => {
+    const active = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      makeSpyDeps({}, { incognitoActive: true }).deps,
+    );
+    if (Array.isArray(active)) assert.fail('expected error envelope');
+    assert.match(active.message, /incognito is active/);
+    assert.doesNotMatch(active.message, /could not be verified/);
+
+    const malformed = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      makeSpyDeps({}, null).deps,
+    );
+    if (Array.isArray(malformed)) assert.fail('expected error envelope');
+    assert.match(malformed.message, /could not be verified/);
+    assert.doesNotMatch(malformed.message, /incognito is active/);
+
+    // External reason is the same.
+    assert.equal(active.reason, 'incognito_active');
+    assert.equal(malformed.reason, 'incognito_active');
+  });
+
+  it('G3 happy path: incognitoActive=false + valid query returns results', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'hello', limit: 5 },
+      makeSpyDeps(
+        { s1: { session: session({ id: 's1' }), messages: [userMessage('hello world')] } },
+        { incognitoActive: false },
+      ).deps,
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.equal(result.length, 1);
   });
 });
 

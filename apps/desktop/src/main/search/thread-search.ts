@@ -34,7 +34,12 @@
  *   - No `maka://session` URI construction.
  */
 
-import { normalizeSearchLimit, normalizeSearchQuery, redactSecrets } from '@maka/core';
+import {
+  normalizeSearchLimit,
+  normalizeSearchQuery,
+  redactSecrets,
+  validateWorkspacePrivacyContext,
+} from '@maka/core';
 import type {
   SearchErrorReason,
   SearchResult,
@@ -63,10 +68,26 @@ export const THREAD_SOURCE = 'thread' as const;
 /**
  * Pure dependency injection. Production wiring binds these to the real
  * runtime; tests pass in-memory fakes.
+ *
+ * PR-SEARCH-2.5 (@xuan msg `2c55b975`): `getPrivacyContext` returns the
+ * main-authority workspace privacy snapshot. Source is `unknown`
+ * because even though the production wiring controls it, the helper
+ * itself MUST validate via `validateWorkspacePrivacyContext` — a
+ * future swap to a real authority (settings IPC etc.) must not bypass
+ * the validator. Renderer payloads MUST NOT reach this dep; production
+ * wiring binds it to a main-side authority only.
  */
 export interface ThreadSearchDeps {
   listSessions(): Promise<SessionSummary[]>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
+  /**
+   * Main-authority workspace privacy snapshot. Returned as `unknown`
+   * deliberately — the helper validates the payload with
+   * `validateWorkspacePrivacyContext` before reading any field. Source
+   * MUST be main-side (settings, workspace owner). Renderer payloads
+   * MUST NOT flow into this dep.
+   */
+  getPrivacyContext(): Promise<unknown>;
 }
 
 /**
@@ -107,6 +128,32 @@ export async function runThreadSearch(
   const limitResult = normalizeSearchLimit(record.limit);
   if (!limitResult.ok) {
     return limitResult;
+  }
+
+  // L4: privacy gate (PR-SEARCH-2.5 @xuan `2c55b975`). Main-owned
+  // privacy authority. Two early-return paths share the same
+  // `reason:'incognito_active'` to avoid an extra UI state:
+  //   - active incognito (user toggled on): `incognitoActive === true`
+  //   - malformed authority payload (system fail-closed): validator
+  //     reject treated as if incognito were active
+  // Both paths MUST NOT touch `listSessions` / `readMessages`.
+  // Distinguishing message wording is kept for diagnostics; consumers
+  // can read `message` if they need to differentiate.
+  const privacyPayload = await deps.getPrivacyContext();
+  const privacyResult = validateWorkspacePrivacyContext(privacyPayload);
+  if (!privacyResult.ok) {
+    return {
+      ok: false,
+      reason: 'incognito_active',
+      message: 'Search is disabled because workspace privacy state could not be verified.',
+    };
+  }
+  if (privacyResult.value.incognitoActive) {
+    return {
+      ok: false,
+      reason: 'incognito_active',
+      message: 'Search is disabled while incognito is active.',
+    };
   }
 
   const queryFolded = foldForMatch(queryResult.value);

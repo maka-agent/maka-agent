@@ -9,6 +9,7 @@ import {
   normalizeSearchUrl,
   rewriteSearchQueryForFreshness,
   searchDomainMatches,
+  type SearchErrorReason,
   type SearchResult,
   type SearchResultTarget,
 } from '../search.js';
@@ -139,6 +140,50 @@ describe('search contract normalizers (PR-SEARCH-0)', () => {
    * This is a TS-contract-only packet — no runtime normalizer, only
    * shape pins.
    */
+  /*
+   * PR-SEARCH-2.5 (@xuan msg `57ca05cd` + `a91c61c6`):
+   * `SearchErrorReason` closed union extended with `incognito_active`.
+   * Returned both when the workspace is in incognito mode AND when the
+   * privacy authority returned a malformed snapshot (fail-closed). Two
+   * internal paths share the same reason to avoid an extra UI state;
+   * the `message` field distinguishes them when needed.
+   */
+  describe('SearchErrorReason — PR-SEARCH-2.5 extension', () => {
+    it('SearchErrorReason accepts the literal "incognito_active"', () => {
+      const reason: SearchErrorReason = 'incognito_active';
+      assert.equal(reason, 'incognito_active');
+    });
+
+    it('incognito_active is exhaustively handled at the type level', () => {
+      // Exhaustiveness check: if a future reason is added, the switch
+      // must handle it. Compile-time guarantee that consumers can
+      // pattern-match without falling through.
+      function classify(reason: SearchErrorReason): 'incognito' | 'other' {
+        switch (reason) {
+          case 'incognito_active':
+            return 'incognito';
+          case 'disabled':
+          case 'missing_provider':
+          case 'missing_credentials':
+          case 'invalid_query':
+          case 'invalid_domain':
+          case 'invalid_url':
+          case 'blocked_scheme':
+          case 'blocked_domain':
+          case 'timeout':
+          case 'aborted':
+          case 'needs_human_browser':
+          case 'provider_error':
+          case 'parse_error':
+            return 'other';
+        }
+      }
+      assert.equal(classify('incognito_active'), 'incognito');
+      assert.equal(classify('disabled'), 'other');
+      assert.equal(classify('invalid_query'), 'other');
+    });
+  });
+
   describe('SearchResultTarget contract (PR-SEARCH-1.5)', () => {
     it('thread target carries sessionId + optional turnId', () => {
       const withTurn: SearchResultTarget = {
