@@ -37,7 +37,6 @@
 import { normalizeSearchLimit, normalizeSearchQuery, redactSecrets } from '@maka/core';
 import type {
   SearchErrorReason,
-  SearchRequest,
   SearchResult,
   SessionSummary,
   StoredMessage,
@@ -73,25 +72,39 @@ export interface ThreadSearchDeps {
 /**
  * Public API surface. The IPC handler in `main.ts` wraps this; nothing
  * else should call it directly.
+ *
+ * Accepts `unknown` because the IPC payload crosses a process boundary —
+ * TypeScript's `SearchRequest` annotation in the handler is compile-time
+ * only. A renderer can send anything; we must fail closed with an error
+ * envelope, never throw. Same defense pattern as PR-MEMORY-1
+ * `validateMemoryWriteRequest` and PR-UI-IPC-1 baseUrl normalize
+ * (@xuan msg `2f1aba55` fixup).
  */
 export async function runThreadSearch(
-  request: SearchRequest,
+  request: unknown,
   deps: ThreadSearchDeps,
 ): Promise<SearchResult[] | { ok: false; reason: SearchErrorReason; message: string }> {
-  // Source enum gate — this module only handles `'thread'`. Other source
-  // kinds are routed elsewhere or rejected by the IPC handler before
-  // reaching here.
-  if (request.source !== THREAD_SOURCE) {
+  // L1: runtime shape guard. Renderer payload is untrusted across the
+  // IPC boundary. Null / non-object / missing fields → typed reject.
+  if (typeof request !== 'object' || request === null || Array.isArray(request)) {
+    return { ok: false, reason: 'invalid_query', message: 'search request must be an object' };
+  }
+  const record = request as Record<string, unknown>;
+
+  // L2: source enum gate — this module only handles `'thread'`. The
+  // shape check above already rejected non-objects, so reading
+  // `record.source` is safe.
+  if (record.source !== THREAD_SOURCE) {
     return { ok: false, reason: 'disabled', message: 'thread search only handles source=thread' };
   }
 
-  // Query / limit normalization via @maka/core helpers — single
-  // chokepoint, never bypass.
-  const queryResult = normalizeSearchQuery(request.query);
+  // L3: query / limit normalization via @maka/core helpers — single
+  // chokepoint, never bypass. Both already guard typeof + finite.
+  const queryResult = normalizeSearchQuery(record.query);
   if (!queryResult.ok) {
     return queryResult;
   }
-  const limitResult = normalizeSearchLimit(request.limit);
+  const limitResult = normalizeSearchLimit(record.limit);
   if (!limitResult.ok) {
     return limitResult;
   }
@@ -200,9 +213,14 @@ export function collectSearchableText(message: StoredMessage): string | undefine
       }
       return message.text;
     case 'tool_call':
-      return [message.toolName, message.displayName ?? '', message.intent ?? '']
-        .filter((s) => s.length > 0)
-        .join('\n');
+      // PR-SEARCH-2 review fixup (@xuan `2f1aba55`): index ONLY
+      // `intent` — the user-visible description of what the tool call
+      // is doing. `toolName` (e.g. `Bash`) and `displayName` are
+      // internal labels and would let searches for `Bash` match every
+      // bash invocation regardless of intent. The PR-SEARCH-1 plan
+      // already locked `intent` as the only searchable field on
+      // `ToolCallMessage`; the previous draft over-indexed by mistake.
+      return message.intent && message.intent.length > 0 ? message.intent : undefined;
     case 'tool_result': {
       // Bounded JSON-serialize. The cap protects against pathological
       // multi-MB tool outputs (file dumps, etc.).

@@ -24,7 +24,6 @@ import type {
   BranchFromTurnInput,
   RegenerateTurnInput,
   RetryTurnInput,
-  SearchRequest,
   SessionCommand,
   SessionChangedEvent,
   SessionChangedReason,
@@ -698,7 +697,11 @@ function registerIpc(): void {
   // receives the runtime via DI so unit tests stay Electron-agnostic.
   // We deliberately do NOT log the request body — query text never enters
   // telemetry.
-  ipcMain.handle('search:thread', async (_event, request: SearchRequest) => {
+  ipcMain.handle('search:thread', async (_event, request: unknown) => {
+    // PR-SEARCH-2 review fixup (@xuan `2f1aba55`): pass `unknown`
+    // through to the helper, which runs an object-shape guard and
+    // returns an `invalid_query` error envelope for null / non-object
+    // / missing-field payloads. Never throws across the IPC boundary.
     return runThreadSearch(request, {
       listSessions: () => runtime.listSessions(),
       readMessages: (sessionId: string) => runtime.getMessages(sessionId),

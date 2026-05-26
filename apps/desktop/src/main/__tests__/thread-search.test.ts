@@ -104,6 +104,64 @@ function makeDeps(map: Record<string, { session: SessionSummary; messages: Store
 // ---------------------------------------------------------------------------
 
 describe('runThreadSearch — input validation reuses @maka/core normalizers', () => {
+  // PR-SEARCH-2 review fixup (@xuan `2f1aba55`): IPC payload is
+  // untrusted. The helper accepts `unknown` and MUST return an
+  // error envelope, never throw, for any malformed renderer input.
+  describe('runtime shape guard (renderer fail-closed)', () => {
+    it('rejects null payload as invalid_query', async () => {
+      const result = await runThreadSearch(null, makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'invalid_query');
+    });
+
+    it('rejects undefined payload as invalid_query', async () => {
+      const result = await runThreadSearch(undefined, makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'invalid_query');
+    });
+
+    it('rejects string payload as invalid_query', async () => {
+      const result = await runThreadSearch('hello', makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'invalid_query');
+    });
+
+    it('rejects array payload as invalid_query', async () => {
+      const result = await runThreadSearch([], makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'invalid_query');
+    });
+
+    it('rejects payload missing source as disabled (source guard fires after shape guard)', async () => {
+      const result = await runThreadSearch({ query: 'hello', limit: 5 }, makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'disabled');
+    });
+
+    it('rejects payload missing query as invalid_query (after source guard)', async () => {
+      const result = await runThreadSearch({ source: 'thread', limit: 5 }, makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'invalid_query');
+    });
+
+    it('rejects payload with non-string query as invalid_query', async () => {
+      const result = await runThreadSearch({ source: 'thread', query: 42, limit: 5 }, makeDeps({}));
+      if (Array.isArray(result)) assert.fail('expected error');
+      assert.equal(result.reason, 'invalid_query');
+    });
+
+    it('does NOT throw on malformed payloads (returns error envelope)', async () => {
+      // Build a payload mix designed to probe every guard layer.
+      for (const bad of [null, undefined, '', 'string', 42, true, [], { source: 'web' }, { source: 'thread' }, { source: 'thread', query: null }]) {
+        const result = await runThreadSearch(bad, makeDeps({}));
+        assert.ok(
+          Array.isArray(result) || result.ok === false,
+          'must return result OR error envelope for ' + JSON.stringify(bad),
+        );
+      }
+    });
+  });
+
   it('rejects empty query as invalid_query', async () => {
     const result = await runThreadSearch(
       { source: 'thread', query: '   ', limit: 5 },
@@ -119,7 +177,7 @@ describe('runThreadSearch — input validation reuses @maka/core normalizers', (
   it('rejects non-thread source as disabled', async () => {
     const result = await runThreadSearch(
       // Forced cast to exercise the source guard at runtime.
-      { source: 'web' as never, query: 'hello', limit: 5 },
+      { source: 'web', query: 'hello', limit: 5 },
       makeDeps({}),
     );
     if (Array.isArray(result)) {
@@ -334,6 +392,86 @@ describe('G9 — tool_result content scan cap', () => {
 // ---------------------------------------------------------------------------
 // G10 — excluded message types
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// ToolCallMessage: index `intent` ONLY (xuan `2f1aba55` fixup)
+// ---------------------------------------------------------------------------
+
+describe('ToolCallMessage indexes intent only (not toolName / displayName)', () => {
+  function toolCall(overrides: { toolName: string; displayName?: string; intent?: string }): StoredMessage {
+    return {
+      type: 'tool_call',
+      id: 'tc1',
+      turnId: 't1',
+      ts: 1_700_000_000_000,
+      toolName: overrides.toolName,
+      displayName: overrides.displayName,
+      intent: overrides.intent,
+      args: {},
+    };
+  }
+
+  it('collectSearchableText returns intent when present', () => {
+    const text = collectSearchableText(toolCall({ toolName: 'Bash', intent: 'list files in current dir' }));
+    assert.equal(text, 'list files in current dir');
+  });
+
+  it('collectSearchableText returns undefined when intent is missing', () => {
+    const text = collectSearchableText(toolCall({ toolName: 'Bash' }));
+    assert.equal(text, undefined);
+  });
+
+  it('collectSearchableText returns undefined when intent is empty string', () => {
+    const text = collectSearchableText(toolCall({ toolName: 'Bash', intent: '' }));
+    assert.equal(text, undefined);
+  });
+
+  it('does NOT index toolName — searching for "Bash" with no intent match returns 0', async () => {
+    // Plan-locked behavior: tool names are internal labels, not
+    // user-visible content. A bash invocation with no intent
+    // description must NOT appear when the user searches for `Bash`.
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'Bash', limit: 5 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1' }),
+          messages: [toolCall({ toolName: 'Bash', displayName: 'Bash', intent: 'check disk usage' })],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    // Intent says "check disk usage" — `Bash` shouldn't match it.
+    assert.equal(result.length, 0);
+  });
+
+  it('does NOT index displayName — searching for displayName-only does not hit', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'CustomDisplayName', limit: 5 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1' }),
+          messages: [toolCall({ toolName: 'Bash', displayName: 'CustomDisplayName', intent: 'tail logs' })],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.equal(result.length, 0);
+  });
+
+  it('DOES index intent — searching for intent-only string matches', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'disk usage', limit: 5 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1' }),
+          messages: [toolCall({ toolName: 'Bash', intent: 'check disk usage on /var' })],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.equal(result.length, 1);
+  });
+});
 
 describe('G10 — system / token / turn-state / permission-decision excluded', () => {
   it('returns undefined for SystemNoteMessage', () => {
