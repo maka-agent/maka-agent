@@ -2,6 +2,8 @@
 
 PR-SEARCH-0 is a contract-only package. It must not add a real provider, browser engine, renderer network call, cache writer, or runtime search execution path.
 
+PR-SEARCH-1.5 (this revision) adds the `SearchResultTarget` closed discriminated union (currently only `{ kind: 'thread'; sessionId: string; turnId?: string }`) so source-kind-specific navigation hints stay typed. Adding a new variant (memory / activity / etc.) is an explicit contract change. Thread navigation deliberately does NOT use `maka://session/<id>` — `packages/ui/src/maka-uri.ts:24` defers that scheme until a real session navigation contract exists. Renderers consume `SearchResult.target` for navigation; `SearchResult.url` stays reserved for `web` / `web_fetch` external results.
+
 ## Source Separation
 
 Search is not one source. Maka must keep these sources typed and visibly separate:

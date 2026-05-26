@@ -194,7 +194,7 @@ export {
   isHealthSignalStatus,
 } from './health.js';
 
-// search.ts (PR-SEARCH-0)
+// search.ts (PR-SEARCH-0 + PR-SEARCH-1.5)
 export type {
   SearchError,
   SearchErrorReason,
@@ -203,6 +203,7 @@ export type {
   SearchProviderKind,
   SearchRequest,
   SearchResult,
+  SearchResultTarget,
   SearchSourceKind,
   SearchSourceSnapshot,
   WebFetchRequest,

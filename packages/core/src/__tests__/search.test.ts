@@ -9,6 +9,8 @@ import {
   normalizeSearchUrl,
   rewriteSearchQueryForFreshness,
   searchDomainMatches,
+  type SearchResult,
+  type SearchResultTarget,
 } from '../search.js';
 
 describe('search contract normalizers (PR-SEARCH-0)', () => {
@@ -125,6 +127,113 @@ describe('search contract normalizers (PR-SEARCH-0)', () => {
     it('does not rewrite historical queries', () => {
       assert.equal(rewriteSearchQueryForFreshness('history of AI since 2019', now), 'history of AI since 2019');
       assert.equal(rewriteSearchQueryForFreshness('过去几年 AI 发展', now), '过去几年 AI 发展');
+    });
+  });
+
+  /*
+   * PR-SEARCH-1.5 (@xuan msg `772d8198` + `ac6bcbbe`):
+   * `SearchResultTarget` closed discriminated union — typed navigation
+   * hint for source kinds whose navigation does NOT map to a URL.
+   * Today only `'thread'` exists. Web / web_fetch keep using `url`.
+   *
+   * This is a TS-contract-only packet — no runtime normalizer, only
+   * shape pins.
+   */
+  describe('SearchResultTarget contract (PR-SEARCH-1.5)', () => {
+    it('thread target carries sessionId + optional turnId', () => {
+      const withTurn: SearchResultTarget = {
+        kind: 'thread',
+        sessionId: 'session-abc',
+        turnId: 'turn-xyz',
+      };
+      assert.equal(withTurn.kind, 'thread');
+      assert.equal(withTurn.sessionId, 'session-abc');
+      assert.equal(withTurn.turnId, 'turn-xyz');
+
+      // turnId is optional — a hit at session level (e.g. title match)
+      // may omit it.
+      const withoutTurn: SearchResultTarget = {
+        kind: 'thread',
+        sessionId: 'session-only',
+      };
+      assert.equal(withoutTurn.kind, 'thread');
+      assert.equal(withoutTurn.sessionId, 'session-only');
+      assert.equal(withoutTurn.turnId, undefined);
+    });
+
+    it('SearchResult.target is optional and works for thread results', () => {
+      const threadHit: SearchResult = {
+        source: 'thread',
+        title: 'PR-HEALTH-1 review',
+        snippet: '...bot readiness single-authority...',
+        target: { kind: 'thread', sessionId: 'session-abc', turnId: 'turn-xyz' },
+      };
+      assert.equal(threadHit.source, 'thread');
+      assert.equal(threadHit.target?.kind, 'thread');
+      if (threadHit.target?.kind === 'thread') {
+        // Discriminated-union narrowing works.
+        assert.equal(threadHit.target.sessionId, 'session-abc');
+        assert.equal(threadHit.target.turnId, 'turn-xyz');
+      } else {
+        assert.fail('expected thread target kind to narrow');
+      }
+    });
+
+    it('SearchResult for web does NOT require target (url is the navigation field)', () => {
+      const webHit: SearchResult = {
+        source: 'web',
+        title: 'Example',
+        url: 'https://example.com/article',
+        snippet: 'example snippet',
+      };
+      assert.equal(webHit.source, 'web');
+      assert.equal(webHit.target, undefined);
+      assert.equal(webHit.url, 'https://example.com/article');
+    });
+
+    it('SearchResult for web_fetch does NOT require target', () => {
+      const fetchHit: SearchResult = {
+        source: 'web_fetch',
+        title: 'Fetched page',
+        url: 'https://example.com/page',
+        markdown: '# Heading',
+      };
+      assert.equal(fetchHit.target, undefined);
+      assert.equal(fetchHit.source, 'web_fetch');
+    });
+
+    // Compile-time defense: a hypothetical future variant would extend
+    // the union, e.g.:
+    //   | { kind: 'memory'; entryId: string }
+    //   | { kind: 'activity'; from: number; to: number }
+    // Adding such variants is a contract change requiring explicit review.
+    // Today only `'thread'` is allowed.
+    it('today the only target kind is "thread" (future variants require contract change)', () => {
+      const t: SearchResultTarget = { kind: 'thread', sessionId: 's' };
+      // Discriminant is literal-typed; no other kind is constructible
+      // at compile time. Runtime check below mirrors the type-level
+      // invariant.
+      assert.equal(t.kind, 'thread');
+      // List of currently-allowed kind values:
+      const allowedKinds: Array<SearchResultTarget['kind']> = ['thread'];
+      assert.equal(allowedKinds.length, 1);
+      assert.ok(allowedKinds.includes(t.kind));
+    });
+
+    it('thread navigation does NOT use maka://session — caller resolves via sessionId state', () => {
+      // PR-SEARCH-1.5 documents: `packages/ui/src/maka-uri.ts:24` defers
+      // `maka://session/<id>` until a real session navigation contract.
+      // Consumers MUST navigate via renderer state (sessionId selection
+      // + turnId scroll-into-view), NOT by constructing a maka:// URI.
+      // A search hit that wants navigation populates `target`, leaves
+      // `url` undefined.
+      const hit: SearchResult = {
+        source: 'thread',
+        title: 'Local hit',
+        target: { kind: 'thread', sessionId: 's1' },
+      };
+      assert.equal(hit.url, undefined);
+      assert.equal(hit.target?.kind, 'thread');
     });
   });
 });
