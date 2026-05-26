@@ -1189,6 +1189,14 @@ function SessionRow(props: {
             if (actions) setEditing(true);
           }}
         >
+          {/*
+            PR-SIDEBAR-IA-0 Phase 3 layout (xuan `2d4526b5`):
+              [.maka-list-row-text  (col 1: minmax(0,1fr))] [meta/unread  (col 2: auto)]
+            The text container holds the name cluster (status icons +
+            name + stale pill) and truncates via min-width: 0. The
+            meta column sits at the inline-end with a clear gap so
+            "会话 02" doesn't run into "0m ago".
+          */}
           <div className="maka-list-row-text">
             <div className="maka-list-row-name">
               {streaming && (
@@ -1214,23 +1222,25 @@ function SessionRow(props: {
                 </span>
               )}
             </div>
-            {/*
-              PR-SIDEBAR-IA-0 Phase 3 (xuan `2d4526b5`): snippet preview
-              (`.maka-list-row-preview`) is no longer rendered in the
-              default DOM AND is no longer exposed via native `title=`
-              tooltip. Snippet visibility is deliberately deferred to a
-              future PR with its own hover/focus detail design.
-              `formatSessionMeta` still shows the relative time inline
-              in the row's `auto` grid column; the unread dot replaces
-              the time when `hasUnread && !streaming` (mutually
-              exclusive — unread takes priority).
-            */}
-            {session.hasUnread && !streaming ? (
-              <span className="maka-list-row-unread" aria-label="未读消息" />
-            ) : (
-              <span className="maka-list-row-meta">{formatSessionMeta(session)}</span>
-            )}
           </div>
+          {/*
+            PR-SIDEBAR-IA-0 Phase 3 (xuan `2d4526b5`): snippet preview
+            (`.maka-list-row-preview`) is no longer rendered in the
+            default DOM AND is no longer exposed via native `title=`
+            tooltip. Snippet visibility is deliberately deferred to a
+            future PR with its own hover/focus detail design.
+            `formatSessionMeta` shows the relative time inline in the
+            row's `auto` grid column (sibling of `.maka-list-row-text`,
+            not nested inside it — required for proper gap + alignment).
+            The unread dot replaces the time when
+            `hasUnread && !streaming` (mutually exclusive — unread
+            takes priority).
+          */}
+          {session.hasUnread && !streaming ? (
+            <span className="maka-list-row-unread" aria-label="未读消息" />
+          ) : (
+            <span className="maka-list-row-meta">{formatSessionMeta(session)}</span>
+          )}
         </button>
       )}
       {actions && !editing && (
