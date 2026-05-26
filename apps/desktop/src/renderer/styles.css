@@ -210,6 +210,74 @@ button:active {
   background: transparent;
 }
 
+/* PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `7c320898`):
+ * Search modal shell. Phase 2 renders shell only — no input, no
+ * results. Phase 4 will replace the placeholder body with the real
+ * search UI consuming `window.maka.search.thread()`. */
+.maka-search-modal-backdrop {
+  /* Reuse the existing modal backdrop tokens. The presentational
+   * `.maka-modal-backdrop` class above this block handles dimming
+   * and centering. */
+}
+.maka-search-modal {
+  width: min(640px, 92vw);
+  max-height: 70vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+.maka-search-modal-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.maka-search-modal-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.maka-search-modal-close {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground-60);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: 6px;
+}
+.maka-search-modal-close:hover {
+  background: oklch(from var(--foreground) l c h / 0.04);
+  color: var(--foreground);
+}
+.maka-search-modal-close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.maka-search-modal-body {
+  display: grid;
+  gap: 8px;
+  padding: 24px 20px 28px;
+  min-height: 200px;
+  align-content: center;
+  text-align: center;
+}
+.maka-search-modal-placeholder {
+  margin: 0;
+  font-size: 14px;
+  color: var(--foreground-80);
+}
+.maka-search-modal-placeholder-detail {
+  margin: 0;
+  font-size: 12px;
+  color: var(--foreground-50);
+}
+
 .maka-sidebar-modules {
   /* Top-level module nav. Lightweight visual hierarchy per xuan
    * `47e204f2` #4 + #6: transparent bg, light dividers, no card
@@ -220,32 +288,11 @@ button:active {
   padding: 4px 8px;
 }
 
-.maka-session-archive-link {
-  /* PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ msg `49309559` + xuan
-   * `c73e74da`): archived sessions are accessed via this small link
-   * rather than a top-level sidebar tab. Visual weight: tertiary —
-   * smaller font, low-contrast color, no border, no card chrome.
-   * The 60-session smoke fixture pins the link still rendering at
-   * the bottom of the list with footer visible. */
-  width: 100%;
-  margin-top: 6px;
-  padding: 6px 10px;
-  border: 0;
-  background: transparent;
-  color: var(--foreground-50);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 6px;
-}
-.maka-session-archive-link:hover {
-  color: var(--foreground-80);
-  background: oklch(from var(--foreground) l c h / 0.03);
-}
-.maka-session-archive-link:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
+/* PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `71687cc7`): the
+ * `.maka-session-archive-link` style block was removed alongside
+ * the archive link button. Archived/Pinned access will be a
+ * separate, deliberate, lightweight control in a future PR per
+ * kenji `9f683ea8` — not a hidden affordance in this packet. */
 
 .maka-session-panel-header {
   display: grid;

@@ -31,6 +31,7 @@ import {
   type NavSelection,
   PermissionDialog,
   redactSecrets,
+  SearchModal,
   SessionListPanel,
   type SkillEntry,
   ToastProvider,
@@ -155,6 +156,11 @@ function AppShell(props: {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [helpOpen, closeHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
+  // PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `7c320898`):
+  // Search modal state. Sidebar `搜索` nav row triggers `openSearchModal`;
+  // the modal is shell-only in Phase 2 (no `useThreadSearch` integration
+  // yet — that lands in Phase 4 per xuan `94c7bf0f` "don't half-wire").
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
   const activeStreamingSlot = activeId ? streamingBySession[activeId] : undefined;
@@ -1474,6 +1480,7 @@ function AppShell(props: {
             onOpenSettings={openSettings}
             onNew={createSession}
             onOpenSkillFolder={() => void openSkillsFolder()}
+            onOpenSearchModal={() => setSearchModalOpen(true)}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
               onArchive: (sessionId) => void archiveSession(sessionId),
@@ -1597,6 +1604,7 @@ function AppShell(props: {
         />
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}
+      <SearchModal open={searchModalOpen} onClose={() => setSearchModalOpen(false)} />
       {paletteOpen && (
         <CommandPalette
           onClose={closePalette}
@@ -1762,19 +1770,22 @@ function readNavSelection(): NavSelection {
   try {
     const raw = localStorage.getItem('maka-nav-selection-v1');
     if (!raw) return { section: 'sessions', filter: 'chats' };
-    const parsed = JSON.parse(raw) as NavSelection;
-    // PR-SIDEBAR-IA-0 Phase 2: recognize the new module sections.
-    // Persistence is closed-enum so a corrupted localStorage entry
-    // falls back to the default.
+    const parsed = JSON.parse(raw) as { section?: string; filter?: string };
+    // PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `94c7bf0f`): fail-closed.
+    // `'search'` was briefly a `NavSelection.section` during the
+    // Phase 2 initial commit; the fixup removes it because `搜索`
+    // is now a modal trigger, not a section. An older localStorage
+    // entry with `{section:'search'}` would otherwise leave the
+    // app stuck on an invalid section. Reject anything that is not
+    // in the current closed-enum.
     if (parsed.section === 'skills') return { section: 'skills' };
-    if (parsed.section === 'search') return { section: 'search' };
     if (parsed.section === 'automations') return { section: 'automations' };
     if (parsed.section === 'daily-review') return { section: 'daily-review' };
     if (
       parsed.section === 'sessions' &&
       (parsed.filter === 'chats' || parsed.filter === 'flagged' || parsed.filter === 'archived')
     ) {
-      return parsed;
+      return parsed as NavSelection;
     }
   } catch {
     /* fall through */
