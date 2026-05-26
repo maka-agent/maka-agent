@@ -27,19 +27,15 @@ import {
 import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import { useModalA11y } from '@maka/ui';
 import { SETTINGS_NAV } from './settings/SettingsModal';
+import { useThreadSearch } from './use-thread-search';
+import { buildContentSearchCommands } from './command-palette-content-search';
+import type { Command, CommandKind } from './command-palette-types';
+export type { Command, CommandKind } from './command-palette-types';
+export { buildContentSearchCommands } from './command-palette-content-search';
 
-export type CommandKind = 'action' | 'session';
-
-export interface Command {
-  id: string;
-  kind: CommandKind;
-  label: string;
-  hint?: string;
-  group: string;
-  Icon: LucideIcon;
-  keywords?: string[];
-  run(): void;
-}
+// `Command` / `CommandKind` types live in `./command-palette-types`
+// (extracted so non-JSX consumers can import them under the main
+// tsconfig). Re-exported via the explicit `export { ... }` above.
 
 const PALETTE_DELIM = '·';
 
@@ -291,6 +287,14 @@ function fuzzy(query: string, text: string): boolean {
 export function CommandPalette(props: {
   commands: Command[];
   onClose(): void;
+  /**
+   * Navigate to a session. Called when the user activates a content-
+   * search hit so the palette can jump to the matched session. Wired
+   * by main.tsx to the existing `setActiveId` (same handler the
+   * session-list panel uses). PR-SEARCH-2.6: turnId scroll-into-view
+   * is deferred to PR-SEARCH-2.7; this packet only selects the session.
+   */
+  onSelectSession?: (sessionId: string) => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -306,6 +310,11 @@ export function CommandPalette(props: {
     inputRef.current?.select();
   }, []);
 
+  // PR-SEARCH-2.6: content-search hits from local thread store. The
+  // hook handles debounce, ticket-based race control, and unmount
+  // safety. Query body never enters telemetry or local history.
+  const threadSearch = useThreadSearch(query);
+
   const filtered = useMemo(() => {
     const q = query.trim();
     if (!q) return props.commands;
@@ -317,15 +326,34 @@ export function CommandPalette(props: {
     });
   }, [props.commands, query]);
 
+  // Build content-search commands from the hook state. These are
+  // merged into the palette's command list after the existing
+  // fuzzy-matched commands so the user sees actions / settings /
+  // sessions first, then matched content. Single empty / blocked /
+  // error tile per state.
+  const contentCommands = useMemo(() => {
+    return buildContentSearchCommands(threadSearch.state, props.onSelectSession);
+  }, [threadSearch.state, props.onSelectSession]);
+
+  // Combine. Filtered commands keep their existing order; content
+  // commands always sit at the end so they don't disrupt muscle
+  // memory for cmd-K + first-letter navigation.
+  const combined = useMemo(() => [...filtered, ...contentCommands], [filtered, contentCommands]);
+
   useEffect(() => {
     // Reset highlight whenever the result set changes.
-    setHighlight((current) => Math.min(current, Math.max(0, filtered.length - 1)));
-  }, [filtered]);
+    setHighlight((current) => Math.min(current, Math.max(0, combined.length - 1)));
+  }, [combined]);
 
-  const grouped = useMemo(() => groupCommands(filtered), [filtered]);
+  const grouped = useMemo(() => groupCommands(combined), [combined]);
 
   function commit(cmd: Command | undefined) {
     if (!cmd) return;
+    // xuan `fd675604`: disabled commands are inert. We MUST NOT fire
+    // their `run()` and MUST NOT close the palette — that would make
+    // a status tile (blocked / loading / error / empty) look like a
+    // user action.
+    if (cmd.disabled) return;
     cmd.run();
     props.onClose();
   }
@@ -334,7 +362,7 @@ export function CommandPalette(props: {
     if (event.nativeEvent.isComposing || event.key === 'Process') return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setHighlight((current) => (filtered.length === 0 ? 0 : Math.min(filtered.length - 1, current + 1)));
+      setHighlight((current) => (combined.length === 0 ? 0 : Math.min(combined.length - 1, current + 1)));
       return;
     }
     if (event.key === 'ArrowUp') {
@@ -349,12 +377,12 @@ export function CommandPalette(props: {
     }
     if (event.key === 'End') {
       event.preventDefault();
-      setHighlight(filtered.length === 0 ? 0 : filtered.length - 1);
+      setHighlight(combined.length === 0 ? 0 : combined.length - 1);
       return;
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      commit(filtered[highlight]);
+      commit(combined[highlight]);
     }
   }
 
@@ -380,7 +408,7 @@ export function CommandPalette(props: {
             autoComplete="off"
             spellCheck={false}
             aria-controls="maka-palette-list"
-            aria-activedescendant={filtered[highlight] ? `cmd-${filtered[highlight]!.id}` : undefined}
+            aria-activedescendant={combined[highlight] ? `cmd-${combined[highlight]!.id}` : undefined}
           />
           <span className="maka-palette-input-hint" aria-hidden="true">
             <kbd>↵</kbd> 执行 · <kbd>Esc</kbd> 关闭
@@ -404,7 +432,9 @@ export function CommandPalette(props: {
                       type="button"
                       role="option"
                       aria-selected={active}
+                      aria-disabled={cmd.disabled ? true : undefined}
                       data-active={active}
+                      data-disabled={cmd.disabled ? true : undefined}
                       className="maka-palette-item"
                       onMouseEnter={() => setHighlight(index)}
                       onClick={() => commit(cmd)}
@@ -455,3 +485,8 @@ function groupCommands(commands: Command[]): Array<{ label: string; items: Array
   });
   return order.map((label) => ({ label, items: map.get(label)! }));
 }
+
+// `buildContentSearchCommands` moved to
+// `./command-palette-content-search` so it can be unit-tested without
+// JSX compilation. Re-exported via the explicit `export { ... }` at
+// the top of this file.

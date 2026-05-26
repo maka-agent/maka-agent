@@ -1600,6 +1600,7 @@ function AppShell(props: {
       {paletteOpen && (
         <CommandPalette
           onClose={closePalette}
+          onSelectSession={setActiveId}
           commands={buildCommandList({
             sessions: visibleSessions,
             activeSessionId: activeId,
