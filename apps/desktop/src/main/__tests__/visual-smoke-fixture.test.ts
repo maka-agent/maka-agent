@@ -499,6 +499,47 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('sidebar-search-modal-open shares the 60-session seed and sets searchModalOpen for auto-open (PR-SIDEBAR-IA-0 Phase 2 fixup v3)', async () => {
+    // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): the
+    // sidebar-search-modal-open scenario reuses the 60-session seed
+    // so the sidebar behind the modal matches the long-sessions
+    // baseline exactly. The only differentiator from `sidebar-long-
+    // sessions` is `VisualSmokeState.searchModalOpen=true`, which
+    // the renderer reads to call `setSearchModalOpen(true)` before
+    // auto-capture settles, so the SearchModal shell is on screen
+    // in the captured PNG.
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-search-modal-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('sidebar-search-modal-open', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const state = getVisualSmokeState(fixture);
+      // Modal-open hint is the contract the renderer reads.
+      assert.equal(state?.searchModalOpen, true, 'searchModalOpen must be true so the renderer auto-opens the modal');
+      // Same active session as the long-sessions scenario so the
+      // sidebar behind the modal looks identical to that baseline.
+      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+
+      // Same 60-session seed actually lands on disk so the sidebar
+      // is fully populated behind the modal.
+      const file = await readFile(
+        join(workspaceRoot, 'sessions', 'visual-smoke-sidebar-long-00', 'session.jsonl'),
+        'utf8',
+      );
+      const header = JSON.parse(file.split('\n')[0]!) as { id: string; status: string };
+      assert.equal(header.id, 'visual-smoke-sidebar-long-00');
+      assert.equal(header.status, 'active');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('sidebar-long-sessions seed creates 60 sessions for the scroll-fix gate (PR-SIDEBAR-IA-0 Phase 1)', async () => {
     // PR-SIDEBAR-IA-0 Phase 1 (xuan msg `dc790a54`, kenji `0f7bb872`):
     // hard gate fixture for sidebar scroll fix. The CSS contract is

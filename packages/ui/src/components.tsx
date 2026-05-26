@@ -101,23 +101,6 @@ export type SessionFilter = 'chats' | 'flagged' | 'archived';
 type ModuleNavId = NavSelection['section'] | 'search';
 
 /**
- * PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ msg `49309559` + kenji
- * `9f683ea8`): no mixed-language main labels. The filter ids stay
- * stable (`chats` / `flagged` / `archived` — that's a contract field
- * persisted in `NavSelection`), but the user-facing labels are
- * Chinese.
- *
- * The fixup also removed the visible filter switcher from the
- * sidebar; `flagged` and `archived` are accessed via a small link
- * at the bottom of the session list, not via top-level tabs.
- */
-const FILTER_LABEL: Record<SessionFilter, string> = {
-  chats: '全部',
-  flagged: '已置顶',
-  archived: '已归档',
-};
-
-/**
  * Top-level module nav labels. Chinese-first per xuan `47e204f2` #5;
  * English keywords stay accessible via the command-palette `keywords`
  * field but are not surfaced in the sidebar UI itself.
@@ -300,23 +283,24 @@ export function SessionListPanel(props: {
    */
   onOpenUpdate?(): void;
   /**
-   * PR-SIDEBAR-IA-0 Phase 2: Search nav item click. In Phase 4 this
-   * opens a dedicated Search modal that consumes
-   * `window.maka.search.thread()`. In Phase 2 it currently switches
-   * `selection.section = 'search'` which renders a stub view; the
-   * modal trigger replaces the stub in Phase 4.
+   * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + `94c7bf0f`):
+   * Sidebar `搜索` nav row click handler. Opens a dedicated Search
+   * modal hosted by the application shell; does NOT change
+   * `selection`. The modal in Phase 2 is a shell-only placeholder
+   * (no input, no IPC, no `useThreadSearch`); Phase 4 attaches the
+   * real backend behind the same callback.
    */
   onOpenSearchModal?(): void;
   rowActions?: SessionRowActions;
 }) {
-  const isSessionFilter = (filter: SessionFilter) => props.selection.section === 'sessions' && props.selection.filter === filter;
   // PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ `49309559` + kenji
-  // `9f683ea8`): the title is the Chinese module label only. The
-  // Sessions filter (Pinned/Archived) no longer surfaces as a
-  // separate top-level tab, so the title stays "会话" regardless of
-  // which internal filter is active. The filter itself is hidden;
-  // archived access goes through a small link at the bottom of the
-  // session list.
+  // `9f683ea8` + xuan `71687cc7`): the title is the Chinese module
+  // label only. The previous Chats/Pinned/Archived switcher was
+  // removed from the sidebar entirely — no visible filter tabs, no
+  // hidden ArrowLeft/Right cycle, no "查看已归档对话" link. Future
+  // Pinned/Archived access (if/when needed) will be a deliberate,
+  // visible, lightweight control in a separate PR. `NavSelection.filter`
+  // stays in the type for storage continuity but is internal-only.
   const title = MODULE_NAV_LABEL[props.selection.section];
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -493,16 +477,20 @@ export function SessionListPanel(props: {
       </nav>
 
       {/*
-        PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ msg `49309559` + kenji
-        `9f683ea8`): the visible Chats / Pinned / Archived switcher
-        was removed from the sidebar entirely. Pinned sessions
-        naturally group at the top of the chats list via existing
-        `groupSessionsForFilter` logic; archived access is via the
-        small `查看已归档对话` link below the list. The internal
-        filter ids (chats / flagged / archived) remain valid for
-        `NavSelection` persistence and the ArrowLeft/Right cycle
-        keyboard affordance, but the surface is Chinese-only and
-        no longer exposes a tabbed switcher.
+        PR-SIDEBAR-IA-0 Phase 2 fixup v2 (WAWQAQ `49309559`,
+        `4259bf8c`; xuan `c73e74da`, `71687cc7`, `dce5a6fb`; kenji
+        `9f683ea8`):
+          - The Chats/Pinned/Archived nav row switcher was removed.
+          - The "查看已归档对话" link was removed.
+          - The ArrowLeft/Right hidden keyboard filter cycle was
+            removed.
+          - The session-name filter input below is kept, with copy
+            renamed to "筛选会话" so users do not confuse it with
+            the global Search modal (per xuan `dce5a6fb` #1).
+          - `NavSelection.filter` stays as a stable storage field
+            but is no longer exposed as a sidebar control. Future
+            Pinned/Archived access lands in a separate PR with a
+            deliberate, visible control.
       */}
 
       <div
@@ -521,8 +509,8 @@ export function SessionListPanel(props: {
               setSearchQuery('');
             }
           }}
-          placeholder="搜索会话…  F 聚焦"
-          aria-label="搜索会话"
+          placeholder="筛选会话…  F 聚焦"
+          aria-label="筛选会话"
           autoComplete="off"
           spellCheck={false}
         />
@@ -671,6 +659,14 @@ export function SessionListPanel(props: {
           onClick={() => props.onOpenUpdate?.()}
           aria-disabled={props.onOpenUpdate ? undefined : true}
           data-disabled={props.onOpenUpdate ? undefined : true}
+          // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #4):
+          // when no `onOpenUpdate` is wired, the button is inert and
+          // a keyboard user reaching it via Tab needs context for
+          // why it does nothing. `title` shows on hover; aria-label
+          // gives screen readers the same explanation. Real
+          // auto-update wiring lands in PR-AUTOUPDATE-0.
+          title={props.onOpenUpdate ? undefined : '版本更新：即将推出'}
+          aria-label={props.onOpenUpdate ? '版本更新' : '版本更新（即将推出，暂不可用）'}
         >
           <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
           <span>版本更新</span>

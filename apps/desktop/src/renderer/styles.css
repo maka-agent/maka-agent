@@ -302,11 +302,13 @@ button:active {
   -webkit-app-region: drag;
 }
 
-.maka-session-filter {
-  display: grid;
-  gap: 2px;
-  padding: 10px 10px 6px;
-}
+/* PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan `dce5a6fb` #3): the
+ * `.maka-session-filter` rule was removed alongside the visible
+ * Chats/Pinned/Archived switcher. No consumer remains in
+ * `SessionListPanel`; keeping the rule was dead-style cruft that
+ * would mislead readers grepping for `session-filter`. Future
+ * Pinned/Archived access lands in a separate PR with its own
+ * deliberate styling. */
 
 .maka-session-search {
   /* PR-UI-LAYOUT-8: session-search refresh.

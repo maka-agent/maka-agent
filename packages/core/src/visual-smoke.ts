@@ -63,7 +63,15 @@ export type VisualSmokeScenario =
   // must stay visible at the bottom regardless of session count.
   // Auto-capture variant pairs (light + dark, narrow + wide) double
   // as the CI gate that scroll did not regress.
-  | 'sidebar-long-sessions';
+  | 'sidebar-long-sessions'
+  // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2 +
+  // WAWQAQ msg `4259bf8c`): seed the same 60-session sidebar as
+  // sidebar-long-sessions, then auto-open the Search modal at
+  // mount so the screenshot pipeline captures the modal shell
+  // without requiring an interaction. The opener uses
+  // `VisualSmokeState.searchModalOpen=true`; real users never
+  // receive a visual smoke state.
+  | 'sidebar-search-modal-open';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;
@@ -158,4 +166,16 @@ export interface VisualSmokeState {
    * formatting remains untouched.
    */
   timezone?: string;
+  /**
+   * PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
+   * `true`, the renderer auto-opens the sidebar Search modal at
+   * mount so the screenshot pipeline can capture the modal shell
+   * deterministically (the modal is not the default state of any
+   * scenario; opening it requires either user input or this hint).
+   *
+   * Currently set only by the `sidebar-search-modal-open` scenario.
+   * Real users never receive a visual smoke state, so this never
+   * affects the production app.
+   */
+  searchModalOpen?: boolean;
 }

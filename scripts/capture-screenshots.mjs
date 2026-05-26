@@ -98,6 +98,14 @@ const ALL_SCENARIOS = [
   // dark × 990 / 1280) doubles as the CI regression check that
   // .maka-session-list scroll container did not regress.
   'sidebar-long-sessions',
+  // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2 +
+  // WAWQAQ msg `4259bf8c`): baseline gate for the SearchModal shell.
+  // Reuses the 60-session sidebar seed and sets
+  // `VisualSmokeState.searchModalOpen=true` so the renderer auto-opens
+  // the modal at mount; no click required. Without this scenario
+  // there is no screenshot evidence that 搜索 opens a modal (the
+  // default sidebar capture only shows the nav row).
+  'sidebar-search-modal-open',
 ];
 
 const VARIANTS = [

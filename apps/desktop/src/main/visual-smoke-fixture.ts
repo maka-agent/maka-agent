@@ -69,6 +69,14 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // placeholder) must stay visible in narrow / wide / light / dark
   // variants. See `seedLongSidebarSessions()`.
   'sidebar-long-sessions',
+  // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2):
+  // shares the sidebar-long-sessions on-disk seed (60 sessions) so
+  // the sidebar behind the modal looks identical to the
+  // sidebar-long-sessions screenshot; differs only in
+  // `searchModalOpen: true`, which auto-opens the sidebar Search
+  // modal at mount. Captures the SearchModal shell deterministically
+  // so xuan's Phase 2 modal gate has a baseline.
+  'sidebar-search-modal-open',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -348,6 +356,19 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // gets pushed off-screen and the regression is obvious in
       // baseline diff.
       return { ...state, activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00' };
+    case 'sidebar-search-modal-open':
+      // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2):
+      // shares the sidebar-long-sessions seed (60 sessions) so the
+      // sidebar behind the modal is identical to the long-sessions
+      // baseline; `searchModalOpen: true` is the only differentiator.
+      // The renderer reads the flag in `applyVisualSmokeFixture()` and
+      // calls `setSearchModalOpen(true)` BEFORE auto-capture settles,
+      // so the SearchModal shell is on screen for the screenshot.
+      return {
+        ...state,
+        activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
+        searchModalOpen: true,
+      };
     case 'all':
       return {
         ...state,
@@ -418,12 +439,28 @@ export async function seedVisualSmokeFixture(input: {
   // deterministic. The hard gate: with 60 rows in a narrow window, the
   // footer (Settings + Update placeholder) must remain visible without
   // page-level scroll, and the inner list scroll container must work.
-  if (input.fixture.scenario === 'sidebar-long-sessions') {
+  //
+  // Phase 2 fixup v3: `sidebar-search-modal-open` shares the same
+  // 60-session seed so the sidebar behind the modal matches the
+  // long-sessions baseline exactly. The modal-open state itself is a
+  // transient renderer flag (`VisualSmokeState.searchModalOpen`); no
+  // additional on-disk seeding required.
+  if (LONG_SIDEBAR_SCENARIOS.has(input.fixture.scenario)) {
     for (const seed of longSidebarSessions(now)) {
       await writeSession(input.workspaceRoot, seed.header, seed.messages);
     }
   }
 }
+
+/**
+ * Scenarios that share the long-sidebar (60-session) on-disk seed.
+ * Kept as a Set so future scenarios reusing the same seed can be
+ * registered in one place. Mirrors `TURN_CONTROL_SCENARIOS`.
+ */
+const LONG_SIDEBAR_SCENARIOS = new Set<VisualSmokeScenario>([
+  'sidebar-long-sessions',
+  'sidebar-search-modal-open',
+]);
 
 /**
  * PR109f (g): scenarios that share the turn-control-history on-disk

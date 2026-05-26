@@ -746,6 +746,14 @@ function AppShell(props: {
     if (state.openSettingsSection) {
       openSettingsSection(state.openSettingsSection);
     }
+    // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when
+    // the fixture sets `searchModalOpen`, auto-open the sidebar
+    // Search modal so the screenshot pipeline captures the modal
+    // shell deterministically. Real users never reach this branch
+    // (visualSmoke.getState returns null without MAKA_VISUAL_SMOKE_FIXTURE).
+    if (state.searchModalOpen) {
+      setSearchModalOpen(true);
+    }
     // PR-IR-01: when MAKA_VISUAL_SMOKE_AUTO_CAPTURE is set, snap a
     // screenshot once the fixture has settled and the renderer has
     // committed. We wait two RAFs + a small idle delay so async layout
