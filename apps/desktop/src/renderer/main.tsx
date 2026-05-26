@@ -1763,7 +1763,13 @@ function readNavSelection(): NavSelection {
     const raw = localStorage.getItem('maka-nav-selection-v1');
     if (!raw) return { section: 'sessions', filter: 'chats' };
     const parsed = JSON.parse(raw) as NavSelection;
+    // PR-SIDEBAR-IA-0 Phase 2: recognize the new module sections.
+    // Persistence is closed-enum so a corrupted localStorage entry
+    // falls back to the default.
     if (parsed.section === 'skills') return { section: 'skills' };
+    if (parsed.section === 'search') return { section: 'search' };
+    if (parsed.section === 'automations') return { section: 'automations' };
+    if (parsed.section === 'daily-review') return { section: 'daily-review' };
     if (
       parsed.section === 'sessions' &&
       (parsed.filter === 'chats' || parsed.filter === 'flagged' || parsed.filter === 'archived')

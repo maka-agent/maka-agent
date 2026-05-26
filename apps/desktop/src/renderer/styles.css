@@ -189,13 +189,35 @@ button:active {
 }
 
 .maka-session-panel {
+  /* PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): grid now has a
+   * dedicated row for the top-level module nav (会话/搜索/计划/技能/
+   * 每日回顾). Row order top-to-bottom:
+   *   1. .maka-session-panel-header   — new chat button (auto)
+   *   2. .maka-sidebar-modules        — module nav (auto)  NEW
+   *   3. .maka-session-filter         — Chats/Pinned/Archived (auto, hidden when not sessions)
+   *   4. .maka-session-search         — search input (auto, hidden when not sessions)
+   *   5. .maka-session-list           — scroll container (1fr, Phase 1 fix)
+   *   6. .maka-session-panel-footer   — Update + Settings (auto)
+   * Hidden rows collapse to 0px so non-Sessions modules show only
+   * header / module-nav / content / footer.
+   */
   min-width: 0;
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: transparent;
+}
+
+.maka-sidebar-modules {
+  /* Top-level module nav. Lightweight visual hierarchy per xuan
+   * `47e204f2` #4 + #6: transparent bg, light dividers, no card
+   * stacking. Reuses `.maka-nav-row` styling so module entries
+   * match the existing nav language (accent-tinted selected state). */
+  display: grid;
+  gap: 2px;
+  padding: 4px 8px;
 }
 
 .maka-session-panel-header {
@@ -483,6 +505,19 @@ button:active {
 }
 .maka-nav-row[data-active="true"] .maka-nav-icon {
   color: var(--accent);
+}
+
+/* PR-SIDEBAR-IA-0 Phase 2: aria-disabled nav rows render dimmed and
+ * skip hover. Used by the 版本更新 (Update) placeholder until the
+ * real auto-update wiring lands in PR-AUTOUPDATE-0. */
+.maka-nav-row[aria-disabled="true"],
+.maka-nav-row[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.maka-nav-row[aria-disabled="true"]:hover,
+.maka-nav-row[data-disabled="true"]:hover {
+  background: transparent;
 }
 
 .maka-nav-row span:nth-child(2) {

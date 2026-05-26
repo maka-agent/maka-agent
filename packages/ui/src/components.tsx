@@ -6,10 +6,13 @@ import {
   ArchiveRestore,
   ArrowDown,
   Ban,
+  CalendarDays,
   Check,
   ChevronRight,
   CircleCheckBig,
+  Clock,
   Copy,
+  DownloadCloud,
   Eye,
   FileEdit,
   Flag,
@@ -64,9 +67,25 @@ import {
   type TurnViewModel,
 } from './materialize.js';
 
+/**
+ * PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2` + WAWQAQ `b86b47d1`):
+ * left sidebar's second part is now a 5-module top-level nav rather
+ * than session filter tabs. `Chats / Pinned / Archived` move to be
+ * internal filters of the `sessions` module.
+ *
+ * Module labels are Chinese-first per xuan `47e204f2` #5:
+ *   - sessions     → 会话
+ *   - search       → 搜索   (opens modal in Phase 4; placeholder view in Phase 2)
+ *   - automations  → 计划   (stub "即将推出" view; future scheduler / cron)
+ *   - skills       → 技能   (reuses the existing skills view)
+ *   - daily-review → 每日回顾  (stub "即将推出" view; future PR-DAILY-*)
+ */
 export type NavSelection =
   | { section: 'sessions'; filter: SessionFilter }
-  | { section: 'skills' };
+  | { section: 'search' }
+  | { section: 'automations' }
+  | { section: 'skills' }
+  | { section: 'daily-review' };
 
 export type SessionFilter = 'chats' | 'flagged' | 'archived';
 
@@ -74,6 +93,19 @@ const FILTER_LABEL: Record<SessionFilter, string> = {
   chats: 'Chats',
   flagged: 'Flagged',
   archived: 'Archived',
+};
+
+/**
+ * Top-level module nav labels. Chinese-first per xuan `47e204f2` #5;
+ * English keywords stay accessible via the command-palette `keywords`
+ * field but are not surfaced in the sidebar UI itself.
+ */
+const MODULE_NAV_LABEL: Record<NavSelection['section'], string> = {
+  sessions: '会话',
+  search: '搜索',
+  automations: '计划',
+  skills: '技能',
+  'daily-review': '每日回顾',
 };
 
 /**
@@ -236,10 +268,30 @@ export function SessionListPanel(props: {
   onOpenSettings(): void;
   onNew(): void;
   onOpenSkillFolder?(path: string): void;
+  /**
+   * PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): Update button click.
+   * UI placeholder only in this phase; main.tsx wires a noop / toast.
+   * Real auto-update wiring lands in PR-AUTOUPDATE-0.
+   */
+  onOpenUpdate?(): void;
+  /**
+   * PR-SIDEBAR-IA-0 Phase 2: Search nav item click. In Phase 4 this
+   * opens a dedicated Search modal that consumes
+   * `window.maka.search.thread()`. In Phase 2 it currently switches
+   * `selection.section = 'search'` which renders a stub view; the
+   * modal trigger replaces the stub in Phase 4.
+   */
+  onOpenSearchModal?(): void;
   rowActions?: SessionRowActions;
 }) {
   const isSessionFilter = (filter: SessionFilter) => props.selection.section === 'sessions' && props.selection.filter === filter;
-  const title = props.selection.section === 'sessions' ? FILTER_LABEL[props.selection.filter] : 'Skills';
+  // PR-SIDEBAR-IA-0 Phase 2: title reflects the current module label
+  // (Chinese-first per xuan `47e204f2` #5). For the Sessions module,
+  // the existing filter label is appended so users still see which
+  // session bucket is active.
+  const title = props.selection.section === 'sessions'
+    ? FILTER_LABEL[props.selection.filter]
+    : MODULE_NAV_LABEL[props.selection.section];
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -330,6 +382,31 @@ export function SessionListPanel(props: {
     focusables[nextIndex]?.scrollIntoView({ block: 'nearest' });
   }
 
+  // PR-SIDEBAR-IA-0 Phase 2: module nav order is FIXED per WAWQAQ
+  // `b86b47d1` + xuan `47e204f2`. Sessions first (most-used), then
+  // Search (modal trigger), then Automations / Skills / Daily Review.
+  // Order is part of the contract — do not reorder without an explicit
+  // IA review.
+  const isModuleActive = (section: NavSelection['section']) =>
+    props.selection.section === section;
+  function selectModule(section: NavSelection['section']) {
+    if (section === 'search' && props.onOpenSearchModal) {
+      // Phase 4: clicking Search opens the modal instead of switching
+      // module. Phase 2 wiring has `onOpenSearchModal` undefined so we
+      // fall through to the stub view selection below.
+      props.onOpenSearchModal();
+      return;
+    }
+    if (section === 'sessions') {
+      props.onSelect({ section: 'sessions', filter: 'chats' });
+      return;
+    }
+    if (section === 'search') props.onSelect({ section: 'search' });
+    else if (section === 'automations') props.onSelect({ section: 'automations' });
+    else if (section === 'skills') props.onSelect({ section: 'skills' });
+    else if (section === 'daily-review') props.onSelect({ section: 'daily-review' });
+  }
+
   return (
     <aside className="maka-session-panel" aria-label="对话列表">
       <header className="maka-session-panel-header">
@@ -340,7 +417,70 @@ export function SessionListPanel(props: {
         </button>
       </header>
 
-      <div className="maka-session-filter">
+      {/*
+        PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): top-level module
+        nav. Chinese-first labels; lightweight visual hierarchy reusing
+        `.maka-nav-row` (transparent bg, accent on selected). Pinned /
+        Archived / Recent are NOT here — they live as filter chips
+        inside the Sessions module content below.
+      */}
+      <nav className="maka-sidebar-modules" aria-label="主导航">
+        <button
+          className="maka-nav-row"
+          data-active={isModuleActive('sessions')}
+          type="button"
+          onClick={() => selectModule('sessions')}
+        >
+          <MessageSquare className="maka-nav-icon" strokeWidth={1.5} />
+          <span>{MODULE_NAV_LABEL.sessions}</span>
+        </button>
+        <button
+          className="maka-nav-row"
+          data-active={isModuleActive('search')}
+          type="button"
+          onClick={() => selectModule('search')}
+        >
+          <Search className="maka-nav-icon" strokeWidth={1.5} />
+          <span>{MODULE_NAV_LABEL.search}</span>
+        </button>
+        <button
+          className="maka-nav-row"
+          data-active={isModuleActive('automations')}
+          type="button"
+          onClick={() => selectModule('automations')}
+        >
+          <Clock className="maka-nav-icon" strokeWidth={1.5} />
+          <span>{MODULE_NAV_LABEL.automations}</span>
+        </button>
+        <button
+          className="maka-nav-row"
+          data-active={isModuleActive('skills')}
+          type="button"
+          onClick={() => selectModule('skills')}
+        >
+          <Sparkles className="maka-nav-icon" strokeWidth={1.5} />
+          <span>{MODULE_NAV_LABEL.skills}</span>
+        </button>
+        <button
+          className="maka-nav-row"
+          data-active={isModuleActive('daily-review')}
+          type="button"
+          onClick={() => selectModule('daily-review')}
+        >
+          <CalendarDays className="maka-nav-icon" strokeWidth={1.5} />
+          <span>{MODULE_NAV_LABEL['daily-review']}</span>
+        </button>
+      </nav>
+
+      {/*
+        Sessions module: filter chips (Chats/Pinned/Archived) +
+        search box live INSIDE the Sessions module per WAWQAQ IA
+        (`b86b47d1`). They no longer share the sidebar's top level.
+      */}
+      <div
+        className="maka-session-filter"
+        hidden={props.selection.section !== 'sessions'}
+      >
         <button
           className="maka-nav-row"
           data-active={isSessionFilter('chats')}
@@ -373,7 +513,10 @@ export function SessionListPanel(props: {
         </button>
       </div>
 
-      <div className="maka-session-search">
+      <div
+        className="maka-session-search"
+        hidden={props.selection.section !== 'sessions'}
+      >
         <Search strokeWidth={1.5} aria-hidden="true" />
         <input
           ref={searchInputRef}
@@ -455,60 +598,90 @@ export function SessionListPanel(props: {
               </div>
             </div>
           )
-        ) : props.sessions.length === 0 ? (
-          <div className="maka-empty-state">
-            <MessageSquare className="maka-empty-state-icon" strokeWidth={1.5} />
-            <div className="maka-empty-state-title">还没有对话</div>
-            <div className="maka-empty-state-body">和 Maka 的对话会出现在这里。点下面开始第一条。</div>
-            <button className="maka-button maka-empty-state-cta" type="button" onClick={props.onNew}>
-              新建对话
-            </button>
-          </div>
-        ) : filteredSessions.length === 0 ? (
-          <div className="maka-empty-state">
-            <Search className="maka-empty-state-icon" strokeWidth={1.5} />
-            <div className="maka-empty-state-title">没有匹配的会话</div>
-            <div className="maka-empty-state-body">没有名字包含 “{searchQuery}” 的会话。换个关键词，或者按 Esc 清空搜索。</div>
-          </div>
+        ) : props.selection.section === 'sessions' ? (
+          props.sessions.length === 0 ? (
+            <div className="maka-empty-state">
+              <MessageSquare className="maka-empty-state-icon" strokeWidth={1.5} />
+              <div className="maka-empty-state-title">还没有对话</div>
+              <div className="maka-empty-state-body">和 Maka 的对话会出现在这里。点下面开始第一条。</div>
+              <button className="maka-button maka-empty-state-cta" type="button" onClick={props.onNew}>
+                新建对话
+              </button>
+            </div>
+          ) : filteredSessions.length === 0 ? (
+            <div className="maka-empty-state">
+              <Search className="maka-empty-state-icon" strokeWidth={1.5} />
+              <div className="maka-empty-state-title">没有匹配的会话</div>
+              <div className="maka-empty-state-body">没有名字包含 “{searchQuery}” 的会话。换个关键词，或者按 Esc 清空搜索。</div>
+            </div>
+          ) : (
+            <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
+              <SessionListGroups
+                groups={
+                  props.statusGroups && props.selection.section === 'sessions' && props.selection.filter === 'chats'
+                    ? props.statusGroups.map((g) => ({
+                        key: g.id,
+                        label: g.label,
+                        sessions: g.sessions,
+                        collapsible: g.collapsible,
+                        defaultExpanded: g.defaultExpanded,
+                      }))
+                    : groupSessionsForFilter(filteredSessions, props.selection).map((g) => ({
+                        key: g.label,
+                        label: g.label,
+                        sessions: g.sessions,
+                        collapsible: false,
+                        defaultExpanded: true,
+                      }))
+                }
+                activeId={props.activeId}
+                streamingSessionIds={props.streamingSessionIds}
+                staleSessionIds={props.staleSessionIds}
+                onSelectSession={props.onSelectSession}
+                rowActions={props.rowActions}
+              />
+            </div>
+          )
         ) : (
-          <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
-            <SessionListGroups
-              groups={
-                props.statusGroups && props.selection.section === 'sessions' && props.selection.filter === 'chats'
-                  ? props.statusGroups.map((g) => ({
-                      key: g.id,
-                      label: g.label,
-                      sessions: g.sessions,
-                      collapsible: g.collapsible,
-                      defaultExpanded: g.defaultExpanded,
-                    }))
-                  : groupSessionsForFilter(filteredSessions, props.selection).map((g) => ({
-                      key: g.label,
-                      label: g.label,
-                      sessions: g.sessions,
-                      collapsible: false,
-                      defaultExpanded: true,
-                    }))
-              }
-              activeId={props.activeId}
-              streamingSessionIds={props.streamingSessionIds}
-              staleSessionIds={props.staleSessionIds}
-              onSelectSession={props.onSelectSession}
-              rowActions={props.rowActions}
-            />
-          </div>
+          // PR-SIDEBAR-IA-0 Phase 2: stub views for Search /
+          // Automations / Daily Review. Each renders an empty-state
+          // pattern reusing `.maka-empty-state` for visual rhythm
+          // consistency. Per xuan `47e204f2` #1, these placeholders
+          // do NOT introduce new framework code — just shape +
+          // generalized 中文 copy. Real implementations:
+          //   - Search: PR-SEARCH-MODAL-0 (Phase 4 within this PR)
+          //   - Automations: future PR-TIME-* / PR-AUTOMATIONS-*
+          //   - Daily Review: future PR-DAILY-*
+          (() => {
+            const stub = STUB_VIEWS[props.selection.section];
+            if (!stub) return null;
+            return (
+              <div className="maka-empty-state" data-stub-view={props.selection.section}>
+                <stub.Icon className="maka-empty-state-icon" strokeWidth={1.5} />
+                <div className="maka-empty-state-title">{stub.title}</div>
+                <div className="maka-empty-state-body">{stub.body}</div>
+              </div>
+            );
+          })()
         )}
       </section>
 
       <footer className="maka-session-panel-footer">
+        {/*
+          PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): Update
+          placeholder. Real auto-update wiring (Electron updater
+          channel / signature / rollback gates) is deferred to a
+          separate PR-AUTOUPDATE-0; this button is UI-only.
+        */}
         <button
           className="maka-nav-row"
-          data-active={props.selection.section === 'skills'}
           type="button"
-          onClick={() => props.onSelect({ section: 'skills' })}
+          onClick={() => props.onOpenUpdate?.()}
+          aria-disabled={props.onOpenUpdate ? undefined : true}
+          data-disabled={props.onOpenUpdate ? undefined : true}
         >
-          <Sparkles className="maka-nav-icon" strokeWidth={1.5} />
-          <span>Skills</span>
+          <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
+          <span>版本更新</span>
         </button>
         <button
           className="maka-nav-row"
@@ -516,12 +689,43 @@ export function SessionListPanel(props: {
           onClick={props.onOpenSettings}
         >
           <Settings className="maka-nav-icon" strokeWidth={1.5} />
-          <span>Settings</span>
+          <span>设置</span>
         </button>
       </footer>
     </aside>
   );
 }
+
+/**
+ * PR-SIDEBAR-IA-0 Phase 2: stub copy + icon for each module that has
+ * no real implementation yet. Search will be replaced by the modal
+ * trigger in Phase 4; Automations and Daily Review remain stubs
+ * until their respective product lanes open.
+ *
+ * Per xuan `47e204f2` #1, the stub framework is intentionally minimal
+ * — empty-state shape, fixed Chinese copy, no router / settings /
+ * storage touchpoints.
+ */
+const STUB_VIEWS: Record<
+  Exclude<NavSelection['section'], 'sessions' | 'skills'>,
+  { Icon: typeof Search; title: string; body: string }
+> = {
+  search: {
+    Icon: Search,
+    title: '搜索 ⌘K',
+    body: '从 ⌘K 命令面板或后续 PR-SEARCH-MODAL-0 弹出独立搜索弹窗；当前为模块入口占位。',
+  },
+  automations: {
+    Icon: Clock,
+    title: '计划任务即将推出',
+    body: '未来用于安排定时任务、提醒和自动化流程；当前是入口占位，未接真实运行时。',
+  },
+  'daily-review': {
+    Icon: CalendarDays,
+    title: '每日回顾即将推出',
+    body: '未来用于每日小结、工作记录回顾；当前是入口占位，未接真实数据。',
+  },
+};
 
 /**
  * Render an ordered list of session groups, supporting collapsibility
@@ -1210,6 +1414,20 @@ export function ChatView(props: {
     return (
       <main className="maka-main detailPane">
         <div className="maka-center-state">No skill selected</div>
+      </main>
+    );
+  }
+
+  // PR-SIDEBAR-IA-0 Phase 2: when the user switches to a stub module
+  // (search / automations / daily-review), the chat surface shows a
+  // neutral "no chat selected" placeholder so the main area does not
+  // continue to render the previous session's content. The Sidebar's
+  // empty-state inside the same module gives the user the "即将推出"
+  // copy; this surface just stays out of the way.
+  if (props.mode === 'search' || props.mode === 'automations' || props.mode === 'daily-review') {
+    return (
+      <main className="maka-main detailPane">
+        <div className="maka-center-state">从 “会话” 选择一个对话继续，或在该模块中查看占位内容。</div>
       </main>
     );
   }
