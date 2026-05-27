@@ -94,10 +94,17 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     // circuits before SearchModal is ever rendered, so its hooks
     // run only when open=true, with a fresh fiber each time.
     const src = await readFile(MAIN_TSX_PATH, 'utf8');
+    // PR-UX-POLISH-1 commit 5 (relax-only): allow optional `(` between
+    // `&&` and `<SearchModal` so multi-line JSX with multiple props
+    // (`onClose`, `deps`, `onNavigateToSession`) still satisfies the
+    // contract. The semantic gate — conditional mount on
+    // `searchModalOpen` — is unchanged. Also relax the prop-anchor:
+    // any prop name starting with `on` (`onClose`, `onNavigateToSession`)
+    // is acceptable so future prop reorders don't trip the regex.
     assert.match(
       src,
-      /\{searchModalOpen\s*&&\s*<SearchModal\s+onClose=/,
-      'renderer must mount SearchModal via `{searchModalOpen && <SearchModal onClose=... />}`',
+      /\{searchModalOpen\s*&&\s*\(?\s*<SearchModal\s+on[A-Z]/,
+      'renderer must mount SearchModal via `{searchModalOpen && <SearchModal ... />}` with at least one `on*` prop',
     );
     assert.doesNotMatch(
       src,

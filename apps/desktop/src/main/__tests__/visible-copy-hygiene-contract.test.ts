@@ -89,9 +89,18 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
   },
   {
     label: 'engineering term `incognito` leaked into user-visible text',
-    needle: /incognito/i,
+    // PR-UX-POLISH-1 commit 5 (yuejing): tightened from `/incognito/i`
+    // so the gate doesn't false-positive on contract enum names
+    // (e.g. `'incognito_active'` from `@maka/core/search.SearchErrorReason`)
+    // or local variable identifiers (e.g. `incognitoBlocked`,
+    // `incognitoActive`). User-visible Chinese surface uses `隐私 / 隐身
+    // 模式`. The negative lookahead `(?![_a-zA-Z])` blocks any
+    // `incognito` that's part of a longer identifier or snake_case
+    // enum value; it still catches `incognito` as a standalone word
+    // in JSX text or copy strings.
+    needle: /incognito(?![_a-zA-Z])/i,
     reason:
-      "user-visible text must not expose internal engineering terms like `incognito` (xuan `a4c98a2a`). Describe the user-facing privacy state in Chinese product terms (e.g. `隐私` / `隐身`) instead. Stripping source comments means this fires only when `incognito` actually lands in JSX text or string literals.",
+      "user-visible text must not expose the literal English `incognito` as a standalone word (xuan `a4c98a2a`). Describe the user-facing privacy state in Chinese product terms (e.g. `隐私` / `隐身`) instead. Contract enum names like `incognito_active` and camelCase identifiers like `incognitoBlocked` are OK because they're code, not user-visible text.",
   },
 ];
 

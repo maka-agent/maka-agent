@@ -54,6 +54,9 @@ import type {
   PermissionRequestEvent,
   PermissionResponse,
   ProviderType,
+  SearchErrorReason,
+  SearchRequest,
+  SearchResult,
   SessionSummary,
   StoredMessage,
   ToolResultContent,
@@ -708,11 +711,131 @@ const STUB_VIEWS: Record<
  *   - Modal shell does NOT call `search:thread` IPC, does NOT store
  *     the query, does NOT write history.
  */
+/**
+ * Dependency-injected search interface. Production wiring binds this
+ * to `window.maka.search.thread`; tests pass an in-memory fake.
+ *
+ * The return type matches the IPC envelope exactly: either an array
+ * of `SearchResult` (success path) or a `{ ok: false, reason, message }`
+ * error envelope. Renderer never throws across the IPC boundary —
+ * fail-closed paths return the error envelope and the modal renders
+ * them as user-facing copy.
+ */
+export interface SearchModalDeps {
+  searchThread(request: SearchRequest): Promise<
+    | SearchResult[]
+    | { ok: false; reason: SearchErrorReason; message: string }
+  >;
+}
+
 export function SearchModal(props: {
   onClose(): void;
+  /**
+   * Navigate to a session (optionally scrolling to a specific turn).
+   * Provided by the application shell so the modal stays portable —
+   * navigation lives in the shell, not in @maka/ui.
+   *
+   * Per kenji `2844f64f` SEARCH gate: navigation MUST NOT construct
+   * `maka://session/<id>` URIs. The callback receives raw ids; the
+   * shell handles routing via existing session-pane state.
+   */
+  onNavigateToSession?(sessionId: string, turnId?: string): void;
+  /**
+   * Injected `search:thread` IPC. Production binds to
+   * `window.maka.search.thread`; tests supply a fake.
+   *
+   * Optional so the modal renders a degraded "search unavailable"
+   * state when the renderer cannot bind to the IPC (legacy / smoke
+   * fixture / preload not loaded). Without an injected deps the
+   * modal does NOT crash.
+   */
+  deps?: SearchModalDeps;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalA11y(dialogRef, props.onClose);
+
+  // PR-UX-POLISH-1 commit 5 (kenji `2844f64f` SEARCH gate):
+  //   - `query` is local state ONLY (no localStorage / no IPC echo).
+  //   - `results` is the most recent successful response; older
+  //     responses are discarded by the inflight ticket guard so the
+  //     UI never shows stale data behind a newer query.
+  //   - `error` carries the IPC error envelope when present. We do
+  //     NOT raise it as a JS throw — the modal renders the message
+  //     copy and the gate's `incognito_active` / `invalid_query`
+  //     reasons trigger specific UI states (privacy banner / empty).
+  //   - `pending` reflects whether ANY IPC call is in flight. We do
+  //     NOT show a spinner if the query is empty (avoids flashing
+  //     loading state during typing).
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [error, setError] = useState<{ reason: SearchErrorReason; message: string } | null>(null);
+  const [pending, setPending] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const ticketRef = useRef(0);
+  const searchThread = props.deps?.searchThread;
+
+  // Debounced search: ~180ms after the user stops typing, send the
+  // request. Empty query clears state without an IPC roundtrip.
+  useEffect(() => {
+    if (!searchThread) return;
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setResults([]);
+      setError(null);
+      setPending(false);
+      return;
+    }
+    const ticket = ++ticketRef.current;
+    setPending(true);
+    const handle = window.setTimeout(async () => {
+      try {
+        const response = await searchThread({
+          source: 'thread',
+          query: trimmed,
+          limit: 10,
+        });
+        if (ticket !== ticketRef.current) return; // newer query in flight
+        if (Array.isArray(response)) {
+          setResults(response);
+          setError(null);
+        } else {
+          setResults([]);
+          setError({ reason: response.reason, message: response.message });
+        }
+      } catch (err) {
+        if (ticket !== ticketRef.current) return;
+        // IPC layer should never throw, but defend anyway. Render as a
+        // generic provider_error so the user sees a coherent state.
+        setResults([]);
+        setError({
+          reason: 'provider_error',
+          message: err instanceof Error ? err.message : '搜索暂时不可用，请稍后重试。',
+        });
+      } finally {
+        if (ticket === ticketRef.current) setPending(false);
+      }
+    }, 180);
+    return () => window.clearTimeout(handle);
+  }, [query, searchThread]);
+
+  // Focus the input on mount so users can type immediately. The
+  // useModalA11y hook handles focus trap + restore on close.
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  function selectResult(result: SearchResult) {
+    if (!props.onNavigateToSession) return;
+    if (result.target?.kind !== 'thread') return;
+    props.onNavigateToSession(result.target.sessionId, result.target.turnId);
+    props.onClose();
+  }
+
+  const incognitoBlocked = error?.reason === 'incognito_active';
+  const trimmed = query.trim();
+  const showResults = !error && trimmed.length > 0 && !pending && results.length > 0;
+  const showEmpty = !error && trimmed.length > 0 && !pending && results.length === 0;
+
   return (
     <div
       className="maka-modal-backdrop maka-search-modal-backdrop"
@@ -738,21 +861,84 @@ export function SearchModal(props: {
             ×
           </button>
         </header>
-        <div className="maka-search-modal-body">
-          {/*
-            PR-SIDEBAR-IA-0 Phase 3 P0 fixup v3 (xuan `a4c98a2a`):
-            modal body copy stays product-semantic — no internal
-            phase / implementation / module names. The next PR
-            wires the real search backend; until then the
-            placeholder describes the user-facing outcome
-            ("即将可用") without exposing engineering terminology.
-          */}
-          <p className="maka-search-modal-placeholder">
-            会话内容搜索即将可用。
-          </p>
-          <p className="maka-search-modal-placeholder-detail">
-            后续版本会在这里支持按关键词查找历史对话。
-          </p>
+        <div className="maka-search-modal-input-row">
+          <Search size={16} strokeWidth={1.75} aria-hidden="true" className="maka-search-modal-input-icon" />
+          <input
+            ref={inputRef}
+            type="search"
+            className="maka-search-modal-input"
+            placeholder="搜索会话内容…"
+            aria-label="搜索会话内容"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && query) {
+                event.preventDefault();
+                setQuery('');
+              }
+            }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+        <div className="maka-search-modal-body" role="region" aria-live="polite">
+          {!searchThread && (
+            <p className="maka-search-modal-placeholder">
+              当前环境无法连接搜索后端，请稍后重试。
+            </p>
+          )}
+          {searchThread && incognitoBlocked && (
+            <div className="maka-search-modal-state" data-tone="info">
+              <p>隐私模式已关闭搜索。</p>
+              <p className="maka-search-modal-state-detail">
+                关闭隐私模式后可以继续按关键词查找历史对话。
+              </p>
+            </div>
+          )}
+          {searchThread && !incognitoBlocked && error && (
+            <div className="maka-search-modal-state" data-tone="warning">
+              <p>搜索暂时无法完成。</p>
+              <p className="maka-search-modal-state-detail">{error.message}</p>
+            </div>
+          )}
+          {searchThread && !error && trimmed.length === 0 && (
+            <p className="maka-search-modal-placeholder">
+              开始输入以按关键词查找历史对话。结果只包含会话内容文本，不进入网络。
+            </p>
+          )}
+          {searchThread && pending && trimmed.length > 0 && (
+            <p className="maka-search-modal-placeholder" aria-live="polite">
+              正在搜索…
+            </p>
+          )}
+          {showEmpty && (
+            <p className="maka-search-modal-placeholder">
+              没有匹配的会话内容。换个关键词试试。
+            </p>
+          )}
+          {showResults && (
+            <ul className="maka-search-modal-results" role="list">
+              {results.map((result, index) => (
+                <li key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}>
+                  <button
+                    type="button"
+                    className="maka-search-modal-result"
+                    onClick={() => selectResult(result)}
+                    disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
+                  >
+                    <div className="maka-search-modal-result-title">{result.title}</div>
+                    {result.snippet && (
+                      // Plain text only — IPC already redacts secrets
+                      // and the snippet is bounded by SNIPPET_MAX_CODE_POINTS.
+                      // No markdown rendering, no <img>, no <a href> —
+                      // per kenji SEARCH gate (no path / no URL exposure).
+                      <div className="maka-search-modal-result-snippet">{result.snippet}</div>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

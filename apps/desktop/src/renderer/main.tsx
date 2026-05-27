@@ -1648,7 +1648,31 @@ function AppShell(props: {
         hooks-before-early-return shape that React #310 punished
         in WAWQAQ's run.
       */}
-      {searchModalOpen && <SearchModal onClose={() => setSearchModalOpen(false)} />}
+      {/*
+        PR-UX-POLISH-1 commit 5 (WAWQAQ msg `e0dbad11` + kenji msg
+        `2844f64f` blocker #3): SearchModal is now wired to the real
+        `window.maka.search.thread` IPC. Renderer never touches
+        thread JSONL directly; the IPC enforces incognito gate +
+        bounded scan + snippet redaction per `@maka/core/search`
+        contract. Navigation is supplied via `onNavigateToSession`
+        callback (no `maka://session` URI construction).
+      */}
+      {searchModalOpen && (
+        <SearchModal
+          onClose={() => setSearchModalOpen(false)}
+          deps={{ searchThread: (request) => window.maka.search.thread(request) }}
+          onNavigateToSession={(sessionId, _turnId) => {
+            // Activate the target session. `turnId` is ignored for
+            // now — scrolling to a specific turn requires plumbing
+            // through ChatView's scroll anchor, which lands in a
+            // follow-up PR (the contract for `target.turnId` exists
+            // per PR-SEARCH-1.5 but the renderer doesn't consume it
+            // yet to keep this PR focused on search wiring).
+            setNavSelection({ section: 'sessions', filter: 'chats' });
+            setActiveId(sessionId);
+          }}
+        />
+      )}
       {paletteOpen && (
         <CommandPalette
           onClose={closePalette}
