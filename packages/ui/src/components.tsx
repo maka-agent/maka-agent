@@ -509,7 +509,7 @@ export function SessionListPanel(props: {
               setSearchQuery('');
             }
           }}
-          placeholder="筛选会话…  F 聚焦"
+          placeholder="筛选会话…  ⌘F 聚焦"
           aria-label="筛选会话"
           autoComplete="off"
           spellCheck={false}
@@ -653,24 +653,37 @@ export function SessionListPanel(props: {
           channel / signature / rollback gates) is deferred to a
           separate PR-AUTOUPDATE-0; this button is UI-only.
         */}
-        <button
-          className="maka-nav-row"
-          type="button"
-          onClick={() => props.onOpenUpdate?.()}
-          aria-disabled={props.onOpenUpdate ? undefined : true}
-          data-disabled={props.onOpenUpdate ? undefined : true}
-          // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #4):
-          // when no `onOpenUpdate` is wired, the button is inert and
-          // a keyboard user reaching it via Tab needs context for
-          // why it does nothing. `title` shows on hover; aria-label
-          // gives screen readers the same explanation. Real
-          // auto-update wiring lands in PR-AUTOUPDATE-0.
-          title={props.onOpenUpdate ? undefined : '版本更新：即将推出'}
-          aria-label={props.onOpenUpdate ? '版本更新' : '版本更新（即将推出，暂不可用）'}
-        >
-          <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
-          <span>版本更新</span>
-        </button>
+        {/*
+          PR-UX-POLISH-1 (yuejing UX audit P1 #1, kenji boundary 1):
+          when `onOpenUpdate` is NOT wired (current default), render
+          a passive informational tag — NOT a button. Removes the
+          "looks tappable but does nothing" affordance that confuses
+          users. Once PR-AUTOUPDATE-0 wires the real updater, the
+          button form returns. Maps to capability presentation enum
+          `coming_soon`: no hover-pointer, no click, no aria-disabled
+          fake-button mess.
+        */}
+        {props.onOpenUpdate ? (
+          <button
+            className="maka-nav-row"
+            type="button"
+            onClick={() => props.onOpenUpdate!()}
+            aria-label="版本更新"
+          >
+            <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
+            <span>版本更新</span>
+          </button>
+        ) : (
+          <div
+            className="maka-nav-row"
+            data-state="coming_soon"
+            aria-label="版本更新即将推出"
+          >
+            <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
+            <span>版本更新</span>
+            <span className="maka-nav-row-state-badge">即将推出</span>
+          </div>
+        )}
         <button
           className="maka-nav-row"
           type="button"
@@ -2847,14 +2860,22 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   zh: {
     placeholder: '给 Maka 发消息…',
     awaitingPermission: '等待你确认权限…',
-    streamingHintPrefix: 'Maka 正在思考…',
+    // PR-UX-POLISH-1 (yuejing UX audit msg `9c779b56`): composer streaming
+    // hint now reads `正在回答` so it doesn't conflict with the
+    // ReasoningPanel's `正在思考` (which displays the model's actual
+    // extended-thinking stream). Composer = output-streaming;
+    // ReasoningPanel = reasoning-streaming; distinct signals, distinct copy.
+    streamingHintPrefix: 'Maka 正在回答…',
     streamingHintInterrupt: '或点 Stop 中断',
     enterHint: { send: '发送', newline: '换行' },
   },
   en: {
     placeholder: 'Message Maka…',
     awaitingPermission: 'Waiting for your permission decision…',
-    streamingHintPrefix: 'Maka is thinking…',
+    // PR-UX-POLISH-1: parallel en-locale fix — `is responding` instead of
+    // `is thinking`, so it doesn't collide with the ReasoningPanel's
+    // `Thinking…` label.
+    streamingHintPrefix: 'Maka is responding…',
     streamingHintInterrupt: 'or click Stop to interrupt',
     enterHint: { send: 'to send', newline: 'for newline' },
   },

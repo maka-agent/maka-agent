@@ -596,6 +596,34 @@ button:active {
   background: transparent;
 }
 
+/* PR-UX-POLISH-1 (yuejing UX audit P1 #1 + kenji boundary 1):
+ * `data-state="coming_soon"` renders the row as a passive
+ * informational tag (no hover-pointer, no tappable affordance,
+ * no aria-disabled fake-button mess). Pair with a small
+ * `即将推出` badge so users see WHY it's inert.
+ *
+ * This is the presentation half of the closed-state enum
+ * (`available / coming_soon / needs_config / blocked_by_permission /
+ * disabled_by_policy / unsupported_platform`); runtime probes never
+ * touch this — UI consumes the state via props. */
+.maka-nav-row[data-state="coming_soon"] {
+  cursor: default;
+  opacity: 0.7;
+}
+.maka-nav-row[data-state="coming_soon"]:hover {
+  background: transparent;
+}
+.maka-nav-row-state-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.06);
+  color: var(--foreground-50);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
 .maka-nav-row span:nth-child(2) {
   min-width: 0;
   overflow: hidden;
@@ -700,6 +728,13 @@ button:active {
 }
 
 .maka-list-group-label {
+  /* PR-UX-POLISH-1 (yuejing UX audit P3 #8): give the label + count
+   * a flex gap so they don't collapse into "会话65" (no separator).
+   * The middle dot / colon visually separates the two semantic
+   * tokens (group name vs count). */
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   padding: 0 4px 2px;
   color: var(--foreground-50);
   font-size: 11px;
