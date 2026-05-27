@@ -9,7 +9,7 @@
  * Markdown under `apps/desktop/tests/real-window-smoke/`.
  */
 
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
@@ -83,6 +83,7 @@ function parseArgs(argv) {
     width: DEFAULT_WINDOW_WIDTH,
     height: DEFAULT_WINDOW_HEIGHT,
     noLaunch: false,
+    cleanupStale: true,
     assumeYes: false,
     help: false,
   };
@@ -92,6 +93,7 @@ function parseArgs(argv) {
     else if (arg === '--width') args.width = Number(argv[++i]);
     else if (arg === '--height') args.height = Number(argv[++i]);
     else if (arg === '--no-launch') args.noLaunch = true;
+    else if (arg === '--no-cleanup-stale') args.cleanupStale = false;
     else if (arg === '--yes') args.assumeYes = true;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else {
@@ -103,7 +105,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: desktop-real-window-smoke.mjs [--scenario name] [--width n] [--height n] [--no-launch]
+  console.log(`Usage: desktop-real-window-smoke.mjs [--scenario name] [--width n] [--height n] [--no-launch] [--no-cleanup-stale]
 
 Launches a real Electron window with an isolated smoke workspace, then prompts
 the reviewer to confirm native desktop behavior that screenshots cannot prove.
@@ -111,6 +113,65 @@ the reviewer to confirm native desktop behavior that screenshots cannot prove.
 Default scenario: ${DEFAULT_SCENARIO}
 Report dir: ${relative(REPO_ROOT, REPORT_DIR)}
 `);
+}
+
+function execFileText(file, args, options = {}) {
+  return new Promise((resolve) => {
+    execFile(file, args, options, (err, stdout, stderr) => {
+      resolve({
+        ok: !err,
+        stdout: stdout.toString(),
+        stderr: stderr.toString(),
+      });
+    });
+  });
+}
+
+function parsePsOutput(stdout) {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = /^(\d+)\s+(\d+)\s+(.+)$/.exec(line);
+      if (!match) return null;
+      return { pid: Number(match[1]), ppid: Number(match[2]), command: match[3] };
+    })
+    .filter(Boolean);
+}
+
+function isStaleMakaElectronProcess(entry) {
+  if (!entry || entry.pid === process.pid) return false;
+  const command = entry.command;
+  if (!command.includes('Electron.app/Contents/MacOS/Electron')) return false;
+  if (!command.includes('--user-data-dir=')) return false;
+  return /--user-data-dir=(?:\/private)?\/tmp\/maka-(?:visual-smoke|real-window-smoke|p0fix|uxp|v\d|copy|long|modal|narr|test-cap-debug)/.test(command) ||
+    /--user-data-dir=(?:\/private)?\/var\/folders\/.+\/maka-real-window-smoke-/.test(command);
+}
+
+async function listElectronRootProcesses() {
+  const result = await execFileText('ps', ['-axo', 'pid,ppid,command']);
+  if (!result.ok) return [];
+  return parsePsOutput(result.stdout).filter((entry) =>
+    entry.command.includes('Electron.app/Contents/MacOS/Electron'),
+  );
+}
+
+async function cleanupStaleElectronProcesses(enabled) {
+  if (!enabled) return [];
+  const stale = (await listElectronRootProcesses()).filter(isStaleMakaElectronProcess);
+  if (stale.length === 0) return [];
+  console.log(`[real-window-smoke] cleaning ${stale.length} stale Maka Electron process(es): ${stale.map((entry) => entry.pid).join(', ')}`);
+  await Promise.all(stale.map((entry) => execFileText('kill', [String(entry.pid)])));
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  const survivors = (await listElectronRootProcesses()).filter((entry) =>
+    stale.some((staleEntry) => staleEntry.pid === entry.pid),
+  );
+  if (survivors.length > 0) {
+    console.log(`[real-window-smoke] SIGKILL stale survivor(s): ${survivors.map((entry) => entry.pid).join(', ')}`);
+    await Promise.all(survivors.map((entry) => execFileText('kill', ['-9', String(entry.pid)])));
+  }
+  return stale.map(({ pid, ppid, command }) => ({ pid, ppid, command }));
 }
 
 async function ensureRepoRoot() {
@@ -143,7 +204,7 @@ async function resolveElectronBin() {
   process.exit(2);
 }
 
-async function launchElectron(args) {
+async function launchElectron(args, diagnostics) {
   if (args.noLaunch) return null;
   const electronBin = await resolveElectronBin();
   const userDataDir = join(
@@ -157,18 +218,27 @@ async function launchElectron(args) {
     MAKA_VISUAL_SMOKE_HEIGHT: String(args.height),
     MAKA_REAL_WINDOW_SMOKE: '1',
   };
-  const child = spawn(electronBin, ['.', `--user-data-dir=${userDataDir}`], {
+  const launchArgs = ['.', `--user-data-dir=${userDataDir}`];
+  const child = spawn(electronBin, launchArgs, {
     cwd: DESKTOP_DIR,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  const launchCommand = `${electronBin} ${launchArgs.join(' ')}`;
+  diagnostics.launch = {
+    command: launchCommand,
+    cwd: DESKTOP_DIR,
+    electronPid: child.pid ?? null,
+    userDataDir,
+  };
+  console.log(`[real-window-smoke] launched Electron pid=${child.pid ?? 'unknown'} userDataDir=${userDataDir}`);
   child.stdout.on('data', (chunk) => process.stdout.write(chunk));
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
   child.on('exit', (code, signal) => {
     if (code !== null) console.log(`[real-window-smoke] Electron exited with code ${code}`);
     else if (signal) console.log(`[real-window-smoke] Electron exited via ${signal}`);
   });
-  return { child, userDataDir };
+  return { child, userDataDir, command: launchCommand, electronPid: child.pid ?? null };
 }
 
 async function promptChecks(args) {
@@ -197,7 +267,7 @@ async function promptChecks(args) {
   return results;
 }
 
-async function writeReport(args, launchInfo, results) {
+async function writeReport(args, launchInfo, results, diagnostics) {
   await mkdir(REPORT_DIR, { recursive: true });
   const now = new Date();
   const stamp = now.toISOString().replace(/[:.]/g, '-');
@@ -211,6 +281,7 @@ async function writeReport(args, launchInfo, results) {
     viewport: { width: args.width, height: args.height },
     platform: `${os.platform()} ${os.arch()} ${os.release()}`,
     userDataDir: launchInfo?.userDataDir ?? null,
+    diagnostics,
     checks: results.map(({ id, prompt, ok: resultOk, note }) => ({ id, prompt, ok: resultOk, note })),
   };
   const jsonPath = join(REPORT_DIR, `${stamp}.json`);
@@ -245,12 +316,21 @@ function renderMarkdown(report) {
     `- Viewport: ${report.viewport.width}x${report.viewport.height}`,
     `- Platform: ${report.platform}`,
     report.userDataDir ? `- User data dir: \`${report.userDataDir}\`` : '- User data dir: not launched by script',
+    report.diagnostics?.launch?.electronPid ? `- Electron PID: ${report.diagnostics.launch.electronPid}` : '- Electron PID: not launched by script',
+    report.diagnostics?.launch?.command ? `- Launch command: \`${escapeMd(report.diagnostics.launch.command)}\`` : '- Launch command: not launched by script',
+    `- Stale Electron processes cleaned: ${report.diagnostics?.staleElectronProcesses?.length ?? 0}`,
     '',
     '| Check | Result | Note |',
     '|---|---|---|',
   ];
   for (const check of report.checks) {
     lines.push(`| ${check.id} | ${check.ok ? 'PASS' : 'FAIL'} | ${escapeMd(check.note || check.prompt)} |`);
+  }
+  if ((report.diagnostics?.staleElectronProcesses?.length ?? 0) > 0) {
+    lines.push('', '## Cleaned Stale Electron Processes', '');
+    for (const processInfo of report.diagnostics.staleElectronProcesses) {
+      lines.push(`- pid=${processInfo.pid} ppid=${processInfo.ppid} command=\`${escapeMd(processInfo.command)}\``);
+    }
   }
   lines.push('');
   return `${lines.join('\n')}\n`;
@@ -267,12 +347,16 @@ async function main() {
     return;
   }
   await ensureRepoRoot();
+  const diagnostics = {
+    argv: process.argv.slice(2),
+    staleElectronProcesses: await cleanupStaleElectronProcesses(args.cleanupStale),
+  };
   console.log('[real-window-smoke] This gate requires a human to test native window behavior.');
   console.log('[real-window-smoke] Build first via `npm --workspace @maka/desktop run smoke:real-window`.');
   console.log(`[real-window-smoke] scenario=${args.scenario} viewport=${args.width}x${args.height}`);
-  const launchInfo = await launchElectron(args);
+  const launchInfo = await launchElectron(args, diagnostics);
   const results = await promptChecks(args);
-  const report = await writeReport(args, launchInfo, results);
+  const report = await writeReport(args, launchInfo, results, diagnostics);
   if (launchInfo?.child && !launchInfo.child.killed) {
     launchInfo.child.kill('SIGTERM');
   }
@@ -285,4 +369,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   });
 }
-
