@@ -85,6 +85,7 @@ function parseArgs(argv) {
     noLaunch: false,
     cleanupStale: true,
     assumeYes: false,
+    failNote: null,
     help: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
@@ -95,6 +96,7 @@ function parseArgs(argv) {
     else if (arg === '--no-launch') args.noLaunch = true;
     else if (arg === '--no-cleanup-stale') args.cleanupStale = false;
     else if (arg === '--yes') args.assumeYes = true;
+    else if (arg === '--fail-note') args.failNote = argv[++i] ?? '';
     else if (arg === '--help' || arg === '-h') args.help = true;
     else {
       console.error(`[real-window-smoke] unknown arg: ${arg}`);
@@ -105,7 +107,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: desktop-real-window-smoke.mjs [--scenario name] [--width n] [--height n] [--no-launch] [--no-cleanup-stale]
+  console.log(`Usage: desktop-real-window-smoke.mjs [--scenario name] [--width n] [--height n] [--no-launch] [--no-cleanup-stale] [--fail-note text]
 
 Launches a real Electron window with an isolated smoke workspace, then prompts
 the reviewer to confirm native desktop behavior that screenshots cannot prove.
@@ -242,6 +244,10 @@ async function launchElectron(args, diagnostics) {
 }
 
 async function promptChecks(args) {
+  if (args.failNote !== null) {
+    const note = args.failNote.trim() || 'real-window smoke was explicitly marked as failed by the reviewer';
+    return REAL_WINDOW_SMOKE_CHECKS.map((check) => ({ ...check, ok: false, note }));
+  }
   const rl = createInterface({ input, output });
   const results = [];
   try {
