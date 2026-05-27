@@ -780,27 +780,20 @@ button:active {
 }
 
 .maka-list-group-label {
-  /* PR-UX-POLISH-1 (yuejing UX audit P3 #8 + kenji `93ee9df0` #1):
-   * give the label + count a flex gap + middle-dot separator span
-   * so they read as `会话 · 65` (one semantic phrase: "group · count")
-   * instead of `会话65` (no separator) or `会话 ... 65` (two visually
-   * disjoint columns). The separator span has its own muted style
-   * so the dot doesn't compete with the label/count text. */
+  /* PR-UX-POLISH-1 commit 3 (kenji `66123c95`): natural Chinese
+   * count notation is `会话（65）` with full-width parens — the
+   * full-width `（）` glyph already provides visual separation,
+   * so no middle-dot separator span is needed. `gap: 2px` keeps
+   * the count tight against the label like proper Chinese
+   * typography. */
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 2px;
   padding: 0 4px 2px;
   color: var(--foreground-50);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
-}
-
-.maka-list-group-separator {
-  /* middle-dot separator between label and count */
-  color: var(--foreground-40);
-  font-weight: 400;
-  user-select: none;
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3 (WAWQAQ msgs `14ed98b5`, `761141c5` —

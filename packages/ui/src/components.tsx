@@ -903,21 +903,19 @@ function SessionListGroups(props: {
                   }}
                 />
                 <span>{group.label}</span>
-                {/* PR-UX-POLISH-1 commit 2 (kenji `93ee9df0` #1):
-                  middle-dot separator reads `会话 · 65` as one
-                  semantic phrase ("group · count") instead of
-                  two visually-separated columns. */}
-                <span className="maka-list-group-separator" aria-hidden="true">·</span>
-                <span className="maka-list-group-count">{group.sessions.length}</span>
+                {/* PR-UX-POLISH-1 commit 3 (kenji `66123c95`): use
+                  full-width Chinese parens `（N）` instead of middle-
+                  dot separator. Reads as natural Chinese count
+                  notation (`会话（65）`) rather than label+meta
+                  pair (`会话 · 65`). The count is part of the
+                  group label's semantic, not separate metadata. */}
+                <span className="maka-list-group-count">（{group.sessions.length}）</span>
               </button>
             ) : (
               <div className="maka-list-group-label">
                 <span>{group.label}</span>
                 {group.sessions.length > 1 && (
-                  <>
-                    <span className="maka-list-group-separator" aria-hidden="true">·</span>
-                    <span className="maka-list-group-count">{group.sessions.length}</span>
-                  </>
+                  <span className="maka-list-group-count">（{group.sessions.length}）</span>
                 )}
               </div>
             )}
