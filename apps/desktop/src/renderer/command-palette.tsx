@@ -94,6 +94,12 @@ export function buildCommandList(args: {
    */
   onCopyTodayDailyReview?(): Promise<void> | void;
   /**
+   * PR-CMD-PALETTE-OPEN-MEMORY-0: open the local MEMORY.md file in
+   * the OS default editor from anywhere via ⌘K. The renderer wires
+   * this to `window.maka.memory.openFile()`.
+   */
+  onOpenLocalMemoryFile?(): Promise<void> | void;
+  /**
    * PR-CMD-PALETTE-ENRICH-0: jump to a sidebar module (会话 / 计划 /
    * 技能 / 每日回顾) directly from the palette. Search itself is
    * already covered by the existing thread-search hookup, so the
@@ -273,6 +279,18 @@ export function buildCommandList(args: {
       Icon: CalendarDays,
       keywords: ['daily', 'review', 'today', 'copy', 'markdown', '今日', '回顾', '复制', '剪贴板'],
       run: () => void args.onCopyTodayDailyReview!(),
+    });
+  }
+  if (args.onOpenLocalMemoryFile) {
+    cmds.push({
+      id: 'diag:open-local-memory',
+      kind: 'action',
+      label: '打开本地 MEMORY.md',
+      hint: '系统编辑器',
+      group: '诊断',
+      Icon: FolderOpen,
+      keywords: ['memory', 'md', 'open', '记忆', '本地', '编辑', 'edit'],
+      run: () => void args.onOpenLocalMemoryFile!(),
     });
   }
   if (args.onTestConnection && args.defaultSlug) {

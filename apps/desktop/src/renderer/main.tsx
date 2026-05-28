@@ -1983,6 +1983,16 @@ function AppShell(props: {
                 toastApi.error('复制失败', '剪贴板不可用');
               }
             },
+            onOpenLocalMemoryFile: async () => {
+              try {
+                const result = await window.maka.memory.openFile();
+                if (!result.ok) {
+                  toastApi.error('无法打开 MEMORY.md', result.message);
+                }
+              } catch (err) {
+                toastApi.error('打开失败', err instanceof Error ? err.message : '路径无效');
+              }
+            },
             onCopyTodayDailyReview: async () => {
               try {
                 const summary = await dailyReviewBridge.fetchDay(0, 1);
