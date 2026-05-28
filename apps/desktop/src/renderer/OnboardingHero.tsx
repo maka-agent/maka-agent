@@ -21,7 +21,7 @@
 
 import { ArrowRight, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle } from 'lucide-react';
 import { useCallback, useState, type KeyboardEvent } from 'react';
-import type { OnboardingState, ProviderType, SettingsSection } from '@maka/core';
+import type { LlmConnection, OnboardingState, ProviderType, SettingsSection } from '@maka/core';
 import { detectUiLocale, type UiLocale } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './settings/ProvidersPanel';
 
@@ -97,27 +97,48 @@ export interface OnboardingHeroProps {
    * pending state itself.
    */
   quickChatPending?: boolean;
+  /**
+   * PR-ONBOARDING-EARLY-COPY-0: current connection list so the
+   * credentials / model heroes can resolve a `connectionSlug` to a
+   * human-friendly name. Optional; falls back to slug if missing.
+   */
+  connections?: ReadonlyArray<LlmConnection>;
+  /**
+   * PR-ONBOARDING-EARLY-COPY-0: refresh handler so env-bootstrap
+   * users who finished their setup outside the UI can re-query
+   * the snapshot without restarting. Optional.
+   */
+  onRefreshConnections?: () => Promise<void> | void;
 }
 
 export function OnboardingHero(props: OnboardingHeroProps) {
   const { state } = props;
   switch (state.kind) {
     case 'needs_connection':
-      return <NeedsConnectionHero onOpenSettings={props.onOpenSettings} />;
+      return (
+        <NeedsConnectionHero
+          onOpenSettings={props.onOpenSettings}
+          onRefreshConnections={props.onRefreshConnections}
+        />
+      );
     case 'needs_default_connection':
       return <NeedsDefaultConnectionHero onOpenSettings={props.onOpenSettings} />;
     case 'needs_connection_credentials':
       return (
         <NeedsConnectionCredentialsHero
           connectionSlug={state.connectionSlug}
+          connections={props.connections}
           onOpenSettings={props.onOpenSettings}
+          onRefreshConnections={props.onRefreshConnections}
         />
       );
     case 'needs_default_model':
       return (
         <NeedsDefaultModelHero
           connectionSlug={state.connectionSlug}
+          connections={props.connections}
           onOpenSettings={props.onOpenSettings}
+          onRefreshConnections={props.onRefreshConnections}
         />
       );
     case 'ready_empty':
@@ -132,7 +153,13 @@ export function OnboardingHero(props: OnboardingHeroProps) {
       // closed enum; if a future PR extends it, this assignment will
       // fail to compile (assertNever), forcing a labeled branch
       // rather than a silent fallthrough.
-      return <BlockedHero reason={state.reason} onOpenSettings={props.onOpenSettings} />;
+      return (
+        <BlockedHero
+          reason={state.reason}
+          onOpenSettings={props.onOpenSettings}
+          onRefreshConnections={props.onRefreshConnections}
+        />
+      );
     case 'ready_with_history':
       // The renderer caller decides which hero to render; this
       // component is only mounted when sessions.length === 0. Showing
@@ -144,7 +171,25 @@ export function OnboardingHero(props: OnboardingHeroProps) {
   }
 }
 
-function NeedsConnectionHero(props: { onOpenSettings: (section?: SettingsSection) => void }) {
+/**
+ * PR-ONBOARDING-EARLY-COPY-0: resolve a slug to its persisted
+ * connection name. Falls back to the raw slug when the lookup misses
+ * (e.g. snapshot raced ahead of the connection list refresh).
+ */
+function connectionLabel(
+  slug: string,
+  connections?: ReadonlyArray<LlmConnection>,
+): { name: string; isFallback: boolean } {
+  if (!connections) return { name: slug, isFallback: true };
+  const match = connections.find((c) => c.slug === slug);
+  if (!match || !match.name) return { name: slug, isFallback: true };
+  return { name: match.name, isFallback: false };
+}
+
+function NeedsConnectionHero(props: {
+  onOpenSettings: (section?: SettingsSection) => void;
+  onRefreshConnections?: () => Promise<void> | void;
+}) {
   return (
     <section className="maka-onboarding" aria-label="欢迎使用 Maka">
       <header>
@@ -199,6 +244,15 @@ function NeedsConnectionHero(props: { onOpenSettings: (section?: SettingsSection
         >
           打开设置 · 模型
         </button>
+        {props.onRefreshConnections && (
+          <button
+            type="button"
+            className="maka-button maka-button-ghost"
+            onClick={() => void props.onRefreshConnections?.()}
+          >
+            已经配好了？刷新检测
+          </button>
+        )}
       </footer>
     </section>
   );
@@ -224,40 +278,68 @@ function NeedsDefaultConnectionHero(props: { onOpenSettings: (section?: Settings
 
 function NeedsConnectionCredentialsHero(props: {
   connectionSlug: string;
+  connections?: ReadonlyArray<LlmConnection>;
   onOpenSettings: (section?: SettingsSection) => void;
+  onRefreshConnections?: () => Promise<void> | void;
 }) {
+  const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
       icon={<KeyRound size={14} strokeWidth={2} aria-hidden="true" />}
       eyebrow="补齐凭据"
-      title="为这个连接配置 API key。"
+      title="这个连接还缺 API key。"
       body={
         <>
-          默认连接 <code className="maka-onboarding-slug">{props.connectionSlug}</code> 缺少可用的 API key。
-          请到 <strong>设置 · 模型</strong> 打开该连接，补齐密钥后再开始对话。
+          默认连接{' '}
+          {isFallback ? (
+            <code className="maka-onboarding-slug">{name}</code>
+          ) : (
+            <strong>{name}</strong>
+          )}
+          {' '}没有可用的凭据 —— 不是模型坏了，是 key 还没填。请到
+          <strong> 设置 · 模型</strong> 打开该连接，把 API key 补上再开始对话。
         </>
       }
       primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
+      secondaryCta={
+        props.onRefreshConnections
+          ? { label: '已经填好了？刷新检测', onClick: () => void props.onRefreshConnections?.() }
+          : undefined
+      }
     />
   );
 }
 
 function NeedsDefaultModelHero(props: {
   connectionSlug: string;
+  connections?: ReadonlyArray<LlmConnection>;
   onOpenSettings: (section?: SettingsSection) => void;
+  onRefreshConnections?: () => Promise<void> | void;
 }) {
+  const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
       icon={<Cpu size={14} strokeWidth={2} aria-hidden="true" />}
       eyebrow="选择默认模型"
-      title="为这个连接选一个可用模型。"
+      title="这个连接还没选默认模型。"
       body={
         <>
-          默认连接 <code className="maka-onboarding-slug">{props.connectionSlug}</code>
-          {' '}还没绑定可用模型。请到 <strong>设置 · 模型</strong> 给它选一个，再开始对话。
+          连接{' '}
+          {isFallback ? (
+            <code className="maka-onboarding-slug">{name}</code>
+          ) : (
+            <strong>{name}</strong>
+          )}
+          {' '}已经接好了，但还没绑定可发起对话的默认模型。请到 <strong>设置 · 模型</strong>
+          {' '}给它选一个模型，再回来开始对话。
         </>
       }
       primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
+      secondaryCta={
+        props.onRefreshConnections
+          ? { label: '已经选好了？刷新检测', onClick: () => void props.onRefreshConnections?.() }
+          : undefined
+      }
     />
   );
 }
@@ -265,6 +347,7 @@ function NeedsDefaultModelHero(props: {
 function BlockedHero(props: {
   reason: 'all_connections_unhealthy';
   onOpenSettings: (section?: SettingsSection) => void;
+  onRefreshConnections?: () => Promise<void> | void;
 }) {
   // The reason is destructured to satisfy exhaustive type-checking;
   // when PR-future extends the enum, this branch must update too.
@@ -273,13 +356,19 @@ function BlockedHero(props: {
     <SetupHero
       icon={<AlertCircle size={14} strokeWidth={2} aria-hidden="true" />}
       eyebrow="连接暂不可用"
-      title="当前所有模型连接都不可用。"
+      title="所有模型连接最近一次测试都没通过。"
       body={
         <>
-          请到 <strong>设置 · 账号</strong> 查看每个连接的状态，重新测试或重新登录后再开始对话。
+          打开 <strong>设置 · 模型</strong>，对每个连接重新测试或更新 key；
+          排查后回来刷新即可继续对话。
         </>
       }
-      primaryCta={{ label: '打开设置 · 账号', onClick: () => props.onOpenSettings('account') }}
+      primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
+      secondaryCta={
+        props.onRefreshConnections
+          ? { label: '已经修好了？刷新检测', onClick: () => void props.onRefreshConnections?.() }
+          : undefined
+      }
       // PR-UI-LAYOUT-25: 'destructive' (vs the previous 'warning') so
       // the user sees "all connections unhealthy" at full gravity —
       // distinct from "missing default model" or "needs reauth" which
@@ -362,6 +451,15 @@ interface SetupHeroProps {
   body: React.ReactNode;
   primaryCta: { label: string; onClick: () => void };
   /**
+   * PR-ONBOARDING-EARLY-COPY-0: optional ghost-style secondary action
+   * sitting next to the primary CTA. Used by the early-onboarding
+   * branches to expose a "已经配好了？刷新检测" affordance so a user
+   * with env-bootstrap connections is not stuck behind a stale
+   * snapshot. Hidden when not provided so existing call sites are
+   * unchanged.
+   */
+  secondaryCta?: { label: string; onClick: () => void };
+  /**
    * PR-UI-LAYOUT-25 (@yuejing 2026-05-22): extended from `'warning'`
    * only to also accept `'destructive'` so a blocked-state hero
    * ("all_connections_unhealthy") reads with genuine gravity
@@ -396,6 +494,15 @@ function SetupHero(props: SetupHeroProps) {
         >
           {props.primaryCta.label}
         </button>
+        {props.secondaryCta && (
+          <button
+            type="button"
+            className="maka-button maka-button-ghost"
+            onClick={props.secondaryCta.onClick}
+          >
+            {props.secondaryCta.label}
+          </button>
+        )}
       </footer>
     </section>
   );

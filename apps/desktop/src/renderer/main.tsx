@@ -1680,6 +1680,8 @@ function AppShell(props: {
                           void handleQuickChatSubmit(prompt);
                         }}
                         quickChatPending={quickChatPending}
+                        connections={connections}
+                        onRefreshConnections={refreshConnections}
                       />
                       {onboardingState.kind === 'ready_empty' && (
                         <FirstRunChecklist
