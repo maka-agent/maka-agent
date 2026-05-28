@@ -2957,12 +2957,21 @@ function readStreamSnap(): boolean {
 function MessageMeta(props: { role: string; userLabel?: string; ts?: number }) {
   const label = messageRoleLabel(props.role, props.userLabel);
   const initial = props.role === 'assistant' ? 'M' : avatarInitial(label);
+  // PR-CHAT-META-POLISH-0 (kenji `bd58fcb6`): when the user has no
+  // configured displayName, both `avatarInitial` and
+  // `messageRoleLabel` fall back to `'你'`, producing the visual
+  // duplicate `你 你`. Suppress the text name in this case — the
+  // avatar carries the role signal on its own, and screen readers
+  // still get the label via `aria-label` on the row. For assistant
+  // (`M` + `Maka`) and for users with a real displayName
+  // (`JK` + `Jakevin`) we keep both because they aren't redundant.
+  const isAnonymousUser = props.role === 'user' && (!props.userLabel || !props.userLabel.trim());
   return (
-    <span className="maka-message-meta">
+    <span className="maka-message-meta" aria-label={label}>
       <span className="maka-message-avatar" data-role={props.role} aria-hidden="true">
         {initial}
       </span>
-      <span className="maka-message-name">{label}</span>
+      {!isAnonymousUser && <span className="maka-message-name">{label}</span>}
       {props.ts !== undefined && (
         <small className="maka-message-time" aria-hidden="true">
           {formatRelativeTimestamp(props.ts)}
