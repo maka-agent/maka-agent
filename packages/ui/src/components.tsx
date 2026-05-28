@@ -3957,17 +3957,6 @@ function mergeTools(stored: ToolActivityItem[], live: ToolActivityItem[]): ToolA
   return [...byId.values()];
 }
 
-// One shared formatter per renderer instance — `Intl.RelativeTimeFormat` is
-// cheap to allocate but pinning it avoids reading `navigator.language` on
-// every list render.
-const relativeTimeFormat: Intl.RelativeTimeFormat =
-  typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-    ? new Intl.RelativeTimeFormat(
-        typeof navigator !== 'undefined' ? navigator.language : 'en',
-        { numeric: 'auto', style: 'narrow' },
-      )
-    : ({ format: (n: number, unit: Intl.RelativeTimeFormatUnit) => `${n}${unit[0]}` } as unknown as Intl.RelativeTimeFormat);
-
 const noMessagesYet =
   typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('zh')
     ? '暂无消息'
@@ -4037,10 +4026,5 @@ function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
 
 function formatSessionMeta(session: SessionSummary): string {
   if (!session.lastMessageAt) return noMessagesYet;
-  const diffMs = Date.now() - session.lastMessageAt;
-  const diffMinutes = Math.max(1, Math.round(diffMs / 60_000));
-  if (diffMinutes < 60) return relativeTimeFormat.format(-diffMinutes, 'minute');
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return relativeTimeFormat.format(-diffHours, 'hour');
-  return relativeTimeFormat.format(-Math.round(diffHours / 24), 'day');
+  return formatRelativeTimestamp(session.lastMessageAt);
 }
