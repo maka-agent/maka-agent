@@ -89,7 +89,14 @@ export type {
   ToolRecorderDeps,
 } from './telemetry/index.js';
 
-export { BotRegistry, proxiedFetch, testBotChannel } from './bots/index.js';
+export {
+  BaseBotAdapter,
+  BotRegistry,
+  botReadinessFromSettings,
+  botSettingsRequireRestart,
+  proxiedFetch,
+  testBotChannel,
+} from './bots/index.js';
 export { setActiveProxy, resolveActiveProxy } from './network/active-proxy-state.js';
 export type {
   BotBridge,

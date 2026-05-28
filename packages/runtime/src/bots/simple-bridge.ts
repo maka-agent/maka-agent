@@ -1,7 +1,7 @@
-import { EventEmitter } from 'node:events';
 import type { BotChannelSettings } from '@maka/core';
 import { generalizedErrorMessage } from '@maka/core/redaction';
-import type { BotBridge, BotPlatform, BotStatus, SendCapable } from './types.js';
+import { BaseBotAdapter, botReadinessFromSettings } from './base-adapter.js';
+import type { BotPlatform, BotStatus, SendCapable } from './types.js';
 import { proxiedFetch } from './proxied-fetch.js';
 
 const TELEGRAM_POLL_TIMEOUT_S = 15;
@@ -77,41 +77,15 @@ function splitForTelegram(text: string): string[] {
 
 export const __TEST__ = { utf16Len, prefixWithinUtf16, splitForTelegram };
 
-export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapable {
-  readonly platform: BotPlatform;
-  private running = false;
-  private startedAt?: number;
-  private lastEventAt?: number;
-  private reason?: string;
-  private readiness: BotStatus['readiness'];
-  private identity: BotStatus['identity'];
+export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
   private abortController: AbortController | null = null;
   private offset = 0;
 
   constructor(
     platform: BotPlatform,
-    private settings: BotChannelSettings,
+    settings: BotChannelSettings,
   ) {
-    super();
-    this.platform = platform;
-    this.readiness = readinessFromSettings(settings);
-  }
-
-  isRunning(): boolean {
-    return this.running;
-  }
-
-  getStatus(): BotStatus {
-    return {
-      platform: this.platform,
-      running: this.running,
-      readiness: this.readiness,
-      reason: this.reason,
-      startedAt: this.startedAt,
-      lastEventAt: this.lastEventAt,
-      connection: this.connectionKind(),
-      identity: this.identity,
-    };
+    super(platform, settings);
   }
 
   async start(): Promise<void> {
@@ -141,13 +115,13 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
       this.running = false;
       this.reason = 'scaffold-only';
       this.readiness = 'configured';
-      this.emit('statusChange', this.getStatus());
+      this.emitStatusChange();
       return;
     }
 
     this.reason = 'unimplemented';
     this.readiness = 'scaffolded';
-    this.emit('statusChange', this.getStatus());
+    this.emitStatusChange();
   }
 
   async stop(): Promise<void> {
@@ -155,8 +129,8 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
     this.abortController?.abort();
     this.abortController = null;
     this.reason = 'stopped';
-    this.readiness = readinessFromSettings(this.settings);
-    this.emit('statusChange', this.getStatus());
+    this.readiness = botReadinessFromSettings(this.settings);
+    this.emitStatusChange();
   }
 
   async sendMessage(chatId: string, text: string): Promise<string | null> {
@@ -175,7 +149,7 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
       if (!response.ok) {
         this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
         this.reason = response.description ?? 'send-failed';
-        this.emit('statusChange', this.getStatus());
+        this.emitStatusChange();
         return null;
       }
       lastMessageId = String(response.result?.message_id ?? '') || lastMessageId;
@@ -183,20 +157,8 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
     this.readiness = 'operational';
     this.reason = undefined;
     this.lastEventAt = Date.now();
-    this.emit('statusChange', this.getStatus());
+    this.emitStatusChange();
     return lastMessageId;
-  }
-
-  updateSettings(settings: BotChannelSettings): { needsRestart: boolean } {
-    const needsRestart =
-      settings.enabled !== this.settings.enabled ||
-      settings.token !== this.settings.token ||
-      settings.appId !== this.settings.appId ||
-      settings.appSecret !== this.settings.appSecret ||
-      settings.domain !== this.settings.domain;
-    this.settings = settings;
-    if (needsRestart) this.readiness = readinessFromSettings(settings);
-    return { needsRestart };
   }
 
   private async startTelegram(): Promise<void> {
@@ -205,7 +167,7 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
       if (!me.ok) {
         this.reason = me.description ?? 'get-me-failed';
         this.readiness = 'configured';
-        this.emit('statusChange', this.getStatus());
+        this.emitStatusChange();
         return;
       }
       this.identity = {
@@ -219,12 +181,12 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
       // getMe proves credentials and API reachability. It is not a
       // send/receive smoke, so it must not be surfaced as operational.
       this.readiness = 'credentials_valid';
-      this.emit('statusChange', this.getStatus());
+      this.emitStatusChange();
       void this.pollTelegram();
     } catch (error) {
       this.reason = generalizedErrorMessage(error);
-      this.readiness = this.readiness === 'operational' ? 'degraded' : readinessFromSettings(this.settings);
-      this.emit('statusChange', this.getStatus());
+      this.readiness = this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
+      this.emitStatusChange();
     }
   }
 
@@ -236,7 +198,7 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
         this.running = false;
         this.reason = 'missing-feishu-credentials';
         this.readiness = 'scaffolded';
-        this.emit('statusChange', this.getStatus());
+        this.emitStatusChange();
         return;
       }
       const token = await feishuTenantAccessToken(appId, appSecret);
@@ -244,7 +206,7 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
         this.running = false;
         this.reason = token.error;
         this.readiness = 'configured';
-        this.emit('statusChange', this.getStatus());
+        this.emitStatusChange();
         return;
       }
       this.identity = {
@@ -260,12 +222,12 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
       // tenant_access_token proves app credentials. Feishu event delivery still
       // needs a callback/long-connection runtime before it can be operational.
       this.readiness = 'credentials_valid';
-      this.emit('statusChange', this.getStatus());
+      this.emitStatusChange();
     } catch (error) {
       this.running = false;
       this.reason = generalizedErrorMessage(error);
-      this.readiness = this.readiness === 'operational' ? 'degraded' : readinessFromSettings(this.settings);
-      this.emit('statusChange', this.getStatus());
+      this.readiness = this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
+      this.emitStatusChange();
     }
   }
 
@@ -304,7 +266,7 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
     this.lastEventAt = Date.now();
     this.readiness = 'operational';
     this.reason = undefined;
-    this.emit('message', {
+    this.emitIncomingMessage({
       platform: 'telegram',
       userId: String(message.from.id),
       userName: message.from.username ?? message.from.first_name ?? String(message.from.id),
@@ -314,20 +276,14 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
       sourceMessageId: String(message.message_id ?? ''),
       receivedAt: this.lastEventAt,
     });
-    this.emit('statusChange', this.getStatus());
+    this.emitStatusChange();
   }
 
-  private connectionKind(): BotStatus['connection'] {
+  protected override connectionKind(): BotStatus['connection'] {
     if (this.platform === 'telegram') return 'polling';
     if (this.platform === 'discord' || this.platform === 'feishu') return 'gateway';
     return 'none';
   }
-}
-
-function readinessFromSettings(settings: BotChannelSettings): BotStatus['readiness'] {
-  if (!settings.enabled) return 'scaffolded';
-  if (!settings.token.trim() && !settings.appId?.trim() && !settings.appSecret?.trim()) return 'scaffolded';
-  return 'configured';
 }
 
 async function telegramApi(token: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
