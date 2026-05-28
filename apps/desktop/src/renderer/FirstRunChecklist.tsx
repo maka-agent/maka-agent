@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CalendarDays, Check, Clock, Search, Sparkles, User } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarDays, Check, Clock, Search, Sparkles, User } from 'lucide-react';
 import type { AppSettings, PlanReminder, SettingsSection } from '@maka/core';
 
 interface ChecklistItem {
@@ -104,6 +104,21 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         // discover the feature.
         done: false,
         onClick: () => props.onOpenSidebarModule('daily-review'),
+      },
+      {
+        // xuan c06e13f transparent MEMORY.md MVP + my
+        // PR-MEMORY-PROMPT-INJECT-0 wiring. "done" only flips when
+        // BOTH switches are on (file enabled AND agent-read), since
+        // a user who never enabled agent-read has not actually
+        // wired memory into the agent loop yet.
+        id: 'local-memory',
+        Icon: BookOpen,
+        title: '写一条本地记忆',
+        reason: '透明的 MEMORY.md，agent 默认看不到；想让它记住偏好就在设置里再开一个开关。',
+        done:
+          settings.localMemory.enabled
+          && settings.localMemory.agentReadEnabled,
+        onClick: () => props.onOpenSettingsSection('memory'),
       },
     ];
   }, [settings, planReminders, props]);
