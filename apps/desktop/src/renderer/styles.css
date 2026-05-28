@@ -4713,6 +4713,13 @@ button:active {
   padding-left: 10px;
 }
 
+/* PR-BOT-CHAT-POLISH-0: error tone for persisted lastError so the
+   user can spot a failed test past the toast lifetime. */
+.settingsBotReason[data-tone="error"] {
+  border-left-color: var(--destructive, var(--warning));
+  color: var(--destructive-text, var(--info-text));
+}
+
 .settingsUsagePage {
   display: grid;
   align-content: start;

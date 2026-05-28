@@ -2361,16 +2361,21 @@ function BotChatSettingsPage(props: {
       const result = await window.maka.settings.testBotChannel(selected);
       const platform = BOT_LABELS[selected].label;
       if (result.ok) {
-        toast.success(`${platform} 连接成功`, result.message);
+        // PR-BOT-CHAT-POLISH-0: title now matches kenji boundary 2's
+        // 5-state readiness chain — a successful test PROVES
+        // `credentials_valid`, NOT `operational`. The detail copy
+        // still carries the IPC-side message so the user can see
+        // latency / identity etc.
+        toast.success(`${platform} 凭据已验证`, result.message);
       } else {
-        toast.error(`${platform} 连接失败`, result.message);
+        toast.error(`${platform} 凭据测试失败`, result.message);
       }
       await props.onReload();
       const nextStatuses = await window.maka.settings.bots.listStatuses();
       setStatuses(nextStatuses);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error('Bot 测试出错', message);
+      toast.error(`${BOT_LABELS[selected].label} 测试出错`, message);
     } finally {
       setTesting(false);
     }
@@ -2384,10 +2389,19 @@ function BotChatSettingsPage(props: {
         ...(current ?? ({} as Record<BotProvider, BotStatus>)),
         [status.platform]: status,
       }));
-      toast.success(`${BOT_LABELS[selected].label} 已重新启动`, botStatusDetail(status));
+      // PR-BOT-CHAT-POLISH-0: tone follows actual runtime state, not
+      // the bare fact that the restart command returned. A restarted
+      // bot that immediately stops (e.g. token rejected, network
+      // down) was previously surfaced as a green success toast.
+      const platform = BOT_LABELS[selected].label;
+      if (status.running) {
+        toast.success(`${platform} 已开始监听`, botStatusDetail(status));
+      } else {
+        toast.error(`${platform} 启动后未进入监听`, botStatusDetail(status));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error('机器人启动失败', message);
+      toast.error(`${BOT_LABELS[selected].label} 启动失败`, message);
     } finally {
       setRestarting(false);
     }
@@ -2516,9 +2530,32 @@ function BotChatSettingsPage(props: {
               )}
             </dd>
           </div>
+          <div>
+            <dt>最近一次测试</dt>
+            <dd>
+              {channel.lastTestAt ? (
+                <RelativeTime
+                  ts={channel.lastTestAt}
+                  className="settingsBotMetaTime"
+                />
+              ) : (
+                '从未测试'
+              )}
+            </dd>
+          </div>
         </dl>
 
         {selectedStatus?.reason && <div className="settingsBotReason">{botStatusDetail(selectedStatus)}</div>}
+
+        {/* PR-BOT-CHAT-POLISH-0: surface the last persisted test error
+            so the user does not have to remember the toast that just
+            faded out. `channel.lastError` is written by the IPC test
+            handler regardless of why the test failed. */}
+        {channel.lastError && support !== 'planned' && (
+          <div className="settingsBotReason" data-tone="error" role="alert">
+            上次测试失败：{channel.lastError}
+          </div>
+        )}
 
         <div className="settingsActionRow">
           <button className="maka-button" type="button" disabled={testing || support === 'planned'} onClick={testChannel}>
@@ -2552,7 +2589,11 @@ function botStatusDetail(status: BotStatus): string {
     case 'scaffold-only': return '平台入口已保留，运行时尚未接入';
     case 'unimplemented': return '平台运行时尚未接入';
     case 'stopped': return '监听已停止';
-    default: return status.reason ?? '暂无运行细节';
+    // PR-BOT-CHAT-POLISH-0: the previous fallback `status.reason ??
+    // '暂无运行细节'` would surface a raw reason code (e.g.
+    // `polling-timeout`) for any unmapped state. That's noise the
+    // user can't act on; collapse to a generalized copy.
+    default: return '运行态详情请见日志';
   }
 }
 
