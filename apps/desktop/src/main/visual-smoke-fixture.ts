@@ -561,6 +561,7 @@ async function writePlanReminders(workspaceRoot: string, now: number): Promise<v
       createdAt: now - 2 * 60 * 60_000,
       updatedAt: now - 2 * 60 * 60_000,
       nextRunAt: scheduledRunAt,
+      runs: [],
       runCount: 0,
     },
     {
@@ -572,6 +573,7 @@ async function writePlanReminders(workspaceRoot: string, now: number): Promise<v
       enabled: false,
       createdAt: now - 3 * 60 * 60_000,
       updatedAt: now - 30 * 60_000,
+      runs: [],
       runCount: 0,
     },
     {
@@ -589,6 +591,14 @@ async function writePlanReminders(workspaceRoot: string, now: number): Promise<v
         status: 'triggered',
         message: '计划提醒已触发',
       },
+      runs: [
+        {
+          id: 'visual-plan-run-completed',
+          at: now - 45 * 60_000,
+          status: 'triggered',
+          message: '计划提醒已触发',
+        },
+      ],
       runCount: 1,
     },
   ];

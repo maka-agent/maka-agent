@@ -1867,6 +1867,34 @@ button:active {
   line-height: 1.35;
 }
 
+.maka-plan-card-history {
+  display: grid;
+  gap: 3px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.maka-plan-card-history-title {
+  color: var(--foreground-60);
+  font-weight: 600;
+}
+
+.maka-plan-card-history-row {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+}
+
+.maka-plan-card-history-row span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .maka-plan-card-note {
   color: var(--foreground-60);
   font-size: 12px;

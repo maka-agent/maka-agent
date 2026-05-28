@@ -1,6 +1,7 @@
 export const PLAN_REMINDER_TITLE_MAX_CHARS = 120;
 export const PLAN_REMINDER_NOTE_MAX_CHARS = 1000;
 export const PLAN_REMINDER_MAX_DELAY_MS = 366 * 24 * 60 * 60 * 1000;
+export const PLAN_REMINDER_RUN_HISTORY_LIMIT = 10;
 
 export const PLAN_REMINDER_STATUSES = ['scheduled', 'paused', 'completed'] as const;
 export type PlanReminderStatus = typeof PLAN_REMINDER_STATUSES[number];
@@ -46,6 +47,7 @@ export interface PlanReminder {
   updatedAt: number;
   nextRunAt?: number;
   lastRun?: PlanReminderRunRecord;
+  runs: PlanReminderRunRecord[];
   runCount: number;
 }
 
@@ -219,6 +221,7 @@ export function nextPlanReminderStateAfterTrigger(
   reminder: PlanReminder,
   run: PlanReminderRunRecord,
 ): PlanReminder {
+  const runs = appendPlanReminderRun(reminder.runs, run);
   const nextRunAt = nextPlanReminderRunAtAfter(reminder.schedule, run.at);
   if (typeof nextRunAt === 'number') {
     return {
@@ -227,6 +230,7 @@ export function nextPlanReminderStateAfterTrigger(
       enabled: true,
       nextRunAt,
       lastRun: run,
+      runs,
       runCount: reminder.runCount + 1,
       updatedAt: run.at,
     };
@@ -237,9 +241,17 @@ export function nextPlanReminderStateAfterTrigger(
     enabled: false,
     nextRunAt: undefined,
     lastRun: run,
+    runs,
     runCount: reminder.runCount + 1,
     updatedAt: run.at,
   };
+}
+
+export function appendPlanReminderRun(
+  runs: readonly PlanReminderRunRecord[] | undefined,
+  run: PlanReminderRunRecord,
+): PlanReminderRunRecord[] {
+  return [run, ...(runs ?? [])].slice(0, PLAN_REMINDER_RUN_HISTORY_LIMIT);
 }
 
 function nextRecurringRunAt(schedule: PlanReminderRecurringSchedule, after: number): number {

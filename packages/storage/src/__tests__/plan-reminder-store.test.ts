@@ -15,6 +15,7 @@ describe('PlanReminderStore', () => {
     assert.equal(reminder.title, '站会提醒');
     assert.equal(reminder.enabled, true);
     assert.equal(reminder.nextRunAt, runAt);
+    assert.deepEqual(reminder.runs, []);
 
     const reloaded = createPlanReminderStore(root);
     assert.equal((await reloaded.list()).length, 1);
@@ -42,6 +43,7 @@ describe('PlanReminderStore', () => {
     assert.equal(triggered.status, 'scheduled');
     assert.equal(triggered.enabled, true);
     assert.equal(triggered.nextRunAt, runAt + 24 * 60 * 60 * 1000);
+    assert.deepEqual(triggered.runs.map((run) => run.status), ['triggered']);
     assert.equal((await store.listDue(runAt + 1)).length, 0);
     assert.equal((await store.listDue(runAt + 24 * 60 * 60 * 1000)).length, 1);
   });
@@ -67,6 +69,7 @@ describe('PlanReminderStore', () => {
     });
     assert.equal(triggered.status, 'completed');
     assert.equal(triggered.lastRun?.status, 'triggered');
+    assert.deepEqual(triggered.runs.map((run) => run.id), [triggered.lastRun?.id]);
     assert.equal(triggered.runCount, 1);
 
     await store.remove(reminder.id);
@@ -107,6 +110,31 @@ describe('PlanReminderStore', () => {
       '暂停中',
       '已触发',
     ]);
+  });
+
+  it('keeps recurring run history in newest-first order', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '每日复盘', runAt, recurrence: 'daily' });
+
+    const first = await store.markTriggered(reminder.id, {
+      id: 'run-1',
+      at: runAt,
+      status: 'triggered',
+      message: '第一次触发',
+    });
+    const second = await store.markBlocked(reminder.id, {
+      id: 'run-2',
+      at: runAt + 24 * 60 * 60 * 1000,
+      message: '隐私模式已开启',
+      blockReason: 'incognito_active',
+    });
+
+    assert.deepEqual(first.runs.map((run) => run.id), ['run-1']);
+    assert.deepEqual(second.runs.map((run) => run.id), ['run-2', 'run-1']);
+    assert.equal(second.lastRun?.id, 'run-2');
+    assert.equal(second.runCount, 2);
   });
 
   it('rejects invalid creates before writing', async () => {

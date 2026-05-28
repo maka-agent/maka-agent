@@ -1130,6 +1130,18 @@ function PlanReminderPanel(props: {
                     {runStatusLabel(reminder.lastRun.status)}：{reminder.lastRun.message}
                   </div>
                 )}
+                {reminder.runs.length > 1 && (
+                  <div className="maka-plan-card-history" aria-label="最近执行记录">
+                    <div className="maka-plan-card-history-title">最近执行</div>
+                    {reminder.runs.slice(0, 3).map((run) => (
+                      <div key={run.id} className="maka-plan-card-history-row">
+                        <span>{formatReminderTime(run.at)}</span>
+                        <span>{runStatusLabel(run.status)}</span>
+                        <span>{run.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="maka-plan-card-actions">
                 <button

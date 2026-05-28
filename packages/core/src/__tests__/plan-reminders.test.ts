@@ -6,6 +6,7 @@ import {
   nextPlanReminderRunAtAfter,
   normalizeCreatePlanReminderInput,
   normalizeUpdatePlanReminderInput,
+  PLAN_REMINDER_RUN_HISTORY_LIMIT,
   type PlanReminder,
 } from '../plan-reminders.js';
 
@@ -69,6 +70,7 @@ describe('plan reminder contract', () => {
       createdAt: now - 1000,
       updatedAt: now - 1000,
       nextRunAt: now,
+      runs: [],
       runCount: 0,
     };
     assert.equal(isPlanReminderDue(reminder, now), true);
@@ -83,6 +85,7 @@ describe('plan reminder contract', () => {
     assert.equal(next.nextRunAt, undefined);
     assert.equal(next.runCount, 1);
     assert.equal(next.lastRun?.status, 'triggered');
+    assert.deepEqual(next.runs.map((run) => run.id), ['run1']);
   });
 
   it('keeps recurring reminders scheduled after each trigger', () => {
@@ -96,6 +99,7 @@ describe('plan reminder contract', () => {
       createdAt: now - 1000,
       updatedAt: now - 1000,
       nextRunAt: now,
+      runs: [],
       runCount: 0,
     };
     const next = nextPlanReminderStateAfterTrigger(reminder, {
@@ -108,6 +112,36 @@ describe('plan reminder contract', () => {
     assert.equal(next.enabled, true);
     assert.equal(next.nextRunAt, now + 24 * 60 * 60 * 1000);
     assert.equal(next.runCount, 1);
+    assert.deepEqual(next.runs.map((run) => run.id), ['run1']);
+  });
+
+  it('keeps newest run history capped for recurring reminders', () => {
+    let reminder: PlanReminder = {
+      id: 'r3',
+      title: '每日站会',
+      note: '',
+      schedule: { kind: 'recurring', startAt: now, recurrence: 'daily' },
+      status: 'scheduled',
+      enabled: true,
+      createdAt: now - 1000,
+      updatedAt: now - 1000,
+      nextRunAt: now,
+      runs: [],
+      runCount: 0,
+    };
+
+    for (let i = 0; i < PLAN_REMINDER_RUN_HISTORY_LIMIT + 2; i += 1) {
+      reminder = nextPlanReminderStateAfterTrigger(reminder, {
+        id: `run-${i}`,
+        at: now + i * 24 * 60 * 60 * 1000,
+        status: 'triggered',
+        message: '提醒已触发',
+      });
+    }
+
+    assert.equal(reminder.runs.length, PLAN_REMINDER_RUN_HISTORY_LIMIT);
+    assert.equal(reminder.runs[0]?.id, `run-${PLAN_REMINDER_RUN_HISTORY_LIMIT + 1}`);
+    assert.equal(reminder.runs.at(-1)?.id, 'run-2');
   });
 
   it('computes monthly recurrence by clamping impossible month days', () => {

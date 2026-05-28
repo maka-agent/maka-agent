@@ -58,6 +58,7 @@ class FilePlanReminderStore implements PlanReminderStore {
       createdAt: now,
       updatedAt: now,
       nextRunAt: value.nextRunAt,
+      runs: [],
       runCount: 0,
     };
     await this.mutate((reminders) => [...reminders, reminder]);
@@ -174,7 +175,9 @@ class FilePlanReminderStore implements PlanReminderStore {
       const text = await readFile(this.filePath, 'utf8');
       const parsed = JSON.parse(text) as unknown;
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isPersistedPlanReminder);
+      return parsed
+        .map(normalizePersistedPlanReminder)
+        .filter((reminder): reminder is PlanReminder => Boolean(reminder));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
@@ -220,10 +223,10 @@ function planReminderListPriority(reminder: PlanReminder): number {
   return 2;
 }
 
-function isPersistedPlanReminder(value: unknown): value is PlanReminder {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+function normalizePersistedPlanReminder(value: unknown): PlanReminder | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const record = value as Partial<PlanReminder>;
-  return typeof record.id === 'string' &&
+  const valid = typeof record.id === 'string' &&
     typeof record.title === 'string' &&
     typeof record.note === 'string' &&
     isPersistedPlanReminderSchedule(record.schedule) &&
@@ -232,6 +235,23 @@ function isPersistedPlanReminder(value: unknown): value is PlanReminder {
     typeof record.createdAt === 'number' &&
     typeof record.updatedAt === 'number' &&
     typeof record.runCount === 'number';
+  if (!valid) return null;
+  const runs = Array.isArray(record.runs)
+    ? record.runs.filter(isPersistedPlanReminderRunRecord)
+    : [];
+  if (runs.length === 0 && isPersistedPlanReminderRunRecord(record.lastRun)) {
+    runs.push(record.lastRun);
+  }
+  return {
+    ...record,
+    schedule: record.schedule,
+    runs,
+    ...(isPersistedPlanReminderRunRecord(record.lastRun)
+      ? { lastRun: record.lastRun }
+      : runs[0]
+        ? { lastRun: runs[0] }
+        : {}),
+  } as PlanReminder;
 }
 
 function isPersistedPlanReminderSchedule(value: unknown): value is PlanReminder['schedule'] {
@@ -246,4 +266,14 @@ function isPersistedPlanReminderSchedule(value: unknown): value is PlanReminder[
       (recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly');
   }
   return false;
+}
+
+function isPersistedPlanReminderRunRecord(value: unknown): value is PlanReminderRunRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Partial<PlanReminderRunRecord>;
+  return typeof record.id === 'string' &&
+    typeof record.at === 'number' &&
+    (record.status === 'triggered' || record.status === 'blocked' || record.status === 'failed') &&
+    typeof record.message === 'string' &&
+    (record.blockReason === undefined || record.blockReason === 'incognito_active');
 }
