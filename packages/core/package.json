@@ -21,6 +21,7 @@
     "./capabilities": "./dist/capabilities.js",
     "./health": "./dist/health.js",
     "./search": "./dist/search.js",
+    "./bot-events": "./dist/bot-events.js",
     "./bot-platform-hints": "./dist/bot-platform-hints.js",
     "./plan-reminders": "./dist/plan-reminders.js",
     "./memory": "./dist/memory.js",
