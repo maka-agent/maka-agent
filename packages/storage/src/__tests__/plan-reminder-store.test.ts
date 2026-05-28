@@ -136,6 +136,20 @@ describe('PlanReminderStore', () => {
     assert.equal((await store.list()).length, 0);
   });
 
+  it('snoozes scheduled reminders without changing the recurrence contract', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '工作日早报', runAt, recurrence: 'cron', cronExpression: '0 9 * * 1-5' });
+
+    const snoozed = await store.snooze(reminder.id, 10 * 60 * 1000, runAt - 30_000);
+    assert.equal(snoozed.status, 'scheduled');
+    assert.equal(snoozed.enabled, true);
+    assert.equal(snoozed.schedule.kind, 'cron');
+    assert.equal(snoozed.nextRunAt, Math.max(runAt - 30_000, reminder.nextRunAt!) + 10 * 60 * 1000);
+    assert.equal(snoozed.runs.length, 0);
+  });
+
   it('resumes paused recurring reminders at the next future occurrence', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const store = createPlanReminderStore(root);

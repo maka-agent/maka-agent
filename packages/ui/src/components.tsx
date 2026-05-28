@@ -310,6 +310,7 @@ export function SessionListPanel(props: {
   onCreatePlanReminder?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }): void;
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onTriggerPlanReminderNow?(id: string): void;
+  onSnoozePlanReminder?(id: string): void;
   onDeletePlanReminder?(id: string): void;
   /**
    * PR-DAILY-REVIEW-MVP-0: bridge for the `每日回顾` panel. When
@@ -563,6 +564,7 @@ export function SessionListPanel(props: {
             onCreate={props.onCreatePlanReminder}
             onToggle={props.onTogglePlanReminder}
             onTriggerNow={props.onTriggerPlanReminderNow}
+            onSnooze={props.onSnoozePlanReminder}
             onDelete={props.onDeletePlanReminder}
           />
         ) : props.selection.section === 'sessions' ? (
@@ -1022,6 +1024,7 @@ function PlanReminderPanel(props: {
   onCreate?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }): void;
   onToggle?(id: string, enabled: boolean): void;
   onTriggerNow?(id: string): void;
+  onSnooze?(id: string): void;
   onDelete?(id: string): void;
 }) {
   const [title, setTitle] = useState('');
@@ -1210,6 +1213,15 @@ function PlanReminderPanel(props: {
                   title="立即触发一次"
                 >
                   立即触发
+                </button>
+                <button
+                  type="button"
+                  className="maka-plan-action"
+                  onClick={() => props.onSnooze?.(reminder.id)}
+                  disabled={!reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number'}
+                  title="延后 10 分钟"
+                >
+                  延后 10 分钟
                 </button>
                 <button
                   type="button"

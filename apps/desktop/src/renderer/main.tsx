@@ -1078,6 +1078,17 @@ function AppShell(props: {
     }
   }
 
+  async function snoozePlanReminder(id: string) {
+    const reminder = planReminders.find((entry) => entry.id === id);
+    try {
+      await window.maka.plans.snooze(id);
+      await refreshPlanReminders();
+      toastApi.success('已延后 10 分钟', reminder?.title);
+    } catch (error) {
+      toastApi.error('延后计划失败', cleanErrorMessage(error));
+    }
+  }
+
   async function deletePlanReminder(id: string) {
     const reminder = planReminders.find((entry) => entry.id === id);
     const ok = await toastApi.confirm({
@@ -1746,6 +1757,7 @@ function AppShell(props: {
             onCreatePlanReminder={(input) => void createPlanReminder(input)}
             onTogglePlanReminder={(id, enabled) => void togglePlanReminder(id, enabled)}
             onTriggerPlanReminderNow={(id) => void triggerPlanReminderNow(id)}
+            onSnoozePlanReminder={(id) => void snoozePlanReminder(id)}
             onDeletePlanReminder={(id) => void deletePlanReminder(id)}
             dailyReviewBridge={dailyReviewBridge}
             rowActions={{

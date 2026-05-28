@@ -339,6 +339,7 @@ const onboardingService = createOnboardingService(
 
 let mainWindow: BrowserWindow | null = null;
 const planReminderTimers = new Map<string, NodeJS.Timeout>();
+const PLAN_REMINDER_DEFAULT_SNOOZE_MS = 10 * 60 * 1000;
 
 /**
  * Guard against saved x/y referencing a display that no longer exists
@@ -863,6 +864,12 @@ function registerIpc(): void {
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     schedulePlanReminder(updated);
     return updated;
+  });
+  ipcMain.handle('plans:snooze', async (_event, id: string) => {
+    const reminder = await planReminderStore.snooze(id, PLAN_REMINDER_DEFAULT_SNOOZE_MS);
+    schedulePlanReminder(reminder);
+    emitPlansChanged('updated', reminder);
+    return reminder;
   });
   ipcMain.handle('plans:delete', async (_event, id: string) => {
     clearPlanReminderTimer(id);

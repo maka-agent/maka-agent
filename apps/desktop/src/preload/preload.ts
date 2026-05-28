@@ -326,6 +326,9 @@ contextBridge.exposeInMainWorld('maka', {
     triggerNow(id: string): Promise<PlanReminder> {
       return ipcRenderer.invoke('plans:triggerNow', id);
     },
+    snooze(id: string): Promise<PlanReminder> {
+      return ipcRenderer.invoke('plans:snooze', id);
+    },
     delete(id: string): Promise<void> {
       return ipcRenderer.invoke('plans:delete', id);
     },

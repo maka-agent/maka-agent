@@ -20,6 +20,7 @@ export interface PlanReminderStore {
   create(input: unknown): Promise<PlanReminder>;
   update(id: string, patch: unknown): Promise<PlanReminder>;
   setEnabled(id: string, enabled: boolean): Promise<PlanReminder>;
+  snooze(id: string, delayMs: number, now?: number): Promise<PlanReminder>;
   remove(id: string): Promise<void>;
   listDue(now?: number): Promise<PlanReminder[]>;
   markTriggered(id: string, run: Omit<PlanReminderRunRecord, 'id'> & { id?: string }): Promise<PlanReminder>;
@@ -117,6 +118,30 @@ class FilePlanReminderStore implements PlanReminderStore {
         nextRunAt: enabled
           ? (nextPlanReminderRunAtAfter(reminder.schedule, now) ?? planReminderScheduleStartAt(reminder.schedule))
           : undefined,
+        updatedAt: now,
+      };
+      return updated;
+    }));
+    if (!updated) throw new Error(`No such plan reminder: ${id}`);
+    return updated;
+  }
+
+  async snooze(id: string, delayMs: number, now = Date.now()): Promise<PlanReminder> {
+    if (!Number.isFinite(delayMs) || delayMs <= 0 || delayMs > 7 * 24 * 60 * 60 * 1000) {
+      throw new Error('Plan reminder snooze delay must be between 1 ms and 7 days');
+    }
+    let updated: PlanReminder | undefined;
+    await this.mutate((reminders) => reminders.map((reminder) => {
+      if (reminder.id !== id) return reminder;
+      if (!reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number') {
+        throw new Error('Only scheduled plan reminders can be snoozed');
+      }
+      const base = Math.max(now, reminder.nextRunAt);
+      updated = {
+        ...reminder,
+        nextRunAt: base + Math.floor(delayMs),
+        status: 'scheduled',
+        enabled: true,
         updatedAt: now,
       };
       return updated;
