@@ -237,14 +237,12 @@ export function buildCommandList(args: {
   }
 
   // One palette command per Settings section so ⌘K → label lands the user
-  // directly on that page. Coming Soon pages are intentionally included
-  // (they're real navigation targets, just without final feature behaviour).
+  // directly on that page.
   for (const navItem of SETTINGS_NAV) {
     cmds.push({
       id: `settings:${navItem.id}`,
       kind: 'action',
       label: `设置 · ${navItem.label}`,
-      hint: navItem.comingSoon ? '即将推出' : undefined,
       group: '设置',
       Icon: navItem.Icon as LucideIcon,
       keywords: [navItem.id, navItem.label, 'settings', '设置'],

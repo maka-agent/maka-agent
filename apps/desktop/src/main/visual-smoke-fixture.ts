@@ -39,7 +39,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-bots',
   'settings-about',
   'settings-theme',
-  'settings-coming-soon',
+  'settings-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
   // (running / waiting_for_user / blocked × 4 reasons / active / review
   // / done / archived) so the sidebar grouping screenshot covers every
@@ -47,8 +47,8 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'workstation-statuses',
   // PR-PLAN-REMINDER-MVP-0: screenshot the first real Automations
   // surface. Seeds scheduled / paused / completed local reminders and
-  // opens the 计划 module so reviewers can verify this is no longer a
-  // "coming soon" placeholder.
+  // opens the 计划 module so reviewers can verify this is real product
+  // UI rather than a passive placeholder.
   'plan-reminders',
   // PR109f (g): turn-control-history — seeds a primary session whose
   // turn list covers the four TurnStatus values plus retry + regenerate
@@ -330,9 +330,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'about' };
     case 'settings-theme':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'theme' };
-    case 'settings-coming-soon':
-      // Coming Soon pages share the same template; daily-review is the
-      // most representative one (per PR55 product-stance copy).
+    case 'settings-daily-review':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'daily-review' };
     case 'workstation-statuses':
       // Active session is the running one so the chat header status

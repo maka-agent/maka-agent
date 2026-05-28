@@ -20,7 +20,7 @@ export type VisualSmokeScenario =
   | 'settings-bots'
   | 'settings-about'
   | 'settings-theme'
-  | 'settings-coming-soon'
+  | 'settings-daily-review'
   | 'workstation-statuses'
   | 'plan-reminders'
   // PR109f (g): turn-control-history — seeds a primary session whose

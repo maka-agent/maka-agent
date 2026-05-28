@@ -388,7 +388,7 @@ describe('visual smoke fixture mode', () => {
       { scenario: 'settings-bots', expectedSection: 'bot-chat' },
       { scenario: 'settings-about', expectedSection: 'about' },
       { scenario: 'settings-theme', expectedSection: 'theme' },
-      { scenario: 'settings-coming-soon', expectedSection: 'daily-review' },
+      { scenario: 'settings-daily-review', expectedSection: 'daily-review' },
     ] as const;
 
     for (const { scenario, expectedSection } of cases) {

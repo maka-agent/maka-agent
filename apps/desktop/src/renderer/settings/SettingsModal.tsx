@@ -92,7 +92,6 @@ type SettingsNavItem = {
   label: string;
   Icon: ComponentType<LucideProps>;
   enabled: boolean;
-  comingSoon?: boolean;
   /** Group label rendered as a small uppercase divider above this item. */
   group: SettingsNavGroup;
 };
@@ -153,30 +152,6 @@ function groupedNav(): Array<{ group: SettingsNavGroup; items: SettingsNavItem[]
 // are pinned in `apps/desktop/src/main/__tests__/nav-group-summary.test.ts`.
 const navGroupSummary = deriveNavGroupSummary;
 export type { NavGroupSummary };
-
-/**
- * Product-stance copy for roadmap-only Settings pages. The shape is
- * surfaced as four explicit sections — `当前状态 / 会包含什么 / 不会做什么 /
- * 下一步需要配置什么` — so disabled-by-default pages are explicit instead
- * of empty placeholders.
- */
-type ComingSoonCopy = {
-  Icon: ComponentType<LucideProps>;
-  headline: string;
-  /** Short tag like "V0.2 · disabled-by-default" rendered as a badge on the hero. */
-  badge?: string;
-  description: string;
-  /** 当前状态 — one-sentence honest status now. */
-  status: string;
-  /** 会包含什么 — concrete capabilities V0.2 will ship. */
-  willInclude: string[];
-  /** 不会做什么 — explicit non-goals / hard boundaries (the safety contract). */
-  willNotDo: string[];
-  /** 下一步需要配置什么 — what the user / project must do before it can flip on. */
-  nextConfig: string[];
-};
-
-const COMING_SOON_PAGES: Partial<Record<SettingsSection, ComingSoonCopy>> = {};
 
 const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'runtime' | 'credentials' | 'planned' }> = {
   telegram: {
@@ -375,7 +350,6 @@ function SettingsSurface(props: {
                       <item.Icon size={16} strokeWidth={1.5} />
                     </span>
                     <strong>{item.label}</strong>
-                    {item.comingSoon && <em className="settingsNavBadge" aria-label="路线图（尚未实现）">Roadmap</em>}
                   </button>
                 ))}
               </div>
@@ -530,17 +504,12 @@ function SettingsPage(props: {
           onUpdate={props.onUpdateSettings}
         />
       );
-    default: {
-      const copy = COMING_SOON_PAGES[props.section];
-      if (copy) {
-        return <ComingSoonPage copy={copy} />;
-      }
+    default:
       return (
         <SettingsRows>
           <SettingRow title={navLabel(props.section)} detail="该设置页已纳入 Maka 设置树，会随对应 runtime 能力一起工作。" value="Ready" />
         </SettingsRows>
       );
-    }
   }
 }
 
@@ -690,27 +659,27 @@ function SettingsSkeleton() {
 
 /**
  * PR-DAILY-REVIEW-MVP-0 follow-up: Settings → 每日回顾 is no longer
- * a Coming Soon page. The sidebar panel handles browsing/usage; this
+ * a roadmap page. The sidebar panel handles browsing/usage; this
  * page summarizes what it does, the privacy boundary, and offers a
  * one-click jump to the sidebar.
  */
 function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   return (
-    <section className="settingsComingSoonPage" aria-label="每日回顾">
-      <header className="settingsComingSoonBanner" role="status">
-        <span className="settingsComingSoonBannerDot" aria-hidden="true" />
+    <section className="settingsFeatureStatusPage" aria-label="每日回顾">
+      <header className="settingsFeatureStatusBanner" role="status">
+        <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
         <strong>本地汇总 · 已上线</strong>
         <span>读取本机 Maka 自己产生的会话与使用统计，不联网、不读其他 App 数据。</span>
       </header>
 
-      <div className="settingsComingSoonHero">
-        <span className="settingsComingSoonIcon" aria-hidden="true">
+      <div className="settingsFeatureStatusHero">
+        <span className="settingsFeatureStatusIcon" aria-hidden="true">
           <CalendarDays size={24} strokeWidth={1.5} />
         </span>
         <div>
-          <div className="settingsComingSoonHeroHeading">
+          <div className="settingsFeatureStatusHeroHeading">
             <h3>每日回顾</h3>
-            <span className="settingsComingSoonBadge">V0.1 · 本地</span>
+            <span className="settingsFeatureStatusBadge">V0.1 · 本地</span>
           </div>
           <p>
             每日回顾会按你选择的日期，把当天的活跃会话、模型用量、工具调用聚合到一个面板里。
@@ -729,29 +698,29 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
         </div>
       </div>
 
-      <div className="settingsComingSoonHeroHeading">
+      <div className="settingsFeatureStatusHeroHeading">
         <h3>当前包含</h3>
       </div>
-      <ul className="settingsComingSoonList">
+      <ul className="settingsFeatureStatusList">
         <li>对话数 / 请求数 / Token / 费用 / 错误数</li>
         <li>当天活跃对话（点击可直接打开）</li>
         <li>当天使用最频繁的模型 Top 8</li>
         <li>当天调用最频繁的工具 Top 8</li>
       </ul>
 
-      <div className="settingsComingSoonHeroHeading">
+      <div className="settingsFeatureStatusHeroHeading">
         <h3>不会做的事</h3>
       </div>
-      <ul className="settingsComingSoonList">
+      <ul className="settingsFeatureStatusList">
         <li>不调用任何 LLM 生成摘要（V0.1 只是聚合数字，不向云端送内容）</li>
         <li>不写入记忆系统，也不导出任何东西</li>
         <li>不读取 Maka 工作区以外的文件</li>
       </ul>
 
-      <div className="settingsComingSoonHeroHeading">
+      <div className="settingsFeatureStatusHeroHeading">
         <h3>之后会加</h3>
       </div>
-      <ul className="settingsComingSoonList">
+      <ul className="settingsFeatureStatusList">
         <li>可选的 LLM 摘要 narrative（默认关闭、走当前默认 connection）</li>
         <li>导出 Markdown / 推送到自配的 bot</li>
         <li>每周 / 每月聚合视图</li>
@@ -857,21 +826,21 @@ function VoiceModelsSettingsPage() {
   }
 
   return (
-    <section className="settingsComingSoonPage" aria-label="语音模型">
-      <header className="settingsComingSoonBanner" role="status">
-        <span className="settingsComingSoonBannerDot" aria-hidden="true" />
+    <section className="settingsFeatureStatusPage" aria-label="语音模型">
+      <header className="settingsFeatureStatusBanner" role="status">
+        <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
         <strong>本机录音自检 · 已上线</strong>
         <span>只做本地权限与采集链路 smoke；不上传音频、不保存样本、不写入记忆。</span>
       </header>
 
-      <div className="settingsComingSoonHero">
-        <span className="settingsComingSoonIcon" aria-hidden="true">
+      <div className="settingsFeatureStatusHero">
+        <span className="settingsFeatureStatusIcon" aria-hidden="true">
           <Volume2 size={24} strokeWidth={1.5} />
         </span>
         <div>
-          <div className="settingsComingSoonHeroHeading">
+          <div className="settingsFeatureStatusHeroHeading">
             <h3>语音模型</h3>
-            <span className="settingsComingSoonBadge">V0.1 · capture smoke</span>
+            <span className="settingsFeatureStatusBadge">V0.1 · capture smoke</span>
           </div>
           <p>
             这页现在可以验证麦克风权限和本地录音链路。STT / TTS 模型接入会叠在这个边界上：
@@ -909,10 +878,10 @@ function VoiceModelsSettingsPage() {
         {smoke.message}
       </div>
 
-      <div className="settingsComingSoonHeroHeading">
+      <div className="settingsFeatureStatusHeroHeading">
         <h3>当前边界</h3>
       </div>
-      <ul className="settingsComingSoonList">
+      <ul className="settingsFeatureStatusList">
         <li>录音样本只在 renderer 内存里用于计算 duration / bytes，结束后立即停止 tracks 并丢弃 chunks。</li>
         <li>没有 STT provider 前，不会把音频传给任何云端服务。</li>
         <li>未来转写文本只进入 composer 草稿；用户发送前必须能编辑。</li>
@@ -975,87 +944,6 @@ function formatVoiceBytes(bytes: number): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function ComingSoonPage(props: { copy: ComingSoonCopy }) {
-  const { Icon, headline, badge, description, status, willInclude, willNotDo, nextConfig } = props.copy;
-  return (
-    <section className="settingsComingSoonPage" aria-label={headline}>
-      {/* PR-UI-LAYOUT-17 (@yuejing 2026-05-22, per @kenji audit recommendation):
-       * make the "not yet implemented" state honest at first glance instead
-       * of leaning on the "Soon" nav badge alone. The roadmap banner gives
-       * users an immediate signal that this page is *describing* a planned
-       * surface, not configuring a working one. */}
-      <div className="settingsComingSoonBanner" role="status">
-        <span className="settingsComingSoonBannerDot" aria-hidden="true" />
-        <strong>路线图项</strong>
-        {/* PR-UI-LAYOUT-17 + @kenji review (#my-ai:9a8fb603 msg fb7fe5af):
-         * banner copy stays explicit about the unimplemented state and
-         * avoids operational verbs (启用 / connected / toggle / etc.)
-         * to prevent users from reading this page as a working
-         * surface. The page below describes capability, boundary, and
-         * the future configuration flow only. */}
-        <span>该功能尚未实现；下面是当前 contract、边界与未来的配置流程预览。</span>
-      </div>
-      <div className="settingsComingSoonHero">
-        <span className="settingsComingSoonIcon" aria-hidden="true">
-          <Icon size={28} strokeWidth={1.5} />
-        </span>
-        <div>
-          <div className="settingsComingSoonHeroHeading">
-            <h3>{headline}</h3>
-            {badge ? <span className="settingsComingSoonBadge">{badge}</span> : null}
-          </div>
-          <p>{description}</p>
-        </div>
-      </div>
-
-      <ComingSoonSection tone="status" title="当前状态">
-        <p>{status}</p>
-      </ComingSoonSection>
-
-      <ComingSoonSection tone="include" title="会包含什么">
-        <ul className="settingsComingSoonList">
-          {willInclude.map((bullet) => (
-            <li key={bullet}>{bullet}</li>
-          ))}
-        </ul>
-      </ComingSoonSection>
-
-      <ComingSoonSection tone="exclude" title="不会做什么">
-        <ul className="settingsComingSoonList settingsComingSoonListExclude">
-          {willNotDo.map((bullet) => (
-            <li key={bullet}>{bullet}</li>
-          ))}
-        </ul>
-      </ComingSoonSection>
-
-      <ComingSoonSection tone="config" title="上线后的配置流程">
-        <ul className="settingsComingSoonList">
-          {nextConfig.map((bullet) => (
-            <li key={bullet}>{bullet}</li>
-          ))}
-        </ul>
-      </ComingSoonSection>
-
-      <p className="settingsHelpText">
-        这些边界来自 V0.2 contract（see <code>notes/maka-*-contract.md</code>）。每条「不会做什么」都是要在实现里加上 test gate 的硬规则，不是宣传语。
-      </p>
-    </section>
-  );
-}
-
-function ComingSoonSection(props: {
-  tone: 'status' | 'include' | 'exclude' | 'config';
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={`settingsComingSoonSection settingsComingSoonSection-${props.tone}`}>
-      <h4 className="settingsComingSoonSectionTitle">{props.title}</h4>
-      {props.children}
-    </div>
-  );
 }
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string }> = [

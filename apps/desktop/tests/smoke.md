@@ -71,7 +71,7 @@ MAKA_VISUAL_SMOKE_FIXTURE=settings-network npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=settings-bots npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=settings-about npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=settings-theme npm --workspace @maka/desktop run dev
-MAKA_VISUAL_SMOKE_FIXTURE=settings-coming-soon npm --workspace @maka/desktop run dev
+MAKA_VISUAL_SMOKE_FIXTURE=settings-daily-review npm --workspace @maka/desktop run dev
 MAKA_VISUAL_SMOKE_FIXTURE=workstation-statuses npm --workspace @maka/desktop run dev
 ```
 

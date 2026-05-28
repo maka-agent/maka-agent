@@ -3955,14 +3955,14 @@ button:active {
   letter-spacing: 0.02em;
 }
 
-.settingsComingSoonPage {
+.settingsFeatureStatusPage {
   display: grid;
   align-content: start;
   gap: 18px;
 }
 
 /* PR-UI-LAYOUT-17: roadmap banner at top of every ComingSoonPage. */
-.settingsComingSoonBanner {
+.settingsFeatureStatusBanner {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -3976,12 +3976,12 @@ button:active {
   width: fit-content;
   max-width: 100%;
 }
-.settingsComingSoonBanner strong {
+.settingsFeatureStatusBanner strong {
   color: var(--info-text);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
-.settingsComingSoonBannerDot {
+.settingsFeatureStatusBannerDot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -3989,7 +3989,7 @@ button:active {
   flex: 0 0 auto;
 }
 
-.settingsComingSoonHero {
+.settingsFeatureStatusHero {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
   align-items: start;
@@ -4000,7 +4000,7 @@ button:active {
   background: var(--foreground-3);
 }
 
-.settingsComingSoonIcon {
+.settingsFeatureStatusIcon {
   width: 56px;
   height: 56px;
   display: grid;
@@ -4010,14 +4010,14 @@ button:active {
   color: var(--accent);
 }
 
-.settingsComingSoonHero h3 {
+.settingsFeatureStatusHero h3 {
   margin: 0 0 6px;
   color: var(--foreground);
   font-size: 16px;
   font-weight: 700;
 }
 
-.settingsComingSoonHero p {
+.settingsFeatureStatusHero p {
   margin: 0;
   max-width: 56ch;
   color: var(--foreground-70);
@@ -4025,7 +4025,7 @@ button:active {
   line-height: 1.55;
 }
 
-.settingsComingSoonList {
+.settingsFeatureStatusList {
   margin: 0;
   padding: 0 0 0 18px;
   display: grid;
@@ -4035,11 +4035,11 @@ button:active {
   line-height: 1.55;
 }
 
-.settingsComingSoonList li::marker {
+.settingsFeatureStatusList li::marker {
   color: var(--foreground-40);
 }
 
-.settingsComingSoonHeroHeading {
+.settingsFeatureStatusHeroHeading {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -4047,11 +4047,11 @@ button:active {
   margin: 0 0 6px;
 }
 
-.settingsComingSoonHeroHeading h3 {
+.settingsFeatureStatusHeroHeading h3 {
   margin: 0;
 }
 
-.settingsComingSoonBadge {
+.settingsFeatureStatusBadge {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
@@ -4064,7 +4064,7 @@ button:active {
   white-space: nowrap;
 }
 
-.settingsComingSoonSection {
+.settingsFeatureStatusSection {
   display: grid;
   gap: 8px;
   padding: 14px 16px;
@@ -4073,14 +4073,14 @@ button:active {
   background: var(--background);
 }
 
-.settingsComingSoonSection p {
+.settingsFeatureStatusSection p {
   margin: 0;
   color: var(--foreground-70);
   font-size: 13px;
   line-height: 1.55;
 }
 
-.settingsComingSoonSectionTitle {
+.settingsFeatureStatusSectionTitle {
   margin: 0;
   font-size: 12px;
   font-weight: 700;
@@ -4089,39 +4089,39 @@ button:active {
   color: var(--foreground-60);
 }
 
-.settingsComingSoonSection-status {
+.settingsFeatureStatusSection-status {
   background: oklch(from var(--foreground) l c h / 0.025);
 }
 
-.settingsComingSoonSection-include {
+.settingsFeatureStatusSection-include {
   border-color: oklch(from var(--success) l c h / 0.24);
   background: oklch(from var(--success) l c h / 0.04);
 }
 
-.settingsComingSoonSection-include .settingsComingSoonSectionTitle {
+.settingsFeatureStatusSection-include .settingsFeatureStatusSectionTitle {
   color: var(--success);
 }
 
-.settingsComingSoonSection-exclude {
+.settingsFeatureStatusSection-exclude {
   border-color: oklch(from var(--destructive) l c h / 0.22);
   background: oklch(from var(--destructive) l c h / 0.04);
 }
 
-.settingsComingSoonSection-exclude .settingsComingSoonSectionTitle {
+.settingsFeatureStatusSection-exclude .settingsFeatureStatusSectionTitle {
   color: var(--destructive);
 }
 
-.settingsComingSoonListExclude {
+.settingsFeatureStatusListExclude {
   list-style: none;
   padding-left: 0;
 }
 
-.settingsComingSoonListExclude li {
+.settingsFeatureStatusListExclude li {
   position: relative;
   padding-left: 22px;
 }
 
-.settingsComingSoonListExclude li::before {
+.settingsFeatureStatusListExclude li::before {
   content: "✗";
   position: absolute;
   left: 4px;
@@ -4131,12 +4131,12 @@ button:active {
   line-height: 1.55;
 }
 
-.settingsComingSoonSection-config {
+.settingsFeatureStatusSection-config {
   border-color: oklch(from var(--info) l c h / 0.26);
   background: oklch(from var(--info) l c h / 0.04);
 }
 
-.settingsComingSoonSection-config .settingsComingSoonSectionTitle {
+.settingsFeatureStatusSection-config .settingsFeatureStatusSectionTitle {
   color: var(--info);
 }
 
@@ -5830,7 +5830,7 @@ button:active {
  * Interactive states MUST be scoped to enabled cards. A disabled
  * provider tile that lifts + halos on hover/focus looks actionable
  * — exactly the misrepresentation the provider-surface gate
- * forbids ("不可用/coming soon/gated provider 不能呈现为可点击"). */
+ * forbids ("不可用 / roadmap / gated provider 不能呈现为可点击"). */
 .providerCatalogCard:hover:not([data-disabled="true"]) {
   border-color: oklch(from var(--accent) l c h / 0.28);
   background: oklch(from var(--accent) l c h / 0.04);
