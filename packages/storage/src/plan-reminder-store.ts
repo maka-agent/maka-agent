@@ -7,6 +7,7 @@ import {
   nextPlanReminderStateAfterTrigger,
   nextPlanReminderRunAtAfter,
   normalizeCreatePlanReminderInput,
+  normalizePlanReminderDeliveryTarget,
   normalizeUpdatePlanReminderInput,
   planReminderScheduleStartAt,
   type PlanReminder,
@@ -53,6 +54,7 @@ class FilePlanReminderStore implements PlanReminderStore {
       title: value.title,
       note: value.note,
       schedule: value.schedule,
+      delivery: value.delivery,
       status: 'scheduled',
       enabled: true,
       createdAt: now,
@@ -82,6 +84,7 @@ class FilePlanReminderStore implements PlanReminderStore {
         ...reminder,
         ...(normalized.value.title !== undefined ? { title: normalized.value.title } : {}),
         ...(normalized.value.note !== undefined ? { note: normalized.value.note } : {}),
+        ...(normalized.value.delivery !== undefined ? { delivery: normalized.value.delivery } : {}),
         schedule: nextSchedule,
         enabled: nextEnabled,
         status: nextEnabled ? 'scheduled' : 'paused',
@@ -236,6 +239,8 @@ function normalizePersistedPlanReminder(value: unknown): PlanReminder | null {
     typeof record.updatedAt === 'number' &&
     typeof record.runCount === 'number';
   if (!valid) return null;
+  const delivery = normalizePlanReminderDeliveryTarget((record as { delivery?: unknown }).delivery);
+  if (!delivery.ok) return null;
   const runs = Array.isArray(record.runs)
     ? record.runs.filter(isPersistedPlanReminderRunRecord)
     : [];
@@ -245,6 +250,7 @@ function normalizePersistedPlanReminder(value: unknown): PlanReminder | null {
   return {
     ...record,
     schedule: record.schedule,
+    delivery: delivery.value,
     runs,
     ...(isPersistedPlanReminderRunRecord(record.lastRun)
       ? { lastRun: record.lastRun }
@@ -275,5 +281,5 @@ function isPersistedPlanReminderRunRecord(value: unknown): value is PlanReminder
     typeof record.at === 'number' &&
     (record.status === 'triggered' || record.status === 'blocked' || record.status === 'failed') &&
     typeof record.message === 'string' &&
-    (record.blockReason === undefined || record.blockReason === 'incognito_active');
+    (record.blockReason === undefined || record.blockReason === 'incognito_active' || record.blockReason === 'bot_delivery_unavailable');
 }

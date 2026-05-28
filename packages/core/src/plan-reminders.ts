@@ -1,5 +1,8 @@
+import { BOT_PROVIDERS, type BotProvider } from './settings.js';
+
 export const PLAN_REMINDER_TITLE_MAX_CHARS = 120;
 export const PLAN_REMINDER_NOTE_MAX_CHARS = 1000;
+export const PLAN_REMINDER_DELIVERY_CHAT_ID_MAX_CHARS = 160;
 export const PLAN_REMINDER_MAX_DELAY_MS = 366 * 24 * 60 * 60 * 1000;
 export const PLAN_REMINDER_RUN_HISTORY_LIMIT = 10;
 
@@ -9,13 +12,24 @@ export type PlanReminderStatus = typeof PLAN_REMINDER_STATUSES[number];
 export const PLAN_REMINDER_RUN_STATUSES = ['triggered', 'blocked', 'failed'] as const;
 export type PlanReminderRunStatus = typeof PLAN_REMINDER_RUN_STATUSES[number];
 
-export type PlanReminderBlockReason = 'incognito_active';
+export type PlanReminderBlockReason = 'incognito_active' | 'bot_delivery_unavailable';
 
 export const PLAN_REMINDER_RECURRENCES = ['none', 'daily', 'weekly', 'monthly'] as const;
 export type PlanReminderRecurrence = typeof PLAN_REMINDER_RECURRENCES[number];
 export type PlanReminderRecurringFrequency = Exclude<PlanReminderRecurrence, 'none'>;
 
 export type PlanReminderSchedule = PlanReminderOnceSchedule | PlanReminderRecurringSchedule;
+export type PlanReminderDeliveryTarget = PlanReminderLocalDeliveryTarget | PlanReminderBotDeliveryTarget;
+
+export interface PlanReminderLocalDeliveryTarget {
+  channel: 'local';
+}
+
+export interface PlanReminderBotDeliveryTarget {
+  channel: 'bot';
+  platform: BotProvider;
+  chatId: string;
+}
 
 export interface PlanReminderOnceSchedule {
   kind: 'once';
@@ -41,6 +55,7 @@ export interface PlanReminder {
   title: string;
   note: string;
   schedule: PlanReminderSchedule;
+  delivery: PlanReminderDeliveryTarget;
   status: PlanReminderStatus;
   enabled: boolean;
   createdAt: number;
@@ -56,6 +71,7 @@ export interface CreatePlanReminderInput {
   note?: unknown;
   runAt: unknown;
   recurrence?: unknown;
+  delivery?: unknown;
 }
 
 export interface UpdatePlanReminderInput {
@@ -63,12 +79,17 @@ export interface UpdatePlanReminderInput {
   note?: unknown;
   runAt?: unknown;
   recurrence?: unknown;
+  delivery?: unknown;
   enabled?: unknown;
 }
 
 export type PlanReminderNormalizeResult<T> =
   | { ok: true; value: T }
-  | { ok: false; reason: 'invalid_title' | 'invalid_note' | 'invalid_run_at' | 'invalid_recurrence' | 'invalid_enabled'; message: string };
+  | {
+    ok: false;
+    reason: 'invalid_title' | 'invalid_note' | 'invalid_run_at' | 'invalid_recurrence' | 'invalid_delivery' | 'invalid_enabled';
+    message: string;
+  };
 
 type PlanReminderNormalizeErrorReason = Extract<PlanReminderNormalizeResult<never>, { ok: false }>['reason'];
 
@@ -79,7 +100,13 @@ export function isPlanReminderStatus(value: unknown): value is PlanReminderStatu
 export function normalizeCreatePlanReminderInput(
   input: unknown,
   now: number,
-): PlanReminderNormalizeResult<{ title: string; note: string; schedule: PlanReminderSchedule; nextRunAt: number }> {
+): PlanReminderNormalizeResult<{
+  title: string;
+  note: string;
+  schedule: PlanReminderSchedule;
+  delivery: PlanReminderDeliveryTarget;
+  nextRunAt: number;
+}> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return invalid('invalid_title', 'Plan reminder input must be an object');
   }
@@ -92,19 +119,35 @@ export function normalizeCreatePlanReminderInput(
   if (!runAt.ok) return runAt;
   const recurrence = normalizePlanReminderRecurrence(record.recurrence);
   if (!recurrence.ok) return recurrence;
+  const delivery = normalizePlanReminderDeliveryTarget(record.delivery);
+  if (!delivery.ok) return delivery;
   const schedule = createPlanReminderSchedule(runAt.value, recurrence.value);
-  return { ok: true, value: { title: title.value, note: note.value, schedule, nextRunAt: runAt.value } };
+  return { ok: true, value: { title: title.value, note: note.value, schedule, delivery: delivery.value, nextRunAt: runAt.value } };
 }
 
 export function normalizeUpdatePlanReminderInput(
   input: unknown,
   now: number,
-): PlanReminderNormalizeResult<{ title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; enabled?: boolean }> {
+): PlanReminderNormalizeResult<{
+  title?: string;
+  note?: string;
+  runAt?: number;
+  recurrence?: PlanReminderRecurrence;
+  delivery?: PlanReminderDeliveryTarget;
+  enabled?: boolean;
+}> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return invalid('invalid_title', 'Plan reminder update must be an object');
   }
   const record = input as UpdatePlanReminderInput;
-  const patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; enabled?: boolean } = {};
+  const patch: {
+    title?: string;
+    note?: string;
+    runAt?: number;
+    recurrence?: PlanReminderRecurrence;
+    delivery?: PlanReminderDeliveryTarget;
+    enabled?: boolean;
+  } = {};
   if (record.title !== undefined) {
     const title = normalizePlanReminderTitle(record.title);
     if (!title.ok) return title;
@@ -124,6 +167,11 @@ export function normalizeUpdatePlanReminderInput(
     const recurrence = normalizePlanReminderRecurrence(record.recurrence);
     if (!recurrence.ok) return recurrence;
     patch.recurrence = recurrence.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'delivery')) {
+    const delivery = normalizePlanReminderDeliveryTarget(record.delivery);
+    if (!delivery.ok) return delivery;
+    patch.delivery = delivery.value;
   }
   if (record.enabled !== undefined) {
     if (typeof record.enabled !== 'boolean') {
@@ -193,6 +241,62 @@ export function normalizePlanReminderRecurrence(input: unknown): PlanReminderNor
     return invalid('invalid_recurrence', 'Plan reminder recurrence must be none, daily, weekly, or monthly');
   }
   return { ok: true, value: input as PlanReminderRecurrence };
+}
+
+export function normalizePlanReminderDeliveryTarget(input: unknown): PlanReminderNormalizeResult<PlanReminderDeliveryTarget> {
+  if (input === undefined || input === null) return { ok: true, value: { channel: 'local' } };
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    return invalid('invalid_delivery', 'Plan reminder delivery must be an object');
+  }
+  const record = input as Partial<PlanReminderDeliveryTarget>;
+  if (record.channel === 'local') return { ok: true, value: { channel: 'local' } };
+  if (record.channel !== 'bot') {
+    return invalid('invalid_delivery', 'Plan reminder delivery channel must be local or bot');
+  }
+  const platform = (record as Partial<PlanReminderBotDeliveryTarget>).platform;
+  if (!isBotProvider(platform)) {
+    return invalid('invalid_delivery', 'Plan reminder bot delivery platform is not supported');
+  }
+  const chatId = normalizePlanReminderDeliveryChatId((record as Partial<PlanReminderBotDeliveryTarget>).chatId);
+  if (!chatId.ok) return chatId;
+  return {
+    ok: true,
+    value: {
+      channel: 'bot',
+      platform,
+      chatId: chatId.value,
+    },
+  };
+}
+
+export function normalizePlanReminderDeliveryChatId(input: unknown): PlanReminderNormalizeResult<string> {
+  if (typeof input !== 'string') {
+    return invalid('invalid_delivery', 'Plan reminder bot chatId must be a string');
+  }
+  const chatId = input
+    .normalize('NFC')
+    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ')
+    .replace(/[\p{Cf}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (chatId.length === 0) {
+    return invalid('invalid_delivery', 'Plan reminder bot chatId cannot be empty');
+  }
+  if (Array.from(chatId).length > PLAN_REMINDER_DELIVERY_CHAT_ID_MAX_CHARS) {
+    return invalid('invalid_delivery', `Plan reminder bot chatId must be ${PLAN_REMINDER_DELIVERY_CHAT_ID_MAX_CHARS} characters or fewer`);
+  }
+  return { ok: true, value: chatId };
+}
+
+export function formatPlanReminderDeliveryTarget(delivery: PlanReminderDeliveryTarget): string {
+  if (delivery.channel === 'local') return '本地提醒';
+  return `${botProviderLabel(delivery.platform)} · ${delivery.chatId}`;
+}
+
+export function formatPlanReminderDeliveryMessage(reminder: Pick<PlanReminder, 'title' | 'note'>): string {
+  const lines = [`计划提醒：${reminder.title}`];
+  if (reminder.note.trim()) lines.push('', reminder.note.trim());
+  return lines.join('\n');
 }
 
 export function createPlanReminderSchedule(runAt: number, recurrence: PlanReminderRecurrence): PlanReminderSchedule {
@@ -287,6 +391,22 @@ function addMonthsClamped(anchor: number, monthOffset: number): number {
     date.getSeconds(),
     date.getMilliseconds(),
   ).getTime();
+}
+
+function isBotProvider(value: unknown): value is BotProvider {
+  return typeof value === 'string' && (BOT_PROVIDERS as readonly string[]).includes(value);
+}
+
+function botProviderLabel(provider: BotProvider): string {
+  switch (provider) {
+    case 'telegram': return 'Telegram';
+    case 'feishu': return '飞书';
+    case 'wecom': return '企业微信';
+    case 'wechat': return '微信';
+    case 'discord': return 'Discord';
+    case 'dingtalk': return '钉钉';
+    case 'qq': return 'QQ';
+  }
 }
 
 function invalid<T extends PlanReminderNormalizeErrorReason>(

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createPlanReminderStore } from '../plan-reminder-store.js';
@@ -15,6 +15,7 @@ describe('PlanReminderStore', () => {
     assert.equal(reminder.title, '站会提醒');
     assert.equal(reminder.enabled, true);
     assert.equal(reminder.nextRunAt, runAt);
+    assert.deepEqual(reminder.delivery, { channel: 'local' });
     assert.deepEqual(reminder.runs, []);
 
     const reloaded = createPlanReminderStore(root);
@@ -24,6 +25,39 @@ describe('PlanReminderStore', () => {
 
     const raw = JSON.parse(await readFile(join(root, 'plan-reminders.json'), 'utf8')) as unknown[];
     assert.equal(raw.length, 1);
+  });
+
+  it('persists bot delivery and defaults legacy records to local delivery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+
+    const reminder = await store.create({
+      title: '投递到 Telegram',
+      runAt,
+      delivery: { channel: 'bot', platform: 'telegram', chatId: ' 12345 ' },
+    });
+    assert.deepEqual(reminder.delivery, { channel: 'bot', platform: 'telegram', chatId: '12345' });
+
+    const raw = JSON.parse(await readFile(join(root, 'plan-reminders.json'), 'utf8')) as unknown[];
+    assert.deepEqual((raw[0] as { delivery?: unknown }).delivery, { channel: 'bot', platform: 'telegram', chatId: '12345' });
+
+    await writeFile(join(root, 'plan-reminders.json'), JSON.stringify([{
+      id: 'legacy',
+      title: '旧提醒',
+      note: '',
+      schedule: { kind: 'once', runAt },
+      status: 'scheduled',
+      enabled: true,
+      createdAt: runAt - 1000,
+      updatedAt: runAt - 1000,
+      nextRunAt: runAt,
+      runs: [],
+      runCount: 0,
+    }]), 'utf8');
+
+    const reloaded = await createPlanReminderStore(root).list();
+    assert.deepEqual(reloaded[0]?.delivery, { channel: 'local' });
   });
 
   it('keeps recurring reminders active after a trigger', async () => {

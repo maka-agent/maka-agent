@@ -21,6 +21,7 @@ import {
   botConversationKey,
   botDisplayLabel,
   formatBotMessageForSession,
+  formatPlanReminderDeliveryMessage,
 } from '@maka/core';
 import type {
   AppSettings,
@@ -1914,14 +1915,41 @@ async function triggerDuePlanReminders(): Promise<void> {
       emitPlansChanged('blocked', blocked);
       continue;
     }
+    await deliverPlanReminder(reminder, now);
+  }
+}
+
+async function deliverPlanReminder(reminder: PlanReminder, now: number): Promise<void> {
+  if (reminder.delivery.channel === 'bot') {
+    const sent = await botRegistry
+      .sendMessage(reminder.delivery.platform, reminder.delivery.chatId, formatPlanReminderDeliveryMessage(reminder))
+      .catch(() => null);
+    if (!sent) {
+      const blocked = await planReminderStore.markBlocked(reminder.id, {
+        at: now,
+        message: `${botDisplayLabel(reminder.delivery.platform)} 通道不可用，计划提醒没有投递。`,
+        blockReason: 'bot_delivery_unavailable',
+      });
+      emitPlansChanged('blocked', blocked);
+      return;
+    }
     const triggered = await planReminderStore.markTriggered(reminder.id, {
       at: now,
       status: 'triggered',
-      message: '提醒已触发。',
+      message: `已投递到 ${botDisplayLabel(reminder.delivery.platform)}。`,
     });
     emitPlansChanged('triggered', triggered);
     emitPlanDue(triggered);
+    return;
   }
+
+  const triggered = await planReminderStore.markTriggered(reminder.id, {
+    at: now,
+    status: 'triggered',
+    message: '提醒已触发。',
+  });
+  emitPlansChanged('triggered', triggered);
+  emitPlanDue(triggered);
 }
 
 function toContractNetworkSettings(network: Awaited<ReturnType<typeof settingsStore.get>>['network']): ContractNetworkSettings {

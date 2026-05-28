@@ -5,6 +5,7 @@ import {
   nextPlanReminderStateAfterTrigger,
   nextPlanReminderRunAtAfter,
   normalizeCreatePlanReminderInput,
+  normalizePlanReminderDeliveryTarget,
   normalizeUpdatePlanReminderInput,
   PLAN_REMINDER_RUN_HISTORY_LIMIT,
   type PlanReminder,
@@ -26,6 +27,7 @@ describe('plan reminder contract', () => {
       title: '复盘 周报',
       note: '带上本周 blocker',
       schedule: { kind: 'once', runAt: now + 60_000 },
+      delivery: { channel: 'local' },
       nextRunAt: now + 60_000,
     });
   });
@@ -44,6 +46,24 @@ describe('plan reminder contract', () => {
       recurrence: 'daily',
     });
     assert.equal(normalizeCreatePlanReminderInput({ title: 'x', runAt: now + 1, recurrence: 'hourly' }, now).ok, false);
+  });
+
+  it('normalizes bot delivery with a closed platform and sanitized chat id', () => {
+    const result = normalizeCreatePlanReminderInput({
+      title: '站会',
+      runAt: now + 60_000,
+      delivery: { channel: 'bot', platform: 'telegram', chatId: ' 123\u0000\u200B456 ' },
+    }, now);
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.value.delivery, { channel: 'bot', platform: 'telegram', chatId: '123 456' });
+  });
+
+  it('rejects unsupported delivery targets instead of silently falling back', () => {
+    assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'email', address: 'x' }).ok, false);
+    assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'mastodon', chatId: '1' }).ok, false);
+    assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'telegram', chatId: ' ' }).ok, false);
   });
 
   it('rejects empty title and past runAt instead of silently defaulting', () => {
@@ -65,6 +85,7 @@ describe('plan reminder contract', () => {
       title: '站会',
       note: '',
       schedule: { kind: 'once', runAt: now },
+      delivery: { channel: 'local' },
       status: 'scheduled',
       enabled: true,
       createdAt: now - 1000,
@@ -94,6 +115,7 @@ describe('plan reminder contract', () => {
       title: '每日站会',
       note: '',
       schedule: { kind: 'recurring', startAt: now, recurrence: 'daily' },
+      delivery: { channel: 'local' },
       status: 'scheduled',
       enabled: true,
       createdAt: now - 1000,
@@ -121,6 +143,7 @@ describe('plan reminder contract', () => {
       title: '每日站会',
       note: '',
       schedule: { kind: 'recurring', startAt: now, recurrence: 'daily' },
+      delivery: { channel: 'local' },
       status: 'scheduled',
       enabled: true,
       createdAt: now - 1000,
