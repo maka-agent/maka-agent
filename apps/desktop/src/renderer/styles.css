@@ -4598,6 +4598,28 @@ button:active {
 .settingsBotList em[data-tone="warning"] { color: var(--info-text); }
 .settingsBotList em[data-tone="destructive"] { color: var(--destructive-text); }
 
+/* PR-PLACEHOLDER-SWEEP-0: planned-only platforms render their tab
+   muted so users don't mistake them for credentialed-and-ready
+   options. Clicking still navigates so the user can read the
+   "未接入运行时" notice on the detail pane. */
+.settingsBotList button[data-support="planned"] {
+  opacity: 0.55;
+}
+.settingsBotList button[data-support="planned"]:hover {
+  opacity: 0.75;
+}
+.settingsBotList button[data-support="planned"][data-active="true"] {
+  opacity: 1;
+}
+.settingsBotList button[data-support="planned"] em {
+  border: 1px solid var(--foreground-15);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--foreground-50);
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
 .settingsBotLogo {
   width: 28px;
   height: 28px;

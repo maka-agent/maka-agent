@@ -2402,11 +2402,28 @@ function BotChatSettingsPage(props: {
       <nav className="settingsBotList" aria-label="机器人频道列表">
         {BOT_PROVIDERS.map((provider) => {
           const status = statuses?.[provider];
-          const providerCopy = BOT_READINESS_COPY[status?.readiness ?? props.settings.botChat.channels[provider].readiness] ?? BOT_READINESS_COPY.scaffolded;
+          const providerSupport = BOT_LABELS[provider].support;
+          // PR-PLACEHOLDER-SWEEP-0: planned platforms render a single
+          // "未接入" tag instead of the credentials-flow readiness
+          // states. The credentials chain doesn't apply when there's
+          // no runtime to be valid against — showing "未配置" would be
+          // misleading.
+          const providerCopy =
+            providerSupport === 'planned'
+              ? { label: '未接入', tone: 'neutral' as const }
+              : BOT_READINESS_COPY[
+                  status?.readiness ?? props.settings.botChat.channels[provider].readiness
+                ] ?? BOT_READINESS_COPY.scaffolded;
           return (
-            <button key={provider} type="button" data-active={selected === provider} onClick={() => {
-              setSelected(provider);
-            }}>
+            <button
+              key={provider}
+              type="button"
+              data-active={selected === provider}
+              data-support={providerSupport}
+              onClick={() => {
+                setSelected(provider);
+              }}
+            >
               <span className="settingsBotLogo">{BOT_LABELS[provider].label.slice(0, 2)}</span>
               <span>{BOT_LABELS[provider].label}</span>
               <em data-tone={providerCopy.tone}>{providerCopy.label}</em>
