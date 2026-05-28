@@ -57,7 +57,7 @@ import {
   isToastPosition,
 } from '@maka/core';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
-import { useModalA11y, useToast } from '@maka/ui';
+import { RelativeTime, useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { applyUiLocale, type UiLocalePreference } from '../theme';
@@ -1139,7 +1139,7 @@ function ClaudeSubscriptionCard() {
             </div>
           )}
           <small className="settingsHelpText">
-            数据更新于 {new Date(state.quota.fetchedAt).toLocaleString()}
+            数据更新于 <RelativeTime ts={state.quota.fetchedAt} className="settingsHelpInlineTime" />
           </small>
         </div>
       )}
@@ -1281,9 +1281,9 @@ function AccountConnectionRow(props: {
   const authPresentation = presentAccountAuthState(authContract);
   const authActions = deriveAccountAuthActions(authContract);
   const subtitle = `${props.connection.providerType} · ${props.connection.defaultModel || '未设默认模型'}`;
-  const lastTestAt = props.connection.lastTestAt
-    ? new Date(props.connection.lastTestAt).toLocaleString()
-    : null;
+  const lastTestAtMs = props.connection.lastTestAt
+    ? Date.parse(props.connection.lastTestAt)
+    : NaN;
   const lastTestMessage = props.connection.lastTestMessage;
   return (
     <div
@@ -1316,10 +1316,12 @@ function AccountConnectionRow(props: {
           {authPresentation.stateLabel}
         </span>
       </div>
-      {(lastTestAt || lastTestMessage) && (
+      {(Number.isFinite(lastTestAtMs) || lastTestMessage) && (
         <p className="settingsConnectionMeta">
           {lastTestMessage && <span>{lastTestMessage}</span>}
-          {lastTestAt && <time dateTime={props.connection.lastTestAt}>{lastTestAt}</time>}
+          {Number.isFinite(lastTestAtMs) && (
+            <RelativeTime ts={lastTestAtMs} className="settingsConnectionMetaTime" />
+          )}
         </p>
       )}
       {authActions.length > 0 && (
@@ -2080,7 +2082,16 @@ function BotChatSettingsPage(props: {
           </div>
           <div>
             <dt>最近事件</dt>
-            <dd>{selectedStatus?.lastEventAt ? new Date(selectedStatus.lastEventAt).toLocaleString() : '暂无'}</dd>
+            <dd>
+              {selectedStatus?.lastEventAt ? (
+                <RelativeTime
+                  ts={selectedStatus.lastEventAt}
+                  className="settingsBotMetaTime"
+                />
+              ) : (
+                '暂无'
+              )}
+            </dd>
           </div>
         </dl>
 
@@ -2373,7 +2384,7 @@ function PermissionCenterPage() {
     );
   }
 
-  const checkedAtLabel = new Date(capabilities.checkedAt).toLocaleString();
+  const checkedAtMs = capabilities.checkedAt;
 
   return (
     <div className="settingsPermissionPage">
@@ -2387,7 +2398,9 @@ function PermissionCenterPage() {
         </div>
         <div className="settingsPermissionMeta">
           <span className="pill" data-tone="info">只读快照</span>
-          <small>最近一次读取：{checkedAtLabel}</small>
+          <small>
+            最近一次读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
+          </small>
           <button
             type="button"
             className="settingsPermissionRefresh"
@@ -2703,7 +2716,7 @@ function HealthCenterPage() {
     );
   }
 
-  const checkedAtLabel = new Date(snapshot.checkedAt).toLocaleString();
+  const healthCheckedAtMs = snapshot.checkedAt;
   const signalsByLayer = groupSignalsByLayer(snapshot.signals);
   const blocksSendCount = snapshot.signals.filter((signal) => signal.blocksSend).length;
   const blocksCapabilityCount = snapshot.signals.filter((signal) => signal.blocksCapability).length;
@@ -2720,7 +2733,9 @@ function HealthCenterPage() {
         </div>
         <div className="settingsHealthMeta">
           <span className="pill" data-tone="info">只读快照</span>
-          <small>最近一次读取：{checkedAtLabel}</small>
+          <small>
+            最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
+          </small>
           <button
             type="button"
             className="settingsHealthRefresh"
@@ -2797,7 +2812,6 @@ function HealthSummaryTile(props: {
 function HealthSignalRow(props: { signal: HealthSignal }) {
   const { signal } = props;
   const statusCopy = HEALTH_STATUS_COPY[signal.status];
-  const checkedAtLabel = new Date(signal.checkedAt).toLocaleString();
   return (
     <li className="settingsHealthSignalRow" data-status={signal.status}>
       <div className="settingsHealthSignalHeader">
@@ -2811,7 +2825,9 @@ function HealthSignalRow(props: { signal: HealthSignal }) {
       {signal.detail && <small className="settingsHealthSignalDetail">{signal.detail}</small>}
       <div className="settingsHealthSignalMeta">
         <span>source: <code>{signal.source}</code></span>
-        <span>checked: {checkedAtLabel}</span>
+        <span>
+          checked: <RelativeTime ts={signal.checkedAt} className="settingsHelpInlineTime" />
+        </span>
         {signal.blocksSend && <span className="settingsHealthSignalBlocker" data-tone="destructive">阻塞发送</span>}
         {signal.blocksCapability && <span className="settingsHealthSignalBlocker" data-tone="warning">阻塞能力</span>}
       </div>

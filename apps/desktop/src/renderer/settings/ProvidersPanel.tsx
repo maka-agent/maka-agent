@@ -14,6 +14,7 @@ import {
   type UpdateConnectionInput,
 } from '@maka/core';
 import { useToast, useModalA11y } from '@maka/ui';
+import { formatRelativeTimestamp } from '@maka/core';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -37,39 +38,16 @@ const CATALOG_TABS: Array<{ id: CatalogTab; label: string }> = [
 ];
 
 /**
- * "（5 分钟前拉取）" style suffix for the model-source label. Uses
- * Intl.RelativeTimeFormat when available so the localization matches the
- * sidebar's session-meta format. Returns an empty string when no
- * timestamp is available (e.g. legacy connections from before
- * `modelsFetchedAt` was persisted by backend `94b482b`).
+ * "（5 分钟前拉取）" style suffix for the model-source label.
+ * Delegates to the shared `@maka/core/relative-time` helper so the
+ * format matches the sidebar's MessageMeta and every other Settings
+ * surface. Returns an empty string when no timestamp is available
+ * (e.g. legacy connections from before `modelsFetchedAt` was
+ * persisted by backend `94b482b`).
  */
 function formatFetchedAtSuffix(modelsFetchedAt: number | undefined): string {
   if (modelsFetchedAt === undefined) return '';
-  const diffMs = modelsFetchedAt - Date.now();
-  const absSec = Math.round(Math.abs(diffMs) / 1000);
-  if (typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function') {
-    const rtf = new Intl.RelativeTimeFormat(
-      typeof navigator !== 'undefined' ? navigator.language : 'en',
-      { numeric: 'auto', style: 'short' },
-    );
-    let value: number;
-    let unit: Intl.RelativeTimeFormatUnit;
-    if (absSec < 60) {
-      value = Math.round(diffMs / 1000);
-      unit = 'second';
-    } else if (absSec < 3600) {
-      value = Math.round(diffMs / 60_000);
-      unit = 'minute';
-    } else if (absSec < 86_400) {
-      value = Math.round(diffMs / 3_600_000);
-      unit = 'hour';
-    } else {
-      value = Math.round(diffMs / 86_400_000);
-      unit = 'day';
-    }
-    return `（${rtf.format(value, unit)}拉取）`;
-  }
-  return `（${new Date(modelsFetchedAt).toLocaleString()} 拉取）`;
+  return `（${formatRelativeTimestamp(modelsFetchedAt)}拉取）`;
 }
 
 export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {

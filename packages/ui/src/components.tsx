@@ -2498,7 +2498,7 @@ function formatAbsoluteTimestamp(ts: number): string {
  * minute, every minute within the first hour, then every 10 minutes;
  * past the 7-day horizon we stop ticking and show the absolute date.
  */
-function RelativeTime(props: { ts: number; className?: string; suppressTitle?: boolean }) {
+export function RelativeTime(props: { ts: number; className?: string; suppressTitle?: boolean }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const delay = nextRelativeRefreshDelay(props.ts);
