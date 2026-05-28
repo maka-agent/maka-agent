@@ -1867,6 +1867,21 @@ button:active {
   line-height: 1.35;
 }
 
+/* PR-PLAN-NEXT-RUN-COUNTDOWN-0: small accent pill next to the
+   absolute next-run time so user sees both wall-clock and
+   distance-from-now in one glance. */
+.maka-plan-card-countdown {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
 .maka-plan-card-history {
   display: grid;
   gap: 3px;

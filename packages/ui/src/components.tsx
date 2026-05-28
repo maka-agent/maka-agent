@@ -1118,11 +1118,18 @@ function PlanReminderPanel(props: {
               <div className="maka-plan-card-main">
                 <div className="maka-plan-card-title">{reminder.title}</div>
                 <div className="maka-plan-card-time">
-                  {reminder.nextRunAt
-                    ? `下次触发：${formatReminderTime(reminder.nextRunAt)}`
-                    : reminder.lastRun
-                      ? `最近执行：${formatReminderTime(reminder.lastRun.at)} · ${runStatusLabel(reminder.lastRun.status)}`
-                      : '未安排'}
+                  {reminder.nextRunAt ? (
+                    <>
+                      下次触发：{formatReminderTime(reminder.nextRunAt)}
+                      <span className="maka-plan-card-countdown">
+                        {formatReminderCountdown(reminder.nextRunAt)}
+                      </span>
+                    </>
+                  ) : reminder.lastRun ? (
+                    `最近执行：${formatReminderTime(reminder.lastRun.at)} · ${runStatusLabel(reminder.lastRun.status)}`
+                  ) : (
+                    '未安排'
+                  )}
                 </div>
                 <div className="maka-plan-card-repeat">{formatPlanRecurrence(reminder)}</div>
                 {reminder.note && <div className="maka-plan-card-note">{reminder.note}</div>}
@@ -1184,6 +1191,29 @@ function formatReminderTime(ts: number): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(ts));
+}
+
+/**
+ * PR-PLAN-NEXT-RUN-COUNTDOWN-0: small chip next to the absolute
+ * next-run time so the user sees both "what" and "when from now"
+ * in one glance. Past-due reminders read as "已过期"; very near
+ * (< 60s) reads "马上"; the rest read in minute / hour / day
+ * buckets so screen-reader users get a single self-contained
+ * label.
+ */
+function formatReminderCountdown(ts: number, now: number = Date.now()): string {
+  const diffMs = ts - now;
+  if (diffMs <= -60_000) return '已过期';
+  if (diffMs < 60_000) return '马上';
+  const diffMin = Math.round(diffMs / 60_000);
+  if (diffMin < 60) return `${diffMin} 分钟后`;
+  const diffHour = Math.round(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} 小时后`;
+  const diffDay = Math.round(diffHour / 24);
+  if (diffDay === 1) return '明天';
+  if (diffDay < 7) return `${diffDay} 天后`;
+  if (diffDay < 30) return `${Math.round(diffDay / 7)} 周后`;
+  return `${Math.round(diffDay / 30)} 个月后`;
 }
 
 function formatPlanRecurrence(reminder: PlanReminder): string {
