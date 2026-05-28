@@ -38,6 +38,7 @@ import type {
   RetryTurnInput,
   TurnRecord,
   PermissionSnapshot,
+  OpenGatewayRuntimeStatus,
   AuthorizationUrlPayload,
   SubscriptionAccountState,
   SubscriptionActionResult,
@@ -227,6 +228,16 @@ contextBridge.exposeInMainWorld('maka', {
     // into telemetry.
     thread(request: SearchRequest): Promise<SearchResult[] | { ok: false; reason: SearchErrorReason; message: string }> {
       return ipcRenderer.invoke('search:thread', request);
+    },
+  },
+  gateway: {
+    status(): Promise<OpenGatewayRuntimeStatus> {
+      return ipcRenderer.invoke('gateway:status');
+    },
+    subscribeStatusChanges(handler: (status: OpenGatewayRuntimeStatus) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: OpenGatewayRuntimeStatus) => handler(payload);
+      ipcRenderer.on('gateway:statusChanged', listener);
+      return () => ipcRenderer.off('gateway:statusChanged', listener);
     },
   },
   // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth bridge.

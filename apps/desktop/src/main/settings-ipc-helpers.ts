@@ -51,6 +51,14 @@ export function preserveSensitivePlaceholders(
           },
         }
       : {}),
+    ...(patch.openGateway?.token === SENSITIVE_PLACEHOLDER
+      ? {
+          openGateway: {
+            ...patch.openGateway,
+            token: current.openGateway.token,
+          },
+        }
+      : {}),
   };
 }
 
@@ -82,6 +90,12 @@ export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSet
           },
         ]),
       ) as AppSettings['botChat']['channels'],
+    },
+    openGateway: {
+      ...settings.openGateway,
+      token: shouldReveal(revealPatch.openGateway?.token)
+        ? settings.openGateway.token
+        : maskSensitive(settings.openGateway.token) ?? '',
     },
   };
 }

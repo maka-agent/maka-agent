@@ -37,6 +37,7 @@ import type {
   OsPermissionId,
   OsPermissionSnapshot,
   OsPermissionState,
+  OpenGatewayRuntimeStatus,
   PermissionSnapshot,
   PersonalizationSettingsWarning,
   SettingsSection,
@@ -103,7 +104,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'usage', label: '使用统计', Icon: BarChart3, enabled: true, group: 'AI' },
   { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, group: 'AI' },
   { id: 'voice-models', label: '语音模型', Icon: Volume2, enabled: true, comingSoon: true, group: 'AI' },
-  { id: 'open-gateway', label: '开放网关', Icon: Sparkles, enabled: true, comingSoon: true, group: 'AI' },
+  { id: 'open-gateway', label: '开放网关', Icon: Sparkles, enabled: true, group: 'AI' },
   // Group 3: 集成 — bot、搜索、网络
   { id: 'bot-chat', label: '机器人对话', Icon: Bot, enabled: true, group: '集成' },
   // PR-UX-POLISH-1 commit 2 (yuejing UX audit msg `9c779b56`):
@@ -191,34 +192,6 @@ const COMING_SOON_PAGES: Partial<Record<SettingsSection, ComingSoonCopy>> = {
       '未来在「语音模型」内由用户显式选择语音通道，并经由 macOS 系统获取麦克风权限',
       '选择 TTS / STT 的具体引擎与 connection',
       '可选：单独为语音通道指定代理、缓存目录或本地模型路径',
-    ],
-  },
-  'open-gateway': {
-    Icon: Sparkles,
-    headline: '开放网关',
-    badge: 'V0.2 · disabled-by-default · token-required · localhost-only',
-    description:
-      '把 Maka 当作本机的 OpenAI 兼容 API 暴露给其他工具（IDE / shell / 工作流引擎）。这是一个被严格收窄的本地网关：只代理模型调用，永远不暴露 Settings、tools、文件或 bot 控制权。',
-    status: '当前尚未实现。即使在 V0.2 上线后，默认状态仍是关闭，未来由用户显式发起。',
-    willInclude: [
-      '本机 :3939 暴露 OpenAI 兼容端点 (chat / models / health)',
-      '上线时生成一次性 gateway token，每个请求必须 Authorization: Bearer',
-      '默认仅 bind 127.0.0.1；LAN 绑定需要在 Settings 中单独确认',
-      '调用走当前默认 provider，复用 Maka 的凭据、代理与权限策略',
-      '所有调用进入「使用统计」聚合，方便对账',
-    ],
-    willNotDo: [
-      '没有 gateway token 配置时不会接受任何请求',
-      'token 不允许读写 Settings、调用 tools、读写文件、安装 skills、运行 bots',
-      'CORS * 不被接受：跨源域必须在 allow-list 中显式列出',
-      'provider readiness 失败时不会静默走 fake fallback，永远返回结构化 needs_configuration',
-      '日志不记 prompt / response / Authorization header；只记 status / latency / model alias / token hash / token counts',
-    ],
-    nextConfig: [
-      '未来在「开放网关」内由用户显式生成 gateway token，保存到使用方的 secret store',
-      '确认 bind 地址（127.0.0.1 或受信任的 LAN 网段）',
-      '为跨源工具指定 CORS allow-list',
-      '在所选默认 provider 的凭据完成 readiness 校验后再向外暴露',
     ],
   },
   search: {
@@ -543,6 +516,8 @@ function SettingsPage(props: {
       );
     case 'network':
       return <NetworkSettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
+    case 'open-gateway':
+      return <OpenGatewaySettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
     case 'about':
       return <AboutSettingsPage />;
     case 'general':
@@ -1958,6 +1933,185 @@ function NetworkSettingsPage(props: {
       )}
     </div>
   );
+}
+
+function OpenGatewaySettingsPage(props: {
+  settings: AppSettings;
+  onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
+}) {
+  const gateway = props.settings.openGateway;
+  const [status, setStatus] = useState<OpenGatewayRuntimeStatus | null>(null);
+  const [tokenDraft, setTokenDraft] = useState(gateway.token);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    window.maka.gateway
+      .status()
+      .then((next) => {
+        if (!cancelled) setStatus(next);
+      })
+      .catch(() => {});
+    const unsubscribe = window.maka.gateway.subscribeStatusChanges((next) => {
+      if (!cancelled) setStatus(next);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    setTokenDraft(gateway.token);
+  }, [gateway.token]);
+
+  async function updateGateway(patch: Partial<AppSettings['openGateway']>) {
+    setSaving(true);
+    try {
+      await props.onUpdate({ openGateway: patch });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveToken(nextToken = tokenDraft.trim()) {
+    await updateGateway({ token: nextToken });
+    toast.success(nextToken ? '网关 token 已保存' : '网关 token 已清空');
+  }
+
+  async function generateToken() {
+    const token = generateGatewayToken();
+    setTokenDraft(token);
+    await updateGateway({ token });
+    toast.success('网关 token 已生成', '本机 API 需要 Authorization Bearer token。');
+  }
+
+  async function copyBaseUrl() {
+    const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
+    await navigator.clipboard.writeText(baseUrl);
+    toast.success('已复制网关地址', baseUrl);
+  }
+
+  const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
+  const state = presentGatewayStatus(status, gateway);
+
+  return (
+    <div className="settingsStructuredPage">
+      <div className="settingsUsageSummary" aria-label="开放网关状态">
+        <MetricCard title="状态" value={state.label} detail={state.detail} />
+        <MetricCard title="监听地址" value={baseUrl} detail={gateway.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
+        <MetricCard title="访问凭据" value={gateway.token ? '已配置' : '未配置'} detail="Bearer token 保护所有 /v1 API" />
+        <MetricCard title="能力" value="4 个端点" detail="/health · sessions · search" />
+      </div>
+
+      <div className="settingsFormRow">
+        <div>
+          <strong>开放本机 API 网关</strong>
+          <small>启动一个本机 HTTP 服务，让外部工具读取会话、消息和本地搜索结果。</small>
+        </div>
+        <Switch checked={gateway.enabled} disabled={saving} onChange={(enabled) => updateGateway({ enabled })} />
+      </div>
+
+      <div className="settingsFormGrid settingsFormGridProxy">
+        <label>
+          <span>监听地址</span>
+          <select
+            value={gateway.host}
+            disabled={saving}
+            onChange={(event) => updateGateway({ host: event.currentTarget.value as AppSettings['openGateway']['host'] })}
+          >
+            <option value="127.0.0.1">127.0.0.1</option>
+            <option value="0.0.0.0">0.0.0.0</option>
+          </select>
+        </label>
+        <label>
+          <span>端口</span>
+          <input
+            value={String(gateway.port)}
+            disabled={saving}
+            inputMode="numeric"
+            onChange={(event) => updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
+          />
+        </label>
+        <label>
+          <span>访问 token</span>
+          <input
+            type="password"
+            value={tokenDraft}
+            disabled={saving}
+            onChange={(event) => setTokenDraft(event.currentTarget.value)}
+            onBlur={() => {
+              if (tokenDraft !== gateway.token) void saveToken();
+            }}
+            placeholder="生成或输入 token"
+          />
+        </label>
+      </div>
+
+      {gateway.enabled && !gateway.token && (
+        <div className="settingsNotice" data-tone="passive">
+          网关已开启，但还没有 token。生成 token 后服务会自动启动。
+        </div>
+      )}
+      {status?.lastError && (
+        <div className="settingsNotice">
+          启动状态：{gatewayErrorCopy(status.lastError)}
+        </div>
+      )}
+
+      <div className="settingsActionRow">
+        <button className="maka-button" type="button" disabled={saving} onClick={() => void generateToken()}>
+          生成 token
+        </button>
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || saving} onClick={() => void saveToken('')}>
+          清空 token
+        </button>
+        <button className="maka-button secondary" type="button" onClick={() => void copyBaseUrl()}>
+          复制地址
+        </button>
+      </div>
+
+      <SettingsRows>
+        <SettingRow title="健康检查" detail="不需要 token，用于确认网关进程是否启动。" value="GET /health" />
+        <SettingRow title="能力清单" detail="需要 Bearer token，返回当前开放的本机 API 能力。" value="GET /v1/capabilities" />
+        <SettingRow title="会话列表" detail="需要 Bearer token，返回本地 session summary。" value="GET /v1/sessions" />
+        <SettingRow title="会话消息" detail="需要 Bearer token，按 sessionId 读取本地消息。" value="GET /v1/sessions/:id/messages" />
+        <SettingRow title="本地搜索" detail="需要 Bearer token，复用 Maka 的 thread search。" value="GET /v1/search/thread?q=..." />
+      </SettingsRows>
+
+      <p className="settingsHelpText">
+        所有 /v1 接口只读且默认关闭。把监听地址设成 0.0.0.0 会让同一局域网设备可访问，请只在可信网络中使用。
+      </p>
+    </div>
+  );
+}
+
+function gatewayBaseUrl(host: AppSettings['openGateway']['host'], port: number): string {
+  return `http://${host}:${port}`;
+}
+
+function presentGatewayStatus(
+  status: OpenGatewayRuntimeStatus | null,
+  settings: AppSettings['openGateway'],
+): { label: string; detail: string } {
+  if (!settings.enabled) return { label: '已关闭', detail: 'Settings 开关关闭' };
+  if (!settings.token) return { label: '未启动', detail: '缺少访问 token' };
+  if (!status) return { label: '读取中', detail: '正在读取运行状态' };
+  if (status.running) return { label: '运行中', detail: status.startedAt ? '本机 API 已启动' : '服务已监听' };
+  return { label: '启动失败', detail: gatewayErrorCopy(status.lastError ?? 'gateway_start_failed') };
+}
+
+function gatewayErrorCopy(error: string): string {
+  if (error === 'missing_token') return '缺少访问 token';
+  if (error.includes('EADDRINUSE')) return '端口已被占用';
+  return error;
+}
+
+function generateGatewayToken(): string {
+  const bytes = new Uint8Array(24);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function toProxyTestInput(proxy: NetworkProxySettings): TestProxyInput {

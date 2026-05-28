@@ -86,11 +86,19 @@ export function buildCapabilitySnapshotCollection(input: {
       id: 'open_gateway',
       label: 'Open Gateway',
       now,
-      feature: { state: 'not_available', source: 'scaffold', reason: 'local gateway not implemented' },
+      feature: {
+        state: input.settings.openGateway.enabled ? 'enabled' : 'disabled',
+        source: 'settings',
+        reason: input.settings.openGateway.enabled ? undefined : 'local gateway disabled',
+      },
       requiredPermissions: [],
       actionApproval: { state: 'required_per_action', source: 'capability_policy' },
       memoryAcceptance: { state: 'not_applicable', source: 'not_applicable' },
-      runtimeProbe: { state: 'not_available', source: 'not_applicable' },
+      runtimeProbe: {
+        state: input.settings.openGateway.enabled && input.settings.openGateway.token ? 'not_run' : 'not_available',
+        source: input.settings.openGateway.enabled ? 'runtime_probe' : 'not_applicable',
+        reason: input.settings.openGateway.enabled && !input.settings.openGateway.token ? 'missing_token' : undefined,
+      },
     }),
     staticCapability({
       id: 'memory_write',

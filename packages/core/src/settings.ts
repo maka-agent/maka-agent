@@ -213,6 +213,24 @@ export interface OnboardingSettings {
   milestones: OnboardingMilestone[];
 }
 
+export interface OpenGatewaySettings {
+  enabled: boolean;
+  host: '127.0.0.1' | '0.0.0.0';
+  port: number;
+  token: string;
+}
+
+export interface OpenGatewayRuntimeStatus {
+  enabled: boolean;
+  running: boolean;
+  host: OpenGatewaySettings['host'];
+  port: number;
+  baseUrl: string | null;
+  startedAt?: number;
+  lastError?: string;
+  tokenConfigured: boolean;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   network: NetworkSettings;
@@ -221,6 +239,7 @@ export interface AppSettings {
   appearance: AppearanceSettings;
   personalization: PersonalizationSettings;
   onboarding: OnboardingSettings;
+  openGateway: OpenGatewaySettings;
 }
 
 export interface UsageRequestLog {
@@ -274,6 +293,7 @@ export type UpdateAppSettingsInput = Partial<{
   usage: Partial<UsageSettings>;
   appearance: Partial<AppearanceSettings>;
   personalization: Partial<PersonalizationSettings>;
+  openGateway: Partial<OpenGatewaySettings>;
 }>;
 
 export type PersonalizationSettingsWarning =
@@ -362,6 +382,12 @@ export function createDefaultSettings(): AppSettings {
     onboarding: {
       milestones: [],
     },
+    openGateway: {
+      enabled: false,
+      host: '127.0.0.1',
+      port: 3939,
+      token: '',
+    },
   };
 }
 
@@ -409,6 +435,10 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
       // rather than the generic UpdateAppSettingsInput patch surface.
       // Keep the existing list intact when callers patch other sections.
     },
+    openGateway: {
+      ...current.openGateway,
+      ...(patch.openGateway ?? {}),
+    },
   };
 }
 
@@ -422,6 +452,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     usage: value.usage,
     appearance: value.appearance,
     personalization: value.personalization,
+    openGateway: value.openGateway,
   });
   // PR110b: milestones bypass the generic patch surface so we can
   // sanitize them with the closed-enum + at-most-one validator on
@@ -493,6 +524,23 @@ export function normalizeSettings(input: unknown): AppSettings {
     onboarding: {
       milestones: sanitizeOnboardingMilestones(rawMilestones),
     },
+    openGateway: normalizeOpenGatewaySettings(base.openGateway),
+  };
+}
+
+function normalizeOpenGatewaySettings(settings: OpenGatewaySettings): OpenGatewaySettings {
+  const port = Number.isInteger(settings.port) && settings.port >= 1024 && settings.port <= 65535
+    ? settings.port
+    : 3939;
+  const host = settings.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
+  const token = typeof settings.token === 'string' && settings.token.length <= 256
+    ? settings.token
+    : '';
+  return {
+    enabled: settings.enabled === true,
+    host,
+    port,
+    token,
   };
 }
 

@@ -504,3 +504,69 @@ describe('toast position settings contract (PR-UI-D2, @kenji msg eef6f7a5)', () 
     expect(normalized.appearance.toastPosition).toBe('bottom-right');
   });
 });
+
+describe('open gateway settings contract', () => {
+  test('createDefaultSettings seeds gateway disabled on localhost with no token', () => {
+    const defaults = createDefaultSettings();
+
+    expect(defaults.openGateway.enabled).toBe(false);
+    expect(defaults.openGateway.host).toBe('127.0.0.1');
+    expect(defaults.openGateway.port).toBe(3939);
+    expect(defaults.openGateway.token).toBe('');
+  });
+
+  test('normalizes malformed gateway fields fail-closed', () => {
+    const normalized = normalizeSettings({
+      openGateway: {
+        enabled: 'yes',
+        host: '::',
+        port: 80,
+        token: 'x'.repeat(257),
+      },
+    });
+
+    expect(normalized.openGateway.enabled).toBe(false);
+    expect(normalized.openGateway.host).toBe('127.0.0.1');
+    expect(normalized.openGateway.port).toBe(3939);
+    expect(normalized.openGateway.token).toBe('');
+  });
+
+  test('normalizes valid gateway settings without resetting unrelated fields', () => {
+    const normalized = normalizeSettings({
+      appearance: {
+        theme: 'dark',
+        density: 'compact',
+      },
+      openGateway: {
+        enabled: true,
+        host: '0.0.0.0',
+        port: 4939,
+        token: 'local-dev-token',
+      },
+    });
+
+    expect(normalized.appearance.theme).toBe('dark');
+    expect(normalized.appearance.density).toBe('compact');
+    expect(normalized.openGateway.enabled).toBe(true);
+    expect(normalized.openGateway.host).toBe('0.0.0.0');
+    expect(normalized.openGateway.port).toBe(4939);
+    expect(normalized.openGateway.token).toBe('local-dev-token');
+  });
+
+  test('mergeSettings carries partial gateway patches through update surface', () => {
+    const current = createDefaultSettings();
+    current.openGateway.token = 'stored-token';
+
+    const patched = mergeSettings(current, {
+      openGateway: {
+        enabled: true,
+        port: 4940,
+      },
+    });
+
+    expect(patched.openGateway.enabled).toBe(true);
+    expect(patched.openGateway.host).toBe('127.0.0.1');
+    expect(patched.openGateway.port).toBe(4940);
+    expect(patched.openGateway.token).toBe('stored-token');
+  });
+});

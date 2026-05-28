@@ -37,6 +37,7 @@ import type {
   RetryTurnInput,
   TurnRecord,
   PermissionSnapshot,
+  OpenGatewayRuntimeStatus,
   AuthorizationUrlPayload,
   SubscriptionAccountState,
   SubscriptionActionResult,
@@ -150,6 +151,10 @@ declare global {
           | SearchResult[]
           | { ok: false; reason: SearchErrorReason; message: string }
         >;
+      };
+      gateway: {
+        status(): Promise<OpenGatewayRuntimeStatus>;
+        subscribeStatusChanges(handler: (status: OpenGatewayRuntimeStatus) => void): () => void;
       };
       claudeSubscription: {
         isExperimentalEnabled(): Promise<boolean>;

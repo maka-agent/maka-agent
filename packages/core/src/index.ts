@@ -478,6 +478,8 @@ export type {
   BotReadinessState,
   NetworkProxySettings,
   NetworkSettings,
+  OpenGatewaySettings,
+  OpenGatewayRuntimeStatus,
   ProxyProtocol,
   SettingsSection,
   SettingsTestResult,

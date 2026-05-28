@@ -117,6 +117,7 @@ import {
   seedVisualSmokeFixture,
 } from './visual-smoke-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
+import { OpenGatewayService } from './open-gateway.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -145,6 +146,17 @@ const claudeSubscription = new ClaudeSubscriptionService({
   userDataDir: app.getPath('userData'),
 });
 const planReminderStore = createPlanReminderStore(workspaceRoot);
+const openGateway = new OpenGatewayService({
+  getSettings: () => settingsStore.get(),
+  listSessions: () => runtime.listSessions(),
+  readMessages: (sessionId) => runtime.getMessages(sessionId),
+  searchThread: (query) =>
+    runThreadSearch({ source: 'thread', query }, {
+      listSessions: () => runtime.listSessions(),
+      readMessages: (sessionId: string) => runtime.getMessages(sessionId),
+      getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
+    }),
+});
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
 const builtinTools = buildBuiltinTools().filter((tool) => tool.name !== 'Edit');
@@ -1182,6 +1194,7 @@ function registerIpc(): void {
     await applySettingsRuntimeEffects(next, patch);
     return buildSettingsUpdateResult(next, patch);
   });
+  ipcMain.handle('gateway:status', async () => openGateway.getStatus());
   ipcMain.handle('settings:testNetworkProxy', async (_event, input: TestProxyInput = {}) => {
     const started = Date.now();
     const stored = toContractNetworkSettings((await settingsStore.get()).network).proxy;
@@ -1375,6 +1388,10 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
   }
   if (patch.botChat) {
     await botRegistry.applySettings(settings.botChat);
+  }
+  if (patch.openGateway) {
+    const status = await openGateway.sync(settings.openGateway);
+    mainWindow?.webContents.send('gateway:statusChanged', status);
   }
 }
 
@@ -1847,6 +1864,7 @@ app.whenReady().then(async () => {
   await telemetryRepo.load();
   lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
   await botRegistry.applySettings(settings.botChat);
+  await openGateway.sync(settings.openGateway);
   await createWindow();
   await refreshPlanReminderTimers();
 });
@@ -1858,6 +1876,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   for (const id of Array.from(planReminderTimers.keys())) clearPlanReminderTimer(id);
   void botRegistry.stopAll();
+  void openGateway.stop();
 });
 
 app.on('activate', () => {
