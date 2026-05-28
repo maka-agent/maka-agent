@@ -41,6 +41,7 @@ import type {
   SubscriptionAccountState,
   SubscriptionActionResult,
   PlanReminder,
+  DailyReviewSummary,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -185,6 +186,9 @@ declare global {
         listPricing(): Promise<Result<PricingConfig[]>>;
         putPricing(pricing: PricingConfig): Promise<Result<PricingConfig>>;
         resetPricing(modelKey: string): Promise<Result<void>>;
+      };
+      dailyReview: {
+        day(offsetDays: number): Promise<Result<DailyReviewSummary>>;
       };
       appWindow: {
         subscribeOpenSettings(handler: () => void): () => void;

@@ -538,3 +538,21 @@ export {
   nextRelativeRefreshDelay,
   resetRelativeTimeFormatters,
 } from './relative-time.js';
+
+// daily-review.ts (PR-DAILY-REVIEW-MVP-0)
+export type {
+  DailyReviewSessionRow,
+  DailyReviewSummary,
+  DailyReviewTopEntry,
+  DailyReviewTotals,
+  DayRangeMs,
+} from './daily-review.js';
+export {
+  DAILY_REVIEW_LIST_LIMIT,
+  buildDailyReviewSummary,
+  dailyUsageQuery,
+  localDayBoundsAt,
+  localDayBoundsForInstant,
+  pickDailyReviewSessions,
+  pickDailyReviewTopEntries,
+} from './daily-review.js';

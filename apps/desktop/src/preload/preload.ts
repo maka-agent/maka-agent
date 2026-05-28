@@ -42,6 +42,7 @@ import type {
   SubscriptionAccountState,
   SubscriptionActionResult,
   PlanReminder,
+  DailyReviewSummary,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -347,6 +348,11 @@ contextBridge.exposeInMainWorld('maka', {
     },
     resetPricing(modelKey: string): Promise<Result<void>> {
       return ipcRenderer.invoke('usage:pricing:reset', modelKey);
+    },
+  },
+  dailyReview: {
+    day(offsetDays: number): Promise<Result<DailyReviewSummary>> {
+      return ipcRenderer.invoke('daily-review:day', { offsetDays });
     },
   },
   appWindow: {

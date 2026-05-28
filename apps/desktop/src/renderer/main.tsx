@@ -199,6 +199,19 @@ function AppShell(props: {
     [sessions],
   );
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
+  // PR-DAILY-REVIEW-MVP-0: bridge for the SessionListPanel's daily
+  // review section. Memoized so the panel's `useEffect` cleanup keys
+  // off a stable reference instead of refetching on every render.
+  const dailyReviewBridge = useMemo(
+    () => ({
+      async fetchDay(offsetDays: number) {
+        const result = await window.maka.dailyReview.day(offsetDays);
+        if (!result.ok) throw new Error(result.error.message);
+        return result.data;
+      },
+    }),
+    [],
+  );
   const activePermission = activeId ? permissionBySession[activeId] : undefined;
   const activeSession = sessions.find((session) => session.id === activeId);
   const activeConnection = activeSession
@@ -1596,6 +1609,7 @@ function AppShell(props: {
             onCreatePlanReminder={(input) => void createPlanReminder(input)}
             onTogglePlanReminder={(id, enabled) => void togglePlanReminder(id, enabled)}
             onDeletePlanReminder={(id) => void deletePlanReminder(id)}
+            dailyReviewBridge={dailyReviewBridge}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
               onArchive: (sessionId) => void archiveSession(sessionId),

@@ -66,6 +66,7 @@ import {
   formatRelativeTimestamp,
   nextRelativeRefreshDelay,
 } from '@maka/core';
+import type { DailyReviewSummary, DailyReviewTopEntry } from '@maka/core';
 import {
   materializeChat,
   materializeTools,
@@ -303,6 +304,13 @@ export function SessionListPanel(props: {
   onCreatePlanReminder?(input: { title: string; note?: string; runAt: number }): void;
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onDeletePlanReminder?(id: string): void;
+  /**
+   * PR-DAILY-REVIEW-MVP-0: bridge for the `每日回顾` panel. When
+   * provided, the daily-review section renders the real panel instead
+   * of the stub view. When `undefined` (e.g. in visual-smoke fixtures
+   * without an IPC layer), it falls back to the legacy stub.
+   */
+  dailyReviewBridge?: DailyReviewBridge;
   rowActions?: SessionRowActions;
 }) {
   // PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ `49309559` + kenji
@@ -585,15 +593,15 @@ export function SessionListPanel(props: {
               />
             </div>
           )
+        ) : props.selection.section === 'daily-review' && props.dailyReviewBridge ? (
+          // PR-DAILY-REVIEW-MVP-0: real panel — reads telemetry +
+          // session metadata via the bridge. Stub fallback kept just
+          // below for fixtures that don't wire a bridge.
+          <DailyReviewPanel
+            bridge={props.dailyReviewBridge}
+            onSelectSession={props.onSelectSession}
+          />
         ) : (
-          // PR-SIDEBAR-IA-0 Phase 2: stub view for Daily Review.
-          // It renders an empty-state
-          // pattern reusing `.maka-empty-state` for visual rhythm
-          // consistency. Per xuan `47e204f2` #1, these placeholders
-          // do NOT introduce new framework code — just shape +
-          // generalized 中文 copy. Real implementations:
-          //   - Search: PR-SEARCH-MODAL-0 (Phase 4 within this PR)
-          //   - Daily Review: future PR-DAILY-*
           (() => {
             const stub = STUB_VIEWS[props.selection.section];
             if (!stub) return null;
@@ -734,6 +742,193 @@ export function EmptyState(props: EmptyStateProps) {
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * PR-DAILY-REVIEW-MVP-0: bridge handed in by `main.tsx`. Keeps
+ * `@maka/ui` out of `window.maka` — the renderer wires
+ * `(offsetDays) => window.maka.dailyReview.day(offsetDays)` and the
+ * UI layer is reusable in fixtures / visual smoke / future surfaces
+ * (e.g. a desktop notification renderer).
+ */
+export interface DailyReviewBridge {
+  fetchDay(offsetDays: number): Promise<DailyReviewSummary>;
+}
+
+/**
+ * Local-only daily summary view. Renders today by default; the
+ * left/right arrows step through `offsetDays`. No LLM call — the
+ * bullet list of sessions / top tools / top models is the whole
+ * value-prop. Future PR can layer a generated narrative on top.
+ *
+ * borrow: alma "today" digest concept (read-only summary).
+ * diverge: no cron, no auto-push, no memory promotion (privacy default).
+ */
+function DailyReviewPanel(props: {
+  bridge: DailyReviewBridge;
+  onSelectSession?: (sessionId: string) => void;
+}) {
+  const [offsetDays, setOffsetDays] = useState(0);
+  const [summary, setSummary] = useState<DailyReviewSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    props.bridge
+      .fetchDay(offsetDays)
+      .then((next) => {
+        if (cancelled) return;
+        setSummary(next);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setSummary(null);
+        setError(err instanceof Error ? err.message : '加载失败');
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [offsetDays, props.bridge]);
+
+  const dayLabel = offsetDays === 0 ? '今天' : offsetDays === -1 ? '昨天' : `${-offsetDays} 天前`;
+
+  return (
+    <div className="maka-daily-review-panel" data-loading={loading ? 'true' : undefined}>
+      <header className="maka-daily-review-header">
+        <button
+          type="button"
+          className="maka-button maka-button-ghost"
+          onClick={() => setOffsetDays((n) => n - 1)}
+          aria-label="查看更早一天"
+        >
+          ‹
+        </button>
+        <div className="maka-daily-review-day">{dayLabel}</div>
+        <button
+          type="button"
+          className="maka-button maka-button-ghost"
+          onClick={() => setOffsetDays((n) => Math.min(0, n + 1))}
+          disabled={offsetDays >= 0}
+          aria-label="查看更晚一天"
+        >
+          ›
+        </button>
+      </header>
+
+      {error ? (
+        <EmptyState
+          Icon={CalendarDays}
+          title="读取失败"
+          body={error}
+          cta={{ label: '重试', onClick: () => setOffsetDays((n) => n) }}
+        />
+      ) : loading || !summary ? (
+        <div className="maka-daily-review-loading" aria-busy="true">
+          <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
+          <div className="maka-skeleton maka-skeleton-line" style={{ width: '90%' }} />
+          <div className="maka-skeleton maka-skeleton-line" style={{ width: '75%' }} />
+        </div>
+      ) : summary.totals.sessionCount === 0 && summary.totals.requestCount === 0 ? (
+        <EmptyState
+          Icon={CalendarDays}
+          title={offsetDays === 0 ? '今天还没有活动' : `${dayLabel}没有活动`}
+          body="这一天没有发起对话，也没有调用模型。"
+        />
+      ) : (
+        <>
+          <section className="maka-daily-review-totals" aria-label="今日总览">
+            <DailyReviewTotalsCell label="对话" value={summary.totals.sessionCount.toString()} />
+            <DailyReviewTotalsCell label="请求" value={summary.totals.requestCount.toString()} />
+            <DailyReviewTotalsCell
+              label="Tokens"
+              value={summary.totals.totalTokens.toLocaleString()}
+            />
+            <DailyReviewTotalsCell
+              label="费用"
+              value={`$${summary.totals.costUsd.toFixed(2)}`}
+            />
+            {summary.totals.errorCount > 0 && (
+              <DailyReviewTotalsCell
+                label="错误"
+                value={summary.totals.errorCount.toString()}
+                tone="error"
+              />
+            )}
+          </section>
+
+          {summary.sessions.length > 0 && (
+            <section className="maka-daily-review-section" aria-label="活跃对话">
+              <h4 className="maka-daily-review-section-title">活跃对话</h4>
+              <ul className="maka-daily-review-list">
+                {summary.sessions.map((session) => (
+                  <li key={session.id} className="maka-daily-review-list-item">
+                    <button
+                      type="button"
+                      className="maka-daily-review-session-button"
+                      onClick={() => props.onSelectSession?.(session.id)}
+                      disabled={!props.onSelectSession}
+                    >
+                      <span className="maka-daily-review-session-name">{session.name}</span>
+                      <RelativeTime
+                        ts={session.lastMessageAt}
+                        className="maka-daily-review-session-time"
+                      />
+                    </button>
+                    {session.lastMessagePreview && (
+                      <span className="maka-daily-review-session-preview">
+                        {session.lastMessagePreview}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {summary.topModels.length > 0 && (
+            <DailyReviewTopList title="模型使用" entries={summary.topModels} />
+          )}
+
+          {summary.topTools.length > 0 && (
+            <DailyReviewTopList title="工具调用" entries={summary.topTools} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function DailyReviewTotalsCell(props: { label: string; value: string; tone?: 'error' }) {
+  return (
+    <div className="maka-daily-review-totals-cell" data-tone={props.tone}>
+      <span className="maka-daily-review-totals-value">{props.value}</span>
+      <span className="maka-daily-review-totals-label">{props.label}</span>
+    </div>
+  );
+}
+
+function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<DailyReviewTopEntry> }) {
+  return (
+    <section className="maka-daily-review-section" aria-label={props.title}>
+      <h4 className="maka-daily-review-section-title">{props.title}</h4>
+      <ul className="maka-daily-review-list">
+        {props.entries.map((entry) => (
+          <li key={entry.key} className="maka-daily-review-list-item">
+            <span className="maka-daily-review-top-label">{entry.label}</span>
+            <span className="maka-daily-review-top-meta">
+              {entry.requests} 次 · {entry.totalTokens.toLocaleString()} tok
+              {entry.costUsd > 0 ? ` · $${entry.costUsd.toFixed(2)}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

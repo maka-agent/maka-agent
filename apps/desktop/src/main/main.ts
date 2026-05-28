@@ -22,6 +22,7 @@ import type {
   CreateConnectionInput,
   CreateSessionInput,
   BranchFromTurnInput,
+  DailyReviewSummary,
   RegenerateTurnInput,
   RetryTurnInput,
   SessionCommand,
@@ -35,6 +36,15 @@ import type {
   UpdateAppSettingsInput,
   UsageRange,
   PlanReminder,
+} from '@maka/core';
+import {
+  DAILY_REVIEW_LIST_LIMIT,
+  buildDailyReviewSummary,
+  dailyUsageQuery,
+  localDayBoundsAt,
+  localDayBoundsForInstant,
+  pickDailyReviewSessions,
+  pickDailyReviewTopEntries,
 } from '@maka/core';
 import { runThreadSearch } from './search/thread-search.js';
 import {
@@ -1245,6 +1255,35 @@ function registerIpc(): void {
   );
   ipcMain.handle('usage:summary', (_event, query: UsageQuery) =>
     tryResult(async () => telemetryRepo.summary(query), 'USAGE_SUMMARY_FAILED'),
+  );
+  // PR-DAILY-REVIEW-MVP-0: bundle one day's telemetry + session
+  // metadata into a single IPC payload so the renderer panel does not
+  // have to fan out 4 IPC calls of its own. All reads are local: the
+  // existing telemetry repo + session list. No new disk/network IO.
+  ipcMain.handle(
+    'daily-review:day',
+    (_event, payload: { offsetDays?: number } | undefined) =>
+      tryResult(async (): Promise<DailyReviewSummary> => {
+        const offset = Number.isFinite(payload?.offsetDays) ? Math.trunc(payload!.offsetDays!) : 0;
+        const day =
+          offset === 0
+            ? localDayBoundsForInstant(Date.now())
+            : localDayBoundsAt(Date.now(), offset);
+        const usageQuery = dailyUsageQuery(day);
+        const [usageSummary, toolBuckets, modelBuckets, sessions] = await Promise.all([
+          Promise.resolve(telemetryRepo.summary(usageQuery)),
+          Promise.resolve(telemetryRepo.buckets(usageQuery, 'tool')),
+          Promise.resolve(telemetryRepo.buckets(usageQuery, 'model')),
+          Promise.resolve(runtime.listSessions()),
+        ]);
+        return buildDailyReviewSummary({
+          day,
+          usageSummary,
+          sessions: pickDailyReviewSessions(sessions, day, DAILY_REVIEW_LIST_LIMIT),
+          topTools: pickDailyReviewTopEntries(toolBuckets, DAILY_REVIEW_LIST_LIMIT),
+          topModels: pickDailyReviewTopEntries(modelBuckets, DAILY_REVIEW_LIST_LIMIT),
+        });
+      }, 'DAILY_REVIEW_DAY_FAILED'),
   );
   ipcMain.handle('usage:buckets', (_event, query: UsageQuery & { groupBy: UsageGroupBy }) =>
     tryResult(async () => telemetryRepo.buckets(query, query.groupBy), 'USAGE_BUCKETS_FAILED'),
