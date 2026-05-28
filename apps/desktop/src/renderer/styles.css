@@ -6583,7 +6583,8 @@ button:active {
   transform: translateY(1px);
 }
 
-.providerCatalogCard[data-status="coming-soon"] {
+.providerCatalogCard[data-status="coming-soon"],
+.providerCatalogCard[data-status="experimental"] {
   /* PR-UI-LAYOUT-41 follow-up (@kenji gate 2): cursor `help` was
    * acceptable but `not-allowed` is the honest signal — this
    * surface is non-actionable, not "more info on hover". The
@@ -6593,7 +6594,8 @@ button:active {
   opacity: 0.66;
 }
 
-.providerCatalogCard[data-status="coming-soon"]:hover {
+.providerCatalogCard[data-status="coming-soon"]:hover,
+.providerCatalogCard[data-status="experimental"]:hover {
   transform: none;
   border-color: var(--border);
   box-shadow: none;
@@ -6605,7 +6607,8 @@ button:active {
  * is here as a belt-and-suspenders override in case some future
  * change accidentally adds tabindex / contenteditable / button
  * fallback. */
-.providerCatalogCard[data-status="coming-soon"]:focus-visible {
+.providerCatalogCard[data-status="coming-soon"]:focus-visible,
+.providerCatalogCard[data-status="experimental"]:focus-visible {
   outline: none;
   box-shadow: none;
   border-color: var(--border);
@@ -6629,6 +6632,19 @@ button:active {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+.providerCatalogCard[data-status="experimental"]::after {
+  content: "实验";
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border-radius: 999px;
+  background: oklch(from var(--warning) l c h / 0.14);
+  color: var(--warning-text);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 /* PR-UI-13 (@yuejing 2026-05-22): ProviderLogo size normalization.

@@ -291,15 +291,14 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
   const defaults = PROVIDER_DEFAULTS[props.type];
   const display = providerDisplay(props.type);
   const disabled = defaults.status !== 'ready';
+  const disabledStatus = providerDisabledStatus(props.type);
   // PR-UI-LAYOUT-41 follow-up (@kenji msg 618ee9a7 gate 3):
   // Roadmap title MUST avoid operational verbs (登录 / 连接 / 授权
   // / 测试 / 接入). The previous title said "...同一家厂商的
   // API key 在下方分类中接入" — "接入" reads as operational call
   // even though it's about the alternative API key path.
   // Rephrased to a stative observation: "API key 形式仍可用".
-  const title = disabled
-    ? '路线图项：尚未实现。同一家厂商的 API key 形式仍可用。'
-    : `添加 ${display.name}`;
+  const title = disabled ? providerDisabledTitle(props.type) : `添加 ${display.name}`;
 
   // PR-UI-LAYOUT-41 (@kenji review #my-ai:2f91befb gate):
   // disabled future actions MUST NOT be focusable / clickable. The
@@ -320,8 +319,8 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
       <div
         className="providerCatalogCard"
         data-provider={props.type}
-        data-status="coming-soon"
-        aria-label={`${display.name}（路线图，尚未实现）`}
+        data-status={disabledStatus}
+        aria-label={providerDisabledAriaLabel(props.type, display.name)}
         title={title}
       >
         <ProviderLogo type={props.type} />
@@ -355,6 +354,22 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
       </span>
     </button>
   );
+}
+
+function providerDisabledStatus(type: ProviderType): 'coming-soon' | 'experimental' {
+  return type === 'claude-subscription' ? 'experimental' : 'coming-soon';
+}
+
+function providerDisabledTitle(type: ProviderType): string {
+  if (type === 'claude-subscription') {
+    return '内部实验：账号认证已隔离，默认关闭，聊天发送未开放。API key 形式仍可用。';
+  }
+  return '路线图项：尚未实现。同一家厂商的 API key 形式仍可用。';
+}
+
+function providerDisabledAriaLabel(type: ProviderType, name: string): string {
+  if (type === 'claude-subscription') return `${name}（内部实验，默认关闭）`;
+  return `${name}（路线图，尚未实现）`;
 }
 
 export function ProviderLogo(props: { type: ProviderType; compact?: boolean }) {
@@ -461,7 +476,11 @@ function AddProviderForm(props: {
     if (slugError) return setError(slugError);
     if (props.existingSlugs.includes(slug)) return setError('Slug 已存在');
     if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写 Base URL');
-    if (isExperimental) return setError('OAuth 订阅登录即将推出');
+    if (isExperimental) {
+      return setError(props.providerType === 'claude-subscription'
+        ? 'Claude 订阅账号路径是内部实验，默认关闭；聊天发送通路未开放。请先使用 API key 连接。'
+        : 'OAuth 订阅登录即将推出');
+    }
     setBusy(true);
     try {
       const connection = await props.bridge.create({
@@ -483,15 +502,19 @@ function AddProviderForm(props: {
     <div className="providerEditor">
       <header>
         <div>
-          <h3>{isExperimental ? 'OAuth 订阅登录即将推出' : `添加 ${display.name}`}</h3>
+          <h3>{isExperimental && props.providerType === 'claude-subscription'
+            ? 'Claude 订阅账号为内部实验'
+            : isExperimental ? 'OAuth 订阅登录即将推出' : `添加 ${display.name}`}</h3>
           <p>{display.description}</p>
         </div>
         <span className="settingsBadge">{categoryLabel(defaults.category)}</span>
       </header>
       {isExperimental && (
         <div className="providerComingSoon">
-          <strong>即将推出</strong>
-          <span>这类供应商会通过官方 SDK 或 CLI 完成 OAuth 登录。当前可先使用同一家厂商的 API key 接入。</span>
+          <strong>{props.providerType === 'claude-subscription' ? '内部实验' : '即将推出'}</strong>
+          <span>{props.providerType === 'claude-subscription'
+            ? '账号认证路径已隔离在实验开关后；默认隐藏，聊天发送通路未开放。当前请使用 Anthropic API key。'
+            : '这类供应商会通过官方 SDK 或 CLI 完成 OAuth 登录。当前可先使用同一家厂商的 API key 接入。'}</span>
         </div>
       )}
       <label>
@@ -960,7 +983,7 @@ export function providerDisplay(type: ProviderType): { name: string; description
     // phrase describing the future capability) so the user
     // can't read it as "click here to log in".
     case 'claude-subscription':
-      return { name: 'Claude Subscription', description: 'Claude Pro / Max 订阅账号路径（路线图，尚未实现）。' };
+      return { name: 'Claude Subscription', description: 'Claude Pro / Max 订阅账号认证为内部实验；默认隐藏，聊天发送未开放。' };
     case 'codex-subscription':
       return { name: 'Codex Subscription', description: 'ChatGPT / Codex 订阅账号路径（路线图，尚未实现）。' };
     case 'gemini-cli':

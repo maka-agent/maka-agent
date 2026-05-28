@@ -39,6 +39,15 @@ const SETTINGS_SOURCE = resolve(
   'settings',
   'SettingsModal.tsx',
 );
+const PROVIDERS_PANEL_SOURCE = resolve(
+  REPO_ROOT,
+  'apps',
+  'desktop',
+  'src',
+  'renderer',
+  'settings',
+  'ProvidersPanel.tsx',
+);
 const CORE_TYPES_SOURCE = resolve(REPO_ROOT, 'packages', 'core', 'src', 'oauth-subscription.ts');
 
 describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
@@ -210,5 +219,22 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
       /\burl\b/,
       'getAuthorizationUrl return statement must NOT include url — pending.url stays in the service',
     );
+  });
+
+  it('ProvidersPanel presents Claude subscription as hidden experimental, not unimplemented roadmap', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const displayStart = src.indexOf('function providerDisplay');
+    assert.notEqual(displayStart, -1, 'providerDisplay function must exist');
+    const displaySource = src.slice(displayStart);
+    const displayCase = displaySource.match(/case\s+'claude-subscription':[\s\S]*?case\s+'codex-subscription':/)?.[0] ?? '';
+    assert.match(displayCase, /内部实验/, 'Claude subscription card must name the experimental gate');
+    assert.match(displayCase, /聊天发送未开放/, 'Claude subscription card must keep send-path boundary visible');
+    assert.doesNotMatch(
+      displayCase,
+      /路线图，尚未实现/,
+      'Claude subscription auth is no longer a pure unimplemented roadmap item',
+    );
+    assert.match(src, /function providerDisabledStatus\(type: ProviderType\): 'coming-soon' \| 'experimental'/);
+    assert.match(src, /type === 'claude-subscription' \? 'experimental' : 'coming-soon'/);
   });
 });
