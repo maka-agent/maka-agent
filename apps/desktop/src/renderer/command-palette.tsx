@@ -7,7 +7,9 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
+  CalendarDays,
   ChevronRight,
+  Clock,
   CornerDownLeft,
   Database,
   Download,
@@ -19,12 +21,14 @@ import {
   Plug,
   Plus,
   Settings as SettingsIcon,
+  Sparkles,
   Sun,
   SunMoon,
   Wifi,
   type LucideIcon,
 } from 'lucide-react';
 import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
+import type { NavSelection } from '@maka/ui';
 import { useModalA11y } from '@maka/ui';
 import { SETTINGS_NAV } from './settings/SettingsModal';
 import { useThreadSearch } from './use-thread-search';
@@ -83,6 +87,13 @@ export function buildCommandList(args: {
   onOpenSkillsFolder?(): Promise<void> | void;
   /** Copy the active conversation as Markdown to the clipboard. */
   onExportActiveConversation?(): Promise<void> | void;
+  /**
+   * PR-CMD-PALETTE-ENRICH-0: jump to a sidebar module (会话 / 计划 /
+   * 技能 / 每日回顾) directly from the palette. Search itself is
+   * already covered by the existing thread-search hookup, so the
+   * `search` module nav id is intentionally omitted here.
+   */
+  onSelectModule?(selection: NavSelection): void;
 }): Command[] {
   const cmds: Command[] = [
     {
@@ -146,6 +157,49 @@ export function buildCommandList(args: {
       run: () => args.onSetTheme('auto'),
     },
   ];
+
+  // PR-CMD-PALETTE-ENRICH-0: sidebar module jumps. Lets ⌘K →
+  // "每日回顾" / "技能" / "计划" switch the left rail without an
+  // extra mouse click. Cheap to ship — pure callback wiring.
+  if (args.onSelectModule) {
+    const select = args.onSelectModule;
+    cmds.push({
+      id: 'nav:sessions',
+      kind: 'action',
+      label: '侧栏 · 会话',
+      group: '导航',
+      Icon: MessageSquare,
+      keywords: ['sessions', 'chats', '会话', '对话', 'left'],
+      run: () => select({ section: 'sessions', filter: 'chats' }),
+    });
+    cmds.push({
+      id: 'nav:automations',
+      kind: 'action',
+      label: '侧栏 · 计划',
+      group: '导航',
+      Icon: Clock,
+      keywords: ['automations', 'plan', 'reminder', '计划', '提醒'],
+      run: () => select({ section: 'automations' }),
+    });
+    cmds.push({
+      id: 'nav:skills',
+      kind: 'action',
+      label: '侧栏 · 技能',
+      group: '导航',
+      Icon: Sparkles,
+      keywords: ['skills', '技能'],
+      run: () => select({ section: 'skills' }),
+    });
+    cmds.push({
+      id: 'nav:daily-review',
+      kind: 'action',
+      label: '侧栏 · 每日回顾',
+      group: '导航',
+      Icon: CalendarDays,
+      keywords: ['daily', 'review', 'today', '每日', '回顾', '今天'],
+      run: () => select({ section: 'daily-review' }),
+    });
+  }
 
   // One palette command per Settings section so ⌘K → label lands the user
   // directly on that page. Coming Soon pages are intentionally included

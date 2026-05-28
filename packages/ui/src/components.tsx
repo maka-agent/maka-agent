@@ -92,7 +92,7 @@ import {
  *   - search       → 搜索   (modal trigger; NOT a section)
  *   - automations  → 计划   (local reminder MVP; no arbitrary automation execution)
  *   - skills       → 技能   (reuses the existing skills view)
- *   - daily-review → 每日回顾  (stub "即将推出" view; future PR-DAILY-*)
+ *   - daily-review → 每日回顾  (PR-DAILY-REVIEW-MVP-0: real panel reading local telemetry + sessions)
  */
 export type NavSelection =
   | { section: 'sessions'; filter: SessionFilter }

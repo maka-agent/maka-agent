@@ -1826,6 +1826,10 @@ function AppShell(props: {
               }
             },
             onOpenSkillsFolder: () => openSkillsFolder(),
+            onSelectModule: (selection) => {
+              setNavSelection(selection);
+              closePalette();
+            },
             onExportActiveConversation: async () => {
               if (!activeId) return;
               const session = sessions.find((s) => s.id === activeId);
