@@ -134,13 +134,18 @@ export async function assertSessionCanSend(
 
 export async function ensureSessionCanSendOrRebind(
   sessionId: string,
-  header: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model'>,
+  header: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model' | 'connectionLocked'>,
   deps: SessionRebindDeps,
 ): Promise<SessionRebindResult> {
   try {
     await assertSessionCanSend(header, deps.readyConnectionDeps);
     return { rebound: false };
   } catch (error) {
+    // Once a session has user messages, its connection/model is sticky.
+    // Rebind remains only a recovery path for empty legacy placeholders.
+    if (header.connectionLocked) {
+      throw error;
+    }
     if (!shouldRebindSessionToDefault(errorReason(error))) {
       throw error;
     }

@@ -6026,6 +6026,10 @@ button:active {
   color: var(--info-text);
 }
 
+.modelTableHeaderText .modelTableStickyHint {
+  color: var(--foreground-50);
+}
+
 .modelTableSearch {
   width: 100%;
   padding: 7px 11px;

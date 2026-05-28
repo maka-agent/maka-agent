@@ -261,8 +261,9 @@ function isSafeSessionId(sessionId: string): boolean {
   return SESSION_ID_PATTERN.test(sessionId);
 }
 
-type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'permissionMode' | 'status' | 'blockedReason'> & {
+type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'model' | 'permissionMode' | 'status' | 'blockedReason'> & {
   backend: string;
+  model?: unknown;
   permissionMode?: unknown;
   status?: unknown;
   blockedReason?: unknown;
@@ -270,6 +271,7 @@ type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'permissionMode' | 's
 
 function migrateHeader(header: StoredSessionHeader): SessionHeader {
   const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
+  const model = typeof header.model === 'string' && header.model.length > 0 ? header.model : 'default';
   const status = resolveMigratedStatus(header);
   const blockedReason = status === 'blocked' && isSessionBlockedReason(header.blockedReason)
     ? header.blockedReason
@@ -280,15 +282,16 @@ function migrateHeader(header: StoredSessionHeader): SessionHeader {
     statusUpdatedAt: header.statusUpdatedAt ?? header.archivedAt ?? header.lastMessageAt ?? header.lastUsedAt ?? header.createdAt,
   };
   if (header.backend === 'claude') {
-    return { ...header, ...statusFields, backend: 'ai-sdk', permissionMode };
+    return { ...header, ...statusFields, backend: 'ai-sdk', model, permissionMode };
   }
   if (header.backend === 'pi') {
-    return { ...header, ...statusFields, backend: 'fake', permissionMode };
+    return { ...header, ...statusFields, backend: 'fake', model, permissionMode };
   }
   return {
     ...header,
     ...statusFields,
     backend: header.backend === 'ai-sdk' ? 'ai-sdk' : 'fake',
+    model,
     permissionMode,
   };
 }
@@ -317,6 +320,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     backend: header.backend,
     llmConnectionSlug: header.llmConnectionSlug,
+    model: header.model,
     permissionMode: header.permissionMode,
   };
 }

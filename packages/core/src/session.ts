@@ -93,7 +93,7 @@ export interface SessionHeader {
   llmConnectionSlug: string;
   /** True after first UserMessage is flushed. Storage self-heals (§5.2). */
   connectionLocked: boolean;
-  /** Model id; can change within the same connection across turns. */
+  /** Sticky session default model id, captured when the session is created. */
   model: string;
   permissionMode: PermissionMode;
 
@@ -119,6 +119,8 @@ export interface SessionSummary {
   branchOfTurnId?: string;
   backend: BackendKind;
   llmConnectionSlug: string;
+  /** Sticky session default model id for renderer/header display. */
+  model: string;
   permissionMode: PermissionMode;
 }
 

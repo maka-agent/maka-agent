@@ -274,6 +274,81 @@ describe('chat readiness guard', () => {
     }]);
   });
 
+  test('does not rebind locked sessions when their sticky model becomes invalid', async () => {
+    const updates: unknown[] = [];
+
+    await assertRejectsReadiness(
+      'locked sticky model outside enabled list',
+      () => ensureSessionCanSendOrRebind(
+        'session-locked',
+        header({
+          connectionLocked: true,
+          llmConnectionSlug: 'anthropic',
+          model: 'claude-old-sticky',
+        }),
+        {
+          readyConnectionDeps: keyedDeps({
+            anthropic: {
+              connection: connection({
+                slug: 'anthropic',
+                defaultModel: 'claude-new-default',
+                models: [{ id: 'claude-new-default' }],
+              }),
+              apiKey: 'sk-test',
+            },
+            'zai-coding-plan': {
+              connection: connection({
+                slug: 'zai-coding-plan',
+                name: 'Z.AI Coding Plan',
+                providerType: 'zai-coding-plan',
+                defaultModel: 'glm-4.7',
+                models: [{ id: 'glm-4.7' }],
+              }),
+              apiKey: 'sk-zai',
+            },
+          }),
+          async getDefaultSlug() {
+            return 'zai-coding-plan';
+          },
+          async updateSession(_sessionId, patch) {
+            updates.push(patch);
+          },
+        },
+      ),
+      'claude-old-sticky',
+      'model_not_enabled',
+    );
+
+    assert.deepEqual(updates, []);
+  });
+
+  test('does not rebind locked legacy fake sessions', async () => {
+    const updates: unknown[] = [];
+
+    await assertRejectsReadiness(
+      'locked fake session',
+      () => ensureSessionCanSendOrRebind(
+        'session-locked-fake',
+        header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model', connectionLocked: true }),
+        {
+          readyConnectionDeps: keyedDeps({
+            anthropic: { connection: connection(), apiKey: 'sk-test' },
+          }),
+          async getDefaultSlug() {
+            return 'anthropic';
+          },
+          async updateSession(_sessionId, patch) {
+            updates.push(patch);
+          },
+        },
+      ),
+      'FakeBackend',
+      'fake_backend',
+    );
+
+    assert.deepEqual(updates, []);
+  });
+
   test('rebinds old fake sessions to a ready default connection before send', async () => {
     const updates: unknown[] = [];
     const result = await ensureSessionCanSendOrRebind(
@@ -369,11 +444,12 @@ function connection(patch: Partial<LlmConnection> = {}): LlmConnection {
   };
 }
 
-function header(patch: Partial<SessionHeader> = {}): Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model'> {
+function header(patch: Partial<SessionHeader> = {}): Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model' | 'connectionLocked'> {
   return {
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic',
     model: 'claude-3-5-sonnet-20241022',
+    connectionLocked: false,
     ...patch,
   };
 }

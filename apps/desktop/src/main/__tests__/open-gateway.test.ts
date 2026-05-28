@@ -124,6 +124,7 @@ function session(overrides: Partial<SessionSummary> & { id: string }): SessionSu
     status: 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic',
+    model: 'claude-sonnet-4-5-20250929',
     permissionMode: 'ask',
     lastMessageAt: 1_700_000_000_000,
     ...overrides,

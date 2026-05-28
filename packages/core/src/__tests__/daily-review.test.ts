@@ -27,6 +27,7 @@ function aSession(overrides: Partial<SessionSummary>): SessionSummary {
     statusUpdatedAt: overrides.statusUpdatedAt,
     backend: overrides.backend ?? 'ai-sdk',
     llmConnectionSlug: overrides.llmConnectionSlug ?? 'fake',
+    model: overrides.model ?? 'fake-model',
     permissionMode: overrides.permissionMode ?? 'ask',
   };
 }

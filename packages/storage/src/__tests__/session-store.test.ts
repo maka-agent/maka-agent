@@ -34,6 +34,7 @@ describe('FileSessionStore CRUD', () => {
       const [summary] = await store.list();
       assert.equal(summary?.status, 'active');
       assert.equal(summary?.statusUpdatedAt, header.statusUpdatedAt);
+      assert.equal(summary?.model, 'fake-model');
     });
   });
 
@@ -149,6 +150,40 @@ describe('FileSessionStore CRUD', () => {
       const [summary] = await store.list();
       assert.equal(summary?.permissionMode, 'ask');
       assert.equal(summary?.status, 'active');
+    });
+  });
+
+  test('migrates legacy headers without model to default and exposes model in summaries', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'legacy-no-model';
+      const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(
+        join(sessionDir, 'session.jsonl'),
+        JSON.stringify({
+          id: sessionId,
+          workspaceRoot,
+          cwd: '/tmp/cwd',
+          createdAt: 1,
+          lastUsedAt: 1,
+          name: 'Legacy no model',
+          isFlagged: false,
+          labels: [],
+          isArchived: false,
+          hasUnread: false,
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'anthropic',
+          connectionLocked: false,
+          permissionMode: 'ask',
+          schemaVersion: 1,
+        }) + '\n',
+        'utf8',
+      );
+
+      const header = await store.readHeader(sessionId);
+      assert.equal(header.model, 'default');
+      const [summary] = await store.list();
+      assert.equal(summary?.model, 'default');
     });
   });
 

@@ -30,6 +30,7 @@ function session(input: {
     hasUnread: false,
     backend: 'ai-sdk',
     llmConnectionSlug: 'zai-live',
+    model: 'glm-4.7',
     permissionMode: 'ask',
     status: input.status,
     ...(input.lastMessageAt !== undefined ? { lastMessageAt: input.lastMessageAt } : {}),

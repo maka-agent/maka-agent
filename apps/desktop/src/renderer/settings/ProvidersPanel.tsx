@@ -814,6 +814,9 @@ function ModelTable(props: {
         <div className="modelTableHeaderText">
           <strong>模型</strong>
           <small>{headerLine}</small>
+          <small className="modelTableStickyHint">
+            默认模型只用于新建会话；已有会话会保留创建时的模型选择。
+          </small>
         </div>
         <button
           className="maka-button"

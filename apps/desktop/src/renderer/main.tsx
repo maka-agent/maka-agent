@@ -223,10 +223,9 @@ function AppShell(props: {
   const activeConnectionLabel = activeSession?.backend === 'fake'
     ? 'Fake backend'
     : activeConnection?.name ?? activeSession?.llmConnectionSlug;
-  // SessionSummary doesn't carry the resolved model (it lives on the header
-  // and isn't surfaced through the IPC `sessions:list`), so fall back to the
-  // connection's default model for display purposes.
-  const activeModelLabel = activeSession?.backend === 'fake' ? undefined : activeConnection?.defaultModel;
+  const activeModelLabel = activeSession?.backend === 'fake'
+    ? undefined
+    : activeSession?.model ?? activeConnection?.defaultModel;
 
   // Surface a credential-lifecycle alert directly in the chat header when
   // the active session's connection is in `needs_reauth` / `error` or has
@@ -504,6 +503,7 @@ function AppShell(props: {
     status: 'active',
     backend: 'fake',
     llmConnectionSlug: 'default',
+    model: 'fake-model',
     permissionMode: 'ask',
   } : undefined);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
