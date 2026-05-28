@@ -62,13 +62,21 @@ export function buildCapabilitySnapshotCollection(input: {
       id: 'activity_recorder',
       label: 'Activity Recorder',
       now,
-      feature: { state: 'not_available', source: 'scaffold', reason: 'activity timeline not implemented' },
+      feature: {
+        state: 'partial',
+        source: 'runtime',
+        reason: 'Daily Review 已聚合本地会话 / 工具 / 模型活动；屏幕与应用级录制未接入',
+      },
       requiredPermissions: [
         { id: 'screen_recording', required: true, status: permissions.screen_recording.status },
       ],
       actionApproval: { state: 'not_required', source: 'not_applicable' },
       memoryAcceptance: { state: 'disabled', source: 'memory_contract' },
-      runtimeProbe: { state: 'not_available', source: 'not_applicable' },
+      runtimeProbe: {
+        state: 'not_run',
+        source: 'runtime_probe',
+        reason: '打开 Daily Review 可查看本地活动聚合结果',
+      },
     }),
     staticCapability({
       id: 'voice',

@@ -44,4 +44,14 @@ describe('voice capture smoke Settings contract', () => {
     assert.match(memoryBlock![0], /本地 MEMORY\.md 已可见/, 'memory reason must name the shipped transparent file');
     assert.doesNotMatch(memoryBlock![0], /memory write contract not implemented/, 'old placeholder reason must not return');
   });
+
+  it('capability center reports activity recorder as partial local Daily Review aggregation', async () => {
+    const src = await readFile(CAPABILITY_SNAPSHOT, 'utf8');
+    const activityBlock = src.match(/id:\s*'activity_recorder'[\s\S]*?runtimeProbe:\s*\{[\s\S]*?\},\n\s*\}\),/);
+    assert.ok(activityBlock, 'activity recorder capability block must exist');
+    assert.match(activityBlock![0], /state:\s*'partial'/, 'activity recorder must be partial, not not_available');
+    assert.match(activityBlock![0], /Daily Review 已聚合本地会话/, 'activity reason must name the shipped local aggregation path');
+    assert.match(activityBlock![0], /屏幕与应用级录制未接入/, 'activity reason must keep the unshipped recorder boundary visible');
+    assert.doesNotMatch(activityBlock![0], /activity timeline not implemented/, 'old placeholder reason must not return');
+  });
 });
