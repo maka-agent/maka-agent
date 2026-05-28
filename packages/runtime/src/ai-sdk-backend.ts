@@ -330,6 +330,25 @@ export class AiSdkBackend implements AgentBackend {
           });
         }
 
+        // PR-AGENT-ITERATION-GRACE-0 (Hermes deep-dive #A1): when the
+        // ai-sdk loop exits with `finishReason === 'tool-calls'` it
+        // means we tripped `stopWhen: stepCountIs(maxSteps)` mid-loop
+        // — the model wanted to keep calling tools but we capped it.
+        // The user previously saw no closing assistant text in that
+        // path; just the last tool result. Inject a deterministic
+        // "step cap reached" notice so the UI has SOMETHING and the
+        // user can choose to send "继续" for a fresh turn.
+        const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
+        if (
+          !this.aborted
+          && assistantText.length === 0
+          && finishReasonForGrace === 'tool-calls'
+        ) {
+          assistantText =
+            `⚠️ 已达到本轮 ${this.maxSteps} 步工具调用上限。\n\n`
+            + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
+        }
+
         // Persist assistant message if we got one.
         if (assistantText.length > 0) {
           const msg: AssistantMessage = {
