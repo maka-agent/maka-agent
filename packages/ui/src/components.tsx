@@ -530,15 +530,17 @@ export function SessionListPanel(props: {
               })}
             </div>
           ) : (
-            <div className="maka-empty-state">
-              <Sparkles className="maka-empty-state-icon" strokeWidth={1.5} />
-              <div className="maka-empty-state-title">还没有 Skill</div>
-              <div className="maka-empty-state-body">
-                把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
-                {' '}<code className="maka-empty-state-code">skills/</code> 目录下，重启 Maka 后会出现在这里。
-                工作区路径在 设置 · 关于 · 工作区。
-              </div>
-            </div>
+            <EmptyState
+              Icon={Sparkles}
+              title="还没有 Skill"
+              body={
+                <>
+                  把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
+                  {' '}<code className="maka-empty-state-code">skills/</code> 目录下，重启 Maka 后会出现在这里。
+                  工作区路径在 设置 · 关于 · 工作区。
+                </>
+              }
+            />
           )
         ) : props.selection.section === 'automations' ? (
           <PlanReminderPanel
@@ -549,14 +551,12 @@ export function SessionListPanel(props: {
           />
         ) : props.selection.section === 'sessions' ? (
           props.sessions.length === 0 ? (
-            <div className="maka-empty-state">
-              <MessageSquare className="maka-empty-state-icon" strokeWidth={1.5} />
-              <div className="maka-empty-state-title">还没有对话</div>
-              <div className="maka-empty-state-body">和 Maka 的对话会出现在这里。点下面开始第一条。</div>
-              <button className="maka-button maka-empty-state-cta" type="button" onClick={props.onNew}>
-                新建对话
-              </button>
-            </div>
+            <EmptyState
+              Icon={MessageSquare}
+              title="还没有对话"
+              body="和 Maka 的对话会出现在这里。点下面开始第一条。"
+              cta={{ label: '新建对话', onClick: props.onNew }}
+            />
           ) : (
             <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
               <SessionListGroups
@@ -598,11 +598,12 @@ export function SessionListPanel(props: {
             const stub = STUB_VIEWS[props.selection.section];
             if (!stub) return null;
             return (
-              <div className="maka-empty-state" data-stub-view={props.selection.section}>
-                <stub.Icon className="maka-empty-state-icon" strokeWidth={1.5} />
-                <div className="maka-empty-state-title">{stub.title}</div>
-                <div className="maka-empty-state-body">{stub.body}</div>
-              </div>
+              <EmptyState
+                Icon={stub.Icon}
+                title={stub.title}
+                body={stub.body}
+                dataStubView={props.selection.section}
+              />
             );
           })()
         )}
@@ -690,6 +691,52 @@ const STUB_VIEWS: Record<
   },
 };
 
+/**
+ * PR-EMPTY-STATE-COMPONENT-0: shared empty-state container. Folds the
+ * 4 visual duplicates (skills empty / sessions empty / stub views /
+ * plan reminders empty) into a single declaration so the next empty
+ * surface lands consistent by default and the icon-sizing /
+ * paragraph-spacing / CTA-placement decisions only live in one
+ * place. The `.maka-empty-state*` CSS family is unchanged.
+ *
+ * Body accepts `ReactNode` so callers can keep inline `<code>` for
+ * the skills install instructions; CTAs are rendered as the canonical
+ * `.maka-button.maka-empty-state-cta` so we never grow a competing
+ * pile of "empty-state action variants".
+ */
+export interface EmptyStateProps {
+  Icon: typeof Search;
+  title: string;
+  body: ReactNode;
+  cta?: { label: string; onClick: () => void };
+  /** Optional extra class on the container (e.g. `maka-plan-empty`). */
+  extraClassName?: string;
+  /** Optional `data-stub-view` passthrough for visual-smoke selectors. */
+  dataStubView?: string;
+}
+
+export function EmptyState(props: EmptyStateProps) {
+  const className = props.extraClassName
+    ? `maka-empty-state ${props.extraClassName}`
+    : 'maka-empty-state';
+  return (
+    <div className={className} data-stub-view={props.dataStubView}>
+      <props.Icon className="maka-empty-state-icon" strokeWidth={1.5} />
+      <div className="maka-empty-state-title">{props.title}</div>
+      <div className="maka-empty-state-body">{props.body}</div>
+      {props.cta && (
+        <button
+          className="maka-button maka-empty-state-cta"
+          type="button"
+          onClick={props.cta.onClick}
+        >
+          {props.cta.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
   onCreate?(input: { title: string; note?: string; runAt: number }): void;
@@ -754,13 +801,12 @@ function PlanReminderPanel(props: {
 
       <div className="maka-plan-list" aria-label="计划提醒列表">
         {props.reminders.length === 0 ? (
-          <div className="maka-empty-state maka-plan-empty">
-            <Clock className="maka-empty-state-icon" strokeWidth={1.5} />
-            <div className="maka-empty-state-title">还没有计划提醒</div>
-            <div className="maka-empty-state-body">
-              创建一个明确时间的提醒；Maka 会持久化并在到点时记录执行结果。
-            </div>
-          </div>
+          <EmptyState
+            Icon={Clock}
+            title="还没有计划提醒"
+            body="创建一个明确时间的提醒；Maka 会持久化并在到点时记录执行结果。"
+            extraClassName="maka-plan-empty"
+          />
         ) : (
           props.reminders.map((reminder) => (
             <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
