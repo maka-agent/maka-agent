@@ -116,6 +116,13 @@ export function buildCommandList(args: {
    */
   onPasteTodayDailyReviewIntoComposer?(): Promise<void> | void;
   /**
+   * PR-CMD-PALETTE-COPY-ENV-SUMMARY-0: copy the Settings → 关于
+   * environment summary (Maka version + Electron / Node / Chrome
+   * versions + platform + arch + build mode/sha) as Markdown,
+   * without having to open Settings. Useful for bug reports.
+   */
+  onCopyEnvSummary?(): Promise<void> | void;
+  /**
    * PR-CMD-PALETTE-ENRICH-0: jump to a sidebar module (会话 / 计划 /
    * 技能 / 每日回顾) directly from the palette. Search itself is
    * already covered by the existing thread-search hookup, so the
@@ -307,6 +314,18 @@ export function buildCommandList(args: {
       Icon: CalendarDays,
       keywords: ['daily', 'review', 'paste', 'composer', '今日', '回顾', '粘贴', '输入框'],
       run: () => void args.onPasteTodayDailyReviewIntoComposer!(),
+    });
+  }
+  if (args.onCopyEnvSummary) {
+    cmds.push({
+      id: 'diag:copy-env-summary',
+      kind: 'action',
+      label: '复制环境信息',
+      hint: 'Markdown · bug report 友好',
+      group: '诊断',
+      Icon: Database,
+      keywords: ['env', 'environment', 'version', 'about', 'bug', 'report', '环境', '版本', '关于', '诊断', '汇报'],
+      run: () => void args.onCopyEnvSummary!(),
     });
   }
   if (args.onOpenLocalMemoryFile) {

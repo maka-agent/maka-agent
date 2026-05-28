@@ -2025,6 +2025,43 @@ function AppShell(props: {
                 );
               }
             },
+            onCopyEnvSummary: async () => {
+              try {
+                const info = await window.maka.app.info();
+                const platformPretty =
+                  info.platform === 'darwin'
+                    ? 'macOS'
+                    : info.platform === 'win32'
+                      ? 'Windows'
+                      : info.platform === 'linux'
+                        ? 'Linux'
+                        : info.platform;
+                const buildLine =
+                  info.buildMode === 'dev'
+                    ? `- Build: dev${info.buildCommit ? ` @ ${info.buildCommit}` : ''}`
+                    : '- Build: packaged';
+                const summary = [
+                  `**Maka** v${info.appVersion}`,
+                  ``,
+                  `- Electron: ${info.electronVersion}`,
+                  `- Node: ${info.nodeVersion}`,
+                  `- Chrome: ${info.chromeVersion}`,
+                  `- Platform: ${platformPretty} ${info.osRelease}`,
+                  `- Arch: ${info.arch}`,
+                  buildLine,
+                ].join('\n');
+                await navigator.clipboard.writeText(summary);
+                toastApi.success(
+                  '已复制环境信息',
+                  `Maka v${info.appVersion} · ${platformPretty} · ${info.arch}`,
+                );
+              } catch (err) {
+                toastApi.error(
+                  '复制失败',
+                  err instanceof Error ? err.message : '剪贴板不可用',
+                );
+              }
+            },
           })}
         />
       )}
