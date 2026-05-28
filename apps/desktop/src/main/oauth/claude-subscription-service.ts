@@ -237,7 +237,7 @@ export class ClaudeSubscriptionService {
     this.pending.delete(authRequestId);
 
     try {
-      const tokens = await this.exchangeCodeForTokens(parsed.code, pending.verifier);
+      const tokens = await this.exchangeCodeForTokens(parsed.code, pending.verifier, parsed.state);
       await this.saveTokens(tokens);
       this.cachedTokens = tokens;
       this.authorizing = false;
@@ -438,7 +438,7 @@ export class ClaudeSubscriptionService {
     }
   }
 
-  private async exchangeCodeForTokens(code: string, verifier: string): Promise<PersistedTokens> {
+  private async exchangeCodeForTokens(code: string, verifier: string, state: string): Promise<PersistedTokens> {
     const response = await this.fetchFn(CLAUDE_TOKEN_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -447,7 +447,7 @@ export class ClaudeSubscriptionService {
       },
       body: JSON.stringify({
         code,
-        state: verifier,
+        state,
         grant_type: 'authorization_code',
         client_id: CLAUDE_CLIENT_ID,
         redirect_uri: CLAUDE_REDIRECT_URI,
@@ -511,9 +511,10 @@ export class ClaudeSubscriptionService {
     const serialized = JSON.stringify(tokens);
     const dir = dirname(this.tokenFilePath);
     await fs.mkdir(dir, { recursive: true });
-    const buffer = safeStorage.isEncryptionAvailable()
-      ? safeStorage.encryptString(serialized)
-      : Buffer.from(serialized, 'utf8');
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('safeStorage encryption is unavailable.');
+    }
+    const buffer = safeStorage.encryptString(serialized);
     await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
     // Re-apply mode explicitly in case the existing file had a
     // different mode (writeFile only sets it on create).
@@ -524,9 +525,8 @@ export class ClaudeSubscriptionService {
     if (this.cachedTokens) return this.cachedTokens;
     try {
       const buffer = await fs.readFile(this.tokenFilePath);
-      const decoded = safeStorage.isEncryptionAvailable()
-        ? safeStorage.decryptString(buffer)
-        : buffer.toString('utf8');
+      if (!safeStorage.isEncryptionAvailable()) return null;
+      const decoded = safeStorage.decryptString(buffer);
       const parsed = JSON.parse(decoded) as PersistedTokens;
       this.cachedTokens = parsed;
       return parsed;

@@ -1184,7 +1184,7 @@ function presentSubscriptionState(state: SubscriptionAccountState): Subscription
       return {
         label: '已登录',
         tone: 'success',
-        detail: '已绑定 Claude 订阅。订阅 send 通路在 PR-OAUTH-SUBSCRIPTION-1 接入，目前仅展示账号与配额。',
+        detail: '已绑定 Claude 订阅。目前仅展示账号与配额，聊天发送会在后续版本开放。',
       };
     case 'refreshing':
       return { label: '刷新中…', tone: 'info', detail: '正在刷新访问令牌。' };

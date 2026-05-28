@@ -76,4 +76,32 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
       'service must reference MAKA_CLAUDE_SUBSCRIPTION_CLOAK env flag (xuan G-X4 isolation)',
     );
   });
+
+  it('token exchange uses the pasted OAuth state, not the verifier', async () => {
+    const src = await readFile(SERVICE_SOURCE, 'utf8');
+    assert.match(
+      src,
+      /exchangeCodeForTokens\(parsed\.code,\s*pending\.verifier,\s*parsed\.state\)/,
+      'completeAuthorization must pass the user-pasted state into token exchange after validating it',
+    );
+    assert.doesNotMatch(
+      src,
+      /state:\s*verifier/,
+      'token exchange body must not send the PKCE verifier as OAuth state when state and verifier are distinct',
+    );
+  });
+
+  it('token storage fails closed when safeStorage encryption is unavailable', async () => {
+    const src = await readFile(SERVICE_SOURCE, 'utf8');
+    assert.match(
+      src,
+      /safeStorage\.isEncryptionAvailable\(\)\)\s*\{\s*throw new Error\('safeStorage encryption is unavailable\.'\);/s,
+      'saveTokens must fail closed instead of writing plaintext when safeStorage is unavailable',
+    );
+    assert.doesNotMatch(
+      src,
+      /Buffer\.from\(serialized,\s*['"]utf8['"]\)/,
+      'token persistence must not fall back to plaintext Buffer.from(serialized)',
+    );
+  });
 });

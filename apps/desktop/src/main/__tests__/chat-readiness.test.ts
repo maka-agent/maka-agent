@@ -118,6 +118,26 @@ describe('chat readiness guard', () => {
     assert.equal(real.model, 'claude-3-5-sonnet-20241022');
   });
 
+  test('blocks OAuth subscription providers until the subscription send path is wired', async () => {
+    await assertRejectsReadiness(
+      'claude subscription send path not wired',
+      () => requireReadyConnection(
+        'claude-subscription',
+        deps({
+          connection: connection({
+            slug: 'claude-subscription',
+            name: 'Claude Subscription',
+            providerType: 'claude-subscription',
+            defaultModel: 'claude-sonnet-4-5-20250929',
+          }),
+          apiKey: 'legacy-oauth-secret',
+        }),
+      ),
+      '聊天发送通路尚未接入',
+      'oauth_subscription_not_wired',
+    );
+  });
+
   test('send path blocks explicit fake sessions and revalidates old ai sessions', async () => {
     await assertRejectsReadiness(
       'explicit fake session',
@@ -213,7 +233,7 @@ describe('chat readiness guard', () => {
       assert.equal(shouldRebindSessionToDefault(reason), true, reason);
     }
 
-    for (const reason of ['missing_default_connection', 'connection_disabled', 'missing_api_key', undefined]) {
+    for (const reason of ['missing_default_connection', 'connection_disabled', 'missing_api_key', 'oauth_subscription_not_wired', undefined]) {
       assert.equal(shouldRebindSessionToDefault(reason), false, String(reason));
     }
   });

@@ -341,6 +341,25 @@ describe('deriveOnboardingState invariants', () => {
     assert.equal(result2.kind, 'needs_connection_credentials');
   });
 
+  it('OAuth subscription connections are not onboarding-ready before the send path lands', () => {
+    const conn = realConnection({
+      slug: 'claude-subscription',
+      providerType: 'claude-subscription',
+      defaultModel: 'claude-sonnet-4-5-20250929',
+    });
+    const notReady = isConnectionReady({ connection: conn, hasSecret: true });
+    assert.equal(notReady.ready, false);
+    if (!notReady.ready) {
+      assert.equal(notReady.reason, 'oauth_subscription_not_wired');
+    }
+    const result = derive({
+      connections: [conn],
+      defaultSlug: 'claude-subscription',
+      secrets: { 'claude-subscription': true },
+    });
+    assert.deepEqual(result, { kind: 'blocked', reason: 'all_connections_unhealthy' });
+  });
+
   it('is pure: same input always produces same output (deep-equal)', () => {
     const conn = realConnection({ slug: 'a' });
     const input: DeriveOnboardingStateInput = {

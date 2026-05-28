@@ -11,6 +11,8 @@
  * The single helper here is the only place these criteria live:
  *   - real backend (not `fake`)
  *   - `enabled === true`
+ *   - provider auth path is already send-wired (OAuth subscriptions
+ *     stay blocked until their runtime send path lands)
  *   - has usable secret OR provider's `authKind === 'none'`
  *   - effective model exists (caller's `requestedModel` if provided,
  *     otherwise `connection.defaultModel`)
@@ -39,6 +41,7 @@ export type ChatConfigurationReason =
   | 'missing_model'
   | 'empty_model_list'
   | 'model_not_enabled'
+  | 'oauth_subscription_not_wired'
   | 'fake_backend';
 
 export type IsConnectionReadyResult =
@@ -77,10 +80,11 @@ export interface IsConnectionReadyInput {
  * Order:
  *   1. backend is `fake` → `fake_backend`
  *   2. `enabled === false` → `connection_disabled`
- *   3. `authKind !== 'none' && !hasSecret` → `missing_api_key`
- *   4. effective model is empty/missing → `missing_model`
- *   5. `connection.models` is enumerated but empty → `empty_model_list`
- *   6. effective model is not in `connection.models` → `model_not_enabled`
+ *   3. `authKind === 'oauth_token'` → `oauth_subscription_not_wired`
+ *   4. `authKind !== 'none' && !hasSecret` → `missing_api_key`
+ *   5. effective model is empty/missing → `missing_model`
+ *   6. `connection.models` is enumerated but empty → `empty_model_list`
+ *   7. effective model is not in `connection.models` → `model_not_enabled`
  *
  * "Effective model" = `requestedModel ?? connection.defaultModel`.
  */
@@ -94,6 +98,9 @@ export function isConnectionReady(input: IsConnectionReadyInput): IsConnectionRe
     return { ready: false, reason: 'connection_disabled' };
   }
   const authKind = PROVIDER_DEFAULTS[connection.providerType].authKind;
+  if (authKind === 'oauth_token') {
+    return { ready: false, reason: 'oauth_subscription_not_wired' };
+  }
   if (authKind !== 'none' && !hasSecret) {
     return { ready: false, reason: 'missing_api_key' };
   }
