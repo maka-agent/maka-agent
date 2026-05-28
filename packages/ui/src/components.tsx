@@ -63,6 +63,10 @@ import type {
   ToolResultContent,
 } from '@maka/core';
 import {
+  formatRelativeTimestamp,
+  nextRelativeRefreshDelay,
+} from '@maka/core';
+import {
   materializeChat,
   materializeTools,
   materializeTurns,
@@ -2472,16 +2476,6 @@ function PermissionModeSwitcher(props: {
   );
 }
 
-const messageTimeFormat = (() => {
-  if (typeof Intl === 'undefined' || typeof Intl.RelativeTimeFormat !== 'function') {
-    return { format: (n: number, unit: Intl.RelativeTimeFormatUnit) => `${n}${unit[0]}` } as unknown as Intl.RelativeTimeFormat;
-  }
-  return new Intl.RelativeTimeFormat(
-    typeof navigator !== 'undefined' ? navigator.language : 'en',
-    { numeric: 'auto', style: 'narrow' },
-  );
-})();
-
 const absoluteTimeFormat = (() => {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
     return { format: (d: Date) => d.toISOString() } as unknown as Intl.DateTimeFormat;
@@ -2492,19 +2486,35 @@ const absoluteTimeFormat = (() => {
   );
 })();
 
-function formatRelativeTimestamp(ts: number): string {
-  const diffMs = Date.now() - ts;
-  const diffSeconds = Math.round(diffMs / 1000);
-  if (diffSeconds < 60) return messageTimeFormat.format(-Math.max(1, diffSeconds), 'second');
-  const diffMinutes = Math.round(diffSeconds / 60);
-  if (diffMinutes < 60) return messageTimeFormat.format(-diffMinutes, 'minute');
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return messageTimeFormat.format(-diffHours, 'hour');
-  return messageTimeFormat.format(-Math.round(diffHours / 24), 'day');
-}
-
 function formatAbsoluteTimestamp(ts: number): string {
   return absoluteTimeFormat.format(new Date(ts));
+}
+
+/**
+ * PR-RELATIVE-TIME-0: a self-refreshing relative-time label. Sidebar +
+ * message rows stay correct even when the window has been open for
+ * hours without re-rendering on their own. The tick cadence comes from
+ * `nextRelativeRefreshDelay` so we tick every second within the first
+ * minute, every minute within the first hour, then every 10 minutes;
+ * past the 7-day horizon we stop ticking and show the absolute date.
+ */
+function RelativeTime(props: { ts: number; className?: string; suppressTitle?: boolean }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const delay = nextRelativeRefreshDelay(props.ts);
+    if (delay === null) return;
+    const id = setTimeout(() => setTick((n) => n + 1), delay);
+    return () => clearTimeout(id);
+  });
+  return (
+    <small
+      className={props.className ?? 'maka-message-time'}
+      aria-hidden="true"
+      title={props.suppressTitle ? undefined : formatAbsoluteTimestamp(props.ts)}
+    >
+      {formatRelativeTimestamp(props.ts)}
+    </small>
+  );
 }
 
 function messageRoleLabel(role: string, userLabel?: string): string {
@@ -3119,11 +3129,7 @@ function MessageMeta(props: { role: string; userLabel?: string; ts?: number }) {
         {initial}
       </span>
       {!isAnonymousUser && <span className="maka-message-name">{label}</span>}
-      {props.ts !== undefined && (
-        <small className="maka-message-time" aria-hidden="true">
-          {formatRelativeTimestamp(props.ts)}
-        </small>
-      )}
+      {props.ts !== undefined && <RelativeTime ts={props.ts} />}
     </span>
   );
 }

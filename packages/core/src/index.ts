@@ -532,3 +532,9 @@ export type {
   UsageQuery,
   UsageSummaryV2,
 } from './usage-stats/types.js';
+
+export {
+  formatRelativeTimestamp,
+  nextRelativeRefreshDelay,
+  resetRelativeTimeFormatters,
+} from './relative-time.js';
