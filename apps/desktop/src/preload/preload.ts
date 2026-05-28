@@ -386,8 +386,8 @@ contextBridge.exposeInMainWorld('maka', {
     },
   },
   dailyReview: {
-    day(offsetDays: number): Promise<Result<DailyReviewSummary>> {
-      return ipcRenderer.invoke('daily-review:day', { offsetDays });
+    day(offsetDays: number, daySpan?: number): Promise<Result<DailyReviewSummary>> {
+      return ipcRenderer.invoke('daily-review:day', { offsetDays, daySpan });
     },
   },
   webSearch: {

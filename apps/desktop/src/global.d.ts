@@ -215,7 +215,7 @@ declare global {
         test(input: { provider?: WebSearchProvider; apiKey?: string }): Promise<WebSearchResponse>;
       };
       dailyReview: {
-        day(offsetDays: number): Promise<Result<DailyReviewSummary>>;
+        day(offsetDays: number, daySpan?: number): Promise<Result<DailyReviewSummary>>;
       };
       appWindow: {
         subscribeOpenSettings(handler: () => void): () => void;

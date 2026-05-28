@@ -207,8 +207,8 @@ function AppShell(props: {
   // off a stable reference instead of refetching on every render.
   const dailyReviewBridge = useMemo(
     () => ({
-      async fetchDay(offsetDays: number) {
-        const result = await window.maka.dailyReview.day(offsetDays);
+      async fetchDay(offsetDays: number, daySpan?: number) {
+        const result = await window.maka.dailyReview.day(offsetDays, daySpan);
         if (!result.ok) throw new Error(result.error.message);
         return result.data;
       },

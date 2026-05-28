@@ -1400,14 +1400,29 @@ function registerIpc(): void {
   // existing telemetry repo + session list. No new disk/network IO.
   ipcMain.handle(
     'daily-review:day',
-    (_event, payload: { offsetDays?: number } | undefined) =>
+    (
+      _event,
+      payload: { offsetDays?: number; daySpan?: number } | undefined,
+    ) =>
       tryResult(async (): Promise<DailyReviewSummary> => {
         const offset = Number.isFinite(payload?.offsetDays) ? Math.trunc(payload!.offsetDays!) : 0;
-        const day =
+        // PR-DAILY-REVIEW-RANGE-0: clamp daySpan to [1, 30] so a
+        // single panel view never sweeps the entire telemetry
+        // table; the renderer offers 1 / 7 / 30 as named tabs.
+        const rawSpan = Number.isFinite(payload?.daySpan) ? Math.trunc(payload!.daySpan!) : 1;
+        const daySpan = Math.max(1, Math.min(30, rawSpan));
+        const endDay =
           offset === 0
             ? localDayBoundsForInstant(Date.now())
             : localDayBoundsAt(Date.now(), offset);
-        const usageQuery = dailyUsageQuery(day);
+        // Span back N-1 days from the end day so a daySpan of 1
+        // matches the original single-day behavior.
+        const startDay =
+          daySpan === 1
+            ? endDay
+            : localDayBoundsAt(Date.now(), offset - (daySpan - 1));
+        const range = { fromMs: startDay.fromMs, toMs: endDay.toMs };
+        const usageQuery = dailyUsageQuery(range);
         const [usageSummary, toolBuckets, modelBuckets, sessions] = await Promise.all([
           Promise.resolve(telemetryRepo.summary(usageQuery)),
           Promise.resolve(telemetryRepo.buckets(usageQuery, 'tool')),
@@ -1415,9 +1430,9 @@ function registerIpc(): void {
           Promise.resolve(runtime.listSessions()),
         ]);
         return buildDailyReviewSummary({
-          day,
+          day: range,
           usageSummary,
-          sessions: pickDailyReviewSessions(sessions, day, DAILY_REVIEW_LIST_LIMIT),
+          sessions: pickDailyReviewSessions(sessions, range, DAILY_REVIEW_LIST_LIMIT),
           topTools: pickDailyReviewTopEntries(toolBuckets, DAILY_REVIEW_LIST_LIMIT),
           topModels: pickDailyReviewTopEntries(modelBuckets, DAILY_REVIEW_LIST_LIMIT),
         });
