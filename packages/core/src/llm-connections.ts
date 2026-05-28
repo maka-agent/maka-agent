@@ -229,7 +229,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
   },
   'claude-subscription': {
     label: 'Claude Subscription (Pro / Max OAuth)',
-    description: 'Claude app subscription via official SDK in a future phase.',
+    description: 'Claude app subscription auth path, hidden behind the internal experimental gate.',
     baseUrl: 'https://api.anthropic.com',
     authKind: 'oauth_token',
     backendKind: 'ai-sdk',
@@ -241,7 +241,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
     status: 'phase3-experimental',
     protocol: 'anthropic',
     category: 'oauth',
-    catalogBadge: 'Soon',
+    catalogBadge: 'Experimental',
   },
   'codex-subscription': {
     label: 'Codex Subscription (ChatGPT OAuth)',

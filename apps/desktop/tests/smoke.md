@@ -1084,16 +1084,18 @@ Doc convention used in every gate below:
 **Contract invariant.**
 - `<ProvidersPanel>` subscription provider tile rendering:
   - `data-status="ready"` → real `<button onClick={onSelect}>`.
-  - `data-status="coming-soon"` / `data-disabled="true"` → plain
+  - `data-status="coming-soon"` / `data-status="experimental"` /
+    `data-disabled="true"` → plain
     `<div>`. No `onClick`, no `tabIndex`, no `role="button"`, no
     `role="status"` (live-region semantics would mis-describe a
     static catalog tile).
 - No auth / network / IPC surface is wired behind a disabled tile;
   the gate is renderer-only affordance, not a route to a backend
   the contract isn't ready to expose.
-- Disabled provider description copy uses Roadmap-stative phrasing
-  (`路线图，尚未实现`, `Roadmap`), not operational verbs (no
-  `启用 / 启动 / 登录 / 授权 / 即将推出 / Soon`).
+- Disabled provider description copy uses stative phrasing, not
+  operational verbs (no `启用 / 启动 / 登录 / 授权 / 即将推出 / Soon`):
+  Codex/Gemini stay `路线图，尚未实现` / `Roadmap`; Claude subscription is
+  `内部实验` / `实验` and must say the chat send path is not open.
 
 **Targeted gate.**
 - Source diff inspection: the disabled branch must be
@@ -1105,13 +1107,14 @@ Doc convention used in every gate below:
 **Source-gate grep.**
 - `ProvidersPanel.tsx` disabled branch: `if (disabled) return <div ...`
   — must not be a `<button>`.
-- Subscription provider copy: `Soon` → `Roadmap` migration; no
-  operational-verb leakage in the three subscription tiles
-  (`claude-subscription` / `codex-subscription` / `gemini-cli`).
+- Subscription provider copy: no operational-verb leakage in the three
+  subscription tiles. `codex-subscription` / `gemini-cli` stay Roadmap;
+  `claude-subscription` is hidden experimental, not "unimplemented".
 
 **Deferred.**
-- Real OAuth flow lands in PR-AUTH-1; this gate flips when the
-  ready-state contract for those three providers ships.
+- Codex/Gemini OAuth flows remain future work. Claude subscription still
+  requires product/legal sign-off and a real send-path smoke before it can
+  become a ready model provider.
 
 ### S8 — Provider polish: file-wide disabled-actionable guard
 
