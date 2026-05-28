@@ -2057,6 +2057,36 @@ button:active {
   flex: 1;
 }
 
+/* PR-MEMORY-VISIBILITY-INDICATOR-0: small clickable pill that fires
+   when local MEMORY.md is being injected into the agent's system
+   prompt. Tone matches the existing info badge family. */
+.maka-chat-header-memory-pill {
+  appearance: none;
+  background: oklch(from var(--accent) l c h / 0.10);
+  border: 1px solid oklch(from var(--accent) l c h / 0.25);
+  color: var(--accent);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  margin-right: 6px;
+  margin-bottom: 9px;
+}
+
+.maka-chat-header-memory-pill:hover {
+  background: oklch(from var(--accent) l c h / 0.18);
+}
+
+.maka-chat-header-memory-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .maka-chat-header .modePill {
   margin-bottom: 9px;
   -webkit-app-region: no-drag;
