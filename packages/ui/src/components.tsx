@@ -291,11 +291,7 @@ export function SessionListPanel(props: {
   onOpenSettings(): void;
   onNew(): void;
   onOpenSkillFolder?(path: string): void;
-  /**
-   * PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): Update button click.
-   * UI placeholder only in this phase; main.tsx wires a noop / toast.
-   * Real auto-update wiring lands in PR-AUTOUPDATE-0.
-   */
+  /** Opens the local version/build information surface. */
   onOpenUpdate?(): void;
   /**
    * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + `94c7bf0f`):
@@ -623,41 +619,25 @@ export function SessionListPanel(props: {
       </section>
 
       <footer className="maka-session-panel-footer">
-        {/*
-          PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): Update
-          placeholder. Real auto-update wiring (Electron updater
-          channel / signature / rollback gates) is deferred to a
-          separate PR-AUTOUPDATE-0; this button is UI-only.
-        */}
-        {/*
-          PR-UX-POLISH-1 (yuejing UX audit P1 #1, kenji boundary 1):
-          when `onOpenUpdate` is NOT wired (current default), render
-          a passive informational tag — NOT a button. Removes the
-          "looks tappable but does nothing" affordance that confuses
-          users. Once PR-AUTOUPDATE-0 wires the real updater, the
-          button form returns. Maps to capability presentation enum
-          `coming_soon`: no hover-pointer, no click, no aria-disabled
-          fake-button mess.
-        */}
         {props.onOpenUpdate ? (
           <button
             className="maka-nav-row"
             type="button"
             onClick={() => props.onOpenUpdate!()}
-            aria-label="版本更新"
+            aria-label="版本信息"
           >
             <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
-            <span>版本更新</span>
+            <span>版本信息</span>
           </button>
         ) : (
           <div
             className="maka-nav-row"
             data-state="coming_soon"
-            aria-label="版本更新即将推出"
+            aria-label="版本信息不可用"
           >
             <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
-            <span>版本更新</span>
-            <span className="maka-nav-row-state-badge">即将推出</span>
+            <span>版本信息</span>
+            <span className="maka-nav-row-state-badge">不可用</span>
           </div>
         )}
         <button

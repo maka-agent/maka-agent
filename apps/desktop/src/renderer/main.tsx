@@ -1727,6 +1727,7 @@ function AppShell(props: {
             onSelect={setNavSelection}
             onSelectSession={setActiveId}
             onOpenSettings={openSettings}
+            onOpenUpdate={() => openSettingsSection('about')}
             onNew={createSession}
             onOpenSkillFolder={() => void openSkillsFolder()}
             onOpenSearchModal={() => setSearchModalOpen(true)}
