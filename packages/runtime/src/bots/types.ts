@@ -1,6 +1,7 @@
 import type { BotProvider, BotReadinessState } from '@maka/core';
+import type { BotMessageEvent, BotPlatform } from '@maka/core/bot-events';
 
-export type BotPlatform = BotProvider;
+export type { BotPlatform };
 
 export interface BotStatus {
   platform: BotPlatform;
@@ -21,17 +22,7 @@ export interface BotStatus {
   };
 }
 
-export interface BotIncomingMessage {
-  platform: BotPlatform;
-  userId: string;
-  userName: string;
-  chatId: string;
-  isGroup: boolean;
-  text: string;
-  sourceMessageId: string;
-  receivedAt: number;
-  attachments?: Array<{ kind: 'image' | 'file' | 'voice'; url?: string; fileId?: string; mimeType?: string }>;
-}
+export type BotIncomingMessage = BotMessageEvent;
 
 export interface BotBridge {
   readonly platform: BotPlatform;

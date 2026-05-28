@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   ArrowDown,
   Ban,
+  BookOpen,
   CalendarDays,
   Check,
   ChevronRight,
@@ -2081,6 +2082,17 @@ export function ChatView(props: {
   renderProviderMark?(type: ProviderType): ReactNode;
   /** Personalized user label shown on user messages. Falls back to "你". */
   userLabel?: string;
+  /**
+   * PR-MEMORY-VISIBILITY-INDICATOR-0 — true when the agent is reading
+   * local MEMORY.md content into the system prompt this session.
+   * Drives a subtle pill in the chat header so the user remembers
+   * memory is in effect (kenji `19b0996f` boundary: no implicit
+   * durable memory; xuan `c06e13f` MVP + yuejing PR-MEMORY-PROMPT-
+   * INJECT-0 wiring).
+   */
+  memoryActive?: boolean;
+  /** Click target for the memory pill — usually opens Settings · 记忆. */
+  onOpenMemorySettings?(): void;
   mode: NavSelection['section'];
   /**
    * When the user has no real LLM connection configured, the empty state
@@ -2263,6 +2275,19 @@ export function ChatView(props: {
           <Plus strokeWidth={1.5} />
         </button>
         <span className="maka-chat-header-spacer" />
+        {props.memoryActive && (
+          <button
+            type="button"
+            className="maka-chat-header-memory-pill"
+            data-active="true"
+            onClick={() => props.onOpenMemorySettings?.()}
+            title="本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。"
+            aria-label="本地记忆已启用"
+          >
+            <BookOpen size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>记忆</span>
+          </button>
+        )}
         {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
         {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
         {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
