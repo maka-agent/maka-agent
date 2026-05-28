@@ -8,6 +8,75 @@ const TELEGRAM_POLL_TIMEOUT_S = 15;
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
 const FEISHU_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * PR-TELEGRAM-UTF16-LIMIT-0 (Hermes deep-dive #B3): Telegram's
+ * 4096-character message cap is measured in UTF-16 code units, NOT
+ * Python-style codepoints. Astral-plane characters (most emoji, CJK
+ * Extension B, music symbols) consume 2 code units each. Without
+ * this guard, an emoji-heavy 2049-codepoint message overflows the
+ * 4096 limit and Telegram returns 400.
+ *
+ * Limit pulled DOWN to 4000 so a "[1/N]" continuation marker fits
+ * inside the cap on the producer side without re-measuring.
+ */
+const TELEGRAM_MAX_UTF16_PER_MESSAGE = 4000;
+
+/** Count UTF-16 code units in `s` (surrogate pairs count as 2). */
+function utf16Len(s: string): number {
+  return s.length === 0 ? 0 : Buffer.byteLength(s, 'utf16le') / 2;
+}
+
+/**
+ * Return the longest prefix of `s` whose UTF-16 length is ≤ `cap`,
+ * respecting surrogate-pair boundaries (we never slice a
+ * multi-code-unit character in half). We iterate codepoint-by-
+ * codepoint instead of binary-searching slices: the cost of
+ * mistakenly splitting an emoji is far worse than the O(n) cost.
+ */
+function prefixWithinUtf16(s: string, cap: number): string {
+  if (utf16Len(s) <= cap) return s;
+  let used = 0;
+  let end = 0;
+  for (let i = 0; i < s.length; ) {
+    const code = s.codePointAt(i)!;
+    const units = code > 0xffff ? 2 : 1;
+    if (used + units > cap) break;
+    used += units;
+    i += units;
+    end = i;
+  }
+  return s.slice(0, end);
+}
+
+/**
+ * Split `text` into UTF-16-bounded chunks for Telegram delivery.
+ * Prefers breaking on a newline within the last ~10% of the chunk;
+ * falls back to a hard prefix cut when the chunk has no newline.
+ *
+ * The chunk count is emitted as a `[i/N]` header on the first
+ * line of each piece so the receiver knows the message is split.
+ */
+function splitForTelegram(text: string): string[] {
+  if (utf16Len(text) <= TELEGRAM_MAX_UTF16_PER_MESSAGE) return [text];
+  const HEADER_RESERVE = 12; // room for "[99/99]\n"
+  const cap = TELEGRAM_MAX_UTF16_PER_MESSAGE - HEADER_RESERVE;
+  const pieces: string[] = [];
+  let remaining = text;
+  while (utf16Len(remaining) > cap) {
+    let chunk = prefixWithinUtf16(remaining, cap);
+    const minBoundary = Math.floor(chunk.length * 0.9);
+    const nl = chunk.lastIndexOf('\n');
+    if (nl >= minBoundary) chunk = chunk.slice(0, nl);
+    pieces.push(chunk);
+    remaining = remaining.slice(chunk.length).replace(/^\n/, '');
+  }
+  if (remaining.length > 0) pieces.push(remaining);
+  const total = pieces.length;
+  return pieces.map((piece, idx) => `[${idx + 1}/${total}]\n${piece}`);
+}
+
+export const __TEST__ = { utf16Len, prefixWithinUtf16, splitForTelegram };
+
 export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapable {
   readonly platform: BotPlatform;
   private running = false;
@@ -92,18 +161,30 @@ export class SimpleBotBridge extends EventEmitter implements BotBridge, SendCapa
 
   async sendMessage(chatId: string, text: string): Promise<string | null> {
     if (this.platform !== 'telegram' || !this.running) return null;
-    const response = await telegramApi(this.settings.token, 'sendMessage', { chat_id: chatId, text });
-    if (!response.ok) {
-      this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
-      this.reason = response.description ?? 'send-failed';
-      this.emit('statusChange', this.getStatus());
-      return null;
+    // PR-TELEGRAM-UTF16-LIMIT-0: split first if the message would
+    // exceed Telegram's 4096 UTF-16 code unit cap. The split helper
+    // returns the original text untouched when it already fits, so
+    // the common short-message path stays a single API call.
+    const chunks = splitForTelegram(text);
+    let lastMessageId: string | null = null;
+    for (const chunk of chunks) {
+      const response = await telegramApi(this.settings.token, 'sendMessage', {
+        chat_id: chatId,
+        text: chunk,
+      });
+      if (!response.ok) {
+        this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
+        this.reason = response.description ?? 'send-failed';
+        this.emit('statusChange', this.getStatus());
+        return null;
+      }
+      lastMessageId = String(response.result?.message_id ?? '') || lastMessageId;
     }
     this.readiness = 'operational';
     this.reason = undefined;
     this.lastEventAt = Date.now();
     this.emit('statusChange', this.getStatus());
-    return String(response.result?.message_id ?? '') || null;
+    return lastMessageId;
   }
 
   updateSettings(settings: BotChannelSettings): { needsRestart: boolean } {
