@@ -50,6 +50,13 @@ export type {
 } from './tool-artifacts.js';
 export { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 export type { ToolOutputDeltaEmitter, ToolOutputDeltaEmitterInput } from './tool-output-delta.js';
+export {
+  DEFAULT_STREAM_CONNECT_TIMEOUT_MS,
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  StreamWatchdog,
+  formatStreamWatchdogError,
+} from './stream-watchdog.js';
+export type { StreamWatchdogInput, StreamWatchdogPhase, StreamWatchdogTimeout } from './stream-watchdog.js';
 
 export { getAIModel, buildProviderOptions } from './model-factory.js';
 export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';

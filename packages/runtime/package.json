@@ -13,6 +13,7 @@
     "./builtin-tools": "./dist/builtin-tools.js",
     "./tool-artifacts": "./dist/tool-artifacts.js",
     "./tool-output-delta": "./dist/tool-output-delta.js",
+    "./stream-watchdog": "./dist/stream-watchdog.js",
     "./model-factory": "./dist/model-factory.js",
     "./test-connection": "./dist/test-connection.js",
     "./model-fetcher": "./dist/model-fetcher.js",

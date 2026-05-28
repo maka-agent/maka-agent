@@ -73,6 +73,7 @@ import {
   type ToolArtifactRecorder,
 } from './tool-artifacts.js';
 import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
+import { StreamWatchdog, formatStreamWatchdogError } from './stream-watchdog.js';
 
 // ============================================================================
 // AgentBackend interface
@@ -184,6 +185,10 @@ export interface AiSdkBackendInput {
   now?: () => number;
   /** Cap on tool-call steps per turn; default 50. */
   maxSteps?: number;
+  /** Timeout before first SDK stream event; default 30s. */
+  streamConnectTimeoutMs?: number;
+  /** Timeout between SDK/tool events; paused while waiting on permission. Default 120s. */
+  streamIdleTimeoutMs?: number;
   /** Optional system prompt (skills + workspace AGENTS.md merged upstream). */
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
@@ -223,6 +228,8 @@ export class AiSdkBackend implements AgentBackend {
   private currentTurnId: string | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
+  /** Paused while the backend is waiting on a user permission decision. */
+  private currentWatchdog: StreamWatchdog | null = null;
 
   constructor(input: AiSdkBackendInput) {
     this.input = input;
@@ -310,7 +317,23 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Background pump: streamText → fullStream → normalize → queue ---
     const pumpDone: Promise<void> = (async () => {
+      let watchdog: StreamWatchdog | null = null;
+      let watchdogTimeoutError: Error | null = null;
       try {
+        watchdog = new StreamWatchdog({
+          now: this.now,
+          connectTimeoutMs: this.input.streamConnectTimeoutMs,
+          idleTimeoutMs: this.input.streamIdleTimeoutMs,
+          onTimeout: (timeout) => {
+            const message = formatStreamWatchdogError(timeout);
+            watchdogTimeoutError = new Error(message);
+            queue.push(this.makeErrorEvent(turnId, watchdogTimeoutError));
+            this.abortController?.abort(watchdogTimeoutError);
+          },
+        });
+        this.currentWatchdog = watchdog;
+        watchdog.start();
+
         const result = streamText({
           model,
           messages,
@@ -322,6 +345,7 @@ export class AiSdkBackend implements AgentBackend {
 
         for await (const chunk of result.fullStream) {
           if (this.aborted) break;
+          watchdog.markActivity();
           this.handleStreamChunk(chunk, turnId, assistantMessageId, queue, {
             onText: (t) => { assistantText += t; },
             onTextComplete: (t) => { assistantText = t; },
@@ -416,7 +440,7 @@ export class AiSdkBackend implements AgentBackend {
         } satisfies CompleteEvent);
       } catch (err) {
         streamStatus = this.aborted ? 'aborted' : 'error';
-        streamErrorClass = classifyError(err);
+        streamErrorClass = classifyError(watchdogTimeoutError ?? err);
         if (this.aborted) {
           queue.push({
             type: 'abort',
@@ -433,7 +457,9 @@ export class AiSdkBackend implements AgentBackend {
             stopReason: 'user_stop',
           } satisfies CompleteEvent);
         } else {
-          queue.push(this.makeErrorEvent(turnId, err));
+          if (!watchdogTimeoutError) {
+            queue.push(this.makeErrorEvent(turnId, err));
+          }
           queue.push({
             type: 'complete',
             id: this.newId(),
@@ -443,6 +469,8 @@ export class AiSdkBackend implements AgentBackend {
           } satisfies CompleteEvent);
         }
       } finally {
+        watchdog?.stop();
+        if (this.currentWatchdog === watchdog) this.currentWatchdog = null;
         this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
@@ -533,8 +561,11 @@ export class AiSdkBackend implements AgentBackend {
         queue.push(verdict.event);
         let response: PermissionDecision;
         try {
+          this.currentWatchdog?.pause();
           response = await verdict.parked;
+          this.currentWatchdog?.resume();
         } catch (err) {
+          this.currentWatchdog?.resume();
           const msg = err instanceof Error ? err.message : String(err);
           await this.writeSyntheticToolResult(toolUseId, turnId, `Permission flow aborted: ${msg}`, queue);
           return this.errorReturn(`Permission flow aborted: ${msg}`);
