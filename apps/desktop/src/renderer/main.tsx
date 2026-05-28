@@ -156,6 +156,13 @@ function AppShell(props: {
   // `streamingTruncatedBySession` is now inlined into the combined
   // `streamingBySession[sessionId].truncated` slot above. See the
   // type definition near `useState<Record<string, AssistantStreamSlot>>`.
+  // PR-MEMORY-VISIBILITY-INDICATOR-0: surface a small pill in the
+  // chat header when xuan's MEMORY.md is being injected into the
+  // agent's system prompt (PR-MEMORY-PROMPT-INJECT-0). Refreshed
+  // when activeId changes (we re-fetch on every chat switch) and
+  // whenever the Settings modal closes (the user may have toggled
+  // the agentReadEnabled switch).
+  const [memoryActive, setMemoryActive] = useState(false);
   const [liveToolsBySession, setLiveToolsBySession] = useState<Record<string, ToolActivityItem[]>>({});
   const [permissionBySession, setPermissionBySession] = useState<Record<string, PermissionRequestEvent | undefined>>({});
   const [sessionEventHealthBySessionState, setSessionEventHealthBySessionState] =
@@ -568,6 +575,9 @@ function AppShell(props: {
     // Pull the persisted theme preference (auto/light/dark) and apply it
     // before any first paint settles. If settings are unreadable we leave the
     // default `auto` which still produces a correct result.
+    void window.maka.memory.getState().then((next) => {
+      setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
+    }).catch(() => setMemoryActive(false));
     void window.maka.settings.get().then((next) => {
       const pref = next.appearance?.theme ?? 'auto';
       const den = next.appearance?.density ?? 'comfortable';
@@ -1424,6 +1434,16 @@ function AppShell(props: {
     // sessions events cover most state changes, but a settings-only
     // write (e.g. defaultSlug picked) may not always fire one.
     onboarding.refresh();
+    // PR-MEMORY-VISIBILITY-INDICATOR-0: same recompute path for the
+    // chat-header memory pill — user may have just flipped the
+    // agentReadEnabled switch.
+    void window.maka.memory.getState().then((next) => {
+      setMemoryActive(
+        next.agentReadEnabled
+        && next.status === 'ok'
+        && next.content.trim().length > 0,
+      );
+    }).catch(() => setMemoryActive(false));
   }
 
   /**
@@ -1760,6 +1780,8 @@ function AppShell(props: {
                 activeProviderType={activeConnection?.providerType}
                 renderProviderMark={(type) => <ProviderLogo type={type} compact />}
                 userLabel={userLabel}
+                memoryActive={memoryActive}
+                onOpenMemorySettings={() => openSettingsSection('memory')}
                 mode={navSelection.section}
                 connectionAlert={chatConnectionAlert}
                 eventStreamAlert={chatEventStreamAlert}

@@ -18,6 +18,9 @@ import {
   isDeepResearchSession,
   botPlatformFromSessionLabels,
   buildBotPlatformPromptFragment,
+  botConversationKey,
+  botDisplayLabel,
+  formatBotMessageForSession,
 } from '@maka/core';
 import type {
   AppSettings,
@@ -1584,7 +1587,7 @@ async function streamEvents(
 async function handleBotIncomingMessage(message: BotIncomingMessage): Promise<void> {
   const text = message.text.trim();
   if (!text) return;
-  const key = `${message.platform}:${message.chatId}`;
+  const key = botConversationKey(message);
   const current = botConversationQueues.get(key) ?? Promise.resolve();
   const next = current
     .catch(() => {})
@@ -1612,7 +1615,7 @@ async function processBotIncomingMessage(
         // Bot conversations must not execute local side effects without an
         // in-app approval surface. Explore allows read/web-read only.
         permissionMode: 'explore',
-        name: `${botPlatformLabel(message.platform)} 对话`,
+        name: `${botDisplayLabel(message.platform)} 对话`,
         labels: ['bot', message.platform],
       });
       sessionId = summary.id;
@@ -1625,7 +1628,7 @@ async function processBotIncomingMessage(
     const turnId = randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
-      text: `[${botPlatformLabel(message.platform)}:${message.userName}] ${text}`,
+      text: formatBotMessageForSession({ ...message, text }),
     });
     const reply = await collectBotReply(sessionId, iterator, turnId);
     if (reply.trim()) {
@@ -1690,18 +1693,6 @@ async function collectBotReply(
     return `Maka 处理失败：${errorMessage(error)}`;
   }
   return latestText;
-}
-
-function botPlatformLabel(provider: BotProvider): string {
-  switch (provider) {
-    case 'telegram': return 'Telegram';
-    case 'feishu': return '飞书';
-    case 'wecom': return '企业微信';
-    case 'wechat': return '微信';
-    case 'discord': return 'Discord';
-    case 'dingtalk': return '钉钉';
-    case 'qq': return 'QQ';
-  }
 }
 
 function isFinalSessionEvent(event: SessionEvent): boolean {

@@ -578,6 +578,18 @@ export {
   getBotPlatformPromptHint,
 } from './bot-platform-hints.js';
 
+// bot-events.ts
+export type {
+  BotAttachmentRef,
+  BotMessageEvent,
+  BotPlatform,
+} from './bot-events.js';
+export {
+  botConversationKey,
+  botDisplayLabel,
+  formatBotMessageForSession,
+} from './bot-events.js';
+
 // redaction.ts
 export {
   generalizedErrorMessage,
