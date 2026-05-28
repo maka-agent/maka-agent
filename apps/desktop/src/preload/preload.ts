@@ -44,6 +44,7 @@ import type {
   SubscriptionAccountState,
   SubscriptionActionResult,
   PlanReminder,
+  PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
   DailyReviewSummary,
   WebSearchProvider,
@@ -313,10 +314,10 @@ contextBridge.exposeInMainWorld('maka', {
     list(): Promise<PlanReminder[]> {
       return ipcRenderer.invoke('plans:list');
     },
-    create(input: { title: string; note?: string; runAt: number | string; recurrence?: PlanReminderRecurrence }): Promise<PlanReminder> {
+    create(input: { title: string; note?: string; runAt: number | string; recurrence?: PlanReminderRecurrence; delivery?: PlanReminderDeliveryTarget }): Promise<PlanReminder> {
       return ipcRenderer.invoke('plans:create', input);
     },
-    update(id: string, patch: { title?: string; note?: string; runAt?: number | string; recurrence?: PlanReminderRecurrence; enabled?: boolean }): Promise<PlanReminder> {
+    update(id: string, patch: { title?: string; note?: string; runAt?: number | string; recurrence?: PlanReminderRecurrence; delivery?: PlanReminderDeliveryTarget; enabled?: boolean }): Promise<PlanReminder> {
       return ipcRenderer.invoke('plans:update', id, patch);
     },
     setEnabled(id: string, enabled: boolean): Promise<PlanReminder> {

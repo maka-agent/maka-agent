@@ -54,7 +54,9 @@ import type {
   PermissionMode,
   PermissionRequestEvent,
   PermissionResponse,
+  BotProvider,
   PlanReminder,
+  PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
   ProviderType,
   SearchErrorReason,
@@ -66,6 +68,9 @@ import type {
 } from '@maka/core';
 import {
   derivePermissionRequestHealth,
+  BOT_PROVIDERS,
+  botDisplayLabel,
+  formatPlanReminderDeliveryTarget,
   formatPermissionRequestWait,
   formatRelativeTimestamp,
   normalizeSearchUrl,
@@ -302,7 +307,7 @@ export function SessionListPanel(props: {
    * real backend behind the same callback.
    */
   onOpenSearchModal?(): void;
-  onCreatePlanReminder?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence }): void;
+  onCreatePlanReminder?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; delivery?: PlanReminderDeliveryTarget }): void;
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onDeletePlanReminder?(id: string): void;
   /**
@@ -1012,7 +1017,7 @@ function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<Daily
 
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
-  onCreate?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence }): void;
+  onCreate?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; delivery?: PlanReminderDeliveryTarget }): void;
   onToggle?(id: string, enabled: boolean): void;
   onDelete?(id: string): void;
 }) {
@@ -1020,8 +1025,17 @@ function PlanReminderPanel(props: {
   const [note, setNote] = useState('');
   const [runAtLocal, setRunAtLocal] = useState(() => toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
   const [recurrence, setRecurrence] = useState<PlanReminderRecurrence>('none');
+  const [deliveryChannel, setDeliveryChannel] = useState<PlanReminderDeliveryTarget['channel']>('local');
+  const [deliveryPlatform, setDeliveryPlatform] = useState<BotProvider>('telegram');
+  const [deliveryChatId, setDeliveryChatId] = useState('');
   const parsedRunAt = Date.parse(runAtLocal);
-  const canSubmit = title.trim().length > 0 && Number.isFinite(parsedRunAt) && parsedRunAt >= Date.now();
+  const delivery: PlanReminderDeliveryTarget = deliveryChannel === 'bot'
+    ? { channel: 'bot', platform: deliveryPlatform, chatId: deliveryChatId.trim() }
+    : { channel: 'local' };
+  const canSubmit = title.trim().length > 0 &&
+    Number.isFinite(parsedRunAt) &&
+    parsedRunAt >= Date.now() &&
+    (delivery.channel === 'local' || delivery.chatId.length > 0);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1031,10 +1045,13 @@ function PlanReminderPanel(props: {
       ...(note.trim() ? { note: note.trim() } : {}),
       runAt: parsedRunAt,
       recurrence,
+      delivery,
     });
     setTitle('');
     setNote('');
     setRecurrence('none');
+    setDeliveryChannel('local');
+    setDeliveryChatId('');
     setRunAtLocal(toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
   }
 
@@ -1068,6 +1085,39 @@ function PlanReminderPanel(props: {
             <option value="monthly">每月</option>
           </select>
         </label>
+        <div className="maka-plan-delivery-grid">
+          <label className="maka-plan-field">
+            <span>投递</span>
+            <select
+              value={deliveryChannel}
+              onChange={(event) => setDeliveryChannel(event.currentTarget.value as PlanReminderDeliveryTarget['channel'])}
+            >
+              <option value="local">本地提醒</option>
+              <option value="bot">机器人聊天</option>
+            </select>
+          </label>
+          {deliveryChannel === 'bot' && (
+            <label className="maka-plan-field">
+              <span>平台</span>
+              <select value={deliveryPlatform} onChange={(event) => setDeliveryPlatform(event.currentTarget.value as BotProvider)}>
+                {BOT_PROVIDERS.map((provider) => (
+                  <option key={provider} value={provider}>{botDisplayLabel(provider)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+        {deliveryChannel === 'bot' && (
+          <label className="maka-plan-field">
+            <span>Chat ID</span>
+            <input
+              value={deliveryChatId}
+              onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
+              maxLength={160}
+              placeholder="例如 Telegram chat_id"
+            />
+          </label>
+        )}
         <label className="maka-plan-field">
           <span>备注</span>
           <textarea
@@ -1112,6 +1162,7 @@ function PlanReminderPanel(props: {
                   )}
                 </div>
                 <div className="maka-plan-card-repeat">{formatPlanRecurrence(reminder)}</div>
+                <div className="maka-plan-card-delivery">{formatPlanReminderDeliveryTarget(reminder.delivery)}</div>
                 {reminder.note && <div className="maka-plan-card-note">{reminder.note}</div>}
                 {reminder.lastRun && (
                   <div className="maka-plan-card-run">

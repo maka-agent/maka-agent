@@ -1821,6 +1821,12 @@ button:active {
   box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
 }
 
+.maka-plan-delivery-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
 .maka-plan-submit {
   justify-content: center;
 }
@@ -1861,6 +1867,7 @@ button:active {
 
 .maka-plan-card-time,
 .maka-plan-card-repeat,
+.maka-plan-card-delivery,
 .maka-plan-card-run {
   color: var(--foreground-50);
   font-size: 11px;
