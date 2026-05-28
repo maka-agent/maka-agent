@@ -665,7 +665,7 @@ export function isCloakEnabled(): boolean {
  * behind `MAKA_CLAUDE_SUBSCRIPTION_EXPERIMENTAL=1`. When the env
  * var is NOT set:
  *   - Settings UI does NOT render the Claude subscription card.
- *   - IPC handlers return `provider_rejected` immediately so a
+ *   - IPC handlers return `experimental_disabled` immediately so a
  *     manual `window.maka.claudeSubscription.*` call from
  *     DevTools also fails closed.
  *

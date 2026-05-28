@@ -794,7 +794,7 @@ function registerIpc(): void {
   };
   ipcMain.handle('claude-subscription:get-auth-url', async () => {
     if (!isSubscriptionExperimentalEnabled()) {
-      throw new Error('claude-subscription is disabled in this build');
+      return experimentalDisabledResponse;
     }
     return claudeSubscription.getAuthorizationUrl();
   });
