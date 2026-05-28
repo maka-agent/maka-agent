@@ -34,6 +34,7 @@ import type {
   UpdateConnectionInput,
   UpdateAppSettingsInput,
   UsageRange,
+  PlanReminder,
 } from '@maka/core';
 import { runThreadSearch } from './search/thread-search.js';
 import {
@@ -82,7 +83,7 @@ import {
 import type { BotIncomingMessage, ToolArtifactRecorderInput } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { createArtifactStore, createConnectionStore, createSessionStore, createSettingsStore, createTelemetryRepo, resolveArtifactPath } from '@maka/storage';
+import { createArtifactStore, createConnectionStore, createPlanReminderStore, createSessionStore, createSettingsStore, createTelemetryRepo, resolveArtifactPath } from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -130,6 +131,7 @@ const credentialStore = createSafeStorageCredentialStore(workspaceRoot);
 const claudeSubscription = new ClaudeSubscriptionService({
   userDataDir: app.getPath('userData'),
 });
+const planReminderStore = createPlanReminderStore(workspaceRoot);
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
 const builtinTools = buildBuiltinTools().filter((tool) => tool.name !== 'Edit');
@@ -266,6 +268,7 @@ const onboardingService = createOnboardingService(
 );
 
 let mainWindow: BrowserWindow | null = null;
+const planReminderTimers = new Map<string, NodeJS.Timeout>();
 
 /**
  * Guard against saved x/y referencing a display that no longer exists
@@ -727,6 +730,34 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle('skills:list', async () => listInstalledSkills(workspaceRoot));
+  ipcMain.handle('plans:list', () => planReminderStore.list());
+  ipcMain.handle('plans:create', async (_event, input: unknown) => {
+    const privacy = defaultWorkspacePrivacyContext();
+    if (privacy.incognitoActive) {
+      throw new Error('隐私模式已开启，不能创建计划提醒。');
+    }
+    const reminder = await planReminderStore.create(input);
+    schedulePlanReminder(reminder);
+    emitPlansChanged('created', reminder);
+    return reminder;
+  });
+  ipcMain.handle('plans:update', async (_event, id: string, patch: unknown) => {
+    const reminder = await planReminderStore.update(id, patch);
+    schedulePlanReminder(reminder);
+    emitPlansChanged('updated', reminder);
+    return reminder;
+  });
+  ipcMain.handle('plans:setEnabled', async (_event, id: string, enabled: boolean) => {
+    const reminder = await planReminderStore.setEnabled(id, enabled);
+    schedulePlanReminder(reminder);
+    emitPlansChanged('updated', reminder);
+    return reminder;
+  });
+  ipcMain.handle('plans:delete', async (_event, id: string) => {
+    clearPlanReminderTimer(id);
+    await planReminderStore.remove(id);
+    emitPlansChanged('deleted', { id });
+  });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? process.cwd();
@@ -1597,6 +1628,70 @@ function emitSessionsChanged(
   mainWindow?.webContents.send('sessions:changed', event);
 }
 
+function emitPlansChanged(
+  reason: 'created' | 'updated' | 'deleted' | 'triggered' | 'blocked',
+  reminder: Pick<PlanReminder, 'id'>,
+): void {
+  mainWindow?.webContents.send('plans:changed', {
+    type: 'plans_changed',
+    reason,
+    reminderId: reminder.id,
+    ts: Date.now(),
+  });
+}
+
+function emitPlanDue(reminder: PlanReminder): void {
+  mainWindow?.webContents.send('plans:due', reminder);
+}
+
+function clearPlanReminderTimer(id: string): void {
+  const timer = planReminderTimers.get(id);
+  if (timer) clearTimeout(timer);
+  planReminderTimers.delete(id);
+}
+
+function schedulePlanReminder(reminder: PlanReminder): void {
+  clearPlanReminderTimer(reminder.id);
+  if (!reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number') return;
+  const delay = Math.max(0, reminder.nextRunAt - Date.now());
+  const timer = setTimeout(() => {
+    planReminderTimers.delete(reminder.id);
+    void refreshPlanReminderTimers();
+  }, Math.min(delay, 2_147_483_647));
+  planReminderTimers.set(reminder.id, timer);
+}
+
+async function refreshPlanReminderTimers(): Promise<void> {
+  for (const id of Array.from(planReminderTimers.keys())) clearPlanReminderTimer(id);
+  await triggerDuePlanReminders();
+  const reminders = await planReminderStore.list();
+  for (const reminder of reminders) schedulePlanReminder(reminder);
+}
+
+async function triggerDuePlanReminders(): Promise<void> {
+  const due = await planReminderStore.listDue(Date.now());
+  for (const reminder of due) {
+    const now = Date.now();
+    const privacy = defaultWorkspacePrivacyContext();
+    if (privacy.incognitoActive) {
+      const blocked = await planReminderStore.markBlocked(reminder.id, {
+        at: now,
+        message: '隐私模式已开启，计划提醒没有触发。',
+        blockReason: 'incognito_active',
+      });
+      emitPlansChanged('blocked', blocked);
+      continue;
+    }
+    const triggered = await planReminderStore.markTriggered(reminder.id, {
+      at: now,
+      status: 'triggered',
+      message: '提醒已触发。',
+    });
+    emitPlansChanged('triggered', triggered);
+    emitPlanDue(triggered);
+  }
+}
+
 function toContractNetworkSettings(network: Awaited<ReturnType<typeof settingsStore.get>>['network']): ContractNetworkSettings {
   const proxy = network.proxy;
   return {
@@ -1709,6 +1804,7 @@ app.whenReady().then(async () => {
   lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
   await botRegistry.applySettings(settings.botChat);
   await createWindow();
+  await refreshPlanReminderTimers();
 });
 
 app.on('window-all-closed', () => {
@@ -1716,6 +1812,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  for (const id of Array.from(planReminderTimers.keys())) clearPlanReminderTimer(id);
   void botRegistry.stopAll();
 });
 

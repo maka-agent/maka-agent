@@ -507,6 +507,50 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('plan-reminders opens the Automations module and seeds scheduled / paused / completed reminders', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-plan-reminders-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('plan-reminders', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.sidebarSection, 'automations');
+      assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+
+      const reminders = JSON.parse(
+        await readFile(join(workspaceRoot, 'plan-reminders.json'), 'utf8'),
+      ) as Array<{
+        id: string;
+        title: string;
+        status: string;
+        enabled: boolean;
+        nextRunAt?: number;
+        lastRun?: { status: string; message: string };
+      }>;
+      assert.deepEqual(reminders.map((reminder) => reminder.id), [
+        'visual-plan-reminder-standup',
+        'visual-plan-reminder-paused',
+        'visual-plan-reminder-completed',
+      ]);
+      assert.equal(reminders[0]?.status, 'scheduled');
+      assert.equal(reminders[0]?.enabled, true);
+      assert.equal(typeof reminders[0]?.nextRunAt, 'number');
+      assert.equal(reminders[1]?.status, 'paused');
+      assert.equal(reminders[1]?.enabled, false);
+      assert.equal(reminders[2]?.status, 'completed');
+      assert.equal(reminders[2]?.lastRun?.status, 'triggered');
+      assert.match(reminders[2]?.lastRun?.message ?? '', /计划提醒/);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action overlay shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): the sidebar-row-actions-visible scenario

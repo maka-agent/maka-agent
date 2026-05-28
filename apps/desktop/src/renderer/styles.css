@@ -1707,6 +1707,138 @@ button:active {
   margin-top: 6px;
 }
 
+.maka-plan-panel {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 8px;
+}
+
+.maka-plan-form,
+.maka-plan-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--foreground-2);
+  padding: 10px;
+}
+
+.maka-plan-form-title {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.maka-plan-field {
+  display: grid;
+  gap: 4px;
+  color: var(--foreground-60);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.maka-plan-field input,
+.maka-plan-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 8px;
+  outline: none;
+  resize: vertical;
+}
+
+.maka-plan-field input:focus,
+.maka-plan-field textarea:focus {
+  border-color: oklch(from var(--accent) l c h / 0.55);
+  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
+}
+
+.maka-plan-submit {
+  justify-content: center;
+}
+
+.maka-plan-list {
+  display: grid;
+  gap: 8px;
+}
+
+.maka-plan-empty {
+  position: static;
+  width: auto;
+  transform: none;
+  padding: 20px 10px;
+}
+
+.maka-plan-card {
+  gap: 8px;
+}
+
+.maka-plan-card[data-status="completed"] {
+  opacity: 0.72;
+}
+
+.maka-plan-card-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.maka-plan-card-title {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.maka-plan-card-time,
+.maka-plan-card-run {
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.maka-plan-card-note {
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.maka-plan-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.maka-plan-action {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground-70);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.maka-plan-action:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.maka-plan-action-danger {
+  color: var(--destructive);
+}
+
 .detailPane {
   min-width: 0;
   min-height: 0;

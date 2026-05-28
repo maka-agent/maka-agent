@@ -41,6 +41,7 @@ import type {
   AuthorizationUrlPayload,
   SubscriptionAccountState,
   SubscriptionActionResult,
+  PlanReminder,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -269,6 +270,33 @@ contextBridge.exposeInMainWorld('maka', {
     },
     logout(): Promise<SubscriptionActionResult> {
       return ipcRenderer.invoke('claude-subscription:logout');
+    },
+  },
+  plans: {
+    list(): Promise<PlanReminder[]> {
+      return ipcRenderer.invoke('plans:list');
+    },
+    create(input: { title: string; note?: string; runAt: number | string }): Promise<PlanReminder> {
+      return ipcRenderer.invoke('plans:create', input);
+    },
+    update(id: string, patch: { title?: string; note?: string; runAt?: number | string; enabled?: boolean }): Promise<PlanReminder> {
+      return ipcRenderer.invoke('plans:update', id, patch);
+    },
+    setEnabled(id: string, enabled: boolean): Promise<PlanReminder> {
+      return ipcRenderer.invoke('plans:setEnabled', id, enabled);
+    },
+    delete(id: string): Promise<void> {
+      return ipcRenderer.invoke('plans:delete', id);
+    },
+    subscribeChanges(handler: (event: { type: 'plans_changed'; reason: string; reminderId?: string; ts: number }) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { type: 'plans_changed'; reason: string; reminderId?: string; ts: number }) => handler(payload);
+      ipcRenderer.on('plans:changed', listener);
+      return () => ipcRenderer.off('plans:changed', listener);
+    },
+    subscribeDue(handler: (reminder: PlanReminder) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: PlanReminder) => handler(payload);
+      ipcRenderer.on('plans:due', listener);
+      return () => ipcRenderer.off('plans:due', listener);
     },
   },
   settings: {

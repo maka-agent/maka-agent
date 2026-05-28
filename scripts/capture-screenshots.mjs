@@ -76,6 +76,11 @@ const ALL_SCENARIOS = [
   'settings-theme',
   'settings-coming-soon',
   'workstation-statuses',
+  // PR-PLAN-REMINDER-MVP-0: first non-placeholder 计划 surface.
+  // Opens the Automations module with scheduled / paused / completed
+  // local reminders seeded on disk, so screenshot review can verify
+  // the form + list are real product UI.
+  'plan-reminders',
   // PR109f (g): turn-control-history state family. Three scenarios
   // share one on-disk seed and only differ in active session, so
   // capture produces three deterministic screenshots covering primary

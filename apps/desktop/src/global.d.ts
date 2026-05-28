@@ -40,6 +40,7 @@ import type {
   AuthorizationUrlPayload,
   SubscriptionAccountState,
   SubscriptionActionResult,
+  PlanReminder,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -162,6 +163,20 @@ declare global {
         refreshQuota(): Promise<SubscriptionActionResult>;
         refreshTokens(): Promise<SubscriptionActionResult>;
         logout(): Promise<SubscriptionActionResult>;
+      };
+      plans: {
+        list(): Promise<PlanReminder[]>;
+        create(input: { title: string; note?: string; runAt: number | string }): Promise<PlanReminder>;
+        update(
+          id: string,
+          patch: { title?: string; note?: string; runAt?: number | string; enabled?: boolean },
+        ): Promise<PlanReminder>;
+        setEnabled(id: string, enabled: boolean): Promise<PlanReminder>;
+        delete(id: string): Promise<void>;
+        subscribeChanges(
+          handler: (event: { type: 'plans_changed'; reason: string; reminderId?: string; ts: number }) => void,
+        ): () => void;
+        subscribeDue(handler: (reminder: PlanReminder) => void): () => void;
       };
       usage: {
         summary(query: UsageQuery): Promise<Result<UsageSummaryV2>>;

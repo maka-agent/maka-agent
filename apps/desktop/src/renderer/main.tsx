@@ -4,6 +4,7 @@ import type {
   ConnectionEvent,
   LlmConnection,
   PermissionMode,
+  PlanReminder,
   PermissionRequestEvent,
   PermissionResponse,
   SessionEvent,
@@ -154,6 +155,7 @@ function AppShell(props: {
   const [density, setDensity] = useState<UiDensity>('comfortable');
   const [userLabel, setUserLabel] = useState<string>('');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   // PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `7c320898`):
@@ -559,6 +561,7 @@ function AppShell(props: {
       props.onToastPositionChange(toastPosition);
     });
     void window.maka.skills.list().then(setSkills).catch(() => setSkills([]));
+    void refreshPlanReminders();
     void applyVisualSmokeFixture();
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges((event) => {
@@ -594,6 +597,13 @@ function AppShell(props: {
       }
     });
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
+    const unsubscribePlanChanges = window.maka.plans.subscribeChanges(() => {
+      void refreshPlanReminders();
+    });
+    const unsubscribePlanDue = window.maka.plans.subscribeDue((reminder) => {
+      void refreshPlanReminders();
+      toastApi.info('计划提醒', reminder.title);
+    });
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === ',') {
         event.preventDefault();
@@ -605,6 +615,8 @@ function AppShell(props: {
       unsubscribeConnections();
       unsubscribeSessionChanges();
       unsubscribeOpenSettings();
+      unsubscribePlanChanges();
+      unsubscribePlanDue();
       for (const timeoutHandle of pendingTurnActionTimersRef.current.values()) {
         clearTimeout(timeoutHandle);
       }
@@ -760,6 +772,15 @@ function AppShell(props: {
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
     }
+    if (state.sidebarSection === 'automations') {
+      setNavSelection({ section: 'automations' });
+    } else if (state.sidebarSection === 'skills') {
+      setNavSelection({ section: 'skills' });
+    } else if (state.sidebarSection === 'daily-review') {
+      setNavSelection({ section: 'daily-review' });
+    } else if (state.sidebarSection === 'sessions') {
+      setNavSelection({ section: 'sessions', filter: 'chats' });
+    }
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): when the fixture sets `focusActiveRow`,
     // focus the active row's button after the next paint so the
@@ -887,6 +908,54 @@ function AppShell(props: {
     ]);
     setConnections(next);
     setDefaultConnection(nextDefault);
+  }
+
+  async function refreshPlanReminders() {
+    try {
+      const next = await window.maka.plans.list();
+      setPlanReminders(next);
+    } catch {
+      setPlanReminders([]);
+    }
+  }
+
+  async function createPlanReminder(input: { title: string; note?: string; runAt: number }) {
+    try {
+      await window.maka.plans.create(input);
+      await refreshPlanReminders();
+      toastApi.success('已创建计划提醒', input.title);
+    } catch (error) {
+      toastApi.error('创建计划失败', cleanErrorMessage(error));
+    }
+  }
+
+  async function togglePlanReminder(id: string, enabled: boolean) {
+    try {
+      await window.maka.plans.setEnabled(id, enabled);
+      await refreshPlanReminders();
+      toastApi.success(enabled ? '已启用提醒' : '已暂停提醒');
+    } catch (error) {
+      toastApi.error('更新计划失败', cleanErrorMessage(error));
+    }
+  }
+
+  async function deletePlanReminder(id: string) {
+    const reminder = planReminders.find((entry) => entry.id === id);
+    const ok = await toastApi.confirm({
+      title: `删除 "${reminder?.title ?? '计划提醒'}"`,
+      description: '该提醒和最近执行记录会被删除。该操作不可撤销。',
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await window.maka.plans.delete(id);
+      await refreshPlanReminders();
+      toastApi.success('已删除计划提醒');
+    } catch (error) {
+      toastApi.error('删除计划失败', cleanErrorMessage(error));
+    }
   }
 
   async function createSession() {
@@ -1514,6 +1583,7 @@ function AppShell(props: {
             sessions={visibleSessions}
             activeId={activeId}
             skills={skills}
+            planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
             statusGroups={sessionStatusGroups}
@@ -1523,6 +1593,9 @@ function AppShell(props: {
             onNew={createSession}
             onOpenSkillFolder={() => void openSkillsFolder()}
             onOpenSearchModal={() => setSearchModalOpen(true)}
+            onCreatePlanReminder={(input) => void createPlanReminder(input)}
+            onTogglePlanReminder={(id, enabled) => void togglePlanReminder(id, enabled)}
+            onDeletePlanReminder={(id) => void deletePlanReminder(id)}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
               onArchive: (sessionId) => void archiveSession(sessionId),

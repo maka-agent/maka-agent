@@ -19,6 +19,7 @@
     "./capabilities": "./dist/capabilities.js",
     "./health": "./dist/health.js",
     "./search": "./dist/search.js",
+    "./plan-reminders": "./dist/plan-reminders.js",
     "./memory": "./dist/memory.js",
     "./voice": "./dist/voice.js",
     "./incognito": "./dist/incognito.js",

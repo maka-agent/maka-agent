@@ -266,6 +266,34 @@ export {
   validateWorkspacePrivacyContext,
 } from './incognito.js';
 
+// plan-reminders.ts (PR-PLAN-REMINDER-MVP-0)
+export type {
+  CreatePlanReminderInput,
+  PlanReminder,
+  PlanReminderBlockReason,
+  PlanReminderNormalizeResult,
+  PlanReminderRunRecord,
+  PlanReminderRunStatus,
+  PlanReminderSchedule,
+  PlanReminderStatus,
+  UpdatePlanReminderInput,
+} from './plan-reminders.js';
+export {
+  PLAN_REMINDER_MAX_DELAY_MS,
+  PLAN_REMINDER_NOTE_MAX_CHARS,
+  PLAN_REMINDER_RUN_STATUSES,
+  PLAN_REMINDER_STATUSES,
+  PLAN_REMINDER_TITLE_MAX_CHARS,
+  isPlanReminderDue,
+  isPlanReminderStatus,
+  nextPlanReminderStateAfterTrigger,
+  normalizeCreatePlanReminderInput,
+  normalizePlanReminderNote,
+  normalizePlanReminderRunAt,
+  normalizePlanReminderTitle,
+  normalizeUpdatePlanReminderInput,
+} from './plan-reminders.js';
+
 // memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.
 export type {
   DraftMemoryEntry,

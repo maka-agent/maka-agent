@@ -53,6 +53,7 @@ import type {
   PermissionMode,
   PermissionRequestEvent,
   PermissionResponse,
+  PlanReminder,
   ProviderType,
   SearchErrorReason,
   SearchRequest,
@@ -84,7 +85,7 @@ import {
  * Module labels are Chinese-first per xuan `47e204f2` #5:
  *   - sessions     → 会话
  *   - search       → 搜索   (modal trigger; NOT a section)
- *   - automations  → 计划   (stub "即将推出" view; future scheduler / cron)
+ *   - automations  → 计划   (local reminder MVP; no arbitrary automation execution)
  *   - skills       → 技能   (reuses the existing skills view)
  *   - daily-review → 每日回顾  (stub "即将推出" view; future PR-DAILY-*)
  */
@@ -243,6 +244,7 @@ export function SessionListPanel(props: {
   sessions: SessionSummary[];
   activeId?: string;
   skills?: SkillEntry[];
+  planReminders?: PlanReminder[];
   /**
    * Per-session-id boolean flag: true when the session has a live streaming
    * delta in flight. Rendered as a small pulsing accent dot on the row.
@@ -294,6 +296,9 @@ export function SessionListPanel(props: {
    * real backend behind the same callback.
    */
   onOpenSearchModal?(): void;
+  onCreatePlanReminder?(input: { title: string; note?: string; runAt: number }): void;
+  onTogglePlanReminder?(id: string, enabled: boolean): void;
+  onDeletePlanReminder?(id: string): void;
   rowActions?: SessionRowActions;
 }) {
   // PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ `49309559` + kenji
@@ -531,6 +536,13 @@ export function SessionListPanel(props: {
               </div>
             </div>
           )
+        ) : props.selection.section === 'automations' ? (
+          <PlanReminderPanel
+            reminders={props.planReminders ?? []}
+            onCreate={props.onCreatePlanReminder}
+            onToggle={props.onTogglePlanReminder}
+            onDelete={props.onDeletePlanReminder}
+          />
         ) : props.selection.section === 'sessions' ? (
           props.sessions.length === 0 ? (
             <div className="maka-empty-state">
@@ -570,14 +582,13 @@ export function SessionListPanel(props: {
             </div>
           )
         ) : (
-          // PR-SIDEBAR-IA-0 Phase 2: stub views for Search /
-          // Automations / Daily Review. Each renders an empty-state
+          // PR-SIDEBAR-IA-0 Phase 2: stub view for Daily Review.
+          // It renders an empty-state
           // pattern reusing `.maka-empty-state` for visual rhythm
           // consistency. Per xuan `47e204f2` #1, these placeholders
           // do NOT introduce new framework code — just shape +
           // generalized 中文 copy. Real implementations:
           //   - Search: PR-SEARCH-MODAL-0 (Phase 4 within this PR)
-          //   - Automations: future PR-TIME-* / PR-AUTOMATIONS-*
           //   - Daily Review: future PR-DAILY-*
           (() => {
             const stub = STUB_VIEWS[props.selection.section];
@@ -656,29 +667,162 @@ export function SessionListPanel(props: {
 
 /**
  * PR-SIDEBAR-IA-0 Phase 2: stub copy + icon for each module that has
- * no real implementation yet. Search will be replaced by the modal
- * trigger in Phase 4; Automations and Daily Review remain stubs
- * until their respective product lanes open.
+ * no real implementation yet. Daily Review remains a stub until its
+ * product lane opens. Automations/计划 is now backed by the local
+ * plan-reminder runtime.
  *
  * Per xuan `47e204f2` #1, the stub framework is intentionally minimal
  * — empty-state shape, fixed Chinese copy, no router / settings /
  * storage touchpoints.
  */
 const STUB_VIEWS: Record<
-  Exclude<NavSelection['section'], 'sessions' | 'skills'>,
+  Exclude<NavSelection['section'], 'sessions' | 'skills' | 'automations'>,
   { Icon: typeof Search; title: string; body: string }
 > = {
-  automations: {
-    Icon: Clock,
-    title: '计划任务即将推出',
-    body: '未来用于安排定时任务、提醒和自动化流程；当前是入口占位，未接真实运行时。',
-  },
   'daily-review': {
     Icon: CalendarDays,
     title: '每日回顾即将推出',
     body: '未来用于每日小结、工作记录回顾；当前是入口占位，未接真实数据。',
   },
 };
+
+function PlanReminderPanel(props: {
+  reminders: PlanReminder[];
+  onCreate?(input: { title: string; note?: string; runAt: number }): void;
+  onToggle?(id: string, enabled: boolean): void;
+  onDelete?(id: string): void;
+}) {
+  const [title, setTitle] = useState('');
+  const [note, setNote] = useState('');
+  const [runAtLocal, setRunAtLocal] = useState(() => toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+  const parsedRunAt = Date.parse(runAtLocal);
+  const canSubmit = title.trim().length > 0 && Number.isFinite(parsedRunAt) && parsedRunAt >= Date.now();
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    props.onCreate?.({
+      title: title.trim(),
+      ...(note.trim() ? { note: note.trim() } : {}),
+      runAt: parsedRunAt,
+    });
+    setTitle('');
+    setNote('');
+    setRunAtLocal(toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+  }
+
+  return (
+    <div className="maka-plan-panel">
+      <form className="maka-plan-form" onSubmit={submit}>
+        <div className="maka-plan-form-title">新建提醒</div>
+        <label className="maka-plan-field">
+          <span>标题</span>
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+            maxLength={120}
+            placeholder="例如：明天复盘项目进度"
+          />
+        </label>
+        <label className="maka-plan-field">
+          <span>时间</span>
+          <input
+            value={runAtLocal}
+            onChange={(event) => setRunAtLocal(event.currentTarget.value)}
+            type="datetime-local"
+          />
+        </label>
+        <label className="maka-plan-field">
+          <span>备注</span>
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.currentTarget.value)}
+            maxLength={1000}
+            rows={3}
+            placeholder="可选：补充需要提醒的上下文"
+          />
+        </label>
+        <button className="maka-button maka-plan-submit" type="submit" disabled={!canSubmit}>
+          <Plus size={14} strokeWidth={1.75} />
+          <span>创建提醒</span>
+        </button>
+      </form>
+
+      <div className="maka-plan-list" aria-label="计划提醒列表">
+        {props.reminders.length === 0 ? (
+          <div className="maka-empty-state maka-plan-empty">
+            <Clock className="maka-empty-state-icon" strokeWidth={1.5} />
+            <div className="maka-empty-state-title">还没有计划提醒</div>
+            <div className="maka-empty-state-body">
+              创建一个明确时间的提醒；Maka 会持久化并在到点时记录执行结果。
+            </div>
+          </div>
+        ) : (
+          props.reminders.map((reminder) => (
+            <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
+              <div className="maka-plan-card-main">
+                <div className="maka-plan-card-title">{reminder.title}</div>
+                <div className="maka-plan-card-time">
+                  {reminder.nextRunAt
+                    ? `下次触发：${formatReminderTime(reminder.nextRunAt)}`
+                    : reminder.lastRun
+                      ? `最近执行：${formatReminderTime(reminder.lastRun.at)} · ${runStatusLabel(reminder.lastRun.status)}`
+                      : '未安排'}
+                </div>
+                {reminder.note && <div className="maka-plan-card-note">{reminder.note}</div>}
+                {reminder.lastRun && (
+                  <div className="maka-plan-card-run">
+                    {runStatusLabel(reminder.lastRun.status)}：{reminder.lastRun.message}
+                  </div>
+                )}
+              </div>
+              <div className="maka-plan-card-actions">
+                <button
+                  type="button"
+                  className="maka-plan-action"
+                  onClick={() => props.onToggle?.(reminder.id, !reminder.enabled)}
+                  disabled={reminder.status === 'completed'}
+                  title={reminder.enabled ? '暂停提醒' : '启用提醒'}
+                >
+                  {reminder.enabled ? '暂停' : '启用'}
+                </button>
+                <button
+                  type="button"
+                  className="maka-plan-action maka-plan-action-danger"
+                  onClick={() => props.onDelete?.(reminder.id)}
+                  title="删除提醒"
+                >
+                  删除
+                </button>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function toDatetimeLocalValue(ts: number): string {
+  const date = new Date(ts);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatReminderTime(ts: number): string {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(ts));
+}
+
+function runStatusLabel(status: NonNullable<PlanReminder['lastRun']>['status']): string {
+  if (status === 'triggered') return '已触发';
+  if (status === 'blocked') return '已阻止';
+  return '失败';
+}
 
 /**
  * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `6465cf22`,
@@ -1680,15 +1824,18 @@ export function ChatView(props: {
     );
   }
 
-  // PR-SIDEBAR-IA-0 Phase 2: when the user switches to a stub module
-  // (automations / daily-review), the chat surface shows a neutral
-  // "no chat selected" placeholder so the main area does not
-  // continue to render the previous session's content. The Sidebar's
-  // empty-state inside the same module gives the user the "即将推出"
-  // copy; this surface just stays out of the way. Search is a modal
-  // trigger and never becomes the active section, so it does not
-  // appear here.
-  if (props.mode === 'automations' || props.mode === 'daily-review') {
+  if (props.mode === 'automations') {
+    return (
+      <main className="maka-main detailPane">
+        <div className="maka-center-state">计划提醒在左侧管理；到点后会触发提醒并记录执行结果。</div>
+      </main>
+    );
+  }
+
+  // Daily Review is still a stub module; keep chat content out of
+  // the way when selected. Search is a modal trigger and never becomes
+  // the active section, so it does not appear here.
+  if (props.mode === 'daily-review') {
     return (
       <main className="maka-main detailPane">
         <div className="maka-center-state">从 “会话” 选择一个对话继续，或在该模块中查看占位内容。</div>

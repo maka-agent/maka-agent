@@ -4,6 +4,7 @@ import type {
   ArtifactRecord,
   LlmConnection,
   PermissionRequestEvent,
+  PlanReminder,
   SessionHeader,
   StoredMessage,
   VisualSmokeScenario,
@@ -44,6 +45,11 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // / done / archived) so the sidebar grouping screenshot covers every
   // status badge + group header in one fixture.
   'workstation-statuses',
+  // PR-PLAN-REMINDER-MVP-0: screenshot the first real Automations
+  // surface. Seeds scheduled / paused / completed local reminders and
+  // opens the 计划 module so reviewers can verify this is no longer a
+  // "coming soon" placeholder.
+  'plan-reminders',
   // PR109f (g): turn-control-history — seeds a primary session whose
   // turn list covers the four TurnStatus values plus retry + regenerate
   // lineage, alongside two branch sessions (visible-parent vs missing-
@@ -335,6 +341,11 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // SessionStatus enum value (running / waiting_for_user / blocked
       // × 4 reasons / review / done / archived / aborted (filtered)).
       return { ...state, activeSessionId: WORKSTATION_RUNNING_SESSION_ID };
+    case 'plan-reminders':
+      // Open the 计划 module directly so the visual-smoke baseline
+      // captures the real local reminder MVP: create form + persisted
+      // scheduled / paused / completed reminders.
+      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'automations' };
     case 'turn-control-history':
       // Active = primary so the chat surface shows every turn control
       // variant in one screenshot: completed baseline, retried pair
@@ -469,6 +480,9 @@ export async function seedVisualSmokeFixture(input: {
       await writeSession(input.workspaceRoot, seed.header, seed.messages);
     }
   }
+  if (input.fixture.scenario === 'plan-reminders') {
+    await writePlanReminders(input.workspaceRoot, now);
+  }
 }
 
 /**
@@ -532,6 +546,54 @@ const TURN_CONTROL_ORPHAN_PARENT_ID = 'visual-smoke-turn-control-deleted-parent'
  */
 const LONG_SIDEBAR_SESSION_PREFIX = 'visual-smoke-sidebar-long-';
 const LONG_SIDEBAR_SESSION_COUNT = 60;
+
+async function writePlanReminders(workspaceRoot: string, now: number): Promise<void> {
+  const scheduledRunAt = Date.UTC(2026, 11, 18, 3, 0, 0);
+  const pausedRunAt = Date.UTC(2026, 11, 20, 3, 0, 0);
+  const reminders: PlanReminder[] = [
+    {
+      id: 'visual-plan-reminder-standup',
+      title: '同步项目风险',
+      note: '提醒我整理 Sidebar gate、搜索接入和计划任务剩余风险。',
+      schedule: { kind: 'once', runAt: scheduledRunAt },
+      status: 'scheduled',
+      enabled: true,
+      createdAt: now - 2 * 60 * 60_000,
+      updatedAt: now - 2 * 60 * 60_000,
+      nextRunAt: scheduledRunAt,
+      runCount: 0,
+    },
+    {
+      id: 'visual-plan-reminder-paused',
+      title: '暂停的发布检查',
+      note: '用户可以先暂停提醒，恢复后继续按原时间触发。',
+      schedule: { kind: 'once', runAt: pausedRunAt },
+      status: 'paused',
+      enabled: false,
+      createdAt: now - 3 * 60 * 60_000,
+      updatedAt: now - 30 * 60_000,
+      runCount: 0,
+    },
+    {
+      id: 'visual-plan-reminder-completed',
+      title: '已触发的本地提醒',
+      note: '',
+      schedule: { kind: 'once', runAt: now - 45 * 60_000 },
+      status: 'completed',
+      enabled: false,
+      createdAt: now - 4 * 60 * 60_000,
+      updatedAt: now - 45 * 60_000,
+      lastRun: {
+        id: 'visual-plan-run-completed',
+        at: now - 45 * 60_000,
+        status: 'triggered',
+        message: '计划提醒已触发',
+      },
+      runCount: 1,
+    },
+  ];
+  await writeJson(join(workspaceRoot, 'plan-reminders.json'), reminders);
+}
 
 async function writeSettings(workspaceRoot: string): Promise<void> {
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8` + WAWQAQ

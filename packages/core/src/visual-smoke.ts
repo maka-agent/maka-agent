@@ -22,6 +22,7 @@ export type VisualSmokeScenario =
   | 'settings-theme'
   | 'settings-coming-soon'
   | 'workstation-statuses'
+  | 'plan-reminders'
   // PR109f (g): turn-control-history — seeds a primary session whose
   // turn list covers retried / regenerated / aborted / failed and two
   // branch sessions (one with visible parent showing the banner, one
@@ -201,4 +202,10 @@ export interface VisualSmokeState {
    * scenario.
    */
   focusActiveRow?: boolean;
+  /**
+   * Fixture-only sidebar module override. Used by scenarios that need
+   * to screenshot non-session sidebar content without adding a real
+   * router path.
+   */
+  sidebarSection?: 'sessions' | 'automations' | 'skills' | 'daily-review';
 }

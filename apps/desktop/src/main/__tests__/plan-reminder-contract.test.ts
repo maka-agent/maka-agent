@@ -1,0 +1,51 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const repoRoot = process.cwd().endsWith('apps/desktop')
+  ? join(process.cwd(), '..', '..')
+  : process.cwd();
+
+async function readRepo(path: string): Promise<string> {
+  return readFile(join(repoRoot, path), 'utf8');
+}
+
+describe('Plan reminder MVP contract', () => {
+  it('exposes real plans IPC through main and preload', async () => {
+    const [main, preload, globalTypes] = await Promise.all([
+      readRepo('apps/desktop/src/main/main.ts'),
+      readRepo('apps/desktop/src/preload/preload.ts'),
+      readRepo('apps/desktop/src/global.d.ts'),
+    ]);
+
+    for (const channel of ['plans:list', 'plans:create', 'plans:update', 'plans:setEnabled', 'plans:delete']) {
+      assert.match(main, new RegExp(`ipcMain\\.handle\\('${channel}'`), `${channel} must be handled in main`);
+    }
+    assert.match(preload, /plans:\s*\{[\s\S]*list\(\): Promise<PlanReminder\[]>/, 'preload must expose plans.list');
+    assert.match(preload, /subscribeDue\(handler: \(reminder: PlanReminder\) => void\)/, 'preload must expose due event');
+    assert.match(globalTypes, /plans:\s*\{[\s\S]*create\(input: \{ title: string; note\?: string; runAt: number \| string \}\)/, 'global type must include plans API');
+  });
+
+  it('replaces the automations placeholder with PlanReminderPanel', async () => {
+    const ui = await readRepo('packages/ui/src/components.tsx');
+    assert.match(ui, /props\.selection\.section === 'automations'[\s\S]*<PlanReminderPanel/, '计划 module must render PlanReminderPanel');
+    assert.doesNotMatch(ui, /title:\s*'计划任务即将推出'/, '计划 must not be the old coming-soon placeholder');
+    assert.match(ui, /创建提醒/, '计划 UI must include reminder creation');
+    assert.match(ui, /下次触发/, '计划 UI must show next trigger time');
+  });
+
+  it('scheduler records trigger outcomes and emits due events', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    assert.match(main, /refreshPlanReminderTimers\(\)/, 'app startup must restore reminder timers');
+    assert.match(main, /triggerDuePlanReminders/, 'scheduler must process due reminders');
+    assert.match(main, /markTriggered/, 'scheduler must persist triggered run records');
+    assert.match(main, /plans:due/, 'scheduler must notify renderer when reminder fires');
+    assert.match(main, /incognitoActive/, 'scheduler must keep an incognito gate');
+    assert.match(
+      main,
+      /setTimeout\(\(\) => \{[\s\S]*void refreshPlanReminderTimers\(\);[\s\S]*Math\.min\(delay, 2_147_483_647\)/,
+      'long-delay timers must re-arm instead of dropping reminders after the max setTimeout window',
+    );
+  });
+});
