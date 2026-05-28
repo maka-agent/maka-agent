@@ -567,6 +567,17 @@ export {
   normalizeSettings,
 } from './settings.js';
 
+// bot-platform-hints.ts
+export type {
+  BotFormattingProfile,
+  BotPlatformPromptHint,
+} from './bot-platform-hints.js';
+export {
+  botPlatformFromSessionLabels,
+  buildBotPlatformPromptFragment,
+  getBotPlatformPromptHint,
+} from './bot-platform-hints.js';
+
 // redaction.ts
 export {
   generalizedErrorMessage,

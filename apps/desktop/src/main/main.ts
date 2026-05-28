@@ -16,6 +16,8 @@ import {
   DEEP_RESEARCH_SESSION_LABEL,
   buildDeepResearchSystemPromptFragment,
   isDeepResearchSession,
+  botPlatformFromSessionLabels,
+  buildBotPlatformPromptFragment,
 } from '@maka/core';
 import type {
   AppSettings,
@@ -1798,6 +1800,8 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
   const skills = await buildSkillsPromptFragment(workspaceRoot);
   const workspaceInstructions = cwd ? await buildWorkspaceInstructionsPromptFragment(cwd) : undefined;
   const deepResearch = isDeepResearchSession(header.labels) ? buildDeepResearchSystemPromptFragment() : undefined;
+  const botPlatform = botPlatformFromSessionLabels(header.labels);
+  const botPlatformHint = botPlatform ? buildBotPlatformPromptFragment(botPlatform) : undefined;
   // PR-MEMORY-PROMPT-INJECT-0: pipe xuan's local MEMORY.md MVP
   // (`c06e13f`) into the agent's system prompt when the user has
   // explicitly opted in. The state returned by `localMemory.getState()`
@@ -1811,6 +1815,7 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
   const fragments = [
     personalization.text,
     deepResearch,
+    botPlatformHint,
     skills,
     workspaceInstructions,
     memoryFragment,
