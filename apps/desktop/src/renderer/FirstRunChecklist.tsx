@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BookOpen, CalendarDays, Check, Clock, Search, Sparkles, User } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarDays, Check, Clock, Mic, Search, Sparkles, User } from 'lucide-react';
 import type { AppSettings, PlanReminder, SettingsSection } from '@maka/core';
 
 interface ChecklistItem {
@@ -119,6 +119,20 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
           settings.localMemory.enabled
           && settings.localMemory.agentReadEnabled,
         onClick: () => props.onOpenSettingsSection('memory'),
+      },
+      {
+        // xuan d91422d PR-VOICE-CAPTURE-SMOKE-0: Settings → 语音模型
+        // now runs a 2-second local-only mic self-check that proves
+        // duration / bytes / sampleRate / channels meet the
+        // `@maka/core/voice` contract. Done flag is intentionally
+        // false — visiting the panel and running the smoke is the
+        // discovery moment we want to surface; no persistence yet.
+        id: 'voice-smoke',
+        Icon: Mic,
+        title: '跑一次语音录音自检',
+        reason: '请求麦克风权限、录 2 秒本地样本，确认采集链路通；不上传、不保存、不写记忆。',
+        done: false,
+        onClick: () => props.onOpenSettingsSection('voice-models'),
       },
     ];
   }, [settings, planReminders, props]);
