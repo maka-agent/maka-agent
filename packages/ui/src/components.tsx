@@ -2270,18 +2270,24 @@ export function ChatView(props: {
             props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} userLabel={props.userLabel} />
           )}
           {turns.map((turn, idx) => {
-            // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0: previous turn's
-            // assistant modelId so TurnSummary can render a "切换"
-            // pill when this turn used a different model.
-            // Supports kenji's "per-turn override allowed but
-            // must be visible" requirement on PR-SESSION-STICKY-MODEL-0.
-            const previousModelId = (() => {
-              for (let i = idx - 1; i >= 0; i--) {
-                const earlier = turns[i];
-                if (earlier && earlier.modelId) return earlier.modelId;
-              }
-              return undefined;
-            })();
+            // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0 (kenji `af77f61`
+            // session-sticky merge): prefer comparing against the
+            // session's sticky model when available, falling back
+            // to the previous turn's modelId for older sessions
+            // that pre-date the sticky-model field. Either way,
+            // TurnSummary flags the chip when this turn departs
+            // from the expected baseline.
+            const expectedModelId =
+              (props.activeSession?.model && props.activeSession.model.length > 0
+                ? props.activeSession.model
+                : undefined)
+              ?? (() => {
+                for (let i = idx - 1; i >= 0; i--) {
+                  const earlier = turns[i];
+                  if (earlier && earlier.modelId) return earlier.modelId;
+                }
+                return undefined;
+              })();
             return (
               <TurnView
                 key={turn.turnId}
@@ -2292,7 +2298,7 @@ export function ChatView(props: {
                 failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={props.onLineageBadgeClick}
-                previousModelId={previousModelId}
+                previousModelId={expectedModelId}
               />
             );
           })}
@@ -2950,7 +2956,7 @@ function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
           data-switched={modelSwitched ? 'true' : undefined}
           title={
             modelSwitched
-              ? `本轮使用 ${turn.modelId}（上一轮是 ${props.previousModelId}）`
+              ? `本轮使用 ${turn.modelId}，session 期望 ${props.previousModelId}`
               : turn.modelId
           }
         >
