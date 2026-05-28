@@ -24,7 +24,7 @@ describe('Plan reminder MVP contract', () => {
     }
     assert.match(preload, /plans:\s*\{[\s\S]*list\(\): Promise<PlanReminder\[]>/, 'preload must expose plans.list');
     assert.match(preload, /subscribeDue\(handler: \(reminder: PlanReminder\) => void\)/, 'preload must expose due event');
-    assert.match(globalTypes, /plans:\s*\{[\s\S]*create\(input: \{ title: string; note\?: string; runAt: number \| string \}\)/, 'global type must include plans API');
+    assert.match(globalTypes, /plans:\s*\{[\s\S]*create\(input: \{ title: string; note\?: string; runAt: number \| string; recurrence\?: PlanReminderRecurrence \}\)/, 'global type must include plans API');
   });
 
   it('replaces the automations placeholder with PlanReminderPanel', async () => {
@@ -33,6 +33,7 @@ describe('Plan reminder MVP contract', () => {
     assert.doesNotMatch(ui, /title:\s*'计划任务即将推出'/, '计划 must not be the old coming-soon placeholder');
     assert.match(ui, /创建提醒/, '计划 UI must include reminder creation');
     assert.match(ui, /下次触发/, '计划 UI must show next trigger time');
+    assert.match(ui, /重复/, '计划 UI must expose recurrence instead of only one-shot reminders');
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {

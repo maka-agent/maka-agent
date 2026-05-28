@@ -54,6 +54,7 @@ import type {
   PermissionRequestEvent,
   PermissionResponse,
   PlanReminder,
+  PlanReminderRecurrence,
   ProviderType,
   SearchErrorReason,
   SearchRequest,
@@ -302,7 +303,7 @@ export function SessionListPanel(props: {
    * real backend behind the same callback.
    */
   onOpenSearchModal?(): void;
-  onCreatePlanReminder?(input: { title: string; note?: string; runAt: number }): void;
+  onCreatePlanReminder?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence }): void;
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onDeletePlanReminder?(id: string): void;
   /**
@@ -935,13 +936,14 @@ function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<Daily
 
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
-  onCreate?(input: { title: string; note?: string; runAt: number }): void;
+  onCreate?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence }): void;
   onToggle?(id: string, enabled: boolean): void;
   onDelete?(id: string): void;
 }) {
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [runAtLocal, setRunAtLocal] = useState(() => toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+  const [recurrence, setRecurrence] = useState<PlanReminderRecurrence>('none');
   const parsedRunAt = Date.parse(runAtLocal);
   const canSubmit = title.trim().length > 0 && Number.isFinite(parsedRunAt) && parsedRunAt >= Date.now();
 
@@ -952,9 +954,11 @@ function PlanReminderPanel(props: {
       title: title.trim(),
       ...(note.trim() ? { note: note.trim() } : {}),
       runAt: parsedRunAt,
+      recurrence,
     });
     setTitle('');
     setNote('');
+    setRecurrence('none');
     setRunAtLocal(toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
   }
 
@@ -980,6 +984,15 @@ function PlanReminderPanel(props: {
           />
         </label>
         <label className="maka-plan-field">
+          <span>重复</span>
+          <select value={recurrence} onChange={(event) => setRecurrence(event.currentTarget.value as PlanReminderRecurrence)}>
+            <option value="none">不重复</option>
+            <option value="daily">每天</option>
+            <option value="weekly">每周</option>
+            <option value="monthly">每月</option>
+          </select>
+        </label>
+        <label className="maka-plan-field">
           <span>备注</span>
           <textarea
             value={note}
@@ -1000,7 +1013,7 @@ function PlanReminderPanel(props: {
           <EmptyState
             Icon={Clock}
             title="还没有计划提醒"
-            body="创建一个明确时间的提醒；Maka 会持久化并在到点时记录执行结果。"
+            body="创建一次性或重复提醒；Maka 会持久化并在到点时记录执行结果。"
             extraClassName="maka-plan-empty"
           />
         ) : (
@@ -1015,6 +1028,7 @@ function PlanReminderPanel(props: {
                       ? `最近执行：${formatReminderTime(reminder.lastRun.at)} · ${runStatusLabel(reminder.lastRun.status)}`
                       : '未安排'}
                 </div>
+                <div className="maka-plan-card-repeat">{formatPlanRecurrence(reminder)}</div>
                 {reminder.note && <div className="maka-plan-card-note">{reminder.note}</div>}
                 {reminder.lastRun && (
                   <div className="maka-plan-card-run">
@@ -1062,6 +1076,13 @@ function formatReminderTime(ts: number): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(ts));
+}
+
+function formatPlanRecurrence(reminder: PlanReminder): string {
+  if (reminder.schedule.kind === 'once') return '一次性提醒';
+  if (reminder.schedule.recurrence === 'daily') return '重复：每天';
+  if (reminder.schedule.recurrence === 'weekly') return '重复：每周';
+  return '重复：每月';
 }
 
 function runStatusLabel(status: NonNullable<PlanReminder['lastRun']>['status']): string {

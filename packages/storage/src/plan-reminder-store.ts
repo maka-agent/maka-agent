@@ -2,10 +2,13 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  createPlanReminderSchedule,
   isPlanReminderDue,
   nextPlanReminderStateAfterTrigger,
+  nextPlanReminderRunAtAfter,
   normalizeCreatePlanReminderInput,
   normalizeUpdatePlanReminderInput,
+  planReminderScheduleStartAt,
   type PlanReminder,
   type PlanReminderRunRecord,
 } from '@maka/core/plan-reminders';
@@ -49,12 +52,12 @@ class FilePlanReminderStore implements PlanReminderStore {
       id: randomUUID(),
       title: value.title,
       note: value.note,
-      schedule: { kind: 'once', runAt: value.runAt },
+      schedule: value.schedule,
       status: 'scheduled',
       enabled: true,
       createdAt: now,
       updatedAt: now,
-      nextRunAt: value.runAt,
+      nextRunAt: value.nextRunAt,
       runCount: 0,
     };
     await this.mutate((reminders) => [...reminders, reminder]);
@@ -69,15 +72,19 @@ class FilePlanReminderStore implements PlanReminderStore {
     await this.mutate((reminders) => reminders.map((reminder) => {
       if (reminder.id !== id) return reminder;
       const nextEnabled = normalized.value.enabled ?? reminder.enabled;
-      const nextRunAt = normalized.value.runAt ?? reminder.schedule.runAt;
+      const nextRunAt = normalized.value.runAt ?? planReminderScheduleStartAt(reminder.schedule);
+      const nextRecurrence = normalized.value.recurrence ??
+        (reminder.schedule.kind === 'recurring' ? reminder.schedule.recurrence : 'none');
+      const nextSchedule = createPlanReminderSchedule(nextRunAt, nextRecurrence);
+      const scheduledRunAt = nextEnabled ? (nextPlanReminderRunAtAfter(nextSchedule, now) ?? nextRunAt) : undefined;
       updated = {
         ...reminder,
         ...(normalized.value.title !== undefined ? { title: normalized.value.title } : {}),
         ...(normalized.value.note !== undefined ? { note: normalized.value.note } : {}),
-        schedule: { kind: 'once', runAt: nextRunAt },
+        schedule: nextSchedule,
         enabled: nextEnabled,
         status: nextEnabled ? 'scheduled' : 'paused',
-        nextRunAt: nextEnabled ? nextRunAt : undefined,
+        nextRunAt: scheduledRunAt,
         updatedAt: now,
       };
       return updated;
@@ -100,7 +107,9 @@ class FilePlanReminderStore implements PlanReminderStore {
         ...reminder,
         enabled,
         status: enabled ? 'scheduled' : 'paused',
-        nextRunAt: enabled ? reminder.schedule.runAt : undefined,
+        nextRunAt: enabled
+          ? (nextPlanReminderRunAtAfter(reminder.schedule, now) ?? planReminderScheduleStartAt(reminder.schedule))
+          : undefined,
         updatedAt: now,
       };
       return updated;
@@ -199,8 +208,8 @@ function comparePlanRemindersForList(a: PlanReminder, b: PlanReminder): number {
     const delta = bTime - aTime;
     return delta === 0 ? a.id.localeCompare(b.id) : delta;
   }
-  const aTime = a.nextRunAt ?? a.schedule.runAt ?? a.updatedAt;
-  const bTime = b.nextRunAt ?? b.schedule.runAt ?? b.updatedAt;
+  const aTime = a.nextRunAt ?? planReminderScheduleStartAt(a.schedule) ?? a.updatedAt;
+  const bTime = b.nextRunAt ?? planReminderScheduleStartAt(b.schedule) ?? b.updatedAt;
   const delta = aTime - bTime;
   return delta === 0 ? a.id.localeCompare(b.id) : delta;
 }
@@ -217,13 +226,24 @@ function isPersistedPlanReminder(value: unknown): value is PlanReminder {
   return typeof record.id === 'string' &&
     typeof record.title === 'string' &&
     typeof record.note === 'string' &&
-    typeof record.schedule === 'object' &&
-    record.schedule !== null &&
-    record.schedule.kind === 'once' &&
-    typeof record.schedule.runAt === 'number' &&
+    isPersistedPlanReminderSchedule(record.schedule) &&
     (record.status === 'scheduled' || record.status === 'paused' || record.status === 'completed') &&
     typeof record.enabled === 'boolean' &&
     typeof record.createdAt === 'number' &&
     typeof record.updatedAt === 'number' &&
     typeof record.runCount === 'number';
+}
+
+function isPersistedPlanReminderSchedule(value: unknown): value is PlanReminder['schedule'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Partial<PlanReminder['schedule']>;
+  if (record.kind === 'once') {
+    return typeof (record as { runAt?: unknown }).runAt === 'number';
+  }
+  if (record.kind === 'recurring') {
+    const recurrence = (record as { recurrence?: unknown }).recurrence;
+    return typeof (record as { startAt?: unknown }).startAt === 'number' &&
+      (recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly');
+  }
+  return false;
 }

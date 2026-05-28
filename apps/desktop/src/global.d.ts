@@ -42,6 +42,7 @@ import type {
   SubscriptionAccountState,
   SubscriptionActionResult,
   PlanReminder,
+  PlanReminderRecurrence,
   DailyReviewSummary,
   WebSearchProvider,
   WebSearchResponse,
@@ -174,10 +175,10 @@ declare global {
       };
       plans: {
         list(): Promise<PlanReminder[]>;
-        create(input: { title: string; note?: string; runAt: number | string }): Promise<PlanReminder>;
+        create(input: { title: string; note?: string; runAt: number | string; recurrence?: PlanReminderRecurrence }): Promise<PlanReminder>;
         update(
           id: string,
-          patch: { title?: string; note?: string; runAt?: number | string; enabled?: boolean },
+          patch: { title?: string; note?: string; runAt?: number | string; recurrence?: PlanReminderRecurrence; enabled?: boolean },
         ): Promise<PlanReminder>;
         setEnabled(id: string, enabled: boolean): Promise<PlanReminder>;
         delete(id: string): Promise<void>;

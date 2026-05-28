@@ -10,9 +10,21 @@ export type PlanReminderRunStatus = typeof PLAN_REMINDER_RUN_STATUSES[number];
 
 export type PlanReminderBlockReason = 'incognito_active';
 
-export interface PlanReminderSchedule {
+export const PLAN_REMINDER_RECURRENCES = ['none', 'daily', 'weekly', 'monthly'] as const;
+export type PlanReminderRecurrence = typeof PLAN_REMINDER_RECURRENCES[number];
+export type PlanReminderRecurringFrequency = Exclude<PlanReminderRecurrence, 'none'>;
+
+export type PlanReminderSchedule = PlanReminderOnceSchedule | PlanReminderRecurringSchedule;
+
+export interface PlanReminderOnceSchedule {
   kind: 'once';
   runAt: number;
+}
+
+export interface PlanReminderRecurringSchedule {
+  kind: 'recurring';
+  startAt: number;
+  recurrence: PlanReminderRecurringFrequency;
 }
 
 export interface PlanReminderRunRecord {
@@ -41,18 +53,20 @@ export interface CreatePlanReminderInput {
   title: unknown;
   note?: unknown;
   runAt: unknown;
+  recurrence?: unknown;
 }
 
 export interface UpdatePlanReminderInput {
   title?: unknown;
   note?: unknown;
   runAt?: unknown;
+  recurrence?: unknown;
   enabled?: unknown;
 }
 
 export type PlanReminderNormalizeResult<T> =
   | { ok: true; value: T }
-  | { ok: false; reason: 'invalid_title' | 'invalid_note' | 'invalid_run_at' | 'invalid_enabled'; message: string };
+  | { ok: false; reason: 'invalid_title' | 'invalid_note' | 'invalid_run_at' | 'invalid_recurrence' | 'invalid_enabled'; message: string };
 
 type PlanReminderNormalizeErrorReason = Extract<PlanReminderNormalizeResult<never>, { ok: false }>['reason'];
 
@@ -63,7 +77,7 @@ export function isPlanReminderStatus(value: unknown): value is PlanReminderStatu
 export function normalizeCreatePlanReminderInput(
   input: unknown,
   now: number,
-): PlanReminderNormalizeResult<{ title: string; note: string; runAt: number }> {
+): PlanReminderNormalizeResult<{ title: string; note: string; schedule: PlanReminderSchedule; nextRunAt: number }> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return invalid('invalid_title', 'Plan reminder input must be an object');
   }
@@ -74,18 +88,21 @@ export function normalizeCreatePlanReminderInput(
   if (!note.ok) return note;
   const runAt = normalizePlanReminderRunAt(record.runAt, now);
   if (!runAt.ok) return runAt;
-  return { ok: true, value: { title: title.value, note: note.value, runAt: runAt.value } };
+  const recurrence = normalizePlanReminderRecurrence(record.recurrence);
+  if (!recurrence.ok) return recurrence;
+  const schedule = createPlanReminderSchedule(runAt.value, recurrence.value);
+  return { ok: true, value: { title: title.value, note: note.value, schedule, nextRunAt: runAt.value } };
 }
 
 export function normalizeUpdatePlanReminderInput(
   input: unknown,
   now: number,
-): PlanReminderNormalizeResult<{ title?: string; note?: string; runAt?: number; enabled?: boolean }> {
+): PlanReminderNormalizeResult<{ title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; enabled?: boolean }> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return invalid('invalid_title', 'Plan reminder update must be an object');
   }
   const record = input as UpdatePlanReminderInput;
-  const patch: { title?: string; note?: string; runAt?: number; enabled?: boolean } = {};
+  const patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; enabled?: boolean } = {};
   if (record.title !== undefined) {
     const title = normalizePlanReminderTitle(record.title);
     if (!title.ok) return title;
@@ -100,6 +117,11 @@ export function normalizeUpdatePlanReminderInput(
     const runAt = normalizePlanReminderRunAt(record.runAt, now);
     if (!runAt.ok) return runAt;
     patch.runAt = runAt.value;
+  }
+  if (record.recurrence !== undefined) {
+    const recurrence = normalizePlanReminderRecurrence(record.recurrence);
+    if (!recurrence.ok) return recurrence;
+    patch.recurrence = recurrence.value;
   }
   if (record.enabled !== undefined) {
     if (typeof record.enabled !== 'boolean') {
@@ -158,6 +180,34 @@ export function normalizePlanReminderRunAt(input: unknown, now: number): PlanRem
   return { ok: true, value: runAt };
 }
 
+export function normalizePlanReminderRecurrence(input: unknown): PlanReminderNormalizeResult<PlanReminderRecurrence> {
+  if (input === undefined || input === null || input === '' || input === 'none') {
+    return { ok: true, value: 'none' };
+  }
+  if (typeof input !== 'string') {
+    return invalid('invalid_recurrence', 'Plan reminder recurrence must be a string');
+  }
+  if (!PLAN_REMINDER_RECURRENCES.includes(input as PlanReminderRecurrence)) {
+    return invalid('invalid_recurrence', 'Plan reminder recurrence must be none, daily, weekly, or monthly');
+  }
+  return { ok: true, value: input as PlanReminderRecurrence };
+}
+
+export function createPlanReminderSchedule(runAt: number, recurrence: PlanReminderRecurrence): PlanReminderSchedule {
+  if (recurrence === 'none') return { kind: 'once', runAt };
+  return { kind: 'recurring', startAt: runAt, recurrence };
+}
+
+export function planReminderScheduleStartAt(schedule: PlanReminderSchedule): number {
+  return schedule.kind === 'once' ? schedule.runAt : schedule.startAt;
+}
+
+export function nextPlanReminderRunAtAfter(schedule: PlanReminderSchedule, after: number): number | undefined {
+  if (schedule.kind === 'once') return schedule.runAt > after ? schedule.runAt : undefined;
+  if (schedule.startAt > after) return schedule.startAt;
+  return nextRecurringRunAt(schedule, after);
+}
+
 export function isPlanReminderDue(reminder: PlanReminder, now: number): boolean {
   return reminder.enabled &&
     reminder.status === 'scheduled' &&
@@ -169,6 +219,18 @@ export function nextPlanReminderStateAfterTrigger(
   reminder: PlanReminder,
   run: PlanReminderRunRecord,
 ): PlanReminder {
+  const nextRunAt = nextPlanReminderRunAtAfter(reminder.schedule, run.at);
+  if (typeof nextRunAt === 'number') {
+    return {
+      ...reminder,
+      status: 'scheduled',
+      enabled: true,
+      nextRunAt,
+      lastRun: run,
+      runCount: reminder.runCount + 1,
+      updatedAt: run.at,
+    };
+  }
   return {
     ...reminder,
     status: 'completed',
@@ -178,6 +240,41 @@ export function nextPlanReminderStateAfterTrigger(
     runCount: reminder.runCount + 1,
     updatedAt: run.at,
   };
+}
+
+function nextRecurringRunAt(schedule: PlanReminderRecurringSchedule, after: number): number {
+  if (schedule.recurrence === 'daily') {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const steps = Math.floor((after - schedule.startAt) / dayMs) + 1;
+    return schedule.startAt + steps * dayMs;
+  }
+  if (schedule.recurrence === 'weekly') {
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const steps = Math.floor((after - schedule.startAt) / weekMs) + 1;
+    return schedule.startAt + steps * weekMs;
+  }
+  let next = schedule.startAt;
+  for (let i = 0; i < 480 && next <= after; i += 1) {
+    next = addMonthsClamped(schedule.startAt, i + 1);
+  }
+  return next > after ? next : addMonthsClamped(after, 1);
+}
+
+function addMonthsClamped(anchor: number, monthOffset: number): number {
+  const date = new Date(anchor);
+  const targetYear = date.getFullYear();
+  const targetMonth = date.getMonth() + monthOffset;
+  const day = date.getDate();
+  const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+  return new Date(
+    targetYear,
+    targetMonth,
+    Math.min(day, lastDay),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+    date.getMilliseconds(),
+  ).getTime();
 }
 
 function invalid<T extends PlanReminderNormalizeErrorReason>(

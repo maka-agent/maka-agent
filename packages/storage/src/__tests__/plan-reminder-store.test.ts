@@ -25,6 +25,27 @@ describe('PlanReminderStore', () => {
     assert.equal(raw.length, 1);
   });
 
+  it('keeps recurring reminders active after a trigger', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+
+    const reminder = await store.create({ title: '每日复盘', runAt, recurrence: 'daily' });
+    assert.equal(reminder.schedule.kind, 'recurring');
+    assert.equal(reminder.nextRunAt, runAt);
+
+    const triggered = await store.markTriggered(reminder.id, {
+      at: runAt,
+      status: 'triggered',
+      message: '提醒已触发',
+    });
+    assert.equal(triggered.status, 'scheduled');
+    assert.equal(triggered.enabled, true);
+    assert.equal(triggered.nextRunAt, runAt + 24 * 60 * 60 * 1000);
+    assert.equal((await store.listDue(runAt + 1)).length, 0);
+    assert.equal((await store.listDue(runAt + 24 * 60 * 60 * 1000)).length, 1);
+  });
+
   it('supports pause, resume, delete, and triggered run records', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const store = createPlanReminderStore(root);
@@ -50,6 +71,19 @@ describe('PlanReminderStore', () => {
 
     await store.remove(reminder.id);
     assert.equal((await store.list()).length, 0);
+  });
+
+  it('resumes paused recurring reminders at the next future occurrence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '每周同步', runAt, recurrence: 'weekly' });
+    await store.setEnabled(reminder.id, false);
+
+    const resumed = await store.setEnabled(reminder.id, true);
+    assert.equal(resumed.status, 'scheduled');
+    assert.equal(resumed.schedule.kind, 'recurring');
+    assert.equal(resumed.nextRunAt, runAt);
   });
 
   it('lists active reminders before paused reminders and completed history', async () => {

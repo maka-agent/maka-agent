@@ -5,6 +5,7 @@ import type {
   LlmConnection,
   PermissionMode,
   PlanReminder,
+  PlanReminderRecurrence,
   PermissionRequestEvent,
   PermissionResponse,
   SessionEvent,
@@ -933,7 +934,7 @@ function AppShell(props: {
     }
   }
 
-  async function createPlanReminder(input: { title: string; note?: string; runAt: number }) {
+  async function createPlanReminder(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence }) {
     try {
       await window.maka.plans.create(input);
       await refreshPlanReminders();

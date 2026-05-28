@@ -1789,6 +1789,7 @@ button:active {
 }
 
 .maka-plan-field input,
+.maka-plan-field select,
 .maka-plan-field textarea {
   width: 100%;
   border: 1px solid var(--border);
@@ -1804,6 +1805,7 @@ button:active {
 }
 
 .maka-plan-field input:focus,
+.maka-plan-field select:focus,
 .maka-plan-field textarea:focus {
   border-color: oklch(from var(--accent) l c h / 0.55);
   box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
@@ -1848,6 +1850,7 @@ button:active {
 }
 
 .maka-plan-card-time,
+.maka-plan-card-repeat,
 .maka-plan-card-run {
   color: var(--foreground-50);
   font-size: 11px;
