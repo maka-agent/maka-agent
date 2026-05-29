@@ -702,7 +702,7 @@ function ConnectionDetail(props: {
             value={apiKey}
             onChange={setApiKey}
             placeholder={hasSecret ? '••••••••' : '粘贴 API key'}
-            ariaLabel={`${providerType} API key`}
+            ariaLabel={`${display.name} API key`}
           />
         </label>
       )}
