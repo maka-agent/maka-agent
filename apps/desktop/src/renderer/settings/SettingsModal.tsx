@@ -3547,12 +3547,14 @@ function UsageSettingsPage(props: {
   const usage = props.settings.usage;
   const [refreshing, setRefreshing] = useState(false);
   const stats = props.stats;
+  const normalizedModelFilter = usage.modelFilter.trim().toLowerCase();
+  const hasRequestFilters = usage.status !== 'all' || normalizedModelFilter.length > 0;
   const filteredLogs = useMemo(() => {
     const logs = stats?.logs ?? [];
     return logs
       .filter((log) => usage.status === 'all' || log.status === usage.status)
-      .filter((log) => !usage.modelFilter || log.model.toLowerCase().includes(usage.modelFilter.toLowerCase()));
-  }, [stats, usage.status, usage.modelFilter]);
+      .filter((log) => normalizedModelFilter.length === 0 || log.model.toLowerCase().includes(normalizedModelFilter));
+  }, [stats, usage.status, normalizedModelFilter]);
 
   async function setRange(range: UsageRange) {
     await props.onUpdate({ usage: { range } });
@@ -3566,6 +3568,10 @@ function UsageSettingsPage(props: {
     } finally {
       setRefreshing(false);
     }
+  }
+
+  function clearRequestFilters() {
+    void props.onUpdate({ usage: { status: 'all', modelFilter: '' } });
   }
 
   return (
@@ -3603,26 +3609,38 @@ function UsageSettingsPage(props: {
         onChange={(activeTab) => void props.onUpdate({ usage: { activeTab: activeTab as typeof usage.activeTab } })}
       />
 
-      <div className="settingsUsageFilters">
-        <input value={usage.modelFilter} onChange={(event) => void props.onUpdate({ usage: { modelFilter: event.currentTarget.value } })} placeholder="按模型筛选…" />
-        <select value={usage.status} onChange={(event) => void props.onUpdate({ usage: { status: event.currentTarget.value as typeof usage.status } })}>
-          <option value="all">全部状态</option>
-          <option value="success">成功</option>
-          <option value="error">错误</option>
-        </select>
-        <label>
-          <span>详情记录</span>
-          <Switch checked={usage.showDetails} onChange={(showDetails) => props.onUpdate({ usage: { showDetails } })} />
-        </label>
-        <small>共 {filteredLogs.length} 条记录</small>
-      </div>
+      {usage.activeTab === 'requests' && (
+        <div className="settingsUsageFilters">
+          <input value={usage.modelFilter} onChange={(event) => void props.onUpdate({ usage: { modelFilter: event.currentTarget.value } })} placeholder="按模型筛选…" />
+          <select value={usage.status} onChange={(event) => void props.onUpdate({ usage: { status: event.currentTarget.value as typeof usage.status } })}>
+            <option value="all">全部状态</option>
+            <option value="success">成功</option>
+            <option value="error">错误</option>
+          </select>
+          <label>
+            <span>详情记录</span>
+            <Switch checked={usage.showDetails} onChange={(showDetails) => props.onUpdate({ usage: { showDetails } })} />
+          </label>
+          <small>共 {filteredLogs.length} 条记录</small>
+          {hasRequestFilters && (
+            <button type="button" className="maka-button maka-button-ghost" data-size="sm" onClick={clearRequestFilters}>
+              清除筛选
+            </button>
+          )}
+        </div>
+      )}
 
-      <UsageTable activeTab={usage.activeTab} stats={stats} logs={filteredLogs} />
+      <UsageTable
+        activeTab={usage.activeTab}
+        stats={stats}
+        logs={filteredLogs}
+        requestEmpty={hasRequestFilters ? '没有符合筛选条件的请求记录' : '暂无请求记录'}
+      />
     </div>
   );
 }
 
-function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats: UsageStats | null; logs: UsageStats['logs'] }) {
+function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats: UsageStats | null; logs: UsageStats['logs']; requestEmpty: string }) {
   if (props.activeTab === 'providers') {
     return <SimpleStatsTable headers={['供应商', '请求', 'Token', '费用']} rows={(props.stats?.byProvider ?? []).map((row) => [row.provider, row.requests, row.tokens, `$${row.costUsd.toFixed(2)}`])} />;
   }
@@ -3635,7 +3653,7 @@ function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats
   if (props.activeTab === 'pricing') {
     return <SimpleStatsTable headers={['供应商', '模型', '输入 / 1M', '输出 / 1M']} rows={(props.stats?.pricing ?? []).map((row) => [row.provider, row.model, `$${row.inputPerMTokUsd}`, `$${row.outputPerMTokUsd}`])} empty="暂无定价覆盖配置" />;
   }
-  return <SimpleStatsTable headers={['时间', '供应商', '模型', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), row.provider, row.model, row.inputTokens + row.outputTokens, `$${(row.costUsd ?? 0).toFixed(2)}`, row.latencyMs ? `${row.latencyMs}ms` : '-', row.status])} empty="暂无请求记录" />;
+  return <SimpleStatsTable headers={['时间', '供应商', '模型', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), row.provider, row.model, row.inputTokens + row.outputTokens, `$${(row.costUsd ?? 0).toFixed(2)}`, row.latencyMs ? `${row.latencyMs}ms` : '-', row.status])} empty={props.requestEmpty} />;
 }
 
 function SimpleStatsTable(props: { headers: string[]; rows: Array<Array<string | number>>; empty?: string }) {
