@@ -28,6 +28,7 @@ import {
   collectSearchableText,
   findMatch,
   foldForMatch,
+  formatSearchResultSummary,
   runThreadSearch,
 } from '../search/thread-search.js';
 
@@ -67,14 +68,14 @@ function assistantMessage(text: string, turnId: string = 't1', id: string = 'a1'
   };
 }
 
-function toolResultMessage(content: unknown, turnId: string = 't1'): StoredMessage {
+function toolResultMessage(content: unknown, turnId: string = 't1', isError: boolean = false): StoredMessage {
   return {
     type: 'tool_result',
     id: 'tr1',
     turnId,
     ts: 1_700_000_000_000,
     toolUseId: 'call1',
-    isError: false,
+    isError,
     content: content as never,
   };
 }
@@ -774,6 +775,23 @@ describe('SearchResult.target carries thread navigation (PR-SEARCH-1.5)', () => 
     assert.equal(hit.title, 'My Chat');
   });
 
+  it('populates user-facing summary so UI shows where the hit came from', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'diagnostic', limit: 5 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1', name: 'Diagnostics' }),
+          messages: [
+            userMessage('diagnostic from user', 'turnUser', 'u1'),
+            assistantMessage('diagnostic from assistant', 'turnAssistant', 'a1'),
+          ],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.deepEqual(result.map((hit) => hit.summary), ['用户消息', '助手回复']);
+  });
+
   it('omits turnId in target when message has no turnId (e.g. session-level hit)', async () => {
     // SystemNoteMessage has no turnId — but it's excluded by G10. The
     // assistant.thinking path also includes a turnId. In current
@@ -800,5 +818,28 @@ describe('SearchResult.target carries thread navigation (PR-SEARCH-1.5)', () => 
         }
       }
     }
+  });
+});
+
+describe('formatSearchResultSummary', () => {
+  function toolCall(overrides: { toolName: string; displayName?: string; intent?: string }): StoredMessage {
+    return {
+      type: 'tool_call',
+      id: 'tc-summary',
+      turnId: 't1',
+      ts: 1_700_000_000_000,
+      toolName: overrides.toolName,
+      displayName: overrides.displayName,
+      intent: overrides.intent,
+      args: {},
+    };
+  }
+
+  it('labels user / assistant / tool hits without leaking raw enum names', () => {
+    assert.equal(formatSearchResultSummary(userMessage('hello')), '用户消息');
+    assert.equal(formatSearchResultSummary(assistantMessage('hello')), '助手回复');
+    assert.equal(formatSearchResultSummary(toolCall({ toolName: 'Bash', displayName: 'Shell' })), '工具调用：Shell');
+    assert.equal(formatSearchResultSummary(toolResultMessage({ ok: true })), '工具结果：成功');
+    assert.equal(formatSearchResultSummary(toolResultMessage({ ok: false }, 't1', true)), '工具结果：失败');
   });
 });

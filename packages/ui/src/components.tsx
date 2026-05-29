@@ -1974,6 +1974,7 @@ export function SearchModal(props: {
                       disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
                     >
                       <div className="maka-search-modal-result-title">{result.title}</div>
+                      {result.summary && <div className="maka-search-modal-result-meta">{result.summary}</div>}
                       {result.snippet && (
                         // Plain text only — IPC already redacts secrets
                         // and the snippet is bounded by SNIPPET_MAX_CODE_POINTS.
