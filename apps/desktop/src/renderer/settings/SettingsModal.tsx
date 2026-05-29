@@ -1766,8 +1766,8 @@ const PALETTE_LABEL: Record<ThemePalette, string> = {
   'catppuccin-mocha': 'Catppuccin Mocha',
   'tokyo-night': 'Tokyo Night',
   'nord': 'Nord',
-  'alma': 'alma · 暖粉',
-  'niuma': '牛马蓝',
+  'coral': '珊瑚',
+  'azure': '湖蓝',
 };
 
 const PALETTE_HELP: Record<ThemePalette, string> = {
@@ -1776,8 +1776,8 @@ const PALETTE_HELP: Record<ThemePalette, string> = {
   'catppuccin-mocha': '紫调柔和深色',
   'tokyo-night': '深蓝主题',
   'nord': '北欧冷色',
-  'alma': '借 alma 产品色，暖粉 / 珊瑚 accent',
-  'niuma': '借牛马 AI 产品色，干净蓝 accent',
+  'coral': '暖粉 / 珊瑚 accent',
+  'azure': '湖蓝 accent，干净冷静',
 };
 
 function ThemeSettingsPage(props: {

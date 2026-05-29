@@ -26,19 +26,18 @@
      oklch() gives perceptually uniform lightness, keeping subtle surface and
      status colors calibrated.
 
-     PR-UI-LAYOUT-1 (@yuejing 2026-05-22): shifted from cool blue-gray
-     (hue 265) to warm cream (hue 80, slight chroma) per @WAWQAQ's
-     direct comparison with 牛马AI. The reference design uses a single
-     canvas where sidebar + main area share the same background —
-     separation comes from hairline borders + radius, not from a
+     History: started as cool blue-gray (hue 265), then briefly moved
+     to warm cream (hue 80) to mirror a single-canvas reference design
+     where sidebar + main area share the same background and
+     separation comes from hairline borders + radius rather than a
      darker shell behind lighter cards.
 
      PR-DEFAULT-CANVAS-DEYELLOW-0 (@yuejing 2026-05-30, WAWQAQ msg
      `bfee559d`): de-yellowed by shifting hue 80 → 250 (cool neutral).
      The warm-cream tone read as visibly yellow against the chrome
-     accents and felt odd as a default. Same hue family as the niuma
+     accents and felt odd as a default. Same hue family as the azure
      palette but with lower chroma so the default stays subtler. The
-     warm-cream variant is still reachable via the alma palette.
+     warm-cream variant is still reachable via the coral palette.
 
      `--surface-canvas` is the shell-level background (what `.appFrame`
      paints behind everything); `--background` is what cards paint.
@@ -373,8 +372,8 @@
   --chat-user-bg: var(--user-message-bubble);
 }
 
-/* --- alma (warm coral accent, borrowed from alma's product palette) --- */
-[data-maka-theme="alma"] {
+/* --- coral (warm coral / pink accent) --- */
+[data-maka-theme="coral"] {
   --background: oklch(0.99 0.005 25);
   --foreground: oklch(0.22 0.015 25);
   --accent: oklch(0.68 0.18 25);                /* coral / warm pink */
@@ -384,7 +383,7 @@
   --user-message-bubble: oklch(0.95 0.012 25);
   --chat-user-bg: var(--user-message-bubble);
 }
-[data-maka-theme="alma"].dark {
+[data-maka-theme="coral"].dark {
   --background: oklch(0.22 0.018 25);
   --foreground: oklch(0.94 0.008 25);
   --accent: oklch(0.76 0.18 25);
@@ -395,8 +394,8 @@
   --chat-user-bg: var(--user-message-bubble);
 }
 
-/* --- niuma (clean product blue, borrowed from 牛马 AI's brand palette) --- */
-[data-maka-theme="niuma"] {
+/* --- azure (cool product blue accent) --- */
+[data-maka-theme="azure"] {
   --background: oklch(0.98 0.005 250);
   --foreground: oklch(0.20 0.015 250);
   --accent: oklch(0.58 0.18 252);               /* product blue */
@@ -406,7 +405,7 @@
   --user-message-bubble: oklch(0.94 0.010 250);
   --chat-user-bg: var(--user-message-bubble);
 }
-[data-maka-theme="niuma"].dark {
+[data-maka-theme="azure"].dark {
   --background: oklch(0.20 0.015 250);
   --foreground: oklch(0.93 0.010 250);
   --accent: oklch(0.70 0.18 252);

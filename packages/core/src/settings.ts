@@ -145,12 +145,10 @@ export const THEME_PALETTES = [
   'catppuccin-mocha',
   'tokyo-night',
   'nord',
-  // PR-THEME-PRODUCT-PALETTES-0 (WAWQAQ msg `4472ee95`): borrow the
-  // product accent palettes from reference projects so users have
-  // brand-coherent options instead of only generic editor-style
-  // palettes. `alma` uses a warm coral; `niuma` uses a clean blue.
-  'alma',
-  'niuma',
+  // Product accent palettes — warm coral and cool azure — so users have
+  // brand-coherent options beyond the editor-style themes above.
+  'coral',
+  'azure',
 ] as const;
 
 export type ThemePalette = typeof THEME_PALETTES[number];

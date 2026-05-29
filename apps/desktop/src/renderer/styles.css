@@ -4957,8 +4957,8 @@ button:active {
 .settingsPaletteSwatch-catppuccin-mocha { background: oklch(0.66 0.15 310); }
 .settingsPaletteSwatch-tokyo-night { background: oklch(0.55 0.17 265); }
 .settingsPaletteSwatch-nord { background: oklch(0.62 0.12 215); }
-.settingsPaletteSwatch-alma { background: oklch(0.68 0.18 25); }
-.settingsPaletteSwatch-niuma { background: oklch(0.58 0.18 252); }
+.settingsPaletteSwatch-coral { background: oklch(0.68 0.18 25); }
+.settingsPaletteSwatch-azure { background: oklch(0.58 0.18 252); }
 
 .settingsThemeSwatch {
   width: 56px;
