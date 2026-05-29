@@ -131,6 +131,8 @@ describe('deriveChatHeaderAlert', () => {
       assert.equal(result?.label, '连接已删除');
       assert.equal(result?.onClickTarget, 'models');
       assert.match(result?.tooltip ?? '', /设置.*模型/);
+      assert.match(result?.tooltip ?? '', /当前没有默认连接/);
+      assert.doesNotMatch(result?.tooltip ?? '', /尚未配置默认连接/);
     });
 
     it('handles legacy backend (e.g. "claude") missing connection — same banner', () => {

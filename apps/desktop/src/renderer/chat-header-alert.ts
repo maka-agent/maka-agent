@@ -124,7 +124,7 @@ export function deriveChatHeaderAlert(input: ChatHeaderAlertInput): DerivedChatH
       : {
           tone: 'destructive',
           label: '连接已删除',
-          tooltip: '此会话依赖的模型连接已被删除，且尚未配置默认连接。请到 设置 · 模型 添加一个可用的模型。',
+          tooltip: '此会话依赖的模型连接已被删除，当前没有默认连接。请到 设置 · 模型 添加一个可用的模型。',
           onClickTarget: 'models',
         };
   }
