@@ -225,6 +225,15 @@ export function SettingsModal(props: {
   density: UiDensity;
   onDensityChange(density: UiDensity): void;
   /**
+   * PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): current
+   * palette + live setter. Click handler calls `onThemePaletteChange(next)`
+   * synchronously so the `data-maka-theme` attribute updates on the same
+   * tick — no need to wait for the IPC `appearance.palette` round-trip,
+   * and no need for a restart for switching to take visible effect.
+   */
+  themePalette: ThemePalette;
+  onThemePaletteChange(palette: ThemePalette): void;
+  /**
    * PR-UI-D2 fixup v2 (@kenji msg b4dbfa91): current toast position
    * (source-of-truth lifted from `App`) and live setter. The Theme
    * Settings picker calls `onToastPositionChange(next)` synchronously
@@ -271,6 +280,8 @@ export function SettingsModal(props: {
           onThemeChange={props.onThemeChange}
           density={props.density}
           onDensityChange={props.onDensityChange}
+          themePalette={props.themePalette}
+          onThemePaletteChange={props.onThemePaletteChange}
           toastPosition={props.toastPosition}
           onToastPositionChange={props.onToastPositionChange}
           onUserLabelChange={props.onUserLabelChange}
@@ -291,6 +302,8 @@ function SettingsSurface(props: {
   onThemeChange(pref: ThemePreference): void;
   density: UiDensity;
   onDensityChange(density: UiDensity): void;
+  themePalette: ThemePalette;
+  onThemePaletteChange(palette: ThemePalette): void;
   toastPosition: ToastPosition;
   onToastPositionChange(position: ToastPosition): void;
   onUserLabelChange?(label: string): void;
@@ -413,6 +426,7 @@ function SettingsSurface(props: {
               defaultSlug={props.defaultSlug}
               themePref={props.themePref}
               density={props.density}
+              themePalette={props.themePalette}
               toastPosition={props.toastPosition}
               onRefreshConnections={props.onRefresh}
               onUpdateSettings={updateSettings}
@@ -420,6 +434,7 @@ function SettingsSurface(props: {
               onReloadUsage={reloadUsage}
               onThemeChange={props.onThemeChange}
               onDensityChange={props.onDensityChange}
+              onThemePaletteChange={props.onThemePaletteChange}
               onToastPositionChange={props.onToastPositionChange}
               onOpenDailyReview={props.onOpenDailyReview}
             />
@@ -440,6 +455,7 @@ function SettingsPage(props: {
   defaultSlug: string | null;
   themePref: ThemePreference;
   density: UiDensity;
+  themePalette: ThemePalette;
   toastPosition: ToastPosition;
   onRefreshConnections(): Promise<void>;
   onUpdateSettings(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
@@ -447,6 +463,7 @@ function SettingsPage(props: {
   onReloadUsage(range?: UsageRange): Promise<void>;
   onThemeChange(pref: ThemePreference): void;
   onDensityChange(density: UiDensity): void;
+  onThemePaletteChange(palette: ThemePalette): void;
   onToastPositionChange(position: ToastPosition): void;
   onOpenDailyReview?(): void;
 }) {
@@ -497,11 +514,13 @@ function SettingsPage(props: {
         <ThemeSettingsPage
           themePref={props.themePref}
           density={props.density}
+          themePalette={props.themePalette}
           toastPosition={props.toastPosition}
           settings={props.settings}
           onUpdate={props.onUpdateSettings}
           onThemeChange={props.onThemeChange}
           onDensityChange={props.onDensityChange}
+          onThemePaletteChange={props.onThemePaletteChange}
           onToastPositionChange={props.onToastPositionChange}
         />
       );
@@ -1796,11 +1815,13 @@ const PALETTE_HELP: Record<ThemePalette, string> = {
 function ThemeSettingsPage(props: {
   themePref: ThemePreference;
   density: UiDensity;
+  themePalette: ThemePalette;
   toastPosition: ToastPosition;
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onThemeChange(pref: ThemePreference): void;
   onDensityChange(density: UiDensity): void;
+  onThemePaletteChange(palette: ThemePalette): void;
   onToastPositionChange(position: ToastPosition): void;
 }) {
   async function setTheme(next: ThemePreference) {
@@ -1816,12 +1837,16 @@ function ThemeSettingsPage(props: {
     await props.onUpdate({ appearance: { density: next } });
   }
 
-  // PR-THEME-PRODUCT-PALETTES-0 (WAWQAQ msg `4472ee95`): persist the
-  // palette choice on click. Apply happens via the existing
-  // `appearance.palette` → `applyThemePalette` round-trip in main.tsx
-  // (the renderer-mount palette reader re-runs on settings change).
-  const currentPalette: ThemePalette = props.settings.appearance.palette ?? 'default';
+  // PR-THEME-PRODUCT-PALETTES-0 (WAWQAQ msg `4472ee95`) + PR-THEME-APPLY-
+  // AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): apply the palette
+  // synchronously on click for instant feedback, then persist. Same
+  // pattern as setTheme/setDensity above. The original comment claimed
+  // the IPC round-trip would re-apply on its own, but main.tsx had no
+  // listener for palette changes — only ran applyThemePalette once at
+  // mount — so switches were invisible until the next app start.
+  const currentPalette: ThemePalette = props.themePalette;
   async function setPalette(next: ThemePalette) {
+    props.onThemePaletteChange(next);
     await props.onUpdate({ appearance: { palette: next } });
   }
 

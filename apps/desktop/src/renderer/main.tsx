@@ -16,6 +16,7 @@ import type {
   SettingsSection,
   StoredMessage,
   TextFileImportPreflightFailureReason,
+  ThemePalette,
   ThemePreference,
   ToastPosition,
   UiDensity,
@@ -201,6 +202,7 @@ function AppShell(props: {
   const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(undefined);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [density, setDensity] = useState<UiDensity>('comfortable');
+  const [themePalette, setThemePalette] = useState<ThemePalette>('default');
   const [userLabel, setUserLabel] = useState<string>('');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
@@ -619,6 +621,7 @@ function AppShell(props: {
       applyUiLocale(uiLocale);
       setThemePref(pref);
       setDensity(den);
+      setThemePalette(palette);
       setUserLabel(name);
       applyTheme(pref);
       applyDensity(den);
@@ -743,6 +746,15 @@ function AppShell(props: {
   useEffect(() => {
     applyDensity(density);
   }, [density]);
+
+  // PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): re-apply the
+  // palette data attribute whenever the persisted setting changes, so
+  // switching themes in Settings is immediately visible. Previously the
+  // attribute was only set once at mount, so a palette change required a
+  // restart before the new colors took effect.
+  useEffect(() => {
+    applyThemePalette(themePalette);
+  }, [themePalette]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -2163,6 +2175,8 @@ function AppShell(props: {
           onThemeChange={setThemePref}
           density={density}
           onDensityChange={setDensity}
+          themePalette={themePalette}
+          onThemePaletteChange={setThemePalette}
           toastPosition={props.toastPosition}
           onToastPositionChange={props.onToastPositionChange}
           onUserLabelChange={setUserLabel}

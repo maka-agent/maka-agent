@@ -6407,24 +6407,34 @@ button:active {
   line-height: 1.4;
 }
 
+/* PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): was a
+   chunky 88x50 pill in a static "Solarpunk deep" green that did not
+   change with palette. Now a smaller, flatter action that follows
+   --accent via --brand-deep, with the hairline border the rest of the
+   Settings surface uses. */
 .settingsDoneButton {
   position: absolute;
-  right: 34px;
-  bottom: 30px;
-  min-width: 88px;
-  min-height: 50px;
-  border: 0;
-  border-radius: 999px;
+  right: 24px;
+  bottom: 22px;
+  min-height: 32px;
+  padding: 0 16px;
+  border: 1px solid oklch(from var(--brand-deep) l c h / 0.40);
+  border-radius: 8px;
   background: var(--brand-deep);
   color: var(--background);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  padding: 0 26px;
-  font-size: 16px;
-  font-weight: 600;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .settingsDoneButton:hover {
   background: var(--brand-deep-hover);
+}
+
+.settingsDoneButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.28);
 }
 
 .providerEditor header {

@@ -55,11 +55,14 @@
   --destructive: oklch(0.58 0.24 28);   /* red — errors, denied */
   --destructive-rgb: 180, 60, 50;
 
-  /* Settings hero green ("Solarpunk deep") — used for Done CTA, on-toggle
-     state, and provider mark backgrounds. Distinct from --accent so the
-     Settings surface keeps its own primary affordance. */
-  --brand-deep: oklch(0.32 0.05 152);
-  --brand-deep-hover: oklch(0.28 0.05 152);
+  /* Brand affordance — Done CTA, on-toggle state, provider mark backgrounds,
+     success chip surfaces. Derived from --accent so palette switches are
+     immediately visible across these prominent affordances.
+     PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): was a static
+     "Solarpunk deep" green, which made palette switching invisible on the
+     Done CTA and made every palette read as olive-green. */
+  --brand-deep: var(--accent);
+  --brand-deep-hover: oklch(from var(--accent) calc(l - 0.06) c h);
 
   /* === text variants (mixed toward foreground for better contrast) === */
   --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
@@ -260,10 +263,10 @@
   /* foreground-N variants re-derive automatically via color-mix(), so the
      :root definitions above remain correct — no need to redefine here. */
 
-  /* Brand deep needs a slightly brighter hue in dark mode to maintain
-     legible contrast against the dark background. */
-  --brand-deep: oklch(0.62 0.10 152);
-  --brand-deep-hover: oklch(0.68 0.10 152);
+  /* Brand deep follows accent in dark mode too; hover is a brighter
+     variant for the darker surface. */
+  --brand-deep: var(--accent);
+  --brand-deep-hover: oklch(from var(--accent) calc(l + 0.06) c h);
 }
 
 /* =============================================================================
