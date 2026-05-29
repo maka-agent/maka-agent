@@ -466,13 +466,23 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
       channels: {
         ...current.botChat.channels,
         ...Object.fromEntries(
-          Object.entries(patch.botChat?.channels ?? {}).map(([provider, channelPatch]) => [
-            provider,
-            {
+          Object.entries(patch.botChat?.channels ?? {}).map(([provider, channelPatch]) => {
+            const merged = {
               ...current.botChat.channels[provider as BotProvider],
               ...channelPatch,
-            },
-          ]),
+            };
+            // PR-BOT-USER-ALLOWLIST-0: keep the persisted allowlist
+            // shape consistent on every save, not only on initial load.
+            // The renderer textarea sends an array; the normalize step
+            // trims/dedups/caps and downgrades the empty case to
+            // `undefined` (the V0.1 "no restriction" sentinel).
+            if ('allowedUserIds' in (channelPatch ?? {})) {
+              const normalized = normalizeAllowedUserIds(merged.allowedUserIds);
+              if (normalized) merged.allowedUserIds = normalized;
+              else delete merged.allowedUserIds;
+            }
+            return [provider, merged];
+          }),
         ),
       },
     },
@@ -815,15 +825,15 @@ function coerceReadinessForCurrentState(
  * PR-BOT-USER-ALLOWLIST-0: shape-validate the persisted allowlist.
  * Returns `undefined` when there is nothing to enforce (preserves the
  * V0.1 "no restriction" behavior). Drops non-strings, trims, dedups, and
- * caps at 50 entries; the cap is defensive against pathological persisted
- * settings, not a product UX limit.
+ * caps at MAX_ALLOWED_USER_IDS entries; the cap is defensive against
+ * pathological persisted settings, not a product UX limit.
  *
  * IDs are stored as strings because Telegram user IDs are 64-bit and
  * JS `Number` loses precision past 2^53. Trimming a candidate to '' is
  * treated as absent rather than as a wildcard.
  */
-const MAX_ALLOWED_USER_IDS = 50;
-function normalizeAllowedUserIds(
+export const MAX_ALLOWED_USER_IDS = 50;
+export function normalizeAllowedUserIds(
   candidate: ReadonlyArray<string> | undefined | unknown,
 ): ReadonlyArray<string> | undefined {
   if (!Array.isArray(candidate)) return undefined;
@@ -839,4 +849,27 @@ function normalizeAllowedUserIds(
     if (out.length >= MAX_ALLOWED_USER_IDS) break;
   }
   return out.length === 0 ? undefined : Object.freeze(out);
+}
+
+/**
+ * PR-BOT-USER-ALLOWLIST-UI-0: textarea-friendly parse helper for the
+ * Settings UI. Splits on newline, trims each line, drops blanks, dedups,
+ * and caps at MAX_ALLOWED_USER_IDS. Returns a string[] (not undefined)
+ * because the renderer needs to be able to show "current 0 / 50" before
+ * commit. The IPC merge layer will downgrade an empty list to `undefined`
+ * at persist time so the V0.1 "no restriction" sentinel is preserved.
+ */
+export function parseAllowedUserIdsFromText(raw: string): string[] {
+  if (typeof raw !== 'string' || raw.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+    if (out.length >= MAX_ALLOWED_USER_IDS) break;
+  }
+  return out;
 }
