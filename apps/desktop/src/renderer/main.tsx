@@ -2175,6 +2175,29 @@ function AppShell(props: {
                 toastApi.error('打开失败', err instanceof Error ? err.message : '路径无效');
               }
             },
+            onOpenWorkspaceInstructionsFile: async () => {
+              try {
+                // PR-CMD-PALETTE-OPEN-WORKSPACE-INSTRUCTIONS-0: open the
+                // first available workspace instruction file. If none are
+                // available, surface a hint so the user knows where to
+                // create one rather than getting a silent no-op.
+                const state = await window.maka.workspaceInstructions.getState();
+                const available = state.files.find((f) => f.status === 'available');
+                if (!available) {
+                  toastApi.info(
+                    '当前项目还没有项目指引',
+                    '在 Settings · 记忆 里可以创建 AGENTS.md 或 CLAUDE.md',
+                  );
+                  return;
+                }
+                const result = await window.maka.workspaceInstructions.openFile(available.file);
+                if (!result.ok) {
+                  toastApi.error(`无法打开 ${available.file}`, result.message);
+                }
+              } catch (err) {
+                toastApi.error('打开失败', err instanceof Error ? err.message : '路径无效');
+              }
+            },
             onSetPermissionMode: (mode) => void setPermissionMode(mode),
             activePermissionMode: activeSessionForView?.permissionMode,
             onCopyTodayDailyReview: async () => {
