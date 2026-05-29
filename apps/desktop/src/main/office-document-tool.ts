@@ -7,11 +7,13 @@ import type { MakaTool } from '@maka/runtime';
 
 export const OFFICE_DOCUMENT_TOOL_NAME = 'OfficeDocument';
 
-export const OFFICE_DOCUMENT_OPERATIONS = ['view', 'get', 'query', 'validate'] as const;
+export const OFFICE_DOCUMENT_OPERATIONS = ['help', 'view', 'get', 'query', 'validate'] as const;
 export type OfficeDocumentOperation = typeof OFFICE_DOCUMENT_OPERATIONS[number];
 
 export const OFFICE_DOCUMENT_VIEW_MODES = ['outline', 'text', 'stats', 'issues', 'annotated'] as const;
 export type OfficeDocumentViewMode = typeof OFFICE_DOCUMENT_VIEW_MODES[number];
+export const OFFICE_DOCUMENT_HELP_TOPICS = ['docx', 'xlsx', 'pptx'] as const;
+export type OfficeDocumentHelpTopic = typeof OFFICE_DOCUMENT_HELP_TOPICS[number];
 
 const OFFICE_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx']);
 const OFFICE_DOCUMENT_OUTPUT_MAX_CHARS = 60_000;
@@ -22,7 +24,7 @@ export type OfficeDocumentResult =
   | {
       ok: true;
       operation: OfficeDocumentOperation;
-      path: string;
+      path?: string;
       args: string[];
       stdout: string;
       stderr?: string;
@@ -52,8 +54,9 @@ type OfficeCliRunner = typeof execFile;
 
 export function buildOfficeDocumentTool(): MakaTool<
   {
-    path: string;
+    path?: string;
     operation: OfficeDocumentOperation;
+    topic?: OfficeDocumentHelpTopic;
     viewMode?: OfficeDocumentViewMode;
     selector?: string;
     query?: string;
@@ -66,11 +69,14 @@ export function buildOfficeDocumentTool(): MakaTool<
     displayName: 'Office 文档',
     description:
       'Inspect a .docx, .xlsx, or .pptx file through a bounded read-only Office document adapter. ' +
-      'Allowed operations are view outline/text/stats/issues/annotated, get selector, query selector, and validate. ' +
+      'Allowed operations are help, view outline/text/stats/issues/annotated, get selector, query selector, and validate. ' +
       'The tool only accepts paths inside the session cwd and never runs editing, create, open, close, add, set, remove, raw, watch, or batch commands.',
     parameters: z.object({
-      path: z.string().min(1).max(500).describe('Relative path to a .docx, .xlsx, or .pptx file under the session cwd.'),
+      path: z.string().min(1).max(500).optional()
+        .describe('Relative path to a .docx, .xlsx, or .pptx file under the session cwd. Required unless operation=help.'),
       operation: z.enum(OFFICE_DOCUMENT_OPERATIONS),
+      topic: z.enum(OFFICE_DOCUMENT_HELP_TOPICS).optional()
+        .describe('Optional help topic for operation=help.'),
       viewMode: z.enum(OFFICE_DOCUMENT_VIEW_MODES).optional()
         .describe('Required for operation=view. Defaults to outline. html is intentionally not supported.'),
       selector: z.string().min(1).max(500).optional()
@@ -81,10 +87,11 @@ export function buildOfficeDocumentTool(): MakaTool<
         .describe('Optional depth for get; capped at 6.'),
     }),
     permissionRequired: false,
-    impl: async ({ path, operation, viewMode, selector, query, depth }, { cwd }) => runOfficeDocumentOperation({
+    impl: async ({ path, operation, topic, viewMode, selector, query, depth }, { cwd }) => runOfficeDocumentOperation({
       cwd,
       path,
       operation,
+      topic,
       viewMode,
       selector,
       query,
@@ -95,8 +102,9 @@ export function buildOfficeDocumentTool(): MakaTool<
 
 export async function runOfficeDocumentOperation(input: {
   cwd: string;
-  path: string;
+  path?: unknown;
   operation: unknown;
+  topic?: unknown;
   viewMode?: unknown;
   selector?: unknown;
   query?: unknown;
@@ -109,8 +117,20 @@ export async function runOfficeDocumentOperation(input: {
     return {
       ok: false,
       reason: 'invalid_operation',
-      message: 'Office 文档工具只支持 view / get / query / validate 只读操作。',
+      message: 'Office 文档工具只支持 help / view / get / query / validate 只读操作。',
     };
+  }
+
+  if (operation === 'help') {
+    return runOfficeCliOperation({
+      cwd: input.cwd,
+      operation,
+      relPath: undefined,
+      absPath: undefined,
+      args: buildOfficeHelpArgs(input.topic),
+      runner: input.runner,
+      timeoutMs: input.timeoutMs,
+    });
   }
 
   const pathResult = await resolveOfficeDocumentPath(input.cwd, input.path);
@@ -143,16 +163,39 @@ export async function runOfficeDocumentOperation(input: {
 
   const runner = input.runner ?? execFile;
   const timeoutMs = input.timeoutMs ?? OFFICE_DOCUMENT_TIMEOUT_MS;
+  return runOfficeCliOperation({
+    cwd: input.cwd,
+    operation,
+    relPath: pathResult.rel,
+    absPath: pathResult.abs,
+    args: argsResult.args,
+    runner,
+    timeoutMs,
+  });
+}
+
+async function runOfficeCliOperation(input: {
+  cwd: string;
+  operation: OfficeDocumentOperation;
+  relPath?: string;
+  absPath?: string;
+  args: string[];
+  runner?: OfficeCliRunner;
+  timeoutMs?: number;
+}): Promise<OfficeDocumentResult> {
+  const workspaceRoot = await realpath(input.cwd);
+  const runner = input.runner ?? execFile;
+  const timeoutMs = input.timeoutMs ?? OFFICE_DOCUMENT_TIMEOUT_MS;
   try {
-    const output = await runOfficeCli(runner, argsResult.args, timeoutMs);
-    const stdout = sanitizeOfficeCliOutput(output.stdout, pathResult.workspaceRoot);
-    const stderr = sanitizeOfficeCliOutput(output.stderr, pathResult.workspaceRoot);
+    const output = await runOfficeCli(runner, input.args, timeoutMs);
+    const stdout = sanitizeOfficeCliOutput(output.stdout, workspaceRoot);
+    const stderr = sanitizeOfficeCliOutput(output.stderr, workspaceRoot);
     const capped = capOutput(stdout);
     return {
       ok: true,
-      operation,
-      path: pathResult.rel,
-      args: displayArgs(argsResult.args, pathResult.abs, pathResult.rel),
+      operation: input.operation,
+      ...(input.relPath ? { path: input.relPath } : {}),
+      args: input.absPath && input.relPath ? displayArgs(input.args, input.absPath, input.relPath) : input.args,
       stdout: capped.text,
       ...(stderr.length > 0 ? { stderr: capOutput(stderr).text } : {}),
       truncated: capped.truncated,
@@ -163,9 +206,9 @@ export async function runOfficeDocumentOperation(input: {
     if (code === 'ENOENT') {
       return {
         ok: false,
-        operation,
-        path: pathResult.rel,
-        args: displayArgs(argsResult.args, pathResult.abs, pathResult.rel),
+        operation: input.operation,
+        ...(input.relPath ? { path: input.relPath } : {}),
+        args: input.absPath && input.relPath ? displayArgs(input.args, input.absPath, input.relPath) : input.args,
         reason: 'officecli_missing',
         message: '本机未检测到 officecli。请先安装 officecli，并确认 `officecli --version` 可运行后重试。',
       };
@@ -173,20 +216,20 @@ export async function runOfficeDocumentOperation(input: {
     if (code === 'ETIMEDOUT' || killed) {
       return {
         ok: false,
-        operation,
-        path: pathResult.rel,
-        args: displayArgs(argsResult.args, pathResult.abs, pathResult.rel),
+        operation: input.operation,
+        ...(input.relPath ? { path: input.relPath } : {}),
+        args: input.absPath && input.relPath ? displayArgs(input.args, input.absPath, input.relPath) : input.args,
         reason: 'officecli_timeout',
         message: 'officecli 读取超时。',
       };
     }
     return {
       ok: false,
-      operation,
-      path: pathResult.rel,
-      args: displayArgs(argsResult.args, pathResult.abs, pathResult.rel),
+      operation: input.operation,
+      ...(input.relPath ? { path: input.relPath } : {}),
+      args: input.absPath && input.relPath ? displayArgs(input.args, input.absPath, input.relPath) : input.args,
       reason: 'officecli_failed',
-      message: sanitizeOfficeCliOutput((error as Error).message || 'officecli 执行失败。', pathResult.workspaceRoot),
+      message: sanitizeOfficeCliOutput((error as Error).message || 'officecli 执行失败。', workspaceRoot),
     };
   }
 }
@@ -197,7 +240,7 @@ function normalizeOperation(value: unknown): OfficeDocumentOperation | null {
     : null;
 }
 
-async function resolveOfficeDocumentPath(cwd: string, inputPath: string): Promise<
+async function resolveOfficeDocumentPath(cwd: string, inputPath: unknown): Promise<
   | { ok: true; workspaceRoot: string; abs: string; rel: string }
   | {
       ok: false;
@@ -239,9 +282,16 @@ async function resolveOfficeDocumentPath(cwd: string, inputPath: string): Promis
   return { ok: true, workspaceRoot, abs: actual, rel: toRelative(workspaceRoot, actual) };
 }
 
+function buildOfficeHelpArgs(topic: unknown): string[] {
+  if (typeof topic === 'string' && (OFFICE_DOCUMENT_HELP_TOPICS as readonly string[]).includes(topic)) {
+    return ['help', topic];
+  }
+  return ['help'];
+}
+
 function buildOfficeCliArgs(input: {
   filePath: string;
-  operation: OfficeDocumentOperation;
+  operation: Exclude<OfficeDocumentOperation, 'help'>;
   viewMode?: unknown;
   selector?: unknown;
   query?: unknown;
