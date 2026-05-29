@@ -1862,6 +1862,18 @@ button:active {
   background: var(--foreground-2);
 }
 
+.maka-plan-validation {
+  margin: 0;
+  border: 1px solid oklch(from var(--warning) l c h / 0.34);
+  border-radius: 6px;
+  background: oklch(from var(--warning) l c h / 0.08);
+  color: var(--foreground-80);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  padding: 7px 8px;
+}
+
 .maka-plan-delivery-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

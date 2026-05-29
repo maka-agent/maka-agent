@@ -1056,6 +1056,7 @@ function PlanReminderPanel(props: {
   const visibleReminders = listFilter === 'all'
     ? props.reminders
     : props.reminders.filter((reminder) => reminder.status === listFilter);
+  const sortedReminders = [...visibleReminders].sort(comparePlanReminderForDisplay);
   const filterCounts: Record<PlanReminderListFilter, number> = {
     all: props.reminders.length,
     scheduled: props.reminders.filter((reminder) => reminder.status === 'scheduled').length,
@@ -1065,12 +1066,15 @@ function PlanReminderPanel(props: {
   const delivery: PlanReminderDeliveryTarget = deliveryChannel === 'bot'
     ? { channel: 'bot', platform: deliveryPlatform, chatId: deliveryChatId.trim() }
     : { channel: 'local' };
-  const canSubmit = title.trim().length > 0 &&
-    Number.isFinite(parsedRunAt) &&
-    parsedRunAt >= Date.now() &&
-    (delivery.channel === 'local' || delivery.chatId.length > 0);
-  const canSubmitCron = recurrence !== 'cron' || cronExpression.trim().split(/\s+/).length === 5;
-  const canCreate = canSubmit && canSubmitCron;
+  const validationMessage = planReminderFormValidationMessage({
+    title,
+    parsedRunAt,
+    recurrence,
+    cronExpression,
+    delivery,
+    now: Date.now(),
+  });
+  const canCreate = validationMessage === null;
   const isEditing = editingId !== null;
 
   useEffect(() => {
@@ -1251,6 +1255,11 @@ function PlanReminderPanel(props: {
             placeholder="可选：补充需要提醒的上下文"
           />
         </label>
+        {validationMessage && (
+          <p className="maka-plan-validation" role="status" aria-live="polite">
+            {validationMessage}
+          </p>
+        )}
         <button className="maka-button maka-plan-submit" type="submit" disabled={!canCreate}>
           {isEditing ? <Check size={14} strokeWidth={1.75} /> : <Plus size={14} strokeWidth={1.75} />}
           <span>{isEditing ? '保存提醒' : '创建提醒'}</span>
@@ -1298,7 +1307,7 @@ function PlanReminderPanel(props: {
             extraClassName="maka-plan-empty"
           />
         ) : (
-          visibleReminders.map((reminder) => (
+          sortedReminders.map((reminder) => (
             <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
               <div className="maka-plan-card-main">
                 <div className="maka-plan-card-title">{reminder.title}</div>
@@ -1428,6 +1437,53 @@ function planReminderPresetRunAt(preset: 'ten-minutes' | 'one-hour' | 'tomorrow-
   date.setDate(date.getDate() + daysUntilNextMonday);
   date.setHours(9, 0, 0, 0);
   return date.getTime();
+}
+
+function planReminderFormValidationMessage(input: {
+  title: string;
+  parsedRunAt: number;
+  recurrence: PlanReminderRecurrence;
+  cronExpression: string;
+  delivery: PlanReminderDeliveryTarget;
+  now: number;
+}): string | null {
+  if (input.title.trim().length === 0) return '填写标题后才能保存提醒。';
+  if (!Number.isFinite(input.parsedRunAt)) return '选择有效的提醒时间。';
+  if (input.parsedRunAt < input.now) return '提醒时间必须晚于当前时间。';
+  if (input.recurrence === 'cron' && input.cronExpression.trim().split(/\s+/).length !== 5) {
+    return 'Cron 需要 5 段表达式，例如 0 9 * * 1-5。';
+  }
+  if (input.delivery.channel === 'bot' && input.delivery.chatId.length === 0) {
+    return '选择机器人聊天时需要填写 Chat ID。';
+  }
+  return null;
+}
+
+function comparePlanReminderForDisplay(a: PlanReminder, b: PlanReminder): number {
+  const statusDelta = planReminderStatusDisplayRank(a) - planReminderStatusDisplayRank(b);
+  if (statusDelta !== 0) return statusDelta;
+  if (a.status === 'scheduled' && b.status === 'scheduled') {
+    return planReminderNextRunSortValue(a) - planReminderNextRunSortValue(b);
+  }
+  if (a.status === 'completed' && b.status === 'completed') {
+    return planReminderLastRunSortValue(b) - planReminderLastRunSortValue(a);
+  }
+  return a.title.localeCompare(b.title, 'zh-Hans-CN');
+}
+
+function planReminderStatusDisplayRank(reminder: PlanReminder): number {
+  if (reminder.status === 'scheduled') return 0;
+  if (reminder.status === 'paused') return 1;
+  if (reminder.status === 'completed') return 2;
+  return 3;
+}
+
+function planReminderNextRunSortValue(reminder: PlanReminder): number {
+  return typeof reminder.nextRunAt === 'number' ? reminder.nextRunAt : Number.MAX_SAFE_INTEGER;
+}
+
+function planReminderLastRunSortValue(reminder: PlanReminder): number {
+  return reminder.lastRun?.at ?? 0;
 }
 
 function planReminderEditableRunAt(reminder: PlanReminder, now: number = Date.now()): number {
