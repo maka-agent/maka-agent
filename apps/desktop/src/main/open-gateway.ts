@@ -182,14 +182,21 @@ export class OpenGatewayService {
       }
       writeJson(res, 200, {
         ok: true,
-        capabilities: [
-          'sessions.list',
-          'sessions.messages.read',
-          ...(this.deps.sendMessage ? ['sessions.messages.send'] : []),
-          'sessions.events.stream',
-          'sessions.incidents.read',
-          'search.thread',
-        ],
+        capabilities: buildGatewayCapabilities(Boolean(this.deps.sendMessage)),
+        sessionEvents: {
+          stream: true,
+          cursor: {
+            header: 'Last-Event-ID',
+            query: 'after',
+            maxLength: OPEN_GATEWAY_REPLAY_CURSOR_LIMIT,
+          },
+          replay: {
+            limit: OPEN_GATEWAY_EVENT_REPLAY_LIMIT,
+            missEvent: OPEN_GATEWAY_REPLAY_MISS_EVENT,
+            missAdvancesCursor: false,
+            partialReplayOnMiss: false,
+          },
+        },
       });
       return;
     }
@@ -375,6 +382,8 @@ type JsonBodyResult =
 const OPEN_GATEWAY_MAX_BODY_BYTES = 16 * 1024;
 const OPEN_GATEWAY_EVENT_HEARTBEAT_MS = 15_000;
 const OPEN_GATEWAY_EVENT_REPLAY_LIMIT = 100;
+const OPEN_GATEWAY_REPLAY_CURSOR_LIMIT = 256;
+const OPEN_GATEWAY_REPLAY_MISS_EVENT = 'gateway_replay_miss';
 const OPEN_GATEWAY_INCIDENT_LIMIT = 20;
 const OPEN_GATEWAY_INCIDENT_TEXT_LIMIT = 500;
 
@@ -405,6 +414,19 @@ type GatewayIncidentSummary =
       reason: 'user_stop' | 'redirect' | 'timeout' | 'crash';
     };
 
+function buildGatewayCapabilities(sendAvailable: boolean): string[] {
+  return [
+    'sessions.list',
+    'sessions.messages.read',
+    ...(sendAvailable ? ['sessions.messages.send'] : []),
+    'sessions.events.stream',
+    'sessions.events.replay',
+    'sessions.events.replay_miss',
+    'sessions.incidents.read',
+    'search.thread',
+  ];
+}
+
 function formatSseEvent(input: { id: string; event: string; data: unknown }): string {
   const data = JSON.stringify(input.data);
   return [
@@ -418,9 +440,9 @@ function formatSseEvent(input: { id: string; event: string; data: unknown }): st
 
 function formatReplayMissEvent(reason: 'empty_buffer' | 'cursor_not_found', requestedEventId: string): string {
   return [
-    'event: gateway_replay_miss',
+    `event: ${OPEN_GATEWAY_REPLAY_MISS_EVENT}`,
     `data: ${JSON.stringify({
-      type: 'gateway_replay_miss',
+      type: OPEN_GATEWAY_REPLAY_MISS_EVENT,
       reason,
       requestedEventId: capReplayCursor(redactSecrets(requestedEventId)),
       replayLimit: OPEN_GATEWAY_EVENT_REPLAY_LIMIT,
@@ -474,13 +496,15 @@ function readReplayCursor(req: IncomingMessage, url: URL): string | undefined {
 function normalizeReplayCursor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > 256) return undefined;
+  if (trimmed.length === 0 || trimmed.length > OPEN_GATEWAY_REPLAY_CURSOR_LIMIT) return undefined;
   if (/[\r\n]/.test(trimmed)) return undefined;
   return trimmed;
 }
 
 function capReplayCursor(value: string): string {
-  return value.length <= 256 ? value : `${value.slice(0, 255)}…`;
+  return value.length <= OPEN_GATEWAY_REPLAY_CURSOR_LIMIT
+    ? value
+    : `${value.slice(0, OPEN_GATEWAY_REPLAY_CURSOR_LIMIT - 1)}…`;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<JsonBodyResult> {

@@ -49,9 +49,25 @@ describe('OpenGatewayService', () => {
       'sessions.messages.read',
       'sessions.messages.send',
       'sessions.events.stream',
+      'sessions.events.replay',
+      'sessions.events.replay_miss',
       'sessions.incidents.read',
       'search.thread',
     ]);
+    assert.deepEqual(authorized.body.sessionEvents, {
+      stream: true,
+      cursor: {
+        header: 'Last-Event-ID',
+        query: 'after',
+        maxLength: 256,
+      },
+      replay: {
+        limit: 100,
+        missEvent: 'gateway_replay_miss',
+        missAdvancesCursor: false,
+        partialReplayOnMiss: false,
+      },
+    });
   });
 
   test('exposes local sessions, messages, and thread search read APIs', async () => {
