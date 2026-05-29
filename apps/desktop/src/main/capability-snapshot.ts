@@ -188,7 +188,7 @@ function officeDocumentsCapability(probe: OfficeCliProbe | undefined, now: numbe
 }
 
 function officeCliProbeReason(probe: OfficeCliProbe | undefined): string {
-  if (!probe) return '尚未探测 officecli。';
+  if (!probe) return '等待刷新 OfficeCLI 状态。';
   if (probe.available) return `officecli ${probe.version}`;
   switch (probe.reason) {
     case 'missing':

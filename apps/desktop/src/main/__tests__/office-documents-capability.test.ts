@@ -24,6 +24,8 @@ describe('Office document capability contract', () => {
     assert.match(snapshot, /读取、校验与按次授权编辑/);
     assert.match(snapshot, /安装 officecli 后重启 Maka 或刷新能力快照/);
     assert.match(snapshot, /officecli --version/);
+    assert.match(snapshot, /等待刷新 OfficeCLI 状态/);
+    assert.doesNotMatch(snapshot, /尚未探测 officecli/, 'Office capability no-probe copy should read as a refreshable state, not unfinished implementation');
     const officeCapabilityBlock = snapshot.match(/function officeDocumentsCapability[\s\S]*?function officeCliProbeReason/)?.[0] ?? '';
     assert.doesNotMatch(officeCapabilityBlock, /读取与校验。|只读|生成/, 'Office capability copy must not lag behind the permission-gated edit tool');
     assert.match(main, /probeOfficeCli\(\{ now: permissions\.checkedAt \}\)/);
