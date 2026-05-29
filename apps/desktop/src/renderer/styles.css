@@ -5352,24 +5352,53 @@ button:active {
   letter-spacing: 0.04em;
 }
 
+/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted monogram
+   badge. `--bot-brand-color` is the per-platform brand color set
+   inline by BotBrandLogo. Background uses ~14% tint so the brand
+   reads clearly without overpowering the row. */
 .settingsBotLogo {
+  position: relative;
   width: 28px;
   height: 28px;
   display: grid;
   place-items: center;
   border-radius: 9px;
-  background: oklch(from var(--accent) l c h / 0.08);
-  color: var(--accent);
-  font-size: 10px;
+  background: color-mix(in srgb, var(--bot-brand-color, var(--accent)) 14%, var(--background));
+  color: var(--bot-brand-color, var(--accent));
+  font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0;
+  flex-shrink: 0;
 }
 
 .settingsBotLogo[data-large="true"] {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 14px;
-  font-size: 12px;
+  font-size: 20px;
 }
+
+.settingsBotLogoStatusDot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--foreground-30);
+  box-shadow: 0 0 0 2px var(--background);
+}
+.settingsBotLogo[data-large="true"] .settingsBotLogoStatusDot {
+  width: 11px;
+  height: 11px;
+  right: -3px;
+  bottom: -3px;
+  box-shadow: 0 0 0 2.5px var(--background);
+}
+.settingsBotLogoStatusDot[data-tone="info"] { background: var(--accent); }
+.settingsBotLogoStatusDot[data-tone="success"] { background: var(--success); }
+.settingsBotLogoStatusDot[data-tone="warning"] { background: var(--info); }
+.settingsBotLogoStatusDot[data-tone="destructive"] { background: var(--destructive); }
 
 .settingsBotDetail {
   display: grid;
@@ -5377,27 +5406,93 @@ button:active {
   gap: 14px;
 }
 
+/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
+   card. Background uses the brand color at ~7% so the platform
+   identity is visible without overpowering the form. Telegram-style
+   light blue, WeChat green, Discord purple, etc. */
 .settingsBotHero {
-  min-height: 74px;
+  min-height: 76px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
-  gap: 12px;
+  gap: 14px;
   border-radius: 16px;
+  background: color-mix(in srgb, var(--bot-brand-color, var(--accent)) 7%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--bot-brand-color, var(--accent)) 14%, transparent);
+  padding: 16px 18px;
+}
+
+.settingsBotHero[data-support="planned"] {
   background: var(--foreground-5);
-  padding: 14px;
+  border-color: var(--border);
+}
+
+/* Re-export the brand color on the hero card so child logo + accents
+   pick up the right CSS var without needing a second prop pass. */
+.settingsBotHero[data-provider="telegram"] { --bot-brand-color: #229ED9; }
+.settingsBotHero[data-provider="feishu"]   { --bot-brand-color: #00C6B7; }
+.settingsBotHero[data-provider="wecom"]    { --bot-brand-color: #0089FF; }
+.settingsBotHero[data-provider="wechat"]   { --bot-brand-color: #07C160; }
+.settingsBotHero[data-provider="discord"]  { --bot-brand-color: #5865F2; }
+.settingsBotHero[data-provider="dingtalk"] { --bot-brand-color: #1372FB; }
+.settingsBotHero[data-provider="qq"]       { --bot-brand-color: #EB1923; }
+
+.settingsBotHeroBody {
+  min-width: 0;
 }
 
 .settingsBotHero h3 {
-  margin: 2px 0 2px;
-  font-size: 15px;
+  margin: 0 0 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .settingsBotHero small,
 .settingsHelpText {
-  color: var(--foreground-50);
-  font-size: 12px;
+  color: var(--foreground-55);
+  font-size: 12.5px;
+  line-height: 1.5;
 }
+
+.settingsBotConfigDocLink {
+  color: var(--bot-brand-color, var(--accent));
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.settingsBotConfigDocLink:hover {
+  text-decoration: underline;
+}
+
+.settingsBotStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--foreground-70);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.settingsBotStatusPillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--foreground-40);
+}
+.settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--accent); }
+.settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
+.settingsBotStatusPill[data-tone="success"] .settingsBotStatusPillDot { background: var(--success); }
+.settingsBotStatusPill[data-tone="warning"] { color: var(--info-text); }
+.settingsBotStatusPill[data-tone="warning"] .settingsBotStatusPillDot { background: var(--info); }
+.settingsBotStatusPill[data-tone="destructive"] { color: var(--destructive-text); }
+.settingsBotStatusPill[data-tone="destructive"] .settingsBotStatusPillDot { background: var(--destructive); }
 
 .settingsHelpText {
   margin: 0;

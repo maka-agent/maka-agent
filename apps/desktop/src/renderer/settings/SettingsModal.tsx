@@ -156,6 +156,24 @@ function groupedNav(): Array<{ group: SettingsNavGroup; items: SettingsNavItem[]
 const navGroupSummary = deriveNavGroupSummary;
 export type { NavGroupSummary };
 
+/**
+ * PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): per-platform brand
+ * presentation. The glyph is a single-character monogram tinted with
+ * the brand color so the platform is recognizable at a glance without
+ * embedding upstream platform logo SVGs (license/asset hygiene).
+ * `configDocUrl` is the official developer doc surfaced inline as a
+ * "查看配置文档 →" link.
+ */
+const BOT_BRAND: Record<BotProvider, { color: string; glyph: string; configDocUrl?: string }> = {
+  telegram: { color: '#229ED9', glyph: 'T', configDocUrl: 'https://core.telegram.org/bots/tutorial' },
+  feishu:   { color: '#00C6B7', glyph: '飞', configDocUrl: 'https://open.feishu.cn/document/server-docs/bot-v3' },
+  wecom:    { color: '#0089FF', glyph: '企', configDocUrl: 'https://developer.work.weixin.qq.com/document/' },
+  wechat:   { color: '#07C160', glyph: '微', configDocUrl: 'https://developers.weixin.qq.com/doc/offiaccount/Getting_Started/Overview.html' },
+  discord:  { color: '#5865F2', glyph: 'D', configDocUrl: 'https://discord.com/developers/docs/intro' },
+  dingtalk: { color: '#1372FB', glyph: '钉', configDocUrl: 'https://open.dingtalk.com/document/' },
+  qq:       { color: '#EB1923', glyph: 'Q', configDocUrl: 'https://bot.q.qq.com/wiki/' },
+};
+
 const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'runtime' | 'credentials' | 'planned' }> = {
   telegram: {
     label: 'Telegram',
@@ -212,6 +230,49 @@ const BOT_PLANNED_COPY = {
 function botReadinessCopyForSupport(support: 'runtime' | 'credentials' | 'planned', readiness: BotReadinessState) {
   if (support === 'planned') return BOT_PLANNED_COPY;
   return BOT_READINESS_COPY[readiness] ?? BOT_READINESS_COPY.scaffolded;
+}
+
+/**
+ * PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand monogram badge
+ * with a small status dot at bottom-right. Compact in the platform
+ * list, larger inside the hero card via `size="large"`.
+ */
+function BotBrandLogo(props: {
+  provider: BotProvider;
+  readiness: BotReadinessState;
+  support: 'runtime' | 'credentials' | 'planned';
+  size?: 'compact' | 'large';
+}) {
+  const brand = BOT_BRAND[props.provider];
+  const isLarge = props.size === 'large';
+  const copy = botReadinessCopyForSupport(props.support, props.readiness);
+  return (
+    <span
+      className="settingsBotLogo"
+      data-large={isLarge ? 'true' : undefined}
+      data-provider={props.provider}
+      style={{ ['--bot-brand-color' as string]: brand.color }}
+    >
+      {brand.glyph}
+      {props.support !== 'planned' && (
+        <span className="settingsBotLogoStatusDot" data-tone={copy.tone} aria-hidden="true" />
+      )}
+    </span>
+  );
+}
+
+/**
+ * PR-BOT-SETTINGS-UI-0: status pill rendered inline next to the
+ * platform name in the hero card. Colored leading dot + label,
+ * matching the reference design's "● 已连接 / ● 未连接" affordance.
+ */
+function BotStatusPill(props: { tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive'; label: string }) {
+  return (
+    <span className="settingsBotStatusPill" data-tone={props.tone}>
+      <span className="settingsBotStatusPillDot" aria-hidden="true" />
+      {props.label}
+    </span>
+  );
 }
 
 export function SettingsModal(props: {
@@ -3119,6 +3180,41 @@ function BotChatSettingsPage(props: {
     }
   }
 
+  /**
+   * PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): combined "测试并连接"
+   * action mirrors the reference design's primary CTA. Runs credential
+   * test, then on success flips the enable toggle on and starts the
+   * listener. On test failure stops at the credential step — does NOT
+   * flip the toggle, so the user can fix the credentials and retry.
+   */
+  async function testAndConnect() {
+    setTesting(true);
+    let testOk = false;
+    try {
+      const result = await window.maka.settings.testBotChannel(selected);
+      const platform = BOT_LABELS[selected].label;
+      testOk = result.ok;
+      if (result.ok) {
+        toast.success(`${platform} 凭据已验证`, result.message);
+      } else {
+        toast.error(`${platform} 凭据测试失败`, result.message);
+      }
+      await props.onReload();
+      const nextStatuses = await window.maka.settings.bots.listStatuses();
+      setStatuses(nextStatuses);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`${BOT_LABELS[selected].label} 测试出错`, message);
+    } finally {
+      setTesting(false);
+    }
+    if (!testOk || support !== 'runtime') return;
+    if (!channel.enabled) {
+      await updateChannel({ enabled: true });
+    }
+    await restartChannel();
+  }
+
   async function restartChannel() {
     setRestarting(true);
     try {
@@ -3164,6 +3260,13 @@ function BotChatSettingsPage(props: {
               ? providerChannel.readiness
               : status?.readiness ?? providerChannel.readiness,
           );
+          // PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): the platform
+          // brand logo carries a small bottom-right status badge so the
+          // user can scan the list and see which channels are live.
+          // Badge tone tracks the same readiness tone the row label uses.
+          const providerReadiness = providerSupport === 'credentials'
+            ? providerChannel.readiness
+            : status?.readiness ?? providerChannel.readiness;
           return (
             <button
               key={provider}
@@ -3174,7 +3277,7 @@ function BotChatSettingsPage(props: {
                 setSelected(provider);
               }}
             >
-              <span className="settingsBotLogo">{BOT_LABELS[provider].label.slice(0, 2)}</span>
+              <BotBrandLogo provider={provider} readiness={providerReadiness} support={providerSupport} />
               <span>{BOT_LABELS[provider].label}</span>
               <em data-tone={providerCopy.tone}>{providerCopy.label}</em>
             </button>
@@ -3183,20 +3286,38 @@ function BotChatSettingsPage(props: {
       </nav>
 
       <section className="settingsBotDetail">
-        <div className="settingsBotHero">
-          <span className="settingsBotLogo" data-large="true">{BOT_LABELS[selected].label.slice(0, 2)}</span>
-          <div>
-            <h3>{BOT_LABELS[selected].label}</h3>
+        {/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
+            card mirrors the reference design — brand logo + name + status
+            pill + one-line help with inline config doc link, enable toggle
+            at right. The card background uses the brand color at ~6%
+            alpha so the platform identity is visible without overpowering
+            the form below. */}
+        <div className="settingsBotHero" data-provider={selected} data-support={support}>
+          <BotBrandLogo provider={selected} readiness={readiness} support={support} size="large" />
+          <div className="settingsBotHeroBody">
+            <h3>
+              {BOT_LABELS[selected].label}
+              <BotStatusPill tone={copy.tone} label={copy.label} />
+            </h3>
             <small>
-              {copy.label}
-              {' · '}
-              {copy.detail}
+              {BOT_LABELS[selected].help}
+              {BOT_BRAND[selected].configDocUrl && (
+                <>
+                  {' '}
+                  <a
+                    className="settingsBotConfigDocLink"
+                    href={BOT_BRAND[selected].configDocUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    查看配置文档 →
+                  </a>
+                </>
+              )}
             </small>
           </div>
           <Switch checked={channel.enabled} onChange={(enabled) => updateChannel({ enabled })} disabled={support === 'planned'} />
         </div>
-
-        <p className="settingsHelpText">{BOT_LABELS[selected].help}</p>
 
         {selected === 'telegram' && (
           <>
@@ -3395,13 +3516,36 @@ function BotChatSettingsPage(props: {
           </div>
         )}
 
+        {/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): mirror the
+            reference design's combined action surface.
+            - Unconnected + runtime support → "测试并连接" runs
+              testChannel → if ok, flips enabled on → restartChannel.
+            - Already connected → keep the test/restart split so the
+              user can re-verify or restart the listener without
+              flipping the toggle.
+            - Credentials-only platforms only show "测试凭据" since
+              there's no listener to restart. */}
         <div className="settingsActionRow">
-          <button className="maka-button" type="button" disabled={testing || support === 'planned'} onClick={testChannel}>
-            {testing ? '测试中…' : '测试凭据'}
-          </button>
-          <button className="maka-button subtle" type="button" disabled={restarting || !channel.enabled || support !== 'runtime'} onClick={restartChannel}>
-            {restarting ? '重启中…' : '重启监听'}
-          </button>
+          {support === 'runtime' && !selectedStatus?.running ? (
+            <button
+              className="maka-button"
+              data-variant="primary"
+              type="button"
+              disabled={testing || restarting}
+              onClick={testAndConnect}
+            >
+              {testing ? '测试中…' : restarting ? '启动中…' : '测试并连接'}
+            </button>
+          ) : (
+            <button className="maka-button" type="button" disabled={testing || support === 'planned'} onClick={testChannel}>
+              {testing ? '测试中…' : support === 'runtime' ? '测试连接' : '测试凭据'}
+            </button>
+          )}
+          {support === 'runtime' && selectedStatus?.running && (
+            <button className="maka-button subtle" type="button" disabled={restarting} onClick={restartChannel}>
+              {restarting ? '重启中…' : '重启监听'}
+            </button>
+          )}
         </div>
       </section>
     </div>
