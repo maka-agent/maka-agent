@@ -40,7 +40,7 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps feature status pages product-scoped instead of demo-version or future-roadmap copy', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
-    assert.doesNotMatch(settings, /V0\.1|capture smoke|之后会加/, 'feature status pages must not read like demo-stage roadmap copy');
+    assert.doesNotMatch(settings, /V0\.1|capture smoke|之后会加|后续版本开放/, 'feature status pages must not read like demo-stage roadmap copy');
     assert.match(settings, /本地汇总/, 'Daily Review status badge should describe the shipped local aggregate mode');
     assert.match(settings, /今日 \/ 本周 \/ 本月/, 'Daily Review settings copy must mention the shipped range switcher');
     assert.match(settings, /复制 Markdown 摘要/, 'Daily Review settings copy must mention the shipped Markdown copy action');
