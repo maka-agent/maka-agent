@@ -344,12 +344,12 @@ export class OpenGatewayService {
     if (!replayAfterEventId) return;
     const events = this.recentEvents.get(sessionId);
     if (!events || events.length === 0) {
-      client.write(`: replay_miss ${replayAfterEventId}\n\n`);
+      client.write(formatReplayMissEvent('empty_buffer', replayAfterEventId));
       return;
     }
     const index = events.findIndex((event) => event.id === replayAfterEventId);
     if (index < 0) {
-      client.write(`: replay_miss ${replayAfterEventId}\n\n`);
+      client.write(formatReplayMissEvent('cursor_not_found', replayAfterEventId));
       return;
     }
     for (const event of events.slice(index + 1)) {
@@ -416,6 +416,20 @@ function formatSseEvent(input: { id: string; event: string; data: unknown }): st
   ].join('\n');
 }
 
+function formatReplayMissEvent(reason: 'empty_buffer' | 'cursor_not_found', requestedEventId: string): string {
+  return [
+    'event: gateway_replay_miss',
+    `data: ${JSON.stringify({
+      type: 'gateway_replay_miss',
+      reason,
+      requestedEventId: capReplayCursor(redactSecrets(requestedEventId)),
+      replayLimit: OPEN_GATEWAY_EVENT_REPLAY_LIMIT,
+    })}`,
+    '',
+    '',
+  ].join('\n');
+}
+
 function buildGatewayIncidents(events: readonly SessionEvent[]): GatewayIncidentSummary[] {
   const incidents: GatewayIncidentSummary[] = [];
   for (const event of events) {
@@ -463,6 +477,10 @@ function normalizeReplayCursor(value: unknown): string | undefined {
   if (trimmed.length === 0 || trimmed.length > 256) return undefined;
   if (/[\r\n]/.test(trimmed)) return undefined;
   return trimmed;
+}
+
+function capReplayCursor(value: string): string {
+  return value.length <= 256 ? value : `${value.slice(0, 255)}…`;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<JsonBodyResult> {

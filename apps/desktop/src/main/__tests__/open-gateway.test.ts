@@ -185,6 +185,37 @@ describe('OpenGatewayService', () => {
     assert.match(chunk, /replay me/);
   });
 
+  test('surfaces replay cursor misses as structured SSE events', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s1', textDeltaEvent({ id: 'event-2', turnId: 'turn-1', text: 'newer event' }));
+
+    const controller = new AbortController();
+    const response = await fetch(`${status.baseUrl}/v1/sessions/s1/events`, {
+      headers: {
+        Authorization: 'Bearer dev-token',
+        'Last-Event-ID': 'event-missing',
+      },
+      signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+
+    const reader = response.body!.getReader();
+    const chunk = await readUntil(reader, 'gateway_replay_miss');
+    controller.abort();
+
+    assert.match(chunk, /event: gateway_replay_miss/);
+    assert.match(chunk, /"type":"gateway_replay_miss"/);
+    assert.match(chunk, /"reason":"cursor_not_found"/);
+    assert.match(chunk, /"requestedEventId":"event-missing"/);
+    assert.match(chunk, /"replayLimit":100/);
+    assert.doesNotMatch(chunk, /id:/, 'replay-miss diagnostics must not advance Last-Event-ID');
+    assert.doesNotMatch(chunk, /newer event/, 'cursor miss requires client resync instead of partial replay');
+  });
+
   test('exposes bounded redacted recent run incidents without event payload replay', async () => {
     const service = makeService();
     activeServices.push(service);
