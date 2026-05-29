@@ -101,6 +101,8 @@ describe('Plan reminder MVP contract', () => {
     assert.match(main, /isBotDeliveryProvider\(reminder\.delivery\.platform\)/, 'scheduler must reject bot platforms that are not send-capable');
     assert.match(main, /botRegistry\s*\.\s*sendMessage/, 'bot delivery must use the bot registry send boundary');
     assert.match(main, /bot_delivery_unavailable/, 'bot delivery failure must be recorded as blocked, not triggered');
+    assert.doesNotMatch(main, /通道未开放投递/, 'blocked bot delivery copy must describe current delivery eligibility, not platform implementation state');
+    assert.match(main, /当前不是可投递目标/, 'blocked bot delivery copy should match the delivery-target contract');
     assert.match(main, /plans:due/, 'scheduler must notify renderer when reminder fires');
     assert.match(main, /incognitoActive/, 'scheduler must keep an incognito gate');
     assert.match(

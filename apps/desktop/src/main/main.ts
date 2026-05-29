@@ -2298,7 +2298,7 @@ async function deliverPlanReminder(reminder: PlanReminder, now: number): Promise
     if (!isBotDeliveryProvider(reminder.delivery.platform)) {
       const blocked = await planReminderStore.markBlocked(reminder.id, {
         at: now,
-        message: `${botDisplayLabel(reminder.delivery.platform)} 通道未开放投递，计划提醒没有投递。`,
+        message: `${botDisplayLabel(reminder.delivery.platform)} 当前不是可投递目标，计划提醒没有投递。`,
         blockReason: 'bot_delivery_unavailable',
       });
       emitPlansChanged('blocked', blocked);
