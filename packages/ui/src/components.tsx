@@ -1242,15 +1242,20 @@ function PlanReminderPanel(props: {
           )}
         </div>
         {deliveryChannel === 'bot' && (
-          <label className="maka-plan-field">
-            <span>Chat ID</span>
-            <input
-              value={deliveryChatId}
-              onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
-              maxLength={160}
-              placeholder="例如 Telegram chat_id"
-            />
-          </label>
+          <>
+            <p className="maka-plan-delivery-help">
+              当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台会在具备发送 bridge 后进入这里。
+            </p>
+            <label className="maka-plan-field">
+              <span>Chat ID</span>
+              <input
+                value={deliveryChatId}
+                onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
+                maxLength={160}
+                placeholder="例如 Telegram chat_id"
+              />
+            </label>
+          </>
         )}
         <label className="maka-plan-field">
           <span>备注</span>
@@ -1490,6 +1495,10 @@ function planReminderFormValidationMessage(input: {
     return '选择机器人聊天时需要填写 Chat ID。';
   }
   return null;
+}
+
+function formatPlanDeliveryProviderList(): string {
+  return BOT_DELIVERY_PROVIDERS.map((provider) => botDisplayLabel(provider)).join(' / ');
 }
 
 function comparePlanReminderForDisplay(a: PlanReminder, b: PlanReminder): number {

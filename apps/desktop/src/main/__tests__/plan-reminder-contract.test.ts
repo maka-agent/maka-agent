@@ -49,6 +49,8 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /机器人聊天/, '计划 UI must expose bot delivery instead of hiding platform delivery behind code only');
     assert.match(ui, /BOT_DELIVERY_PROVIDERS\.map/, 'bot delivery platform picker must list only send-capable bot providers');
     assert.doesNotMatch(ui, /BOT_PROVIDERS\.map\(\(provider\)[\s\S]*botDisplayLabel\(provider\)/, 'bot delivery platform picker must not expose every scaffolded bot provider');
+    assert.match(ui, /formatPlanDeliveryProviderList/, 'bot delivery help must derive visible support copy from the send-capable provider allowlist');
+    assert.match(ui, /其它机器人平台会在具备发送 bridge 后进入这里/, 'bot delivery help must explain why scaffolded platforms are absent');
     assert.match(ui, /Chat ID/, 'bot delivery must require an explicit target chat id');
     assert.match(ui, /立即触发/, '计划 UI must expose a manual trigger path for smoke-testing delivery');
     assert.match(ui, /延后 10 分钟/, '计划 UI must expose a bounded snooze path');
