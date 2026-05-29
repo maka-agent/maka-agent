@@ -5381,13 +5381,22 @@ button:active {
 }
 .settingsPasswordField input {
   width: 100%;
-  padding-right: 36px;
+  padding-right: 70px;
 }
-.settingsPasswordToggle {
+/* PR-BOT-SETTINGS-PASSWORD-COPY-0: cluster the copy + eye buttons at
+   the trailing edge of the input. padding-right above leaves room for
+   up to two buttons; the copy button is conditional on non-empty
+   value so the slot collapses when nothing to copy. */
+.settingsPasswordActions {
   position: absolute;
   right: 6px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.settingsPasswordToggle {
   display: grid;
   place-items: center;
   width: 26px;
