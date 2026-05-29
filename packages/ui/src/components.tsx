@@ -303,9 +303,8 @@ export function SessionListPanel(props: {
    * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + `94c7bf0f`):
    * Sidebar `搜索` nav row click handler. Opens a dedicated Search
    * modal hosted by the application shell; does NOT change
-   * `selection`. The modal in Phase 2 is a shell-only placeholder
-   * (no input, no IPC, no `useThreadSearch`); Phase 4 attaches the
-   * real backend behind the same callback.
+   * `selection`. The shell owns the real search backend and modal
+   * lifecycle behind this callback.
    */
   onOpenSearchModal?(): void;
   onCreatePlanReminder?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }): void;
@@ -318,8 +317,9 @@ export function SessionListPanel(props: {
   /**
    * PR-DAILY-REVIEW-MVP-0: bridge for the `每日回顾` panel. When
    * provided, the daily-review section renders the real panel instead
-   * of the stub view. When `undefined` (e.g. in visual-smoke fixtures
-   * without an IPC layer), it falls back to the legacy stub.
+   * of the fallback view. When `undefined` (e.g. in visual-smoke
+   * fixtures without an IPC layer), it falls back to an explicit
+   * bridge-missing state.
    */
   dailyReviewBridge?: DailyReviewBridge;
   rowActions?: SessionRowActions;
@@ -2609,13 +2609,14 @@ export function ChatView(props: {
     );
   }
 
-  // Daily Review is still a stub module; keep chat content out of
-  // the way when selected. Search is a modal trigger and never becomes
-  // the active section, so it does not appear here.
+  // Daily Review is rendered in the sidebar module when the desktop
+  // shell injects `dailyReviewBridge`. This detail pane is only a
+  // bridge-missing fallback for older hosts / fixture-only callers.
+  // Search is a modal trigger and never becomes the active section.
   if (props.mode === 'daily-review') {
     return (
       <main className="maka-main detailPane">
-        <div className="maka-center-state">从 “会话” 选择一个对话继续，或在该模块中查看占位内容。</div>
+        <div className="maka-center-state">每日回顾数据桥未连接；请从桌面版侧栏入口打开每日回顾。</div>
       </main>
     );
   }

@@ -34,5 +34,7 @@ describe('sidebar version info contract', () => {
     const dailyReviewStub = ui.match(/'daily-review':\s*\{[\s\S]*?\n\s*\},/)?.[0] ?? '';
     assert.match(dailyReviewStub, /每日回顾未连接/);
     assert.doesNotMatch(dailyReviewStub, /即将推出|入口占位|未接真实数据/);
+    assert.match(ui, /每日回顾数据桥未连接/, 'Daily Review detail fallback must explain the missing bridge');
+    assert.doesNotMatch(ui, /占位内容/, 'Daily Review fallback must not describe itself as placeholder content');
   });
 });
