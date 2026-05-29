@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   DEEP_RESEARCH_SESSION_LABEL,
+  DEEP_RESEARCH_WORKFLOW_STEPS,
   buildDeepResearchSystemPromptFragment,
   isDeepResearchSession,
   normalizeQuickChatMode,
@@ -37,5 +38,18 @@ describe('deep research session profile', () => {
     assert.match(prompt, /Read, Glob, Grep/);
     assert.match(prompt, /Do not write/);
     assert.match(prompt, /borrow \/ diverge \/ risk \/ gate/);
+    for (const step of DEEP_RESEARCH_WORKFLOW_STEPS) {
+      assert.match(prompt, new RegExp(step.title));
+      assert.match(prompt, new RegExp(step.body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
+  });
+
+  it('keeps the visible workflow compact and implementation-oriented', () => {
+    assert.equal(DEEP_RESEARCH_WORKFLOW_STEPS.length, 4);
+    assert.deepEqual(
+      DEEP_RESEARCH_WORKFLOW_STEPS.map((step) => step.title),
+      ['先定位入口', '再追数据流', '然后对照参考', '最后给可合入方案'],
+    );
+    assert.match(DEEP_RESEARCH_WORKFLOW_STEPS.at(-1)?.body ?? '', /不在只读模式里动手改/);
   });
 });

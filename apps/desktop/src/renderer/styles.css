@@ -1058,6 +1058,38 @@ button:active {
   -webkit-box-orient: vertical;
 }
 
+.maka-deep-research-workflow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maka-deep-research-workflow li {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: oklch(from var(--accent) l c h / 0.035);
+  padding: 10px;
+}
+
+.maka-deep-research-workflow-title {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.maka-deep-research-workflow-body {
+  display: block;
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* Onboarding hero — first-run, no real connection configured. */
 .maka-onboarding {
   width: min(760px, 100%);

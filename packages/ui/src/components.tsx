@@ -76,6 +76,7 @@ import {
   formatPlanReminderDeliveryTarget,
   formatPermissionRequestWait,
   formatRelativeTimestamp,
+  DEEP_RESEARCH_WORKFLOW_STEPS,
   isDeepResearchSession,
   normalizeSearchUrl,
   nextRelativeRefreshDelay,
@@ -3345,6 +3346,14 @@ function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): voi
           这个会话固定在 Explore 权限：优先阅读、搜索和分析代码；需要动手实现时，先输出文件、风险和验证命令。
         </p>
       </header>
+      <ol className="maka-deep-research-workflow" aria-label="深度研究流程">
+        {DEEP_RESEARCH_WORKFLOW_STEPS.map((step) => (
+          <li key={step.title}>
+            <span className="maka-deep-research-workflow-title">{step.title}</span>
+            <span className="maka-deep-research-workflow-body">{step.body}</span>
+          </li>
+        ))}
+      </ol>
       {props.onPromptSuggestion && (
         <ul className="maka-prompt-suggestions" aria-label="深度研究起手式">
           {DEEP_RESEARCH_PROMPT_SUGGESTIONS.map((suggestion) => (
