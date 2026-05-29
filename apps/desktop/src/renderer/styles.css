@@ -6315,7 +6315,7 @@ button:active {
   color: var(--foreground-60);
 }
 
-.settingsAuthActionPill[data-kind="roadmap"] {
+.settingsAuthActionPill[data-kind="preview"] {
   border: 1px dashed oklch(from var(--info) l c h / 0.30);
 }
 
@@ -6680,7 +6680,7 @@ button:active {
  * Interactive states MUST be scoped to enabled cards. A disabled
  * provider tile that lifts + halos on hover/focus looks actionable
  * — exactly the misrepresentation the provider-surface gate
- * forbids ("不可用 / roadmap / gated provider 不能呈现为可点击"). */
+ * forbids ("不可用 / preview / gated provider 不能呈现为可点击"). */
 .providerCatalogCard:hover:not([data-disabled="true"]) {
   border-color: oklch(from var(--accent) l c h / 0.28);
   background: oklch(from var(--accent) l c h / 0.04);

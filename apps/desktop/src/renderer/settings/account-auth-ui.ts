@@ -14,7 +14,7 @@ export interface AccountAuthStatePresentation {
   tone: AccountAuthTone;
 }
 
-export type AccountAuthActionKind = 'button' | 'guidance' | 'roadmap';
+export type AccountAuthActionKind = 'button' | 'guidance' | 'preview';
 
 export interface AccountAuthActionPresentation {
   action: ProviderAuthAction;
@@ -42,7 +42,7 @@ const AUTH_STATE_LABEL: Record<ProviderAuthState, string> = {
   validated: '凭据已验证',
   needs_reauth: '需重新授权',
   error: '测试失败',
-  preview_only: 'Roadmap',
+  preview_only: '预览',
 };
 
 export function presentAccountAuthState(
@@ -134,16 +134,16 @@ function previewAction(action: ProviderAuthAction): AccountAuthActionPresentatio
     save_secret: 'API key 管理',
     test_credentials: '凭据验证',
     fetch_models: '模型同步',
-    start_oauth: '订阅账号 Roadmap',
-    refresh_oauth: '订阅状态 Roadmap',
-    revoke_auth: '订阅管理 Roadmap',
+    start_oauth: '订阅账号预览',
+    refresh_oauth: '订阅状态预览',
+    revoke_auth: '订阅管理预览',
   };
   return {
     action,
-    kind: 'roadmap',
+    kind: 'preview',
     executable: false,
     label: labels[action],
-    detail: '预览项不可执行，不会连接 OAuth IPC 或远端登录流程。',
+    detail: '受控入口当前只展示状态，不会连接 OAuth IPC 或远端登录流程。',
     tone: 'info',
   };
 }

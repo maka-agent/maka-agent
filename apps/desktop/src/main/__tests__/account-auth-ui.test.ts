@@ -32,7 +32,7 @@ describe('Account auth UI contract mapping', () => {
       },
     },
     {
-      name: 'OAuth preview actions render as non-executable roadmap models, never buttons',
+      name: 'OAuth preview actions render as non-executable controlled previews, never buttons',
       run() {
         const actions = deriveAccountAuthActions(contract({ providerType: 'claude-subscription' }));
         assert.equal(actions.length, 3);
@@ -42,11 +42,13 @@ describe('Account auth UI contract mapping', () => {
           'revoke_auth',
         ]);
         for (const action of actions) {
-          assert.equal(action.kind, 'roadmap');
+          assert.equal(action.kind, 'preview');
           assert.equal(action.executable, false);
-          assert.match(action.label, /Roadmap/);
-          assert.match(action.detail, /不可执行/);
+          assert.match(action.label, /预览/);
+          assert.match(action.detail, /受控入口/);
           assert.match(action.detail, /不会连接 OAuth IPC/);
+          assert.doesNotMatch(action.label, /Roadmap|路线图|即将|TODO/i);
+          assert.doesNotMatch(action.detail, /Roadmap|路线图|即将|TODO/i);
         }
       },
     },
