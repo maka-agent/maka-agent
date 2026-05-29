@@ -127,7 +127,7 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
   },
   {
     label: 'visual-smoke fixture seeded visible copy leaks implementation terms',
-    needle: /Artifact Pane|artifact pane|artifact fixture|(?:生成|已生成)\s*(?:\d+\s*个|三个)\s*artifact|Claude backend|HTML artifact|Artifact Smoke Report|Pane Smoke Report/,
+    needle: /Artifact Pane|artifact pane|artifact fixture|(?:生成|已生成)\s*(?:\d+\s*个|三个)\s*artifact|Claude backend|HTML artifact|Artifact Smoke Report|Pane Smoke Report|视觉 smoke|provider capability|ModelTable|source\/fetchedAt|test gate/,
     reason:
       "visual-smoke fixture chat messages and file contents appear in screenshots/baseline workspaces; they should use product-facing Chinese copy rather than internal fixture/backend/artifact labels.",
   },
