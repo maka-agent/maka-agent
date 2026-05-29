@@ -83,6 +83,29 @@ export const DEEP_RESEARCH_EVIDENCE_CHECKLIST = [
   },
 ] as const;
 
+export const DEEP_RESEARCH_STARTER_PROMPTS = [
+  {
+    label: '研究一个参考项目',
+    prompt:
+      '请只读研究这个项目：先梳理目录结构、核心模块、启动链路、数据流和测试入口，然后列出我们可以借鉴的功能设计、需要规避的风险，以及可落地到 Maka 的改进顺序。',
+  },
+  {
+    label: '完整读一遍参考项目',
+    prompt:
+      '请按深挖范围只读研究这个参考项目：先建立目录和模块地图，再逐层读核心功能、运行时、存储、权限、UI、测试和文档；每个可借鉴点都按 borrow / diverge / risk / gate 输出，并给出 Maka 的落地改进顺序。',
+  },
+  {
+    label: '对比一个功能实现',
+    prompt:
+      '请只读对比这个功能在参考项目和 Maka 里的实现差异：指出关键文件、运行时边界、UI 入口、持久化方式、测试覆盖，以及最小可合入的改进方案。',
+  },
+  {
+    label: '做一次安全边界审计',
+    prompt:
+      '请只读审计这个功能的安全边界：权限、token/密钥流、IPC/renderer 暴露、文件路径、隐私模式、日志与 telemetry。输出 blocking 风险和对应 contract test。',
+  },
+] as const;
+
 export function isQuickChatMode(value: unknown): value is QuickChatMode {
   return typeof value === 'string' && (QUICK_CHAT_MODES as readonly string[]).includes(value);
 }

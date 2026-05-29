@@ -79,6 +79,7 @@ import {
   DEEP_RESEARCH_EVIDENCE_CHECKLIST,
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
+  DEEP_RESEARCH_STARTER_PROMPTS,
   DEEP_RESEARCH_WORKFLOW_STEPS,
   isDeepResearchSession,
   normalizeSearchUrl,
@@ -3318,24 +3319,6 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
   );
 }
 
-const DEEP_RESEARCH_PROMPT_SUGGESTIONS = [
-  {
-    label: '研究一个参考项目',
-    prompt:
-      '请只读研究这个项目：先梳理目录结构、核心模块、启动链路、数据流和测试入口，然后列出我们可以借鉴的功能设计、需要规避的风险，以及可落地到 Maka 的 PR 顺序。',
-  },
-  {
-    label: '对比一个功能实现',
-    prompt:
-      '请只读对比这个功能在参考项目和 Maka 里的实现差异：指出关键文件、运行时边界、UI 入口、持久化方式、测试覆盖，以及最小可合入的改进方案。',
-  },
-  {
-    label: '做一次安全边界审计',
-    prompt:
-      '请只读审计这个功能的安全边界：权限、token/密钥流、IPC/renderer 暴露、文件路径、隐身模式、日志与 telemetry。输出 blocking 风险和对应 contract test。',
-  },
-];
-
 function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): void }) {
   return (
     <section className="maka-hero maka-hero-empty-chat maka-hero-deep-research" aria-label="深度研究空会话">
@@ -3392,7 +3375,7 @@ function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): voi
       </section>
       {props.onPromptSuggestion && (
         <ul className="maka-prompt-suggestions" aria-label="深度研究起手式">
-          {DEEP_RESEARCH_PROMPT_SUGGESTIONS.map((suggestion) => (
+          {DEEP_RESEARCH_STARTER_PROMPTS.map((suggestion) => (
             <li key={suggestion.label}>
               <button
                 type="button"

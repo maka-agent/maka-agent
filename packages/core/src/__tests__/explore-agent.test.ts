@@ -5,6 +5,7 @@ import {
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
   DEEP_RESEARCH_SESSION_LABEL,
+  DEEP_RESEARCH_STARTER_PROMPTS,
   DEEP_RESEARCH_WORKFLOW_STEPS,
   buildDeepResearchSystemPromptFragment,
   isDeepResearchSession,
@@ -102,5 +103,19 @@ describe('deep research session profile', () => {
     assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[1]?.body ?? '', /IPC\/服务、存储、运行时/);
     assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[2]?.body ?? '', /权限、隐身模式/);
     assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[3]?.body ?? '', /测试、fixture、smoke/);
+  });
+
+  it('keeps starter prompts read-only and implementation-oriented', () => {
+    assert.deepEqual(
+      DEEP_RESEARCH_STARTER_PROMPTS.map((prompt) => prompt.label),
+      ['研究一个参考项目', '完整读一遍参考项目', '对比一个功能实现', '做一次安全边界审计'],
+    );
+    for (const starter of DEEP_RESEARCH_STARTER_PROMPTS) {
+      assert.match(starter.prompt, /只读/);
+      assert.doesNotMatch(starter.prompt, /PR/);
+    }
+    assert.match(DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '', /深挖范围/);
+    assert.match(DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '', /核心功能、运行时、存储、权限、UI、测试和文档/);
+    assert.match(DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '', /borrow \/ diverge \/ risk \/ gate/);
   });
 });

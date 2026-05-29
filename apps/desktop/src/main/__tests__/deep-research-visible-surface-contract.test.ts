@@ -38,9 +38,8 @@ describe('deep research visible surface contract', () => {
       /deepResearchActive\s*\?\s*\(\s*<DeepResearchEmptyHero/,
       'an empty deep-research session must not fall back to the generic blank chat hero',
     );
-    assert.match(ui, /研究一个参考项目/);
-    assert.match(ui, /对比一个功能实现/);
-    assert.match(ui, /安全边界审计/);
+    assert.match(ui, /DEEP_RESEARCH_STARTER_PROMPTS\.map/);
+    assert.doesNotMatch(ui, /DEEP_RESEARCH_PROMPT_SUGGESTIONS/);
     assert.match(ui, /固定在 Explore 权限/);
     assert.match(ui, /DEEP_RESEARCH_WORKFLOW_STEPS\.map/);
     assert.match(ui, /aria-label="深度研究流程"/);
@@ -53,6 +52,17 @@ describe('deep research visible surface contract', () => {
     assert.match(ui, /DEEP_RESEARCH_EVIDENCE_CHECKLIST\.map/);
     assert.match(ui, /aria-label="深度研究证据清单"/);
     assert.match(ui, /每次研究都要留证据/);
+  });
+
+  it('pins deep research starter prompts in the shared core contract', async () => {
+    const core = await readRepo('packages/core/src/explore-agent.ts');
+
+    assert.match(core, /DEEP_RESEARCH_STARTER_PROMPTS/);
+    assert.match(core, /研究一个参考项目/);
+    assert.match(core, /完整读一遍参考项目/);
+    assert.match(core, /对比一个功能实现/);
+    assert.match(core, /安全边界审计/);
+    assert.doesNotMatch(core, /PR 顺序/);
   });
 
   it('ships styling for the header mode pill', async () => {
