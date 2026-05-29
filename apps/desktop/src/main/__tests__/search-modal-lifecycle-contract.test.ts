@@ -206,4 +206,13 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /结果较多，已显示前 \{results\.length\} 条/, 'Truncated result sets must say only the first results are shown');
     assert.match(styles, /\.maka-search-modal-result-summary/, 'Search result summary needs dedicated styling');
   });
+
+  it('search result rows render source summaries from SearchResult.summary', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const styles = await readFile(STYLES_PATH, 'utf8');
+    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+
+    assert.match(searchModal, /result\.summary && <div className="maka-search-modal-result-meta">\{result\.summary\}<\/div>/, 'Search result rows must render source summary metadata');
+    assert.match(styles, /\.maka-search-modal-result-meta/, 'Search result source summary needs dedicated styling');
+  });
 });

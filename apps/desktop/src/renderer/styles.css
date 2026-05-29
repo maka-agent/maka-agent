@@ -383,6 +383,13 @@ button:active {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.maka-search-modal-result-meta {
+  font-size: 11px;
+  color: var(--foreground-45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .maka-search-modal-result-snippet {
   font-size: 12px;
   color: var(--foreground-60);
