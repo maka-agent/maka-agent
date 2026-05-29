@@ -11,6 +11,25 @@ export type QuickChatMode = typeof QUICK_CHAT_MODES[number];
 
 export const DEEP_RESEARCH_SESSION_LABEL = 'mode:deep_research';
 
+export const DEEP_RESEARCH_WORKFLOW_STEPS = [
+  {
+    title: '先定位入口',
+    body: '读目录、配置、启动链路和测试入口，建立项目地图。',
+  },
+  {
+    title: '再追数据流',
+    body: '沿关键模块、IPC、存储、权限和运行时边界追到真实实现。',
+  },
+  {
+    title: '然后对照参考',
+    body: '把可借鉴点拆成 borrow / diverge / risk / gate。',
+  },
+  {
+    title: '最后给可合入方案',
+    body: '输出文件清单、风险边界和验证命令，不在只读模式里动手改。',
+  },
+] as const;
+
 export function isQuickChatMode(value: unknown): value is QuickChatMode {
   return typeof value === 'string' && (QUICK_CHAT_MODES as readonly string[]).includes(value);
 }
@@ -33,5 +52,8 @@ export function buildDeepResearchSystemPromptFragment(): string {
     '- If implementation is needed, produce a concrete plan with files, risks, and verification commands instead of modifying files.',
     '- Keep findings source-grounded: name files, functions, configs, tests, and observed behavior.',
     '- Summarize borrow / diverge / risk / gate when comparing a reference project to Maka.',
+    '',
+    'Research workflow:',
+    ...DEEP_RESEARCH_WORKFLOW_STEPS.map((step) => `- ${step.title}: ${step.body}`),
   ].join('\n');
 }

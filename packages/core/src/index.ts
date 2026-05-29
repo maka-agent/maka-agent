@@ -706,6 +706,7 @@ export {
 export type { QuickChatMode } from './explore-agent.js';
 export {
   DEEP_RESEARCH_SESSION_LABEL,
+  DEEP_RESEARCH_WORKFLOW_STEPS,
   QUICK_CHAT_MODES,
   buildDeepResearchSystemPromptFragment,
   isDeepResearchSession,
