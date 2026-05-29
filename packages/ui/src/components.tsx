@@ -1241,7 +1241,7 @@ function PlanReminderPanel(props: {
         {deliveryChannel === 'bot' && (
           <>
             <p className="maka-plan-delivery-help">
-              当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台会在具备发送 bridge 后进入这里。
+              当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台不会出现在投递目标里。
             </p>
             <label className="maka-plan-field">
               <span>Chat ID</span>
