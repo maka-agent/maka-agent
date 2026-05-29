@@ -218,7 +218,21 @@ export class OpenGatewayService {
             includesPayloads: false,
           },
         },
+        incidents: {
+          endpoint: '/v1/incidents',
+          perSessionEndpoint: '/v1/sessions/{sessionId}/incidents',
+          limit: OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT,
+          includesPayloads: false,
+        },
       });
+      return;
+    }
+    if (url.pathname === '/v1/incidents') {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(res, 200, { ok: true, incidents: buildGatewayIncidentIndex(this.recentEvents) });
       return;
     }
     if (url.pathname === '/v1/sessions/state') {
@@ -466,6 +480,7 @@ const OPEN_GATEWAY_EVENT_REPLAY_LIMIT = 100;
 const OPEN_GATEWAY_REPLAY_CURSOR_LIMIT = 256;
 const OPEN_GATEWAY_REPLAY_MISS_EVENT = 'gateway_replay_miss';
 const OPEN_GATEWAY_INCIDENT_LIMIT = 20;
+const OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT = 50;
 const OPEN_GATEWAY_INCIDENT_TEXT_LIMIT = 500;
 
 interface GatewayEventClient {
@@ -495,8 +510,11 @@ type GatewayIncidentSummary =
       reason: 'user_stop' | 'redirect' | 'timeout' | 'crash';
     };
 
+type GatewayIncidentIndexItem = GatewayIncidentSummary & { sessionId: string };
+
 function buildGatewayCapabilities(sendAvailable: boolean): string[] {
   return [
+    'incidents.list',
     'sessions.list',
     'sessions.state',
     'sessions.messages.read',
@@ -727,6 +745,20 @@ function buildGatewayIncidents(events: readonly SessionEvent[]): GatewayIncident
     }
   }
   return incidents.slice(-OPEN_GATEWAY_INCIDENT_LIMIT);
+}
+
+function buildGatewayIncidentIndex(recentEvents: ReadonlyMap<string, readonly SessionEvent[]>): GatewayIncidentIndexItem[] {
+  const incidents: GatewayIncidentIndexItem[] = [];
+  for (const [sessionId, events] of recentEvents) {
+    for (const incident of buildGatewayIncidents(events)) {
+      incidents.push({
+        ...incident,
+        sessionId: capReplayCursor(redactSecrets(sessionId)),
+      });
+    }
+  }
+  incidents.sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
+  return incidents.slice(-OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT);
 }
 
 function capIncidentText(value: string): string {

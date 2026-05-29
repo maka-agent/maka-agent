@@ -45,6 +45,7 @@ describe('OpenGatewayService', () => {
     const authorized = await fetchJson(`${status.baseUrl}/v1/capabilities`, 'dev-token');
     assert.equal(authorized.status, 200);
     assert.deepEqual(authorized.body.capabilities, [
+      'incidents.list',
       'sessions.list',
       'sessions.state',
       'sessions.messages.read',
@@ -92,6 +93,12 @@ describe('OpenGatewayService', () => {
         endpoint: '/v1/sessions/{sessionId}/events/state',
         includesPayloads: false,
       },
+    });
+    assert.deepEqual(authorized.body.incidents, {
+      endpoint: '/v1/incidents',
+      perSessionEndpoint: '/v1/sessions/{sessionId}/incidents',
+      limit: 50,
+      includesPayloads: false,
     });
   });
 
@@ -436,6 +443,30 @@ describe('OpenGatewayService', () => {
     assert.equal(response.body.incidents[1].reason, 'timeout');
 
     const unauthorized = await fetchJson(`${status.baseUrl}/v1/sessions/s1/incidents`);
+    assert.equal(unauthorized.status, 401);
+  });
+
+  test('exposes an aggregate recent incident index across sessions', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s1', errorEvent({
+      id: 'event-error-s1',
+      turnId: 'turn-s1',
+      message: 's1 failed with api_key=sk-live-secret-token-value',
+    }));
+    service.publishSessionEvent('s2', abortEvent({ id: 'event-abort-s2', turnId: 'turn-s2', reason: 'user_stop' }));
+
+    const response = await fetchJson(`${status.baseUrl}/v1/incidents`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.incidents.map((item: any) => item.sessionId), ['s1', 's2']);
+    assert.deepEqual(response.body.incidents.map((item: any) => item.eventId), ['event-error-s1', 'event-abort-s2']);
+    assert.match(response.body.incidents[0].message, /\[redacted\]/);
+    assert.doesNotMatch(JSON.stringify(response.body), /sk-live-secret-token-value/);
+
+    const unauthorized = await fetchJson(`${status.baseUrl}/v1/incidents`);
     assert.equal(unauthorized.status, 401);
   });
 
