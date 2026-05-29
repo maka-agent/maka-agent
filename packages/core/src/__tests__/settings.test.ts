@@ -204,11 +204,11 @@ describe('bot readiness settings contract', () => {
 });
 
 describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () => {
-  test('THEME_PALETTES allowlist exposes 7 palettes including default + product borrows', () => {
-    // Pin the palette set: 5 editor-style + 2 product accent palettes
-    // (warm coral, cool azure). Update this pin when the palette set
-    // legitimately changes.
-    expect(THEME_PALETTES.length).toBe(7);
+  test('THEME_PALETTES allowlist exposes 11 palettes including default + product accents', () => {
+    // Pin the palette set: 5 editor-style + 6 product accent palettes
+    // (coral, azure, forest, dusk, sand, mono). Update this pin when
+    // the palette set legitimately changes.
+    expect(THEME_PALETTES.length).toBe(11);
     expect(THEME_PALETTES.includes('default')).toBe(true);
     expect(THEME_PALETTES.includes('onedark')).toBe(true);
     expect(THEME_PALETTES.includes('catppuccin-mocha')).toBe(true);
@@ -216,6 +216,10 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
     expect(THEME_PALETTES.includes('nord')).toBe(true);
     expect(THEME_PALETTES.includes('coral')).toBe(true);
     expect(THEME_PALETTES.includes('azure')).toBe(true);
+    expect(THEME_PALETTES.includes('forest')).toBe(true);
+    expect(THEME_PALETTES.includes('dusk')).toBe(true);
+    expect(THEME_PALETTES.includes('sand')).toBe(true);
+    expect(THEME_PALETTES.includes('mono')).toBe(true);
   });
 
   test('isThemePalette accepts allowlist values, rejects everything else', () => {

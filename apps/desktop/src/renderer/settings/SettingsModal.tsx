@@ -1840,6 +1840,10 @@ const PALETTE_LABEL: Record<ThemePalette, string> = {
   'nord': 'Nord',
   'coral': '珊瑚',
   'azure': '湖蓝',
+  'forest': '森林',
+  'dusk': '暮光',
+  'sand': '沙金',
+  'mono': '极简灰',
 };
 
 const PALETTE_HELP: Record<ThemePalette, string> = {
@@ -1850,6 +1854,10 @@ const PALETTE_HELP: Record<ThemePalette, string> = {
   'nord': '北欧冷色',
   'coral': '暖粉 / 珊瑚 accent',
   'azure': '湖蓝 accent，干净冷静',
+  'forest': '深苔绿 + 暖蜂蜜 accent，自然感',
+  'dusk': '深紫罗兰 + 冷调画布，黄昏感',
+  'sand': '琥珀沙金 + 暖奶白，复古暖调',
+  'mono': '纯灰阶，无彩色干扰',
 };
 
 function ThemeSettingsPage(props: {

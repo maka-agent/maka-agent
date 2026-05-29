@@ -145,10 +145,15 @@ export const THEME_PALETTES = [
   'catppuccin-mocha',
   'tokyo-night',
   'nord',
-  // Product accent palettes — warm coral and cool azure — so users have
-  // brand-coherent options beyond the editor-style themes above.
+  // Product accent palettes named by color family. `coral` warm pink,
+  // `azure` cool blue; `forest` deep moss, `dusk` violet twilight,
+  // `sand` warm amber on cream, `mono` distraction-free grayscale.
   'coral',
   'azure',
+  'forest',
+  'dusk',
+  'sand',
+  'mono',
 ] as const;
 
 export type ThemePalette = typeof THEME_PALETTES[number];
