@@ -602,11 +602,14 @@ export type {
   BotPlatform,
 } from './bot-events.js';
 export {
+  BOT_PLAINTEXT_HELP_COMMANDS,
   BOT_PLAINTEXT_RESET_COMMANDS,
   botConversationKey,
   botDisplayLabel,
   formatBotMessageForSession,
+  isPlaintextHelpCommand,
   isPlaintextResetCommand,
+  plaintextHelpReply,
 } from './bot-events.js';
 
 // redaction.ts

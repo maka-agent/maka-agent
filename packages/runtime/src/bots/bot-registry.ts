@@ -47,6 +47,18 @@ export class BotRegistry extends EventEmitter {
     return bridge.sendMessage(chatId, text, options);
   }
 
+  /**
+   * PR-BOT-TYPING-INDICATOR-0: best-effort typing affordance. Returns
+   * `false` when no bridge is registered for the platform or when the
+   * bridge does not implement `sendTypingIndicator`. Never throws —
+   * typing is decorative.
+   */
+  async sendTypingIndicator(platform: BotPlatform, chatId: string): Promise<boolean> {
+    const bridge = this.bridges.get(platform) as (BotBridge & Partial<SendCapable>) | undefined;
+    if (!bridge || typeof bridge.sendTypingIndicator !== 'function') return false;
+    return bridge.sendTypingIndicator(chatId);
+  }
+
   async stopAll(): Promise<void> {
     const next = this.applyQueue.then(
       () => this.stopAllNow(),

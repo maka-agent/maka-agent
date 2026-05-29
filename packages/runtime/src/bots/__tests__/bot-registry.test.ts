@@ -145,6 +145,37 @@ describe('BotRegistry', () => {
     assert.equal(status.reason, 'unimplemented');
   });
 
+  // PR-BOT-TYPING-INDICATOR-0 — `sendTypingIndicator` is best-effort and
+  // must never throw, even when the platform has no bridge or no send
+  // capability. The actual Telegram API call is exercised separately at
+  // the simple-bridge layer; here we pin the contract that no bridge =
+  // returns false silently.
+  test('sendTypingIndicator returns false (without throwing) when no bridge is registered', async () => {
+    const registry = new BotRegistry({
+      onIncomingMessage: () => {},
+      onStatusChange: () => {},
+    });
+
+    const result = await registry.sendTypingIndicator('telegram', 'chat-1');
+    assert.equal(result, false);
+  });
+
+  test('sendTypingIndicator returns false for an unimplemented platform with persisted credentials', async () => {
+    const registry = new BotRegistry({
+      onIncomingMessage: () => {},
+      onStatusChange: () => {},
+    });
+
+    await registry.applySettings(settingsWith({
+      discord: { enabled: true, token: 'discord-token' },
+    }));
+
+    // scaffoldStatus path means no live bridge is registered for discord;
+    // typing indicator must silently degrade to false.
+    const result = await registry.sendTypingIndicator('discord', 'chat-x');
+    assert.equal(result, false);
+  });
+
   test('unimplemented platform with persisted operational + no credentials reports scaffolded', async () => {
     // Tighter coercion: even operational is downgraded for the read path
     // when credentials are absent. Live bridge would write its own

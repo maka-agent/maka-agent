@@ -270,6 +270,25 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
     return lastMessageId;
   }
 
+  /**
+   * PR-BOT-TYPING-INDICATOR-0: post Telegram's `sendChatAction` so the
+   * "Maka is typing…" affordance shows in the client while the agent
+   * generates its reply. Failure is swallowed — typing is decorative
+   * and must never block / corrupt the actual reply path.
+   */
+  async sendTypingIndicator(chatId: string): Promise<boolean> {
+    if (this.platform !== 'telegram' || !this.running) return false;
+    try {
+      const response = await telegramApi(this.settings.token, 'sendChatAction', {
+        chat_id: chatId,
+        action: 'typing',
+      });
+      return response?.ok === true;
+    } catch {
+      return false;
+    }
+  }
+
   private async startTelegram(): Promise<void> {
     try {
       const me = await telegramApi(this.settings.token, 'getMe');

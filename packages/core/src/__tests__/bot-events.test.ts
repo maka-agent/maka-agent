@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  BOT_PLAINTEXT_HELP_COMMANDS,
   BOT_PLAINTEXT_RESET_COMMANDS,
   botConversationKey,
   botDisplayLabel,
   formatBotMessageForSession,
+  isPlaintextHelpCommand,
   isPlaintextResetCommand,
+  plaintextHelpReply,
   type BotMessageEvent,
 } from '../index.js';
 
@@ -91,5 +94,52 @@ describe('isPlaintextResetCommand', () => {
     assert.equal(BOT_PLAINTEXT_RESET_COMMANDS.length > 0, true);
     assert.equal(BOT_PLAINTEXT_RESET_COMMANDS.includes('restart'), true);
     assert.equal(BOT_PLAINTEXT_RESET_COMMANDS.includes('重置'), true);
+  });
+});
+
+// PR-BOT-PLAINTEXT-HELP-COMMAND-0
+describe('isPlaintextHelpCommand', () => {
+  const dm = { isGroup: false };
+  const group = { isGroup: true };
+
+  test('matches the canonical help phrases in DMs', () => {
+    for (const phrase of BOT_PLAINTEXT_HELP_COMMANDS) {
+      assert.equal(isPlaintextHelpCommand({ ...dm, text: phrase }), true, `should match: ${phrase}`);
+    }
+  });
+
+  test('is case-insensitive and tolerates surrounding whitespace', () => {
+    assert.equal(isPlaintextHelpCommand({ ...dm, text: 'HELP' }), true);
+    assert.equal(isPlaintextHelpCommand({ ...dm, text: '  Help  ' }), true);
+  });
+
+  test('does NOT substring-match', () => {
+    assert.equal(isPlaintextHelpCommand({ ...dm, text: 'I need help with this' }), false);
+    assert.equal(isPlaintextHelpCommand({ ...dm, text: '请帮助我' }), false);
+  });
+
+  test('is silently ignored in group chats', () => {
+    assert.equal(isPlaintextHelpCommand({ ...group, text: 'help' }), false);
+    assert.equal(isPlaintextHelpCommand({ ...group, text: '帮助' }), false);
+  });
+
+  test('plaintextHelpReply lists the supported actions without marketing copy', () => {
+    const reply = plaintextHelpReply();
+    // Must surface the user-visible commands so a help-asker can act.
+    assert.match(reply, /Maka 机器人帮助/);
+    assert.match(reply, /restart/);
+    assert.match(reply, /重置/);
+    // Must NOT contain demo-stage / roadmap language.
+    assert.equal(/即将|尚未|TODO|coming soon/i.test(reply), false);
+  });
+
+  test('does not collide with the reset phrases — they remain distinct', () => {
+    for (const phrase of BOT_PLAINTEXT_HELP_COMMANDS) {
+      assert.equal(
+        BOT_PLAINTEXT_RESET_COMMANDS.includes(phrase),
+        false,
+        `help phrase ${phrase} must not also be a reset trigger`,
+      );
+    }
   });
 });

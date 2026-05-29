@@ -51,6 +51,14 @@ export interface BotSendOptions {
 
 export interface SendCapable {
   sendMessage(chatId: string, text: string, options?: BotSendOptions): Promise<string | null>;
+  /**
+   * PR-BOT-TYPING-INDICATOR-0 (Hermes deep-dive): post a one-shot
+   * presence/typing signal. Telegram auto-clears it after ~5 seconds;
+   * callers wanting sustained indication must call again periodically.
+   * Returns `true` if the signal was delivered, `false` on any failure
+   * (including unsupported platforms — drops silently rather than throw).
+   */
+  sendTypingIndicator?(chatId: string): Promise<boolean>;
 }
 
 export interface BotTestResult {
