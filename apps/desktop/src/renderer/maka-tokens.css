@@ -29,22 +29,27 @@
      PR-UI-LAYOUT-1 (@yuejing 2026-05-22): shifted from cool blue-gray
      (hue 265) to warm cream (hue 80, slight chroma) per @WAWQAQ's
      direct comparison with 牛马AI. The reference design uses a single
-     warm cream canvas where sidebar + main area share the same
-     background — separation comes from hairline borders + radius, not
-     from a darker shell behind lighter cards. We slightly lowered
-     lightness to 0.965 so floating cards still feel like cards, while
-     the canvas reads warm and welcoming instead of clinical.
+     canvas where sidebar + main area share the same background —
+     separation comes from hairline borders + radius, not from a
+     darker shell behind lighter cards.
+
+     PR-DEFAULT-CANVAS-DEYELLOW-0 (@yuejing 2026-05-30, WAWQAQ msg
+     `bfee559d`): de-yellowed by shifting hue 80 → 250 (cool neutral).
+     The warm-cream tone read as visibly yellow against the chrome
+     accents and felt odd as a default. Same hue family as the niuma
+     palette but with lower chroma so the default stays subtler. The
+     warm-cream variant is still reachable via the alma palette.
 
      `--surface-canvas` is the shell-level background (what `.appFrame`
      paints behind everything); `--background` is what cards paint.
      Both are the same hue family — the new visual hierarchy comes from
      borders, not contrast. */
-  --background: oklch(0.98 0.005 80);
-  --surface-canvas: oklch(0.965 0.012 80);
+  --background: oklch(0.985 0.003 250);
+  --surface-canvas: oklch(0.97 0.005 250);
   --background-elevated: color-mix(in srgb, var(--foreground) 1.5%, var(--background));
-  --foreground: oklch(0.20 0.012 80);
+  --foreground: oklch(0.20 0.010 250);
   --foreground-dimmed: color-mix(in srgb, var(--foreground) 80%, var(--background));
-  --foreground-rgb: 44, 38, 32; /* light-mode RGB triplet used by shadow rings */
+  --foreground-rgb: 36, 40, 48; /* light-mode RGB triplet used by shadow rings */
 
   --accent: oklch(0.62 0.13 293);       /* purple — brand, "execute" mode */
   --accent-rgb: 104, 78, 133;
@@ -99,11 +104,10 @@
   --active:        oklch(from var(--foreground) l c h / 0.08);
   /* User bubble color is intentionally distinct from `--accent` so users can
      re-tint the accent without ruining chat legibility (alma 42-theme §15.1).
-     Light: warm desaturated slate over the cream background.
-     PR-UI-LAYOUT-1: hue shifted 270 → 80 so the bubble harmonizes
-     with the new warm-cream canvas (otherwise it read as a cool gray
-     island in a warm sheet). */
-  --chat-user-bg: oklch(0.935 0.008 80);
+     PR-DEFAULT-CANVAS-DEYELLOW-0: re-aligned with the cool-neutral
+     canvas (hue 250). The bubble sits on `--background` so it must
+     share the canvas hue family or it reads as a tinted island. */
+  --chat-user-bg: oklch(0.94 0.006 250);
   --chat-user-foreground: var(--foreground);
   --user-message-bubble: var(--chat-user-bg);
   --selection:     oklch(from var(--accent) l c h / 0.2);
@@ -228,17 +232,16 @@
 ============================================================================= */
 
 .dark {
-  /* PR-UI-LAYOUT-1: dark mode mirrors the warm-cream shift from light
-   * mode — slightly warm-shifted background hue (80) with a separate
-   * `--surface-canvas` token a touch darker so cards still pop. The
-   * delta between shell and card is intentionally smaller than before
-   * so the sidebar reads as part of the main sheet, not as a separate
-   * panel. */
-  --background: oklch(0.21 0.008 80);
-  --surface-canvas: oklch(0.175 0.006 80);
+  /* PR-DEFAULT-CANVAS-DEYELLOW-0 (WAWQAQ msg `bfee559d`): dark mode
+   * also de-yellowed. Same hue family as the light canvas (250) so
+   * the brand reads consistently across modes. The delta between
+   * shell and card stays small so the sidebar still feels like part
+   * of the main sheet, not a separate panel. */
+  --background: oklch(0.21 0.006 250);
+  --surface-canvas: oklch(0.175 0.005 250);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
-  --foreground: oklch(0.92 0.005 80);
-  --foreground-rgb: 230, 228, 224;
+  --foreground: oklch(0.92 0.005 250);
+  --foreground-rgb: 222, 224, 230;
 
   --accent: oklch(0.65 0.20 293);
   --accent-rgb: 118, 92, 147;
@@ -254,10 +257,10 @@
 
   /* Slate user bubble for dark mode — distinct from --accent and readable
      against the dark background.
-     PR-UI-LAYOUT-1: hue shifted 270 → 80 to match the warm-canvas
-     change in dark mode too. */
-  --chat-user-bg: oklch(0.30 0.012 80);
-  --chat-user-foreground: oklch(0.96 0.004 270);
+     PR-DEFAULT-CANVAS-DEYELLOW-0: hue 250 to match the cool-neutral
+     canvas in dark mode too. */
+  --chat-user-bg: oklch(0.30 0.010 250);
+  --chat-user-foreground: oklch(0.96 0.004 250);
   --user-message-bubble: var(--chat-user-bg);
 
   /* foreground-N variants re-derive automatically via color-mix(), so the
