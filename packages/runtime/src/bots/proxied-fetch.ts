@@ -20,6 +20,7 @@ export async function proxiedFetch(
     dispatcher = buildProxyDispatcher(proxy) as Dispatcher;
   }
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, ...fetchInit } = init;
+  const timeoutEnabled = timeoutMs > 0;
   const controller = new AbortController();
   let timedOut = false;
 
@@ -42,24 +43,26 @@ export async function proxiedFetch(
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort(new Error('Fetch timeout'));
-      void disposeDispatcher(true);
-      reject(new Error('Fetch timeout'));
-    }, timeoutMs);
-    controller.signal.addEventListener('abort', () => {
-      if (timer) clearTimeout(timer);
-    }, { once: true });
-  });
+  const timeout = timeoutEnabled
+    ? new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort(new Error('Fetch timeout'));
+          void disposeDispatcher(true);
+          reject(new Error('Fetch timeout'));
+        }, timeoutMs);
+        controller.signal.addEventListener('abort', () => {
+          if (timer) clearTimeout(timer);
+        }, { once: true });
+      })
+    : undefined;
 
   try {
     const request = fetch(url, { ...fetchInit, dispatcher, signal: controller.signal }).catch((error) => {
       if (timedOut) return new Promise<never>(() => {});
       throw error;
     });
-    return await Promise.race([request, timeout]) as unknown as Response;
+    return timeout ? await Promise.race([request, timeout]) as unknown as Response : await request as unknown as Response;
   } finally {
     if (timer) clearTimeout(timer);
     await disposeDispatcher(timedOut);
