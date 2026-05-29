@@ -234,6 +234,50 @@ describe('PlanReminderStore', () => {
     assert.equal(second.runCount, 2);
   });
 
+  it('clears run history without deleting the reminder or resetting run count', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '每日复盘', runAt, recurrence: 'daily' });
+
+    const triggered = await store.markTriggered(reminder.id, {
+      id: 'run-1',
+      at: runAt,
+      status: 'triggered',
+      message: '第一次触发',
+    });
+    assert.equal(triggered.runs.length, 1);
+    assert.equal(triggered.runCount, 1);
+
+    const cleared = await store.clearRunHistory(reminder.id);
+    assert.equal(cleared.id, reminder.id);
+    assert.equal(cleared.title, '每日复盘');
+    assert.equal(cleared.status, 'scheduled');
+    assert.deepEqual(cleared.runs, []);
+    assert.equal(cleared.lastRun, undefined);
+    assert.equal(cleared.runCount, 1);
+    assert.equal((await store.list()).find((entry) => entry.id === reminder.id)?.runs.length, 0);
+  });
+
+  it('rejects clearing completed one-shot history so completed rows do not vanish silently', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '一次性提醒', runAt });
+    await store.markTriggered(reminder.id, {
+      id: 'run-1',
+      at: runAt,
+      status: 'triggered',
+      message: '提醒已触发',
+    });
+
+    await assert.rejects(
+      () => store.clearRunHistory(reminder.id),
+      /Completed plan reminder history cannot be cleared/,
+    );
+    assert.equal((await store.list()).find((entry) => entry.id === reminder.id)?.lastRun?.id, 'run-1');
+  });
+
   it('rejects invalid creates before writing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const store = createPlanReminderStore(root);

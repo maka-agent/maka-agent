@@ -194,6 +194,7 @@ declare global {
         setEnabled(id: string, enabled: boolean): Promise<PlanReminder>;
         triggerNow(id: string): Promise<PlanReminder>;
         snooze(id: string): Promise<PlanReminder>;
+        clearRunHistory(id: string): Promise<PlanReminder>;
         delete(id: string): Promise<void>;
         subscribeChanges(
           handler: (event: { type: 'plans_changed'; reason: string; reminderId?: string; ts: number }) => void,

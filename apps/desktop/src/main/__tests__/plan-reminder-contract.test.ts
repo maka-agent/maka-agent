@@ -19,15 +19,17 @@ describe('Plan reminder MVP contract', () => {
       readRepo('apps/desktop/src/global.d.ts'),
     ]);
 
-    for (const channel of ['plans:list', 'plans:create', 'plans:update', 'plans:setEnabled', 'plans:triggerNow', 'plans:snooze', 'plans:delete']) {
+    for (const channel of ['plans:list', 'plans:create', 'plans:update', 'plans:setEnabled', 'plans:triggerNow', 'plans:snooze', 'plans:clearRunHistory', 'plans:delete']) {
       assert.match(main, new RegExp(`ipcMain\\.handle\\('${channel}'`), `${channel} must be handled in main`);
     }
     assert.match(preload, /plans:\s*\{[\s\S]*list\(\): Promise<PlanReminder\[]>/, 'preload must expose plans.list');
     assert.match(preload, /triggerNow\(id: string\): Promise<PlanReminder>/, 'preload must expose manual trigger');
     assert.match(preload, /snooze\(id: string\): Promise<PlanReminder>/, 'preload must expose snooze');
+    assert.match(preload, /clearRunHistory\(id: string\): Promise<PlanReminder>/, 'preload must expose clear run history');
     assert.match(preload, /subscribeDue\(handler: \(reminder: PlanReminder\) => void\)/, 'preload must expose due event');
     assert.match(globalTypes, /triggerNow\(id: string\): Promise<PlanReminder>/, 'global type must expose manual trigger');
     assert.match(globalTypes, /snooze\(id: string\): Promise<PlanReminder>/, 'global type must expose snooze');
+    assert.match(globalTypes, /clearRunHistory\(id: string\): Promise<PlanReminder>/, 'global type must expose clear run history');
     assert.match(globalTypes, /plans:\s*\{[\s\S]*create\(input: \{ title: string; note\?: string; runAt: number \| string; recurrence\?: PlanReminderRecurrence; cronExpression\?: string; delivery\?: PlanReminderDeliveryTarget \}\)/, 'global type must include delivery-aware plans API');
   });
 
@@ -48,6 +50,8 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /Chat ID/, 'bot delivery must require an explicit target chat id');
     assert.match(ui, /立即触发/, '计划 UI must expose a manual trigger path for smoke-testing delivery');
     assert.match(ui, /延后 10 分钟/, '计划 UI must expose a bounded snooze path');
+    assert.match(ui, /清空记录/, '计划 UI must clear run history without deleting the reminder');
+    assert.match(ui, /onClearRunHistory/, 'clear history action must be wired through PlanReminderPanel');
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {

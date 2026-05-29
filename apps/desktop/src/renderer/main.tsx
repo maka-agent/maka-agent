@@ -1099,6 +1099,25 @@ function AppShell(props: {
     }
   }
 
+  async function clearPlanReminderRunHistory(id: string) {
+    const reminder = planReminders.find((entry) => entry.id === id);
+    const ok = await toastApi.confirm({
+      title: `清空 "${reminder?.title ?? '计划提醒'}" 的执行记录`,
+      description: '计划本身会保留；只清空最近执行记录和最近状态。',
+      confirmLabel: '清空记录',
+      cancelLabel: '取消',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await window.maka.plans.clearRunHistory(id);
+      await refreshPlanReminders();
+      toastApi.success('已清空执行记录', reminder?.title);
+    } catch (error) {
+      toastApi.error('清空记录失败', cleanErrorMessage(error));
+    }
+  }
+
   async function deletePlanReminder(id: string) {
     const reminder = planReminders.find((entry) => entry.id === id);
     const ok = await toastApi.confirm({
@@ -1769,6 +1788,7 @@ function AppShell(props: {
             onTogglePlanReminder={(id, enabled) => void togglePlanReminder(id, enabled)}
             onTriggerPlanReminderNow={(id) => void triggerPlanReminderNow(id)}
             onSnoozePlanReminder={(id) => void snoozePlanReminder(id)}
+            onClearPlanReminderRunHistory={(id) => void clearPlanReminderRunHistory(id)}
             onDeletePlanReminder={(id) => void deletePlanReminder(id)}
             dailyReviewBridge={dailyReviewBridge}
             rowActions={{
