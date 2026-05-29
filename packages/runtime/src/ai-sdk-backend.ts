@@ -225,7 +225,6 @@ export interface SystemPromptContext {
 // ============================================================================
 
 export class AiSdkBackend implements AgentBackend {
-  // TODO: switch to 'ai-sdk' once @kabi's BackendKind union update lands in core.
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
 
