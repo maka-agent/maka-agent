@@ -5333,6 +5333,10 @@ function presentOfficeDocumentReason(reason: string | undefined): string | undef
       return '选择器无效';
     case 'invalid_query':
       return '查询表达式无效';
+    case 'invalid_props':
+      return '属性无效';
+    case 'file_exists':
+      return '文件已存在';
     case 'officecli_missing':
       return 'officecli 未安装';
     case 'officecli_timeout':
