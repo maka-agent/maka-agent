@@ -416,6 +416,94 @@
   --chat-user-bg: var(--user-message-bubble);
 }
 
+/* --- forest (earthy moss-green accent on warm sage canvas) --- */
+[data-maka-theme="forest"] {
+  --background: oklch(0.985 0.006 130);
+  --foreground: oklch(0.22 0.018 145);
+  --accent: oklch(0.50 0.12 152);                /* deep moss green */
+  --info: oklch(0.68 0.13 75);                   /* warm honey */
+  --success: oklch(0.62 0.14 145);
+  --destructive: oklch(0.58 0.20 22);
+  --user-message-bubble: oklch(0.94 0.012 130);
+  --chat-user-bg: var(--user-message-bubble);
+}
+[data-maka-theme="forest"].dark {
+  --background: oklch(0.21 0.012 145);
+  --foreground: oklch(0.93 0.010 130);
+  --accent: oklch(0.68 0.14 152);
+  --info: oklch(0.76 0.13 75);
+  --success: oklch(0.70 0.14 145);
+  --destructive: oklch(0.70 0.20 22);
+  --user-message-bubble: oklch(0.30 0.014 145);
+  --chat-user-bg: var(--user-message-bubble);
+}
+
+/* --- dusk (deep violet accent on a cool twilight canvas) --- */
+[data-maka-theme="dusk"] {
+  --background: oklch(0.97 0.008 290);
+  --foreground: oklch(0.22 0.018 295);
+  --accent: oklch(0.55 0.18 305);                /* deep violet */
+  --info: oklch(0.70 0.14 60);
+  --success: oklch(0.64 0.14 145);
+  --destructive: oklch(0.60 0.20 18);
+  --user-message-bubble: oklch(0.93 0.013 290);
+  --chat-user-bg: var(--user-message-bubble);
+}
+[data-maka-theme="dusk"].dark {
+  --background: oklch(0.20 0.018 295);
+  --foreground: oklch(0.92 0.010 290);
+  --accent: oklch(0.72 0.18 305);
+  --info: oklch(0.78 0.13 60);
+  --success: oklch(0.70 0.14 145);
+  --destructive: oklch(0.70 0.20 18);
+  --user-message-bubble: oklch(0.30 0.020 295);
+  --chat-user-bg: var(--user-message-bubble);
+}
+
+/* --- sand (warm cream canvas + amber accent — the warm legacy) --- */
+[data-maka-theme="sand"] {
+  --background: oklch(0.98 0.008 75);
+  --foreground: oklch(0.22 0.014 70);
+  --accent: oklch(0.62 0.14 55);                 /* amber / ochre */
+  --info: oklch(0.70 0.13 90);
+  --success: oklch(0.62 0.14 145);
+  --destructive: oklch(0.60 0.20 22);
+  --user-message-bubble: oklch(0.94 0.012 75);
+  --chat-user-bg: var(--user-message-bubble);
+}
+[data-maka-theme="sand"].dark {
+  --background: oklch(0.22 0.014 70);
+  --foreground: oklch(0.93 0.010 75);
+  --accent: oklch(0.72 0.14 55);
+  --info: oklch(0.76 0.13 90);
+  --success: oklch(0.70 0.14 145);
+  --destructive: oklch(0.70 0.20 22);
+  --user-message-bubble: oklch(0.30 0.014 70);
+  --chat-user-bg: var(--user-message-bubble);
+}
+
+/* --- mono (pure grayscale, distraction-free) --- */
+[data-maka-theme="mono"] {
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.18 0 0);
+  --accent: oklch(0.30 0 0);                     /* near-black */
+  --info: oklch(0.55 0 0);
+  --success: oklch(0.55 0 0);
+  --destructive: oklch(0.45 0.18 22);            /* keep destructive readable */
+  --user-message-bubble: oklch(0.93 0 0);
+  --chat-user-bg: var(--user-message-bubble);
+}
+[data-maka-theme="mono"].dark {
+  --background: oklch(0.18 0 0);
+  --foreground: oklch(0.95 0 0);
+  --accent: oklch(0.92 0 0);                     /* near-white */
+  --info: oklch(0.70 0 0);
+  --success: oklch(0.70 0 0);
+  --destructive: oklch(0.65 0.18 22);
+  --user-message-bubble: oklch(0.28 0 0);
+  --chat-user-bg: var(--user-message-bubble);
+}
+
 /* =============================================================================
    TAILWIND v4 THEME INTEGRATION
    Make tokens addressable as Tailwind utilities:
