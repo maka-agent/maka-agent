@@ -155,6 +155,35 @@ describe('OpenGatewayService', () => {
     assert.ok(statusChanges.includes(0), 'closing an SSE stream should publish activeEventStreams=0');
   });
 
+  test('replays recent SSE events after Last-Event-ID cursor', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s1', textDeltaEvent({ id: 'event-1', turnId: 'turn-1', text: 'already seen' }));
+    service.publishSessionEvent('s1', textDeltaEvent({ id: 'event-2', turnId: 'turn-1', text: 'replay me' }));
+
+    const controller = new AbortController();
+    const response = await fetch(`${status.baseUrl}/v1/sessions/s1/events`, {
+      headers: {
+        Authorization: 'Bearer dev-token',
+        'Last-Event-ID': 'event-1',
+      },
+      signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+
+    const reader = response.body!.getReader();
+    const chunk = await readUntil(reader, 'replay me');
+    controller.abort();
+
+    assert.doesNotMatch(chunk, /already seen/);
+    assert.match(chunk, /id: event-2/);
+    assert.match(chunk, /event: text_delta/);
+    assert.match(chunk, /replay me/);
+  });
+
   test('closes existing SSE clients when the gateway token rotates', async () => {
     let settings = createGatewaySettings({ enabled: true, port: 0, token: 'old-token' });
     const service = makeService({

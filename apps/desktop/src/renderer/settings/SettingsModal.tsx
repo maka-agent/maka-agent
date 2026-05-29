@@ -2777,7 +2777,7 @@ function OpenGatewaySettingsPage(props: {
         <SettingRow title="会话列表" detail="需要 Bearer token，返回本地 session summary。" value="GET /v1/sessions" />
         <SettingRow title="会话消息" detail="需要 Bearer token，按 sessionId 读取本地消息。" value="GET /v1/sessions/:id/messages" />
         <SettingRow title="发送消息" detail="需要 Bearer token，向已有会话追加一条用户消息并返回 turnId。" value="POST /v1/sessions/:id/messages" />
-        <SettingRow title="实时事件" detail="需要 Bearer token，SSE 输出当前会话的 live 事件流。" value="GET /v1/sessions/:id/events" />
+        <SettingRow title="实时事件" detail="需要 Bearer token，SSE 输出当前会话 live 事件；支持 Last-Event-ID / after 补发最近事件。" value="GET /v1/sessions/:id/events" />
         <SettingRow title="本地搜索" detail="需要 Bearer token，复用 Maka 的 thread search。" value="GET /v1/search/thread?q=..." />
       </SettingsRows>
 

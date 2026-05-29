@@ -26,6 +26,7 @@ export class OpenGatewayService {
   private server: Server | null = null;
   private activeToken: string | null = null;
   private readonly eventClients = new Map<string, Set<GatewayEventClient>>();
+  private readonly recentEvents = new Map<string, SessionEvent[]>();
   private status: OpenGatewayStatus = {
     enabled: false,
     running: false,
@@ -43,6 +44,7 @@ export class OpenGatewayService {
   }
 
   publishSessionEvent(sessionId: string, event: SessionEvent): void {
+    this.recordRecentEvent(sessionId, event);
     const clients = this.eventClients.get(sessionId);
     if (!clients || clients.size === 0) return;
     const payload = formatSseEvent({
@@ -142,6 +144,7 @@ export class OpenGatewayService {
     this.server = null;
     this.activeToken = null;
     this.closeEventClients();
+    this.recentEvents.clear();
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -228,7 +231,7 @@ export class OpenGatewayService {
         return;
       }
       const sessionId = decodeURIComponent(eventsMatch[1]!);
-      this.openSessionEventStream(sessionId, req, res);
+      this.openSessionEventStream(sessionId, readReplayCursor(req, url), req, res);
       return;
     }
     if (url.pathname === '/v1/search/thread') {
@@ -252,7 +255,12 @@ export class OpenGatewayService {
     return this.deps.now?.() ?? Date.now();
   }
 
-  private openSessionEventStream(sessionId: string, req: IncomingMessage, res: ServerResponse): void {
+  private openSessionEventStream(
+    sessionId: string,
+    replayAfterEventId: string | undefined,
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): void {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -274,6 +282,7 @@ export class OpenGatewayService {
     clients.add(client);
     this.eventClients.set(sessionId, clients);
     this.emitStatusChanged();
+    this.replayRecentEvents(sessionId, replayAfterEventId, client);
 
     req.on('close', () => this.removeEventClient(sessionId, client));
   }
@@ -305,6 +314,36 @@ export class OpenGatewayService {
   private emitStatusChanged(): void {
     this.deps.onStatusChanged?.(this.getStatus());
   }
+
+  private recordRecentEvent(sessionId: string, event: SessionEvent): void {
+    const events = this.recentEvents.get(sessionId) ?? [];
+    events.push(event);
+    if (events.length > OPEN_GATEWAY_EVENT_REPLAY_LIMIT) {
+      events.splice(0, events.length - OPEN_GATEWAY_EVENT_REPLAY_LIMIT);
+    }
+    this.recentEvents.set(sessionId, events);
+  }
+
+  private replayRecentEvents(
+    sessionId: string,
+    replayAfterEventId: string | undefined,
+    client: GatewayEventClient,
+  ): void {
+    if (!replayAfterEventId) return;
+    const events = this.recentEvents.get(sessionId);
+    if (!events || events.length === 0) {
+      client.write(`: replay_miss ${replayAfterEventId}\n\n`);
+      return;
+    }
+    const index = events.findIndex((event) => event.id === replayAfterEventId);
+    if (index < 0) {
+      client.write(`: replay_miss ${replayAfterEventId}\n\n`);
+      return;
+    }
+    for (const event of events.slice(index + 1)) {
+      client.write(formatSseEvent({ id: event.id, event: event.type, data: event }));
+    }
+  }
 }
 
 function writeJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -323,6 +362,7 @@ type JsonBodyResult =
 
 const OPEN_GATEWAY_MAX_BODY_BYTES = 16 * 1024;
 const OPEN_GATEWAY_EVENT_HEARTBEAT_MS = 15_000;
+const OPEN_GATEWAY_EVENT_REPLAY_LIMIT = 100;
 
 interface GatewayEventClient {
   response: ServerResponse;
@@ -339,6 +379,21 @@ function formatSseEvent(input: { id: string; event: string; data: unknown }): st
     '',
     '',
   ].join('\n');
+}
+
+function readReplayCursor(req: IncomingMessage, url: URL): string | undefined {
+  const header = Array.isArray(req.headers['last-event-id'])
+    ? req.headers['last-event-id'][0]
+    : req.headers['last-event-id'];
+  return normalizeReplayCursor(header ?? url.searchParams.get('after'));
+}
+
+function normalizeReplayCursor(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 256) return undefined;
+  if (/[\r\n]/.test(trimmed)) return undefined;
+  return trimmed;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<JsonBodyResult> {
