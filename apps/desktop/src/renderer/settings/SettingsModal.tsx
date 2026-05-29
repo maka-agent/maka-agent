@@ -165,7 +165,11 @@ const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'r
     help: '填写飞书自建应用的 App ID、App Secret 和事件订阅域名；当前先验证凭据，事件接收需要企业后台回调接入。',
     support: 'credentials',
   },
-  wecom: { label: '企业微信', help: '平台清单已保留；当前不会进入可用机器人列表或计划提醒投递目标。', support: 'planned' },
+  wecom: {
+    label: '企业微信',
+    help: '填入企业的 corp_id 与自建应用的 secret 后测试凭据；当前先验证凭据，事件接收需要在企业后台配置 callback 域名。',
+    support: 'credentials',
+  },
   wechat: { label: '微信', help: '个人号/公众号接入涉及额外合规和授权；当前不会进入可用机器人列表或计划提醒投递目标。', support: 'planned' },
   discord: { label: 'Discord', help: '平台清单已保留；当前不会进入可用机器人列表或计划提醒投递目标。', support: 'planned' },
   dingtalk: { label: '钉钉', help: '平台清单已保留；当前不会进入可用机器人列表或计划提醒投递目标。', support: 'planned' },
@@ -3183,6 +3187,30 @@ function BotChatSettingsPage(props: {
             </label>
             <div className="settingsNotice">
               飞书凭据测试会申请 tenant_access_token；事件订阅域名用于企业后台回调。未接通事件回调前，状态只能到“凭据有效”，不会显示成运行可用。
+            </div>
+          </>
+        )}
+
+        {/* PR-BOT-WECOM-CREDENTIALS-TEST-0: 企业微信凭据级配置。当前先支持
+            corp_id + corp_secret 凭据测试（走 gettoken），事件 callback
+            接入是独立后续。WeCom 的 `appId` 字段语义是 corp_id；
+            `appSecret` 是自建应用的 secret。 */}
+        {selected === 'wecom' && (
+          <>
+            <label className="settingsField">
+              <span>企业 corp_id</span>
+              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="企业微信后台 - 我的企业 - 企业 ID" />
+            </label>
+            <label className="settingsField">
+              <span>自建应用 secret</span>
+              <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="企业微信自建应用 secret" />
+            </label>
+            <label className="settingsField">
+              <span>事件 callback 域名</span>
+              <input value={channel.domain ?? ''} onChange={(event) => updateChannel({ domain: event.currentTarget.value })} placeholder="https://maka.example.com/wecom/events" />
+            </label>
+            <div className="settingsNotice">
+              企业微信凭据测试会请求 `gettoken`，验证 corp_id + secret 是否真实存在；事件接收需要在企业后台配置 callback 域名。未接通 callback 前，状态只到“凭据有效”，不会显示成运行可用。
             </div>
           </>
         )}

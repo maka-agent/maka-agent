@@ -5,15 +5,20 @@ import { proxiedFetch } from './proxied-fetch.js';
 const BOT_TEST_TIMEOUT_MS = 10_000;
 
 export async function testBotChannel(provider: BotProvider, channel: BotChannelSettings): Promise<BotTestResult> {
-  if (provider !== 'feishu' && provider !== 'wechat' && !channel.token.trim()) {
+  if (
+    provider !== 'feishu' &&
+    provider !== 'wecom' &&
+    provider !== 'wechat' &&
+    !channel.token.trim()
+  ) {
     return { ok: false, error: 'Bot token is required' };
   }
   switch (provider) {
     case 'telegram': return testTelegram(channel);
     case 'discord': return testDiscord(channel);
     case 'feishu': return testFeishu(channel);
+    case 'wecom': return testWeCom(channel);
     case 'wechat':
-    case 'wecom':
     case 'dingtalk':
     case 'qq':
       return {
@@ -50,6 +55,58 @@ async function testDiscord(channel: BotChannelSettings): Promise<BotTestResult> 
     const json = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: json.message ?? `HTTP ${response.status}` };
     return { ok: true, identity: { id: json.id, username: json.username, displayName: json.global_name } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * PR-BOT-WECOM-CREDENTIALS-TEST-0 (Hermes deep-dive: wecom_crypto pattern):
+ * verify WeCom (企业微信) self-built app credentials by issuing an
+ * `access_token` via the corp gettoken endpoint. Success proves the
+ * corp_id + corp_secret pair are real and the app exists; it does NOT
+ * prove that message send/receive will work — that needs the callback
+ * + agent_id wiring which lands separately.
+ *
+ * WeCom stores credentials as:
+ *   - `appId` = corp_id (the company's corporation id)
+ *   - `appSecret` = the self-built app's secret
+ *
+ * Token is reused only for the test request; we discard it immediately
+ * because the calling layer is just verifying credentials shape.
+ */
+async function testWeCom(channel: BotChannelSettings): Promise<BotTestResult> {
+  const corpId = channel.appId?.trim() ?? '';
+  const corpSecret = channel.appSecret?.trim() ?? '';
+  if (!corpId || !corpSecret) {
+    return { ok: false, error: '企业微信需要 corp_id 与 corp_secret' };
+  }
+  const url =
+    'https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=' +
+    encodeURIComponent(corpId) +
+    '&corpsecret=' +
+    encodeURIComponent(corpSecret);
+  try {
+    const response = await proxiedFetch(url, {
+      method: 'GET',
+      timeoutMs: BOT_TEST_TIMEOUT_MS,
+    });
+    const json = await response.json().catch(() => ({}));
+    if (json.errcode && json.errcode !== 0) {
+      return {
+        ok: false,
+        error: json.errmsg ? `WeCom: ${json.errmsg}` : `WeCom errcode ${json.errcode}`,
+      };
+    }
+    if (typeof json.access_token !== 'string' || json.access_token.length === 0) {
+      return { ok: false, error: 'WeCom 凭据测试未返回 access_token' };
+    }
+    return {
+      ok: true,
+      identity: { id: corpId, username: corpId, displayName: corpId },
+      capabilities: { auth: true },
+      hint: '凭据有效；接收消息需要在企业后台配置 callback 域名。',
+    };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
