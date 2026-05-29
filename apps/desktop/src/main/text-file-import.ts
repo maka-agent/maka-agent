@@ -216,6 +216,8 @@ async function loadTextFileForPromptImport(filePath: string): Promise<
   }
   if (!fileStat.isFile()) return { ok: false, reason: 'missing' };
   if (fileStat.size > MAX_IMPORTED_TEXT_FILE_BYTES) return { ok: false, reason: 'too-large' };
+  const preflight = preflightDroppedTextFilesForPromptImport([{ name: filePath, size: fileStat.size }]);
+  if (!preflight.ok) return preflight;
 
   let raw: Buffer;
   try {

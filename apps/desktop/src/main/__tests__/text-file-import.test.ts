@@ -179,11 +179,14 @@ describe('text file context import', () => {
     await withTempDir(async (root) => {
       const huge = join(root, 'huge.txt');
       const binary = join(root, 'binary.dat');
+      const unsupported = join(root, 'photo.png');
       await writeFile(huge, 'A'.repeat(MAX_IMPORTED_TEXT_FILE_BYTES + 1), 'utf8');
       await writeFile(binary, Buffer.from([0, 1, 2, 3, 4]));
+      await writeFile(unsupported, 'looks like text but has media suffix', 'utf8');
 
       assert.deepEqual(await readTextFileForPromptImport(huge), { ok: false, reason: 'too-large' });
       assert.deepEqual(await readTextFileForPromptImport(binary), { ok: false, reason: 'binary' });
+      assert.deepEqual(await readTextFileForPromptImport(unsupported), { ok: false, reason: 'unsupported-type' });
     });
   });
 
