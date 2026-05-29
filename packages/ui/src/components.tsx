@@ -1916,8 +1916,8 @@ export function SearchModal(props: {
             ref={inputRef}
             type="search"
             className="maka-search-modal-input"
-            placeholder="搜索会话内容…"
-            aria-label="搜索会话内容"
+            placeholder="搜索会话标题和内容…"
+            aria-label="搜索会话标题和内容"
             aria-controls={showResults ? 'maka-search-modal-results' : undefined}
             aria-activedescendant={activeResultId}
             value={query}
@@ -1989,7 +1989,7 @@ export function SearchModal(props: {
           )}
           {searchThread && !error && trimmed.length === 0 && (
             <p className="maka-search-modal-placeholder">
-              开始输入以按关键词查找历史对话。结果只包含会话内容文本，不进入网络。
+              开始输入以按关键词查找历史对话。结果只包含会话标题和内容文本，不进入网络。
             </p>
           )}
           {searchThread && pending && trimmed.length > 0 && (
@@ -1999,7 +1999,7 @@ export function SearchModal(props: {
           )}
           {showEmpty && (
             <p className="maka-search-modal-placeholder">
-              没有匹配的会话内容。换个关键词试试。
+              没有匹配的会话标题或内容。换个关键词试试。
             </p>
           )}
           {showResults && (
