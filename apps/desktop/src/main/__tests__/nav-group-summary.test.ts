@@ -55,14 +55,15 @@ describe('deriveNavGroupSummary', () => {
   const baseSettings = createDefaultSettings();
 
   describe('AI group', () => {
-    it('reports `尚未启用任何连接` when no connection is enabled', () => {
+    it('reports `等待启用连接` when no connection is enabled', () => {
       const summary = deriveNavGroupSummary({
         group: 'AI',
         connections: [],
         defaultSlug: null,
         settings: baseSettings,
       });
-      assert.deepEqual(summary, { text: '尚未启用任何连接', tone: 'info' });
+      assert.deepEqual(summary, { text: '等待启用连接', tone: 'info' });
+      assert.ok(!summary!.text.includes('尚未启用'), `must not read like unfinished setup copy: ${summary!.text}`);
     });
 
     it('reports error count when any enabled connection lastTestStatus=error', () => {

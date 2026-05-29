@@ -64,7 +64,7 @@ export function deriveNavGroupSummary(input: NavGroupSummaryInput): NavGroupSumm
 function summarizeAi(connections: LlmConnection[], defaultSlug: string | null): NavGroupSummary | undefined {
   const enabled = connections.filter((c) => c.enabled).length;
   if (enabled === 0) {
-    return { text: '尚未启用任何连接', tone: 'info' };
+    return { text: '等待启用连接', tone: 'info' };
   }
   const errored = connections.filter((c) => c.enabled && c.lastTestStatus === 'error').length;
   const needsReauth = connections.filter((c) => c.enabled && c.lastTestStatus === 'needs_reauth').length;
