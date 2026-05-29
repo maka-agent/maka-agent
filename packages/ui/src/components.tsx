@@ -1842,6 +1842,27 @@ export function SearchModal(props: {
     props.onClose();
   }
 
+  function clearSearchState() {
+    ticketRef.current += 1;
+    setResults([]);
+    setError(null);
+    setPending(false);
+    setActiveResultIndex(-1);
+  }
+
+  function updateSearchQuery(nextQuery: string) {
+    setQuery(nextQuery);
+    if (nextQuery.trim().length === 0) {
+      clearSearchState();
+    }
+  }
+
+  function clearSearchQuery() {
+    setQuery('');
+    clearSearchState();
+    inputRef.current?.focus();
+  }
+
   function moveActiveResult(delta: 1 | -1) {
     if (results.length === 0) return;
     setActiveResultIndex((current) => {
@@ -1900,11 +1921,11 @@ export function SearchModal(props: {
             aria-controls={showResults ? 'maka-search-modal-results' : undefined}
             aria-activedescendant={activeResultId}
             value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
+            onChange={(event) => updateSearchQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape' && query) {
                 event.preventDefault();
-                setQuery('');
+                clearSearchQuery();
                 return;
               }
               if (event.key === 'ArrowDown' && showResults) {
@@ -1940,10 +1961,7 @@ export function SearchModal(props: {
               type="button"
               className="maka-search-modal-clear"
               aria-label="清空搜索"
-              onClick={() => {
-                setQuery('');
-                inputRef.current?.focus();
-              }}
+              onClick={clearSearchQuery}
             >
               <X size={14} strokeWidth={1.8} aria-hidden="true" />
             </button>
