@@ -25,14 +25,14 @@ describe('chat readiness guard', () => {
         name: 'no default model',
         slug: null,
         deps: deps(),
-        includes: '还没有配置默认模型',
+        includes: '等待配置默认模型',
         reason: 'missing_default_connection',
       },
       {
         name: 'implicit fake slug',
         slug: 'fake',
         deps: deps(),
-        includes: '还没有配置默认模型',
+        includes: '等待配置默认模型',
         reason: 'missing_default_connection',
       },
       {
