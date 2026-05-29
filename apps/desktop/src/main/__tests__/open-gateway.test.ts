@@ -55,6 +55,7 @@ describe('OpenGatewayService', () => {
       'gateway.state',
       'incidents.list',
       'incidents.state',
+      'requests.recent',
       'sessions.detail_state',
       'sessions.list',
       'sessions.state',
@@ -71,6 +72,7 @@ describe('OpenGatewayService', () => {
       'search.thread',
     ]);
     assert.deepEqual(authorized.body.gateway, {
+      requestIdHeader: 'X-Maka-Request-Id',
       state: {
         endpoint: '/v1/state',
         includesPayloads: false,
@@ -135,6 +137,15 @@ describe('OpenGatewayService', () => {
       limit: 50,
       includesPayloads: false,
     });
+    assert.deepEqual(authorized.body.requests, {
+      recent: {
+        endpoint: '/v1/requests/recent',
+        limit: 50,
+        includesHeaders: false,
+        includesQuery: false,
+        includesPayloads: false,
+      },
+    });
   });
 
   test('serves a token-protected OpenAPI gateway description', async () => {
@@ -155,11 +166,45 @@ describe('OpenGatewayService', () => {
     assert.equal(authorized.body.components.securitySchemes.bearerAuth.scheme, 'bearer');
     assert.ok(authorized.body.paths['/v1/state'].get);
     assert.ok(authorized.body.paths['/v1/events/state'].get);
+    assert.ok(authorized.body.paths['/v1/requests/recent'].get);
     assert.ok(authorized.body.paths['/v1/sessions/{sessionId}/state'].get);
     assert.ok(authorized.body.paths['/v1/sessions/{sessionId}/events/recent'].get);
     assert.ok(authorized.body.paths['/v1/sessions/{sessionId}/events'].get);
     assert.ok(authorized.body.paths['/v1/sessions/{sessionId}/messages'].post);
     assert.doesNotMatch(JSON.stringify(authorized.body), /dev-token|hello gateway|sk-live/);
+  });
+
+  test('exposes recent request metadata without query, headers, or payloads', async () => {
+    const service = makeService({
+      searchThread: async () => [],
+    });
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const search = await fetchJson(`${status.baseUrl}/v1/search/thread?q=secret-query-token`, 'dev-token');
+    assert.equal(search.status, 200);
+    const missing = await fetchJson(`${status.baseUrl}/v1/missing?apiKey=sk-live-secret`, 'dev-token');
+    assert.equal(missing.status, 404);
+
+    const recent = await fetchJson(`${status.baseUrl}/v1/requests/recent`, 'dev-token');
+    assert.equal(recent.status, 200);
+    assert.equal(recent.body.ok, true);
+    assert.equal(recent.body.limit, 50);
+    assert.equal(recent.body.includesHeaders, false);
+    assert.equal(recent.body.includesQuery, false);
+    assert.equal(recent.body.includesPayloads, false);
+
+    const searchRequest = recent.body.requests.find((request: any) => request.path === '/v1/search/thread');
+    assert.equal(searchRequest.statusCode, 200);
+    assert.equal(searchRequest.method, 'GET');
+    assert.equal(typeof searchRequest.requestId, 'string');
+    assert.equal(typeof searchRequest.durationMs, 'number');
+
+    const missingRequest = recent.body.requests.find((request: any) => request.path === '/v1/missing');
+    assert.equal(missingRequest.statusCode, 404);
+    assert.equal(missingRequest.requestId, missing.headers.get('x-maka-request-id'));
+    assert.doesNotMatch(JSON.stringify(recent.body), /secret-query-token|sk-live-secret|dev-token|authorization/i);
   });
 
   test('exposes a token-protected overview state for external dashboards', async () => {

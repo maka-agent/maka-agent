@@ -29,6 +29,7 @@ export class OpenGatewayService {
   private activeToken: string | null = null;
   private readonly eventClients = new Map<string, Set<GatewayEventClient>>();
   private readonly recentEvents = new Map<string, SessionEvent[]>();
+  private readonly recentRequests: GatewayRequestSummary[] = [];
   private status: OpenGatewayStatus = {
     enabled: false,
     running: false,
@@ -99,6 +100,7 @@ export class OpenGatewayService {
     await this.stop();
     const server = createServer((req, res) => {
       res.setHeader(OPEN_GATEWAY_REQUEST_ID_HEADER, createGatewayRequestId());
+      this.trackRequest(req, res);
       void this.handle(req, res).catch((error) => {
         writeJson(res, 500, { ok: false, error: 'internal_error', message: error instanceof Error ? error.message : 'Gateway error' });
       });
@@ -148,6 +150,7 @@ export class OpenGatewayService {
     this.activeToken = null;
     this.closeEventClients();
     this.recentEvents.clear();
+    this.recentRequests.splice(0);
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -187,6 +190,7 @@ export class OpenGatewayService {
         ok: true,
         capabilities: buildGatewayCapabilities(Boolean(this.deps.sendMessage)),
         gateway: {
+          requestIdHeader: OPEN_GATEWAY_REQUEST_ID_HEADER,
           state: {
             endpoint: '/v1/state',
             includesPayloads: false,
@@ -251,6 +255,15 @@ export class OpenGatewayService {
           limit: OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT,
           includesPayloads: false,
         },
+        requests: {
+          recent: {
+            endpoint: '/v1/requests/recent',
+            limit: OPEN_GATEWAY_REQUEST_RECENT_LIMIT,
+            includesHeaders: false,
+            includesQuery: false,
+            includesPayloads: false,
+          },
+        },
       });
       return;
     }
@@ -301,6 +314,22 @@ export class OpenGatewayService {
         return;
       }
       writeJson(res, 200, { ok: true, state: this.buildGlobalEventState() });
+      return;
+    }
+
+    if (url.pathname === '/v1/requests/recent') {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(res, 200, {
+        ok: true,
+        requests: [...this.recentRequests],
+        limit: OPEN_GATEWAY_REQUEST_RECENT_LIMIT,
+        includesHeaders: false,
+        includesQuery: false,
+        includesPayloads: false,
+      });
       return;
     }
     if (url.pathname === '/v1/sessions/state') {
@@ -447,6 +476,32 @@ export class OpenGatewayService {
 
   private now(): number {
     return this.deps.now?.() ?? Date.now();
+  }
+
+  private trackRequest(req: IncomingMessage, res: ServerResponse): void {
+    const requestId = String(res.getHeader(OPEN_GATEWAY_REQUEST_ID_HEADER) ?? '');
+    const startedAt = this.now();
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    let recorded = false;
+    const record = () => {
+      if (recorded) return;
+      recorded = true;
+      const completedAt = this.now();
+      this.recentRequests.push({
+        requestId,
+        method: req.method ?? 'GET',
+        path: capGatewayPath(redactSecrets(url.pathname)),
+        statusCode: res.statusCode,
+        startedAt,
+        completedAt,
+        durationMs: Math.max(0, completedAt - startedAt),
+      });
+      if (this.recentRequests.length > OPEN_GATEWAY_REQUEST_RECENT_LIMIT) {
+        this.recentRequests.splice(0, this.recentRequests.length - OPEN_GATEWAY_REQUEST_RECENT_LIMIT);
+      }
+    };
+    res.once('finish', record);
+    res.once('close', record);
   }
 
   private openSessionEventStream(
@@ -616,6 +671,8 @@ const OPEN_GATEWAY_INCIDENT_LIMIT = 20;
 const OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT = 50;
 const OPEN_GATEWAY_INCIDENT_TEXT_LIMIT = 500;
 const OPEN_GATEWAY_REQUEST_ID_HEADER = 'X-Maka-Request-Id';
+const OPEN_GATEWAY_REQUEST_RECENT_LIMIT = 50;
+const OPEN_GATEWAY_PATH_LIMIT = 500;
 
 function createGatewayRequestId(): string {
   return `gw_${randomUUID()}`;
@@ -630,10 +687,25 @@ function attachRequestIdToErrorPayload(res: ServerResponse, payload: unknown): u
   return { ...record, requestId };
 }
 
+function capGatewayPath(value: string): string {
+  if (value.length <= OPEN_GATEWAY_PATH_LIMIT) return value;
+  return `${value.slice(0, OPEN_GATEWAY_PATH_LIMIT)}…`;
+}
+
 interface GatewayEventClient {
   response: ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
   write(chunk: string): void;
+}
+
+interface GatewayRequestSummary {
+  requestId: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
 }
 
 type GatewayIncidentSummary =
@@ -675,6 +747,7 @@ function buildGatewayCapabilities(sendAvailable: boolean): string[] {
     'gateway.state',
     'incidents.list',
     'incidents.state',
+    'requests.recent',
     'sessions.detail_state',
     'sessions.list',
     'sessions.state',
@@ -812,6 +885,12 @@ function buildGatewayOpenApiSpec(sendAvailable: boolean): Record<string, unknown
         get: {
           summary: 'Global event aggregate state',
           responses: jsonResponses('Aggregate replay buffer and active stream state across sessions without event payloads.'),
+        },
+      },
+      '/v1/requests/recent': {
+        get: {
+          summary: 'Recent gateway requests',
+          responses: jsonResponses('Recent request metadata with request ids, methods, paths, statuses, and timings; excludes query, headers, and payloads.'),
         },
       },
       '/v1/sessions/{sessionId}/incidents': {
