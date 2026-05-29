@@ -1977,6 +1977,24 @@ button:active {
   color: var(--foreground);
 }
 
+.maka-plan-group-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--foreground-60);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  padding: 5px 2px 1px;
+}
+
+.maka-plan-group-header span:last-child {
+  color: var(--foreground-40);
+  font-variant-numeric: tabular-nums;
+}
+
 .maka-plan-empty {
   position: static;
   width: auto;

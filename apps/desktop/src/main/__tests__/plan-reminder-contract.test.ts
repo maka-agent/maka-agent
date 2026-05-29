@@ -77,6 +77,9 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /searchMatchedReminders/, 'status counts must reflect the active search query');
     assert.match(ui, /找到 \{searchMatchedReminders\.length\} 个匹配提醒/, 'search must expose a visible result count');
     assert.match(ui, /清除搜索/, 'search must provide a one-click clear action');
+    assert.match(ui, /planReminderDisplayRows/, 'all-reminders view must group rows by status');
+    assert.match(ui, /maka-plan-group-header/, 'plan reminder groups must have visible headers');
+    assert.match(ui, /planReminderStatusGroupLabel/, 'group labels must come from a centralized status mapper');
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {
