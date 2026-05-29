@@ -172,7 +172,7 @@ const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'r
 };
 
 const BOT_READINESS_COPY: Record<BotReadinessState, { label: string; detail: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
-  unscaffolded: { label: '未开放', detail: '该平台暂无可用运行时。', tone: 'neutral' },
+  unscaffolded: { label: '未开放', detail: '该平台当前不可作为可用机器人。', tone: 'neutral' },
   scaffolded: { label: '待配置', detail: '还没有完成这个平台需要的凭据配置。', tone: 'neutral' },
   configured: { label: '已配置', detail: '已填写配置；还没有证明凭据或运行态可用。', tone: 'info' },
   credentials_valid: { label: '凭据有效', detail: '凭据探测通过；这不代表已能收发消息。', tone: 'warning' },

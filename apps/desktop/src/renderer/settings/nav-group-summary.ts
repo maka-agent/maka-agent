@@ -100,7 +100,7 @@ function summarizeIntegrations(connections: LlmConnection[], settings: AppSettin
   // PR-HEALTH-1 (xuan msg e4887ffd, I4): same impersonation pattern
   // PR-UI-AUDIT-1 fixed for AI connections — "N 个机器人" implied an
   // operational claim, but this is a `channel.enabled` toggle count
-  // only. Bots can be enabled but un-credentialed / unimplemented /
+  // only. Bots can be enabled but un-credentialed / unavailable /
   // degraded. Use "已启用机器人" parallel to "已启用连接" so the
   // user-toggle state stays distinct from operational readiness.
   return {

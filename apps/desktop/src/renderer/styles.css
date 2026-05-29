@@ -4966,7 +4966,7 @@ button:active {
 /* PR-PLACEHOLDER-SWEEP-0: planned-only platforms render their tab
    muted so users don't mistake them for credentialed-and-ready
    options. Clicking still navigates so the user can read the
-   "未接入运行时" notice on the detail pane. */
+   unavailable-state notice on the detail pane. */
 .settingsBotList button[data-support="planned"] {
   opacity: 0.55;
 }
