@@ -638,6 +638,24 @@ export {
   resetRelativeTimeFormatters,
 } from './relative-time.js';
 
+// text-file-import.ts — pure prompt-context limits shared by main and renderer.
+export type {
+  DroppedTextFilePreflightInput,
+  TextFileImportPreflightFailureReason,
+  TextFileImportPreflightResult,
+} from './text-file-import.js';
+export {
+  MAX_IMPORTED_FOLDER_COUNT,
+  MAX_IMPORTED_FOLDER_DEPTH,
+  MAX_IMPORTED_FOLDER_ENTRIES,
+  MAX_IMPORTED_FOLDERS_ENTRIES,
+  MAX_IMPORTED_TEXT_FILE_BYTES,
+  MAX_IMPORTED_TEXT_FILE_CHARS,
+  MAX_IMPORTED_TEXT_FILE_COUNT,
+  MAX_IMPORTED_TEXT_FILES_CHARS,
+  preflightDroppedTextFilesForPromptImport,
+} from './text-file-import.js';
+
 // daily-review.ts (PR-DAILY-REVIEW-MVP-0)
 export type {
   DailyReviewSessionRow,

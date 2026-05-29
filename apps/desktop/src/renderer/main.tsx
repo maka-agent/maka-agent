@@ -15,11 +15,12 @@ import type {
   SessionSummary,
   SettingsSection,
   StoredMessage,
+  TextFileImportPreflightFailureReason,
   ThemePreference,
   ToastPosition,
   UiDensity,
 } from '@maka/core';
-import { isToastPosition } from '@maka/core';
+import { isToastPosition, preflightDroppedTextFilesForPromptImport } from '@maka/core';
 import {
   applyAssistantDelta,
   applyThinkingComplete,
@@ -1220,8 +1221,24 @@ function AppShell(props: {
     composerRef.current?.appendText(prompt);
   }
 
+  function droppedTextFilePreflightFailureCopy(reason: TextFileImportPreflightFailureReason): string {
+    switch (reason) {
+      case 'missing':
+        return '没有可导入的文本文件。';
+      case 'too-large':
+        return '文件过大；请先截取需要讨论的部分。';
+      case 'too-many-files':
+        return '一次最多导入 5 个文本文件。';
+    }
+  }
+
   async function importDroppedTextFilesPrompt(files: File[]): Promise<string | undefined> {
     if (files.length === 0) return;
+    const preflight = preflightDroppedTextFilesForPromptImport(files);
+    if (!preflight.ok) {
+      toastApi.error('导入文本失败', droppedTextFilePreflightFailureCopy(preflight.reason));
+      return undefined;
+    }
     try {
       const payloads = await Promise.all(files.map(async (file) => ({
         name: file.name,

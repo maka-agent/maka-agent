@@ -32,6 +32,7 @@
     "./connection-readiness": "./dist/connection-readiness.js",
     "./provider-auth": "./dist/provider-auth.js",
     "./onboarding": "./dist/onboarding.js",
+    "./text-file-import": "./dist/text-file-import.js",
     "./redaction": "./dist/redaction.js",
     "./settings": "./dist/settings.js",
     "./settings/network-settings": "./dist/settings/network-settings.js",

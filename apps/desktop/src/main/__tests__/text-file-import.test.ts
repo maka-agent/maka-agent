@@ -207,7 +207,12 @@ describe('text file context import', () => {
     assert.match(mainSource, /onImportTextFile=\{importTextFileIntoComposer\}/);
     assert.match(mainSource, /onImportDroppedTextFiles=\{importDroppedTextFilesPrompt\}/);
     assert.match(mainSource, /onImportDroppedTextFiles=\{importDroppedTextFilesIntoComposer\}/);
+    assert.match(mainSource, /preflightDroppedTextFilesForPromptImport\(files\)/);
     assert.match(mainSource, /window\.maka\.context\.importDroppedTextFiles\(payloads\)/);
+    assert.ok(
+      mainSource.indexOf('preflightDroppedTextFilesForPromptImport(files)') < mainSource.indexOf('text: await file.text()'),
+      'renderer must preflight count/size before reading dropped/pasted file text',
+    );
     assert.match(mainSource, /composerRef\.current\?\.appendText\(prompt\)/);
     assert.match(mainSource, /draftKey=\{activeId \?\? 'new-session'\}/);
     assert.match(mainProcessSource, /properties: \['openFile', 'multiSelections'\]/);
