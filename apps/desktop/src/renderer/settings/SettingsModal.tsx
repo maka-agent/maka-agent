@@ -3034,6 +3034,13 @@ function OpenGatewaySettingsPage(props: {
     toast.success('已复制事件流 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端观察当前会话事件。');
   }
 
+  async function copyRecentEventsCurl() {
+    const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
+    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/events/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
+    await navigator.clipboard.writeText(command);
+    toast.success('已复制最近事件 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看最近事件摘要。');
+  }
+
   const state = presentGatewayStatus(status, gateway);
 
   return (
@@ -3131,6 +3138,9 @@ function OpenGatewaySettingsPage(props: {
         </button>
         <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyEventStreamCurl()}>
           复制事件流 curl
+        </button>
+        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyRecentEventsCurl()}>
+          复制最近事件 curl
         </button>
       </div>
 
