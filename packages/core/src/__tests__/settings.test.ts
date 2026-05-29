@@ -206,13 +206,18 @@ describe('bot readiness settings contract', () => {
 });
 
 describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () => {
-  test('THEME_PALETTES allowlist has 5 entries including default', () => {
-    expect(THEME_PALETTES.length).toBe(5);
+  test('THEME_PALETTES allowlist exposes 7 palettes including default + product borrows', () => {
+    // PR-THEME-PRODUCT-PALETTES-0 (WAWQAQ msg `4472ee95`): added
+    // `alma` and `niuma` palettes alongside the original 5 editor-style
+    // palettes. Update this pin when the palette set legitimately changes.
+    expect(THEME_PALETTES.length).toBe(7);
     expect(THEME_PALETTES.includes('default')).toBe(true);
     expect(THEME_PALETTES.includes('onedark')).toBe(true);
     expect(THEME_PALETTES.includes('catppuccin-mocha')).toBe(true);
     expect(THEME_PALETTES.includes('tokyo-night')).toBe(true);
     expect(THEME_PALETTES.includes('nord')).toBe(true);
+    expect(THEME_PALETTES.includes('alma')).toBe(true);
+    expect(THEME_PALETTES.includes('niuma')).toBe(true);
   });
 
   test('isThemePalette accepts allowlist values, rejects everything else', () => {
