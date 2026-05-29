@@ -134,6 +134,7 @@ import { connectionTestStatusPatch } from './connection-test-status.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { resolveProjectGitInfo } from './project-context.js';
+import { buildSessionEnvironmentPromptFragment } from './session-environment-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import { buildSkillsPromptFragment, createStarterSkill, listInstalledSkills, resolveSkillOpenPath } from './skills.js';
 import {
@@ -2276,6 +2277,12 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
 async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: string): Promise<string | undefined> {
   const settings = await settingsStore.get();
   const personalization = buildPersonalizationPromptFragment(settings.personalization);
+  const environment = cwd
+    ? buildSessionEnvironmentPromptFragment({
+        cwd,
+        projectGit: await resolveProjectGitInfo(cwd),
+      })
+    : undefined;
   const skills = await buildSkillsPromptFragment(workspaceRoot);
   const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
     ? await buildWorkspaceInstructionsPromptFragment(cwd)
@@ -2295,6 +2302,7 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
   const memoryFragment = await buildLocalMemoryPromptFragment();
   const fragments = [
     personalization.text,
+    environment,
     deepResearch,
     botPlatformHint,
     skills,
