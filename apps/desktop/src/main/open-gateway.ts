@@ -183,6 +183,12 @@ export class OpenGatewayService {
       writeJson(res, 200, {
         ok: true,
         capabilities: buildGatewayCapabilities(Boolean(this.deps.sendMessage)),
+        sessions: {
+          state: {
+            endpoint: '/v1/sessions/state',
+            includesPreviews: false,
+          },
+        },
         sessionMessages: {
           pagination: {
             limitQuery: 'limit',
@@ -213,6 +219,14 @@ export class OpenGatewayService {
           },
         },
       });
+      return;
+    }
+    if (url.pathname === '/v1/sessions/state') {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(res, 200, { ok: true, state: buildGatewaySessionsState(await this.deps.listSessions()) });
       return;
     }
     if (url.pathname === '/v1/sessions') {
@@ -484,6 +498,7 @@ type GatewayIncidentSummary =
 function buildGatewayCapabilities(sendAvailable: boolean): string[] {
   return [
     'sessions.list',
+    'sessions.state',
     'sessions.messages.read',
     'sessions.messages.page',
     'sessions.messages.state',
@@ -495,6 +510,50 @@ function buildGatewayCapabilities(sendAvailable: boolean): string[] {
     'sessions.incidents.read',
     'search.thread',
   ];
+}
+
+interface GatewaySessionsState {
+  sessionCount: number;
+  archivedCount: number;
+  unreadCount: number;
+  flaggedCount: number;
+  includesPreviews: false;
+  byStatus: Record<string, number>;
+  newestSession?: GatewaySessionSummary;
+  oldestSession?: GatewaySessionSummary;
+}
+
+interface GatewaySessionSummary {
+  id: string;
+  status: string;
+  lastMessageAt?: number;
+}
+
+function buildGatewaySessionsState(sessions: SessionSummary[]): GatewaySessionsState {
+  const newest = sessions[0];
+  const oldest = sessions.at(-1);
+  const byStatus: Record<string, number> = {};
+  for (const session of sessions) {
+    byStatus[session.status] = (byStatus[session.status] ?? 0) + 1;
+  }
+  return {
+    sessionCount: sessions.length,
+    archivedCount: sessions.filter((session) => session.isArchived).length,
+    unreadCount: sessions.filter((session) => session.hasUnread).length,
+    flaggedCount: sessions.filter((session) => session.isFlagged).length,
+    includesPreviews: false,
+    byStatus,
+    ...(newest ? { newestSession: summarizeGatewaySession(newest) } : {}),
+    ...(oldest ? { oldestSession: summarizeGatewaySession(oldest) } : {}),
+  };
+}
+
+function summarizeGatewaySession(session: SessionSummary): GatewaySessionSummary {
+  return {
+    id: capReplayCursor(redactSecrets(session.id)),
+    status: session.status,
+    ...(session.lastMessageAt ? { lastMessageAt: session.lastMessageAt } : {}),
+  };
 }
 
 interface GatewayMessageState {

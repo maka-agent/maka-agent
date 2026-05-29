@@ -46,6 +46,7 @@ describe('OpenGatewayService', () => {
     assert.equal(authorized.status, 200);
     assert.deepEqual(authorized.body.capabilities, [
       'sessions.list',
+      'sessions.state',
       'sessions.messages.read',
       'sessions.messages.page',
       'sessions.messages.state',
@@ -57,6 +58,12 @@ describe('OpenGatewayService', () => {
       'sessions.incidents.read',
       'search.thread',
     ]);
+    assert.deepEqual(authorized.body.sessions, {
+      state: {
+        endpoint: '/v1/sessions/state',
+        includesPreviews: false,
+      },
+    });
     assert.deepEqual(authorized.body.sessionMessages, {
       pagination: {
         limitQuery: 'limit',
@@ -116,6 +123,45 @@ describe('OpenGatewayService', () => {
     assert.equal(searchResponse.status, 200);
     assert.equal(searchedFor, 'gateway');
     assert.equal(searchResponse.body.result[0].target.sessionId, 's1');
+  });
+
+  test('exposes session state without title or preview payloads', async () => {
+    const sessions = [
+      session({ id: 's1', status: 'running', hasUnread: true, isFlagged: true, lastMessageAt: 20 }),
+      session({ id: 's2', status: 'blocked', isArchived: true, lastMessageAt: 10 }),
+      session({ id: 's3', status: 'running', lastMessageAt: undefined }),
+    ];
+    const service = makeService({
+      listSessions: async () => sessions,
+    });
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const response = await fetchJson(`${status.baseUrl}/v1/sessions/state`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.state, {
+      sessionCount: 3,
+      archivedCount: 1,
+      unreadCount: 1,
+      flaggedCount: 1,
+      includesPreviews: false,
+      byStatus: {
+        running: 2,
+        blocked: 1,
+      },
+      newestSession: {
+        id: 's1',
+        status: 'running',
+        lastMessageAt: 20,
+      },
+      oldestSession: {
+        id: 's3',
+        status: 'running',
+      },
+    });
+    assert.equal(JSON.stringify(response.body).includes('Alpha'), false);
+    assert.equal(JSON.stringify(response.body).includes('lastMessagePreview'), false);
   });
 
   test('paginates session messages with a before cursor without changing default reads', async () => {
