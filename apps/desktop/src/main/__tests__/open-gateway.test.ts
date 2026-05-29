@@ -51,6 +51,7 @@ describe('OpenGatewayService', () => {
       'sessions.events.stream',
       'sessions.events.replay',
       'sessions.events.replay_miss',
+      'sessions.events.state',
       'sessions.incidents.read',
       'search.thread',
     ]);
@@ -66,6 +67,10 @@ describe('OpenGatewayService', () => {
         missEvent: 'gateway_replay_miss',
         missAdvancesCursor: false,
         partialReplayOnMiss: false,
+      },
+      state: {
+        endpoint: '/v1/sessions/{sessionId}/events/state',
+        includesPayloads: false,
       },
     });
   });
@@ -230,6 +235,49 @@ describe('OpenGatewayService', () => {
     assert.match(chunk, /"replayLimit":100/);
     assert.doesNotMatch(chunk, /id:/, 'replay-miss diagnostics must not advance Last-Event-ID');
     assert.doesNotMatch(chunk, /newer event/, 'cursor miss requires client resync instead of partial replay');
+  });
+
+  test('exposes replay state summaries without event payloads', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s1', textDeltaEvent({
+      id: 'event-1',
+      turnId: 'turn-1',
+      text: 'first payload must not leak',
+    }));
+    service.publishSessionEvent('s1', textDeltaEvent({
+      id: 'Authorization: Bearer sk-live-secret-token-value',
+      turnId: 'turn-2',
+      text: 'second payload must not leak either',
+    }));
+
+    const response = await fetchJson(`${status.baseUrl}/v1/sessions/s1/events/state`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.deepEqual(response.body.state, {
+      replayLimit: 100,
+      bufferedEvents: 2,
+      activeStreams: 0,
+      hasReplayBuffer: true,
+      includesPayloads: false,
+      oldestEvent: {
+        id: 'event-1',
+        type: 'text_delta',
+        turnId: 'turn-1',
+        ts: 1_700_000_000_000,
+      },
+      newestEvent: {
+        id: 'Authorization: Bearer [redacted]',
+        type: 'text_delta',
+        turnId: 'turn-2',
+        ts: 1_700_000_000_000,
+      },
+    });
+    assert.doesNotMatch(JSON.stringify(response.body), /payload must not leak/);
+    assert.doesNotMatch(JSON.stringify(response.body), /sk-live-secret-token-value/);
   });
 
   test('exposes bounded redacted recent run incidents without event payload replay', async () => {
