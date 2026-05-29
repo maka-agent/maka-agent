@@ -109,10 +109,24 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.ok(permissionPage, 'Permission Center page block must exist');
     assert.match(permissionPage![0], /只读取系统权限与功能能力的当前快照/, 'Permission Center must explain the current read-only snapshot boundary');
     assert.match(permissionPage![0], /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
+    assert.match(settings, /not_determined:\s*\{\s*label:\s*'等待授权'/, 'OS not_determined should read as an actionable waiting state');
+    assert.match(settings, /仍有运行态、权限或子功能需要处理/, 'degraded capability copy should describe a current action state');
     assert.doesNotMatch(
       permissionPage![0],
-      /原生 helper|上线后|接入后|即将可用|未接入/,
+      /原生 helper|上线后|接入后|即将可用|未接入|尚未授权|子功能没有完成/,
       'Permission Center visible copy must not expose implementation roadmap/helper language',
+    );
+  });
+
+  it('keeps bot readiness waiting states action-oriented', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(settings, /scaffolded:\s*\{\s*label:\s*'待配置',\s*detail:\s*'等待补齐这个平台需要的凭据配置。'/);
+    assert.match(settings, /configured:\s*\{\s*label:\s*'已配置',\s*detail:\s*'已填写配置；等待完成凭据或运行态验证。'/);
+    assert.doesNotMatch(
+      settings,
+      /还没有完成这个平台需要的凭据配置|还没有证明凭据或运行态可用/,
+      'Bot readiness copy should describe actionable waiting states, not unfinished implementation states',
     );
   });
 

@@ -218,8 +218,8 @@ const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'r
 
 const BOT_READINESS_COPY: Record<BotReadinessState, { label: string; detail: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
   unscaffolded: { label: '未开放', detail: '该平台当前不可作为可用机器人。', tone: 'neutral' },
-  scaffolded: { label: '待配置', detail: '还没有完成这个平台需要的凭据配置。', tone: 'neutral' },
-  configured: { label: '已配置', detail: '已填写配置；还没有证明凭据或运行态可用。', tone: 'info' },
+  scaffolded: { label: '待配置', detail: '等待补齐这个平台需要的凭据配置。', tone: 'neutral' },
+  configured: { label: '已配置', detail: '已填写配置；等待完成凭据或运行态验证。', tone: 'info' },
   credentials_valid: { label: '凭据有效', detail: '凭据探测通过；这不代表已能收发消息。', tone: 'warning' },
   operational: { label: '运行可用', detail: '最近一次真实运行探测成功。', tone: 'success' },
   degraded: { label: '运行降级', detail: '之前可用，但最近运行态探测失败。', tone: 'destructive' },
@@ -4004,7 +4004,7 @@ const CAPABILITY_READINESS_COPY: Record<CapabilityReadinessState, { label: strin
   not_configured: { label: '未配置', detail: '需要先打开开关或完成配置才能启用。', tone: 'neutral' },
   denied: { label: '系统拒绝', detail: '所需系统权限被拒绝或当前平台不支持。', tone: 'destructive' },
   enabled: { label: '运行可用', detail: '当前快照标记为可用，具体层级见下方。', tone: 'success' },
-  degraded: { label: '部分可用', detail: '已有一部分能力可用，但仍有运行态、权限或子功能没有完成。', tone: 'warning' },
+  degraded: { label: '部分可用', detail: '已有一部分能力可用，但仍有运行态、权限或子功能需要处理。', tone: 'warning' },
   paused: { label: '已暂停', detail: '功能开关被显式关闭，但配置仍保留。', tone: 'info' },
 };
 
@@ -4019,7 +4019,7 @@ const OS_PERMISSION_COPY: Record<OsPermissionId, { label: string; purpose: strin
 const OS_PERMISSION_STATE_COPY: Record<OsPermissionState, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
   unsupported: { label: '当前平台不支持', tone: 'neutral' },
   unknown: { label: '无法读取状态', tone: 'neutral' },
-  not_determined: { label: '尚未授权', tone: 'warning' },
+  not_determined: { label: '等待授权', tone: 'warning' },
   denied: { label: '已拒绝', tone: 'destructive' },
   granted: { label: '已授权', tone: 'success' },
 };
