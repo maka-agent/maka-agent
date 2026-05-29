@@ -2251,6 +2251,27 @@ button:active {
   outline-offset: 2px;
 }
 
+.maka-chat-header-mode-pill {
+  border: 1px solid oklch(from var(--info) l c h / 0.32);
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  -webkit-app-region: no-drag;
+  margin-right: 6px;
+  margin-bottom: 9px;
+  white-space: nowrap;
+}
+
+.maka-chat-header-mode-pill svg {
+  flex: 0 0 auto;
+}
+
 .maka-chat-header .modePill {
   margin-bottom: 9px;
   -webkit-app-region: no-drag;

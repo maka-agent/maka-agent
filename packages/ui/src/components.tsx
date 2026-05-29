@@ -76,6 +76,7 @@ import {
   formatPlanReminderDeliveryTarget,
   formatPermissionRequestWait,
   formatRelativeTimestamp,
+  isDeepResearchSession,
   normalizeSearchUrl,
   nextRelativeRefreshDelay,
 } from '@maka/core';
@@ -2711,6 +2712,7 @@ export function ChatView(props: {
   }
 
   const isFakeBackend = props.activeSession.backend === 'fake';
+  const deepResearchActive = isDeepResearchSession(props.activeSession.labels);
 
   return (
     <main className="maka-main detailPane">
@@ -2742,6 +2744,17 @@ export function ChatView(props: {
             <span>记忆</span>
           </button>
         )}
+        {deepResearchActive && (
+          <span
+            className="maka-chat-header-mode-pill"
+            data-mode="deep-research"
+            title="深度研究会话使用只读探索边界：先阅读和分析，默认不改文件。"
+            aria-label="深度研究，只读探索"
+          >
+            <Sparkles size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>深度研究</span>
+          </span>
+        )}
         {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
         {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
         {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
@@ -2767,7 +2780,13 @@ export function ChatView(props: {
         )}
         <div ref={scrollRef} className="maka-chat messages" onScroll={onScroll}>
           {chat.length === 0 && !props.streamingText && (
-            props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} userLabel={props.userLabel} />
+            props.emptyOverride ?? (
+              deepResearchActive ? (
+                <DeepResearchEmptyHero onPromptSuggestion={props.onPromptSuggestion} />
+              ) : (
+                <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} userLabel={props.userLabel} />
+              )
+            )
           )}
           {turns.map((turn, idx) => {
             // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0 (kenji `af77f61`
@@ -3278,6 +3297,57 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
               >
                 <span className="maka-prompt-chip-label">{suggestion.label}</span>
                 <span className="maka-prompt-chip-hint">{suggestion.prompt.split('\n')[0]?.slice(0, 60)}…</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+const DEEP_RESEARCH_PROMPT_SUGGESTIONS = [
+  {
+    label: '研究一个参考项目',
+    prompt:
+      '请只读研究这个项目：先梳理目录结构、核心模块、启动链路、数据流和测试入口，然后列出我们可以借鉴的功能设计、需要规避的风险，以及可落地到 Maka 的 PR 顺序。',
+  },
+  {
+    label: '对比一个功能实现',
+    prompt:
+      '请只读对比这个功能在参考项目和 Maka 里的实现差异：指出关键文件、运行时边界、UI 入口、持久化方式、测试覆盖，以及最小可合入的改进方案。',
+  },
+  {
+    label: '做一次安全边界审计',
+    prompt:
+      '请只读审计这个功能的安全边界：权限、token/密钥流、IPC/renderer 暴露、文件路径、隐身模式、日志与 telemetry。输出 blocking 风险和对应 contract test。',
+  },
+];
+
+function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): void }) {
+  return (
+    <section className="maka-hero maka-hero-empty-chat maka-hero-deep-research" aria-label="深度研究空会话">
+      <header>
+        <span className="maka-hero-eyebrow">
+          <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+          <span>深度研究 · 只读探索</span>
+        </span>
+        <h1>先把项目读透，再决定怎么改。</h1>
+        <p>
+          这个会话固定在 Explore 权限：优先阅读、搜索和分析代码；需要动手实现时，先输出文件、风险和验证命令。
+        </p>
+      </header>
+      {props.onPromptSuggestion && (
+        <ul className="maka-prompt-suggestions" aria-label="深度研究起手式">
+          {DEEP_RESEARCH_PROMPT_SUGGESTIONS.map((suggestion) => (
+            <li key={suggestion.label}>
+              <button
+                type="button"
+                className="maka-prompt-chip"
+                onClick={() => props.onPromptSuggestion?.(suggestion.prompt)}
+              >
+                <span className="maka-prompt-chip-label">{suggestion.label}</span>
+                <span className="maka-prompt-chip-hint">{suggestion.prompt.slice(0, 60)}…</span>
               </button>
             </li>
           ))}
