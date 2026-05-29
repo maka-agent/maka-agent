@@ -83,6 +83,25 @@ export const DEEP_RESEARCH_EVIDENCE_CHECKLIST = [
   },
 ] as const;
 
+export const DEEP_RESEARCH_PROGRESS_CHECKPOINTS = [
+  {
+    title: '先建清单',
+    body: '研究范围超过三个相互关联的点时，先列出可核验的检查项再开始追代码。',
+  },
+  {
+    title: '标当前项',
+    body: '推进时明确当前正在验证哪一项，拿到证据后再进入下一项。',
+  },
+  {
+    title: '记阻塞点',
+    body: '找不到源码、运行时或测试证据时标成 blocked，不用猜测补空白。',
+  },
+  {
+    title: '收敛方案',
+    body: '完成项必须汇总到 borrow / diverge / risk / gate 和可落地改进里。',
+  },
+] as const;
+
 export const DEEP_RESEARCH_STARTER_PROMPTS = [
   {
     label: '研究一个参考项目',
@@ -139,6 +158,10 @@ export function buildDeepResearchSystemPromptFragment(): string {
     'Evidence checklist:',
     ...DEEP_RESEARCH_EVIDENCE_CHECKLIST.map((item) => `- ${item.title}: ${item.body}`),
     '- If any checklist area cannot be verified from available files or runtime context, call that out explicitly instead of guessing.',
+    '',
+    'Progress checkpoints:',
+    ...DEEP_RESEARCH_PROGRESS_CHECKPOINTS.map((item) => `- ${item.title}: ${item.body}`),
+    '- Treat the checklist as a control loop for multi-step research, not as a hidden task system. Keep it visible in the answer or status update when the research spans multiple modules.',
     '',
     'Final report contract:',
     ...DEEP_RESEARCH_REPORT_SECTIONS.map((section) => `- ${section.title}: ${section.body}`),

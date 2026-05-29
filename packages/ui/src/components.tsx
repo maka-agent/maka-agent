@@ -77,6 +77,7 @@ import {
   formatPermissionRequestWait,
   formatRelativeTimestamp,
   DEEP_RESEARCH_EVIDENCE_CHECKLIST,
+  DEEP_RESEARCH_PROGRESS_CHECKPOINTS,
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
   DEEP_RESEARCH_STARTER_PROMPTS,
@@ -3369,6 +3370,17 @@ function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): voi
             <li key={item.title}>
               <span className="maka-deep-research-evidence-title">{item.title}</span>
               <span className="maka-deep-research-evidence-body">{item.body}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section className="maka-deep-research-progress" aria-label="深度研究检查点">
+        <h2>多步研究要按检查点推进</h2>
+        <ul>
+          {DEEP_RESEARCH_PROGRESS_CHECKPOINTS.map((item) => (
+            <li key={item.title}>
+              <span className="maka-deep-research-progress-title">{item.title}</span>
+              <span className="maka-deep-research-progress-body">{item.body}</span>
             </li>
           ))}
         </ul>

@@ -52,6 +52,9 @@ describe('deep research visible surface contract', () => {
     assert.match(ui, /DEEP_RESEARCH_EVIDENCE_CHECKLIST\.map/);
     assert.match(ui, /aria-label="深度研究证据清单"/);
     assert.match(ui, /每次研究都要留证据/);
+    assert.match(ui, /DEEP_RESEARCH_PROGRESS_CHECKPOINTS\.map/);
+    assert.match(ui, /aria-label="深度研究检查点"/);
+    assert.match(ui, /多步研究要按检查点推进/);
   });
 
   it('pins deep research starter prompts in the shared core contract', async () => {
@@ -74,7 +77,7 @@ describe('deep research visible surface contract', () => {
     assert.match(css, /\.maka-deep-research-workflow\s*\{/);
     assert.match(
       css,
-      /\.maka-deep-research-report,\s*\.maka-deep-research-scope,\s*\.maka-deep-research-evidence\s*\{/,
+      /\.maka-deep-research-report,\s*\.maka-deep-research-scope,\s*\.maka-deep-research-evidence,\s*\.maka-deep-research-progress\s*\{/,
     );
   });
 });
