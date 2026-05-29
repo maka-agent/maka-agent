@@ -4210,6 +4210,7 @@ export function appendPromptContextDraft(current: string, fragment: string): str
 
 const COMPOSER_DRAFT_MAX_CHARS = 120_000;
 const COMPOSER_DRAFT_MAX_ENTRIES = 32;
+const COMPOSER_HISTORY_MAX_ENTRIES = 50;
 
 export function rememberComposerDraft(store: Map<string, string>, key: string | undefined, value: string): void {
   if (!key) return;
@@ -4238,6 +4239,58 @@ export function readComposerDraft(store: Map<string, string>, key: string | unde
   return store.get(key) ?? '';
 }
 
+export interface ComposerHistoryState {
+  entries: string[];
+  index: number;
+  savedDraft: string;
+}
+
+export function rememberComposerHistoryEntry(entries: string[], text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return entries;
+  const next = entries.filter((entry) => entry !== trimmed);
+  next.push(trimmed);
+  if (next.length > COMPOSER_HISTORY_MAX_ENTRIES) {
+    return next.slice(next.length - COMPOSER_HISTORY_MAX_ENTRIES);
+  }
+  return next;
+}
+
+export function navigateComposerHistory(
+  state: ComposerHistoryState,
+  direction: 'previous' | 'next',
+  currentValue: string,
+): { state: ComposerHistoryState; value: string; changed: boolean } {
+  if (state.entries.length === 0) return { state, value: currentValue, changed: false };
+
+  if (direction === 'previous') {
+    const savedDraft = state.index < 0 ? currentValue : state.savedDraft;
+    const index = state.index < 0
+      ? state.entries.length - 1
+      : Math.max(0, state.index - 1);
+    return {
+      state: { entries: state.entries, index, savedDraft },
+      value: state.entries[index] ?? currentValue,
+      changed: true,
+    };
+  }
+
+  if (state.index < 0) return { state, value: currentValue, changed: false };
+  const index = state.index + 1;
+  if (index >= state.entries.length) {
+    return {
+      state: { entries: state.entries, index: -1, savedDraft: '' },
+      value: state.savedDraft,
+      changed: true,
+    };
+  }
+  return {
+    state: { entries: state.entries, index, savedDraft: state.savedDraft },
+    value: state.entries[index] ?? currentValue,
+    changed: true,
+  };
+}
+
 export const Composer = forwardRef<
   ComposerHandle,
   {
@@ -4261,6 +4314,7 @@ export const Composer = forwardRef<
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
+  const promptHistoryRef = useRef<ComposerHistoryState>({ entries: [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
   // is effectively constant for the lifetime of the renderer but the
@@ -4285,6 +4339,14 @@ export const Composer = forwardRef<
     rememberComposerDraft(draftStoreRef.current, activeDraftKeyRef.current, value ?? textareaRef.current?.value ?? '');
   }
 
+  function resetPromptHistoryNavigation() {
+    promptHistoryRef.current = {
+      entries: promptHistoryRef.current.entries,
+      index: -1,
+      savedDraft: '',
+    };
+  }
+
   useEffect(() => {
     const el = textareaRef.current;
     const previousKey = activeDraftKeyRef.current;
@@ -4293,6 +4355,7 @@ export const Composer = forwardRef<
     if (previousKey !== nextKey) {
       rememberComposerDraft(draftStoreRef.current, previousKey, el?.value ?? '');
       activeDraftKeyRef.current = nextKey;
+      resetPromptHistoryNavigation();
       if (el) {
         el.value = readComposerDraft(draftStoreRef.current, nextKey);
         autoResize();
@@ -4308,6 +4371,7 @@ export const Composer = forwardRef<
       setText(text: string) {
         const el = textareaRef.current;
         if (!el) return;
+        resetPromptHistoryNavigation();
         el.value = text;
         saveCurrentDraft(text);
         autoResize();
@@ -4319,6 +4383,7 @@ export const Composer = forwardRef<
       appendText(text: string) {
         const el = textareaRef.current;
         if (!el) return;
+        resetPromptHistoryNavigation();
         el.value = appendPromptContextDraft(el.value, text);
         saveCurrentDraft(el.value);
         autoResize();
@@ -4341,6 +4406,11 @@ export const Composer = forwardRef<
     if (!text) return;
     const sent = await props.onSend(text);
     if (sent === false) return;
+    promptHistoryRef.current = {
+      entries: rememberComposerHistoryEntry(promptHistoryRef.current.entries, text),
+      index: -1,
+      savedDraft: '',
+    };
     saveCurrentDraft('');
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
@@ -4367,6 +4437,28 @@ export const Composer = forwardRef<
       props.onStop();
       return;
     }
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      const el = textareaRef.current;
+      const isNavigatingHistory = promptHistoryRef.current.index >= 0;
+      const canStartHistory = Boolean(el && !el.value.trim());
+      if (el && (isNavigatingHistory || canStartHistory)) {
+        const next = navigateComposerHistory(
+          promptHistoryRef.current,
+          event.key === 'ArrowUp' ? 'previous' : 'next',
+          el.value,
+        );
+        if (next.changed) {
+          event.preventDefault();
+          promptHistoryRef.current = next.state;
+          el.value = next.value;
+          saveCurrentDraft(next.value);
+          autoResize();
+          const length = el.value.length;
+          el.setSelectionRange(length, length);
+          return;
+        }
+      }
+    }
     if (event.key !== 'Enter') return;
     if (event.shiftKey || event.altKey) return; // Shift+Enter / Alt+Enter inserts a newline.
     event.preventDefault();
@@ -4374,6 +4466,7 @@ export const Composer = forwardRef<
   }
 
   function onTextareaInput() {
+    resetPromptHistoryNavigation();
     autoResize();
     saveCurrentDraft();
   }
