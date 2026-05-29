@@ -39,12 +39,22 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('manual add stays draft-only and routes through the core helper', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const manualAddBlock = src.match(/function addManualMemoryDraftEntry\(\) \{[\s\S]*?\n  \}\n\n  async function updateMemoryEntryStatus/)?.[0] ?? '';
 
     assert.match(src, /appendManualLocalMemoryEntryDraft\(draft/);
     assert.match(src, /tags:\s*newMemoryTags\.split\(', '\)|tags:\s*newMemoryTags\.split\(','/);
     assert.match(src, /aria-label="记忆标签"/);
     assert.match(src, /已添加到草稿/);
     assert.match(src, /确认文件内容后点击保存/);
-    assert.doesNotMatch(src, /window\.maka\.memory\.save\(result\.draft\)/);
+    assert.doesNotMatch(manualAddBlock, /window\.maka\.memory\.save\(result\.draft\)/);
+  });
+
+  it('can archive and restore visible memory entries without hand-editing metadata', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(src, /setLocalMemoryEntryStatusDraft\(draft/);
+    assert.match(src, /onStatusChange=\{updateMemoryEntryStatus\}/);
+    assert.match(src, />\s*\{props\.archived \? '恢复' : '归档'\}\s*<\/button>/);
+    assert.match(src, /window\.maka\.memory\.save\(result\.draft\)/);
   });
 });

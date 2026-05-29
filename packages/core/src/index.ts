@@ -393,6 +393,8 @@ export type {
   LocalMemoryState,
   AppendManualLocalMemoryEntryInput,
   AppendManualLocalMemoryEntryResult,
+  SetLocalMemoryEntryStatusInput,
+  SetLocalMemoryEntryStatusResult,
 } from './local-memory.js';
 export {
   LOCAL_MEMORY_MAX_BYTES,
@@ -403,6 +405,7 @@ export {
   defaultLocalMemorySettings,
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
+  setLocalMemoryEntryStatusDraft,
 } from './local-memory.js';
 
 // voice.ts (PR-VOICE-0) — core contract; no IPC/storage/provider/runtime/UI.
