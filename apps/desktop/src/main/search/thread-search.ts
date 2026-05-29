@@ -180,6 +180,35 @@ export async function runThreadSearch(
       truncated = true;
       break;
     }
+
+    const titleHit = findMatch(session.name, queryFolded);
+    if (titleHit !== undefined) {
+      const snippet = capCodePoints(
+        redactSecrets(buildSnippet(session.name, titleHit, SNIPPET_CONTEXT_HALF)),
+        SNIPPET_MAX_CODE_POINTS,
+      );
+      const snippetBytes = Buffer.byteLength(snippet, 'utf8');
+      if (totalBytes + snippetBytes > TOTAL_PAYLOAD_CAP_BYTES) {
+        truncated = true;
+        break;
+      }
+      totalBytes += snippetBytes;
+      results.push({
+        source: THREAD_SOURCE,
+        title: session.name,
+        summary: '会话标题',
+        snippet,
+        target: {
+          kind: 'thread',
+          sessionId: session.id,
+        },
+      });
+      if (results.length >= maxResults) {
+        truncated = true;
+        break;
+      }
+    }
+
     let messages: StoredMessage[];
     try {
       messages = await deps.readMessages(session.id);

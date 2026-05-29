@@ -294,7 +294,7 @@ describe('G2 — fake-backend sessions excluded', () => {
       { source: 'thread', query: 'hello', limit: 5 },
       makeDeps({
         fakeSession: {
-          session: session({ id: 'fakeSession', backend: 'fake' }),
+          session: session({ id: 'fakeSession', name: 'hello fake title', backend: 'fake' }),
           messages: [userMessage('hello from fixture')],
         },
         realSession: {
@@ -323,6 +323,68 @@ describe('G2 — fake-backend sessions excluded', () => {
     );
     if (!Array.isArray(result)) assert.fail('expected results');
     assert.equal(result.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session title hits
+// ---------------------------------------------------------------------------
+
+describe('session title hits', () => {
+  it('returns a thread result when the query matches the session title', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'roadmap', limit: 5 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1', name: 'Maka roadmap planning' }),
+          messages: [userMessage('no matching body here')],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.equal(result.length, 1);
+    const hit = result[0]!;
+    assert.equal(hit.summary, '会话标题');
+    assert.equal(hit.title, 'Maka roadmap planning');
+    assert.match(hit.snippet ?? '', /roadmap/i);
+    assert.equal(hit.url, undefined, 'thread title result must not construct a maka://session URL');
+    assert.equal(hit.target?.kind, 'thread');
+    if (hit.target?.kind === 'thread') {
+      assert.equal(hit.target.sessionId, 's1');
+      assert.equal(hit.target.turnId, undefined, 'title hit has no turn anchor');
+    }
+  });
+
+  it('redacts secrets from title snippets', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'sk-ant', limit: 5 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1', name: 'Rotate sk-ant-test-secret-token-12345 now' }),
+          messages: [userMessage('no body match')],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.equal(result.length, 1);
+    assert.ok(!result[0]!.snippet!.includes('sk-ant-test-secret-token-12345'));
+    assert.match(result[0]!.snippet!, /\[redacted\]/);
+  });
+
+  it('marks truncation when title hit alone reaches the requested limit', async () => {
+    const result = await runThreadSearch(
+      { source: 'thread', query: 'planning', limit: 1 },
+      makeDeps({
+        s1: {
+          session: session({ id: 's1', name: 'planning title' }),
+          messages: [userMessage('planning body')],
+        },
+      }),
+    );
+    if (!Array.isArray(result)) assert.fail('expected results');
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.summary, '会话标题');
+    assert.equal(result[0]?.truncated, true);
   });
 });
 
@@ -780,7 +842,7 @@ describe('SearchResult.target carries thread navigation (PR-SEARCH-1.5)', () => 
       { source: 'thread', query: 'diagnostic', limit: 5 },
       makeDeps({
         s1: {
-          session: session({ id: 's1', name: 'Diagnostics' }),
+          session: session({ id: 's1', name: 'Ops Run' }),
           messages: [
             userMessage('diagnostic from user', 'turnUser', 'u1'),
             assistantMessage('diagnostic from assistant', 'turnAssistant', 'a1'),
