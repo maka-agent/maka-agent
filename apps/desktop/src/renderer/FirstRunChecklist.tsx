@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BookOpen, CalendarDays, Check, Clock, Mic, Search, Sparkles, User } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, Search, Sparkles, User } from 'lucide-react';
 import type { AppSettings, PlanReminder, SettingsSection } from '@maka/core';
 
 interface ChecklistItem {
@@ -48,6 +48,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   // drops back to 0).
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [planReminders, setPlanReminders] = useState<ReadonlyArray<PlanReminder>>([]);
+  const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +57,9 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
     });
     void window.maka.plans.list().then((list) => {
       if (!cancelled) setPlanReminders(list);
+    });
+    void window.maka.workspaceInstructions.getState().then((state) => {
+      if (!cancelled) setWorkspaceInstructionCount(state.detectedCount);
     });
     return () => {
       cancelled = true;
@@ -106,6 +110,14 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         onClick: () => props.onOpenSidebarModule('daily-review'),
       },
       {
+        id: 'workspace-instructions',
+        Icon: FileText,
+        title: '创建项目指令文件',
+        reason: '把这个工作区的约定写进 AGENTS.md / CLAUDE.md / GEMINI.md，之后可随时关闭。',
+        done: workspaceInstructionCount > 0,
+        onClick: () => props.onOpenSettingsSection('memory'),
+      },
+      {
         // xuan c06e13f transparent MEMORY.md MVP + my
         // PR-MEMORY-PROMPT-INJECT-0 wiring. "done" only flips when
         // BOTH switches are on (file enabled AND agent-read), since
@@ -135,7 +147,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         onClick: () => props.onOpenSettingsSection('voice-models'),
       },
     ];
-  }, [settings, planReminders, props]);
+  }, [settings, planReminders, workspaceInstructionCount, props]);
 
   if (!settings || items.length === 0) return null;
 

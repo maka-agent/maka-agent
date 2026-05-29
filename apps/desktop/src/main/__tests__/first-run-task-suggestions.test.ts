@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   FIRST_RUN_TASK_SUGGESTIONS,
   type FirstRunTaskSuggestionId,
@@ -43,5 +45,14 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.ok(fileOrganize);
     assert.match(fileOrganize.prompt, /不要直接移动或删除文件/);
     assert.match(fileOrganize.prompt, /等我确认/);
+  });
+
+  it('surfaces project instruction creation in the first-run checklist', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
+
+    assert.match(source, /workspaceInstructions\.getState\(\)/);
+    assert.match(source, /创建项目指令文件/);
+    assert.match(source, /workspaceInstructionCount > 0/);
+    assert.match(source, /onOpenSettingsSection\('memory'\)/);
   });
 });
