@@ -140,7 +140,7 @@ function chipTitle(connection: LlmConnection): string {
           </div>
           {connections.length === 0 ? (
             <button className="enabledEmptyChip" type="button" onClick={() => startAdd('zai-coding-plan')}>
-              <strong>还没有供应商</strong>
+              <strong>等待添加供应商</strong>
               <small>从下面选择一个开始配置。</small>
             </button>
           ) : connections.map((connection) => (
