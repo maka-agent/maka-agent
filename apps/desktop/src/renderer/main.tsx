@@ -2168,6 +2168,10 @@ function AppShell() {
             closeSettings();
             setNavSelection({ section: 'daily-review' });
           }}
+          onOpenSession={(sessionId) => {
+            closeSettings();
+            setActiveId(sessionId);
+          }}
         />
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}

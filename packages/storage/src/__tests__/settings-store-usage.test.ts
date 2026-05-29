@@ -93,6 +93,8 @@ describe('SettingsStore.usageStats request logs', () => {
 
       const modelLog = stats.logs.find((log) => log.kind === 'model');
       assert.ok(modelLog);
+      assert.equal(modelLog.sessionId, 'session-1');
+      assert.equal(modelLog.turnId, 'turn-1');
       assert.equal(modelLog.model, 'claude-sonnet-4-runtime');
       assert.equal(modelLog.inputTokens, 120);
       assert.equal(modelLog.outputTokens, 30);
@@ -100,6 +102,8 @@ describe('SettingsStore.usageStats request logs', () => {
       const toolLog = stats.logs.find((log) => log.kind === 'tool');
       assert.ok(toolLog);
       assert.equal(toolLog.id, 'tool:tool-1');
+      assert.equal(toolLog.sessionId, 'session-1');
+      assert.equal(toolLog.turnId, 'turn-1');
       assert.equal(toolLog.provider, 'anthropic');
       assert.equal(toolLog.model, 'claude-sonnet-4');
       assert.equal(toolLog.toolName, '终端');

@@ -255,6 +255,8 @@ export interface UsageRequestLog {
   id: string;
   ts: number;
   kind: 'model' | 'tool';
+  sessionId: string;
+  turnId: string;
   provider: string;
   model: string;
   toolName?: string;

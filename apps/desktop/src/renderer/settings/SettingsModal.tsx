@@ -306,6 +306,11 @@ export function SettingsModal(props: {
    * gracefully when the shell does not provide the jump.
    */
   onOpenDailyReview?(): void;
+  /**
+   * Jump from diagnostics surfaces (usage rows, later run history) back to the
+   * source conversation. Settings owns the table, shell owns navigation.
+   */
+  onOpenSession?(sessionId: string): void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // Escape closes the modal, Tab/Shift+Tab cycles inside the dialog,
@@ -336,6 +341,7 @@ export function SettingsModal(props: {
           onUserLabelChange={props.onUserLabelChange}
           requestedSection={props.requestedSection}
           onOpenDailyReview={props.onOpenDailyReview}
+          onOpenSession={props.onOpenSession}
         />
       </div>
     </div>
@@ -356,6 +362,7 @@ function SettingsSurface(props: {
   onUserLabelChange?(label: string): void;
   requestedSection?: SettingsSection;
   onOpenDailyReview?(): void;
+  onOpenSession?(sessionId: string): void;
 }) {
   const [section, setSection] = useState<SettingsSection>(() => props.requestedSection ?? readLastSettingsSection());
 
@@ -482,6 +489,7 @@ function SettingsSurface(props: {
               onDensityChange={props.onDensityChange}
               onThemePaletteChange={props.onThemePaletteChange}
               onOpenDailyReview={props.onOpenDailyReview}
+              onOpenSession={props.onOpenSession}
             />
           )}
         </div>
@@ -509,6 +517,7 @@ function SettingsPage(props: {
   onDensityChange(density: UiDensity): void;
   onThemePaletteChange(palette: ThemePalette): void;
   onOpenDailyReview?(): void;
+  onOpenSession?(sessionId: string): void;
 }) {
   switch (props.section) {
     case 'models':
@@ -528,6 +537,7 @@ function SettingsPage(props: {
           stats={props.usageStats}
           onUpdate={props.onUpdateSettings}
           onReload={props.onReloadUsage}
+          onOpenSession={props.onOpenSession}
         />
       );
     case 'bot-chat':
@@ -3660,6 +3670,7 @@ function UsageSettingsPage(props: {
   stats: UsageStats | null;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onReload(range?: UsageRange): Promise<void>;
+  onOpenSession?(sessionId: string): void;
 }) {
   const usage = props.settings.usage;
   const [refreshing, setRefreshing] = useState(false);
@@ -3771,13 +3782,14 @@ function UsageSettingsPage(props: {
           stats={stats}
           logs={showRequestDetails ? filteredLogs : []}
           requestEmpty={hasRequestFilters ? '没有符合筛选条件的请求记录' : '暂无请求记录'}
+          onOpenSession={props.onOpenSession}
         />
       )}
     </div>
   );
 }
 
-function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats: UsageStats | null; logs: UsageStats['logs']; requestEmpty: string }) {
+function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats: UsageStats | null; logs: UsageStats['logs']; requestEmpty: string; onOpenSession?(sessionId: string): void }) {
   if (props.activeTab === 'providers') {
     return <SimpleStatsTable headers={['供应商', '请求', 'Token', '费用']} rows={(props.stats?.byProvider ?? []).map((row) => [row.provider, row.requests, row.tokens, `$${row.costUsd.toFixed(2)}`])} />;
   }
@@ -3790,7 +3802,7 @@ function UsageTable(props: { activeTab: AppSettings['usage']['activeTab']; stats
   if (props.activeTab === 'pricing') {
     return <SimpleStatsTable headers={['供应商', '模型', '输入 / 1M', '输出 / 1M']} rows={(props.stats?.pricing ?? []).map((row) => [row.provider, row.model, `$${row.inputPerMTokUsd}`, `$${row.outputPerMTokUsd}`])} empty="暂无定价覆盖配置" />;
   }
-  return <SimpleStatsTable headers={['时间', '类型', '对象', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), usageRequestKindLabel(row.kind), usageRequestTarget(row), row.inputTokens + row.outputTokens, row.kind === 'model' ? `$${(row.costUsd ?? 0).toFixed(2)}` : '-', row.latencyMs ? `${row.latencyMs}ms` : '-', usageRequestStatusLabel(row.status)])} empty={props.requestEmpty} />;
+  return <SimpleStatsTable headers={['时间', '类型', '对象', '会话', 'Token', '费用', '延迟', '状态']} rows={props.logs.map((row) => [new Date(row.ts).toLocaleString(), usageRequestKindLabel(row.kind), usageRequestTarget(row), usageRequestSessionCell(row, props.onOpenSession), row.inputTokens + row.outputTokens, row.kind === 'model' ? `$${(row.costUsd ?? 0).toFixed(2)}` : '-', row.latencyMs ? `${row.latencyMs}ms` : '-', usageRequestStatusLabel(row.status)])} empty={props.requestEmpty} />;
 }
 
 function usageRequestKindLabel(kind: UsageStats['logs'][number]['kind']) {
@@ -3804,6 +3816,20 @@ function usageRequestTarget(row: UsageStats['logs'][number]) {
   return row.kind === 'tool' ? row.toolName ?? row.model : row.model;
 }
 
+function usageRequestSessionCell(row: UsageStats['logs'][number], onOpenSession?: (sessionId: string) => void) {
+  const label = shortUsageSessionId(row.sessionId);
+  if (!onOpenSession) return label;
+  return (
+    <button type="button" className="maka-button maka-button-ghost" data-size="sm" onClick={() => onOpenSession(row.sessionId)}>
+      打开 {label}
+    </button>
+  );
+}
+
+function shortUsageSessionId(sessionId: string) {
+  return sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
+}
+
 function usageRequestStatusLabel(status: UsageStats['logs'][number]['status']) {
   switch (status) {
     case 'success': return '成功';
@@ -3811,7 +3837,7 @@ function usageRequestStatusLabel(status: UsageStats['logs'][number]['status']) {
   }
 }
 
-function SimpleStatsTable(props: { headers: string[]; rows: Array<Array<string | number>>; empty?: string }) {
+function SimpleStatsTable(props: { headers: string[]; rows: Array<Array<ReactNode>>; empty?: string }) {
   return (
     <table className="settingsStatsTable">
       <thead>
