@@ -84,8 +84,35 @@ describe('text file context import', () => {
       assert.equal(result.name, 'notes.md');
       assert.equal(result.files, 1);
       assert.equal(result.truncated, false);
-      assert.match(result.prompt, /<local-text-file name="notes\.md">/);
+      assert.match(result.prompt, /<local-text-file name="notes\.md" source="file-picker" fingerprint="sha256:[0-9a-f]{16}">/);
       assert.match(result.prompt, /Use the local context\./);
+    });
+  });
+
+  it('adds stable non-authority source fingerprints to imported text context', async () => {
+    await withTempDir(async (root) => {
+      const filePath = join(root, 'notes.md');
+      await writeFile(filePath, 'stable local context\n', 'utf8');
+
+      const first = await readTextFileForPromptImport(filePath);
+      const second = await readTextFileForPromptImport(filePath);
+      await writeFile(filePath, 'changed local context\n', 'utf8');
+      const changed = await readTextFileForPromptImport(filePath);
+
+      assert.equal(first.ok, true);
+      assert.equal(second.ok, true);
+      assert.equal(changed.ok, true);
+      if (!first.ok || !second.ok || !changed.ok) return;
+
+      const firstFingerprint = first.prompt.match(/fingerprint="(sha256:[0-9a-f]{16})"/)?.[1];
+      const secondFingerprint = second.prompt.match(/fingerprint="(sha256:[0-9a-f]{16})"/)?.[1];
+      const changedFingerprint = changed.prompt.match(/fingerprint="(sha256:[0-9a-f]{16})"/)?.[1];
+
+      assert.ok(firstFingerprint);
+      assert.equal(secondFingerprint, firstFingerprint);
+      assert.notEqual(changedFingerprint, firstFingerprint);
+      assert.match(first.prompt, /source="file-picker"/);
+      assert.doesNotMatch(first.prompt, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     });
   });
 
@@ -102,8 +129,8 @@ describe('text file context import', () => {
       assert.equal(result.files, 2);
       assert.equal(result.truncated, false);
       assert.match(result.prompt, /请结合下面导入的 2 个本地文本文件回答。/);
-      assert.match(result.prompt, /<local-text-file name="a\.md">/);
-      assert.match(result.prompt, /<local-text-file name="b\.json">/);
+      assert.match(result.prompt, /<local-text-file name="a\.md" source="file-picker" fingerprint="sha256:[0-9a-f]{16}">/);
+      assert.match(result.prompt, /<local-text-file name="b\.json" source="file-picker" fingerprint="sha256:[0-9a-f]{16}">/);
       assert.doesNotMatch(result.prompt, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     });
   });
@@ -131,7 +158,7 @@ describe('text file context import', () => {
       if (!result.ok) return;
       assert.equal(result.truncated, true);
       assert.match(result.prompt, /文件内容过长/);
-      assert.match(result.prompt, /<local-text-file name="third\.txt" truncated="true">/);
+      assert.match(result.prompt, /<local-text-file name="third\.txt" source="file-picker" fingerprint="sha256:[0-9a-f]{16}" truncated="true">/);
     });
   });
 
@@ -145,8 +172,8 @@ describe('text file context import', () => {
     if (!result.ok) return;
     assert.equal(result.files, 2);
     assert.equal(result.name, '2 个文本文件');
-    assert.match(result.prompt, /<local-text-file name="alpha\.md">/);
-    assert.match(result.prompt, /<local-text-file name="beta\.json">/);
+    assert.match(result.prompt, /<local-text-file name="alpha\.md" source="drop-or-paste" fingerprint="sha256:[0-9a-f]{16}">/);
+    assert.match(result.prompt, /<local-text-file name="beta\.json" source="drop-or-paste" fingerprint="sha256:[0-9a-f]{16}">/);
     assert.doesNotMatch(result.prompt, /private\/tmp/);
   });
 
@@ -298,7 +325,7 @@ describe('text file context import', () => {
       assert.equal(result.entries, 3);
       assert.equal(result.folders, 1);
       assert.equal(result.truncated, false);
-      assert.match(result.prompt, /<local-folder-outline name="maka-text-import-/);
+      assert.match(result.prompt, /<local-folder-outline name="maka-text-import-[^"]+" source="folder-picker" fingerprint="sha256:[0-9a-f]{16}">/);
       assert.match(result.prompt, /- src\//);
       assert.match(result.prompt, /- src\/index\.ts/);
       assert.match(result.prompt, /- README\.md/);
@@ -325,8 +352,8 @@ describe('text file context import', () => {
       assert.equal(result.entries, 2);
       assert.equal(result.truncated, false);
       assert.match(result.prompt, /请结合下面导入的 2 个本地文件夹目录回答。/);
-      assert.match(result.prompt, /<local-folder-outline name="app">/);
-      assert.match(result.prompt, /<local-folder-outline name="docs">/);
+      assert.match(result.prompt, /<local-folder-outline name="app" source="folder-picker" fingerprint="sha256:[0-9a-f]{16}">/);
+      assert.match(result.prompt, /<local-folder-outline name="docs" source="folder-picker" fingerprint="sha256:[0-9a-f]{16}">/);
       assert.doesNotMatch(result.prompt, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     });
   });
@@ -359,7 +386,7 @@ describe('text file context import', () => {
       assert.equal(result.truncated, true);
       assert.equal(result.entries, MAX_IMPORTED_FOLDERS_ENTRIES);
       assert.match(result.prompt, /目录较大/);
-      assert.match(result.prompt, /<local-folder-outline name="second" truncated="true">/);
+      assert.match(result.prompt, /<local-folder-outline name="second" source="folder-picker" fingerprint="sha256:[0-9a-f]{16}" truncated="true">/);
     });
   });
 });

@@ -1,5 +1,6 @@
 import { basename, join, relative } from 'node:path';
 import { readFile, readdir, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import {
   MAX_IMPORTED_FOLDER_COUNT,
   MAX_IMPORTED_FOLDER_DEPTH,
@@ -94,7 +95,7 @@ export async function readTextFileForPromptImport(filePath: string): Promise<Tex
     bytes: loaded.bytes,
     files: 1,
     truncated: loaded.truncated,
-    prompt: formatImportedTextFilePrompt({ name: loaded.name, text: loaded.text, truncated: loaded.truncated }),
+    prompt: formatImportedTextFilePrompt({ name: loaded.name, text: loaded.text, truncated: loaded.truncated, source: 'file-picker' }),
   };
 }
 
@@ -119,7 +120,12 @@ export async function readTextFilesForPromptImport(filePaths: string[]): Promise
     const text = chars.length > remaining ? chars.slice(0, Math.max(0, remaining)).join('') : file.text;
     remaining -= Array.from(text).length;
     truncated = truncated || file.truncated || chars.length > Array.from(text).length || remaining <= 0;
-    fragments.push(formatImportedTextFileBlock({ name: file.name, text, truncated: file.truncated || chars.length > Array.from(text).length }));
+    fragments.push(formatImportedTextFileBlock({
+      name: file.name,
+      text,
+      truncated: file.truncated || chars.length > Array.from(text).length,
+      source: 'file-picker',
+    }));
     if (remaining <= 0) break;
   }
 
@@ -164,7 +170,7 @@ export function readDroppedTextFilesForPromptImport(payloads: DroppedTextFilePay
       bytes: file.bytes,
       files: 1,
       truncated: file.truncated,
-      prompt: formatImportedTextFilePrompt({ name: file.name, text: file.text, truncated: file.truncated }),
+      prompt: formatImportedTextFilePrompt({ name: file.name, text: file.text, truncated: file.truncated, source: 'drop-or-paste' }),
     };
   }
 
@@ -177,7 +183,7 @@ export function readDroppedTextFilesForPromptImport(payloads: DroppedTextFilePay
     remaining -= Array.from(text).length;
     const fileTruncated = file.truncated || chars.length > Array.from(text).length;
     truncated = truncated || fileTruncated || remaining <= 0;
-    fragments.push(formatImportedTextFileBlock({ name: file.name, text, truncated: fileTruncated }));
+    fragments.push(formatImportedTextFileBlock({ name: file.name, text, truncated: fileTruncated, source: 'drop-or-paste' }));
     if (remaining <= 0) break;
   }
 
@@ -283,7 +289,12 @@ function sanitizeDroppedFileName(name: string): string {
   return cleaned || 'dropped.txt';
 }
 
-export function formatImportedTextFilePrompt(input: { name: string; text: string; truncated: boolean }): string {
+export function formatImportedTextFilePrompt(input: {
+  name: string;
+  text: string;
+  truncated: boolean;
+  source?: PromptContextSource;
+}): string {
   return [
     `请结合下面导入的本地文本文件 "${input.name}" 回答。`,
     input.truncated ? '文件内容过长，下面只包含前一部分。' : '',
@@ -301,9 +312,20 @@ export function formatImportedTextFilesPrompt(input: { count: number; fragments:
   ].filter(Boolean).join('\n');
 }
 
-function formatImportedTextFileBlock(input: { name: string; text: string; truncated: boolean }): string {
+type PromptContextSource = 'file-picker' | 'drop-or-paste' | 'folder-picker';
+
+function formatImportedTextFileBlock(input: {
+  name: string;
+  text: string;
+  truncated: boolean;
+  source?: PromptContextSource;
+}): string {
   return [
-    `<local-text-file name="${escapeXmlAttr(input.name)}"${input.truncated ? ' truncated="true"' : ''}>`,
+    `<local-text-file name="${escapeXmlAttr(input.name)}"${formatPromptContextAttrs({
+      source: input.source,
+      fingerprint: fingerprintPromptContext(input.text),
+      truncated: input.truncated,
+    })}>`,
     escapeXmlText(input.text),
     '</local-text-file>',
   ].join('\n');
@@ -322,6 +344,7 @@ export async function readFolderOutlineForPromptImport(folderPath: string): Prom
       name: loaded.name,
       outline: loaded.outline,
       truncated: loaded.truncated,
+      source: 'folder-picker',
     }),
   };
 }
@@ -346,6 +369,7 @@ export async function readFolderOutlinesForPromptImport(folderPaths: string[]): 
       name: loaded.name,
       outline: loaded.outline,
       truncated: loaded.truncated || remainingEntries <= 0,
+      source: 'folder-picker',
     }));
     if (remainingEntries <= 0) break;
   }
@@ -415,7 +439,12 @@ async function loadFolderOutlineForPromptImport(
   };
 }
 
-export function formatImportedFolderOutlinePrompt(input: { name: string; outline: string; truncated: boolean }): string {
+export function formatImportedFolderOutlinePrompt(input: {
+  name: string;
+  outline: string;
+  truncated: boolean;
+  source?: PromptContextSource;
+}): string {
   return [
     `请结合下面导入的本地文件夹目录 "${input.name}" 回答。`,
     input.truncated ? '目录较大，下面只包含前一部分。' : '',
@@ -433,9 +462,18 @@ export function formatImportedFolderOutlinesPrompt(input: { count: number; outli
   ].filter(Boolean).join('\n');
 }
 
-function formatImportedFolderOutlineBlock(input: { name: string; outline: string; truncated: boolean }): string {
+function formatImportedFolderOutlineBlock(input: {
+  name: string;
+  outline: string;
+  truncated: boolean;
+  source?: PromptContextSource;
+}): string {
   return [
-    `<local-folder-outline name="${escapeXmlAttr(input.name)}"${input.truncated ? ' truncated="true"' : ''}>`,
+    `<local-folder-outline name="${escapeXmlAttr(input.name)}"${formatPromptContextAttrs({
+      source: input.source,
+      fingerprint: fingerprintPromptContext(input.outline),
+      truncated: input.truncated,
+    })}>`,
     escapeXmlText(input.outline),
     '</local-folder-outline>',
   ].join('\n');
@@ -513,4 +551,21 @@ function escapeXmlText(value: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function formatPromptContextAttrs(input: {
+  source?: PromptContextSource;
+  fingerprint: string;
+  truncated: boolean;
+}): string {
+  return [
+    input.source ? ` source="${input.source}"` : '',
+    ` fingerprint="${input.fingerprint}"`,
+    input.truncated ? ' truncated="true"' : '',
+  ].join('');
+}
+
+function fingerprintPromptContext(value: string): string {
+  const digest = createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+  return `sha256:${digest}`;
 }
