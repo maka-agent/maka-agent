@@ -1084,6 +1084,23 @@ function PlanReminderPanel(props: {
     }
   }
 
+  function duplicateReminder(reminder: PlanReminder) {
+    setEditingId(null);
+    setTitle(duplicatePlanReminderTitle(reminder.title));
+    setNote(reminder.note);
+    setRunAtLocal(toDatetimeLocalValue(planReminderEditableRunAt(reminder)));
+    setRecurrence(planReminderRecurrenceValue(reminder));
+    setCronExpression(reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5');
+    setDeliveryChannel(reminder.delivery.channel);
+    if (reminder.delivery.channel === 'bot') {
+      setDeliveryPlatform(reminder.delivery.platform);
+      setDeliveryChatId(reminder.delivery.chatId);
+    } else {
+      setDeliveryPlatform('telegram');
+      setDeliveryChatId('');
+    }
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canCreate) return;
@@ -1263,6 +1280,14 @@ function PlanReminderPanel(props: {
                 <button
                   type="button"
                   className="maka-plan-action"
+                  onClick={() => duplicateReminder(reminder)}
+                  title="复制为新提醒"
+                >
+                  复制
+                </button>
+                <button
+                  type="button"
+                  className="maka-plan-action"
                   onClick={() => props.onTriggerNow?.(reminder.id)}
                   disabled={!reminder.enabled}
                   title="立即触发一次"
@@ -1320,6 +1345,12 @@ function planReminderRecurrenceValue(reminder: PlanReminder): PlanReminderRecurr
   if (reminder.schedule.kind === 'once') return 'none';
   if (reminder.schedule.kind === 'cron') return 'cron';
   return reminder.schedule.recurrence;
+}
+
+function duplicatePlanReminderTitle(title: string): string {
+  const suffix = ' 副本';
+  if (title.endsWith(suffix)) return title;
+  return `${title}${suffix}`.slice(0, 120);
 }
 
 function formatReminderTime(ts: number): string {
