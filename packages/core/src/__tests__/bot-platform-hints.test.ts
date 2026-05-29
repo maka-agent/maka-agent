@@ -36,4 +36,16 @@ describe('bot platform prompt hints', () => {
     assert.match(fragment, /without parse_mode/);
     assert.match(fragment, /only discuss content that is explicitly present/);
   });
+
+  test('prompt hints do not leak scaffold or future-bridge implementation language', () => {
+    for (const provider of BOT_PROVIDERS) {
+      const fragment = buildBotPlatformPromptFragment(provider);
+
+      assert.doesNotMatch(
+        fragment,
+        /scaffold|live bridge|until .* enabled|not implemented|coming soon/i,
+        `${provider} prompt hint must describe current runtime capability boundaries, not implementation roadmap`,
+      );
+    }
+  });
 });

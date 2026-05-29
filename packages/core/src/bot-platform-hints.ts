@@ -35,7 +35,7 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'enterprise_chat',
     deliveryFormat: 'enterprise chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'Feishu delivery is enterprise-chat oriented; favor clear status, owners, and next actions.',
+    capabilityCaveat: 'Feishu context is enterprise-chat oriented; favor clear status, owners, and next actions.',
     systemPromptBullets: [
       'Use concise enterprise-chat formatting with clear bullets or numbered steps when useful.',
       'Avoid assuming the reader is inside the desktop app; include the actionable result directly in the reply.',
@@ -48,7 +48,7 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'enterprise_chat',
     deliveryFormat: 'enterprise chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'WeCom support is configuration-scaffolded until a live bridge is enabled.',
+    capabilityCaveat: 'WeCom-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Use concise enterprise-chat formatting with clear next actions.',
       'Do not mention unavailable platform-specific actions unless the runtime explicitly exposes them.',
@@ -60,7 +60,7 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'plain_text',
     deliveryFormat: 'mobile chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'WeChat support is configuration-scaffolded until a live bridge is enabled.',
+    capabilityCaveat: 'WeChat-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Reply in short plain-text paragraphs suitable for a mobile chat.',
       'Do not assume rich cards, desktop panes, or unavailable platform actions.',
@@ -72,7 +72,7 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'chat_markdown',
     deliveryFormat: 'Discord chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'Discord support is configuration-scaffolded until a live bridge is enabled.',
+    capabilityCaveat: 'Discord-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Markdown is acceptable, but keep replies scan-friendly and avoid oversized blocks.',
       'Do not assume slash commands, reactions, threads, or moderation actions unless tools expose them.',
@@ -84,7 +84,7 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'enterprise_chat',
     deliveryFormat: 'enterprise chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'DingTalk support is configuration-scaffolded until a live bridge is enabled.',
+    capabilityCaveat: 'DingTalk-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Use concise enterprise-chat formatting with clear status and next actions.',
       'Do not assume approvals, DING messages, or workbench actions unless tools expose them.',
@@ -96,7 +96,7 @@ const BOT_PLATFORM_PROMPT_HINTS: Record<BotProvider, BotPlatformPromptHint> = {
     formattingProfile: 'plain_text',
     deliveryFormat: 'chat message',
     mediaSupport: ['text', 'image/file/voice metadata only unless tools provide extracted content'],
-    capabilityCaveat: 'QQ support is configuration-scaffolded until a live bridge is enabled.',
+    capabilityCaveat: 'QQ-specific actions are unavailable unless the current runtime explicitly exposes them.',
     systemPromptBullets: [
       'Reply in short plain-text paragraphs suitable for a chat window.',
       'Do not assume rich cards or unavailable platform-specific actions.',
