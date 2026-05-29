@@ -53,6 +53,9 @@ describe('LocalMemoryService', () => {
     assert.equal(state.entryCount, 1);
     assert.equal(state.activeEntryCount, 1);
     assert.equal(state.archivedEntryCount, 0);
+    assert.equal(state.entries.length, 1);
+    assert.equal(state.activeEntries.length, 1);
+    assert.equal(state.archivedEntries.length, 0);
     assert.match(await readFile(service.file, 'utf8'), /喜欢短回答/);
     assert.match(await readFile(`${service.file}.bak`, 'utf8'), /示例/);
   });
@@ -74,6 +77,8 @@ describe('LocalMemoryService', () => {
     assert.equal(state.entryCount, 2);
     assert.equal(state.activeEntryCount, 1);
     assert.equal(state.archivedEntryCount, 1);
+    assert.equal(state.activeEntries[0]?.id, 'active');
+    assert.equal(state.archivedEntries[0]?.id, 'archived');
     assert.equal(state.latestEntry?.id, 'active');
   });
 

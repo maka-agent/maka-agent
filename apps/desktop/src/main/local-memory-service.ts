@@ -40,6 +40,9 @@ export class LocalMemoryService {
         entryCount: 0,
         activeEntryCount: 0,
         archivedEntryCount: 0,
+        entries: [],
+        activeEntries: [],
+        archivedEntries: [],
         reason: '隐身模式下禁用本地记忆读写。',
       };
     }
@@ -53,6 +56,9 @@ export class LocalMemoryService {
         entryCount: 0,
         activeEntryCount: 0,
         archivedEntryCount: 0,
+        entries: [],
+        activeEntries: [],
+        archivedEntries: [],
       };
     }
     try {
@@ -69,6 +75,9 @@ export class LocalMemoryService {
           entryCount: 0,
           activeEntryCount: 0,
           archivedEntryCount: 0,
+          entries: [],
+          activeEntries: [],
+          archivedEntries: [],
           reason: parsed.reason,
         };
       }
@@ -81,6 +90,9 @@ export class LocalMemoryService {
         entryCount: parsed.entries.length,
         activeEntryCount: parsed.activeEntries.length,
         archivedEntryCount: parsed.archivedEntries.length,
+        entries: parsed.entries,
+        activeEntries: parsed.activeEntries,
+        archivedEntries: parsed.archivedEntries,
         latestEntry: parsed.activeEntries.at(-1),
       };
     } catch (error) {
@@ -93,6 +105,9 @@ export class LocalMemoryService {
         entryCount: 0,
         activeEntryCount: 0,
         archivedEntryCount: 0,
+        entries: [],
+        activeEntries: [],
+        archivedEntries: [],
         reason: error instanceof Error ? error.message : 'memory read failed',
       };
     }
@@ -113,6 +128,9 @@ export class LocalMemoryService {
         entryCount: 0,
         activeEntryCount: 0,
         archivedEntryCount: 0,
+        entries: [],
+        activeEntries: [],
+        archivedEntries: [],
         reason: parsed.reason,
       };
     }

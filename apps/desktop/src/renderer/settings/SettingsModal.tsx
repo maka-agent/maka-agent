@@ -2364,6 +2364,9 @@ function MemorySettingsPage(props: {
     entryCount: 0,
     activeEntryCount: 0,
     archivedEntryCount: 0,
+    entries: [],
+    activeEntries: [],
+    archivedEntries: [],
   } satisfies LocalMemoryState;
 
   return (
@@ -2446,11 +2449,12 @@ function MemorySettingsPage(props: {
         {effective.archivedEntryCount > 0 && <span>{effective.archivedEntryCount} 条已归档</span>}
       </div>
 
-      {effective.latestEntry && (
-        <div className="settingsMemoryPreview">
-          <strong>{effective.latestEntry.title}</strong>
-          <small>{memoryOriginLabel(effective.latestEntry.origin)}</small>
-          <p>{effective.latestEntry.content}</p>
+      {effective.entryCount > 0 && (
+        <div className="settingsMemoryEntryGroups">
+          <MemoryEntryList title="生效记忆" entries={effective.activeEntries} />
+          {effective.archivedEntries.length > 0 && (
+            <MemoryEntryList title="已归档记忆" entries={effective.archivedEntries} archived />
+          )}
         </div>
       )}
 
@@ -2489,6 +2493,37 @@ function MemorySettingsPage(props: {
         </button>
       </div>
     </div>
+  );
+}
+
+function MemoryEntryList(props: {
+  title: string;
+  entries: LocalMemoryState['activeEntries'];
+  archived?: boolean;
+}) {
+  return (
+    <section className="settingsMemoryEntryGroup" data-archived={props.archived ? 'true' : 'false'}>
+      <div className="settingsMemoryEntryGroupHeader">
+        <strong>{props.title}</strong>
+        <span>{props.entries.length} 条</span>
+      </div>
+      {props.entries.length === 0 ? (
+        <p className="settingsMemoryEntryEmpty">暂无条目。</p>
+      ) : (
+        <div className="settingsMemoryEntryList">
+          {props.entries.map((entry) => (
+            <article className="settingsMemoryEntryCard" key={entry.id}>
+              <strong>{entry.title}</strong>
+              <small>
+                {memoryOriginLabel(entry.origin)}
+                {entry.tags.length > 0 ? ` · ${entry.tags.join(' / ')}` : ''}
+              </small>
+              <p>{entry.content}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

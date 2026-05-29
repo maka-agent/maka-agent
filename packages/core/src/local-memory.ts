@@ -54,6 +54,9 @@ export interface LocalMemoryState {
   readonly entryCount: number;
   readonly activeEntryCount: number;
   readonly archivedEntryCount: number;
+  readonly entries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly activeEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly archivedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly latestEntry?: LocalMemoryEntryPreview;
   readonly reason?: string;
 }
