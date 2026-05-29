@@ -1845,6 +1845,17 @@ function AppShell(props: {
             onSnoozePlanReminder={(id) => void snoozePlanReminder(id)}
             onClearPlanReminderRunHistory={(id) => void clearPlanReminderRunHistory(id)}
             onDeletePlanReminder={(id) => void deletePlanReminder(id)}
+            onCopyDailyReviewMarkdown={async ({ markdown, label, summary }) => {
+              try {
+                await navigator.clipboard.writeText(markdown);
+                toastApi.success(
+                  `已复制${label}回顾`,
+                  `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
+                );
+              } catch (error) {
+                toastApi.error('复制失败', error instanceof Error ? error.message : '剪贴板不可用');
+              }
+            }}
             dailyReviewBridge={dailyReviewBridge}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
