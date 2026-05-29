@@ -155,6 +155,11 @@ import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
 import {
+  createAttachmentApprovalRegistry,
+  validateRendererAttachments,
+  type AttachmentValidationFailureReason,
+} from './attachment-approval.js';
+import {
   readFolderOutlinesForPromptImport,
   readDroppedTextFilesForPromptImport,
   readTextFilesForPromptImport,
@@ -180,6 +185,7 @@ const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
+const attachmentApprovals = createAttachmentApprovalRegistry();
 const credentialStore = createSafeStorageCredentialStore(workspaceRoot);
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
 // Lives in main process only; renderer accesses via IPC. Tokens
@@ -837,6 +843,17 @@ function folderOutlineImportFailureCopy(reason: FolderOutlineImportFailureReason
   }
 }
 
+function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReason): string {
+  switch (reason) {
+    case 'too_many_attachments':
+      return '一次最多发送 8 个附件。';
+    case 'unapproved_external_path':
+      return '附件来源已过期，请重新选择文件后再发送。';
+    case 'invalid_attachment':
+      return '附件信息无效，请重新选择文件后再发送。';
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle('app:info', async () => {
     const projectPath = process.cwd();
@@ -1436,14 +1453,21 @@ function registerIpc(): void {
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, response),
   );
-  ipcMain.handle('sessions:send', async (_event, sessionId: string, command: SessionCommand) => {
+  ipcMain.handle('sessions:send', async (event, sessionId: string, command: SessionCommand) => {
     if (command.type !== 'send') return;
     await ensureSessionCanSend(sessionId);
+    const attachments = validateRendererAttachments(command.attachments, {
+      senderId: event.sender.id,
+      approvals: attachmentApprovals,
+    });
+    if (!attachments.ok) {
+      throw new Error(attachmentValidationFailureCopy(attachments.reason));
+    }
     const turnId = command.turnId || randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
       text: command.text,
-      attachments: command.attachments,
+      attachments: attachments.attachments,
     });
     void streamEvents(sessionId, iterator, turnId);
   });
