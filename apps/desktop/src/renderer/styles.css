@@ -8992,6 +8992,35 @@ button:active {
   word-break: break-word;
 }
 
+.settingsMemoryFilter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsMemoryFilter input {
+  width: 100%;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 9px;
+}
+
+.settingsMemoryFilter small {
+  color: var(--foreground-50);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.settingsMemoryFilter input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .settingsMemoryManualAdd {
   display: grid;
   gap: 8px;

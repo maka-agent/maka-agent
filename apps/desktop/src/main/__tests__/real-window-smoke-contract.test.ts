@@ -41,6 +41,8 @@ describe('real Electron window smoke gate (PR-DESKTOP-SMOKE-0)', () => {
     };
     const script = pkg.scripts?.['smoke:real-window'] ?? '';
     assert.match(script, /npm --workspace @maka\/core run build/);
+    assert.match(script, /npm --workspace @maka\/storage run build/);
+    assert.match(script, /npm --workspace @maka\/runtime run build/);
     assert.match(script, /npm --workspace @maka\/ui run build/);
     assert.match(script, /npm run build/);
     assert.match(script, /desktop-real-window-smoke\.mjs/);
