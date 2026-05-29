@@ -70,6 +70,10 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /comparePlanReminderForDisplay/, 'list must sort reminders as an actionable queue, not raw storage order');
     assert.match(ui, /planReminderNextRunSortValue/, 'scheduled reminders must sort by next run time');
     assert.match(ui, /planReminderLastRunSortValue/, 'completed reminders must sort by recent run history');
+    assert.match(ui, /搜索计划提醒/, 'list must expose local search for non-trivial reminder sets');
+    assert.match(ui, /planReminderMatchesSearch/, 'list search must be centralized instead of ad hoc JSX checks');
+    assert.match(ui, /planReminderSearchText/, 'list search must cover title, note, delivery, recurrence, and run history text');
+    assert.match(ui, /没有匹配的提醒/, 'list search must have a distinct empty result state');
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {
