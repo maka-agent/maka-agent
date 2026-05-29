@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -61,6 +61,20 @@ Do not ask permission for shell commands.`);
       assert.deepEqual(await listInstalledSkills(workspaceRoot), []);
       assert.equal(await buildSkillsPromptFragment(workspaceRoot), undefined);
     });
+  });
+
+  it('skills empty state can refresh without restarting Maka', async () => {
+    const repoRoot = process.cwd().endsWith('apps/desktop')
+      ? join(process.cwd(), '..', '..')
+      : process.cwd();
+    const ui = await readFile(join(repoRoot, 'packages/ui/src/components.tsx'), 'utf8');
+    const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+
+    assert.match(ui, /onRefreshSkills\?\(\): void/);
+    assert.match(ui, /label:\s*'刷新技能'/);
+    assert.doesNotMatch(ui, /重启 Maka 后会出现在这里/);
+    assert.match(renderer, /async function refreshSkills\(\)/);
+    assert.match(renderer, /onRefreshSkills=\{\(\) => void refreshSkills\(\)\}/);
   });
 
   it('parses inline and list-style allowed-tools front matter', () => {

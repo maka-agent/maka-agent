@@ -274,6 +274,7 @@ export function SessionListPanel(props: {
     onOpen(): void;
   };
   skills?: SkillEntry[];
+  onRefreshSkills?(): void;
   planReminders?: PlanReminder[];
   /**
    * Per-session-id boolean flag: true when the session has a live streaming
@@ -589,10 +590,11 @@ export function SessionListPanel(props: {
               body={
                 <>
                   把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
-                  {' '}<code className="maka-empty-state-code">skills/</code> 目录下，重启 Maka 后会出现在这里。
+                  {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
                   工作区路径在 设置 · 关于 · 工作区。
                 </>
               }
+              cta={props.onRefreshSkills ? { label: '刷新技能', onClick: props.onRefreshSkills } : undefined}
             />
           )
         ) : props.selection.section === 'automations' ? (

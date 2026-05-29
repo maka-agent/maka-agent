@@ -641,7 +641,7 @@ function AppShell(props: {
       }
       props.onToastPositionChange(toastPosition);
     });
-    void window.maka.skills.list().then(setSkills).catch(() => setSkills([]));
+    void refreshSkills();
     void refreshPlanReminders();
     void applyVisualSmokeFixture();
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
@@ -1191,6 +1191,11 @@ function AppShell(props: {
   // Open the workspace's skills/ directory in Finder via the IPC allowlist.
   // Earlier we silently dropped the structured failure result; surface it
   // so missing-skills-dir / open-failed don't look like the button did nothing.
+  async function refreshSkills() {
+    const next = await window.maka.skills.list().catch(() => []);
+    setSkills(next);
+  }
+
   async function openSkillsFolder() {
     const result = await window.maka.app.openPath('skills');
     if (!result.ok) {
@@ -1925,6 +1930,7 @@ function AppShell(props: {
                 : undefined
             }
             skills={skills}
+            onRefreshSkills={() => void refreshSkills()}
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
