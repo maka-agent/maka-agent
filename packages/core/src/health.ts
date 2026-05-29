@@ -207,7 +207,7 @@ export function healthSignalFromConnectionRuntime(
       status: 'unknown',
       source: 'runtime_probe',
       checkedAt,
-      message: '还没有记录到发送运行态探测。',
+      message: '等待完成发送运行态探测。',
       detail: '凭据验证与真实发送、流式输出、中断通路是两层健康信号。',
       blocksSend: false,
     };

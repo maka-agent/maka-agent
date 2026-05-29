@@ -50,7 +50,8 @@ describe('HealthSignal contract', () => {
     expect(unknown?.status).toBe('unknown');
     expect(unknown?.layer).toBe('runtime_probe');
     expect(unknown?.source).toBe('runtime_probe');
-    expect(unknown?.message).toContain('还没有记录到发送运行态探测');
+    expect(unknown?.message).toBe('等待完成发送运行态探测。');
+    expect(/还没有记录到发送运行态探测/.test(unknown?.message ?? '')).toBe(false);
 
     const ok = healthSignalFromConnectionRuntime(connection({ lastTestStatus: 'verified' }), {
       id: 'usage_turn_1',
@@ -281,7 +282,7 @@ describe('HealthSignal contract', () => {
       healthSignalFromCapability(capability('bot:telegram', 'degraded')),
     ].filter((item): item is HealthSignal => Boolean(item));
     const englishImplementationCopy = /\b(?:Connection|Credential|endpoint|validation|Capability|runtime probe|agent send|errorClass|latency|model=)\b/;
-    const unfinishedStateCopy = /连接尚未验证|能力尚未完整配置/;
+    const unfinishedStateCopy = /连接尚未验证|能力尚未完整配置|还没有记录到发送运行态探测/;
 
     for (const signal of signals) {
       if (englishImplementationCopy.test(signal.message)) {
