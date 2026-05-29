@@ -61,6 +61,16 @@ export interface LocalMemoryState {
   readonly reason?: string;
 }
 
+export interface AppendManualLocalMemoryEntryInput {
+  readonly title: string;
+  readonly content: string;
+  readonly now?: number;
+}
+
+export type AppendManualLocalMemoryEntryResult =
+  | { readonly ok: true; readonly draft: string }
+  | { readonly ok: false; readonly reason: 'empty_title' | 'empty_content' | 'oversize' };
+
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
 
@@ -108,6 +118,29 @@ export function buildLocalMemoryPromptBody(input: string): string | undefined {
   if (body.length === 0) return undefined;
   if (body.length <= LOCAL_MEMORY_PROMPT_MAX_CHARS) return body;
   return `${body.slice(0, LOCAL_MEMORY_PROMPT_MAX_CHARS).trimEnd()}\n\n[本地记忆已按长度截断]`;
+}
+
+export function appendManualLocalMemoryEntryDraft(
+  currentDraft: string,
+  input: AppendManualLocalMemoryEntryInput,
+): AppendManualLocalMemoryEntryResult {
+  const title = normalizeManualEntryTitle(input.title);
+  if (!title) return { ok: false, reason: 'empty_title' };
+
+  const content = input.content.trim();
+  if (!content) return { ok: false, reason: 'empty_content' };
+
+  const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
+  const entry = [
+    `## ${title}`,
+    `<!-- maka-memory: id=manual-${now} origin=manual createdAt=${now} status=active -->`,
+    content,
+  ].join('\n');
+  const draft = currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
+  if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
+    return { ok: false, reason: 'oversize' };
+  }
+  return { ok: true, draft };
 }
 
 function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
@@ -199,6 +232,14 @@ function parseMetaComment(line: string): Record<string, string> | null {
     }
   }
   return meta;
+}
+
+function normalizeManualEntryTitle(input: string): string {
+  return input
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
 }
 
 function normalizeOrigin(input: string | undefined): LocalMemoryOrigin {

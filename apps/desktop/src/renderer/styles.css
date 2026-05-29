@@ -8980,6 +8980,58 @@ button:active {
   word-break: break-word;
 }
 
+.settingsMemoryManualAdd {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-2);
+}
+
+.settingsMemoryManualAddHeader {
+  display: grid;
+  gap: 2px;
+}
+
+.settingsMemoryManualAddHeader strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryManualAddHeader small {
+  color: var(--foreground-50);
+  font-size: 11px;
+}
+
+.settingsMemoryManualAddGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.settingsMemoryManualAddGrid input,
+.settingsMemoryManualAddGrid textarea {
+  width: 100%;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 9px;
+}
+
+.settingsMemoryManualAddGrid textarea {
+  resize: vertical;
+  min-height: 74px;
+}
+
+.settingsMemoryManualAddGrid input:focus-visible,
+.settingsMemoryManualAddGrid textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .settingsMemoryEditor {
   display: grid;
   gap: 8px;

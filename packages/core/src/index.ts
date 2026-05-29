@@ -391,10 +391,13 @@ export type {
   LocalMemoryParseResult,
   LocalMemorySettings,
   LocalMemoryState,
+  AppendManualLocalMemoryEntryInput,
+  AppendManualLocalMemoryEntryResult,
 } from './local-memory.js';
 export {
   LOCAL_MEMORY_MAX_BYTES,
   LOCAL_MEMORY_PROMPT_MAX_CHARS,
+  appendManualLocalMemoryEntryDraft,
   buildLocalMemoryPromptBody,
   defaultLocalMemoryMarkdown,
   defaultLocalMemorySettings,

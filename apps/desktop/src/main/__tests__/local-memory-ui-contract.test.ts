@@ -25,4 +25,13 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(css, /\.settingsMemoryEntryGroup\[data-archived="true"\]/);
     assert.doesNotMatch(css, /coming soon|todo|not implemented/i);
   });
+
+  it('manual add stays draft-only and routes through the core helper', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(src, /appendManualLocalMemoryEntryDraft\(draft/);
+    assert.match(src, /已添加到草稿/);
+    assert.match(src, /确认文件内容后点击保存/);
+    assert.doesNotMatch(src, /window\.maka\.memory\.save\(result\.draft\)/);
+  });
 });

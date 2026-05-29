@@ -59,6 +59,7 @@ import {
   HEALTH_SIGNAL_LAYERS,
   OS_PERMISSION_IDS,
   deriveProviderAuthContractFromConnection,
+  appendManualLocalMemoryEntryDraft,
   defaultVoiceCaptureCaps,
   isToastPosition,
   validateVoiceCaptureRequest,
@@ -2230,7 +2231,10 @@ function MemorySettingsPage(props: {
     ReturnType<typeof window.maka.workspaceInstructions.getState>
   > | null>(null);
   const [draft, setDraft] = useState('');
+  const [newMemoryTitle, setNewMemoryTitle] = useState('');
+  const [newMemoryContent, setNewMemoryContent] = useState('');
   const [busy, setBusy] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const toast = useToast();
 
   async function reload() {
@@ -2355,6 +2359,34 @@ function MemorySettingsPage(props: {
     }
   }
 
+  function addManualMemoryDraftEntry() {
+    const result = appendManualLocalMemoryEntryDraft(draft, {
+      title: newMemoryTitle,
+      content: newMemoryContent,
+    });
+    if (!result.ok) {
+      switch (result.reason) {
+        case 'empty_title':
+          toast.error('标题不能为空', '给这条记忆起一个短标题。');
+          return;
+        case 'empty_content':
+          toast.error('内容不能为空', '写下要保留的偏好或事实。');
+          return;
+        case 'oversize':
+          toast.error('草稿过大', 'MEMORY.md 超出安全上限，请先删减旧内容。');
+          return;
+      }
+    }
+    setDraft(result.draft);
+    setNewMemoryTitle('');
+    setNewMemoryContent('');
+    toast.success('已添加到草稿', '确认文件内容后点击保存。');
+    requestAnimationFrame(() => {
+      editorRef.current?.focus();
+      editorRef.current?.setSelectionRange(result.draft.length, result.draft.length);
+    });
+  }
+
   const effective = state ?? {
     path: '',
     enabled: props.settings.localMemory.enabled,
@@ -2458,9 +2490,43 @@ function MemorySettingsPage(props: {
         </div>
       )}
 
+      <div className="settingsMemoryManualAdd" aria-label="手动添加本地记忆">
+        <div className="settingsMemoryManualAddHeader">
+          <strong>手动添加记忆</strong>
+          <small>只追加到下方草稿；保存前仍可检查和修改 Markdown。</small>
+        </div>
+        <div className="settingsMemoryManualAddGrid">
+          <input
+            type="text"
+            value={newMemoryTitle}
+            onChange={(event) => setNewMemoryTitle(event.currentTarget.value)}
+            aria-label="记忆标题"
+            placeholder="标题"
+            disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+          />
+          <textarea
+            value={newMemoryContent}
+            onChange={(event) => setNewMemoryContent(event.currentTarget.value)}
+            aria-label="记忆内容"
+            placeholder="内容"
+            rows={3}
+            disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+          />
+        </div>
+        <button
+          type="button"
+          className="maka-button maka-button-ghost"
+          disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+          onClick={addManualMemoryDraftEntry}
+        >
+          添加到草稿
+        </button>
+      </div>
+
       <label className="settingsMemoryEditor">
         <span>文件内容</span>
         <textarea
+          ref={editorRef}
           value={draft}
           onChange={(event) => setDraft(event.currentTarget.value)}
           disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}

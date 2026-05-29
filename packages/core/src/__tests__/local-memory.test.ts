@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   LOCAL_MEMORY_MAX_BYTES,
+  appendManualLocalMemoryEntryDraft,
   buildLocalMemoryPromptBody,
   defaultLocalMemoryMarkdown,
   defaultLocalMemorySettings,
@@ -108,6 +109,41 @@ describe('local MEMORY.md contract', () => {
 
     assert.ok(body);
     assert.match(body, /tail-marker/);
+  });
+
+  it('appends a manual entry draft with visible metadata and preserves existing content', () => {
+    const result = appendManualLocalMemoryEntryDraft('# Maka Memory\n', {
+      title: '  Writing style  ',
+      content: 'Prefer concise answers.',
+      now: 1700000000000,
+    });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.match(result.draft, /^# Maka Memory\n\n## Writing style/m);
+    assert.match(result.draft, /id=manual-1700000000000 origin=manual createdAt=1700000000000 status=active/);
+    assert.match(result.draft, /Prefer concise answers\.\n$/);
+
+    const parsed = parseLocalMemoryMarkdown(result.draft);
+    assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.activeEntries[0]?.origin, 'manual');
+  });
+
+  it('rejects blank manual draft entries and oversized resulting drafts', () => {
+    assert.deepEqual(appendManualLocalMemoryEntryDraft('', { title: ' ', content: 'body', now: 1 }), {
+      ok: false,
+      reason: 'empty_title',
+    });
+    assert.deepEqual(appendManualLocalMemoryEntryDraft('', { title: 'title', content: ' ', now: 1 }), {
+      ok: false,
+      reason: 'empty_content',
+    });
+    const oversized = appendManualLocalMemoryEntryDraft('x'.repeat(LOCAL_MEMORY_MAX_BYTES), {
+      title: 'title',
+      content: 'body',
+      now: 1,
+    });
+    assert.deepEqual(oversized, { ok: false, reason: 'oversize' });
   });
 
   it('returns safe mode instead of parsing oversized content', () => {
