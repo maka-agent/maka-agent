@@ -107,7 +107,7 @@ function chipTitle(connection: LlmConnection): string {
       case 'error':
         return `${connection.name} · 上次连接失败`;
       default:
-        return `${connection.name} · 未验证`;
+        return `${connection.name} · 等待验证`;
     }
   }
 

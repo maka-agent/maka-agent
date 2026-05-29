@@ -171,4 +171,11 @@ describe('presentConnectionUiStatus copy gates (PR-UI-AUDIT-1, @kenji msg 7a16aa
       assert.ok(!presentation.label.includes('凭据已验证'), `${status} label must not say 凭据已验证`);
     }
   });
+
+  it('configured copy uses actionable waiting language instead of unverified wording', () => {
+    const presentation = presentConnectionUiStatus('configured');
+    assert.equal(presentation.label, '已配置 · 等待验证');
+    assert.match(presentation.detail, /点测试连接确认 provider 可达/);
+    assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /未验证|还未真正调用/);
+  });
 });
