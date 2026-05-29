@@ -1327,7 +1327,17 @@ function PlanReminderPanel(props: {
             extraClassName="maka-plan-empty"
           />
         ) : (
-          sortedReminders.map((reminder) => (
+          planReminderDisplayRows(listFilter, sortedReminders).map((row) => {
+            if (row.kind === 'group') {
+              return (
+                <div key={row.key} className="maka-plan-group-header" aria-label={`${row.label}，${row.count} 个提醒`}>
+                  <span>{row.label}</span>
+                  <span>{row.count}</span>
+                </div>
+              );
+            }
+            const reminder = row.reminder;
+            return (
             <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
               <div className="maka-plan-card-main">
                 <div className="maka-plan-card-title">{reminder.title}</div>
@@ -1430,7 +1440,8 @@ function PlanReminderPanel(props: {
                 </button>
               </div>
             </article>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -1524,6 +1535,28 @@ function planReminderSearchText(reminder: PlanReminder): string {
     reminder.lastRun?.message,
     ...reminder.runs.map((run) => `${runStatusLabel(run.status)} ${run.message}`),
   ].filter(Boolean).join('\n');
+}
+
+type PlanReminderDisplayRow =
+  | { kind: 'group'; key: string; label: string; count: number }
+  | { kind: 'reminder'; reminder: PlanReminder };
+
+function planReminderDisplayRows(filter: 'all' | PlanReminderStatus, reminders: PlanReminder[]): PlanReminderDisplayRow[] {
+  if (filter !== 'all') return reminders.map((reminder) => ({ kind: 'reminder', reminder }));
+  const rows: PlanReminderDisplayRow[] = [];
+  for (const status of ['scheduled', 'paused', 'completed'] satisfies PlanReminderStatus[]) {
+    const group = reminders.filter((reminder) => reminder.status === status);
+    if (group.length === 0) continue;
+    rows.push({ kind: 'group', key: `group-${status}`, label: planReminderStatusGroupLabel(status), count: group.length });
+    rows.push(...group.map((reminder) => ({ kind: 'reminder' as const, reminder })));
+  }
+  return rows;
+}
+
+function planReminderStatusGroupLabel(status: PlanReminderStatus): string {
+  if (status === 'scheduled') return '待触发';
+  if (status === 'paused') return '已暂停';
+  return '已完成';
 }
 
 function planReminderEditableRunAt(reminder: PlanReminder, now: number = Date.now()): number {
