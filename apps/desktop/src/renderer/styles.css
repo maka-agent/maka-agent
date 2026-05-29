@@ -207,10 +207,8 @@ button:active {
   background: transparent;
 }
 
-/* PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `7c320898`):
- * Search modal shell. Phase 2 renders shell only — no input, no
- * results. Phase 4 will replace the placeholder body with the real
- * search UI consuming `window.maka.search.thread()`. */
+/* Search modal: input + local thread-search results, backed by
+ * `window.maka.search.thread()` through the renderer shell. */
 .maka-search-modal-backdrop {
   /* Reuse the existing modal backdrop tokens. The presentational
    * `.maka-modal-backdrop` class above this block handles dimming
@@ -7456,6 +7454,13 @@ button:active {
  * to surface "(已中断)" + muted Ban icon when turn.status === aborted.
  * Uses muted tone — aborted is dormant history, NOT an error state
  * (per @kenji review #2: aborted does NOT use destructive red). */
+.maka-turn[data-search-highlight="true"] {
+  border-radius: 12px;
+  outline: 1px solid oklch(from var(--accent) l c h / 0.34);
+  outline-offset: 6px;
+  background: oklch(from var(--accent) l c h / 0.045);
+}
+
 .maka-turn-aborted-marker {
   display: inline-flex;
   align-items: center;
