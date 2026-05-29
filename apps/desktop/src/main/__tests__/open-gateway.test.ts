@@ -63,6 +63,7 @@ describe('OpenGatewayService', () => {
       state: {
         endpoint: '/v1/sessions/state',
         includesPreviews: false,
+        includesRecentIncidentCounts: true,
       },
     });
     assert.deepEqual(authorized.body.sessionMessages, {
@@ -144,6 +145,8 @@ describe('OpenGatewayService', () => {
     activeServices.push(service);
     const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
     assert.ok(status.baseUrl);
+    service.publishSessionEvent('s1', errorEvent({ id: 'event-error-s1', turnId: 'turn-s1', message: 'failed' }));
+    service.publishSessionEvent('s1', abortEvent({ id: 'event-abort-s1', turnId: 'turn-s1', reason: 'user_stop' }));
 
     const response = await fetchJson(`${status.baseUrl}/v1/sessions/state`, 'dev-token');
     assert.equal(response.status, 200);
@@ -152,6 +155,8 @@ describe('OpenGatewayService', () => {
       archivedCount: 1,
       unreadCount: 1,
       flaggedCount: 1,
+      recentIncidentCount: 2,
+      incidentSessionCount: 1,
       includesPreviews: false,
       byStatus: {
         running: 2,
@@ -161,6 +166,8 @@ describe('OpenGatewayService', () => {
         id: 's1',
         status: 'running',
         lastMessageAt: 20,
+        recentIncidentCount: 2,
+        lastIncidentAt: 1_700_000_000_001,
       },
       oldestSession: {
         id: 's3',

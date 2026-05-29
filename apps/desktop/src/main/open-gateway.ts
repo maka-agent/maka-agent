@@ -187,6 +187,7 @@ export class OpenGatewayService {
           state: {
             endpoint: '/v1/sessions/state',
             includesPreviews: false,
+            includesRecentIncidentCounts: true,
           },
         },
         sessionMessages: {
@@ -240,7 +241,7 @@ export class OpenGatewayService {
         writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
         return;
       }
-      writeJson(res, 200, { ok: true, state: buildGatewaySessionsState(await this.deps.listSessions()) });
+      writeJson(res, 200, { ok: true, state: buildGatewaySessionsState(await this.deps.listSessions(), this.recentEvents) });
       return;
     }
     if (url.pathname === '/v1/sessions') {
@@ -535,6 +536,8 @@ interface GatewaySessionsState {
   archivedCount: number;
   unreadCount: number;
   flaggedCount: number;
+  recentIncidentCount: number;
+  incidentSessionCount: number;
   includesPreviews: false;
   byStatus: Record<string, number>;
   newestSession?: GatewaySessionSummary;
@@ -545,33 +548,75 @@ interface GatewaySessionSummary {
   id: string;
   status: string;
   lastMessageAt?: number;
+  recentIncidentCount?: number;
+  lastIncidentAt?: number;
 }
 
-function buildGatewaySessionsState(sessions: SessionSummary[]): GatewaySessionsState {
+function buildGatewaySessionsState(
+  sessions: SessionSummary[],
+  recentEvents: ReadonlyMap<string, readonly SessionEvent[]>,
+): GatewaySessionsState {
   const newest = sessions[0];
   const oldest = sessions.at(-1);
   const byStatus: Record<string, number> = {};
+  const incidentStateBySession = new Map<string, GatewaySessionIncidentState>();
+  let recentIncidentCount = 0;
+  let incidentSessionCount = 0;
   for (const session of sessions) {
     byStatus[session.status] = (byStatus[session.status] ?? 0) + 1;
+    const incidentState = summarizeGatewaySessionIncidentState(recentEvents.get(session.id) ?? []);
+    if (incidentState.recentIncidentCount > 0) {
+      incidentStateBySession.set(session.id, incidentState);
+      recentIncidentCount += incidentState.recentIncidentCount;
+      incidentSessionCount += 1;
+    }
   }
   return {
     sessionCount: sessions.length,
     archivedCount: sessions.filter((session) => session.isArchived).length,
     unreadCount: sessions.filter((session) => session.hasUnread).length,
     flaggedCount: sessions.filter((session) => session.isFlagged).length,
+    recentIncidentCount,
+    incidentSessionCount,
     includesPreviews: false,
     byStatus,
-    ...(newest ? { newestSession: summarizeGatewaySession(newest) } : {}),
-    ...(oldest ? { oldestSession: summarizeGatewaySession(oldest) } : {}),
+    ...(newest ? { newestSession: summarizeGatewaySession(newest, incidentStateBySession) } : {}),
+    ...(oldest ? { oldestSession: summarizeGatewaySession(oldest, incidentStateBySession) } : {}),
   };
 }
 
-function summarizeGatewaySession(session: SessionSummary): GatewaySessionSummary {
+function summarizeGatewaySession(
+  session: SessionSummary,
+  incidentStateBySession: ReadonlyMap<string, GatewaySessionIncidentState>,
+): GatewaySessionSummary {
+  const incidentState = incidentStateBySession.get(session.id);
   return {
     id: capReplayCursor(redactSecrets(session.id)),
     status: session.status,
     ...(session.lastMessageAt ? { lastMessageAt: session.lastMessageAt } : {}),
+    ...(incidentState
+      ? {
+          recentIncidentCount: incidentState.recentIncidentCount,
+          lastIncidentAt: incidentState.lastIncidentAt,
+        }
+      : {}),
   };
+}
+
+interface GatewaySessionIncidentState {
+  recentIncidentCount: number;
+  lastIncidentAt: number;
+}
+
+function summarizeGatewaySessionIncidentState(events: readonly SessionEvent[]): GatewaySessionIncidentState {
+  let recentIncidentCount = 0;
+  let lastIncidentAt = 0;
+  for (const event of events) {
+    if (event.type !== 'error' && event.type !== 'abort') continue;
+    recentIncidentCount += 1;
+    lastIncidentAt = Math.max(lastIncidentAt, event.ts);
+  }
+  return { recentIncidentCount, lastIncidentAt };
 }
 
 interface GatewayMessageState {

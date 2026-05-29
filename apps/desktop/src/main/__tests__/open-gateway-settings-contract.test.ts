@@ -13,6 +13,7 @@ describe('Open Gateway Settings endpoint contract', () => {
     assert.match(settingsSource, /12 个端点/);
     assert.doesNotMatch(settingsSource, /11 个端点/);
     assert.doesNotMatch(settingsSource, /6 类端点/);
+    assert.match(settingsSource, /最近失败计数/);
     for (const endpoint of [
       'GET /health',
       'GET /v1/capabilities',
