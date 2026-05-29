@@ -3080,7 +3080,7 @@ function OpenGatewaySettingsPage(props: {
         <MetricCard title="监听地址" value={baseUrl} detail={gateway.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
         <MetricCard title="访问凭据" value={gateway.token ? '已配置' : '未配置'} detail="Bearer token 保护所有 /v1 API" />
         <MetricCard title="实时连接" value={String(status?.activeEventStreams ?? 0)} detail="SSE 客户端" />
-        <MetricCard title="能力" value="13 个端点" detail="/health · sessions · messages · events · incidents · search" />
+        <MetricCard title="能力" value="14 个端点" detail="/health · state · sessions · messages · events · incidents · search" />
       </div>
 
       <div className="settingsFormRow">
@@ -3152,6 +3152,7 @@ function OpenGatewaySettingsPage(props: {
 
       <SettingsRows>
         <SettingRow title="健康检查" detail="不需要 token，用于确认网关进程是否启动。" value="GET /health" />
+        <SettingRow title="总览状态" detail="需要 Bearer token，返回网关运行态、会话状态、失败索引状态和能力清单，不含正文或预览。" value="GET /v1/state" />
         <SettingRow title="能力清单" detail="需要 Bearer token，返回当前开放的本机 API 能力。" value="GET /v1/capabilities" />
         <SettingRow title="会话列表" detail="需要 Bearer token，返回本地 session summary。" value="GET /v1/sessions" />
         <SettingRow title="会话状态" detail="需要 Bearer token，返回会话数量、未读数、状态分布和最近失败计数，不含标题或预览。" value="GET /v1/sessions/state" />
