@@ -21,6 +21,7 @@ import {
   botConversationKey,
   botDisplayLabel,
   isBotDeliveryProvider,
+  isPlaintextResetCommand,
   formatBotMessageForSession,
   formatPlanReminderDeliveryMessage,
 } from '@maka/core';
@@ -1844,6 +1845,22 @@ async function processBotIncomingMessage(
   message: BotIncomingMessage,
   text: string,
 ): Promise<void> {
+  // PR-BOT-PLAINTEXT-RESET-COMMAND-0 (Hermes deep-dive): in DMs, a bare
+  // "restart" / "重置" / etc. drops the conversation/session binding so
+  // the next message starts a fresh thread. DM-only because the
+  // conversation key is `${platform}:${chatId}` — in a group chat any
+  // member would otherwise be able to wipe everyone else's context.
+  if (isPlaintextResetCommand({ text, isGroup: message.isGroup })) {
+    const had = botConversationSessions.delete(conversationKey);
+    const replyOptions = message.sourceMessageId
+      ? { replyToMessageId: message.sourceMessageId }
+      : undefined;
+    const ack = had
+      ? '会话已重置，下一条消息会开新对话。'
+      : '当前没有进行中的对话；下一条消息会开新对话。';
+    await botRegistry.sendMessage(message.platform, message.chatId, ack, replyOptions).catch(() => null);
+    return;
+  }
   let sessionId = botConversationSessions.get(conversationKey);
   try {
     if (!sessionId) {

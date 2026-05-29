@@ -37,6 +37,47 @@ export function botConversationKey(message: Pick<BotMessageEvent, 'platform' | '
   return `${message.platform}:${message.chatId}`;
 }
 
+/**
+ * PR-BOT-PLAINTEXT-RESET-COMMAND-0 (Hermes deep-dive): DM-only plain-text
+ * "restart this conversation" affordance. Maka has no slash command
+ * runtime; users on mobile cannot easily type `/restart` either, so we
+ * coerce a handful of natural phrases into a reset action.
+ *
+ * Why DM-only: the bot conversation key is `${platform}:${chatId}`, NOT
+ * keyed by userId. In a group chat any member typing "restart" would
+ * wipe the conversation everyone else is in. Until a userId-scoped key
+ * lands, plain-text reset is silently ignored in groups so the cost of
+ * a misfire stays bounded to the sender's own DM.
+ *
+ * Match policy: NFC-normalize + lowercase + trim, then exact membership.
+ * No substring matching — the word "restart" inside a sentence is NOT
+ * a reset request; matching only the bare command avoids surprising
+ * users who intended to send a message ABOUT restart.
+ */
+export const BOT_PLAINTEXT_RESET_COMMANDS: ReadonlyArray<string> = Object.freeze([
+  'restart',
+  'reset',
+  '/restart',
+  '/reset',
+  '/new',
+  '/newchat',
+  'new chat',
+  '重启',
+  '重置',
+  '重新开始',
+  '新对话',
+  '新会话',
+]);
+
+export function isPlaintextResetCommand(
+  message: Pick<BotMessageEvent, 'text' | 'isGroup'>,
+): boolean {
+  if (message.isGroup) return false;
+  const trimmed = message.text.normalize('NFC').trim().toLowerCase();
+  if (trimmed.length === 0) return false;
+  return BOT_PLAINTEXT_RESET_COMMANDS.includes(trimmed);
+}
+
 export function formatBotMessageForSession(
   message: Pick<BotMessageEvent, 'platform' | 'userName' | 'text'>,
 ): string {
