@@ -129,4 +129,20 @@ describe('Settings coming-soon cleanup contract', () => {
       'Health Center visible copy must not read like future roadmap or demo-stage copy',
     );
   });
+
+  it('keeps shipped read-only and fallback source naming out of stub vocabulary', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const ui = await readRepo('packages/ui/src/components.tsx');
+
+    assert.doesNotMatch(
+      settings,
+      /Permission Center stub|Health Center stub|Read-only stub/,
+      'Settings read-only pages should not be maintained as implementation stubs in source naming',
+    );
+    assert.doesNotMatch(
+      ui,
+      /STUB_VIEWS|data-stub-view|dataStubView|stub framework|stub views/,
+      'Sidebar fallback/empty surfaces should use product source naming instead of stub terminology',
+    );
+  });
 });

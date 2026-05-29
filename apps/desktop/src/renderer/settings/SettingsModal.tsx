@@ -3747,7 +3747,7 @@ function Switch(props: { checked: boolean; onChange(checked: boolean): void; dis
 }
 
 /**
- * PR-UI-8 — Permission Center stub. Consumes `window.maka.permissions.getSnapshot()`
+ * PR-UI-8 — Permission Center read-only page. Consumes `window.maka.permissions.getSnapshot()`
  * and `window.maka.capabilities.getSnapshot()` (both shipped by @xuan PR-REAL-2).
  *
  * Stage 1 Hard Gate contract:
@@ -4081,7 +4081,7 @@ function runtimeProbeTone(state: CapabilitySnapshot['runtimeProbe']['state']): '
 }
 
 /**
- * PR-UI-9 — Health Center stub. Consumes `window.maka.health.getSnapshot()`
+ * PR-UI-9 — Health Center read-only page. Consumes `window.maka.health.getSnapshot()`
  * (shipped by @xuan PR-HC-1).
  *
  * Hard contract (per @xuan): "validation/config/permission/runtime 别聚成
@@ -4092,7 +4092,7 @@ function runtimeProbeTone(state: CapabilitySnapshot['runtimeProbe']['state']): '
  * connection does NOT promote it to operational — that requires a runtime
  * probe in PR-REAL-4. The detail copy below makes the distinction explicit.
  *
- * Read-only stub: no test buttons, no repair flows. Test/repair entries
+ * Read-only boundary: no test buttons, no repair flows. Test/repair entries
  * will be wired in PR-HC-2 once typed actions are exposed.
  */
 const HEALTH_LAYER_COPY: Record<HealthSignalLayer, { label: string; description: string }> = {

@@ -660,14 +660,14 @@ export function SessionListPanel(props: {
           />
         ) : (
           (() => {
-            const stub = STUB_VIEWS[props.selection.section];
-            if (!stub) return null;
+            const fallback = MODULE_FALLBACK_VIEWS[props.selection.section];
+            if (!fallback) return null;
             return (
               <EmptyState
-                Icon={stub.Icon}
-                title={stub.title}
-                body={stub.body}
-                dataStubView={props.selection.section}
+                Icon={fallback.Icon}
+                title={fallback.title}
+                body={fallback.body}
+                dataEmptyView={props.selection.section}
               />
             );
           })()
@@ -713,11 +713,11 @@ export function SessionListPanel(props: {
  * runtime; Daily Review renders the real panel when `dailyReviewBridge`
  * is provided by the desktop shell.
  *
- * Per xuan `47e204f2` #1, the stub framework is intentionally minimal
+ * Per xuan `47e204f2` #1, the fallback view registry is intentionally minimal
  * — empty-state shape, fixed Chinese copy, no router / settings /
  * storage touchpoints.
  */
-const STUB_VIEWS: Record<
+const MODULE_FALLBACK_VIEWS: Record<
   Exclude<NavSelection['section'], 'sessions' | 'skills' | 'automations'>,
   { Icon: typeof Search; title: string; body: string }
 > = {
@@ -730,7 +730,7 @@ const STUB_VIEWS: Record<
 
 /**
  * PR-EMPTY-STATE-COMPONENT-0: shared empty-state container. Folds the
- * 4 visual duplicates (skills empty / sessions empty / stub views /
+ * 4 visual duplicates (skills empty / sessions empty / module fallbacks /
  * plan reminders empty) into a single declaration so the next empty
  * surface lands consistent by default and the icon-sizing /
  * paragraph-spacing / CTA-placement decisions only live in one
@@ -749,8 +749,8 @@ export interface EmptyStateProps {
   secondaryCta?: { label: string; onClick: () => void };
   /** Optional extra class on the container (e.g. `maka-plan-empty`). */
   extraClassName?: string;
-  /** Optional `data-stub-view` passthrough for visual-smoke selectors. */
-  dataStubView?: string;
+  /** Optional `data-empty-view` passthrough for visual-smoke selectors. */
+  dataEmptyView?: string;
 }
 
 export function EmptyState(props: EmptyStateProps) {
@@ -758,7 +758,7 @@ export function EmptyState(props: EmptyStateProps) {
     ? `maka-empty-state ${props.extraClassName}`
     : 'maka-empty-state';
   return (
-    <div className={className} data-stub-view={props.dataStubView}>
+    <div className={className} data-empty-view={props.dataEmptyView}>
       <props.Icon className="maka-empty-state-icon" strokeWidth={1.5} />
       <div className="maka-empty-state-title">{props.title}</div>
       <div className="maka-empty-state-body">{props.body}</div>
