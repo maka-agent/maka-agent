@@ -2643,7 +2643,7 @@ function modelSetupToastCopy(reason: string | undefined, fallback: string): { ti
     };
   }
   return {
-    title: '未配置真实模型',
+    title: '等待配置真实模型',
     description: fallback,
   };
 }

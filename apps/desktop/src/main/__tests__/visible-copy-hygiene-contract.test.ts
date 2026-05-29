@@ -149,6 +149,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
     reason:
       "terminal previews should label process status as `退出码 N` in visible and aria copy, not English `exit code` / `exit N`.",
   },
+  {
+    label: 'missing real-model toast sounds unfinished',
+    needle: /未配置真实模型/,
+    reason:
+      "send-path setup toast should frame the missing real model as an actionable waiting state (`等待配置真实模型`), not an unfinished/missing-product state.",
+  },
 ];
 
 /**
