@@ -1960,13 +1960,15 @@ export function SearchModal(props: {
                 <span>找到 {results.length} 条匹配</span>
                 {resultsTruncated && <span>结果较多，已显示前 {results.length} 条</span>}
               </div>
-              <ul id="maka-search-modal-results" className="maka-search-modal-results" role="list">
+              <ul id="maka-search-modal-results" className="maka-search-modal-results" role="listbox" aria-label="搜索结果">
                 {results.map((result, index) => (
                   <li key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}>
                     <button
                       ref={(node) => { resultRefs.current[index] = node; }}
                       id={`maka-search-modal-result-${index}`}
                       type="button"
+                      role="option"
+                      aria-selected={activeResultIndex === index}
                       className="maka-search-modal-result"
                       data-active={activeResultIndex === index ? 'true' : undefined}
                       onClick={() => selectResult(result)}
