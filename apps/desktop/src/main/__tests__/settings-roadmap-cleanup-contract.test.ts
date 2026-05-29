@@ -130,6 +130,17 @@ describe('Settings coming-soon cleanup contract', () => {
     );
   });
 
+  it('keeps account model empty state framed as an add-connection action', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(settings, /等待添加模型连接。可在 设置 · 模型 添加。/);
+    assert.doesNotMatch(
+      settings,
+      /未配置任何模型连接/,
+      'Account model connection empty state should read as a setup action, not missing product work',
+    );
+  });
+
   it('keeps Health Center copy scoped to read-only current signals', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const healthPage = settings.match(/function HealthCenterPage\(\)[\s\S]*?function HealthSummaryTile/);
