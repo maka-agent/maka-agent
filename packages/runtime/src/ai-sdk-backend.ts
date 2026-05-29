@@ -65,6 +65,7 @@ import type {
 import { PROVIDER_DEFAULTS, type LlmConnection } from '@maka/core/llm-connections';
 import { generalizedErrorMessage, redactSecrets } from '@maka/core/redaction';
 import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
 import { AsyncEventQueue } from './async-queue.js';
@@ -148,6 +149,15 @@ export interface ModelFactoryInput {
 export type ModelFactory = (input: ModelFactoryInput) => unknown;
 
 export const TOOL_ERROR_RESULT_MAX_CHARS = 4000;
+export const INVALID_TOOL_NAME = 'invalid';
+
+export interface RepairableAiSdkToolCall {
+  toolCallId: string;
+  toolName: string;
+  input: string;
+  providerExecuted?: boolean;
+  providerMetadata?: unknown;
+}
 
 // ============================================================================
 // Constructor input — single object matches @kabi's BackendRegistry call site
@@ -300,7 +310,8 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Build ai-sdk tools dict with permission-wrapped execute ---
     const aiSdkTools: Record<string, unknown> = {};
-    for (const t of this.input.tools) {
+    const allTools = [...this.input.tools, buildInvalidMakaTool()];
+    for (const t of allTools) {
       aiSdkTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
@@ -340,6 +351,16 @@ export class AiSdkBackend implements AgentBackend {
           model,
           messages,
           tools: aiSdkTools,
+          activeTools: this.input.tools.map((tool) => tool.name),
+          experimental_repairToolCall: async (
+            { toolCall, error }: { toolCall: RepairableAiSdkToolCall; error: unknown },
+          ) => {
+            return repairMakaToolCall({
+              toolCall,
+              availableToolNames: this.input.tools.map((tool) => tool.name),
+              error,
+            });
+          },
           system: await this.resolveSystemPrompt(),
           stopWhen: stepCountIs(this.maxSteps),
           abortSignal: this.abortController!.signal,
@@ -982,4 +1003,44 @@ function byteLength(value: unknown): number {
   if (value === undefined) return 0;
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
   return Buffer.byteLength(text, 'utf8');
+}
+
+export function repairMakaToolCall(input: {
+  toolCall: RepairableAiSdkToolCall;
+  availableToolNames: readonly string[];
+  error: unknown;
+}): RepairableAiSdkToolCall | null {
+  const requestedName = input.toolCall.toolName;
+  if (requestedName === INVALID_TOOL_NAME) return null;
+
+  const lowerRequestedName = requestedName.toLowerCase();
+  const exactLowercaseMatch = input.availableToolNames.find((name) => name.toLowerCase() === lowerRequestedName);
+  if (exactLowercaseMatch && exactLowercaseMatch !== requestedName) {
+    return { ...input.toolCall, toolName: exactLowercaseMatch };
+  }
+
+  return {
+    ...input.toolCall,
+    toolName: INVALID_TOOL_NAME,
+    input: JSON.stringify({
+      tool: requestedName,
+      error: formatSyntheticToolErrorText(input.error),
+    }),
+  };
+}
+
+function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, never> {
+  return {
+    name: INVALID_TOOL_NAME,
+    description: 'Internal repair target for malformed or unknown tool calls. Do not call directly.',
+    parameters: z.object({
+      tool: z.string().optional(),
+      error: z.string().optional(),
+    }),
+    permissionRequired: false,
+    impl: ({ tool, error }) => {
+      const requested = tool ? ` "${tool}"` : '';
+      throw new Error(`模型请求了不可用或格式错误的工具${requested}：${error || 'tool call could not be parsed'}`);
+    },
+  };
 }

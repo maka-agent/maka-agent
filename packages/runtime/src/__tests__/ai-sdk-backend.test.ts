@@ -5,8 +5,10 @@ import type { SessionEvent } from '@maka/core/events';
 import type { ToolResultMessage } from '@maka/core/session';
 import {
   AiSdkBackend,
+  INVALID_TOOL_NAME,
   TOOL_ERROR_RESULT_MAX_CHARS,
   formatSyntheticToolErrorText,
+  repairMakaToolCall,
 } from '../ai-sdk-backend.js';
 import { PermissionEngine } from '../permission-engine.js';
 
@@ -126,6 +128,55 @@ describe('AiSdkBackend stop', () => {
 
     assert.match(await parked, /Turn turn-1 aborted before permission request permission-id was answered/);
     assert.equal(permissionEngine.pendingCount('turn-1'), 0);
+  });
+});
+
+describe('AiSdkBackend tool-call repair', () => {
+  test('repairs provider tool-name case drift to the canonical Maka tool name', () => {
+    const repaired = repairMakaToolCall({
+      toolCall: {
+        toolCallId: 'tool-1',
+        toolName: 'bash',
+        input: '{"command":"pwd"}',
+      },
+      availableToolNames: ['Bash', 'Read'],
+      error: new Error('No such tool'),
+    });
+
+    assert.equal(repaired?.toolName, 'Bash');
+    assert.equal(repaired?.input, '{"command":"pwd"}');
+  });
+
+  test('routes unrepairable tool calls into the structured invalid tool', () => {
+    const repaired = repairMakaToolCall({
+      toolCall: {
+        toolCallId: 'tool-1',
+        toolName: 'DeleteEverything',
+        input: '{"path":"/"}',
+      },
+      availableToolNames: ['Bash', 'Read'],
+      error: new Error('No such tool: Authorization: Bearer sk-live-secret-token-value'),
+    });
+
+    assert.equal(repaired?.toolName, INVALID_TOOL_NAME);
+    const input = JSON.parse(repaired?.input ?? '{}') as { tool?: string; error?: string };
+    assert.equal(input.tool, 'DeleteEverything');
+    assert.match(input.error ?? '', /No such tool/);
+    assert.equal((input.error ?? '').includes('sk-live-secret-token-value'), false);
+  });
+
+  test('does not recursively repair the internal invalid tool', () => {
+    const repaired = repairMakaToolCall({
+      toolCall: {
+        toolCallId: 'tool-1',
+        toolName: INVALID_TOOL_NAME,
+        input: '{}',
+      },
+      availableToolNames: ['Bash', 'Read'],
+      error: new Error('Invalid tool failed'),
+    });
+
+    assert.equal(repaired, null);
   });
 });
 
