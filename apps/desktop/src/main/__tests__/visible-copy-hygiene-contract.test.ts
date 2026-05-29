@@ -155,6 +155,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
     reason:
       "send-path setup toast should frame the missing real model as an actionable waiting state (`等待配置真实模型`), not an unfinished/missing-product state.",
   },
+  {
+    label: 'missing default-model guard sounds unfinished',
+    needle: /还没有配置默认模型/,
+    reason:
+      "send-path readiness errors should frame the missing default model as an actionable waiting state (`等待配置默认模型`), not unfinished setup copy.",
+  },
 ];
 
 /**

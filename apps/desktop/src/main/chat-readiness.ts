@@ -48,7 +48,7 @@ export async function requireReadyConnection(
   // the core helper because we lack a connection object to evaluate.
   if (!slug || slug === 'fake') {
     throw chatConfigurationError(
-      '还没有配置默认模型。请到 设置 · 模型 添加 Anthropic / OpenAI / GLM 等 API key。',
+      '等待配置默认模型。请到 设置 · 模型 添加 Anthropic / OpenAI / GLM 等 API key。',
       'missing_default_connection',
     );
   }
@@ -115,7 +115,7 @@ function messageForReason(
     case 'connection_missing':
       // These reasons are handled before we reach isConnectionReady,
       // but kept here for exhaustive switch.
-      return '还没有配置默认模型。请到 设置 · 模型 添加 Anthropic / OpenAI / GLM 等 API key。';
+      return '等待配置默认模型。请到 设置 · 模型 添加 Anthropic / OpenAI / GLM 等 API key。';
   }
 }
 
