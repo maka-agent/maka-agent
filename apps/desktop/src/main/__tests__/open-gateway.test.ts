@@ -49,6 +49,7 @@ describe('OpenGatewayService', () => {
       'sessions.messages.read',
       'sessions.messages.send',
       'sessions.events.stream',
+      'sessions.incidents.read',
       'search.thread',
     ]);
   });
@@ -182,6 +183,59 @@ describe('OpenGatewayService', () => {
     assert.match(chunk, /id: event-2/);
     assert.match(chunk, /event: text_delta/);
     assert.match(chunk, /replay me/);
+  });
+
+  test('exposes bounded redacted recent run incidents without event payload replay', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s1', textDeltaEvent({ id: 'event-ok', turnId: 'turn-1', text: 'normal stream' }));
+    service.publishSessionEvent('s1', errorEvent({
+      id: 'event-error',
+      turnId: 'turn-1',
+      message: 'Provider failed with Authorization: Bearer sk-live-secret-token-value',
+      reason: 'provider_error',
+      code: 'upstream_500',
+    }));
+    service.publishSessionEvent('s1', abortEvent({ id: 'event-abort', turnId: 'turn-2', reason: 'timeout' }));
+
+    const response = await fetchJson(`${status.baseUrl}/v1/sessions/s1/incidents`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.incidents.length, 2);
+    assert.deepEqual(response.body.incidents.map((item: any) => item.type), ['error', 'abort']);
+    assert.equal(response.body.incidents[0].id, 'incident:event-error');
+    assert.equal(response.body.incidents[0].eventId, 'event-error');
+    assert.equal(response.body.incidents[0].turnId, 'turn-1');
+    assert.match(response.body.incidents[0].message, /\[redacted\]/);
+    assert.doesNotMatch(JSON.stringify(response.body.incidents), /sk-live-secret-token-value/);
+    assert.equal(response.body.incidents[1].reason, 'timeout');
+
+    const unauthorized = await fetchJson(`${status.baseUrl}/v1/sessions/s1/incidents`);
+    assert.equal(unauthorized.status, 401);
+  });
+
+  test('caps gateway incidents to the most recent entries', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    for (let index = 0; index < 25; index += 1) {
+      service.publishSessionEvent('s1', errorEvent({
+        id: `event-error-${index}`,
+        turnId: `turn-${index}`,
+        message: `failure ${index}`,
+      }));
+    }
+
+    const response = await fetchJson(`${status.baseUrl}/v1/sessions/s1/incidents`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.incidents.length, 20);
+    assert.equal(response.body.incidents[0].eventId, 'event-error-5');
+    assert.equal(response.body.incidents[19].eventId, 'event-error-24');
   });
 
   test('closes existing SSE clients when the gateway token rotates', async () => {
@@ -319,6 +373,40 @@ function textDeltaEvent(input: { id: string; turnId: string; text: string }): Se
     messageId: 'assistant-1',
     ts: 1_700_000_000_000,
     text: input.text,
+  };
+}
+
+function errorEvent(input: {
+  id: string;
+  turnId: string;
+  message: string;
+  recoverable?: boolean;
+  code?: string;
+  reason?: string;
+}): SessionEvent {
+  return {
+    type: 'error',
+    id: input.id,
+    turnId: input.turnId,
+    ts: 1_700_000_000_000,
+    recoverable: input.recoverable ?? false,
+    message: input.message,
+    ...(input.code ? { code: input.code } : {}),
+    ...(input.reason ? { reason: input.reason } : {}),
+  };
+}
+
+function abortEvent(input: {
+  id: string;
+  turnId: string;
+  reason: 'user_stop' | 'redirect' | 'timeout' | 'crash';
+}): SessionEvent {
+  return {
+    type: 'abort',
+    id: input.id,
+    turnId: input.turnId,
+    ts: 1_700_000_000_001,
+    reason: input.reason,
   };
 }
 

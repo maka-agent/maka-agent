@@ -9,6 +9,7 @@ import type {
   SessionSummary,
   StoredMessage,
 } from '@maka/core';
+import { redactSecrets } from '@maka/core/redaction';
 
 export type OpenGatewayStatus = OpenGatewayRuntimeStatus;
 
@@ -186,6 +187,7 @@ export class OpenGatewayService {
           'sessions.messages.read',
           ...(this.deps.sendMessage ? ['sessions.messages.send'] : []),
           'sessions.events.stream',
+          'sessions.incidents.read',
           'search.thread',
         ],
       });
@@ -232,6 +234,16 @@ export class OpenGatewayService {
       }
       const sessionId = decodeURIComponent(eventsMatch[1]!);
       this.openSessionEventStream(sessionId, readReplayCursor(req, url), req, res);
+      return;
+    }
+    const incidentsMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/incidents$/);
+    if (incidentsMatch) {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      const sessionId = decodeURIComponent(incidentsMatch[1]!);
+      writeJson(res, 200, { ok: true, incidents: buildGatewayIncidents(this.recentEvents.get(sessionId) ?? []) });
       return;
     }
     if (url.pathname === '/v1/search/thread') {
@@ -363,12 +375,35 @@ type JsonBodyResult =
 const OPEN_GATEWAY_MAX_BODY_BYTES = 16 * 1024;
 const OPEN_GATEWAY_EVENT_HEARTBEAT_MS = 15_000;
 const OPEN_GATEWAY_EVENT_REPLAY_LIMIT = 100;
+const OPEN_GATEWAY_INCIDENT_LIMIT = 20;
+const OPEN_GATEWAY_INCIDENT_TEXT_LIMIT = 500;
 
 interface GatewayEventClient {
   response: ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
   write(chunk: string): void;
 }
+
+type GatewayIncidentSummary =
+  | {
+      id: string;
+      eventId: string;
+      type: 'error';
+      turnId: string;
+      ts: number;
+      recoverable: boolean;
+      message: string;
+      code?: string;
+      reason?: string;
+    }
+  | {
+      id: string;
+      eventId: string;
+      type: 'abort';
+      turnId: string;
+      ts: number;
+      reason: 'user_stop' | 'redirect' | 'timeout' | 'crash';
+    };
 
 function formatSseEvent(input: { id: string; event: string; data: unknown }): string {
   const data = JSON.stringify(input.data);
@@ -379,6 +414,40 @@ function formatSseEvent(input: { id: string; event: string; data: unknown }): st
     '',
     '',
   ].join('\n');
+}
+
+function buildGatewayIncidents(events: readonly SessionEvent[]): GatewayIncidentSummary[] {
+  const incidents: GatewayIncidentSummary[] = [];
+  for (const event of events) {
+    if (event.type === 'error') {
+      incidents.push({
+        id: `incident:${event.id}`,
+        eventId: event.id,
+        type: 'error',
+        turnId: event.turnId,
+        ts: event.ts,
+        recoverable: event.recoverable,
+        message: capIncidentText(redactSecrets(event.message)),
+        ...(event.code ? { code: capIncidentText(redactSecrets(event.code)) } : {}),
+        ...(event.reason ? { reason: capIncidentText(redactSecrets(event.reason)) } : {}),
+      });
+    } else if (event.type === 'abort') {
+      incidents.push({
+        id: `incident:${event.id}`,
+        eventId: event.id,
+        type: 'abort',
+        turnId: event.turnId,
+        ts: event.ts,
+        reason: event.reason,
+      });
+    }
+  }
+  return incidents.slice(-OPEN_GATEWAY_INCIDENT_LIMIT);
+}
+
+function capIncidentText(value: string): string {
+  if (value.length <= OPEN_GATEWAY_INCIDENT_TEXT_LIMIT) return value;
+  return `${value.slice(0, OPEN_GATEWAY_INCIDENT_TEXT_LIMIT - 1)}…`;
 }
 
 function readReplayCursor(req: IncomingMessage, url: URL): string | undefined {
