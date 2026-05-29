@@ -76,6 +76,7 @@ import {
   formatPlanReminderDeliveryTarget,
   formatPermissionRequestWait,
   formatRelativeTimestamp,
+  DEEP_RESEARCH_EVIDENCE_CHECKLIST,
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
   DEEP_RESEARCH_WORKFLOW_STEPS,
@@ -3374,6 +3375,17 @@ function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): voi
             <li key={option.label}>
               <span className="maka-deep-research-scope-label">{option.label}</span>
               <span className="maka-deep-research-scope-body">{option.body}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section className="maka-deep-research-evidence" aria-label="深度研究证据清单">
+        <h2>每次研究都要留证据</h2>
+        <ul>
+          {DEEP_RESEARCH_EVIDENCE_CHECKLIST.map((item) => (
+            <li key={item.title}>
+              <span className="maka-deep-research-evidence-title">{item.title}</span>
+              <span className="maka-deep-research-evidence-body">{item.body}</span>
             </li>
           ))}
         </ul>

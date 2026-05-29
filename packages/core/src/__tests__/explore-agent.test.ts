@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
+  DEEP_RESEARCH_EVIDENCE_CHECKLIST,
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
   DEEP_RESEARCH_SESSION_LABEL,
@@ -52,8 +53,13 @@ describe('deep research session profile', () => {
       assert.match(prompt, new RegExp(option.label));
       assert.match(prompt, new RegExp(option.body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
+    for (const item of DEEP_RESEARCH_EVIDENCE_CHECKLIST) {
+      assert.match(prompt, new RegExp(item.title));
+      assert.match(prompt, new RegExp(item.body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
     assert.match(prompt, /If the user does not specify a scope, use 标准/);
     assert.match(prompt, /Use 深挖 only when the user explicitly asks/);
+    assert.match(prompt, /call that out explicitly instead of guessing/);
   });
 
   it('keeps the visible workflow compact and implementation-oriented', () => {
@@ -84,5 +90,17 @@ describe('deep research session profile', () => {
     assert.match(DEEP_RESEARCH_SCOPE_OPTIONS[0]?.body ?? '', /小问题/);
     assert.match(DEEP_RESEARCH_SCOPE_OPTIONS[1]?.body ?? '', /默认深度/);
     assert.match(DEEP_RESEARCH_SCOPE_OPTIONS[2]?.body ?? '', /明确要求/);
+  });
+
+  it('keeps the deep research evidence checklist source-grounded', () => {
+    assert.equal(DEEP_RESEARCH_EVIDENCE_CHECKLIST.length, 4);
+    assert.deepEqual(
+      DEEP_RESEARCH_EVIDENCE_CHECKLIST.map((item) => item.title),
+      ['项目入口', '核心链路', '边界条件', '验证证据'],
+    );
+    assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[0]?.body ?? '', /README、package\/config/);
+    assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[1]?.body ?? '', /IPC\/服务、存储、运行时/);
+    assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[2]?.body ?? '', /权限、隐身模式/);
+    assert.match(DEEP_RESEARCH_EVIDENCE_CHECKLIST[3]?.body ?? '', /测试、fixture、smoke/);
   });
 });

@@ -64,6 +64,25 @@ export const DEEP_RESEARCH_SCOPE_OPTIONS = [
   },
 ] as const;
 
+export const DEEP_RESEARCH_EVIDENCE_CHECKLIST = [
+  {
+    title: '项目入口',
+    body: '先看 README、package/config、启动脚本和目录分层，确认真实运行方式。',
+  },
+  {
+    title: '核心链路',
+    body: '追 UI 入口、IPC/服务、存储、运行时调用和错误处理，不只看表面组件。',
+  },
+  {
+    title: '边界条件',
+    body: '检查权限、隐身模式、token/路径暴露、失败重试和用户可见反馈。',
+  },
+  {
+    title: '验证证据',
+    body: '找对应测试、fixture、smoke 文档和可复现命令；缺口要明确标出来。',
+  },
+] as const;
+
 export function isQuickChatMode(value: unknown): value is QuickChatMode {
   return typeof value === 'string' && (QUICK_CHAT_MODES as readonly string[]).includes(value);
 }
@@ -93,6 +112,10 @@ export function buildDeepResearchSystemPromptFragment(): string {
     'Research scope budget:',
     ...DEEP_RESEARCH_SCOPE_OPTIONS.map((option) => `- ${option.label}: ${option.body}`),
     '- If the user does not specify a scope, use 标准. Use 深挖 only when the user explicitly asks for deep / exhaustive / full-project research.',
+    '',
+    'Evidence checklist:',
+    ...DEEP_RESEARCH_EVIDENCE_CHECKLIST.map((item) => `- ${item.title}: ${item.body}`),
+    '- If any checklist area cannot be verified from available files or runtime context, call that out explicitly instead of guessing.',
     '',
     'Final report contract:',
     ...DEEP_RESEARCH_REPORT_SECTIONS.map((section) => `- ${section.title}: ${section.body}`),
