@@ -142,6 +142,38 @@ describe('OpenGatewayService', () => {
     assert.match(chunk, /hello gateway stream/);
   });
 
+  test('closes existing SSE clients when the gateway token rotates', async () => {
+    let settings = createGatewaySettings({ enabled: true, port: 0, token: 'old-token' });
+    const service = makeService({
+      getSettings: async () => settings,
+    });
+    activeServices.push(service);
+    const status = await service.sync(settings.openGateway);
+    assert.ok(status.baseUrl);
+
+    const response = await fetch(`${status.baseUrl}/v1/sessions/s1/events`, {
+      headers: { Authorization: 'Bearer old-token' },
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body!.getReader();
+
+    settings = createGatewaySettings({
+      enabled: true,
+      host: status.host,
+      port: status.port,
+      token: 'new-token',
+    });
+    await service.sync(settings.openGateway);
+
+    const closed = await readUntilClosed(reader);
+    assert.match(closed, /session s1 connected/);
+
+    const oldToken = await fetchJson(`${status.baseUrl}/v1/capabilities`, 'old-token');
+    assert.equal(oldToken.status, 401);
+    const newToken = await fetchJson(`${status.baseUrl}/v1/capabilities`, 'new-token');
+    assert.equal(newToken.status, 200);
+  });
+
   test('rejects invalid gateway send bodies before calling runtime send', async () => {
     let calls = 0;
     const service = makeService({
@@ -259,6 +291,18 @@ async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, needle
     text += decoder.decode(read.value, { stream: true });
   }
   return text;
+}
+
+async function readUntilClosed(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = '';
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for SSE close. Received: ${text}`);
+    const read = await reader.read();
+    if (read.done) return text;
+    text += decoder.decode(read.value, { stream: true });
+  }
 }
 
 function searchResult(overrides: { sessionId: string; snippet?: string }): SearchResult {

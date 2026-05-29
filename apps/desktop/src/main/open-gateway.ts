@@ -23,6 +23,7 @@ export interface OpenGatewayDeps {
 
 export class OpenGatewayService {
   private server: Server | null = null;
+  private activeToken: string | null = null;
   private readonly eventClients = new Map<string, Set<GatewayEventClient>>();
   private status: OpenGatewayStatus = {
     enabled: false,
@@ -74,6 +75,10 @@ export class OpenGatewayService {
       this.status.host === settings.host &&
       this.status.port === settings.port
     ) {
+      if (this.activeToken !== settings.token) {
+        this.closeEventClients();
+      }
+      this.activeToken = settings.token;
       this.status = {
         ...this.status,
         enabled: true,
@@ -100,6 +105,7 @@ export class OpenGatewayService {
       });
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : settings.port;
+      this.activeToken = settings.token;
       this.status = {
         enabled: true,
         running: true,
@@ -111,6 +117,7 @@ export class OpenGatewayService {
       };
     } catch (error) {
       await this.stop();
+      this.activeToken = null;
       this.status = {
         enabled: true,
         running: false,
@@ -127,6 +134,7 @@ export class OpenGatewayService {
   async stop(): Promise<void> {
     const server = this.server;
     this.server = null;
+    this.activeToken = null;
     this.closeEventClients();
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
