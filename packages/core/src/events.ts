@@ -191,6 +191,7 @@ export type ToolResultContent =
       filesInspected: number;
       filesSkipped: number;
       bytesRead: number;
+      progress: string[];
       candidateFiles: ReadonlyArray<{ path: string; score: number; reasons: string[] }>;
       matches: ReadonlyArray<{ path: string; line: number; query: string; snippet: string }>;
       notes: string[];

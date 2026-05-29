@@ -77,6 +77,7 @@ export interface ExploreAgentResult {
   filesInspected: number;
   filesSkipped: number;
   bytesRead: number;
+  progress: string[];
   candidateFiles: Array<{ path: string; score: number; reasons: string[] }>;
   matches: Array<{ path: string; line: number; query: string; snippet: string }>;
   notes: string[];
@@ -146,18 +147,18 @@ export async function runReadOnlyExplore(input: {
   const maxFiles = clampInteger(input.maxFiles, 1, 80, DEFAULT_MAX_FILES);
   const maxMatches = clampInteger(input.maxMatches, 1, 120, DEFAULT_MAX_MATCHES);
   const progress = createProgressReporter(input.onProgress);
-  progress(`只读探索：准备范围（${roots.length} 个 root，${queryTerms.length} 个查询词）`);
+  progress.report(`只读探索：准备范围（${roots.length} 个 root，${queryTerms.length} 个查询词）`);
 
   const resolvedRoots: Array<{ abs: string; rel: string }> = [];
   for (const root of roots) {
     const resolved = resolve(workspaceRoot, root);
     if (!isInside(workspaceRoot, resolved)) {
-      return failure('invalid_root', objective, roots, queryTerms, `root 必须位于会话工作目录内：${root}`);
+      return failure('invalid_root', objective, roots, queryTerms, `root 必须位于会话工作目录内：${root}`, progress.messages);
     }
     try {
       const actual = await realpath(resolved);
       if (!isInside(workspaceRoot, actual)) {
-        return failure('invalid_root', objective, roots, queryTerms, `root 不能穿过符号链接离开工作目录：${root}`);
+        return failure('invalid_root', objective, roots, queryTerms, `root 不能穿过符号链接离开工作目录：${root}`, progress.messages);
       }
       const rootStat = await stat(actual);
       if (!rootStat.isDirectory() && !rootStat.isFile()) continue;
@@ -167,9 +168,9 @@ export async function runReadOnlyExplore(input: {
     }
   }
   if (resolvedRoots.length === 0) {
-    return failure('no_readable_roots', objective, roots, queryTerms, '没有可读取的研究范围。');
+    return failure('no_readable_roots', objective, roots, queryTerms, '没有可读取的研究范围。', progress.messages);
   }
-  progress(`只读探索：确认 ${resolvedRoots.length} 个可读范围：${resolvedRoots.map((root) => root.rel).join(', ')}`);
+  progress.report(`只读探索：确认 ${resolvedRoots.length} 个可读范围：${resolvedRoots.map((root) => root.rel).join(', ')}`);
 
   const files: string[] = [];
   const notes: string[] = [
@@ -187,7 +188,7 @@ export async function runReadOnlyExplore(input: {
     if (files.length === before) notes.push(`Scope ${root.rel} had no readable text files within budget.`);
     const found = files.length - before;
     const skipped = filesSkipped - skippedBefore;
-    progress(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项`);
+    progress.report(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项`);
     if (files.length >= maxFiles) break;
   }
 
@@ -196,7 +197,7 @@ export async function runReadOnlyExplore(input: {
   let bytesRead = 0;
   let inspected = 0;
 
-  progress(`只读探索：开始读取 ${files.length} 个候选文件`);
+  progress.report(`只读探索：开始读取 ${files.length} 个候选文件`);
   for (const file of files) {
     const rel = toRelative(workspaceRoot, file);
     const filenameScore = scorePath(rel, queryTerms);
@@ -242,7 +243,7 @@ export async function runReadOnlyExplore(input: {
     }
     if (matches.length >= maxMatches || bytesRead >= MAX_TOTAL_BYTES) break;
     if (inspected > 0 && inspected % 10 === 0) {
-      progress(`只读探索：已读取 ${inspected} 个文件，命中 ${matches.length} 处`);
+      progress.report(`只读探索：已读取 ${inspected} 个文件，命中 ${matches.length} 处`);
     }
   }
 
@@ -257,7 +258,7 @@ export async function runReadOnlyExplore(input: {
 
   if (matches.length === 0) notes.push('No content matches found; use candidateFiles as the next read list.');
   if (bytesRead >= MAX_TOTAL_BYTES) notes.push('Total byte budget reached before all candidate files were inspected.');
-  progress(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
+  progress.report(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
 
   return {
     kind: 'explore_agent',
@@ -269,18 +270,27 @@ export async function runReadOnlyExplore(input: {
     filesInspected: inspected,
     filesSkipped,
     bytesRead,
+    progress: progress.messages,
     candidateFiles,
     matches,
     notes,
   };
 }
 
-function createProgressReporter(onProgress: ((message: string) => void) | undefined): (message: string) => void {
+function createProgressReporter(onProgress: ((message: string) => void) | undefined): {
+  messages: string[];
+  report(message: string): void;
+} {
   let emitted = 0;
-  return (message) => {
-    if (!onProgress || emitted >= 12) return;
-    emitted++;
-    onProgress(message);
+  const messages: string[] = [];
+  return {
+    messages,
+    report(message) {
+      if (emitted >= 12) return;
+      emitted++;
+      messages.push(message);
+      onProgress?.(message);
+    },
   };
 }
 
@@ -460,6 +470,7 @@ function failure(
   roots: string[],
   queries: string[],
   message: string,
+  progress: string[] = [],
 ): ExploreAgentResult {
   return {
     kind: 'explore_agent',
@@ -471,6 +482,7 @@ function failure(
     filesInspected: 0,
     filesSkipped: 0,
     bytesRead: 0,
+    progress,
     candidateFiles: [],
     matches: [],
     notes: ['Read-only worker: no writes, no network, no process execution.'],

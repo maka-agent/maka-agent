@@ -5465,6 +5465,7 @@ function ExploreAgentPreview(props: {
   const { result } = props;
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
+  const progress = (result.progress ?? []).slice(0, 6);
   const notes = result.notes.slice(0, 4);
   const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
   const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
@@ -5493,6 +5494,18 @@ function ExploreAgentPreview(props: {
           <dd>{redactSecrets(queries)}</dd>
         </div>
       </dl>
+      {progress.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="探索过程">
+          <strong>过程</strong>
+          <ul>
+            {progress.map((item, index) => (
+              <li key={`${index}:${item.slice(0, 24)}`}>
+                <span>{redactSecrets(item)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {candidateFiles.length > 0 && (
         <section className="maka-explore-agent-section" aria-label="候选文件">
           <strong>候选文件</strong>

@@ -96,6 +96,9 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.kind, 'explore_agent');
       assert.equal(result.ok, true);
       assert.ok(result.matches.some((match) => match.path === 'notes.md'));
+      assert.ok(result.progress.some((message) => /准备范围/.test(message)));
+      assert.ok(result.progress.some((message) => /完成/.test(message)));
+      assert.equal(result.progress.join('').includes(workspaceRoot), false);
       assert.ok(output.some((chunk) => /准备范围/.test(chunk)));
       assert.ok(output.some((chunk) => /完成/.test(chunk)));
       assert.equal(output.join('').includes(workspaceRoot), false);
@@ -118,6 +121,7 @@ describe('ExploreAgent read-only worker', () => {
       });
 
       assert.equal(result.ok, true);
+      assert.deepEqual(result.progress, progress);
       assert.ok(progress.length >= 5);
       assert.ok(progress.length <= 12);
       assert.ok(progress.some((message) => /已读取 10 个文件/.test(message)));
@@ -136,6 +140,8 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(components, /function ExploreAgentPreview/);
     assert.match(components, /content\.kind === 'explore_agent'/);
     const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function presentExploreAgentReason/)?.[0] ?? '';
+    assert.match(previewBlock, /result\.progress/);
+    assert.match(previewBlock, /探索过程/);
     assert.match(previewBlock, /redactSecrets/);
     assert.doesNotMatch(previewBlock, /<a\s/i, 'ExploreAgent preview should not create links from tool result paths');
   });
