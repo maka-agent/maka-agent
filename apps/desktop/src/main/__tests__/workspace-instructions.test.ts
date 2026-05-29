@@ -7,6 +7,7 @@ import {
   MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
   buildWorkspaceInstructionsPromptFragment,
   getWorkspaceInstructionsState,
+  resolveWorkspaceInstructionFileForOpen,
 } from '../workspace-instructions.js';
 
 describe('workspace instructions prompt fragment', () => {
@@ -78,6 +79,43 @@ describe('workspace instructions prompt fragment', () => {
 
     assert.match(source, /settings\.workspaceInstructions\.enabled && cwd/);
     assert.match(source, /buildWorkspaceInstructionsPromptFragment\(cwd\)/);
+  });
+
+  it('resolves only allowlisted workspace instruction files for opening', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeFile(join(workspaceRoot, 'AGENTS.md'), 'Use npm test before pushing.\n', 'utf8');
+
+      const resolved = await resolveWorkspaceInstructionFileForOpen(workspaceRoot, 'AGENTS.md');
+
+      assert.equal(resolved.ok, true);
+      if (resolved.ok) {
+        assert.equal(resolved.file, 'AGENTS.md');
+        assert.match(resolved.path, /AGENTS\.md$/);
+      }
+      assert.deepEqual(
+        await resolveWorkspaceInstructionFileForOpen(workspaceRoot, 'README.md'),
+        { ok: false, reason: 'unknown-file' },
+      );
+    });
+  });
+
+  it('blocks workspace instruction open path escapes and directories', async () => {
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'maka-instructions-outside-open-'));
+    await withWorkspace(async (workspaceRoot) => {
+      await writeFile(join(outsideRoot, 'AGENTS.md'), 'outside secret', 'utf8');
+      await symlink(join(outsideRoot, 'AGENTS.md'), join(workspaceRoot, 'AGENTS.md'));
+      await mkdir(join(workspaceRoot, 'CLAUDE.md'));
+
+      assert.deepEqual(
+        await resolveWorkspaceInstructionFileForOpen(workspaceRoot, 'AGENTS.md'),
+        { ok: false, reason: 'blocked' },
+      );
+      assert.deepEqual(
+        await resolveWorkspaceInstructionFileForOpen(workspaceRoot, 'CLAUDE.md'),
+        { ok: false, reason: 'not-a-file' },
+      );
+    });
+    await rm(outsideRoot, { recursive: true, force: true });
   });
 });
 

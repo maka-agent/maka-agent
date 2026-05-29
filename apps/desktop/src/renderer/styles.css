@@ -5543,6 +5543,25 @@ button:active {
   font-family: var(--font-mono);
 }
 
+.settingsInlineFileState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settingsInlineTextButton {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settingsInlineTextButton:hover {
+  text-decoration: underline;
+}
+
 .settingsConnectionActions {
   display: flex;
   flex-wrap: wrap;

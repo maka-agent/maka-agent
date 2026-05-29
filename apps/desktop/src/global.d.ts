@@ -181,6 +181,7 @@ declare global {
       };
       workspaceInstructions: {
         getState(): Promise<WorkspaceInstructionsState>;
+        openFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
       };
       search: {
         thread(

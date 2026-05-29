@@ -271,6 +271,9 @@ contextBridge.exposeInMainWorld('maka', {
     getState(): Promise<WorkspaceInstructionsState> {
       return ipcRenderer.invoke('workspaceInstructions:getState');
     },
+    openFile(file: string): Promise<{ ok: true } | { ok: false; message: string }> {
+      return ipcRenderer.invoke('workspaceInstructions:openFile', file);
+    },
   },
   search: {
     // PR-SEARCH-2: local thread search. Renderer sends a `SearchRequest`

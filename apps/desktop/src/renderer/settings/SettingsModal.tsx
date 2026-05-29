@@ -2314,6 +2314,13 @@ function MemorySettingsPage(props: {
     }
   }
 
+  async function openWorkspaceInstructionFile(file: string) {
+    const result = await window.maka.workspaceInstructions.openFile(file);
+    if (!result.ok) {
+      toast.error('打开项目指令失败', result.message);
+    }
+  }
+
   async function copyPath() {
     if (!state?.path) return;
     try {
@@ -2380,8 +2387,17 @@ function MemorySettingsPage(props: {
           </small>
           <div className="settingsConnectionMeta">
             {workspaceInstructionState.files.map((file) => (
-              <span key={file.file}>
-                {file.file} · {workspaceInstructionStatusLabel(file.status, file.chars, file.truncated)}
+              <span key={file.file} className="settingsInlineFileState">
+                <span>{file.file} · {workspaceInstructionStatusLabel(file.status, file.chars, file.truncated)}</span>
+                {(file.status === 'available' || file.status === 'empty') && (
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    onClick={() => void openWorkspaceInstructionFile(file.file)}
+                  >
+                    打开
+                  </button>
+                )}
               </span>
             ))}
           </div>

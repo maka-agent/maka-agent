@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 
 export const WORKSPACE_INSTRUCTION_FILES = [
@@ -37,6 +37,12 @@ export interface WorkspaceInstructionsState {
   fileCharLimit: number;
   promptCharLimit: number;
 }
+
+export type WorkspaceInstructionOpenFailureReason =
+  | 'unknown-file'
+  | 'missing'
+  | 'blocked'
+  | 'not-a-file';
 
 export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Promise<string | undefined> {
   const instructions = await readWorkspaceInstructions(cwd);
@@ -82,6 +88,35 @@ export async function getWorkspaceInstructionsState(cwd: string): Promise<Worksp
     fileCharLimit: MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
     promptCharLimit: MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS,
   };
+}
+
+export async function resolveWorkspaceInstructionFileForOpen(
+  cwd: string,
+  file: string,
+): Promise<
+  | { ok: true; file: string; path: string }
+  | { ok: false; reason: WorkspaceInstructionOpenFailureReason }
+> {
+  if (!isWorkspaceInstructionFile(file)) return { ok: false, reason: 'unknown-file' };
+
+  let root: string;
+  let resolved: string;
+  try {
+    [root, resolved] = await Promise.all([
+      realpath(cwd),
+      realpath(join(cwd, file)),
+    ]);
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
+
+  if (!isInside(root, resolved)) return { ok: false, reason: 'blocked' };
+
+  const fileStat = await stat(resolved).catch(() => null);
+  if (!fileStat) return { ok: false, reason: 'missing' };
+  if (!fileStat.isFile()) return { ok: false, reason: 'not-a-file' };
+
+  return { ok: true, file, path: resolved };
 }
 
 async function readWorkspaceInstructions(cwd: string): Promise<WorkspaceInstruction[]> {
@@ -147,6 +182,10 @@ async function scanWorkspaceInstructions(cwd: string): Promise<Array<
 function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel === '' || (!rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`));
+}
+
+function isWorkspaceInstructionFile(file: string): file is typeof WORKSPACE_INSTRUCTION_FILES[number] {
+  return (WORKSPACE_INSTRUCTION_FILES as readonly string[]).includes(file);
 }
 
 function cleanPromptText(text: string): string {

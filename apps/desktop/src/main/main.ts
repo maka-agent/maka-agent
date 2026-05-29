@@ -127,7 +127,12 @@ import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import { buildSkillsPromptFragment, listInstalledSkills } from './skills.js';
-import { buildWorkspaceInstructionsPromptFragment, getWorkspaceInstructionsState } from './workspace-instructions.js';
+import {
+  buildWorkspaceInstructionsPromptFragment,
+  getWorkspaceInstructionsState,
+  resolveWorkspaceInstructionFileForOpen,
+  type WorkspaceInstructionOpenFailureReason,
+} from './workspace-instructions.js';
 import { buildCapabilitySnapshotCollection, buildPermissionSnapshot } from './capability-snapshot.js';
 import {
   getVisualSmokeState,
@@ -665,6 +670,21 @@ function localMemoryOpenFailureCopy(reason: string): string {
   }
 }
 
+function workspaceInstructionOpenFailureCopy(reason: WorkspaceInstructionOpenFailureReason | 'open-failed'): string {
+  switch (reason) {
+    case 'unknown-file':
+      return '只能打开 AGENTS.md / CLAUDE.md / GEMINI.md。';
+    case 'missing':
+      return '项目指令文件不存在。';
+    case 'blocked':
+      return '项目指令文件不在当前工作区范围内。';
+    case 'not-a-file':
+      return '项目指令路径不是普通文件。';
+    case 'open-failed':
+      return '系统未能打开这个文件。';
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle('app:info', () => ({
     appVersion: app.getVersion(),
@@ -704,6 +724,15 @@ function registerIpc(): void {
     return error ? { ok: false, message: error } : { ok: true };
   });
   ipcMain.handle('workspaceInstructions:getState', () => getWorkspaceInstructionsState(process.cwd()));
+  ipcMain.handle(
+    'workspaceInstructions:openFile',
+    async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
+      const resolved = await resolveWorkspaceInstructionFileForOpen(process.cwd(), typeof file === 'string' ? file : '');
+      if (!resolved.ok) return { ok: false, message: workspaceInstructionOpenFailureCopy(resolved.reason) };
+      const error = await shell.openPath(resolved.path);
+      return error ? { ok: false, message: workspaceInstructionOpenFailureCopy('open-failed') } : { ok: true };
+    },
+  );
   // Opens an artifact in Finder. Reuses the artifact-root realpath guard
   // (mirrors PR56 open-path-guard) so renderer never assembles absolute
   // paths — it only passes an artifactId; main looks up the record, runs
