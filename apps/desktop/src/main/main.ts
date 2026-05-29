@@ -881,6 +881,12 @@ function registerIpc(): void {
     emitPlansChanged('updated', reminder);
     return reminder;
   });
+  ipcMain.handle('plans:clearRunHistory', async (_event, id: string) => {
+    const reminder = await planReminderStore.clearRunHistory(id);
+    schedulePlanReminder(reminder);
+    emitPlansChanged('updated', reminder);
+    return reminder;
+  });
   ipcMain.handle('plans:delete', async (_event, id: string) => {
     clearPlanReminderTimer(id);
     await planReminderStore.remove(id);

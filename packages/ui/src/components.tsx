@@ -312,6 +312,7 @@ export function SessionListPanel(props: {
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onTriggerPlanReminderNow?(id: string): void;
   onSnoozePlanReminder?(id: string): void;
+  onClearPlanReminderRunHistory?(id: string): void;
   onDeletePlanReminder?(id: string): void;
   /**
    * PR-DAILY-REVIEW-MVP-0: bridge for the `每日回顾` panel. When
@@ -567,6 +568,7 @@ export function SessionListPanel(props: {
             onToggle={props.onTogglePlanReminder}
             onTriggerNow={props.onTriggerPlanReminderNow}
             onSnooze={props.onSnoozePlanReminder}
+            onClearRunHistory={props.onClearPlanReminderRunHistory}
             onDelete={props.onDeletePlanReminder}
           />
         ) : props.selection.section === 'sessions' ? (
@@ -1028,6 +1030,7 @@ function PlanReminderPanel(props: {
   onToggle?(id: string, enabled: boolean): void;
   onTriggerNow?(id: string): void;
   onSnooze?(id: string): void;
+  onClearRunHistory?(id: string): void;
   onDelete?(id: string): void;
 }) {
   const [title, setTitle] = useState('');
@@ -1302,6 +1305,15 @@ function PlanReminderPanel(props: {
                   title="延后 10 分钟"
                 >
                   延后 10 分钟
+                </button>
+                <button
+                  type="button"
+                  className="maka-plan-action"
+                  onClick={() => props.onClearRunHistory?.(reminder.id)}
+                  disabled={reminder.runs.length === 0 || reminder.status === 'completed'}
+                  title="清空最近执行记录"
+                >
+                  清空记录
                 </button>
                 <button
                   type="button"

@@ -21,6 +21,7 @@ export interface PlanReminderStore {
   update(id: string, patch: unknown): Promise<PlanReminder>;
   setEnabled(id: string, enabled: boolean): Promise<PlanReminder>;
   snooze(id: string, delayMs: number, now?: number): Promise<PlanReminder>;
+  clearRunHistory(id: string): Promise<PlanReminder>;
   remove(id: string): Promise<void>;
   listDue(now?: number): Promise<PlanReminder[]>;
   markTriggered(id: string, run: Omit<PlanReminderRunRecord, 'id'> & { id?: string }): Promise<PlanReminder>;
@@ -142,6 +143,26 @@ class FilePlanReminderStore implements PlanReminderStore {
         nextRunAt: base + Math.floor(delayMs),
         status: 'scheduled',
         enabled: true,
+        updatedAt: now,
+      };
+      return updated;
+    }));
+    if (!updated) throw new Error(`No such plan reminder: ${id}`);
+    return updated;
+  }
+
+  async clearRunHistory(id: string): Promise<PlanReminder> {
+    const now = Date.now();
+    let updated: PlanReminder | undefined;
+    await this.mutate((reminders) => reminders.map((reminder) => {
+      if (reminder.id !== id) return reminder;
+      if (reminder.status === 'completed') {
+        throw new Error('Completed plan reminder history cannot be cleared; delete the reminder instead');
+      }
+      updated = {
+        ...reminder,
+        lastRun: undefined,
+        runs: [],
         updatedAt: now,
       };
       return updated;
