@@ -1,4 +1,4 @@
-import type { BotChannelSettings, BotProvider } from '@maka/core';
+import { botDisplayLabel, type BotChannelSettings, type BotProvider } from '@maka/core';
 import type { BotTestResult } from './types.js';
 import { proxiedFetch } from './proxied-fetch.js';
 
@@ -18,8 +18,8 @@ export async function testBotChannel(provider: BotProvider, channel: BotChannelS
     case 'qq':
       return {
         ok: false,
-        error: `${provider} bridge is not implemented yet`,
-        hint: '入口已保留，等待官方/合规接入方案确认后启用。',
+        error: `${botDisplayLabel(provider)} 当前不支持凭据测试。`,
+        hint: '该平台不会进入可用机器人列表或计划提醒投递目标。',
       };
   }
 }
