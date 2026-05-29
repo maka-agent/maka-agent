@@ -3106,6 +3106,17 @@ function BotAllowedUserIdsField(props: {
 
   const parsed = useMemo(() => parseAllowedUserIdsFromText(buffer), [buffer]);
   const atCap = parsed.length >= MAX_ALLOWED_USER_IDS;
+  // PR-BOT-ALLOWLIST-INVALID-ID-WARN-0: Telegram user IDs are decimal
+  // integers (e.g. `123456789`). Common mistake is pasting `@alice`
+  // (username) instead — that string will persist and silently never
+  // match anyone. Surface the invalid entries so the user can fix them.
+  // Persistence is NOT enforced here (normalize still accepts any
+  // non-empty string) — the gate is informational so a power user
+  // tracking a non-Telegram platform later is not blocked.
+  const invalidEntries = useMemo(
+    () => parsed.filter((id) => !/^[0-9]+$/.test(id)),
+    [parsed],
+  );
 
   const commit = (): void => {
     const next = parsed.length === 0 ? undefined : parsed;
@@ -3129,6 +3140,12 @@ function BotAllowedUserIdsField(props: {
       <small>
         Telegram 用户 ID 是 64 位整数；填入后只接收列表里这些 ID 的来信，其它人发的消息会被静默忽略（不会回弹任何提示）。
         {atCap && <strong>（已达到上限）</strong>}
+        {invalidEntries.length > 0 && (
+          <span data-tone="warning" style={{ display: 'block', marginTop: 4 }}>
+            ⚠️ 下列不是数字 ID，可能是 @username 之类的输入，匹配不到任何人：{invalidEntries.slice(0, 3).join('、')}
+            {invalidEntries.length > 3 && ` 等 ${invalidEntries.length} 项`}
+          </span>
+        )}
       </small>
     </label>
   );
