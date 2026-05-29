@@ -83,6 +83,39 @@ describe('BaseBotAdapter', () => {
     assert.equal(adapter.getStatus().readiness, 'configured');
   });
 
+  // PR-BOT-USER-ALLOWLIST-RESTART-BOUNDARY-0: `allowedUserIds` is a
+  // runtime filter applied per inbound event, not a connection
+  // parameter. Toggling it MUST NOT force the polling loop to stop and
+  // re-issue `getMe` / `getUpdates` — that would drop any inbound event
+  // currently in flight and reset the long-poll cursor for a behavior
+  // change that doesn't affect the wire protocol. Pinning the negative
+  // case so a future maintainer who adds an entry to
+  // `botSettingsRequireRestart` notices.
+  test('does NOT restart when only allowedUserIds changes (runtime filter, not connection parameter)', () => {
+    const base = createDefaultBotChannel('telegram');
+    assert.equal(
+      botSettingsRequireRestart(base, { ...base, allowedUserIds: ['123', '456'] }),
+      false,
+      'allowlist toggle must not force a Telegram poll-loop restart',
+    );
+    assert.equal(
+      botSettingsRequireRestart(
+        { ...base, allowedUserIds: ['123'] },
+        { ...base, allowedUserIds: ['123', '456'] },
+      ),
+      false,
+      'allowlist mutation between two configured-ID sets must not restart',
+    );
+    assert.equal(
+      botSettingsRequireRestart(
+        { ...base, allowedUserIds: ['123'] },
+        { ...base, allowedUserIds: undefined },
+      ),
+      false,
+      'clearing the allowlist (opt-out of filter) must not restart',
+    );
+  });
+
   test('derives readiness only from current credential facts', () => {
     assert.equal(botReadinessFromSettings(createDefaultBotChannel('telegram')), 'scaffolded');
     assert.equal(botReadinessFromSettings({ ...createDefaultBotChannel('telegram'), enabled: true }), 'scaffolded');
