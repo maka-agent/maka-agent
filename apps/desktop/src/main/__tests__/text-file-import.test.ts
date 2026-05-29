@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { appendPromptContextDraft } from '@maka/ui';
+import { appendPromptContextDraft, readComposerDraft, rememberComposerDraft } from '@maka/ui';
 import {
   MAX_IMPORTED_TEXT_FILE_BYTES,
   MAX_IMPORTED_TEXT_FILE_CHARS,
@@ -25,6 +25,20 @@ describe('text file context import', () => {
       appendPromptContextDraft('先总结风险。  \n', '<local-folder-outline />'),
       '先总结风险。\n\n<local-folder-outline />',
     );
+  });
+
+  it('keeps composer drafts isolated by runtime draft key', () => {
+    const store = new Map<string, string>();
+
+    rememberComposerDraft(store, 'session-a', 'A 里的问题');
+    rememberComposerDraft(store, 'session-b', 'B 里的问题');
+
+    assert.equal(readComposerDraft(store, 'session-a'), 'A 里的问题');
+    assert.equal(readComposerDraft(store, 'session-b'), 'B 里的问题');
+
+    rememberComposerDraft(store, 'session-a', '   ');
+    assert.equal(readComposerDraft(store, 'session-a'), '');
+    assert.equal(readComposerDraft(store, 'session-b'), 'B 里的问题');
   });
 
   it('formats a selected text file into a prompt fragment', async () => {
@@ -122,6 +136,7 @@ describe('text file context import', () => {
     assert.match(mainSource, /onImportTextFile=\{importTextFilePrompt\}/);
     assert.match(mainSource, /onImportTextFile=\{importTextFileIntoComposer\}/);
     assert.match(mainSource, /composerRef\.current\?\.appendText\(prompt\)/);
+    assert.match(mainSource, /draftKey=\{activeId \?\? 'new-session'\}/);
     assert.match(mainProcessSource, /properties: \['openFile', 'multiSelections'\]/);
     assert.match(mainSource, /onImportFolderOutline=\{importFolderOutlinePrompt\}/);
     assert.match(mainSource, /onImportFolderOutline=\{importFolderOutlineIntoComposer\}/);
@@ -131,6 +146,8 @@ describe('text file context import', () => {
     assert.match(onboardingSource, /appendPromptContextDraft\(current, prompt\)/);
     assert.match(uiSource, /aria-label="导入文本文件"/);
     assert.match(uiSource, /aria-label="导入文件夹目录"/);
+    assert.match(uiSource, /rememberComposerDraft\(draftStoreRef\.current, previousKey/);
+    assert.match(uiSource, /readComposerDraft\(draftStoreRef\.current, nextKey\)/);
   });
 
   it('formats a selected folder into a bounded prompt outline', async () => {

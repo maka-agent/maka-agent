@@ -4208,6 +4208,36 @@ export function appendPromptContextDraft(current: string, fragment: string): str
   return `${base}\n\n${next}`;
 }
 
+const COMPOSER_DRAFT_MAX_CHARS = 120_000;
+const COMPOSER_DRAFT_MAX_ENTRIES = 32;
+
+export function rememberComposerDraft(store: Map<string, string>, key: string | undefined, value: string): void {
+  if (!key) return;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    store.delete(key);
+    return;
+  }
+
+  const bounded = value.length > COMPOSER_DRAFT_MAX_CHARS
+    ? value.slice(value.length - COMPOSER_DRAFT_MAX_CHARS)
+    : value;
+  store.delete(key);
+  store.set(key, bounded);
+
+  while (store.size > COMPOSER_DRAFT_MAX_ENTRIES) {
+    const oldest = store.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    if (oldest === key && store.size === 1) break;
+    store.delete(oldest);
+  }
+}
+
+export function readComposerDraft(store: Map<string, string>, key: string | undefined): string {
+  if (!key) return '';
+  return store.get(key) ?? '';
+}
+
 export const Composer = forwardRef<
   ComposerHandle,
   {
@@ -4219,6 +4249,8 @@ export const Composer = forwardRef<
      * the only visible action — Send is hidden because the model is busy.
      */
     streaming?: boolean;
+    /** Runtime-only key used to keep unsent drafts isolated per session. */
+    draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
     onStop(): void;
     onImportTextFile?(): void;
@@ -4227,6 +4259,8 @@ export const Composer = forwardRef<
 >(function Composer(props, ref) {
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftStoreRef = useRef<Map<string, string>>(new Map());
+  const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
   // is effectively constant for the lifetime of the renderer but the
@@ -4247,6 +4281,27 @@ export const Composer = forwardRef<
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
   }
 
+  function saveCurrentDraft(value?: string) {
+    rememberComposerDraft(draftStoreRef.current, activeDraftKeyRef.current, value ?? textareaRef.current?.value ?? '');
+  }
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    const previousKey = activeDraftKeyRef.current;
+    const nextKey = props.draftKey;
+
+    if (previousKey !== nextKey) {
+      rememberComposerDraft(draftStoreRef.current, previousKey, el?.value ?? '');
+      activeDraftKeyRef.current = nextKey;
+      if (el) {
+        el.value = readComposerDraft(draftStoreRef.current, nextKey);
+        autoResize();
+        const length = el.value.length;
+        el.setSelectionRange(length, length);
+      }
+    }
+  }, [props.draftKey]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -4254,6 +4309,7 @@ export const Composer = forwardRef<
         const el = textareaRef.current;
         if (!el) return;
         el.value = text;
+        saveCurrentDraft(text);
         autoResize();
         el.focus();
         // Move caret to end so the user can keep typing.
@@ -4264,6 +4320,7 @@ export const Composer = forwardRef<
         const el = textareaRef.current;
         if (!el) return;
         el.value = appendPromptContextDraft(el.value, text);
+        saveCurrentDraft(el.value);
         autoResize();
         el.focus();
         const length = el.value.length;
@@ -4284,6 +4341,7 @@ export const Composer = forwardRef<
     if (!text) return;
     const sent = await props.onSend(text);
     if (sent === false) return;
+    saveCurrentDraft('');
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
     // manually so the composer snaps back to its single-row footprint.
@@ -4315,6 +4373,11 @@ export const Composer = forwardRef<
     void sendCurrent();
   }
 
+  function onTextareaInput() {
+    autoResize();
+    saveCurrentDraft();
+  }
+
   if (props.hidden) return null;
 
   return (
@@ -4326,7 +4389,7 @@ export const Composer = forwardRef<
           placeholder={copy.placeholder}
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
-          onInput={autoResize}
+          onInput={onTextareaInput}
           rows={1}
           autoComplete="off"
           spellCheck={false}

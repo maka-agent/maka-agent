@@ -1970,6 +1970,7 @@ function AppShell(props: {
               <Composer
                 ref={composerRef}
                 hidden={navSelection.section !== 'sessions'}
+                draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
                 streaming={activeStreaming.length > 0}
                 onSend={send}
