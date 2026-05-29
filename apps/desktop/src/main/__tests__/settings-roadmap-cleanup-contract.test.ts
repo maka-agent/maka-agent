@@ -22,10 +22,12 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('does not expose nav-level comingSoon state or command-palette soon hints', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const providers = await readRepo('apps/desktop/src/renderer/settings/ProvidersPanel.tsx');
     const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
     assert.doesNotMatch(settings, /comingSoon\??:/, 'Settings nav items must not carry stale comingSoon flags');
     assert.doesNotMatch(settings, /settingsNavBadge/, 'Settings nav must not render stale Roadmap badges');
     assert.doesNotMatch(palette, /即将推出/, 'Command palette settings entries must not advertise dead coming-soon hints');
     assert.doesNotMatch(palette, /comingSoon/, 'Command palette must not read removed nav comingSoon flags');
+    assert.doesNotMatch(providers, /即将支持的 OAuth 订阅登录/, 'Providers header must not advertise future OAuth login as a model-provider affordance');
   });
 });
