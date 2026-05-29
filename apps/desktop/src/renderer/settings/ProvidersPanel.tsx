@@ -291,28 +291,8 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
   const display = providerDisplay(props.type);
   const disabled = defaults.status !== 'ready';
   const disabledStatus = providerDisabledStatus(props.type);
-  // PR-UI-LAYOUT-41 follow-up (@kenji msg 618ee9a7 gate 3):
-  // Roadmap title MUST avoid operational verbs (登录 / 连接 / 授权
-  // / 测试 / 接入). The previous title said "...同一家厂商的
-  // API key 在下方分类中接入" — "接入" reads as operational call
-  // even though it's about the alternative API key path.
-  // Rephrased to a stative observation: "API key 形式仍可用".
   const title = disabled ? providerDisabledTitle(props.type) : `添加 ${display.name}`;
 
-  // PR-UI-LAYOUT-41 (@kenji review #my-ai:2f91befb gate):
-  // disabled future actions MUST NOT be focusable / clickable. The
-  // previous render was a real `<button>` with `onClick={disabled ?
-  // undefined : ...}` — that left it tabbable and screen-reader
-  // interactive even though click did nothing. For the
-  // not-yet-implemented OAuth subscription providers, render a
-  // non-interactive `<div>` so keyboard tab skips it and AT reads
-  // it as informational, not actionable.
-  //
-  // PR-UI-LAYOUT-41 follow-up (@kenji #my-ai:2f91befb msg 618ee9a7):
-  // dropped `role="status"` — it has implicit `aria-live="polite"`
-  // and would cause unnecessary AT live announcement on a static
-  // catalog tile. Plain `<div>` + `aria-label` is the right shape:
-  // AT reads the name once on focus traversal, no live region.
   if (disabled) {
     return (
       <div
@@ -355,20 +335,20 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
   );
 }
 
-function providerDisabledStatus(type: ProviderType): 'coming-soon' | 'experimental' {
-  return type === 'claude-subscription' ? 'experimental' : 'coming-soon';
+function providerDisabledStatus(type: ProviderType): 'unavailable' | 'experimental' {
+  return type === 'claude-subscription' ? 'experimental' : 'unavailable';
 }
 
 function providerDisabledTitle(type: ProviderType): string {
   if (type === 'claude-subscription') {
     return '内部实验：账号认证已隔离，默认关闭，聊天发送未开放。API key 形式仍可用。';
   }
-  return '路线图项：尚未实现。同一家厂商的 API key 形式仍可用。';
+  return '账号路径未开放配置。同一家厂商的 API key 形式仍可用。';
 }
 
 function providerDisabledAriaLabel(type: ProviderType, name: string): string {
   if (type === 'claude-subscription') return `${name}（内部实验，默认关闭）`;
-  return `${name}（路线图，尚未实现）`;
+  return `${name}（账号路径未开放配置）`;
 }
 
 export function ProviderLogo(props: { type: ProviderType; compact?: boolean }) {
@@ -478,7 +458,7 @@ function AddProviderForm(props: {
     if (isExperimental) {
       return setError(props.providerType === 'claude-subscription'
         ? 'Claude 订阅账号路径是内部实验，默认关闭；聊天发送通路未开放。请先使用 API key 连接。'
-        : 'OAuth 订阅登录即将推出');
+        : '该账号路径未开放配置；请先使用同一家厂商的 API key。');
     }
     setBusy(true);
     try {
@@ -503,17 +483,17 @@ function AddProviderForm(props: {
         <div>
           <h3>{isExperimental && props.providerType === 'claude-subscription'
             ? 'Claude 订阅账号为内部实验'
-            : isExperimental ? 'OAuth 订阅登录即将推出' : `添加 ${display.name}`}</h3>
+            : isExperimental ? '账号路径未开放配置' : `添加 ${display.name}`}</h3>
           <p>{display.description}</p>
         </div>
         <span className="settingsBadge">{categoryLabel(defaults.category)}</span>
       </header>
       {isExperimental && (
         <div className="providerComingSoon">
-          <strong>{props.providerType === 'claude-subscription' ? '内部实验' : '即将推出'}</strong>
+          <strong>{props.providerType === 'claude-subscription' ? '内部实验' : '未开放配置'}</strong>
           <span>{props.providerType === 'claude-subscription'
             ? '账号认证路径已隔离在实验开关后；默认隐藏，聊天发送通路未开放。当前请使用 Anthropic API key。'
-            : '这类供应商会通过官方 SDK 或 CLI 完成 OAuth 登录。当前可先使用同一家厂商的 API key 接入。'}</span>
+            : '这类账号路径未进入配置入口。当前请先使用同一家厂商的 API key。'}</span>
         </div>
       )}
       <label>
@@ -966,27 +946,12 @@ export function providerDisplay(type: ProviderType): { name: string; description
       return { name: 'Ollama', description: '连接本机 localhost 的 Ollama 模型。', badge: 'Local' };
     case 'openai-compatible':
       return { name: 'OpenAI Compatible', description: '中转站、代理服务或自部署网关。', badge: 'Custom' };
-    // PR-UI-LAYOUT-41: subscription providers drop the "Soon" badge.
-    // When disabled (current state), the catalog card renders the
-    // "Roadmap" pseudo-badge via [data-status="coming-soon"]::after,
-    // and the description copy itself carries the "路线图" / "尚未
-    // 实现" framing. Once PR-AUTH-1 lands and these go enabled,
-    // they'll get an "OAuth" or "Account" badge then — until then,
-    // no badge prevents the unused field from rendering in some
-    // future code path.
-    //
-    // PR-UI-LAYOUT-41 follow-up (@kenji msg 618ee9a7 gate 3):
-    // description uses noun phrase only, no operational verbs.
-    // Earlier draft had "账号登录" which reads as call-to-action
-    // ("log in with account"); switched to "订阅账号路径" (noun
-    // phrase describing the future capability) so the user
-    // can't read it as "click here to log in".
     case 'claude-subscription':
       return { name: 'Claude Subscription', description: 'Claude Pro / Max 订阅账号认证为内部实验；默认隐藏，聊天发送未开放。' };
     case 'codex-subscription':
-      return { name: 'Codex Subscription', description: 'ChatGPT / Codex 订阅账号路径（路线图，尚未实现）。' };
+      return { name: 'Codex Subscription', description: 'ChatGPT / Codex 订阅账号路径未进入配置入口。' };
     case 'gemini-cli':
-      return { name: 'Gemini CLI', description: 'Google 账号 OAuth 路径（路线图，尚未实现）。' };
+      return { name: 'Gemini CLI', description: 'Google 账号 OAuth 路径未进入配置入口。' };
   }
 }
 

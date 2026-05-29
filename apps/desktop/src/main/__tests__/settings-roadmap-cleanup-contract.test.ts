@@ -29,5 +29,6 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.doesNotMatch(palette, /即将推出/, 'Command palette settings entries must not advertise dead coming-soon hints');
     assert.doesNotMatch(palette, /comingSoon/, 'Command palette must not read removed nav comingSoon flags');
     assert.doesNotMatch(providers, /即将支持的 OAuth 订阅登录/, 'Providers header must not advertise future OAuth login as a model-provider affordance');
+    assert.doesNotMatch(providers, /即将推出|尚未实现|路线图/, 'ProvidersPanel must not show unavailable providers as visible roadmap copy');
   });
 });

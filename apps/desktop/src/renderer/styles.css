@@ -6797,18 +6797,14 @@ button:active {
   transform: translateY(1px);
 }
 
-.providerCatalogCard[data-status="coming-soon"],
+.providerCatalogCard[data-status="unavailable"],
 .providerCatalogCard[data-status="experimental"] {
-  /* PR-UI-LAYOUT-41 follow-up (@kenji gate 2): cursor `help` was
-   * acceptable but `not-allowed` is the honest signal — this
-   * surface is non-actionable, not "more info on hover". The
-   * Roadmap pseudo-badge + aria-label already carry the info. */
   cursor: not-allowed;
   filter: grayscale(0.28);
   opacity: 0.66;
 }
 
-.providerCatalogCard[data-status="coming-soon"]:hover,
+.providerCatalogCard[data-status="unavailable"]:hover,
 .providerCatalogCard[data-status="experimental"]:hover {
   transform: none;
   border-color: var(--border);
@@ -6821,21 +6817,15 @@ button:active {
  * is here as a belt-and-suspenders override in case some future
  * change accidentally adds tabindex / contenteditable / button
  * fallback. */
-.providerCatalogCard[data-status="coming-soon"]:focus-visible,
+.providerCatalogCard[data-status="unavailable"]:focus-visible,
 .providerCatalogCard[data-status="experimental"]:focus-visible {
   outline: none;
   box-shadow: none;
   border-color: var(--border);
 }
 
-.providerCatalogCard[data-status="coming-soon"]::after {
-  /* PR-UI-LAYOUT-41: badge "Soon" → "Roadmap" to match the
-   * Settings nav badge (LAYOUT-17). Same word everywhere we mean
-   * "not yet implemented, planned". Also raised the contrast a
-   * touch (info-tinted instead of neutral foreground) so the
-   * disabled card still reads "this is intentionally not active"
-   * rather than "this card failed to load". */
-  content: "Roadmap";
+.providerCatalogCard[data-status="unavailable"]::after {
+  content: "未开放";
   position: absolute;
   top: 10px;
   right: 10px;

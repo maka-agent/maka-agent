@@ -1079,40 +1079,32 @@ Doc convention used in every gate below:
   `Record<string, { text: string; truncated: boolean }>`; no separate
   `streamingTruncatedBySession` map.
 
-### S7 — B2: disabled OAuth subscription card non-interactive
+### S7 — B2: unavailable OAuth subscription providers stay out of the model catalog
 
 **Contract invariant.**
-- `<ProvidersPanel>` subscription provider tile rendering:
-  - `data-status="ready"` → real `<button onClick={onSelect}>`.
-  - `data-status="coming-soon"` / `data-status="experimental"` /
-    `data-disabled="true"` → plain
-    `<div>`. No `onClick`, no `tabIndex`, no `role="button"`, no
-    `role="status"` (live-region semantics would mis-describe a
-    static catalog tile).
-- No auth / network / IPC surface is wired behind a disabled tile;
-  the gate is renderer-only affordance, not a route to a backend
-  the contract isn't ready to expose.
-- Disabled provider description copy uses stative phrasing, not
-  operational verbs (no `启用 / 启动 / 登录 / 授权 / 即将推出 / Soon`):
-  Codex/Gemini stay `路线图，尚未实现` / `Roadmap`; Claude subscription is
-  `内部实验` / `实验` and must say the chat send path is not open.
+- `<ProvidersPanel>` only lists provider types that are configurable
+  now: API key, local, and custom OpenAI-compatible endpoints.
+- `claude-subscription`, `codex-subscription`, and `gemini-cli` stay
+  in the core provider type/default registry for account-state and
+  future migration paths, but they are not present in
+  `CATALOG_PROVIDER_TYPES` until their send path is open.
+- The provider catalog does not render an empty OAuth tab and does
+  not advertise future account-login work as a model-provider
+  affordance.
 
 **Targeted gate.**
-- Source diff inspection: the disabled branch must be
-  `<div ...>` with no onClick / tabIndex / role attributes.
-- Copy grep on the subscription tile render path only — broader file
-  grep will hit existing ready-provider / Account / API-key shipped
-  flows, not B2.
+- `CATALOG_PROVIDER_TYPES` excludes the three subscription provider
+  types.
+- `ProvidersPanel.tsx` has no OAuth catalog tab and no header copy
+  telling users that subscription login is coming later.
 
 **Source-gate grep.**
-- `ProvidersPanel.tsx` disabled branch: `if (disabled) return <div ...`
-  — must not be a `<button>`.
-- Subscription provider copy: no operational-verb leakage in the three
-  subscription tiles. `codex-subscription` / `gemini-cli` stay Roadmap;
-  `claude-subscription` is hidden experimental, not "unimplemented".
+- `ProvidersPanel.tsx`: no `{ id: 'oauth' }`.
+- `packages/core/src/llm-connections.ts`: no subscription provider
+  literal inside the `CATALOG_PROVIDER_TYPES` array body.
 
 **Deferred.**
-- Codex/Gemini OAuth flows remain future work. Claude subscription still
+- Codex/Gemini account paths remain deferred. Claude subscription still
   requires product/legal sign-off and a real send-path smoke before it can
   become a ready model provider.
 
@@ -1137,7 +1129,7 @@ lines):
 - `.providerCatalogCard[data-disabled="true"]:focus-visible` must
   emit only muted outline; no `transform`, no accent halo, no
   box-shadow.
-- `.providerCatalogCard[data-status="coming-soon"]:hover` reset is
+- `.providerCatalogCard[data-status="unavailable"]:hover` reset is
   orthogonal and may remain (covers a different attribute).
 
 ### S9 — Tool/Artifact polish: design-token radius alignment + collapse-toggle a11y
