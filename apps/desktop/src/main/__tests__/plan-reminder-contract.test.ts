@@ -36,6 +36,9 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /props\.selection\.section === 'automations'[\s\S]*<PlanReminderPanel/, '计划 module must render PlanReminderPanel');
     assert.doesNotMatch(ui, /title:\s*'计划任务即将推出'/, '计划 must not be the old coming-soon placeholder');
     assert.match(ui, /创建提醒/, '计划 UI must include reminder creation');
+    assert.match(ui, /编辑提醒/, '计划 UI must include reminder editing');
+    assert.match(ui, /保存提醒/, '计划 edit UI must save through the existing update path');
+    assert.match(ui, /onUpdatePlanReminder/, 'renderer must wire PlanReminderPanel edits to plans.update');
     assert.match(ui, /下次触发/, '计划 UI must show next trigger time');
     assert.match(ui, /重复/, '计划 UI must expose recurrence instead of only one-shot reminders');
     assert.match(ui, /Cron/, '计划 UI must expose cron syntax instead of only fixed recurrence presets');

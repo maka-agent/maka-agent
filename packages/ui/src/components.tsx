@@ -308,6 +308,7 @@ export function SessionListPanel(props: {
    */
   onOpenSearchModal?(): void;
   onCreatePlanReminder?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }): void;
+  onUpdatePlanReminder?(id: string, patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget; enabled?: boolean }): void;
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onTriggerPlanReminderNow?(id: string): void;
   onSnoozePlanReminder?(id: string): void;
@@ -562,6 +563,7 @@ export function SessionListPanel(props: {
           <PlanReminderPanel
             reminders={props.planReminders ?? []}
             onCreate={props.onCreatePlanReminder}
+            onUpdate={props.onUpdatePlanReminder}
             onToggle={props.onTogglePlanReminder}
             onTriggerNow={props.onTriggerPlanReminderNow}
             onSnooze={props.onSnoozePlanReminder}
@@ -1022,6 +1024,7 @@ function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<Daily
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
   onCreate?(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }): void;
+  onUpdate?(id: string, patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget; enabled?: boolean }): void;
   onToggle?(id: string, enabled: boolean): void;
   onTriggerNow?(id: string): void;
   onSnooze?(id: string): void;
@@ -1035,6 +1038,7 @@ function PlanReminderPanel(props: {
   const [deliveryChannel, setDeliveryChannel] = useState<PlanReminderDeliveryTarget['channel']>('local');
   const [deliveryPlatform, setDeliveryPlatform] = useState<BotProvider>('telegram');
   const [deliveryChatId, setDeliveryChatId] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
   const parsedRunAt = Date.parse(runAtLocal);
   const delivery: PlanReminderDeliveryTarget = deliveryChannel === 'bot'
     ? { channel: 'bot', platform: deliveryPlatform, chatId: deliveryChatId.trim() }
@@ -1045,30 +1049,67 @@ function PlanReminderPanel(props: {
     (delivery.channel === 'local' || delivery.chatId.length > 0);
   const canSubmitCron = recurrence !== 'cron' || cronExpression.trim().split(/\s+/).length === 5;
   const canCreate = canSubmit && canSubmitCron;
+  const isEditing = editingId !== null;
+
+  useEffect(() => {
+    if (editingId && !props.reminders.some((reminder) => reminder.id === editingId)) resetForm();
+  }, [editingId, props.reminders]);
+
+  function resetForm() {
+    setTitle('');
+    setNote('');
+    setRecurrence('none');
+    setCronExpression('0 9 * * 1-5');
+    setDeliveryChannel('local');
+    setDeliveryPlatform('telegram');
+    setDeliveryChatId('');
+    setRunAtLocal(toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+    setEditingId(null);
+  }
+
+  function editReminder(reminder: PlanReminder) {
+    setEditingId(reminder.id);
+    setTitle(reminder.title);
+    setNote(reminder.note);
+    setRunAtLocal(toDatetimeLocalValue(planReminderEditableRunAt(reminder)));
+    setRecurrence(planReminderRecurrenceValue(reminder));
+    setCronExpression(reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5');
+    setDeliveryChannel(reminder.delivery.channel);
+    if (reminder.delivery.channel === 'bot') {
+      setDeliveryPlatform(reminder.delivery.platform);
+      setDeliveryChatId(reminder.delivery.chatId);
+    } else {
+      setDeliveryPlatform('telegram');
+      setDeliveryChatId('');
+    }
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canCreate) return;
-    props.onCreate?.({
+    const input = {
       title: title.trim(),
-      ...(note.trim() ? { note: note.trim() } : {}),
+      note: note.trim(),
       runAt: parsedRunAt,
       recurrence,
       ...(recurrence === 'cron' ? { cronExpression: cronExpression.trim() } : {}),
       delivery,
-    });
-    setTitle('');
-    setNote('');
-    setRecurrence('none');
-    setDeliveryChannel('local');
-    setDeliveryChatId('');
-    setRunAtLocal(toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+    };
+    if (editingId) {
+      props.onUpdate?.(editingId, input);
+    } else {
+      props.onCreate?.({
+        ...input,
+        ...(input.note ? { note: input.note } : {}),
+      });
+    }
+    resetForm();
   }
 
   return (
     <div className="maka-plan-panel">
       <form className="maka-plan-form" onSubmit={submit}>
-        <div className="maka-plan-form-title">新建提醒</div>
+        <div className="maka-plan-form-title">{isEditing ? '编辑提醒' : '新建提醒'}</div>
         <label className="maka-plan-field">
           <span>标题</span>
           <input
@@ -1151,9 +1192,14 @@ function PlanReminderPanel(props: {
           />
         </label>
         <button className="maka-button maka-plan-submit" type="submit" disabled={!canCreate}>
-          <Plus size={14} strokeWidth={1.75} />
-          <span>创建提醒</span>
+          {isEditing ? <Check size={14} strokeWidth={1.75} /> : <Plus size={14} strokeWidth={1.75} />}
+          <span>{isEditing ? '保存提醒' : '创建提醒'}</span>
         </button>
+        {isEditing && (
+          <button className="maka-button secondary maka-plan-submit" type="button" onClick={resetForm}>
+            取消编辑
+          </button>
+        )}
       </form>
 
       <div className="maka-plan-list" aria-label="计划提醒列表">
@@ -1208,6 +1254,15 @@ function PlanReminderPanel(props: {
                 <button
                   type="button"
                   className="maka-plan-action"
+                  onClick={() => editReminder(reminder)}
+                  disabled={reminder.status === 'completed'}
+                  title="编辑提醒"
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  className="maka-plan-action"
                   onClick={() => props.onTriggerNow?.(reminder.id)}
                   disabled={!reminder.enabled}
                   title="立即触发一次"
@@ -1253,6 +1308,18 @@ function toDatetimeLocalValue(ts: number): string {
   const date = new Date(ts);
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function planReminderEditableRunAt(reminder: PlanReminder, now: number = Date.now()): number {
+  if (typeof reminder.nextRunAt === 'number' && reminder.nextRunAt > now) return reminder.nextRunAt;
+  const scheduledAt = reminder.schedule.kind === 'once' ? reminder.schedule.runAt : reminder.schedule.startAt;
+  return scheduledAt > now ? scheduledAt : now + 60 * 60 * 1000;
+}
+
+function planReminderRecurrenceValue(reminder: PlanReminder): PlanReminderRecurrence {
+  if (reminder.schedule.kind === 'once') return 'none';
+  if (reminder.schedule.kind === 'cron') return 'cron';
+  return reminder.schedule.recurrence;
 }
 
 function formatReminderTime(ts: number): string {

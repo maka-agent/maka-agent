@@ -150,6 +150,29 @@ describe('PlanReminderStore', () => {
     assert.equal(snoozed.runs.length, 0);
   });
 
+  it('updates title, schedule, recurrence, delivery, and note through the edit path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '旧标题', note: '旧备注', runAt });
+    const nextRunAt = runAt + 60_000;
+
+    const updated = await store.update(reminder.id, {
+      title: '新标题',
+      note: '',
+      runAt: nextRunAt,
+      recurrence: 'weekly',
+      delivery: { channel: 'bot', platform: 'telegram', chatId: ' 42 ' },
+    });
+
+    assert.equal(updated.title, '新标题');
+    assert.equal(updated.note, '');
+    assert.deepEqual(updated.schedule, { kind: 'recurring', startAt: nextRunAt, recurrence: 'weekly' });
+    assert.deepEqual(updated.delivery, { channel: 'bot', platform: 'telegram', chatId: '42' });
+    assert.equal(updated.status, 'scheduled');
+    assert.equal(updated.nextRunAt, nextRunAt);
+  });
+
   it('resumes paused recurring reminders at the next future occurrence', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const store = createPlanReminderStore(root);

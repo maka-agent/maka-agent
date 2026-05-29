@@ -1057,6 +1057,16 @@ function AppShell(props: {
     }
   }
 
+  async function updatePlanReminder(id: string, patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget; enabled?: boolean }) {
+    try {
+      await window.maka.plans.update(id, patch);
+      await refreshPlanReminders();
+      toastApi.success('已保存计划提醒', patch.title);
+    } catch (error) {
+      toastApi.error('保存计划失败', cleanErrorMessage(error));
+    }
+  }
+
   async function togglePlanReminder(id: string, enabled: boolean) {
     try {
       await window.maka.plans.setEnabled(id, enabled);
@@ -1755,6 +1765,7 @@ function AppShell(props: {
             onOpenSkillFolder={() => void openSkillsFolder()}
             onOpenSearchModal={() => setSearchModalOpen(true)}
             onCreatePlanReminder={(input) => void createPlanReminder(input)}
+            onUpdatePlanReminder={(id, patch) => void updatePlanReminder(id, patch)}
             onTogglePlanReminder={(id, enabled) => void togglePlanReminder(id, enabled)}
             onTriggerPlanReminderNow={(id) => void triggerPlanReminderNow(id)}
             onSnoozePlanReminder={(id) => void snoozePlanReminder(id)}
