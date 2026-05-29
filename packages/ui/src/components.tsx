@@ -587,7 +587,7 @@ export function SessionListPanel(props: {
           props.sessions.length === 0 ? (
             <EmptyState
               Icon={MessageSquare}
-              title="还没有对话"
+              title="等待开始对话"
               body="和 Maka 的对话会出现在这里。点下面开始第一条。"
               cta={{ label: '新建对话', onClick: props.onNew }}
             />
@@ -744,7 +744,7 @@ function SkillLibraryPanel(props: {
     return (
       <EmptyState
         Icon={Sparkles}
-        title="还没有 Skill"
+        title="等待添加 Skill"
         body={
           <>
             把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
@@ -1369,7 +1369,7 @@ function PlanReminderPanel(props: {
         {props.reminders.length === 0 ? (
           <EmptyState
             Icon={Clock}
-            title="还没有计划提醒"
+            title="等待创建计划提醒"
             body="创建一次性或重复提醒；Maka 会持久化并在到点时记录执行结果。"
             extraClassName="maka-plan-empty"
           />

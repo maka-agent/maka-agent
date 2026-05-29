@@ -161,6 +161,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
     reason:
       "send-path readiness errors should frame the missing default model as an actionable waiting state (`等待配置默认模型`), not unfinished setup copy.",
   },
+  {
+    label: 'shared empty-state titles sound unfinished',
+    needle: /还没有(?:对话| Skill|计划提醒)/,
+    reason:
+      "shared empty-state titles should frame empty product surfaces as actionable waiting states (`等待开始对话` / `等待添加 Skill` / `等待创建计划提醒`), not unfinished setup copy.",
+  },
 ];
 
 /**
