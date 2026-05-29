@@ -3,7 +3,7 @@
  *
  * Owns:
  * - requestId generation (uuid)
- * - per-turn "remember" set
+ * - per-turn "remember" set scoped to a specific tool intent
  * - parked Promise registry (one Promise per outstanding permission_request,
  *   keyed by requestId)
  * - response routing back to the awaiting adapter
@@ -38,8 +38,8 @@ import type { PermissionRequestEvent } from '@maka/core/events';
 
 interface TurnState {
   turnId: string;
-  /** Categories that were granted with `rememberForTurn: true` in this turn. */
-  remembered: Set<ToolCategory>;
+  /** Tool-intent scopes granted with `rememberForTurn: true` in this turn. */
+  remembered: Set<string>;
   /** Outstanding parked permission requests, keyed by requestId. */
   parked: Map<string, ParkedRequest>;
 }
@@ -48,6 +48,7 @@ interface ParkedRequest {
   requestId: string;
   toolUseId: string;
   category: ToolCategory;
+  scopeKey: string;
   resolve(response: PermissionResponse): void;
   reject(err: Error): void;
 }
@@ -175,6 +176,7 @@ export class PermissionEngine {
       requestId,
       toolUseId: input.toolUseId,
       category: pre.category,
+      scopeKey: pre.scopeKey,
       resolve: resolveFn,
       reject: rejectFn,
     });
@@ -202,7 +204,7 @@ export class PermissionEngine {
     state.parked.delete(response.requestId);
 
     if (response.decision === 'allow' && response.rememberForTurn) {
-      state.remembered.add(parked.category);
+      state.remembered.add(parked.scopeKey);
     }
 
     parked.resolve(response);

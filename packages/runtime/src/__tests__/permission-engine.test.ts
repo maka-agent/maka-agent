@@ -35,7 +35,7 @@ describe('PermissionEngine.evaluate — allow path', () => {
     expect(r.kind).toBe('allow');
   });
 
-  test('allow when category in turnRemembered', async () => {
+  test('allow when the same tool scope was remembered for this turn', async () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
     // First Write in ask mode → prompt
@@ -57,16 +57,28 @@ describe('PermissionEngine.evaluate — allow path', () => {
     });
     await r1.parked;
 
-    // Second Write → allow (remembered)
+    // Same Write target → allow (remembered)
     const r2 = engine.evaluate({
       sessionId: 's1',
       turnId: 't1',
       toolUseId: 'tu2',
       toolName: 'Write',
-      args: { path: '/y' },
+      args: { path: '/x' },
       mode: 'ask',
     });
     expect(r2.kind).toBe('allow');
+
+    // Different Write target → prompt; remembering one file path does
+    // not authorize a different file in the same broad category.
+    const r3 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu3',
+      toolName: 'Write',
+      args: { path: '/y' },
+      mode: 'ask',
+    });
+    expect(r3.kind).toBe('prompt');
   });
 });
 
@@ -234,7 +246,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
     expect(result).toBeNull();
   });
 
-  test('rememberForTurn=true persists category across same-category re-eval', async () => {
+  test('rememberForTurn=true persists only the same tool scope', async () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
 
@@ -243,7 +255,7 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       turnId: 't1',
       toolUseId: 'tu1',
       toolName: 'Write',
-      args: {},
+      args: { path: 'notes.md' },
       mode: 'ask',
     });
     if (r1.kind !== 'prompt') throw new Error('expected prompt');
@@ -258,11 +270,21 @@ describe('PermissionEngine — recordResponse edge cases', () => {
       sessionId: 's1',
       turnId: 't1',
       toolUseId: 'tu2',
-      toolName: 'Edit',
-      args: {},
+      toolName: 'Write',
+      args: { path: 'notes.md' },
       mode: 'ask',
     });
     expect(r2.kind).toBe('allow');
+
+    const r3 = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu3',
+      toolName: 'Edit',
+      args: { path: 'notes.md' },
+      mode: 'ask',
+    });
+    expect(r3.kind).toBe('prompt');
   });
 
   test('rememberForTurn=false does NOT add to set', async () => {

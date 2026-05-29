@@ -210,13 +210,14 @@ export interface PreToolUseInput {
   toolName: string;
   args: unknown;
   mode: PermissionMode;
-  turnRemembered: ReadonlySet<ToolCategory>;
+  turnRemembered: ReadonlySet<string>;
 }
 
 export interface PreToolUseResult {
   proceed: boolean;
   needsPrompt: boolean;
   category: ToolCategory;
+  scopeKey: string;
   /** Request shape WITHOUT requestId — runtime PermissionEngine fills it. */
   partialRequest?: Omit<PermissionRequest, 'requestId' | 'toolUseId'>;
   blockReason?: string;
@@ -234,16 +235,21 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
 
   // (2) Policy lookup + turn-remembered check
   const decision = PERMISSION_POLICY[input.mode][category];
-  if (decision === 'allow' || input.turnRemembered.has(category)) {
-    return { proceed: true, needsPrompt: false, category };
+  const scopeKey = permissionScopeKey(input.toolName, input.args, category);
+  if (decision === 'allow') {
+    return { proceed: true, needsPrompt: false, category, scopeKey };
   }
   if (decision === 'block') {
     return {
       proceed: false,
       needsPrompt: false,
       category,
+      scopeKey,
       blockReason: `Tool category "${category}" is blocked in mode "${input.mode}"`,
     };
+  }
+  if (input.turnRemembered.has(scopeKey)) {
+    return { proceed: true, needsPrompt: false, category, scopeKey };
   }
 
   // (3) Prompt — runtime adds requestId + toolUseId at adapter site
@@ -251,6 +257,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
     proceed: false,
     needsPrompt: true,
     category,
+    scopeKey,
     partialRequest: {
       toolName: input.toolName,
       category,
@@ -258,6 +265,52 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       args: input.args,
     },
   };
+}
+
+export function permissionScopeKey(toolName: string, args: unknown, category: ToolCategory): string {
+  switch (toolName) {
+    case 'Write':
+    case 'Edit':
+    case 'Read':
+      return `${category}:${toolName}:${stringArg(args, 'path')}`;
+    case 'Glob':
+      return `${category}:${toolName}:${stringArg(args, 'cwd')}:${stringArg(args, 'pattern')}`;
+    case 'Grep':
+      return `${category}:${toolName}:${stringArg(args, 'path')}:${stringArg(args, 'glob')}:${stringArg(args, 'pattern')}`;
+    case 'Bash':
+      return `${category}:${toolName}:${normalizeScopeText(stringArg(args, 'command'))}`;
+    case 'WebSearch':
+      return `${category}:${toolName}:${stringArg(args, 'query')}`;
+    default:
+      return `${category}:${toolName}:${stableScopeJson(args)}`;
+  }
+}
+
+function stringArg(args: unknown, key: string): string {
+  if (!args || typeof args !== 'object') return '';
+  const value = (args as Record<string, unknown>)[key];
+  return typeof value === 'string' ? normalizeScopeText(value) : '';
+}
+
+function normalizeScopeText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().slice(0, 512);
+}
+
+function stableScopeJson(value: unknown): string {
+  const json = JSON.stringify(normalizeForScope(value, new WeakSet<object>()));
+  return (json ?? String(value)).slice(0, 1024);
+}
+
+function normalizeForScope(value: unknown, seen: WeakSet<object>): unknown {
+  if (!value || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((nested) => normalizeForScope(nested, seen));
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, nested]) => [key, normalizeForScope(nested, seen)]),
+  );
 }
 
 function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {

@@ -9,6 +9,7 @@ import { expect } from '../test-helpers.js';
 import {
   preToolUse,
   categorizeBash,
+  permissionScopeKey,
   PERMISSION_POLICY,
   type PermissionMode,
   type ToolCategory,
@@ -18,7 +19,7 @@ function evaluate(
   toolName: string,
   args: unknown,
   mode: PermissionMode,
-  remembered: ToolCategory[] = [],
+  remembered: string[] = [],
 ) {
   return preToolUse({
     toolName,
@@ -219,21 +220,36 @@ describe('preToolUse — execute mode', () => {
 });
 
 describe('preToolUse — turnRemembered', () => {
-  test('remembered category → allow even if policy says prompt', () => {
-    const r = evaluate('Write', { path: '/x' }, 'ask', ['file_write']);
+  test('remembered scope → allow the same tool intent when policy says prompt', () => {
+    const args = { path: '/x' };
+    const r = evaluate('Write', args, 'ask', [permissionScopeKey('Write', args, 'file_write')]);
     expect(r.proceed).toBe(true);
     expect(r.needsPrompt).toBe(false);
   });
 
+  test('remembered scope does not allow a different path in the same category', () => {
+    const remembered = permissionScopeKey('Write', { path: '/x' }, 'file_write');
+    const r = evaluate('Write', { path: '/y' }, 'ask', [remembered]);
+    expect(r.proceed).toBe(false);
+    expect(r.needsPrompt).toBe(true);
+    expect(r.scopeKey === remembered).toBe(false);
+  });
+
   test('remembered does NOT override block', () => {
-    const r = evaluate('Write', { path: '/x' }, 'explore', ['file_write']);
-    // explore + file_write is BLOCK; remembered set should NOT bypass block,
-    // only prompt. (Currently the impl allows turnRemembered to bypass policy
-    // even for block — that's a bug if so. Let's check actual behavior.)
-    // ...the current impl allows turnRemembered to bypass everything → so
-    // proceed=true. This is a known design choice (V0.1 simplification).
-    // Documenting current behavior as the test.
-    expect(r.proceed).toBe(true);
+    const args = { path: '/x' };
+    const r = evaluate('Write', args, 'explore', [permissionScopeKey('Write', args, 'file_write')]);
+    expect(r.proceed).toBe(false);
+    expect(r.needsPrompt).toBe(false);
+    expect(r.blockReason).toContain('blocked');
+  });
+
+  test('scope key normalizes shell whitespace and sorts custom args', () => {
+    expect(permissionScopeKey('Bash', { command: 'npm   test\n-- --runInBand' }, 'shell_unsafe')).toBe(
+      'shell_unsafe:Bash:npm test -- --runInBand',
+    );
+    expect(permissionScopeKey('Custom', { b: 2, a: 1 }, 'custom_tool')).toBe(
+      'custom_tool:Custom:{"a":1,"b":2}',
+    );
   });
 });
 
