@@ -32,6 +32,7 @@ import { join, resolve } from 'node:path';
 // sidebar-scroll-contract pattern).
 const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'),
+  join(process.cwd(), 'src', 'renderer', 'main.tsx'),
   join(process.cwd(), 'src', 'renderer', 'OnboardingHero.tsx'),
   join(process.cwd(), 'src', 'renderer', 'artifact-pane.tsx'),
   join(process.cwd(), 'src', 'renderer', 'artifact-preview-registry-shell.tsx'),
@@ -69,6 +70,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
     needle: /personalization\.displayName\s*=\s*'[一-龥]/,
     reason:
       "fixture must not seed a Chinese personal name as displayName — placeholder human names confuse users and reviewers (kenji `08be08d8`, WAWQAQ `1886c41b`). Default to empty string so the renderer fallback (`'你'`) shows in screenshots.",
+  },
+  {
+    label: 'event-stream recovery copy sounds unfinished',
+    needle: /实时事件暂未更新|事件流暂未/,
+    reason:
+      "event-stream stale/recovery copy is a current recovery state, not unfinished roadmap work. Say the local session log is being used to refresh/recover instead of `暂未更新`.",
   },
   {
     label: 'all-caps English-only hero eyebrow',
