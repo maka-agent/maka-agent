@@ -126,4 +126,45 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       'renderer must mount KeyboardHelpModal conditionally (same pattern as SearchModal)',
     );
   });
+
+  it('search result navigation consumes target.turnId instead of only switching sessions', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const main = await readFile(MAIN_TSX_PATH, 'utf8');
+
+    assert.match(
+      components,
+      /props\.onNavigateToSession\(result\.target\.sessionId,\s*result\.target\.turnId\)/,
+      'SearchModal must pass the matched turnId through to the renderer shell',
+    );
+    assert.doesNotMatch(
+      main,
+      /onNavigateToSession=\{\(sessionId,\s*_turnId\)/,
+      'renderer must not intentionally ignore SearchResult.target.turnId',
+    );
+    assert.match(
+      main,
+      /setSearchScrollTarget\(\{\s*sessionId,\s*turnId,\s*nonce:/,
+      'renderer must store a turn scroll target when search provides one',
+    );
+    assert.match(
+      main,
+      /scrollTargetTurn=\{[\s\S]*searchScrollTarget\.turnId[\s\S]*searchScrollTarget\.nonce[\s\S]*\}/,
+      'renderer must pass the pending search turn target into ChatView',
+    );
+    assert.match(
+      components,
+      /scrollTargetTurn\?:\s*\{\s*turnId:\s*string;\s*nonce:\s*number\s*\}/,
+      'ChatView must expose a typed scroll target prop',
+    );
+    assert.match(
+      components,
+      /scrollIntoView\(\{\s*behavior:\s*props\.scrollBehavior\s*\?\?\s*'smooth',\s*block:\s*'center'/,
+      'ChatView must scroll the matched turn into view',
+    );
+    assert.match(
+      components,
+      /data-search-highlight=\{props\.searchHighlighted\s*\?\s*'true'\s*:\s*undefined\}/,
+      'ChatView must visually mark the matched search turn',
+    );
+  });
 });

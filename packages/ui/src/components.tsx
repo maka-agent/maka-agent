@@ -1627,12 +1627,10 @@ function runStatusLabel(status: NonNullable<PlanReminder['lastRun']>['status']):
  * `7c320898`) + Phase 3 P0 fixup (WAWQAQ msg `d53852ac`, xuan
  * `558f1356`, kenji `3ddc91fe`): Search modal SHELL.
  *
- * Renders a centered dialog with the title `搜索` and a single
- * placeholder line. Phase 4 will replace the placeholder body with
- * an input + `useThreadSearch` results + the gate matrix kenji
- * `6465cf22` listed (plain text snippet / no history / no
- * `maka://session` / `incognito_active` blocked state / async race +
- * unmount safety).
+ * Renders the real thread-search dialog: local query state,
+ * debounced `search:thread` IPC, result list, incognito/error states,
+ * and shell-owned navigation. It never writes history and never
+ * constructs `maka://session` URIs.
  *
  * Lifecycle contract: SearchModal MUST be conditionally mounted by
  * the parent (`{open && <SearchModal onClose={...} />}`), NOT
@@ -1650,8 +1648,8 @@ function runStatusLabel(status: NonNullable<PlanReminder['lastRun']>['status']):
  *   - role="dialog" / aria-modal="true" / explicit title.
  *   - Esc and close button close the modal.
  *   - Focus enters the modal on open; returns to the trigger on close.
- *   - Modal shell does NOT call `search:thread` IPC, does NOT store
- *     the query, does NOT write history.
+ *   - Modal calls injected `searchThread` only; it does NOT store
+ *     the query, write history, or route via internal URI strings.
  */
 /**
  * Dependency-injected search interface. Production wiring binds this
@@ -2567,6 +2565,13 @@ export function ChatView(props: {
   turnLineageBadgesByTurn?: Record<string, TurnLineageBadge[]>;
   onLineageBadgeClick?: (targetTurnId: string) => void;
   /**
+   * Search-result navigation target. The desktop shell owns session
+   * switching and hands the matched turn id here after selection; the
+   * chat view only scrolls/highlights the already-rendered turn.
+   */
+  scrollTargetTurn?: { turnId: string; nonce: number };
+  scrollBehavior?: ScrollBehavior;
+  /**
    * PR109f: when the active session is a branched session
    * (`parentSessionId` set on its summary), show a banner above the
    * chat surface so the user knows they're in a derived conversation
@@ -2599,6 +2604,7 @@ export function ChatView(props: {
   const turns = materializeTurns(props.messages, props.tools);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
 
   // Reset to "pinned at bottom" whenever the active session changes. Without
   // this, switching from a long history to a fresh chat would keep the
@@ -2616,6 +2622,30 @@ export function ChatView(props: {
     if (!el || !pinnedToBottom) return;
     el.scrollTop = el.scrollHeight;
   }, [chat.length, props.streamingText, tools.length, pinnedToBottom]);
+
+  useEffect(() => {
+    const target = props.scrollTargetTurn;
+    if (!target?.turnId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const root = scrollRef.current;
+      if (!root) return;
+      const el = root.querySelector(`[data-turn-id="${CSS.escape(target.turnId)}"]`);
+      if (!el || !('scrollIntoView' in el)) return;
+      (el as HTMLElement).scrollIntoView({
+        behavior: props.scrollBehavior ?? 'smooth',
+        block: 'center',
+      });
+      setPinnedToBottom(false);
+      setHighlightedTurnId(target.turnId);
+    });
+    const clear = window.setTimeout(() => {
+      setHighlightedTurnId((current) => (current === target.turnId ? null : current));
+    }, 2200);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(clear);
+    };
+  }, [props.scrollTargetTurn?.turnId, props.scrollTargetTurn?.nonce, props.scrollBehavior, props.activeSession?.id, props.messages]);
 
   function onScroll() {
     const el = scrollRef.current;
@@ -2769,6 +2799,7 @@ export function ChatView(props: {
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={props.onLineageBadgeClick}
                 previousModelId={expectedModelId}
+                searchHighlighted={highlightedTurnId === turn.turnId}
               />
             );
           })}
@@ -3514,12 +3545,18 @@ function TurnView(props: {
    * is allowed but MUST be visible).
    */
   previousModelId?: string;
+  /** True when a search result just navigated to this turn. */
+  searchHighlighted?: boolean;
 }) {
   const { turn } = props;
   const forwardBadges = props.lineageBadges?.filter((b) => b.direction === 'forward') ?? [];
   const reverseBadges = props.lineageBadges?.filter((b) => b.direction === 'reverse') ?? [];
   return (
-    <section className="maka-turn" data-turn-id={turn.turnId}>
+    <section
+      className="maka-turn"
+      data-turn-id={turn.turnId}
+      data-search-highlight={props.searchHighlighted ? 'true' : undefined}
+    >
       {forwardBadges.length > 0 && (
         <div className="maka-turn-lineage-row" aria-label="本轮回答的来源">
           {forwardBadges.map((badge) => (

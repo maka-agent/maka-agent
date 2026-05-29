@@ -190,11 +190,15 @@ function AppShell(props: {
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
-  // PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `7c320898`):
-  // Search modal state. Sidebar `搜索` nav row triggers `openSearchModal`;
-  // the modal is shell-only in Phase 2 (no `useThreadSearch` integration
-  // yet — that lands in Phase 4 per xuan `94c7bf0f` "don't half-wire").
+  // Search modal state. Sidebar `搜索` opens the real thread-search
+  // modal; result selection below can also hand ChatView a turn anchor
+  // so the hit is visible after session navigation.
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [searchScrollTarget, setSearchScrollTarget] = useState<{
+    sessionId: string;
+    turnId: string;
+    nonce: number;
+  } | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
   const activeStreamingSlot = activeId ? streamingBySession[activeId] : undefined;
@@ -1880,6 +1884,12 @@ function AppShell(props: {
                 turnFailedReasonLabels={turnFailedReasonLabels}
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
+                scrollTargetTurn={
+                  activeId && searchScrollTarget?.sessionId === activeId
+                    ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }
+                    : undefined
+                }
+                scrollBehavior={readScrollMotionBehavior()}
                 branchBanner={branchBanner}
                 onBranchBannerClick={handleBranchBannerClick}
                 emptyOverride={
@@ -1990,15 +2000,14 @@ function AppShell(props: {
         <SearchModal
           onClose={() => setSearchModalOpen(false)}
           deps={{ searchThread: (request) => window.maka.search.thread(request) }}
-          onNavigateToSession={(sessionId, _turnId) => {
-            // Activate the target session. `turnId` is ignored for
-            // now — scrolling to a specific turn requires plumbing
-            // through ChatView's scroll anchor, which lands in a
-            // follow-up PR (the contract for `target.turnId` exists
-            // per PR-SEARCH-1.5 but the renderer doesn't consume it
-            // yet to keep this PR focused on search wiring).
+          onNavigateToSession={(sessionId, turnId) => {
             setNavSelection({ section: 'sessions', filter: 'chats' });
             setActiveId(sessionId);
+            if (turnId) {
+              setSearchScrollTarget({ sessionId, turnId, nonce: Date.now() });
+            } else {
+              setSearchScrollTarget(null);
+            }
           }}
         />
       )}
