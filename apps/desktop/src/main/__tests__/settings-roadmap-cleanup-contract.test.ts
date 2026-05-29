@@ -126,13 +126,15 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(settings, /const HEALTH_SOURCE_LABEL\b/, 'Health Center should have a source-label presentation map');
     assert.match(healthPage![0], /只汇总当前已记录的健康信号/, 'Health Center must explain its current read-only signal boundary');
     assert.match(healthPage![0], /发送通路以运行态探测结果为准/, 'Health Center must keep validation and operational runtime distinct');
+    assert.match(healthPage![0], /健康信号会阻塞发送/, 'Health Center blocker copy should use localized product wording');
+    assert.match(healthPage![0], /健康信号会阻塞能力/, 'Health Center capability blocker copy should use localized product wording');
     assert.match(healthPage![0], /aria-label=\{`\$\{copy\.label\}健康信号`\}/, 'Health Center section aria labels should not mix English "signals" into Chinese UI');
     assert.match(healthSignalRow![0], /来源：\{HEALTH_SOURCE_LABEL\[signal\.source\]\}/, 'Health Center row should present localized source labels');
     assert.match(healthSignalRow![0], /读取：<RelativeTime/, 'Health Center row should present localized checked-time labels');
     assert.doesNotMatch(
       healthPage![0],
-      /接入后|落地后|即将|路线图|尚未实现|TODO|V0\.1/,
-      'Health Center visible copy must not read like future roadmap or demo-stage copy',
+      /接入后|落地后|即将|路线图|尚未实现|TODO|V0\.1|条 signal|阻塞 capability|settings 里|validation 层|agent 通路|memory contract/,
+      'Health Center visible copy must not read like future roadmap, demo-stage, or implementation copy',
     );
     assert.doesNotMatch(
       healthSignalRow![0],

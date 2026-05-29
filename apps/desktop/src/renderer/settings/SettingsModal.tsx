@@ -4031,12 +4031,12 @@ function runtimeProbeTone(state: CapabilitySnapshot['runtimeProbe']['state']): '
  * will be wired in PR-HC-2 once typed actions are exposed.
  */
 const HEALTH_LAYER_COPY: Record<HealthSignalLayer, { label: string; description: string }> = {
-  configuration: { label: '配置', description: '是否填齐了 settings 里的必填项。' },
-  validation: { label: '验证', description: '凭据 / 端点的连通性测试结果，仅代表 validation 通过，不等于 agent 通路可用。' },
+  configuration: { label: '配置', description: '是否填齐了设置页里的必填项。' },
+  validation: { label: '验证', description: '凭据 / 端点的连通性测试结果，仅代表验证通过，不等于发送通路可用。' },
   permission: { label: '系统权限', description: '所需 OS / TCC 权限是否已授权。' },
-  feature: { label: '功能开关', description: '功能是否被显式启用、是否已实现。' },
+  feature: { label: '功能开关', description: '功能是否被显式启用、当前是否可使用。' },
   action_approval: { label: '操作审批', description: '每次工具调用 / 高危操作的审批策略状态。' },
-  memory_acceptance: { label: '记忆写入', description: '是否接受了 memory contract、是否启用了记忆写入。' },
+  memory_acceptance: { label: '记忆写入', description: '是否接受了记忆写入约定、是否启用了记忆写入。' },
   runtime_probe: { label: '运行态探测', description: '最近一次真实运行（发送 / 流式 / 接收事件）的探测结果。' },
   storage: { label: '存储', description: '工作区文件、JSONL、SQLite 等本地存储健康度。' },
 };
@@ -4130,7 +4130,7 @@ function HealthCenterPage() {
           <h3>健康中心</h3>
           <p>
             按层级（配置 · 验证 · 权限 · 功能 · 操作审批 · 记忆 · 运行态 · 存储）展示当前快照。
-            <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于 validation 层；发送通路以运行态探测结果为准。
+            <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于验证层；发送通路以运行态探测结果为准。
           </p>
         </div>
         <div className="settingsHealthMeta">
@@ -4160,12 +4160,12 @@ function HealthCenterPage() {
         <div className="settingsHealthBlockers" role="status">
           {blocksSendCount > 0 && (
             <span className="pill" data-tone="destructive">
-              {blocksSendCount} 条 signal 会阻塞发送
+              {blocksSendCount} 条健康信号会阻塞发送
             </span>
           )}
           {blocksCapabilityCount > 0 && (
             <span className="pill" data-tone="warning">
-              {blocksCapabilityCount} 条 signal 会阻塞 capability
+              {blocksCapabilityCount} 条健康信号会阻塞能力
             </span>
           )}
         </div>
