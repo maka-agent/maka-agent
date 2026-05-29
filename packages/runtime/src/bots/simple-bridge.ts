@@ -102,7 +102,28 @@ function buildTelegramSendBody(
   return body;
 }
 
-export const __TEST__ = { utf16Len, prefixWithinUtf16, splitForTelegram, buildTelegramSendBody };
+/**
+ * PR-BOT-USER-ALLOWLIST-0: runtime allowlist gate. `undefined` or empty
+ * means no restriction; any other set is enforced as exact match against
+ * the platform-native user id. The settings normalize layer already
+ * trims, dedups, and caps the persisted array, so this function only
+ * has to do membership.
+ */
+function isAllowedUser(
+  allowedUserIds: ReadonlyArray<string> | undefined,
+  userId: string,
+): boolean {
+  if (!allowedUserIds || allowedUserIds.length === 0) return true;
+  return allowedUserIds.includes(userId);
+}
+
+export const __TEST__ = {
+  utf16Len,
+  prefixWithinUtf16,
+  splitForTelegram,
+  buildTelegramSendBody,
+  isAllowedUser,
+};
 
 export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
   private abortController: AbortController | null = null;
@@ -292,13 +313,20 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
 
   private handleTelegramMessage(message: any): void {
     if (!message?.from) return;
+    const userId = String(message.from.id);
+    // PR-BOT-USER-ALLOWLIST-0: drop unauthorized senders silently when an
+    // allowlist is configured. No bounce reply — that would let scanners
+    // enumerate the policy by toggling IDs. Status fields are NOT updated
+    // for dropped messages so the bridge's `lastEventAt` continues to
+    // reflect authentic activity from authorized users only.
+    if (!isAllowedUser(this.settings.allowedUserIds, userId)) return;
     this.lastEventAt = Date.now();
     this.readiness = 'operational';
     this.reason = undefined;
     this.emitIncomingMessage({
       platform: 'telegram',
-      userId: String(message.from.id),
-      userName: message.from.username ?? message.from.first_name ?? String(message.from.id),
+      userId,
+      userName: message.from.username ?? message.from.first_name ?? userId,
       chatId: String(message.chat?.id ?? ''),
       isGroup: message.chat?.type === 'group' || message.chat?.type === 'supergroup',
       text: message.text ?? message.caption ?? '',

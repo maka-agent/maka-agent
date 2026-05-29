@@ -695,4 +695,73 @@ describe('open gateway settings contract', () => {
 
     expect(patched.workspaceInstructions.enabled).toBe(false);
   });
+
+  // PR-BOT-USER-ALLOWLIST-0 — settings shape normalization. The runtime gate
+  // (isAllowedUser in @maka/runtime/bots/simple-bridge) is covered separately.
+  // These tests exercise `normalizeSettings`, which is the boundary that
+  // sees on-disk / cross-IPC payloads. `mergeSettings` itself trusts the
+  // in-memory shape because the entry from disk went through normalize.
+  test('default channel has no allowlist (V0.1 unrestricted)', () => {
+    const channel = createDefaultBotChannel('telegram');
+    expect(channel.allowedUserIds).toBeUndefined();
+  });
+
+  test('normalizes a valid allowlist and trims/dedups entries', () => {
+    const legacy = createDefaultSettings() as unknown as {
+      botChat: { channels: { telegram: { allowedUserIds?: unknown } } };
+    };
+    legacy.botChat.channels.telegram.allowedUserIds = ['  123  ', '456', '123', '', '  '];
+
+    const normalized = normalizeSettings(legacy);
+
+    expect(normalized.botChat.channels.telegram.allowedUserIds).toEqual(['123', '456']);
+  });
+
+  test('drops non-string entries from a persisted allowlist', () => {
+    const legacy = createDefaultSettings() as unknown as {
+      botChat: { channels: { telegram: { allowedUserIds?: unknown } } };
+    };
+    legacy.botChat.channels.telegram.allowedUserIds = ['123', 456, null, '789'];
+
+    const normalized = normalizeSettings(legacy);
+
+    expect(normalized.botChat.channels.telegram.allowedUserIds).toEqual(['123', '789']);
+  });
+
+  test('caps the persisted allowlist at 50 entries', () => {
+    const overflow = Array.from({ length: 80 }, (_, i) => `user-${i}`);
+    const legacy = createDefaultSettings() as unknown as {
+      botChat: { channels: { telegram: { allowedUserIds?: unknown } } };
+    };
+    legacy.botChat.channels.telegram.allowedUserIds = overflow;
+
+    const normalized = normalizeSettings(legacy);
+
+    const list = normalized.botChat.channels.telegram.allowedUserIds!;
+    expect(list.length).toBe(50);
+    expect(list[0]).toBe('user-0');
+    expect(list[49]).toBe('user-49');
+  });
+
+  test('an empty / all-blank allowlist normalizes to undefined (no restriction)', () => {
+    const legacy = createDefaultSettings() as unknown as {
+      botChat: { channels: { telegram: { allowedUserIds?: unknown } } };
+    };
+    legacy.botChat.channels.telegram.allowedUserIds = ['', '  ', '\t'];
+
+    const normalized = normalizeSettings(legacy);
+
+    expect(normalized.botChat.channels.telegram.allowedUserIds).toBeUndefined();
+  });
+
+  test('non-array persisted allowlist normalizes to undefined fail-closed', () => {
+    const legacy = createDefaultSettings() as unknown as {
+      botChat: { channels: { telegram: { allowedUserIds?: unknown } } };
+    };
+    legacy.botChat.channels.telegram.allowedUserIds = 'not-an-array';
+
+    const normalized = normalizeSettings(legacy);
+
+    expect(normalized.botChat.channels.telegram.allowedUserIds).toBeUndefined();
+  });
 });

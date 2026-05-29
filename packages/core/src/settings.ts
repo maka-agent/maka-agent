@@ -92,6 +92,18 @@ export interface BotChannelSettings {
   botUserId?: string;
   lastTestAt?: number;
   lastError?: string;
+  /**
+   * PR-BOT-USER-ALLOWLIST-0 (Hermes deep-dive): platform-native user IDs
+   * permitted to message this bot. `undefined` or empty means no
+   * restriction (preserves the V0.1 behavior for existing installs).
+   * When non-empty, the bot bridge silently drops inbound messages from
+   * any other user — no acknowledgement is sent back, so unauthorized
+   * scanners cannot use bounce behavior to enumerate the bot's policy.
+   *
+   * Stored as a string array since Telegram IDs are 64-bit and JS
+   * `Number` loses precision past 2^53.
+   */
+  allowedUserIds?: ReadonlyArray<string>;
 }
 
 export function isBotReadinessState(value: unknown): value is BotReadinessState {
@@ -726,10 +738,12 @@ function normalizeBotChannel(
   const candidateReadiness = hasExplicitReadiness && isBotReadinessState(rawChannel?.readiness)
     ? channel.readiness
     : (connected ? 'credentials_valid' : readinessFromChannel(channel));
+  const allowedUserIds = normalizeAllowedUserIds(channel.allowedUserIds);
   return {
     ...channel,
     provider,
     connected,
+    ...(allowedUserIds ? { allowedUserIds } : { allowedUserIds: undefined }),
     // PR-HEALTH-1 (xuan msg `e4887ffd`, I1 — bot readiness single-authority,
     // write path): coerce the persisted readiness to be consistent with
     // current credential state. The previous behavior trusted whatever was
@@ -795,4 +809,34 @@ function coerceReadinessForCurrentState(
     return 'scaffolded';
   }
   return candidate;
+}
+
+/**
+ * PR-BOT-USER-ALLOWLIST-0: shape-validate the persisted allowlist.
+ * Returns `undefined` when there is nothing to enforce (preserves the
+ * V0.1 "no restriction" behavior). Drops non-strings, trims, dedups, and
+ * caps at 50 entries; the cap is defensive against pathological persisted
+ * settings, not a product UX limit.
+ *
+ * IDs are stored as strings because Telegram user IDs are 64-bit and
+ * JS `Number` loses precision past 2^53. Trimming a candidate to '' is
+ * treated as absent rather than as a wildcard.
+ */
+const MAX_ALLOWED_USER_IDS = 50;
+function normalizeAllowedUserIds(
+  candidate: ReadonlyArray<string> | undefined | unknown,
+): ReadonlyArray<string> | undefined {
+  if (!Array.isArray(candidate)) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of candidate) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+    if (out.length >= MAX_ALLOWED_USER_IDS) break;
+  }
+  return out.length === 0 ? undefined : Object.freeze(out);
 }
