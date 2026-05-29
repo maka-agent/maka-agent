@@ -7,6 +7,8 @@ import {
   CalendarDays,
   Cpu,
   Database,
+  Eye,
+  EyeOff,
   Globe,
   Info,
   Network,
@@ -258,6 +260,43 @@ function BotBrandLogo(props: {
         <span className="settingsBotLogoStatusDot" data-tone={copy.tone} aria-hidden="true" />
       )}
     </span>
+  );
+}
+
+/**
+ * PR-BOT-SETTINGS-PASSWORD-EYE-0 (WAWQAQ msg `51c7b4ff` screenshots):
+ * masked text input with a trailing Eye / EyeOff toggle on the right
+ * edge of the input. Used for bot tokens / app secrets so the user
+ * can verify a paste without retyping. Initial state is masked. The
+ * toggle button is real and focusable so keyboard users can flip it.
+ */
+function PasswordInput(props: {
+  value: string;
+  onChange(next: string): void;
+  placeholder?: string;
+  ariaLabel?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="settingsPasswordField">
+      <input
+        type={visible ? 'text' : 'password'}
+        value={props.value}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
+        placeholder={props.placeholder}
+        aria-label={props.ariaLabel}
+        autoComplete="off"
+      />
+      <button
+        type="button"
+        className="settingsPasswordToggle"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={visible ? '隐藏' : '显示'}
+        aria-pressed={visible}
+      >
+        {visible ? <EyeOff size={16} strokeWidth={1.75} aria-hidden="true" /> : <Eye size={16} strokeWidth={1.75} aria-hidden="true" />}
+      </button>
+    </div>
   );
 }
 
@@ -3341,7 +3380,7 @@ function BotChatSettingsPage(props: {
           <>
             <label className="settingsField">
               <span>机器人 Token</span>
-              <input type="password" value={channel.token} onChange={(event) => updateChannel({ token: event.currentTarget.value })} placeholder="123456:ABC-DEF…" />
+              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="123456:ABC-DEF…" ariaLabel="Telegram Bot Token" />
             </label>
             <label className="settingsField">
               <span>代理地址</span>
@@ -3365,7 +3404,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>App Secret</span>
-              <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="飞书开放平台 App Secret" />
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="飞书开放平台 App Secret" ariaLabel="飞书 App Secret" />
             </label>
             <label className="settingsField">
               <span>事件订阅域名</span>
@@ -3381,7 +3420,7 @@ function BotChatSettingsPage(props: {
           <>
             <label className="settingsField">
               <span>Bot Token</span>
-              <input type="password" value={channel.token} onChange={(event) => updateChannel({ token: event.currentTarget.value })} placeholder="Discord 开发者后台的 Bot Token" />
+              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="Discord 开发者后台的 Bot Token" ariaLabel="Discord Bot Token" />
             </label>
             <div className="settingsNotice">
               Discord 凭据测试会请求 `/users/@me` 验证 token 对应一个真实 Bot 应用；启动监听后会通过 Gateway 接收消息，并用 REST 回复对应频道。
@@ -3397,7 +3436,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>自建应用 appsecret</span>
-              <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="钉钉开放平台 - 应用 appsecret" />
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="钉钉开放平台 - 应用 appsecret" ariaLabel="钉钉应用 appsecret" />
             </label>
             <div className="settingsNotice">
               钉钉凭据测试会请求 `gettoken`，验证 appkey + appsecret 真实存在。事件接收需要在 outgoing 机器人或 Stream 模式里配置，凭据有效不代表运行可用。
@@ -3413,7 +3452,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>自建应用 secret</span>
-              <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="企业微信自建应用 secret" />
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="企业微信自建应用 secret" ariaLabel="企业微信应用 secret" />
             </label>
             <label className="settingsField">
               <span>事件 callback 域名</span>
@@ -3437,7 +3476,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>App Secret</span>
-              <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="微信公众号 App Secret" />
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="微信公众号 App Secret" ariaLabel="微信公众号 App Secret" />
             </label>
             <div className="settingsNotice">
               微信公众号凭据测试会向官方 token 接口申请 access_token；若要让计划提醒投递到个人微信，需启动本机 `wechat-bridge` 并填写下面的 bridge 地址。
@@ -3448,7 +3487,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>Bearer Token（可选）</span>
-              <input type="password" value={channel.token} onChange={(event) => updateChannel({ token: event.currentTarget.value })} placeholder="本机 bridge Bearer Token" />
+              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="本机 bridge Bearer Token" ariaLabel="本机 bridge Bearer Token" />
             </label>
             <div className="settingsNotice">
               微信桥接只允许连接本机 `wechat-bridge`。凭据测试会请求 `/health`；计划提醒发送时会调用 `/send`，Chat ID 填 wxid、filehelper 或群 wxid。
@@ -3467,7 +3506,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>Client Secret</span>
-              <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="QQ 开放平台 - 机器人 Client Secret" />
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="QQ 开放平台 - 机器人 Client Secret" ariaLabel="QQ 机器人 Client Secret" />
             </label>
             <div className="settingsNotice">
               QQ 凭据测试会请求 `getAppAccessToken`，验证 App ID + Client Secret；启动监听后会通过 QQ Gateway 接收频道、群和私聊事件，并用 REST 投递回复。

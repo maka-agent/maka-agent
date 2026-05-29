@@ -5370,6 +5370,44 @@ button:active {
 .settingsPaletteSwatch-sand { background: oklch(0.62 0.14 55); }
 .settingsPaletteSwatch-mono { background: oklch(0.30 0 0); }
 
+/* PR-BOT-SETTINGS-PASSWORD-EYE-0 (WAWQAQ msg `51c7b4ff` screenshots):
+   <input type=password> + trailing Eye / EyeOff toggle, matching the
+   reference design's "Bot Token …………… 👁" affordance. The toggle is
+   a real button so keyboard users can flip it. */
+.settingsPasswordField {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.settingsPasswordField input {
+  width: 100%;
+  padding-right: 36px;
+}
+.settingsPasswordToggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-50);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.settingsPasswordToggle:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.settingsPasswordToggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.28);
+}
+
 .settingsThemeSwatch {
   width: 56px;
   height: 40px;
