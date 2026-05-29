@@ -183,6 +183,55 @@ describe('humanizeBotStatusReason', () => {
     assert.equal(out, 'A'.repeat(200));
   });
 
+  // PR-BOT-RUNTIME-REASON-HUMANIZE-0: pattern-based translation for the
+  // parameterized reason strings emitted by Discord / DingTalk / QQ
+  // bridges. Without these the user would see raw `gateway-closed-4004`
+  // in `lastError`.
+  test('translates gateway-bot-NNN to a readable description preserving the diagnostic code', () => {
+    assert.match(humanizeBotStatusReason('gateway-bot-401')!, /Gateway/);
+    assert.match(humanizeBotStatusReason('gateway-bot-401')!, /401/);
+    assert.match(humanizeBotStatusReason('gateway-bot-500')!, /500/);
+  });
+
+  test('translates gateway-closed-NNN to "正在重连" so users see active recovery', () => {
+    const out = humanizeBotStatusReason('gateway-closed-4004')!;
+    assert.match(out, /Gateway 连接关闭/);
+    assert.match(out, /4004/);
+    assert.match(out, /重连/);
+  });
+
+  test('translates connections-open-NNN (DingTalk Stream open failed)', () => {
+    const out = humanizeBotStatusReason('connections-open-503')!;
+    assert.match(out, /Stream 订阅打开失败/);
+    assert.match(out, /503/);
+  });
+
+  test('translates stream-closed-NNN (DingTalk Stream gateway closed)', () => {
+    const out = humanizeBotStatusReason('stream-closed-1006')!;
+    assert.match(out, /Stream 连接关闭/);
+    assert.match(out, /1006/);
+    assert.match(out, /重连/);
+  });
+
+  test('translates send-failed-NNN (Discord REST send returned non-2xx)', () => {
+    const out = humanizeBotStatusReason('send-failed-403')!;
+    assert.match(out, /发送失败/);
+    assert.match(out, /403/);
+  });
+
+  test('translates getAppAccessToken-NNN (QQ token refresh failed)', () => {
+    const out = humanizeBotStatusReason('getAppAccessToken-401')!;
+    assert.match(out, /access_token/);
+    assert.match(out, /401/);
+  });
+
+  test('falls through to verbatim pass-through for unrecognized parameterized reasons', () => {
+    // A future bridge might emit a code we haven't taught the
+    // humanizer about yet — the user still sees something rather
+    // than `undefined` or an empty `lastError`.
+    assert.equal(humanizeBotStatusReason('something-weird-42'), 'something-weird-42');
+  });
+
   test('returns undefined for empty / whitespace / non-string', () => {
     assert.equal(humanizeBotStatusReason(undefined), undefined);
     assert.equal(humanizeBotStatusReason(''), undefined);

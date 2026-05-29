@@ -219,13 +219,37 @@ const BOT_REASON_HUMANIZE: Record<string, string | undefined> = {
   'unimplemented': undefined,
 };
 
+/**
+ * PR-BOT-RUNTIME-REASON-HUMANIZE-0: Discord / DingTalk / QQ bridges
+ * emit parameterized reason strings like `gateway-closed-4004` and
+ * `connections-open-500`. Without these patterns the user sees the
+ * raw machine code in `lastError`; with them they get a translated
+ * description plus the diagnostic code preserved in parentheses.
+ *
+ * Each entry is a regex with one numeric capture group; the matched
+ * code is preserved verbatim so support diagnostics still survive.
+ */
+const BOT_REASON_HUMANIZE_PATTERNS: Array<{ pattern: RegExp; format: (code: string) => string }> = [
+  { pattern: /^gateway-bot-(\d+)$/, format: (code) => `获取 Gateway 失败（HTTP ${code}）` },
+  { pattern: /^gateway-closed-(\d+)$/, format: (code) => `Gateway 连接关闭（${code}）；正在重连` },
+  { pattern: /^connections-open-(\d+)$/, format: (code) => `Stream 订阅打开失败（HTTP ${code}）` },
+  { pattern: /^stream-closed-(\d+)$/, format: (code) => `Stream 连接关闭（${code}）；正在重连` },
+  { pattern: /^send-failed-(\d+)$/, format: (code) => `发送失败（HTTP ${code}）` },
+  { pattern: /^getAppAccessToken-(\d+)$/, format: (code) => `获取 access_token 失败（HTTP ${code}）` },
+];
+
 export function humanizeBotStatusReason(reason: string | undefined): string | undefined {
   if (typeof reason !== 'string' || reason.length === 0) return undefined;
   if (reason in BOT_REASON_HUMANIZE) {
     return BOT_REASON_HUMANIZE[reason];
   }
-  // Pass-through for Telegram-supplied descriptions ("Bad Request: chat
-  // not found", etc.). Trim + length-cap to keep `lastError` bounded.
+  for (const { pattern, format } of BOT_REASON_HUMANIZE_PATTERNS) {
+    const match = pattern.exec(reason);
+    if (match) return format(match[1]);
+  }
+  // Pass-through for platform-supplied descriptions ("Bad Request:
+  // chat not found", etc.). Trim + length-cap to keep `lastError`
+  // bounded.
   const trimmed = reason.trim();
   if (trimmed.length === 0) return undefined;
   return trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed;
