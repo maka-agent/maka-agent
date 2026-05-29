@@ -28,10 +28,9 @@ export interface ConnectionsBridge {
   hasSecret(slug: string): Promise<boolean>;
 }
 
-type CatalogTab = Extract<ProviderCategory, 'oauth' | 'domestic' | 'overseas' | 'local'>;
+type CatalogTab = Extract<ProviderCategory, 'domestic' | 'overseas' | 'local'>;
 
 const CATALOG_TABS: Array<{ id: CatalogTab; label: string }> = [
-  { id: 'oauth', label: 'OAuth' },
   { id: 'domestic', label: '国内' },
   { id: 'overseas', label: '海外' },
   { id: 'local', label: '本地' },
@@ -171,7 +170,7 @@ function chipTitle(connection: LlmConnection): string {
         <div className="providerMarketHeader">
           <div>
             <h3>模型供应商</h3>
-            <p>选择 API Key 服务、本地模型，或即将支持的 OAuth 订阅登录。</p>
+            <p>选择 API Key 服务、本地模型，或自定义 OpenAI-compatible endpoint。</p>
           </div>
           <button className="maka-button" type="button" onClick={() => startAdd('openai-compatible')}>
             自定义

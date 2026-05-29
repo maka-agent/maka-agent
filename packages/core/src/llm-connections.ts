@@ -282,9 +282,6 @@ export const READY_PROVIDER_TYPES: ProviderType[] = [
 ];
 
 export const CATALOG_PROVIDER_TYPES: ProviderType[] = [
-  'claude-subscription',
-  'codex-subscription',
-  'gemini-cli',
   'kimi-coding-plan',
   'deepseek',
   'moonshot',

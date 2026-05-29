@@ -221,20 +221,26 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     );
   });
 
-  it('ProvidersPanel presents Claude subscription as hidden experimental, not unimplemented roadmap', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
-    const displayStart = src.indexOf('function providerDisplay');
-    assert.notEqual(displayStart, -1, 'providerDisplay function must exist');
-    const displaySource = src.slice(displayStart);
-    const displayCase = displaySource.match(/case\s+'claude-subscription':[\s\S]*?case\s+'codex-subscription':/)?.[0] ?? '';
-    assert.match(displayCase, /内部实验/, 'Claude subscription card must name the experimental gate');
-    assert.match(displayCase, /聊天发送未开放/, 'Claude subscription card must keep send-path boundary visible');
+  it('ProvidersPanel does not surface OAuth subscription roadmap tiles in the model catalog', async () => {
+    const [src, core] = await Promise.all([
+      readFile(PROVIDERS_PANEL_SOURCE, 'utf8'),
+      readFile(resolve(REPO_ROOT, 'packages', 'core', 'src', 'llm-connections.ts'), 'utf8'),
+    ]);
+    const catalogMatch = core.match(/export const CATALOG_PROVIDER_TYPES: ProviderType\[] = \[([\s\S]*?)\];/);
+    assert.ok(catalogMatch, 'CATALOG_PROVIDER_TYPES must exist');
+    const catalogBody = catalogMatch[1]!;
+    for (const provider of ['claude-subscription', 'codex-subscription', 'gemini-cli']) {
+      assert.doesNotMatch(
+        catalogBody,
+        new RegExp(`'${provider}'`),
+        `${provider} must stay out of the visible model provider catalog until its send path is actually open`,
+      );
+    }
+    assert.doesNotMatch(src, /\{\s*id:\s*'oauth'/, 'model provider catalog must not show an empty OAuth tab');
     assert.doesNotMatch(
-      displayCase,
-      /路线图，尚未实现/,
-      'Claude subscription auth is no longer a pure unimplemented roadmap item',
+      src,
+      /即将支持的 OAuth 订阅登录/,
+      'provider header must not advertise future OAuth subscription login as a visible model-provider affordance',
     );
-    assert.match(src, /function providerDisabledStatus\(type: ProviderType\): 'coming-soon' \| 'experimental'/);
-    assert.match(src, /type === 'claude-subscription' \? 'experimental' : 'coming-soon'/);
   });
 });
