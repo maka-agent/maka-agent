@@ -132,6 +132,7 @@ import { createSafeStorageCredentialStore } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { connectionTestStatusPatch } from './connection-test-status.js';
+import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { resolveProjectGitInfo } from './project-context.js';
@@ -1667,10 +1668,12 @@ function registerIpc(): void {
   ipcMain.handle('capabilities:getSnapshot', async () => {
     const permissions = buildPermissionSnapshot();
     const settings = await settingsStore.get();
+    const officeCliProbe = await probeOfficeCli({ now: permissions.checkedAt });
     return buildCapabilitySnapshotCollection({
       settings,
       permissions,
       botStatuses: botRegistry.allStatuses(),
+      officeCliProbe,
       now: permissions.checkedAt,
     });
   });
@@ -1678,10 +1681,12 @@ function registerIpc(): void {
     const now = Date.now();
     const permissions = buildPermissionSnapshot(now);
     const settings = await settingsStore.get();
+    const officeCliProbe = await probeOfficeCli({ now });
     const capabilitySnapshot = buildCapabilitySnapshotCollection({
       settings,
       permissions,
       botStatuses: botRegistry.allStatuses(),
+      officeCliProbe,
       now,
     });
     const connections = await connectionStore.list();

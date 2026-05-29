@@ -19,6 +19,7 @@ import {
   type PermissionSnapshot,
 } from '@maka/core';
 import type { BotStatus } from '@maka/runtime';
+import type { OfficeCliProbe } from './officecli-probe.js';
 
 const MAC_TCC_PERMISSIONS: OsPermissionId[] = ['accessibility', 'screen_recording', 'microphone', 'automation'];
 
@@ -40,6 +41,7 @@ export function buildCapabilitySnapshotCollection(input: {
   settings: AppSettings;
   permissions: PermissionSnapshot;
   botStatuses: Record<BotProvider, BotStatus>;
+  officeCliProbe?: OfficeCliProbe;
   now?: number;
 }): CapabilitySnapshotCollection {
   const now = input.now ?? Date.now();
@@ -134,12 +136,61 @@ export function buildCapabilitySnapshotCollection(input: {
         reason: '透明本地记忆为文件读写能力，不做后台探测',
       },
     }),
+    officeDocumentsCapability(input.officeCliProbe, now),
     ...BOT_PROVIDERS.map((provider) =>
       botCapability(provider, input.settings, input.botStatuses[provider], now),
     ),
   ];
 
   return { checkedAt: now, capabilities };
+}
+
+function officeDocumentsCapability(probe: OfficeCliProbe | undefined, now: number): CapabilitySnapshot {
+  const available = probe?.available === true;
+  const feature: CapabilityFeatureSignal = {
+    state: available ? 'enabled' : 'partial',
+    source: 'runtime',
+    reason: available
+      ? 'Office 文档可通过本地 officecli 读取、校验与生成。'
+      : '已识别 Office 文档工作流；本机尚未检测到 officecli，因此只能给出转换/安装指引。',
+  };
+  const runtimeProbe: CapabilityRuntimeProbeSignal = available
+    ? {
+        state: 'healthy',
+        source: 'runtime_probe',
+        lastCheckedAt: probe.checkedAt,
+        reason: `officecli ${probe.version}`,
+      }
+    : {
+        state: 'degraded',
+        source: 'runtime_probe',
+        lastCheckedAt: probe?.checkedAt ?? now,
+        reason: officeCliProbeReason(probe),
+      };
+
+  return staticCapability({
+    id: 'office_documents',
+    label: 'Office Documents',
+    now,
+    feature,
+    requiredPermissions: [],
+    actionApproval: { state: 'required_per_action', source: 'capability_policy' },
+    memoryAcceptance: { state: 'not_applicable', source: 'not_applicable' },
+    runtimeProbe,
+  });
+}
+
+function officeCliProbeReason(probe: OfficeCliProbe | undefined): string {
+  if (!probe) return '尚未探测 officecli。';
+  if (probe.available) return `officecli ${probe.version}`;
+  switch (probe.reason) {
+    case 'missing':
+      return '未在 PATH 中找到 officecli。';
+    case 'timeout':
+      return 'officecli 版本探测超时。';
+    case 'failed':
+      return 'officecli 版本探测失败。';
+  }
 }
 
 function staticCapability(input: {

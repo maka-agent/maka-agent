@@ -35,6 +35,10 @@ describe('categorizeBash', () => {
     expect(categorizeBash('git status')).toBe('shell_safe');
     expect(categorizeBash('git log --oneline -n 5')).toBe('shell_safe');
     expect(categorizeBash('grep -r foo .')).toBe('shell_safe');
+    expect(categorizeBash('officecli view deck.pptx outline')).toBe('shell_safe');
+    expect(categorizeBash('officecli get deck.pptx "/slide[1]"')).toBe('shell_safe');
+    expect(categorizeBash('officecli validate model.xlsx')).toBe('shell_safe');
+    expect(categorizeBash('officecli help pptx chart')).toBe('shell_safe');
   });
 
   test('cd is NOT safe (excluded by design)', () => {
@@ -115,6 +119,8 @@ describe('categorizeBash', () => {
     expect(categorizeBash('npm install lodash')).toBe('shell_unsafe');
     expect(categorizeBash('curl https://example.com')).toBe('shell_unsafe');
     expect(categorizeBash('python script.py')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli set deck.pptx "/slide[1]" --prop title=Hi')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli close deck.pptx')).toBe('shell_unsafe');
   });
 
   test('precedence: privileged > fs_destructive > git_destructive > safe', () => {
