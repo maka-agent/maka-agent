@@ -713,6 +713,7 @@ export {
 // explore-agent.ts — read-only deep research session profile.
 export type { QuickChatMode } from './explore-agent.js';
 export {
+  DEEP_RESEARCH_EVIDENCE_CHECKLIST,
   DEEP_RESEARCH_SESSION_LABEL,
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
