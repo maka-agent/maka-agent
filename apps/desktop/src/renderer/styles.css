@@ -9065,6 +9065,11 @@ button:active {
   word-break: break-word;
 }
 
+.settingsMemoryEntryActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .settingsMemoryFilter {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

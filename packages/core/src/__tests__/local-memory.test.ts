@@ -8,6 +8,7 @@ import {
   defaultLocalMemorySettings,
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
+  setLocalMemoryEntryStatusDraft,
 } from '../local-memory.js';
 
 describe('local MEMORY.md contract', () => {
@@ -129,6 +130,69 @@ describe('local MEMORY.md contract', () => {
     assert.equal(parsed.entries.length, 1);
     assert.equal(parsed.activeEntries[0]?.origin, 'manual');
     assert.deepEqual(parsed.activeEntries[0]?.tags, ['preference', 'writing-style']);
+  });
+
+  it('archives and restores a memory entry by updating visible metadata', () => {
+    const source = [
+      '# Maka Memory',
+      '',
+      '## Keep short',
+      '<!-- maka-memory: id=keep origin=manual createdAt=1700000000000 status=active tags=style -->',
+      'Prefer concise answers.',
+    ].join('\n');
+
+    const archived = setLocalMemoryEntryStatusDraft(source, {
+      id: 'keep',
+      status: 'archived',
+      now: 1700000001000,
+    });
+    assert.equal(archived.ok, true);
+    if (!archived.ok) return;
+    assert.match(
+      archived.draft,
+      /id=keep origin=manual createdAt=1700000000000 updatedAt=1700000001000 status=archived tags=style/,
+    );
+    assert.equal(parseLocalMemoryMarkdown(archived.draft).archivedEntries[0]?.id, 'keep');
+    assert.equal(buildLocalMemoryPromptBody(archived.draft), undefined);
+
+    const restored = setLocalMemoryEntryStatusDraft(archived.draft, {
+      id: 'keep',
+      status: 'active',
+      now: 1700000002000,
+    });
+    assert.equal(restored.ok, true);
+    if (!restored.ok) return;
+    assert.equal(parseLocalMemoryMarkdown(restored.draft).activeEntries[0]?.id, 'keep');
+    assert.match(buildLocalMemoryPromptBody(restored.draft) ?? '', /Prefer concise answers/);
+  });
+
+  it('can archive legacy entries without metadata by inserting a visible comment', () => {
+    const result = setLocalMemoryEntryStatusDraft([
+      '# Maka Memory',
+      '',
+      '## 手写偏好',
+      '旧格式内容。',
+    ].join('\n'), {
+      id: '手写偏好',
+      status: 'archived',
+      now: 1700000000000,
+    });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.match(result.draft, /## 手写偏好\n<!-- maka-memory: id=手写偏好 updatedAt=1700000000000 status=archived -->\n旧格式内容。/);
+    assert.equal(parseLocalMemoryMarkdown(result.draft).archivedEntries[0]?.id, '手写偏好');
+  });
+
+  it('rejects entry status updates for invalid or missing ids', () => {
+    assert.deepEqual(setLocalMemoryEntryStatusDraft('', { id: ' ', status: 'active', now: 1 }), {
+      ok: false,
+      reason: 'invalid_id',
+    });
+    assert.deepEqual(setLocalMemoryEntryStatusDraft('## One\nBody', { id: 'missing', status: 'archived', now: 1 }), {
+      ok: false,
+      reason: 'not_found',
+    });
   });
 
   it('rejects blank manual draft entries and oversized resulting drafts', () => {

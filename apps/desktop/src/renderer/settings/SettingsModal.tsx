@@ -62,6 +62,7 @@ import {
   appendManualLocalMemoryEntryDraft,
   defaultVoiceCaptureCaps,
   isToastPosition,
+  setLocalMemoryEntryStatusDraft,
   validateVoiceCaptureRequest,
   webSearchCredentialStatusFromResponse,
 } from '@maka/core';
@@ -2411,6 +2412,40 @@ function MemorySettingsPage(props: {
     });
   }
 
+  async function updateMemoryEntryStatus(entry: LocalMemoryState['activeEntries'][number], status: 'active' | 'archived') {
+    const result = setLocalMemoryEntryStatusDraft(draft, {
+      id: entry.id,
+      status,
+    });
+    if (!result.ok) {
+      switch (result.reason) {
+        case 'invalid_id':
+          toast.error('无法更新记忆', '这条记忆缺少可识别的 ID。');
+          return;
+        case 'not_found':
+          toast.error('无法更新记忆', '当前草稿里找不到这条记忆；请先保存或刷新后重试。');
+          return;
+        case 'oversize':
+          toast.error('无法更新记忆', 'MEMORY.md 超出安全上限，请先删减旧内容。');
+          return;
+      }
+    }
+
+    setBusy(true);
+    try {
+      const next = await window.maka.memory.save(result.draft);
+      setState(next);
+      setDraft(next.content);
+      if (next.status === 'safe_mode') {
+        toast.error('更新被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
+      } else {
+        toast.success(status === 'archived' ? '已归档记忆' : '已恢复记忆', entry.title);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const effective = state ?? {
     path: '',
     enabled: props.settings.localMemory.enabled,
@@ -2541,6 +2576,8 @@ function MemorySettingsPage(props: {
               title="生效记忆"
               entries={filteredActiveEntries}
               filtered={normalizedMemoryEntryQuery.length > 0}
+              busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+              onStatusChange={updateMemoryEntryStatus}
             />
             {effective.archivedEntries.length > 0 && (
               <MemoryEntryList
@@ -2548,6 +2585,8 @@ function MemorySettingsPage(props: {
                 entries={filteredArchivedEntries}
                 filtered={normalizedMemoryEntryQuery.length > 0}
                 archived
+                busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+                onStatusChange={updateMemoryEntryStatus}
               />
             )}
           </div>
@@ -2639,6 +2678,8 @@ function MemoryEntryList(props: {
   entries: LocalMemoryState['activeEntries'];
   filtered?: boolean;
   archived?: boolean;
+  busy?: boolean;
+  onStatusChange?(entry: LocalMemoryState['activeEntries'][number], status: 'active' | 'archived'): void | Promise<void>;
 }) {
   return (
     <section className="settingsMemoryEntryGroup" data-archived={props.archived ? 'true' : 'false'}>
@@ -2658,6 +2699,18 @@ function MemoryEntryList(props: {
                 {entry.tags.length > 0 ? ` · ${entry.tags.join(' / ')}` : ''}
               </small>
               <p>{entry.content}</p>
+              {props.onStatusChange && (
+                <div className="settingsMemoryEntryActions">
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    disabled={props.busy}
+                    onClick={() => void props.onStatusChange?.(entry, props.archived ? 'active' : 'archived')}
+                  >
+                    {props.archived ? '恢复' : '归档'}
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>

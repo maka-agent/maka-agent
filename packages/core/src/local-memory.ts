@@ -72,6 +72,16 @@ export type AppendManualLocalMemoryEntryResult =
   | { readonly ok: true; readonly draft: string }
   | { readonly ok: false; readonly reason: 'empty_title' | 'empty_content' | 'oversize' };
 
+export interface SetLocalMemoryEntryStatusInput {
+  readonly id: string;
+  readonly status: LocalMemoryEntryStatus;
+  readonly now?: number;
+}
+
+export type SetLocalMemoryEntryStatusResult =
+  | { readonly ok: true; readonly draft: string }
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'oversize' };
+
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
 
@@ -146,6 +156,41 @@ export function appendManualLocalMemoryEntryDraft(
     content,
   ].join('\n');
   const draft = currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
+  if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
+    return { ok: false, reason: 'oversize' };
+  }
+  return { ok: true, draft };
+}
+
+export function setLocalMemoryEntryStatusDraft(
+  currentDraft: string,
+  input: SetLocalMemoryEntryStatusInput,
+): SetLocalMemoryEntryStatusResult {
+  const id = input.id.trim();
+  if (!id || (input.status !== 'active' && input.status !== 'archived')) {
+    return { ok: false, reason: 'invalid_id' };
+  }
+
+  const section = findLocalMemoryEntrySection(currentDraft, id);
+  if (!section) return { ok: false, reason: 'not_found' };
+
+  const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
+  const lines = currentDraft.split(/\r?\n/);
+  const meta = {
+    ...(section.meta ?? {}),
+    id: section.id,
+    status: input.status,
+    updatedAt: String(now),
+  };
+  const metaLine = `<!-- maka-memory: ${serializeMetaComment(meta)} -->`;
+
+  if (section.metaLineIndex !== undefined) {
+    lines[section.metaLineIndex] = metaLine;
+  } else {
+    lines.splice(section.headingLineIndex + 1, 0, metaLine);
+  }
+
+  const draft = lines.join('\n');
   if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
     return { ok: false, reason: 'oversize' };
   }
@@ -241,6 +286,60 @@ function parseMetaComment(line: string): Record<string, string> | null {
     }
   }
   return meta;
+}
+
+function findLocalMemoryEntrySection(
+  input: string,
+  entryId: string,
+): { id: string; headingLineIndex: number; metaLineIndex?: number; meta?: Record<string, string> } | null {
+  const lines = input.split(/\r?\n/);
+  let current: { title: string; headingLineIndex: number; metaLineIndex?: number; meta?: Record<string, string> } | null = null;
+
+  const matchCurrent = () => {
+    if (!current) return null;
+    const id = current.meta?.id ?? slugId(current.title);
+    return id === entryId ? { id, ...current } : null;
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      const matched = matchCurrent();
+      if (matched) return matched;
+      current = { title: heading[1] ?? '未命名记忆', headingLineIndex: index };
+      continue;
+    }
+    if (!current || current.meta) continue;
+    const meta = parseMetaComment(line);
+    if (meta) {
+      current.meta = meta;
+      current.metaLineIndex = index;
+    }
+  }
+  return matchCurrent();
+}
+
+function serializeMetaComment(meta: Record<string, string>): string {
+  const orderedKeys = ['id', 'origin', 'createdAt', 'updatedAt', 'status', 'tags', 'decayTtlMs'];
+  const seen = new Set<string>();
+  const parts: string[] = [];
+
+  const push = (key: string) => {
+    if (seen.has(key)) return;
+    const value = meta[key];
+    if (value === undefined) return;
+    const safeValue = value.replace(/[\s<>]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 128);
+    if (!safeValue) return;
+    seen.add(key);
+    parts.push(`${key}=${safeValue}`);
+  };
+
+  for (const key of orderedKeys) push(key);
+  for (const key of Object.keys(meta).sort()) {
+    if (/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(key)) push(key);
+  }
+  return parts.join(' ');
 }
 
 function normalizeManualEntryTitle(input: string): string {
