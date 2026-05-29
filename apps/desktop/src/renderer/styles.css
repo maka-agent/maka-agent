@@ -4126,7 +4126,7 @@ button:active {
   gap: 18px;
 }
 
-/* PR-UI-LAYOUT-17: roadmap banner at top of every ComingSoonPage. */
+/* Status banner at the top of feature settings pages. */
 .settingsFeatureStatusBanner {
   display: inline-flex;
   align-items: center;

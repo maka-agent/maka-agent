@@ -691,11 +691,11 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
         <div>
           <div className="settingsFeatureStatusHeroHeading">
             <h3>每日回顾</h3>
-            <span className="settingsFeatureStatusBadge">V0.1 · 本地</span>
+            <span className="settingsFeatureStatusBadge">本地汇总</span>
           </div>
           <p>
-            每日回顾会按你选择的日期，把当天的活跃会话、模型用量、工具调用聚合到一个面板里。
-            侧栏 "每日回顾" 入口可以左右切日，也可以点击会话直接打开。
+            每日回顾会按你选择的日期范围，把活跃会话、模型用量、工具调用聚合到一个面板里。
+            侧栏 "每日回顾" 入口支持今日 / 本周 / 本月切换、左右翻页、复制 Markdown 摘要，也可以点击会话直接打开。
           </p>
           {props.onOpenDailyReview && (
             <button
@@ -715,27 +715,20 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
       </div>
       <ul className="settingsFeatureStatusList">
         <li>对话数 / 请求数 / Token / 费用 / 错误数</li>
-        <li>当天活跃对话（点击可直接打开）</li>
-        <li>当天使用最频繁的模型 Top 8</li>
-        <li>当天调用最频繁的工具 Top 8</li>
+        <li>今日 / 本周 / 本月三个范围，以及按范围翻页</li>
+        <li>活跃对话（点击可直接打开）</li>
+        <li>使用最频繁的模型 Top 8</li>
+        <li>调用最频繁的工具 Top 8</li>
+        <li>复制 Markdown 摘要</li>
       </ul>
 
       <div className="settingsFeatureStatusHeroHeading">
         <h3>不会做的事</h3>
       </div>
       <ul className="settingsFeatureStatusList">
-        <li>不调用任何 LLM 生成摘要（V0.1 只是聚合数字，不向云端送内容）</li>
+        <li>不调用任何 LLM 生成摘要（当前只是本地聚合数字，不向云端送内容）</li>
         <li>不写入记忆系统，也不导出任何东西</li>
         <li>不读取 Maka 工作区以外的文件</li>
-      </ul>
-
-      <div className="settingsFeatureStatusHeroHeading">
-        <h3>之后会加</h3>
-      </div>
-      <ul className="settingsFeatureStatusList">
-        <li>可选的 LLM 摘要 narrative（默认关闭、走当前默认 connection）</li>
-        <li>导出 Markdown / 推送到自配的 bot</li>
-        <li>每周 / 每月聚合视图</li>
       </ul>
     </section>
   );
@@ -852,7 +845,7 @@ function VoiceModelsSettingsPage() {
         <div>
           <div className="settingsFeatureStatusHeroHeading">
             <h3>语音模型</h3>
-            <span className="settingsFeatureStatusBadge">V0.1 · capture smoke</span>
+            <span className="settingsFeatureStatusBadge">本地自检</span>
           </div>
           <p>
             这页现在可以验证麦克风权限和本地录音链路。STT / TTS 模型接入会叠在这个边界上：
@@ -1919,7 +1912,7 @@ function ThemeSettingsPage(props: {
 /**
  * PR-WEB-SEARCH-TAVILY-0: Settings → 联网搜索.
  *
- * V0.1 supports Tavily only. Renderer never sees the cleartext API
+ * Current provider support is Tavily only. Renderer never sees the cleartext API
  * key — `props.settings.webSearch.providers.tavily.apiKey` arrives
  * pre-masked from the IPC store boundary (the bullet sentinel
  * `MASKED_TOKEN_SENTINEL`). Re-submitting the sentinel is treated as
