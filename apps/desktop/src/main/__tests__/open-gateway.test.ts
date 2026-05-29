@@ -46,6 +46,7 @@ describe('OpenGatewayService', () => {
     assert.equal(authorized.status, 200);
     assert.deepEqual(authorized.body.capabilities, [
       'incidents.list',
+      'incidents.state',
       'sessions.list',
       'sessions.state',
       'sessions.messages.read',
@@ -97,6 +98,7 @@ describe('OpenGatewayService', () => {
     });
     assert.deepEqual(authorized.body.incidents, {
       endpoint: '/v1/incidents',
+      stateEndpoint: '/v1/incidents/state',
       perSessionEndpoint: '/v1/sessions/{sessionId}/incidents',
       limit: 50,
       includesPayloads: false,
@@ -473,8 +475,20 @@ describe('OpenGatewayService', () => {
     assert.match(response.body.incidents[0].message, /\[redacted\]/);
     assert.doesNotMatch(JSON.stringify(response.body), /sk-live-secret-token-value/);
 
+    const stateResponse = await fetchJson(`${status.baseUrl}/v1/incidents/state`, 'dev-token');
+    assert.equal(stateResponse.status, 200);
+    assert.equal(stateResponse.body.state.incidentCount, 2);
+    assert.equal(stateResponse.body.state.incidentSessionCount, 2);
+    assert.equal(stateResponse.body.state.limit, 50);
+    assert.equal(stateResponse.body.state.includesPayloads, false);
+    assert.equal(stateResponse.body.state.oldestIncident.sessionId, 's1');
+    assert.equal(stateResponse.body.state.newestIncident.sessionId, 's2');
+    assert.doesNotMatch(JSON.stringify(stateResponse.body), /sk-live-secret-token-value/);
+
     const unauthorized = await fetchJson(`${status.baseUrl}/v1/incidents`);
     assert.equal(unauthorized.status, 401);
+    const unauthorizedState = await fetchJson(`${status.baseUrl}/v1/incidents/state`);
+    assert.equal(unauthorizedState.status, 401);
   });
 
   test('caps gateway incidents to the most recent entries', async () => {

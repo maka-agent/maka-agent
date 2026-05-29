@@ -221,11 +221,20 @@ export class OpenGatewayService {
         },
         incidents: {
           endpoint: '/v1/incidents',
+          stateEndpoint: '/v1/incidents/state',
           perSessionEndpoint: '/v1/sessions/{sessionId}/incidents',
           limit: OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT,
           includesPayloads: false,
         },
       });
+      return;
+    }
+    if (url.pathname === '/v1/incidents/state') {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(res, 200, { ok: true, state: buildGatewayIncidentIndexState(this.recentEvents) });
       return;
     }
     if (url.pathname === '/v1/incidents') {
@@ -513,9 +522,19 @@ type GatewayIncidentSummary =
 
 type GatewayIncidentIndexItem = GatewayIncidentSummary & { sessionId: string };
 
+interface GatewayIncidentIndexState {
+  incidentCount: number;
+  incidentSessionCount: number;
+  limit: number;
+  includesPayloads: false;
+  newestIncident?: GatewayIncidentIndexItem;
+  oldestIncident?: GatewayIncidentIndexItem;
+}
+
 function buildGatewayCapabilities(sendAvailable: boolean): string[] {
   return [
     'incidents.list',
+    'incidents.state',
     'sessions.list',
     'sessions.state',
     'sessions.messages.read',
@@ -804,6 +823,21 @@ function buildGatewayIncidentIndex(recentEvents: ReadonlyMap<string, readonly Se
   }
   incidents.sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
   return incidents.slice(-OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT);
+}
+
+function buildGatewayIncidentIndexState(recentEvents: ReadonlyMap<string, readonly SessionEvent[]>): GatewayIncidentIndexState {
+  const incidents = buildGatewayIncidentIndex(recentEvents);
+  const incidentSessions = new Set(incidents.map((incident) => incident.sessionId));
+  const newestIncident = incidents.at(-1);
+  const oldestIncident = incidents[0];
+  return {
+    incidentCount: incidents.length,
+    incidentSessionCount: incidentSessions.size,
+    limit: OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT,
+    includesPayloads: false,
+    ...(newestIncident ? { newestIncident } : {}),
+    ...(oldestIncident ? { oldestIncident } : {}),
+  };
 }
 
 function capIncidentText(value: string): string {

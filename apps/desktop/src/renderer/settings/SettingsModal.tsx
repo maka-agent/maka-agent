@@ -3080,7 +3080,7 @@ function OpenGatewaySettingsPage(props: {
         <MetricCard title="监听地址" value={baseUrl} detail={gateway.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
         <MetricCard title="访问凭据" value={gateway.token ? '已配置' : '未配置'} detail="Bearer token 保护所有 /v1 API" />
         <MetricCard title="实时连接" value={String(status?.activeEventStreams ?? 0)} detail="SSE 客户端" />
-        <MetricCard title="能力" value="12 个端点" detail="/health · sessions · messages · events · incidents · search" />
+        <MetricCard title="能力" value="13 个端点" detail="/health · sessions · messages · events · incidents · search" />
       </div>
 
       <div className="settingsFormRow">
@@ -3162,6 +3162,7 @@ function OpenGatewaySettingsPage(props: {
         <SettingRow title="事件状态" detail="需要 Bearer token，返回当前事件 replay buffer 和实时连接状态，不含事件正文。" value="GET /v1/sessions/:id/events/state" />
         <SettingRow title="失败记录" detail="需要 Bearer token，返回最近错误和中断摘要，用于外部恢复面板。" value="GET /v1/sessions/:id/incidents" />
         <SettingRow title="失败索引" detail="需要 Bearer token，跨会话返回最近错误和中断摘要。" value="GET /v1/incidents" />
+        <SettingRow title="失败索引状态" detail="需要 Bearer token，跨会话返回最近失败总数、涉及会话数和边界摘要。" value="GET /v1/incidents/state" />
         <SettingRow title="本地搜索" detail="需要 Bearer token，复用 Maka 的 thread search。" value="GET /v1/search/thread?q=..." />
       </SettingsRows>
 
