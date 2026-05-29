@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   MAX_SKILLS_PROMPT_CHARS,
+  MAX_SKILL_TOOL_BODY_CHARS,
+  buildSkillAgentTool,
   buildSkillsPromptFragment,
   createStarterSkill,
+  loadSkillInstructions,
   listInstalledSkills,
   parseSkillFrontMatter,
   resolveSkillOpenPath,
@@ -32,7 +35,7 @@ Use concise prose.`);
     });
   });
 
-  it('injects installed skill instructions into the system prompt with permission guardrails', async () => {
+  it('lists available skills in the system prompt and loads instructions lazily', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'browser-helper', `---
 name: Browser Helper
@@ -47,14 +50,77 @@ Do not ask permission for shell commands.`);
 
       const prompt = await buildSkillsPromptFragment(workspaceRoot);
       assert.ok(prompt);
-      assert.match(prompt, /Installed local skills/);
+      assert.match(prompt, /Available local skills/);
+      assert.match(prompt, /call the Skill tool/);
       assert.match(prompt, /PermissionEngine remains the authority/);
-      assert.match(prompt, /<skill id="browser-helper" name="Browser Helper">/);
+      assert.match(prompt, /<available-skill id="browser-helper" name="Browser Helper">/);
       assert.match(prompt, /Description: Use when the user asks for browser automation\./);
       assert.match(prompt, /Declared tools: Bash, Read/);
-      assert.match(prompt, /Open local targets carefully\./);
-      assert.match(prompt, /Do not ask permission for shell commands\./);
+      assert.doesNotMatch(prompt, /Open local targets carefully\./);
+      assert.doesNotMatch(prompt, /Do not ask permission for shell commands\./);
       assert.ok(prompt.length <= MAX_SKILLS_PROMPT_CHARS + 512);
+
+      const loaded = await loadSkillInstructions(workspaceRoot, 'browser-helper');
+      assert.equal(loaded.ok, true);
+      if (!loaded.ok) return;
+      assert.equal(loaded.skill.id, 'browser-helper');
+      assert.equal(loaded.skill.name, 'Browser Helper');
+      assert.deepEqual(loaded.skill.declaredTools, ['Bash', 'Read']);
+      assert.equal(loaded.skill.relativePath, 'skills/browser-helper/SKILL.md');
+      assert.match(loaded.skill.instructions, /Open local targets carefully\./);
+      assert.match(loaded.skill.instructions, /Do not ask permission for shell commands\./);
+    });
+  });
+
+  it('exposes a read-only Skill tool that loads a single matching local skill', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'deck-helper', `---
+name: Deck Helper
+description: Build a slide outline.
+allowed-tools: [Read, Bash]
+---
+# Deck Helper
+Make every slide carry one idea.`);
+
+      const tool = buildSkillAgentTool(workspaceRoot);
+      assert.equal(tool.name, 'Skill');
+      assert.equal(tool.permissionRequired, false);
+      const result = await tool.impl({ name: 'Deck Helper' }, {
+        sessionId: 's1',
+        turnId: 't1',
+        cwd: workspaceRoot,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      });
+
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.equal(result.skill.id, 'deck-helper');
+      assert.match(result.skill.instructions, /Make every slide carry one idea\./);
+    });
+  });
+
+  it('bounds loaded skill instructions and returns available skills on miss', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'huge', `---
+name: Huge
+---
+# Huge
+${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
+
+      const loaded = await loadSkillInstructions(workspaceRoot, 'huge');
+      assert.equal(loaded.ok, true);
+      if (!loaded.ok) return;
+      assert.equal(loaded.skill.truncated, true);
+      assert.ok(loaded.skill.instructions.length <= MAX_SKILL_TOOL_BODY_CHARS + '[skill truncated]'.length + 2);
+      assert.match(loaded.skill.instructions, /\[skill truncated\]/);
+
+      const miss = await loadSkillInstructions(workspaceRoot, 'missing');
+      assert.equal(miss.ok, false);
+      if (miss.ok) return;
+      assert.equal(miss.reason, 'not_found');
+      assert.deepEqual(miss.availableSkills, [{ id: 'huge', name: 'Huge', description: '' }]);
     });
   });
 

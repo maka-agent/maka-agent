@@ -137,7 +137,7 @@ import { buildPersonalizationPromptFragment } from './personalization-prompt.js'
 import { resolveProjectGitInfo } from './project-context.js';
 import { buildSessionEnvironmentPromptFragment } from './session-environment-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
-import { buildSkillsPromptFragment, createStarterSkill, listInstalledSkills, resolveSkillOpenPath } from './skills.js';
+import { buildSkillAgentTool, buildSkillsPromptFragment, createStarterSkill, listInstalledSkills, resolveSkillOpenPath } from './skills.js';
 import {
   buildWorkspaceInstructionsPromptFragment,
   createWorkspaceInstructionFile,
@@ -231,6 +231,9 @@ const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
 const builtinTools = [
   ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
+  // PawWork lazy-skill pattern: the prompt lists available skills, and this
+  // read-only tool loads the full SKILL.md only when the task matches.
+  buildSkillAgentTool(workspaceRoot),
   // PR-AGENT-WEB-SEARCH-TOOL-0: Tavily-backed WebSearch tool. Closed
   // over settingsStore so the renderer never sees the API key; the
   // permission engine routes it through the `web_read` policy which
