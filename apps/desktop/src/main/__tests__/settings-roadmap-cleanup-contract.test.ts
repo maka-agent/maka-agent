@@ -59,6 +59,20 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.doesNotMatch(settings, /providerSupport === 'planned'\s*\?\s*\{\s*label: '未接入'/, 'planned bot list tags should use the shared planned copy');
   });
 
+  it('keeps runtime bot platform copy aligned with shipped receive and send paths', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const discordBlock = settings.match(/selected === 'discord'[\s\S]*?\n\s*\)\}/)?.[0] ?? '';
+    const qqBlock = settings.match(/selected === 'qq'[\s\S]*?\n\s*\)\}/)?.[0] ?? '';
+
+    assert.match(discordBlock, /启动监听后会通过 Gateway 接收消息，并用 REST 回复对应频道/);
+    assert.match(qqBlock, /启动监听后会通过 QQ Gateway 接收频道、群和私聊事件，并用 REST 投递回复/);
+    assert.doesNotMatch(
+      `${discordBlock}\n${qqBlock}`,
+      /事件接入需要|独立后续|凭据有效不代表运行可用/,
+      'runtime bot detail copy must not describe shipped Gateway bridges as future work',
+    );
+  });
+
   it('keeps Permission Center copy scoped to current product boundaries', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const permissionPage = settings.match(/function PermissionCenterPage\(\)[\s\S]*?function CapabilityRow/);

@@ -3272,7 +3272,7 @@ function BotChatSettingsPage(props: {
               <input type="password" value={channel.token} onChange={(event) => updateChannel({ token: event.currentTarget.value })} placeholder="Discord 开发者后台的 Bot Token" />
             </label>
             <div className="settingsNotice">
-              Discord 凭据测试会请求 `/users/@me` 验证 token 对应一个真实 Bot 应用。事件接入需要 Discord Gateway 长连接，是独立后续，凭据有效不代表运行可用。
+              Discord 凭据测试会请求 `/users/@me` 验证 token 对应一个真实 Bot 应用；启动监听后会通过 Gateway 接收消息，并用 REST 回复对应频道。
             </div>
           </>
         )}
@@ -3344,9 +3344,9 @@ function BotChatSettingsPage(props: {
           </>
         )}
 
-        {/* PR-BOT-QQ-CREDENTIALS-TEST-0: QQ 官方机器人凭据级配置。`appId` =
+        {/* PR-BOT-QQ-OPERATIONAL-0: QQ 官方机器人运行级配置。`appId` =
             App ID，`appSecret` = Client Secret，跟 WeCom / DingTalk 同语义
-            不另开字段。事件接入需要 QQ Gateway WebSocket，是独立后续。 */}
+            不另开字段。 */}
         {selected === 'qq' && (
           <>
             <label className="settingsField">
@@ -3358,7 +3358,7 @@ function BotChatSettingsPage(props: {
               <input type="password" value={channel.appSecret ?? ''} onChange={(event) => updateChannel({ appSecret: event.currentTarget.value })} placeholder="QQ 开放平台 - 机器人 Client Secret" />
             </label>
             <div className="settingsNotice">
-              QQ 凭据测试会请求 `getAppAccessToken`，验证 App ID + Client Secret 真实存在。事件接入需要 QQ Gateway WebSocket，是独立后续，凭据有效不代表运行可用。
+              QQ 凭据测试会请求 `getAppAccessToken`，验证 App ID + Client Secret；启动监听后会通过 QQ Gateway 接收频道、群和私聊事件，并用 REST 投递回复。
             </div>
           </>
         )}
