@@ -96,8 +96,8 @@ const STATUS_PRESENTATION: Record<ConnectionUiStatus, StatusPresentation> = {
     tone: 'warning',
   },
   configured: {
-    label: '已配置 · 未验证',
-    detail: '凭据已保存，但还未真正调用过该 provider。点测试以确认可达。',
+    label: '已配置 · 等待验证',
+    detail: '凭据已保存；点测试连接确认 provider 可达。',
     tone: 'info',
   },
   verified: {
