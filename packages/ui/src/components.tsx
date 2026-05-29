@@ -1768,7 +1768,9 @@ export function SearchModal(props: {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<{ reason: SearchErrorReason; message: string } | null>(null);
   const [pending, setPending] = useState(false);
+  const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const ticketRef = useRef(0);
   const searchThread = props.deps?.searchThread;
 
@@ -1781,6 +1783,7 @@ export function SearchModal(props: {
       setResults([]);
       setError(null);
       setPending(false);
+      setActiveResultIndex(-1);
       return;
     }
     const ticket = ++ticketRef.current;
@@ -1796,9 +1799,11 @@ export function SearchModal(props: {
         if (Array.isArray(response)) {
           setResults(response);
           setError(null);
+          setActiveResultIndex(response.length > 0 ? 0 : -1);
         } else {
           setResults([]);
           setError({ reason: response.reason, message: response.message });
+          setActiveResultIndex(-1);
         }
       } catch (err) {
         if (ticket !== ticketRef.current) return;
@@ -1809,6 +1814,7 @@ export function SearchModal(props: {
           reason: 'provider_error',
           message: err instanceof Error ? err.message : '搜索暂时不可用，请稍后重试。',
         });
+        setActiveResultIndex(-1);
       } finally {
         if (ticket === ticketRef.current) setPending(false);
       }
@@ -1822,6 +1828,11 @@ export function SearchModal(props: {
     inputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (activeResultIndex < 0) return;
+    resultRefs.current[activeResultIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [activeResultIndex]);
+
   function selectResult(result: SearchResult) {
     if (!props.onNavigateToSession) return;
     if (result.target?.kind !== 'thread') return;
@@ -1829,10 +1840,21 @@ export function SearchModal(props: {
     props.onClose();
   }
 
+  function moveActiveResult(delta: 1 | -1) {
+    if (results.length === 0) return;
+    setActiveResultIndex((current) => {
+      const next = current < 0
+        ? (delta > 0 ? 0 : results.length - 1)
+        : (current + delta + results.length) % results.length;
+      return next;
+    });
+  }
+
   const incognitoBlocked = error?.reason === 'incognito_active';
   const trimmed = query.trim();
   const showResults = !error && trimmed.length > 0 && !pending && results.length > 0;
   const showEmpty = !error && trimmed.length > 0 && !pending && results.length === 0;
+  const activeResultId = showResults && activeResultIndex >= 0 ? `maka-search-modal-result-${activeResultIndex}` : undefined;
 
   return (
     <div
@@ -1867,12 +1889,29 @@ export function SearchModal(props: {
             className="maka-search-modal-input"
             placeholder="搜索会话内容…"
             aria-label="搜索会话内容"
+            aria-controls={showResults ? 'maka-search-modal-results' : undefined}
+            aria-activedescendant={activeResultId}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape' && query) {
                 event.preventDefault();
                 setQuery('');
+                return;
+              }
+              if (event.key === 'ArrowDown' && showResults) {
+                event.preventDefault();
+                moveActiveResult(1);
+                return;
+              }
+              if (event.key === 'ArrowUp' && showResults) {
+                event.preventDefault();
+                moveActiveResult(-1);
+                return;
+              }
+              if (event.key === 'Enter' && showResults && activeResultIndex >= 0) {
+                event.preventDefault();
+                selectResult(results[activeResultIndex]!);
               }
             }}
             autoComplete="off"
@@ -1915,13 +1954,17 @@ export function SearchModal(props: {
             </p>
           )}
           {showResults && (
-            <ul className="maka-search-modal-results" role="list">
+            <ul id="maka-search-modal-results" className="maka-search-modal-results" role="list">
               {results.map((result, index) => (
                 <li key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}>
                   <button
+                    ref={(node) => { resultRefs.current[index] = node; }}
+                    id={`maka-search-modal-result-${index}`}
                     type="button"
                     className="maka-search-modal-result"
+                    data-active={activeResultIndex === index ? 'true' : undefined}
                     onClick={() => selectResult(result)}
+                    onMouseEnter={() => setActiveResultIndex(index)}
                     disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
                   >
                     <div className="maka-search-modal-result-title">{result.title}</div>

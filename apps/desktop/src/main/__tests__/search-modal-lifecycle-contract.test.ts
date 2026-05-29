@@ -41,6 +41,7 @@ import { join, resolve } from 'node:path';
 // two levels up. Resolve once.
 const COMPONENTS_PATH = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
 const MAIN_TSX_PATH = join(process.cwd(), 'src', 'renderer', 'main.tsx');
+const STYLES_PATH = join(process.cwd(), 'src', 'renderer', 'styles.css');
 
 describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', () => {
   it('SearchModal signature takes only onClose — NO `open` prop (conditional-mount contract)', async () => {
@@ -166,5 +167,19 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       /data-search-highlight=\{props\.searchHighlighted\s*\?\s*'true'\s*:\s*undefined\}/,
       'ChatView must visually mark the matched search turn',
     );
+  });
+
+  it('search results support keyboard selection from the input', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const styles = await readFile(STYLES_PATH, 'utf8');
+    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+
+    assert.match(searchModal, /activeResultIndex/, 'SearchModal must track the active result index');
+    assert.match(searchModal, /aria-activedescendant=\{activeResultId\}/, 'Search input must expose the active result to assistive tech');
+    assert.match(searchModal, /event\.key === 'ArrowDown'[\s\S]*moveActiveResult\(1\)/, 'ArrowDown must move to the next result');
+    assert.match(searchModal, /event\.key === 'ArrowUp'[\s\S]*moveActiveResult\(-1\)/, 'ArrowUp must move to the previous result');
+    assert.match(searchModal, /event\.key === 'Enter'[\s\S]*selectResult\(results\[activeResultIndex\]!\)/, 'Enter must open the active result');
+    assert.match(searchModal, /data-active=\{activeResultIndex === index \? 'true' : undefined\}/, 'Active result must get a visible state hook');
+    assert.match(styles, /\.maka-search-modal-result\[data-active="true"\]:not\(\[disabled\]\)/, 'Active search result must have dedicated styling');
   });
 });

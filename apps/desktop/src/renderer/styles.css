@@ -352,6 +352,10 @@ button:active {
 .maka-search-modal-result:hover:not([disabled]) {
   background: oklch(from var(--foreground) l c h / 0.04);
 }
+.maka-search-modal-result[data-active="true"]:not([disabled]) {
+  background: oklch(from var(--accent) l c h / 0.08);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .maka-search-modal-result:focus-visible {
   outline: none;
   background: oklch(from var(--foreground) l c h / 0.04);
