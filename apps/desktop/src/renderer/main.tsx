@@ -304,7 +304,7 @@ function AppShell() {
     return {
       tone: 'warning',
       label: '事件流恢复中',
-      tooltip: '当前对话的实时事件暂未更新，Maka 正在从本地会话记录刷新。',
+      tooltip: '当前对话的实时事件需要刷新，Maka 正在从本地会话记录恢复。',
     };
   }, [activeSessionEventHealth?.status]);
 
