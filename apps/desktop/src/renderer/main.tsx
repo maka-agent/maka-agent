@@ -2014,6 +2014,7 @@ function AppShell(props: {
             defaultSlug: defaultConnection,
             onSelectSession: setActiveId,
             onNewChat: () => void createSession(),
+            onStartDeepResearch: () => void handleQuickChatSubmit('', 'deep_research'),
             onOpenSettings: openSettings,
             onOpenSettingsSection: (section) => openSettingsSection(section),
             // PR-UX-POLISH-1 commit 4 (WAWQAQ `e0dbad11` + kenji `2844f64f`):

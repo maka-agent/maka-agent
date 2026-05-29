@@ -73,6 +73,7 @@ export function buildCommandList(args: {
   defaultSlug: string | null;
   onSelectSession(id: string): void;
   onNewChat(): void;
+  onStartDeepResearch?(): Promise<void> | void;
   onOpenSettings(): void;
   onOpenSettingsSection(section: SettingsSection): void;
   onOpenShortcuts(): void;
@@ -141,6 +142,18 @@ export function buildCommandList(args: {
       keywords: ['new', 'chat', 'start', '新', '建', '对话'],
       run: args.onNewChat,
     },
+    ...(args.onStartDeepResearch
+      ? [{
+          id: 'action:new-deep-research',
+          kind: 'action' as const,
+          label: '新建深度研究',
+          hint: '只读探索',
+          group: '操作',
+          Icon: Sparkles,
+          keywords: ['deep', 'research', 'explore', 'readonly', '研究', '深度', '探索', '只读'],
+          run: () => void args.onStartDeepResearch!(),
+        }]
+      : []),
     {
       id: 'action:open-settings',
       kind: 'action',
