@@ -13,16 +13,21 @@ describe('BotRegistry', () => {
       onStatusChange: (status) => statuses.push(status),
     });
 
+    // PR-BOT-DINGTALK-OPERATIONAL-0: dingtalk used to be the
+    // unimplemented stand-in here, but now it has a live bridge. QQ is
+    // the remaining credentials-only platform; when QQ-operational
+    // lands, this assertion will need to move to whichever platform is
+    // still credentials-only.
     await registry.applySettings(settingsWith({
-      dingtalk: { enabled: true, token: 'unused' },
+      qq: { enabled: true, token: 'unused' },
     }));
 
     assert.equal(registry.getStatus('telegram').reason, 'disabled');
     assert.equal(registry.getStatus('telegram').readiness, 'scaffolded');
-    assert.equal(registry.getStatus('dingtalk').reason, 'scaffold-only');
-    assert.equal(registry.getStatus('dingtalk').running, false);
-    assert.equal(registry.getStatus('dingtalk').readiness, 'configured');
-    assert.equal(statuses.some((status) => status.platform === 'dingtalk' && status.readiness === 'configured'), true);
+    assert.equal(registry.getStatus('qq').reason, 'scaffold-only');
+    assert.equal(registry.getStatus('qq').running, false);
+    assert.equal(registry.getStatus('qq').readiness, 'configured');
+    assert.equal(statuses.some((status) => status.platform === 'qq' && status.readiness === 'configured'), true);
   });
 
   // PR-BOT-DISCORD-OPERATIONAL-0: Discord is now an implemented platform

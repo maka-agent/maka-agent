@@ -182,8 +182,8 @@ const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'r
   },
   dingtalk: {
     label: '钉钉',
-    help: '填入自建应用的 appkey 与 appsecret 后测试凭据；当前先验证凭据，事件接收需要 outgoing 机器人或 Stream 模式独立配置。',
-    support: 'credentials',
+    help: '填入自建应用的 appkey 与 appsecret 后测试凭据；启动监听后通过 DingTalk Stream（outbound WebSocket）接收 bot 消息，会话完成后通过 open-platform robot 接口投递回原会话。',
+    support: 'runtime',
   },
   qq: {
     label: 'QQ',
