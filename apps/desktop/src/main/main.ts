@@ -1853,7 +1853,9 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
   const settings = await settingsStore.get();
   const personalization = buildPersonalizationPromptFragment(settings.personalization);
   const skills = await buildSkillsPromptFragment(workspaceRoot);
-  const workspaceInstructions = cwd ? await buildWorkspaceInstructionsPromptFragment(cwd) : undefined;
+  const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
+    ? await buildWorkspaceInstructionsPromptFragment(cwd)
+    : undefined;
   const deepResearch = isDeepResearchSession(header.labels) ? buildDeepResearchSystemPromptFragment() : undefined;
   const botPlatform = botPlatformFromSessionLabels(header.labels);
   const botPlatformHint = botPlatform ? buildBotPlatformPromptFragment(botPlatform) : undefined;

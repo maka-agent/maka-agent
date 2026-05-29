@@ -492,6 +492,7 @@ function SettingsPage(props: {
       return (
         <MemorySettingsPage
           settings={props.settings}
+          onUpdate={props.onUpdateSettings}
           onReloadSettings={props.onReloadSettings}
         />
       );
@@ -2214,6 +2215,7 @@ function presentWebSearchCredentialStatus(
 
 function MemorySettingsPage(props: {
   settings: AppSettings;
+  onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onReloadSettings(): Promise<void>;
 }) {
   const [state, setState] = useState<LocalMemoryState | null>(null);
@@ -2250,6 +2252,16 @@ function MemorySettingsPage(props: {
       await props.onReloadSettings();
       setState(next);
       setDraft(next.content);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setWorkspaceInstructionsEnabled(enabled: boolean) {
+    setBusy(true);
+    try {
+      await props.onUpdate({ workspaceInstructions: { enabled } });
+      await props.onReloadSettings();
     } finally {
       setBusy(false);
     }
@@ -2336,6 +2348,18 @@ function MemorySettingsPage(props: {
           checked={effective.agentReadEnabled}
           disabled={busy || !effective.enabled}
           onChange={(enabled) => void setAgentReadEnabled(enabled)}
+        />
+      </div>
+
+      <div className="settingsFormRow">
+        <div>
+          <strong>项目指令文件</strong>
+          <small>读取当前工作区的 AGENTS.md / CLAUDE.md / GEMINI.md；按低优先级指令注入，可随时关闭。</small>
+        </div>
+        <Switch
+          checked={props.settings.workspaceInstructions.enabled}
+          disabled={busy}
+          onChange={(enabled) => void setWorkspaceInstructionsEnabled(enabled)}
         />
       </div>
 

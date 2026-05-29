@@ -625,4 +625,22 @@ describe('open gateway settings contract', () => {
     expect(patched.webSearch.providers.tavily.credentialStatus).toBe('untested');
     expect(patched.webSearch.providers.tavily.credentialCheckedAt).toBeUndefined();
   });
+
+  test('workspace instructions are visible settings and default to enabled', () => {
+    const defaults = createDefaultSettings();
+
+    expect(defaults.workspaceInstructions.enabled).toBe(true);
+    expect(normalizeSettings({ workspaceInstructions: { enabled: false } }).workspaceInstructions.enabled).toBe(false);
+    expect(normalizeSettings({ workspaceInstructions: { enabled: 'yes' } }).workspaceInstructions.enabled).toBe(true);
+  });
+
+  test('mergeSettings carries workspace instruction toggle through update surface', () => {
+    const patched = mergeSettings(createDefaultSettings(), {
+      workspaceInstructions: {
+        enabled: false,
+      },
+    });
+
+    expect(patched.workspaceInstructions.enabled).toBe(false);
+  });
 });

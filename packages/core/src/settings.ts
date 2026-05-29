@@ -246,6 +246,10 @@ export interface OpenGatewayRuntimeStatus {
   tokenConfigured: boolean;
 }
 
+export interface WorkspaceInstructionsSettings {
+  enabled: boolean;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   network: NetworkSettings;
@@ -257,6 +261,7 @@ export interface AppSettings {
   openGateway: OpenGatewaySettings;
   webSearch: WebSearchSettings;
   localMemory: LocalMemorySettings;
+  workspaceInstructions: WorkspaceInstructionsSettings;
 }
 
 export interface UsageRequestLog {
@@ -312,6 +317,7 @@ export type UpdateAppSettingsInput = Partial<{
   personalization: Partial<PersonalizationSettings>;
   openGateway: Partial<OpenGatewaySettings>;
   localMemory: Partial<LocalMemorySettings>;
+  workspaceInstructions: Partial<WorkspaceInstructionsSettings>;
   webSearch: Partial<{
     enabled: boolean;
     defaultProvider: WebSearchProvider;
@@ -415,6 +421,9 @@ export function createDefaultSettings(): AppSettings {
     },
     webSearch: defaultWebSearchSettings(),
     localMemory: defaultLocalMemorySettings(),
+    workspaceInstructions: {
+      enabled: true,
+    },
   };
 }
 
@@ -469,6 +478,9 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
     localMemory: patch.localMemory
       ? normalizeLocalMemorySettings({ ...current.localMemory, ...patch.localMemory })
       : current.localMemory,
+    workspaceInstructions: patch.workspaceInstructions
+      ? normalizeWorkspaceInstructionsSettings({ ...current.workspaceInstructions, ...patch.workspaceInstructions })
+      : current.workspaceInstructions,
     webSearch: mergeWebSearchSettings(current.webSearch, patch.webSearch),
   };
 }
@@ -538,6 +550,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     openGateway: value.openGateway,
     webSearch: value.webSearch,
     localMemory: value.localMemory,
+    workspaceInstructions: value.workspaceInstructions,
   });
   // PR110b: milestones bypass the generic patch surface so we can
   // sanitize them with the closed-enum + at-most-one validator on
@@ -612,6 +625,13 @@ export function normalizeSettings(input: unknown): AppSettings {
     openGateway: normalizeOpenGatewaySettings(base.openGateway),
     webSearch: normalizeWebSearchSettings(base.webSearch),
     localMemory: normalizeLocalMemorySettings(base.localMemory),
+    workspaceInstructions: normalizeWorkspaceInstructionsSettings(base.workspaceInstructions),
+  };
+}
+
+function normalizeWorkspaceInstructionsSettings(settings: WorkspaceInstructionsSettings): WorkspaceInstructionsSettings {
+  return {
+    enabled: settings.enabled !== false,
   };
 }
 

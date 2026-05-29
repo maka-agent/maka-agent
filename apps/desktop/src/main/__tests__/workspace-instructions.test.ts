@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -53,6 +53,13 @@ describe('workspace instructions prompt fragment', () => {
     await withWorkspace(async (workspaceRoot) => {
       assert.equal(await buildWorkspaceInstructionsPromptFragment(workspaceRoot), undefined);
     });
+  });
+
+  it('main system prompt path is gated by the visible workspaceInstructions setting', async () => {
+    const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
+
+    assert.match(source, /settings\.workspaceInstructions\.enabled && cwd/);
+    assert.match(source, /buildWorkspaceInstructionsPromptFragment\(cwd\)/);
   });
 });
 
