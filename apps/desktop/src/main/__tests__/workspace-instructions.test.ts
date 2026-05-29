@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import {
   MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
   buildWorkspaceInstructionsPromptFragment,
+  getWorkspaceInstructionsState,
 } from '../workspace-instructions.js';
 
 describe('workspace instructions prompt fragment', () => {
@@ -52,6 +53,23 @@ describe('workspace instructions prompt fragment', () => {
   it('returns undefined when there are no instruction files', async () => {
     await withWorkspace(async (workspaceRoot) => {
       assert.equal(await buildWorkspaceInstructionsPromptFragment(workspaceRoot), undefined);
+    });
+  });
+
+  it('reports instruction file status without exposing file contents to renderer', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeFile(join(workspaceRoot, 'AGENTS.md'), 'Use npm test before pushing.\n', 'utf8');
+      await writeFile(join(workspaceRoot, 'CLAUDE.md'), '', 'utf8');
+
+      const state = await getWorkspaceInstructionsState(workspaceRoot);
+
+      assert.equal(state.detectedCount, 1);
+      assert.deepEqual(state.files.map((file) => file.file), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
+      assert.deepEqual(
+        state.files.map((file) => file.status),
+        ['available', 'empty', 'missing'],
+      );
+      assert.equal('text' in state.files[0]!, false);
     });
   });
 

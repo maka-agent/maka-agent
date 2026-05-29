@@ -87,6 +87,27 @@ export interface OnboardingSnapshot {
   milestones: OnboardingMilestone[];
 }
 
+export type WorkspaceInstructionFileStatus =
+  | 'available'
+  | 'missing'
+  | 'blocked'
+  | 'empty'
+  | 'unreadable';
+
+export interface WorkspaceInstructionFileState {
+  file: string;
+  status: WorkspaceInstructionFileStatus;
+  chars: number;
+  truncated: boolean;
+}
+
+export interface WorkspaceInstructionsState {
+  files: WorkspaceInstructionFileState[];
+  detectedCount: number;
+  fileCharLimit: number;
+  promptCharLimit: number;
+}
+
 contextBridge.exposeInMainWorld('maka', {
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
@@ -244,6 +265,11 @@ contextBridge.exposeInMainWorld('maka', {
     },
     openFile(): Promise<{ ok: true } | { ok: false; message: string }> {
       return ipcRenderer.invoke('memory:openFile');
+    },
+  },
+  workspaceInstructions: {
+    getState(): Promise<WorkspaceInstructionsState> {
+      return ipcRenderer.invoke('workspaceInstructions:getState');
     },
   },
   search: {

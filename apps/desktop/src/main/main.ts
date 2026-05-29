@@ -127,7 +127,7 @@ import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import { buildSkillsPromptFragment, listInstalledSkills } from './skills.js';
-import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
+import { buildWorkspaceInstructionsPromptFragment, getWorkspaceInstructionsState } from './workspace-instructions.js';
 import { buildCapabilitySnapshotCollection, buildPermissionSnapshot } from './capability-snapshot.js';
 import {
   getVisualSmokeState,
@@ -703,6 +703,7 @@ function registerIpc(): void {
     const error = await shell.openPath(resolved.path);
     return error ? { ok: false, message: error } : { ok: true };
   });
+  ipcMain.handle('workspaceInstructions:getState', () => getWorkspaceInstructionsState(process.cwd()));
   // Opens an artifact in Finder. Reuses the artifact-root realpath guard
   // (mirrors PR56 open-path-guard) so renderer never assembles absolute
   // paths — it only passes an artifactId; main looks up the record, runs

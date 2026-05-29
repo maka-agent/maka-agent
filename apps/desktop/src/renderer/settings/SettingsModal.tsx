@@ -2219,13 +2219,20 @@ function MemorySettingsPage(props: {
   onReloadSettings(): Promise<void>;
 }) {
   const [state, setState] = useState<LocalMemoryState | null>(null);
+  const [workspaceInstructionState, setWorkspaceInstructionState] = useState<Awaited<
+    ReturnType<typeof window.maka.workspaceInstructions.getState>
+  > | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
   async function reload() {
-    const next = await window.maka.memory.getState();
+    const [next, instructions] = await Promise.all([
+      window.maka.memory.getState(),
+      window.maka.workspaceInstructions.getState(),
+    ]);
     setState(next);
+    setWorkspaceInstructionState(instructions);
     setDraft(next.content);
   }
 
@@ -2363,6 +2370,24 @@ function MemorySettingsPage(props: {
         />
       </div>
 
+      {workspaceInstructionState && (
+        <div className="settingsMemoryPreview">
+          <strong>
+            检测到 {workspaceInstructionState.detectedCount} 个项目指令文件
+          </strong>
+          <small>
+            单文件最多读取 {workspaceInstructionState.fileCharLimit.toLocaleString('zh-CN')} 字符；只显示状态，不在这里展示内容。
+          </small>
+          <div className="settingsConnectionMeta">
+            {workspaceInstructionState.files.map((file) => (
+              <span key={file.file}>
+                {file.file} · {workspaceInstructionStatusLabel(file.status, file.chars, file.truncated)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="settingsConnectionMeta">
         <span>{effective.path || 'MEMORY.md 尚未创建'}</span>
         <span>{effective.entryCount} 条条目</span>
@@ -2421,6 +2446,23 @@ function memoryStatusLabel(status: LocalMemoryState['status']): string {
     case 'safe_mode': return '安全模式';
     case 'incognito_blocked': return '隐身禁用';
     case 'error': return '读取失败';
+  }
+}
+
+function workspaceInstructionStatusLabel(status: string, chars: number, truncated: boolean): string {
+  switch (status) {
+    case 'available':
+      return `${chars.toLocaleString('zh-CN')} 字符${truncated ? '，已截断' : ''}`;
+    case 'missing':
+      return '未找到';
+    case 'blocked':
+      return '路径被拦截';
+    case 'empty':
+      return '空文件';
+    case 'unreadable':
+      return '无法读取';
+    default:
+      return '未知状态';
   }
 }
 
