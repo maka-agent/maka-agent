@@ -317,6 +317,7 @@ export function SessionListPanel(props: {
   onSnoozePlanReminder?(id: string): void;
   onClearPlanReminderRunHistory?(id: string): void;
   onDeletePlanReminder?(id: string): void;
+  onCopyDailyReviewMarkdown?(input: { markdown: string; label: string; summary: DailyReviewSummary }): Promise<void> | void;
   /**
    * PR-DAILY-REVIEW-MVP-0: bridge for the `每日回顾` panel. When
    * provided, the daily-review section renders the real panel instead
@@ -625,6 +626,7 @@ export function SessionListPanel(props: {
           <DailyReviewPanel
             bridge={props.dailyReviewBridge}
             onSelectSession={props.onSelectSession}
+            onCopyMarkdown={props.onCopyDailyReviewMarkdown}
           />
         ) : (
           (() => {
@@ -767,6 +769,7 @@ type DailyReviewRange = 1 | 7 | 30;
 function DailyReviewPanel(props: {
   bridge: DailyReviewBridge;
   onSelectSession?: (sessionId: string) => void;
+  onCopyMarkdown?: (input: { markdown: string; label: string; summary: DailyReviewSummary }) => Promise<void> | void;
 }) {
   const [offsetDays, setOffsetDays] = useState(0);
   // PR-DAILY-REVIEW-RANGE-0: 今日 / 本周 / 本月 tabs that map to a
@@ -857,6 +860,10 @@ function DailyReviewPanel(props: {
             className="maka-button maka-button-ghost maka-daily-review-copy"
             onClick={() => {
               const md = formatDailyReviewMarkdown(summary, dayLabel);
+              if (props.onCopyMarkdown) {
+                void props.onCopyMarkdown({ markdown: md, label: dayLabel, summary });
+                return;
+              }
               void navigator.clipboard.writeText(md).catch(() => {});
             }}
             title="复制为 Markdown 摘要，方便分享 / 贴到笔记"
