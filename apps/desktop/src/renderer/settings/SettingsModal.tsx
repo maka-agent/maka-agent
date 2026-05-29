@@ -870,7 +870,7 @@ function VoiceModelsSettingsPage() {
             <span className="settingsFeatureStatusBadge">本地自检</span>
           </div>
           <p>
-            这页现在可以验证麦克风权限和本地录音链路。STT / TTS 模型接入会叠在这个边界上：
+            这页现在可以验证麦克风权限和本地录音链路。STT / TTS 模型必须遵守这个边界：
             转写结果必须先回到 composer 由用户编辑确认，音频样本默认不落盘。
           </p>
         </div>
@@ -911,7 +911,7 @@ function VoiceModelsSettingsPage() {
       <ul className="settingsFeatureStatusList">
         <li>录音样本只在 renderer 内存里用于计算 duration / bytes，结束后立即停止 tracks 并丢弃 chunks。</li>
         <li>没有 STT provider 前，不会把音频传给任何云端服务。</li>
-        <li>未来转写文本只进入 composer 草稿；用户发送前必须能编辑。</li>
+        <li>转写文本只进入 composer 草稿；用户发送前必须能编辑。</li>
       </ul>
     </section>
   );

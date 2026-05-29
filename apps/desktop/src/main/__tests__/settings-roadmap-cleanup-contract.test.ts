@@ -47,6 +47,20 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(settings, /本地自检/, 'Voice status badge should describe the shipped local smoke boundary');
   });
 
+  it('keeps Voice settings boundary copy in current-policy language', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const voicePage = settings.match(/function VoiceModelsSettingsPage\(\)[\s\S]*?async function readBrowserMicrophonePermission/);
+
+    assert.ok(voicePage, 'Voice settings page block must exist');
+    assert.match(voicePage![0], /STT \/ TTS 模型必须遵守这个边界/, 'Voice settings should frame STT/TTS as a current policy boundary');
+    assert.match(voicePage![0], /转写文本只进入 composer 草稿；用户发送前必须能编辑。/, 'Voice transcript handling should be stated as current policy');
+    assert.doesNotMatch(
+      voicePage![0],
+      /未来|后续|接入会叠在|之后会加/,
+      'Voice settings visible copy must not read like future roadmap copy',
+    );
+  });
+
   it('keeps Data settings backup copy actionable instead of future export/import roadmap copy', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const dataPage = settings.match(/function DataSettingsPage\(\)[\s\S]*?function PersonalizationSettingsPage/);
