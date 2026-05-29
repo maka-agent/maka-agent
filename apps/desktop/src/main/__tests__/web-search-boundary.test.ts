@@ -43,6 +43,19 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
   });
 
+  it('Tavily missing-key copy is an actionable waiting state', async () => {
+    const tavily = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/web-search/tavily.ts'), 'utf8');
+    const missingKeyBlock = tavily.match(/trimmedKey\.length === 0[\s\S]*?\n\s*\}/);
+
+    assert.ok(missingKeyBlock, 'Tavily client must fail closed before network when the key is empty');
+    assert.match(missingKeyBlock![0], /等待配置 Tavily API key 后启用联网搜索。/);
+    assert.doesNotMatch(
+      missingKeyBlock![0],
+      /联网搜索未配置 Tavily API key/,
+      'missing Tavily key copy should read as a setup waiting state, not unfinished product work',
+    );
+  });
+
   it('renderer never imports the main-process Tavily client', async () => {
     for (const rel of RENDERER_FILES) {
       const src = await readFile(join(REPO_ROOT, rel), 'utf8');

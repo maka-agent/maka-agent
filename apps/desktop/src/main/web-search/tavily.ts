@@ -80,7 +80,7 @@ export interface QueryTavilyInput {
 export async function queryTavily(input: QueryTavilyInput): Promise<WebSearchResponse> {
   const trimmedKey = input.apiKey.trim();
   if (trimmedKey.length === 0) {
-    return { ok: false, reason: 'not_configured', message: '联网搜索未配置 Tavily API key。' };
+    return { ok: false, reason: 'not_configured', message: '等待配置 Tavily API key 后启用联网搜索。' };
   }
   const limit = Math.min(WEB_SEARCH_MAX_LIMIT, normalizeWebSearchLimit(input.limit));
   const body = JSON.stringify({
