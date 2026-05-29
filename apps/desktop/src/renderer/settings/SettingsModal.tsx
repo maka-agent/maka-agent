@@ -5,6 +5,8 @@ import {
   Bot,
   Brain,
   CalendarDays,
+  Check,
+  Copy,
   Cpu,
   Database,
   Eye,
@@ -277,6 +279,21 @@ function PasswordInput(props: {
   ariaLabel?: string;
 }) {
   const [visible, setVisible] = useState(false);
+  const [justCopied, setJustCopied] = useState(false);
+  // PR-BOT-SETTINGS-PASSWORD-COPY-0: small clipboard affordance next to
+  // the visibility toggle. Useful when the user wants to verify a
+  // previously-pasted token in an external tool without retyping.
+  // Shows a check icon for ~1.2s on success.
+  async function copyValue() {
+    if (!props.value) return;
+    try {
+      await navigator.clipboard.writeText(props.value);
+      setJustCopied(true);
+      window.setTimeout(() => setJustCopied(false), 1200);
+    } catch {
+      /* clipboard unavailable; silent — user can still see the masked value */
+    }
+  }
   return (
     <div className="settingsPasswordField">
       <input
@@ -287,15 +304,29 @@ function PasswordInput(props: {
         aria-label={props.ariaLabel}
         autoComplete="off"
       />
-      <button
-        type="button"
-        className="settingsPasswordToggle"
-        onClick={() => setVisible((current) => !current)}
-        aria-label={visible ? '隐藏' : '显示'}
-        aria-pressed={visible}
-      >
-        {visible ? <EyeOff size={16} strokeWidth={1.75} aria-hidden="true" /> : <Eye size={16} strokeWidth={1.75} aria-hidden="true" />}
-      </button>
+      <div className="settingsPasswordActions">
+        {props.value && (
+          <button
+            type="button"
+            className="settingsPasswordToggle"
+            onClick={() => void copyValue()}
+            aria-label={justCopied ? '已复制' : '复制'}
+          >
+            {justCopied
+              ? <Check size={16} strokeWidth={1.75} aria-hidden="true" />
+              : <Copy size={16} strokeWidth={1.75} aria-hidden="true" />}
+          </button>
+        )}
+        <button
+          type="button"
+          className="settingsPasswordToggle"
+          onClick={() => setVisible((current) => !current)}
+          aria-label={visible ? '隐藏' : '显示'}
+          aria-pressed={visible}
+        >
+          {visible ? <EyeOff size={16} strokeWidth={1.75} aria-hidden="true" /> : <Eye size={16} strokeWidth={1.75} aria-hidden="true" />}
+        </button>
+      </div>
     </div>
   );
 }
