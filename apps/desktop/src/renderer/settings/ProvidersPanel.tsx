@@ -15,6 +15,7 @@ import {
 } from '@maka/core';
 import { useToast, useModalA11y } from '@maka/ui';
 import { formatRelativeTimestamp } from '@maka/core';
+import { PasswordInput } from './password-input';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -697,11 +698,11 @@ function ConnectionDetail(props: {
       {needsSecret && (
         <label>
           <span>API key {hasSecret ? '（已设置，粘贴新值可替换）' : ''}</span>
-          <input
-            type="password"
+          <PasswordInput
             value={apiKey}
-            onChange={(event) => setApiKey(event.currentTarget.value)}
+            onChange={setApiKey}
             placeholder={hasSecret ? '••••••••' : '粘贴 API key'}
+            ariaLabel={`${providerType} API key`}
           />
         </label>
       )}

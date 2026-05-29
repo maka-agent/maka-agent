@@ -5,12 +5,8 @@ import {
   Bot,
   Brain,
   CalendarDays,
-  Check,
-  Copy,
   Cpu,
   Database,
-  Eye,
-  EyeOff,
   Globe,
   Info,
   Network,
@@ -75,6 +71,7 @@ import { BOT_PROVIDERS, MAX_ALLOWED_USER_IDS, createDefaultSettings, parseAllowe
 import { RelativeTime, redactSecrets, useModalA11y, useToast } from '@maka/ui';
 import { normalizeSearchUrl } from '@maka/core';
 import { ProvidersPanel } from './ProvidersPanel';
+import { PasswordInput } from './password-input';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { applyUiLocale, type UiLocalePreference } from '../theme';
 import {
@@ -262,72 +259,6 @@ function BotBrandLogo(props: {
         <span className="settingsBotLogoStatusDot" data-tone={copy.tone} aria-hidden="true" />
       )}
     </span>
-  );
-}
-
-/**
- * PR-BOT-SETTINGS-PASSWORD-EYE-0 (WAWQAQ msg `51c7b4ff` screenshots):
- * masked text input with a trailing Eye / EyeOff toggle on the right
- * edge of the input. Used for bot tokens / app secrets so the user
- * can verify a paste without retyping. Initial state is masked. The
- * toggle button is real and focusable so keyboard users can flip it.
- */
-function PasswordInput(props: {
-  value: string;
-  onChange(next: string): void;
-  placeholder?: string;
-  ariaLabel?: string;
-}) {
-  const [visible, setVisible] = useState(false);
-  const [justCopied, setJustCopied] = useState(false);
-  // PR-BOT-SETTINGS-PASSWORD-COPY-0: small clipboard affordance next to
-  // the visibility toggle. Useful when the user wants to verify a
-  // previously-pasted token in an external tool without retyping.
-  // Shows a check icon for ~1.2s on success.
-  async function copyValue() {
-    if (!props.value) return;
-    try {
-      await navigator.clipboard.writeText(props.value);
-      setJustCopied(true);
-      window.setTimeout(() => setJustCopied(false), 1200);
-    } catch {
-      /* clipboard unavailable; silent — user can still see the masked value */
-    }
-  }
-  return (
-    <div className="settingsPasswordField">
-      <input
-        type={visible ? 'text' : 'password'}
-        value={props.value}
-        onChange={(event) => props.onChange(event.currentTarget.value)}
-        placeholder={props.placeholder}
-        aria-label={props.ariaLabel}
-        autoComplete="off"
-      />
-      <div className="settingsPasswordActions">
-        {props.value && (
-          <button
-            type="button"
-            className="settingsPasswordToggle"
-            onClick={() => void copyValue()}
-            aria-label={justCopied ? '已复制' : '复制'}
-          >
-            {justCopied
-              ? <Check size={16} strokeWidth={1.75} aria-hidden="true" />
-              : <Copy size={16} strokeWidth={1.75} aria-hidden="true" />}
-          </button>
-        )}
-        <button
-          type="button"
-          className="settingsPasswordToggle"
-          onClick={() => setVisible((current) => !current)}
-          aria-label={visible ? '隐藏' : '显示'}
-          aria-pressed={visible}
-        >
-          {visible ? <EyeOff size={16} strokeWidth={1.75} aria-hidden="true" /> : <Eye size={16} strokeWidth={1.75} aria-hidden="true" />}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -2202,13 +2133,11 @@ function WebSearchSettingsPage(props: {
       <div className="settingsFormGrid">
         <label>
           <span>Tavily API key</span>
-          <input
-            type="password"
+          <PasswordInput
             value={draftKey}
-            onChange={(event) => setDraftKey(event.currentTarget.value)}
+            onChange={setDraftKey}
             placeholder={hasStoredKey ? '已保存（输入新 key 可替换）' : 'tvly-xxxxxxxx'}
-            autoComplete="off"
-            spellCheck={false}
+            ariaLabel="Tavily API key"
           />
           <small>
             存在主进程 settings 中，渲染器永远看不到明文。在 <a href="https://tavily.com" target="_blank" rel="noreferrer">tavily.com</a> 申请。
@@ -2982,7 +2911,7 @@ function NetworkSettingsPage(props: {
               </label>
               <label>
                 <span>密码</span>
-                <input type="password" value={proxy.password} onChange={(event) => updateProxy({ password: event.currentTarget.value })} />
+                <PasswordInput value={proxy.password} onChange={(next) => updateProxy({ password: next })} ariaLabel="代理密码" />
               </label>
             </div>
           )}
@@ -3114,15 +3043,15 @@ function OpenGatewaySettingsPage(props: {
         </label>
         <label>
           <span>访问 token</span>
-          <input
-            type="password"
+          <PasswordInput
             value={tokenDraft}
+            onChange={setTokenDraft}
             disabled={saving}
-            onChange={(event) => setTokenDraft(event.currentTarget.value)}
             onBlur={() => {
               if (tokenDraft !== gateway.token) void saveToken();
             }}
             placeholder="生成或输入 token"
+            ariaLabel="开放网关访问 token"
           />
         </label>
       </div>
