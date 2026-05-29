@@ -1386,6 +1386,11 @@ function registerIpc(): void {
   // back to the `apiKey` carried by the request only when present (the
   // Settings "测试" button passes a draft key so the user can validate
   // before saving). Incognito workspaces fail closed before fetch.
+  const unsupportedWebSearchProviderResponse = {
+    ok: false,
+    reason: 'unsupported_provider' as const,
+    message: '当前配置不支持这个搜索引擎，请选择 Tavily 后重试。',
+  };
   ipcMain.handle(
     'web-search:query',
     async (
@@ -1394,11 +1399,7 @@ function registerIpc(): void {
     ) => {
       const provider = request?.provider;
       if (provider !== undefined && !isWebSearchProvider(provider)) {
-        return {
-          ok: false,
-          reason: 'unsupported_provider' as const,
-          message: '该搜索引擎暂未支持。',
-        };
+        return unsupportedWebSearchProviderResponse;
       }
       const query = normalizeWebSearchQuery(request?.query);
       if (query === null) {
@@ -1432,11 +1433,7 @@ function registerIpc(): void {
     ) => {
       const provider = request?.provider;
       if (provider !== undefined && !isWebSearchProvider(provider)) {
-        return {
-          ok: false,
-          reason: 'unsupported_provider' as const,
-          message: '该搜索引擎暂未支持。',
-        };
+        return unsupportedWebSearchProviderResponse;
       }
       const settings = await settingsStore.get();
       const persistedKey = settings.webSearch.providers.tavily.apiKey;

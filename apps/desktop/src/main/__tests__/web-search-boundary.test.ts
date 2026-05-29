@@ -24,6 +24,25 @@ const RENDERER_FILES = [
 ];
 
 describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
+  it('unsupported provider copy describes the current configuration, not a roadmap gap', async () => {
+    const main = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const unsupportedBlock = main.match(/const unsupportedWebSearchProviderResponse[\s\S]*?;\n\s*ipcMain\.handle/);
+
+    assert.ok(unsupportedBlock, 'main process must centralize unsupported-provider copy');
+    assert.match(unsupportedBlock![0], /reason:\s*'unsupported_provider'/);
+    assert.match(unsupportedBlock![0], /当前配置不支持这个搜索引擎，请选择 Tavily 后重试。/);
+    assert.doesNotMatch(
+      unsupportedBlock![0],
+      /暂未|尚未|即将|coming soon|todo|roadmap/i,
+      'unsupported provider copy must not read like unfinished roadmap work',
+    );
+    assert.equal(
+      (main.match(/unsupportedWebSearchProviderResponse/g) ?? []).length,
+      3,
+      'query/test handlers must reuse the same product copy instead of drifting',
+    );
+  });
+
   it('renderer never imports the main-process Tavily client', async () => {
     for (const rel of RENDERER_FILES) {
       const src = await readFile(join(REPO_ROOT, rel), 'utf8');
