@@ -1130,7 +1130,7 @@ function AccountSettingsPage(props: {
 
       <h3 className="settingsSubheading">模型连接</h3>
       {totalCount === 0 ? (
-        <div className="settingsEmptyState">未配置任何模型连接。可在 设置 · 模型 添加。</div>
+        <div className="settingsEmptyState">等待添加模型连接。可在 设置 · 模型 添加。</div>
       ) : (
         <div className="settingsConnectionList" role="list">
           {props.connections.map((connection) => (
