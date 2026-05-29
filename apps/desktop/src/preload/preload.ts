@@ -594,5 +594,11 @@ contextBridge.exposeInMainWorld('maka', {
     > {
       return ipcRenderer.invoke('skills:createStarter');
     },
+    open(id: string, target: 'file' | 'directory' = 'file'): Promise<
+      | { ok: true; target: 'file' | 'directory' }
+      | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed' }
+    > {
+      return ipcRenderer.invoke('skills:open', id, target);
+    },
   },
 });

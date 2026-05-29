@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 
 export interface InstalledSkill {
@@ -12,6 +12,11 @@ export interface InstalledSkill {
 export type CreateStarterSkillResult =
   | { ok: true; skill: InstalledSkill; filePath: string }
   | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' };
+
+export type SkillOpenTarget = 'file' | 'directory';
+export type ResolveSkillOpenPathResult =
+  | { ok: true; path: string; target: SkillOpenTarget }
+  | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' };
 
 interface SkillDefinition extends InstalledSkill {
   content: string;
@@ -90,6 +95,41 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
   }
 
   return { ok: false, reason: 'already_exists' };
+}
+
+export async function resolveSkillOpenPath(
+  root: string,
+  id: string,
+  target: SkillOpenTarget,
+): Promise<ResolveSkillOpenPathResult> {
+  if (!isSafeSkillId(id)) return { ok: false, reason: 'invalid_id' };
+  if (target !== 'file' && target !== 'directory') return { ok: false, reason: 'missing' };
+
+  const skillsDir = join(root, 'skills');
+  let rootReal: string;
+  let skillsReal: string;
+  try {
+    [rootReal, skillsReal] = await Promise.all([realpath(root), realpath(skillsDir)]);
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
+  if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+
+  const skillDir = join(skillsDir, id);
+  const candidate = target === 'file' ? join(skillDir, 'SKILL.md') : skillDir;
+  let openedPath: string;
+  try {
+    openedPath = await realpath(candidate);
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
+  if (!isContainedPath(skillsReal, openedPath)) return { ok: false, reason: 'blocked_path' };
+
+  const openedStat = await stat(openedPath).catch(() => null);
+  if (!openedStat) return { ok: false, reason: 'missing' };
+  if (target === 'file' && !openedStat.isFile()) return { ok: false, reason: 'not_file' };
+  if (target === 'directory' && !openedStat.isDirectory()) return { ok: false, reason: 'not_directory' };
+  return { ok: true, path: openedPath, target };
 }
 
 export async function buildSkillsPromptFragment(root: string): Promise<string | undefined> {
@@ -239,6 +279,10 @@ function sanitizeAttribute(value: string): string {
 function isContainedPath(root: string, child: string): boolean {
   const rel = relative(root, child);
   return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function isSafeSkillId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(value);
 }
 
 function starterSkillTemplate(id: string): string {
