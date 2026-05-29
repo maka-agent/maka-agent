@@ -183,12 +183,18 @@ name: Existing
       const skills = await listInstalledSkills(workspaceRoot);
       assert.equal(skills.length, 3);
       assert.deepEqual(skills.map((skill) => skill.id).sort(), ['officecli-docx', 'officecli-pptx', 'officecli-xlsx']);
-      assert.ok(skills.every((skill) => skill.declaredTools.includes('Bash')));
+      assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocument')));
+      assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocumentEdit')));
+      assert.ok(skills.every((skill) => !skill.declaredTools.includes('Bash')));
 
       const docxPath = join(workspaceRoot, 'skills', 'officecli-docx', 'SKILL.md');
       const before = await readFile(docxPath, 'utf8');
-      assert.match(before, /Check `officecli --version` first/);
-      assert.match(before, /Mutating commands/);
+      assert.match(before, /Use `OfficeDocument` for read-only inspection/);
+      assert.match(before, /Use `OfficeDocumentEdit` only for supported writes/);
+      assert.doesNotMatch(before, /Check `officecli --version` first/);
+      assert.doesNotMatch(before, /officecli open/);
+      assert.doesNotMatch(before, /officecli close/);
+      assert.doesNotMatch(before, /view "\$FILE" html/);
       assert.equal((await lstat(docxPath)).mode & 0o077, 0);
 
       await writeFile(docxPath, `${before}\n\n# User edit\n`, 'utf8');

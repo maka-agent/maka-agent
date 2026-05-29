@@ -435,30 +435,32 @@ function officeCliDocxSkillTemplate(): string {
 name: OfficeCLI DOCX
 description: Use when a .docx, Word document, report, memo, proposal, letter, tracked changes, comments, header/footer, table of contents, or Word template is involved.
 allowed-tools:
-  - Bash
+  - OfficeDocument
+  - OfficeDocumentEdit
   - Read
 ---
 
 # OfficeCLI DOCX
 
-Use this skill for Word document work. It is adapted from an external OfficeCLI reference DOCX skill for Maka's permission model.
+Use this skill for Word document work. Route document inspection and edits through Maka's bounded Office document tools.
 
 ## Boundary
 
-- Check \`officecli --version\` first. If missing, tell the user Office document automation is unavailable on this machine instead of parsing .docx as plain text.
-- Prefer \`officecli help docx\` and \`officecli help docx <element>\` before guessing flags. Installed help is authoritative.
+- Use \`OfficeDocument\` for read-only inspection: \`help\`, \`view\`, \`get\`, \`query\`, and \`validate\`.
+- Use \`OfficeDocumentEdit\` only for supported writes: \`create\`, \`add\`, \`set\`, and \`remove\`. It is permission-gated and path-bound to the session cwd.
+- Do not call Bash or raw \`officecli\` directly unless the user explicitly asks for shell-level debugging and the normal permission flow allows it.
+- Prefer \`OfficeDocument\` \`help\` with \`topic: "docx"\` before guessing selectors or properties. Installed help is authoritative.
 - Quote semantic paths: \`"/body/p[1]"\`, \`"/footer[1]"\`.
-- Read-only inspection commands are safe: \`view\`, \`get\`, \`query\`, \`validate\`, \`help\`.
-- Mutating commands such as \`create\`, \`open\`, \`add\`, \`set\`, \`remove\`, \`batch\`, and \`close\` require the normal shell permission flow.
+- Unsupported paths stay unsupported: no resident \`open\`/\`close\`, \`html\` view, \`raw\`, \`watch\`, or \`batch\`.
 
 ## Workflow
 
-1. Orient with \`officecli view "$FILE" outline\`, then \`view text\` or \`get\` the needed paths.
-2. For edits, use resident mode: \`officecli open "$FILE"\`, make small incremental changes, verify each structural step with \`get\`, then \`officecli close "$FILE"\`.
+1. Orient with \`OfficeDocument\` \`view\` \`outline\`, then \`view\` \`text\` or \`get\` the needed paths.
+2. For edits, use \`OfficeDocumentEdit\` in small steps and verify each structural step with \`OfficeDocument\` \`get\` or \`view\`.
 3. For generated documents, build hierarchy first: Title, Heading 1, Heading 2, body; then tables/images/fields; then headers/footers.
 4. Use explicit typography. Body 11-12pt; H1 at least 18pt; H2 around 14pt; spacing via paragraph properties, not blank paragraphs.
-5. Add live page-number fields for documents longer than one page. Verify fields exist with \`get "$FILE" "/footer[1]" --depth 3\`.
-6. Final QA: \`officecli validate "$FILE"\` and \`officecli view "$FILE" html\`. Fix placeholder tokens, clipped tables, empty-paragraph spacing, static page numbers, and missing TOC on heading-heavy documents before reporting done.
+5. Add live page-number fields for documents longer than one page when the installed adapter supports the needed field properties. Verify fields with \`OfficeDocument\` \`get\` on \`"/footer[1]"\` at bounded depth.
+6. Final QA: \`OfficeDocument\` \`validate\` plus \`view\` \`outline\`, \`stats\`, \`issues\`, or \`annotated\`. Fix placeholder tokens, clipped tables, empty-paragraph spacing, static page numbers, and missing TOC on heading-heavy documents before reporting done.
 `;
 }
 
@@ -467,32 +469,34 @@ function officeCliXlsxSkillTemplate(): string {
 name: OfficeCLI XLSX
 description: Use when a .xlsx, Excel workbook, spreadsheet, CSV/TSV import, tracker, dashboard, financial model, formula, chart, pivot table, or worksheet template is involved.
 allowed-tools:
-  - Bash
+  - OfficeDocument
+  - OfficeDocumentEdit
   - Read
 ---
 
 # OfficeCLI XLSX
 
-Use this skill for spreadsheet work. It is adapted from an external OfficeCLI reference XLSX skill for Maka's permission model.
+Use this skill for spreadsheet work. Route workbook inspection and edits through Maka's bounded Office document tools.
 
 ## Boundary
 
-- Check \`officecli --version\` first. If missing, report that Excel automation is unavailable on this machine.
-- Prefer \`officecli help xlsx\` and \`officecli help xlsx <element>\` before guessing flags. Installed help is authoritative.
+- Use \`OfficeDocument\` for read-only inspection: \`help\`, \`view\`, \`get\`, \`query\`, and \`validate\`.
+- Use \`OfficeDocumentEdit\` only for supported writes: \`create\`, \`add\`, \`set\`, and \`remove\`. It is permission-gated and path-bound to the session cwd.
+- Do not call Bash or raw \`officecli\` directly unless the user explicitly asks for shell-level debugging and the normal permission flow allows it.
+- Prefer \`OfficeDocument\` \`help\` with \`topic: "xlsx"\` before guessing selectors or properties. Installed help is authoritative.
 - Quote paths such as \`"/Sheet1/A1"\`, \`"/Sheet1/col[B]"\`, and \`"/Sheet1/row[1]"\`.
 - Single-quote values containing \`$\`, especially number formats: \`--prop numFmt='$#,##0'\`.
-- Read-only inspection commands are safe: \`view\`, \`get\`, \`query\`, \`validate\`, \`help\`.
-- Mutating workbook commands require the normal shell permission flow.
+- Unsupported paths stay unsupported: no resident \`open\`/\`close\`, \`html\` view, \`raw\`, \`watch\`, or \`batch\`.
 
 ## Workflow
 
-1. Orient with \`officecli view "$FILE" outline\`; use \`view text\`, \`get\`, and \`query\` for targeted inspection.
+1. Orient with \`OfficeDocument\` \`view\` \`outline\`; use \`view\` \`text\`, \`get\`, and \`query\` for targeted inspection.
 2. For CSV/TSV, prefer native import, then set widths and number formats.
 3. For generated workbooks, create sheets, enter assumptions, formulas, formats, charts, then validate.
 4. Use formulas rather than hardcoded derived values. Put assumptions in cells and cite sources in adjacent notes or comments.
 5. Set readable widths explicitly; default Excel widths often render as \`###\`.
 6. Financial-model convention: blue font for hardcoded inputs, black for formulas, green for same-workbook links, red for external links, yellow fill for assumptions needing review.
-7. Final QA: \`officecli validate "$FILE"\` and \`officecli view "$FILE" html\`. Fix formula errors, \`###\`, truncated headers, hidden assumptions, placeholder tokens, and chart labels before reporting done.
+7. Final QA: \`OfficeDocument\` \`validate\` plus \`view\` \`outline\`, \`stats\`, \`issues\`, or \`annotated\`. Fix formula errors, \`###\`, truncated headers, hidden assumptions, placeholder tokens, and chart labels before reporting done.
 `;
 }
 
@@ -501,31 +505,33 @@ function officeCliPptxSkillTemplate(): string {
 name: OfficeCLI PPTX
 description: Use when a .pptx, slide deck, presentation, pitch deck, speaker notes, layout, chart, template, or slides file is involved.
 allowed-tools:
-  - Bash
+  - OfficeDocument
+  - OfficeDocumentEdit
   - Read
 ---
 
 # OfficeCLI PPTX
 
-Use this skill for presentation work. It is adapted from an external OfficeCLI reference PPTX skill for Maka's permission model.
+Use this skill for presentation work. Route deck inspection and edits through Maka's bounded Office document tools.
 
 ## Boundary
 
-- Check \`officecli --version\` first. If missing, report that slide automation is unavailable on this machine.
-- Prefer \`officecli help pptx\` and \`officecli help pptx <element>\` before guessing flags. Installed help is authoritative.
+- Use \`OfficeDocument\` for read-only inspection: \`help\`, \`view\`, \`get\`, \`query\`, and \`validate\`.
+- Use \`OfficeDocumentEdit\` only for supported writes: \`create\`, \`add\`, \`set\`, and \`remove\`. It is permission-gated and path-bound to the session cwd.
+- Do not call Bash or raw \`officecli\` directly unless the user explicitly asks for shell-level debugging and the normal permission flow allows it.
+- Prefer \`OfficeDocument\` \`help\` with \`topic: "pptx"\` before guessing selectors or properties. Installed help is authoritative.
 - Quote paths such as \`"/slide[1]"\` and \`"/slide[1]/shape[2]"\`.
 - Single-quote text containing \`$\`: \`--prop text='$15M ARR'\`.
-- Read-only inspection commands are safe: \`view\`, \`get\`, \`query\`, \`validate\`, \`help\`.
-- Mutating slide commands require the normal shell permission flow.
+- Unsupported paths stay unsupported: no resident \`open\`/\`close\`, \`html\` view, \`raw\`, \`watch\`, or \`batch\`.
 
 ## Workflow
 
-1. Orient with \`officecli view "$FILE" outline\`, \`view text\`, and targeted \`get\` calls.
+1. Orient with \`OfficeDocument\` \`view\` \`outline\`, \`view\` \`text\`, and targeted \`get\` calls.
 2. For generated decks, use one idea per slide. Dense multi-topic slides should be split.
 3. Set explicit type hierarchy: titles at least 36pt, body text at least 18pt, captions 10-12pt.
 4. Use two fonts max and one coherent palette. Every content slide should carry a non-text visual: chart, shape, icon, screenshot, or image region.
 5. Add speaker notes to content slides.
 6. Check layout math. For 16:9 slides, keep shapes inside 33.87cm x 19.05cm and maintain edge margins.
-7. Final QA: \`officecli validate "$FILE"\` and \`officecli view "$FILE" html\`. Fix placeholders, overflow, clipped text, low contrast, bullet-only slides, and missing notes before reporting done.
+7. Final QA: \`OfficeDocument\` \`validate\` plus \`view\` \`outline\`, \`stats\`, \`issues\`, or \`annotated\`. Fix placeholders, overflow, clipped text, low contrast, bullet-only slides, and missing notes before reporting done.
 `;
 }
