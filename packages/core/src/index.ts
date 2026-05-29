@@ -568,6 +568,7 @@ export {
   BOT_DELIVERY_PROVIDERS,
   BOT_PROVIDERS,
   DEFAULT_PROXY_BYPASS_DOMAINS,
+  MAX_ALLOWED_USER_IDS,
   THEME_PALETTES,
   TOAST_POSITIONS,
   createDefaultBotChannel,
@@ -577,7 +578,9 @@ export {
   isThemePalette,
   isToastPosition,
   mergeSettings,
+  normalizeAllowedUserIds,
   normalizeSettings,
+  parseAllowedUserIdsFromText,
 } from './settings.js';
 export type { BotDeliveryProvider } from './settings.js';
 

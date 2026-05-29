@@ -764,4 +764,45 @@ describe('open gateway settings contract', () => {
 
     expect(normalized.botChat.channels.telegram.allowedUserIds).toBeUndefined();
   });
+
+  // PR-BOT-USER-ALLOWLIST-UI-0 — mergeSettings normalize gate. The
+  // renderer textarea-bound field hands us a dirty array on every save;
+  // the IPC merge layer must trim/dedup/cap so the persisted shape
+  // matches what `normalizeSettings` would have produced on cold load.
+  test('mergeSettings trims and dedups when the patch explicitly sets allowedUserIds', () => {
+    const updated = mergeSettings(createDefaultSettings(), {
+      botChat: {
+        channels: {
+          telegram: { allowedUserIds: ['  123  ', '456', '123', ''] as unknown as string[] },
+        },
+      },
+    });
+
+    expect(updated.botChat.channels.telegram.allowedUserIds).toEqual(['123', '456']);
+  });
+
+  test('mergeSettings downgrades an all-blank patch to undefined (no restriction)', () => {
+    const seeded = mergeSettings(createDefaultSettings(), {
+      botChat: { channels: { telegram: { allowedUserIds: ['123'] } } },
+    });
+    expect(seeded.botChat.channels.telegram.allowedUserIds).toEqual(['123']);
+
+    const cleared = mergeSettings(seeded, {
+      botChat: { channels: { telegram: { allowedUserIds: ['', '  '] as string[] } } },
+    });
+
+    expect(cleared.botChat.channels.telegram.allowedUserIds).toBeUndefined();
+  });
+
+  test('mergeSettings leaves the allowlist untouched when an unrelated field is patched', () => {
+    const seeded = mergeSettings(createDefaultSettings(), {
+      botChat: { channels: { telegram: { allowedUserIds: ['123', '456'] } } },
+    });
+
+    const tokenPatched = mergeSettings(seeded, {
+      botChat: { channels: { telegram: { token: 'tg-token', enabled: true } } },
+    });
+
+    expect(tokenPatched.botChat.channels.telegram.allowedUserIds).toEqual(['123', '456']);
+  });
 });

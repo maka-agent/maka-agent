@@ -64,7 +64,7 @@ import {
   validateVoiceCaptureRequest,
   webSearchCredentialStatusFromResponse,
 } from '@maka/core';
-import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
+import { BOT_PROVIDERS, MAX_ALLOWED_USER_IDS, createDefaultSettings, parseAllowedUserIdsFromText } from '@maka/core/settings';
 import { RelativeTime, redactSecrets, useModalA11y, useToast } from '@maka/ui';
 import { normalizeSearchUrl } from '@maka/core';
 import { ProvidersPanel } from './ProvidersPanel';
@@ -2973,6 +2973,10 @@ function BotChatSettingsPage(props: {
               <span>代理地址</span>
               <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" />
             </label>
+            <BotAllowedUserIdsField
+              value={channel.allowedUserIds}
+              onChange={(next) => updateChannel({ allowedUserIds: next })}
+            />
             <div className="settingsNotice">
               Telegram 国内网络通常需要代理。保存并测试凭据后，打开开关并重启监听；用户向机器人发消息后，Maka 会创建对话并自动回复。
             </div>
@@ -3068,6 +3072,65 @@ function BotChatSettingsPage(props: {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * PR-BOT-USER-ALLOWLIST-UI-0 — textarea bound to
+ * `BotChannelSettings.allowedUserIds`. Empty / blank lines are stripped;
+ * duplicates are dedup'd; entries are trimmed; the list is capped at
+ * `MAX_ALLOWED_USER_IDS`. Empty array is forwarded as `undefined` so the
+ * settings persist layer sees the "no restriction" default sentinel.
+ *
+ * Local-only buffer state: the user can type a value mid-edit (e.g.
+ * `1234567`) without the in-progress short ID being dropped by the
+ * parse function. We only emit the parsed array on commit (onBlur).
+ */
+function BotAllowedUserIdsField(props: {
+  value: ReadonlyArray<string> | undefined;
+  onChange(next: ReadonlyArray<string> | undefined): void;
+}): ReactNode {
+  const persisted = props.value ?? [];
+  const [buffer, setBuffer] = useState<string>(persisted.join('\n'));
+
+  // Reset the buffer when the persisted value changes from outside
+  // (e.g. settings reload). Compare by join so identity differences
+  // do not cause noisy resets.
+  useEffect(() => {
+    const next = persisted.join('\n');
+    if (next !== buffer) {
+      setBuffer(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persisted.join('\n')]);
+
+  const parsed = useMemo(() => parseAllowedUserIdsFromText(buffer), [buffer]);
+  const atCap = parsed.length >= MAX_ALLOWED_USER_IDS;
+
+  const commit = (): void => {
+    const next = parsed.length === 0 ? undefined : parsed;
+    const same =
+      (next?.length ?? 0) === persisted.length &&
+      (next ?? []).every((id, idx) => id === persisted[idx]);
+    if (!same) props.onChange(next);
+  };
+
+  return (
+    <label className="settingsField">
+      <span>允许的用户 ID（{parsed.length} / {MAX_ALLOWED_USER_IDS}）</span>
+      <textarea
+        value={buffer}
+        onChange={(event) => setBuffer(event.currentTarget.value)}
+        onBlur={commit}
+        rows={3}
+        spellCheck={false}
+        placeholder={'每行一个用户 ID，留空表示不限\n例如：123456789'}
+      />
+      <small>
+        Telegram 用户 ID 是 64 位整数；填入后只接收列表里这些 ID 的来信，其它人发的消息会被静默忽略（不会回弹任何提示）。
+        {atCap && <strong>（已达到上限）</strong>}
+      </small>
+    </label>
   );
 }
 
