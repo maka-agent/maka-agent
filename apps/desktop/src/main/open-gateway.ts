@@ -225,6 +225,10 @@ export class OpenGatewayService {
             endpoint: '/v1/sessions/{sessionId}/events/state',
             includesPayloads: false,
           },
+          globalState: {
+            endpoint: '/v1/events/state',
+            includesPayloads: false,
+          },
         },
         incidents: {
           endpoint: '/v1/incidents',
@@ -275,6 +279,14 @@ export class OpenGatewayService {
         return;
       }
       writeJson(res, 200, { ok: true, incidents: buildGatewayIncidentIndex(this.recentEvents) });
+      return;
+    }
+    if (url.pathname === '/v1/events/state') {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(res, 200, { ok: true, state: this.buildGlobalEventState() });
       return;
     }
     if (url.pathname === '/v1/sessions/state') {
@@ -498,6 +510,32 @@ export class OpenGatewayService {
         : {}),
     };
   }
+
+  private buildGlobalEventState(): GatewayGlobalEventState {
+    let bufferedEvents = 0;
+    let oldestEvent: GatewayGlobalReplayEventSummary | undefined;
+    let newestEvent: GatewayGlobalReplayEventSummary | undefined;
+    for (const [sessionId, events] of this.recentEvents) {
+      bufferedEvents += events.length;
+      for (const event of events) {
+        const summary: GatewayGlobalReplayEventSummary = {
+          sessionId: capReplayCursor(redactSecrets(sessionId)),
+          ...summarizeReplayEvent(event),
+        };
+        if (!oldestEvent || (summary.ts ?? 0) < (oldestEvent.ts ?? 0)) oldestEvent = summary;
+        if (!newestEvent || (summary.ts ?? 0) >= (newestEvent.ts ?? 0)) newestEvent = summary;
+      }
+    }
+    return {
+      replayLimitPerSession: OPEN_GATEWAY_EVENT_REPLAY_LIMIT,
+      bufferedEvents,
+      bufferedSessionCount: [...this.recentEvents.values()].filter((events) => events.length > 0).length,
+      activeStreams: this.countEventClients(),
+      includesPayloads: false,
+      ...(oldestEvent ? { oldestEvent } : {}),
+      ...(newestEvent ? { newestEvent } : {}),
+    };
+  }
 }
 
 function writeJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -565,6 +603,7 @@ interface GatewayIncidentIndexState {
 
 function buildGatewayCapabilities(sendAvailable: boolean): string[] {
   return [
+    'events.state',
     'gateway.openapi',
     'gateway.state',
     'incidents.list',
@@ -684,6 +723,12 @@ function buildGatewayOpenApiSpec(sendAvailable: boolean): Record<string, unknown
           summary: 'Event replay state',
           parameters: [pathParam('sessionId', 'Session id')],
           responses: jsonResponses('Replay buffer and active stream state without event payloads.'),
+        },
+      },
+      '/v1/events/state': {
+        get: {
+          summary: 'Global event aggregate state',
+          responses: jsonResponses('Aggregate replay buffer and active stream state across sessions without event payloads.'),
         },
       },
       '/v1/sessions/{sessionId}/incidents': {
@@ -985,6 +1030,18 @@ interface GatewayReplayState {
   oldestEvent?: GatewayReplayEventSummary;
   newestEvent?: GatewayReplayEventSummary;
 }
+
+interface GatewayGlobalEventState {
+  replayLimitPerSession: number;
+  bufferedEvents: number;
+  bufferedSessionCount: number;
+  activeStreams: number;
+  includesPayloads: false;
+  oldestEvent?: GatewayGlobalReplayEventSummary;
+  newestEvent?: GatewayGlobalReplayEventSummary;
+}
+
+type GatewayGlobalReplayEventSummary = GatewayReplayEventSummary & { sessionId: string };
 
 interface GatewayReplayEventSummary {
   id: string;

@@ -45,6 +45,7 @@ describe('OpenGatewayService', () => {
     const authorized = await fetchJson(`${status.baseUrl}/v1/capabilities`, 'dev-token');
     assert.equal(authorized.status, 200);
     assert.deepEqual(authorized.body.capabilities, [
+      'events.state',
       'gateway.openapi',
       'gateway.state',
       'incidents.list',
@@ -104,6 +105,10 @@ describe('OpenGatewayService', () => {
         endpoint: '/v1/sessions/{sessionId}/events/state',
         includesPayloads: false,
       },
+      globalState: {
+        endpoint: '/v1/events/state',
+        includesPayloads: false,
+      },
     });
     assert.deepEqual(authorized.body.incidents, {
       endpoint: '/v1/incidents',
@@ -131,6 +136,7 @@ describe('OpenGatewayService', () => {
     assert.deepEqual(authorized.body.security, [{ bearerAuth: [] }]);
     assert.equal(authorized.body.components.securitySchemes.bearerAuth.scheme, 'bearer');
     assert.ok(authorized.body.paths['/v1/state'].get);
+    assert.ok(authorized.body.paths['/v1/events/state'].get);
     assert.ok(authorized.body.paths['/v1/sessions/{sessionId}/events'].get);
     assert.ok(authorized.body.paths['/v1/sessions/{sessionId}/messages'].post);
     assert.doesNotMatch(JSON.stringify(authorized.body), /dev-token|hello gateway|sk-live/);
@@ -485,6 +491,52 @@ describe('OpenGatewayService', () => {
       newestEvent: {
         id: 'Authorization: Bearer [redacted]',
         type: 'text_delta',
+        turnId: 'turn-2',
+        ts: 1_700_000_000_000,
+      },
+    });
+    assert.doesNotMatch(JSON.stringify(response.body), /payload must not leak/);
+    assert.doesNotMatch(JSON.stringify(response.body), /sk-live-secret-token-value/);
+  });
+
+  test('exposes global event state across sessions without event payloads', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s1', textDeltaEvent({
+      id: 'event-s1',
+      turnId: 'turn-1',
+      text: 'global payload must not leak',
+    }));
+    service.publishSessionEvent('s2', errorEvent({
+      id: 'Authorization: Bearer sk-live-secret-token-value',
+      turnId: 'turn-2',
+      message: 'global failure payload must not leak',
+      reason: 'provider_error',
+    }));
+
+    const response = await fetchJson(`${status.baseUrl}/v1/events/state`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.deepEqual(response.body.state, {
+      replayLimitPerSession: 100,
+      bufferedEvents: 2,
+      bufferedSessionCount: 2,
+      activeStreams: 0,
+      includesPayloads: false,
+      oldestEvent: {
+        sessionId: 's1',
+        id: 'event-s1',
+        type: 'text_delta',
+        turnId: 'turn-1',
+        ts: 1_700_000_000_000,
+      },
+      newestEvent: {
+        sessionId: 's2',
+        id: 'Authorization: Bearer [redacted]',
+        type: 'error',
         turnId: 'turn-2',
         ts: 1_700_000_000_000,
       },
