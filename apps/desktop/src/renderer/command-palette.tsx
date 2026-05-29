@@ -86,6 +86,7 @@ export function buildCommandList(args: {
   onTestConnection?(slug: string): Promise<void> | void;
   onSetDefaultConnection?(slug: string): Promise<void> | void;
   onOpenWorkspace?(): Promise<void> | void;
+  onOpenProjectFolder?(): Promise<void> | void;
   onOpenSkillsFolder?(): Promise<void> | void;
   /** Copy the active conversation as Markdown to the clipboard. */
   onExportActiveConversation?(): Promise<void> | void;
@@ -310,6 +311,18 @@ export function buildCommandList(args: {
       Icon: FolderOpen,
       keywords: ['workspace', 'folder', 'open', 'finder', '工作区', '文件夹', '目录'],
       run: () => void args.onOpenWorkspace!(),
+    });
+  }
+  if (args.onOpenProjectFolder) {
+    cmds.push({
+      id: 'diag:open-project-folder',
+      kind: 'action',
+      label: '打开项目目录',
+      hint: 'Finder',
+      group: '诊断',
+      Icon: FolderOpen,
+      keywords: ['project', 'folder', 'open', 'finder', '项目', '目录', '文件夹'],
+      run: () => void args.onOpenProjectFolder!(),
     });
   }
   if (args.onOpenSkillsFolder) {

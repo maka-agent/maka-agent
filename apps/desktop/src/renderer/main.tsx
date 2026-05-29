@@ -2203,6 +2203,7 @@ function AppShell(props: {
                 toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
               }
             },
+            onOpenProjectFolder: () => openProjectFolder(),
             onOpenSkillsFolder: () => openSkillsFolder(),
             onSelectModule: (selection) => {
               setNavSelection(selection);

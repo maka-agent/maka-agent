@@ -46,4 +46,15 @@ describe('project context badge', () => {
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
     assert.match(renderer, /basenameFromPath\(appInfo\.projectPath\)/);
   });
+
+  it('adds a command palette action for the same guarded project open path', async () => {
+    const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+
+    assert.match(palette, /onOpenProjectFolder\?\(\): Promise<void> \| void/);
+    assert.match(palette, /id:\s*'diag:open-project-folder'/);
+    assert.match(palette, /label:\s*'打开项目目录'/);
+    assert.match(renderer, /onOpenProjectFolder:\s*\(\) => openProjectFolder\(\)/);
+    assert.doesNotMatch(palette, /openPath\('project'\)/);
+  });
 });
