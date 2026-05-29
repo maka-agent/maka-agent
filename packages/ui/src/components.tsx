@@ -2924,8 +2924,8 @@ export function ChatView(props: {
         ) : (
           <EmptyState
             Icon={CalendarDays}
-            title="每日回顾未连接"
-            body="桌面端数据桥暂不可用。"
+            title="等待连接每日回顾数据"
+            body="桌面端数据桥当前未连接。"
           />
         )}
       </main>

@@ -56,9 +56,9 @@ describe('sidebar version info contract', () => {
     const ui = await readRepo('packages/ui/src/components.tsx');
     const dailyReviewModeBlock = ui.match(/if \(props\.mode === 'daily-review'\) \{[\s\S]*?^\s*\}/m)?.[0] ?? '';
 
-    assert.match(dailyReviewModeBlock, /每日回顾未连接/);
-    assert.doesNotMatch(dailyReviewModeBlock, /即将推出|入口占位|未接真实数据/);
-    assert.match(dailyReviewModeBlock, /桌面端数据桥暂不可用/, 'Daily Review main-pane fallback must explain the missing bridge');
+    assert.match(dailyReviewModeBlock, /等待连接每日回顾数据/);
+    assert.match(dailyReviewModeBlock, /桌面端数据桥当前未连接/, 'Daily Review main-pane fallback must explain the missing bridge as a current connection state');
+    assert.doesNotMatch(dailyReviewModeBlock, /每日回顾未连接|暂不可用|即将推出|入口占位|未接真实数据/);
     assert.doesNotMatch(ui, /占位内容/, 'Daily Review fallback must not describe itself as placeholder content');
   });
 });
