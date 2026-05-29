@@ -45,6 +45,7 @@ describe('OpenGatewayService', () => {
     const authorized = await fetchJson(`${status.baseUrl}/v1/capabilities`, 'dev-token');
     assert.equal(authorized.status, 200);
     assert.deepEqual(authorized.body.capabilities, [
+      'gateway.state',
       'incidents.list',
       'incidents.state',
       'sessions.list',
@@ -60,6 +61,13 @@ describe('OpenGatewayService', () => {
       'sessions.incidents.read',
       'search.thread',
     ]);
+    assert.deepEqual(authorized.body.gateway, {
+      state: {
+        endpoint: '/v1/state',
+        includesPayloads: false,
+        includesPreviews: false,
+      },
+    });
     assert.deepEqual(authorized.body.sessions, {
       state: {
         endpoint: '/v1/sessions/state',
@@ -103,6 +111,45 @@ describe('OpenGatewayService', () => {
       limit: 50,
       includesPayloads: false,
     });
+  });
+
+  test('exposes a token-protected overview state for external dashboards', async () => {
+    const sessions = [
+      session({ id: 's1', status: 'running', hasUnread: true, lastMessageAt: 20 }),
+      session({ id: 's2', status: 'blocked', isArchived: true, lastMessageAt: 10 }),
+    ];
+    const service = makeService({
+      listSessions: async () => sessions,
+    });
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    service.publishSessionEvent('s2', errorEvent({
+      id: 'event-error-overview',
+      turnId: 'turn-s2',
+      message: 'overview failure with Authorization: Bearer sk-live-secret-token-value',
+    }));
+
+    const response = await fetchJson(`${status.baseUrl}/v1/state`, 'dev-token');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.state.generatedAt, 1_700_000_000_000);
+    assert.equal(response.body.state.includesPayloads, false);
+    assert.equal(response.body.state.includesPreviews, false);
+    assert.equal(response.body.state.gateway.running, true);
+    assert.ok(response.body.state.capabilities.includes('gateway.state'));
+    assert.equal(response.body.state.sessions.sessionCount, 2);
+    assert.equal(response.body.state.sessions.archivedCount, 1);
+    assert.equal(response.body.state.sessions.unreadCount, 1);
+    assert.equal(response.body.state.sessions.incidentSessionCount, 1);
+    assert.equal(response.body.state.incidents.incidentCount, 1);
+    assert.equal(response.body.state.incidents.newestIncident.sessionId, 's2');
+    assert.doesNotMatch(JSON.stringify(response.body), /sk-live-secret-token-value/);
+    assert.doesNotMatch(JSON.stringify(response.body), /Alpha|Beta|lastMessagePreview/);
+
+    const unauthorized = await fetchJson(`${status.baseUrl}/v1/state`);
+    assert.equal(unauthorized.status, 401);
   });
 
   test('exposes local sessions, messages, and thread search read APIs', async () => {

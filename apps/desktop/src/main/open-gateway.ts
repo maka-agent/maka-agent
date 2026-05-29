@@ -183,6 +183,13 @@ export class OpenGatewayService {
       writeJson(res, 200, {
         ok: true,
         capabilities: buildGatewayCapabilities(Boolean(this.deps.sendMessage)),
+        gateway: {
+          state: {
+            endpoint: '/v1/state',
+            includesPayloads: false,
+            includesPreviews: false,
+          },
+        },
         sessions: {
           state: {
             endpoint: '/v1/sessions/state',
@@ -226,6 +233,23 @@ export class OpenGatewayService {
           limit: OPEN_GATEWAY_INCIDENT_AGGREGATE_LIMIT,
           includesPayloads: false,
         },
+      });
+      return;
+    }
+    if (url.pathname === '/v1/state') {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(res, 200, {
+        ok: true,
+        state: buildGatewayOverviewState({
+          gateway: this.getStatus(),
+          sessions: await this.deps.listSessions(),
+          recentEvents: this.recentEvents,
+          sendAvailable: Boolean(this.deps.sendMessage),
+          generatedAt: this.now(),
+        }),
       });
       return;
     }
@@ -533,6 +557,7 @@ interface GatewayIncidentIndexState {
 
 function buildGatewayCapabilities(sendAvailable: boolean): string[] {
   return [
+    'gateway.state',
     'incidents.list',
     'incidents.state',
     'sessions.list',
@@ -548,6 +573,34 @@ function buildGatewayCapabilities(sendAvailable: boolean): string[] {
     'sessions.incidents.read',
     'search.thread',
   ];
+}
+
+interface GatewayOverviewState {
+  generatedAt: number;
+  includesPayloads: false;
+  includesPreviews: false;
+  gateway: OpenGatewayStatus;
+  capabilities: string[];
+  sessions: GatewaySessionsState;
+  incidents: GatewayIncidentIndexState;
+}
+
+function buildGatewayOverviewState(input: {
+  gateway: OpenGatewayStatus;
+  sessions: SessionSummary[];
+  recentEvents: ReadonlyMap<string, readonly SessionEvent[]>;
+  sendAvailable: boolean;
+  generatedAt: number;
+}): GatewayOverviewState {
+  return {
+    generatedAt: input.generatedAt,
+    includesPayloads: false,
+    includesPreviews: false,
+    gateway: input.gateway,
+    capabilities: buildGatewayCapabilities(input.sendAvailable),
+    sessions: buildGatewaySessionsState(input.sessions, input.recentEvents),
+    incidents: buildGatewayIncidentIndexState(input.recentEvents),
+  };
 }
 
 interface GatewaySessionsState {
