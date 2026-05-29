@@ -588,5 +588,11 @@ contextBridge.exposeInMainWorld('maka', {
     list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>> {
       return ipcRenderer.invoke('skills:list');
     },
+    createStarter(): Promise<
+      | { ok: true; skill: { id: string; name: string; description: string; path: string; declaredTools: string[] }; filePath: string }
+      | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:createStarter');
+    },
   },
 });

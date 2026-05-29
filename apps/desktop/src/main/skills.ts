@@ -1,5 +1,5 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, relative } from 'node:path';
 
 export interface InstalledSkill {
   id: string;
@@ -8,6 +8,10 @@ export interface InstalledSkill {
   path: string;
   declaredTools: string[];
 }
+
+export type CreateStarterSkillResult =
+  | { ok: true; skill: InstalledSkill; filePath: string }
+  | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' };
 
 interface SkillDefinition extends InstalledSkill {
   content: string;
@@ -29,6 +33,63 @@ export const MAX_SKILLS_PROMPT_CHARS = 18000;
 export async function listInstalledSkills(root: string): Promise<InstalledSkill[]> {
   const definitions = await readInstalledSkillDefinitions(root);
   return definitions.map(({ content: _content, ...skill }) => skill);
+}
+
+export async function createStarterSkill(root: string): Promise<CreateStarterSkillResult> {
+  const skillsDir = join(root, 'skills');
+  try {
+    await mkdir(skillsDir, { recursive: true, mode: 0o700 });
+    const skillsStat = await lstat(skillsDir);
+    if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) {
+      return { ok: false, reason: 'blocked_path' };
+    }
+  } catch {
+    return { ok: false, reason: 'write_failed' };
+  }
+
+  let skillsReal: string;
+  try {
+    skillsReal = await realpath(skillsDir);
+  } catch {
+    return { ok: false, reason: 'blocked_path' };
+  }
+
+  for (let index = 1; index <= 99; index += 1) {
+    const id = index === 1 ? 'starter-skill' : `starter-skill-${index}`;
+    const skillDir = join(skillsDir, id);
+    try {
+      await mkdir(skillDir, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      return { ok: false, reason: 'write_failed' };
+    }
+
+    try {
+      const skillReal = await realpath(skillDir);
+      if (!isContainedPath(skillsReal, skillReal)) {
+        return { ok: false, reason: 'blocked_path' };
+      }
+
+      const filePath = join(skillDir, 'SKILL.md');
+      await writeFile(filePath, starterSkillTemplate(id), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      return {
+        ok: true,
+        filePath,
+        skill: {
+          id,
+          name: '示例技能',
+          description: '把常用工作流写成可复用的本地指令。',
+          path: skillDir,
+          declaredTools: ['Read'],
+        },
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      return { ok: false, reason: 'write_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'already_exists' };
 }
 
 export async function buildSkillsPromptFragment(root: string): Promise<string | undefined> {
@@ -173,4 +234,35 @@ function truncateCodepoints(text: string, max: number): string {
 
 function sanitizeAttribute(value: string): string {
   return cleanPromptText(value).replace(/[<>"&]/g, '_');
+}
+
+function isContainedPath(root: string, child: string): boolean {
+  const rel = relative(root, child);
+  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function starterSkillTemplate(id: string): string {
+  return `---
+name: 示例技能
+description: 把常用工作流写成可复用的本地指令。
+allowed-tools:
+  - Read
+---
+
+# 示例技能
+
+当用户要求你按固定流程完成某类任务时，先加载这个技能。
+
+## 使用方式
+
+1. 先确认用户的目标、输入材料和交付格式。
+2. 阅读必要的本地文件或上下文，只收集完成任务需要的信息。
+3. 按步骤输出结果；如果需要改文件，先说明要改哪里和原因。
+
+## 边界
+
+- 这个技能声明的工具只是需求提示，不会自动获得权限。
+- 不要把敏感内容写进这里；它会作为本地技能指令进入模型上下文。
+- 如果这个模板不适合你的工作流，可以直接改名或删除 ${id}。
+`;
 }

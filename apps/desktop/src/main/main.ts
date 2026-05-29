@@ -134,7 +134,7 @@ import { connectionTestStatusPatch } from './connection-test-status.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
-import { buildSkillsPromptFragment, listInstalledSkills } from './skills.js';
+import { buildSkillsPromptFragment, createStarterSkill, listInstalledSkills } from './skills.js';
 import {
   buildWorkspaceInstructionsPromptFragment,
   createWorkspaceInstructionFile,
@@ -1116,6 +1116,7 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle('skills:list', async () => listInstalledSkills(workspaceRoot));
+  ipcMain.handle('skills:createStarter', async () => createStarterSkill(workspaceRoot));
   ipcMain.handle('plans:list', () => planReminderStore.list());
   ipcMain.handle('plans:create', async (_event, input: unknown) => {
     const privacy = defaultWorkspacePrivacyContext();

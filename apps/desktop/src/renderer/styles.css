@@ -1965,8 +1965,15 @@ button:active {
   color: var(--foreground-70);
 }
 
-.maka-empty-state-cta {
+.maka-empty-state-actions {
   margin-top: 6px;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.maka-empty-state-cta {
+  min-width: 104px;
 }
 
 .maka-plan-panel {

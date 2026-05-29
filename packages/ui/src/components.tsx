@@ -275,6 +275,7 @@ export function SessionListPanel(props: {
   };
   skills?: SkillEntry[];
   onRefreshSkills?(): void;
+  onCreateSkillTemplate?(): void;
   planReminders?: PlanReminder[];
   /**
    * Per-session-id boolean flag: true when the session has a live streaming
@@ -594,7 +595,8 @@ export function SessionListPanel(props: {
                   工作区路径在 设置 · 关于 · 工作区。
                 </>
               }
-              cta={props.onRefreshSkills ? { label: '刷新技能', onClick: props.onRefreshSkills } : undefined}
+              cta={props.onCreateSkillTemplate ? { label: '创建示例技能', onClick: props.onCreateSkillTemplate } : undefined}
+              secondaryCta={props.onRefreshSkills ? { label: '刷新技能', onClick: props.onRefreshSkills } : undefined}
             />
           )
         ) : props.selection.section === 'automations' ? (
@@ -741,6 +743,7 @@ export interface EmptyStateProps {
   title: string;
   body: ReactNode;
   cta?: { label: string; onClick: () => void };
+  secondaryCta?: { label: string; onClick: () => void };
   /** Optional extra class on the container (e.g. `maka-plan-empty`). */
   extraClassName?: string;
   /** Optional `data-stub-view` passthrough for visual-smoke selectors. */
@@ -756,14 +759,28 @@ export function EmptyState(props: EmptyStateProps) {
       <props.Icon className="maka-empty-state-icon" strokeWidth={1.5} />
       <div className="maka-empty-state-title">{props.title}</div>
       <div className="maka-empty-state-body">{props.body}</div>
-      {props.cta && (
-        <button
-          className="maka-button maka-empty-state-cta"
-          type="button"
-          onClick={props.cta.onClick}
-        >
-          {props.cta.label}
-        </button>
+      {(props.cta || props.secondaryCta) && (
+        <div className="maka-empty-state-actions">
+          {props.cta && (
+            <button
+              className="maka-button maka-empty-state-cta"
+              type="button"
+              onClick={props.cta.onClick}
+            >
+              {props.cta.label}
+            </button>
+          )}
+          {props.secondaryCta && (
+            <button
+              className="maka-button maka-empty-state-cta"
+              data-variant="ghost"
+              type="button"
+              onClick={props.secondaryCta.onClick}
+            >
+              {props.secondaryCta.label}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

@@ -1196,6 +1196,16 @@ function AppShell(props: {
     setSkills(next);
   }
 
+  async function createSkillTemplate() {
+    const result = await window.maka.skills.createStarter();
+    if (!result.ok) {
+      toastApi.error('无法创建示例技能', createSkillFailureCopy(result.reason));
+      return;
+    }
+    await refreshSkills();
+    toastApi.success('已创建示例技能', `${result.skill.id}/SKILL.md 已放到工作区 skills 目录。`);
+  }
+
   async function openSkillsFolder() {
     const result = await window.maka.app.openPath('skills');
     if (!result.ok) {
@@ -1208,6 +1218,12 @@ function AppShell(props: {
     if (!result.ok) {
       toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathFailureCopy(result.reason));
     }
+  }
+
+  function createSkillFailureCopy(reason: 'blocked_path' | 'already_exists' | 'write_failed'): string {
+    if (reason === 'blocked_path') return 'skills 目录不是普通工作区目录，已阻止写入。';
+    if (reason === 'already_exists') return '示例技能编号已占满，请先整理 skills 目录。';
+    return '写入 skills 目录失败，请检查工作区权限。';
   }
 
   async function send(text: string): Promise<boolean> {
@@ -1931,6 +1947,7 @@ function AppShell(props: {
             }
             skills={skills}
             onRefreshSkills={() => void refreshSkills()}
+            onCreateSkillTemplate={() => void createSkillTemplate()}
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
