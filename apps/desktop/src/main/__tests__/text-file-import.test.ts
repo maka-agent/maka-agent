@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { appendPromptContextDraft } from '@maka/ui';
 import {
   MAX_IMPORTED_TEXT_FILE_BYTES,
   MAX_IMPORTED_TEXT_FILE_CHARS,
@@ -18,6 +19,14 @@ import {
 } from '../text-file-import.js';
 
 describe('text file context import', () => {
+  it('appends imported context without replacing an existing draft', () => {
+    assert.equal(appendPromptContextDraft('', '<local-text-file />'), '<local-text-file />');
+    assert.equal(
+      appendPromptContextDraft('先总结风险。  \n', '<local-folder-outline />'),
+      '先总结风险。\n\n<local-folder-outline />',
+    );
+  });
+
   it('formats a selected text file into a prompt fragment', async () => {
     await withTempDir(async (root) => {
       const filePath = join(root, 'notes.md');
@@ -112,12 +121,14 @@ describe('text file context import', () => {
 
     assert.match(mainSource, /onImportTextFile=\{importTextFilePrompt\}/);
     assert.match(mainSource, /onImportTextFile=\{importTextFileIntoComposer\}/);
+    assert.match(mainSource, /composerRef\.current\?\.appendText\(prompt\)/);
     assert.match(mainProcessSource, /properties: \['openFile', 'multiSelections'\]/);
     assert.match(mainSource, /onImportFolderOutline=\{importFolderOutlinePrompt\}/);
     assert.match(mainSource, /onImportFolderOutline=\{importFolderOutlineIntoComposer\}/);
     assert.match(mainProcessSource, /properties: \['openDirectory', 'multiSelections'\]/);
     assert.match(onboardingSource, /导入文本文件/);
     assert.match(onboardingSource, /导入文件夹目录/);
+    assert.match(onboardingSource, /appendPromptContextDraft\(current, prompt\)/);
     assert.match(uiSource, /aria-label="导入文本文件"/);
     assert.match(uiSource, /aria-label="导入文件夹目录"/);
   });

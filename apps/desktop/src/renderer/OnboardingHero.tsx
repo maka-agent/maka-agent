@@ -22,7 +22,7 @@
 import { ArrowRight, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip } from 'lucide-react';
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
 import type { LlmConnection, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
-import { detectUiLocale, type UiLocale } from '@maka/ui';
+import { appendPromptContextDraft, detectUiLocale, type UiLocale } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './settings/ProvidersPanel';
 import { FIRST_RUN_TASK_SUGGESTIONS } from './first-run-task-suggestions';
 
@@ -430,13 +430,17 @@ function ReadyEmptyHero(props: {
     if (!props.onImportTextFile || props.quickChatPending) return;
     const prompt = await props.onImportTextFile();
     if (!prompt) return;
-    setDraft(prompt);
+    let nextDraft = prompt;
+    setDraft((current) => {
+      nextDraft = appendPromptContextDraft(current, prompt);
+      return nextDraft;
+    });
     setDraftMode(undefined);
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
       input.focus();
-      input.setSelectionRange(prompt.length, prompt.length);
+      input.setSelectionRange(nextDraft.length, nextDraft.length);
     });
   }, [props]);
 
@@ -444,13 +448,17 @@ function ReadyEmptyHero(props: {
     if (!props.onImportFolderOutline || props.quickChatPending) return;
     const prompt = await props.onImportFolderOutline();
     if (!prompt) return;
-    setDraft(prompt);
+    let nextDraft = prompt;
+    setDraft((current) => {
+      nextDraft = appendPromptContextDraft(current, prompt);
+      return nextDraft;
+    });
     setDraftMode(undefined);
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
       input.focus();
-      input.setSelectionRange(prompt.length, prompt.length);
+      input.setSelectionRange(nextDraft.length, nextDraft.length);
     });
   }, [props]);
 

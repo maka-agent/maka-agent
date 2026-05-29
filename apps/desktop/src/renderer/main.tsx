@@ -1217,7 +1217,7 @@ function AppShell(props: {
   async function importTextFileIntoComposer() {
     const prompt = await importTextFilePrompt();
     if (!prompt) return;
-    composerRef.current?.setText(prompt);
+    composerRef.current?.appendText(prompt);
   }
 
   async function importFolderOutlinePrompt(): Promise<string | undefined> {
@@ -1233,7 +1233,7 @@ function AppShell(props: {
   async function importFolderOutlineIntoComposer() {
     const prompt = await importFolderOutlinePrompt();
     if (!prompt) return;
-    composerRef.current?.setText(prompt);
+    composerRef.current?.appendText(prompt);
   }
 
   async function stop() {

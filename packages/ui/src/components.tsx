@@ -4194,8 +4194,18 @@ const COMPOSER_BUTTON_COPY_BY_LOCALE: Record<UiLocale, { sendLabel: string; stop
 export interface ComposerHandle {
   /** Replace the textarea value and resize, leaving focus on the input. */
   setText(text: string): void;
+  /** Append imported context after the existing draft instead of replacing it. */
+  appendText(text: string): void;
   /** Move focus to the textarea without changing its content. */
   focus(): void;
+}
+
+export function appendPromptContextDraft(current: string, fragment: string): string {
+  const base = current.trimEnd();
+  const next = fragment.trim();
+  if (!base) return next;
+  if (!next) return base;
+  return `${base}\n\n${next}`;
 }
 
 export const Composer = forwardRef<
@@ -4247,6 +4257,15 @@ export const Composer = forwardRef<
         autoResize();
         el.focus();
         // Move caret to end so the user can keep typing.
+        const length = el.value.length;
+        el.setSelectionRange(length, length);
+      },
+      appendText(text: string) {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.value = appendPromptContextDraft(el.value, text);
+        autoResize();
+        el.focus();
         const length = el.value.length;
         el.setSelectionRange(length, length);
       },
