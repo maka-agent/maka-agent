@@ -33,6 +33,7 @@ interface ChecklistItem {
   /** What the user gains if they do this. One short sentence. */
   reason: string;
   done: boolean;
+  trackCompletion?: boolean;
   onClick(): void;
 }
 
@@ -105,9 +106,9 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         title: '看看每日回顾',
         reason: '聚合今天的对话、token 使用、Top 模型与工具。',
         // No persistence — visiting the panel doesn't strictly "complete"
-        // anything. Always rendered as actionable so first-runners
-        // discover the feature.
+        // anything. Render it as exploration, not a permanent unchecked todo.
         done: false,
+        trackCompletion: false,
         onClick: () => props.onOpenSidebarModule('daily-review'),
       },
       {
@@ -138,13 +139,14 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         // now runs a 2-second local-only mic self-check that proves
         // duration / bytes / sampleRate / channels meet the
         // `@maka/core/voice` contract. Done flag is intentionally
-        // false — visiting the panel and running the smoke is the
-        // discovery moment we want to surface; no persistence yet.
+        // false — no persistence yet, so don't count it as an unfinished
+        // checklist item.
         id: 'voice-smoke',
         Icon: Mic,
         title: '跑一次语音录音自检',
         reason: '请求麦克风权限、录 2 秒本地样本，确认采集链路通；不上传、不保存、不写记忆。',
         done: false,
+        trackCompletion: false,
         onClick: () => props.onOpenSettingsSection('voice-models'),
       },
     ];
@@ -152,17 +154,18 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
 
   if (!settings || items.length === 0) return null;
 
-  const remaining = items.filter((item) => !item.done).length;
+  const completableItems = items.filter((item) => item.trackCompletion !== false);
+  const remaining = completableItems.filter((item) => !item.done).length;
 
   return (
     <aside
       className="maka-first-run-checklist"
-      aria-label={`接下来可以探索（剩余 ${remaining} 项）`}
+      aria-label={`接下来可以探索（待完成 ${remaining} 项）`}
     >
       <header className="maka-first-run-checklist-header">
         <Sparkles size={16} strokeWidth={1.5} aria-hidden="true" />
         <strong>接下来可以探索</strong>
-        <span className="maka-first-run-checklist-count">{remaining} / {items.length}</span>
+        <span className="maka-first-run-checklist-count">{remaining} / {completableItems.length} 待完成</span>
       </header>
       <ul className="maka-first-run-checklist-list">
         {items.map((item) => (
@@ -170,6 +173,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
             key={item.id}
             className="maka-first-run-checklist-row"
             data-done={item.done ? 'true' : undefined}
+            data-kind={item.trackCompletion === false ? 'explore' : 'setup'}
           >
             <button type="button" onClick={item.onClick} disabled={false}>
               <span className="maka-first-run-checklist-status" aria-hidden="true">

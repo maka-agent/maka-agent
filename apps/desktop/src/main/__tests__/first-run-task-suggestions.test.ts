@@ -70,4 +70,15 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
     assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);
   });
+
+  it('does not count exploration-only rows as unfinished setup todos', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
+
+    assert.match(source, /const completableItems = items\.filter\(\(item\) => item\.trackCompletion !== false\)/);
+    assert.match(source, /待完成 \$\{remaining\} 项/);
+    assert.match(source, /\{remaining\} \/ \{completableItems\.length\} 待完成/);
+    assert.match(source, /id:\s*'daily-review'[\s\S]*trackCompletion:\s*false/);
+    assert.match(source, /id:\s*'voice-smoke'[\s\S]*trackCompletion:\s*false/);
+    assert.match(source, /data-kind=\{item\.trackCompletion === false \? 'explore' : 'setup'\}/);
+  });
 });
