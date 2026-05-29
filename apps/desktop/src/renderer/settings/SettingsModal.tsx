@@ -177,8 +177,8 @@ const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'r
   },
   discord: {
     label: 'Discord',
-    help: '填入 Bot Token 后测试凭据；当前先验证凭据对应一个真实 Bot 应用，Discord Gateway 长连接接入是独立后续。',
-    support: 'credentials',
+    help: '填入 Bot Token 后测试凭据；启动监听后通过 Discord Gateway 接收 MESSAGE_CREATE，会话完成后通过 REST 回复对应频道（含 reply threading）。',
+    support: 'runtime',
   },
   dingtalk: {
     label: '钉钉',
