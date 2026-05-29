@@ -1052,11 +1052,16 @@ function PlanReminderPanel(props: {
   const [deliveryChatId, setDeliveryChatId] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState<PlanReminderListFilter>('all');
+  const [listQuery, setListQuery] = useState('');
   const parsedRunAt = Date.parse(runAtLocal);
+  const normalizedListQuery = normalizePlanReminderSearchQuery(listQuery);
   const visibleReminders = listFilter === 'all'
     ? props.reminders
     : props.reminders.filter((reminder) => reminder.status === listFilter);
-  const sortedReminders = [...visibleReminders].sort(comparePlanReminderForDisplay);
+  const searchedReminders = normalizedListQuery
+    ? visibleReminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery))
+    : visibleReminders;
+  const sortedReminders = [...searchedReminders].sort(comparePlanReminderForDisplay);
   const filterCounts: Record<PlanReminderListFilter, number> = {
     all: props.reminders.length,
     scheduled: props.reminders.filter((reminder) => reminder.status === 'scheduled').length,
@@ -1272,6 +1277,15 @@ function PlanReminderPanel(props: {
       </form>
 
       <div className="maka-plan-list" aria-label="计划提醒列表">
+        <label className="maka-plan-search">
+          <span>搜索计划提醒</span>
+          <input
+            value={listQuery}
+            onChange={(event) => setListQuery(event.currentTarget.value)}
+            maxLength={120}
+            placeholder="搜索标题、备注、投递或执行记录…"
+          />
+        </label>
         <div className="maka-plan-filters" aria-label="计划提醒筛选">
           {[
             ['all', '全部'],
@@ -1299,11 +1313,11 @@ function PlanReminderPanel(props: {
             body="创建一次性或重复提醒；Maka 会持久化并在到点时记录执行结果。"
             extraClassName="maka-plan-empty"
           />
-        ) : visibleReminders.length === 0 ? (
+        ) : sortedReminders.length === 0 ? (
           <EmptyState
             Icon={Clock}
-            title="当前筛选没有提醒"
-            body="切换筛选查看其他状态，或创建新的计划提醒。"
+            title={normalizedListQuery ? '没有匹配的提醒' : '当前筛选没有提醒'}
+            body={normalizedListQuery ? '调整搜索词，或切换状态筛选查看其他提醒。' : '切换筛选查看其他状态，或创建新的计划提醒。'}
             extraClassName="maka-plan-empty"
           />
         ) : (
@@ -1484,6 +1498,26 @@ function planReminderNextRunSortValue(reminder: PlanReminder): number {
 
 function planReminderLastRunSortValue(reminder: PlanReminder): number {
   return reminder.lastRun?.at ?? 0;
+}
+
+function normalizePlanReminderSearchQuery(query: string): string {
+  return query.trim().toLocaleLowerCase();
+}
+
+function planReminderMatchesSearch(reminder: PlanReminder, query: string): boolean {
+  return planReminderSearchText(reminder).toLocaleLowerCase().includes(query);
+}
+
+function planReminderSearchText(reminder: PlanReminder): string {
+  return [
+    reminder.title,
+    reminder.note,
+    reminder.status,
+    formatPlanRecurrence(reminder),
+    formatPlanReminderDeliveryTarget(reminder.delivery),
+    reminder.lastRun?.message,
+    ...reminder.runs.map((run) => `${runStatusLabel(run.status)} ${run.message}`),
+  ].filter(Boolean).join('\n');
 }
 
 function planReminderEditableRunAt(reminder: PlanReminder, now: number = Date.now()): number {
