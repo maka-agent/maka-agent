@@ -25,7 +25,10 @@ describe('BotRegistry', () => {
     assert.equal(statuses.some((status) => status.platform === 'dingtalk' && status.readiness === 'configured'), true);
   });
 
-  test('does not mark scaffold-only Discord as operational', async () => {
+  // PR-BOT-DISCORD-OPERATIONAL-0: Discord is now an implemented platform
+  // (DiscordBotBridge), so the "scaffold-only" assertions moved off Discord
+  // onto WeCom which still has credentials-only (no live bridge).
+  test('does not mark scaffold-only WeCom as operational', async () => {
     const statuses: BotStatus[] = [];
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
@@ -33,21 +36,21 @@ describe('BotRegistry', () => {
     });
 
     await registry.applySettings(settingsWith({
-      discord: { enabled: true, token: 'discord-token' },
+      wecom: { enabled: true, token: 'wecom-token', appId: 'corp-id', appSecret: 'corp-secret' },
     }));
 
-    assert.equal(registry.getStatus('discord').running, false);
-    assert.equal(registry.getStatus('discord').reason, 'scaffold-only');
-    assert.equal(registry.getStatus('discord').readiness, 'configured');
-    assert.equal(statuses.some((status) => status.platform === 'discord' && status.readiness === 'operational'), false);
+    assert.equal(registry.getStatus('wecom').running, false);
+    assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
+    assert.equal(registry.getStatus('wecom').readiness, 'configured');
+    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'operational'), false);
 
     await registry.applySettings(settingsWith({
-      discord: { enabled: false, token: 'discord-token' },
+      wecom: { enabled: false, token: 'wecom-token' },
     }));
 
-    assert.equal(registry.getStatus('discord').running, false);
-    assert.equal(registry.getStatus('discord').reason, 'disabled');
-    assert.equal(statuses.some((status) => status.platform === 'discord' && status.reason === 'disabled'), true);
+    assert.equal(registry.getStatus('wecom').running, false);
+    assert.equal(registry.getStatus('wecom').reason, 'disabled');
+    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.reason === 'disabled'), true);
   });
 
   test('queues overlapping applySettings calls so the newest settings win deterministically', async () => {
@@ -57,14 +60,14 @@ describe('BotRegistry', () => {
     });
 
     await Promise.all([
-      registry.applySettings(settingsWith({ discord: { enabled: true, token: 'old-token' } })),
-      registry.applySettings(settingsWith({ discord: { enabled: false, token: 'old-token' } })),
-      registry.applySettings(settingsWith({ discord: { enabled: true, token: 'new-token' } })),
+      registry.applySettings(settingsWith({ wecom: { enabled: true, token: 'old-token' } })),
+      registry.applySettings(settingsWith({ wecom: { enabled: false, token: 'old-token' } })),
+      registry.applySettings(settingsWith({ wecom: { enabled: true, token: 'new-token' } })),
     ]);
 
-    assert.equal(registry.getStatus('discord').running, false);
-    assert.equal(registry.getStatus('discord').reason, 'scaffold-only');
-    assert.equal(registry.getStatus('discord').readiness, 'configured');
+    assert.equal(registry.getStatus('wecom').running, false);
+    assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
+    assert.equal(registry.getStatus('wecom').readiness, 'configured');
   });
 
   test('stopAll waits behind any pending applySettings call and clears bridges', async () => {
@@ -74,12 +77,12 @@ describe('BotRegistry', () => {
     });
 
     await Promise.all([
-      registry.applySettings(settingsWith({ discord: { enabled: true, token: 'discord-token' } })),
+      registry.applySettings(settingsWith({ wecom: { enabled: true, token: 'wecom-token' } })),
       registry.stopAll(),
     ]);
 
-    assert.equal(registry.getStatus('discord').running, false);
-    assert.equal(registry.getStatus('discord').reason, 'disabled');
+    assert.equal(registry.getStatus('wecom').running, false);
+    assert.equal(registry.getStatus('wecom').reason, 'disabled');
   });
 
   // PR-HEALTH-1 (xuan msg `e4887ffd`, I1 — read-path single-authority):
@@ -92,8 +95,10 @@ describe('BotRegistry', () => {
   // are reserved for the live bridge write path (SimpleBotBridge etc.).
   test('unimplemented platform with credentials downgrades persisted credentials_valid to configured', () => {
     // F1b in audit catalog. Settings claim credentials_valid was persisted;
-    // since discord has no live bridge, the read path must NOT honor the
+    // since wecom has no live bridge yet, the read path must NOT honor the
     // claim — it returns `configured` (credentials present, never probed).
+    // (Was Discord before PR-BOT-DISCORD-OPERATIONAL-0; now Discord IS a
+    // live bridge so the assertion moved off it.)
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
       onStatusChange: () => {},
@@ -101,17 +106,17 @@ describe('BotRegistry', () => {
 
     return registry
       .applySettings(settingsWith({
-        discord: {
+        wecom: {
           enabled: true,
           token: 'tenant-token',
-          appId: 'cli_123',
+          appId: 'corp-id',
           appSecret: 'secret',
           connected: true,
           readiness: 'credentials_valid',
         },
       }))
       .then(() => {
-        const status = registry.getStatus('discord');
+        const status = registry.getStatus('wecom');
         assert.equal(status.running, false);
         assert.equal(
           status.readiness,
@@ -167,12 +172,14 @@ describe('BotRegistry', () => {
     });
 
     await registry.applySettings(settingsWith({
-      discord: { enabled: true, token: 'discord-token' },
+      wecom: { enabled: true, token: 'wecom-token', appId: 'corp', appSecret: 'secret' },
     }));
 
-    // scaffoldStatus path means no live bridge is registered for discord;
+    // scaffoldStatus path means no live bridge is registered for wecom;
     // typing indicator must silently degrade to false.
-    const result = await registry.sendTypingIndicator('discord', 'chat-x');
+    // (Was discord before PR-BOT-DISCORD-OPERATIONAL-0; discord is now a
+    // live bridge so the assertion moved off it.)
+    const result = await registry.sendTypingIndicator('wecom', 'chat-x');
     assert.equal(result, false);
   });
 
@@ -187,7 +194,7 @@ describe('BotRegistry', () => {
     });
 
     await registry.applySettings(settingsWith({
-      discord: {
+      wecom: {
         enabled: true,
         token: '',
         appId: undefined,
@@ -196,7 +203,7 @@ describe('BotRegistry', () => {
       },
     }));
 
-    const status = registry.getStatus('discord');
+    const status = registry.getStatus('wecom');
     assert.equal(
       status.readiness,
       'scaffolded',
