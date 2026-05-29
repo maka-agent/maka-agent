@@ -115,4 +115,18 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.doesNotMatch(page![0], />试一下</);
     assert.doesNotMatch(page![0], />试一下<|不入 telemetry|demoQuery|demoRunning|runDemo|demoResults|demoError|试一下" demo/);
   });
+
+  it('WebSearch shared tool-result source uses live-query naming instead of demo language', async () => {
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const coreEvents = await readFile(join(REPO_ROOT, 'packages/core/src/events.ts'), 'utf8');
+    const webSearchPreview = ui.match(/function WebSearchPreview[\s\S]*?function FileDiffPreview/);
+    const webSearchContent = coreEvents.match(/PR-CHAT-WEB-SEARCH-RENDER-0[\s\S]*?kind:\s*'web_search'/);
+
+    assert.ok(webSearchPreview, 'WebSearchPreview block must exist');
+    assert.ok(webSearchContent, 'web_search ToolResultContent block must exist');
+    assert.match(ui, /live-query[\s\S]*verification/);
+    assert.match(coreEvents, /live-query[\s\S]*verification/);
+    assert.doesNotMatch(webSearchPreview![0], /试一下|demo|manual try-out/i);
+    assert.doesNotMatch(webSearchContent![0], /试一下|demo|manual try-out/i);
+  });
 });

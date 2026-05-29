@@ -5209,9 +5209,9 @@ function OverlayPreview(props: { content: ToolResultContent }) {
  */
 /**
  * PR-CHAT-WEB-SEARCH-RENDER-0 — plain-text card list for the gated
- * WebSearch agent tool result. Matches the Settings → 联网搜索 试一下
- * demo layout so the user gets the same shape whether the search came
- * from a manual try-out or the agent. Never renders markdown / HTML;
+ * WebSearch agent tool result. Matches the Settings → 联网搜索 live-query
+ * verification layout so the user gets the same shape whether the search came
+ * from a manual verification run or the agent. Never renders markdown / HTML;
  * each cell is `redactSecrets`'d as a belt-and-braces guard against
  * a provider response that happened to echo a token.
  */

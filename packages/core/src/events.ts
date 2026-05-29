@@ -152,7 +152,7 @@ export type ToolResultContent =
    * PR-CHAT-WEB-SEARCH-RENDER-0: structured tool-result for the gated
    * WebSearch agent tool. The chat renderer surfaces these as plain
    * text cards (title + url + snippet + source); never markdown, never
-   * HTML, matching the Settings → 联网搜索 试一下 demo.
+   * HTML, matching the Settings → 联网搜索 live-query verification surface.
    *
    * Rows are an opaque `unknown[]` here so the storage layer does not
    * need to import the `@maka/core/web-search` row type; the renderer
