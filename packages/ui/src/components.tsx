@@ -410,6 +410,9 @@ export function SessionListPanel(props: {
     if (id === 'search') return false; // transient — never "active"
     return props.selection.section === id;
   };
+  const activePlanReminderCount = (props.planReminders ?? [])
+    .filter((reminder) => reminder.status !== 'completed')
+    .length;
   function selectModule(id: ModuleNavId) {
     if (id === 'search') {
       // Opens the dedicated Search modal hosted by main.tsx. If no
@@ -467,9 +470,13 @@ export function SessionListPanel(props: {
           data-active={isModuleActive('automations')}
           type="button"
           onClick={() => selectModule('automations')}
+          aria-label={activePlanReminderCount > 0 ? `计划，${activePlanReminderCount} 个未完成提醒` : undefined}
         >
           <Clock className="maka-nav-icon" strokeWidth={1.5} />
           <span>{MODULE_NAV_LABEL.automations}</span>
+          {activePlanReminderCount > 0 && (
+            <small className="maka-nav-count" aria-hidden="true">{activePlanReminderCount}</small>
+          )}
         </button>
         <button
           className="maka-nav-row"

@@ -55,6 +55,9 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /计划提醒筛选/, '计划 UI must expose list filtering for non-trivial reminder lists');
     assert.match(ui, /当前筛选没有提醒/, '计划 UI must distinguish empty filters from an empty reminder store');
     assert.match(ui, /filterCounts/, 'filter buttons must show counts per reminder status');
+    assert.match(ui, /activePlanReminderCount/, 'sidebar Plan nav must derive an active reminder count');
+    assert.match(ui, /maka-nav-count/, 'sidebar Plan nav must surface the active reminder count');
+    assert.match(ui, /status !== 'completed'/, 'sidebar Plan nav count must exclude completed history rows');
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {

@@ -674,6 +674,22 @@ button:active {
   font-variant-numeric: tabular-nums;
 }
 
+.maka-nav-count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.06);
+  padding: 0 5px;
+}
+
+.maka-nav-row[data-active="true"] .maka-nav-count {
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent);
+}
+
 .maka-nav-row-sub {
   min-height: 0;
   padding-left: 8px;
