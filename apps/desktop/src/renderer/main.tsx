@@ -1150,6 +1150,16 @@ function AppShell(props: {
     setPermissionBySession({});
   }
 
+  function startPlanReminderFromPalette() {
+    setNavSelection({ section: 'automations' });
+    closePalette();
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')
+        ?.focus({ preventScroll: false });
+    });
+  }
+
   // Open the workspace's skills/ directory in Finder via the IPC allowlist.
   // Earlier we silently dropped the structured failure result; surface it
   // so missing-skills-dir / open-failed don't look like the button did nothing.
@@ -2024,6 +2034,7 @@ function AppShell(props: {
             onSelectSession: setActiveId,
             onNewChat: () => void createSession(),
             onStartDeepResearch: () => void handleQuickChatSubmit('', 'deep_research'),
+            onStartPlanReminder: startPlanReminderFromPalette,
             onOpenSettings: openSettings,
             onOpenSettingsSection: (section) => openSettingsSection(section),
             // PR-UX-POLISH-1 commit 4 (WAWQAQ `e0dbad11` + kenji `2844f64f`):

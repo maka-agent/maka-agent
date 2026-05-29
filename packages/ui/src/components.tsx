@@ -1159,6 +1159,7 @@ function PlanReminderPanel(props: {
             value={title}
             onChange={(event) => setTitle(event.currentTarget.value)}
             maxLength={120}
+            data-maka-plan-title-input="true"
             placeholder="例如：明天复盘项目进度"
           />
         </label>

@@ -130,6 +130,7 @@ export function buildCommandList(args: {
    * `search` module nav id is intentionally omitted here.
    */
   onSelectModule?(selection: NavSelection): void;
+  onStartPlanReminder?(): void;
 }): Command[] {
   const cmds: Command[] = [
     {
@@ -152,6 +153,18 @@ export function buildCommandList(args: {
           Icon: Sparkles,
           keywords: ['deep', 'research', 'explore', 'readonly', '研究', '深度', '探索', '只读'],
           run: () => void args.onStartDeepResearch!(),
+        }]
+      : []),
+    ...(args.onStartPlanReminder
+      ? [{
+          id: 'action:new-plan-reminder',
+          kind: 'action' as const,
+          label: '新建计划提醒',
+          hint: '打开计划表单',
+          group: '操作',
+          Icon: Clock,
+          keywords: ['plan', 'reminder', 'schedule', 'new', 'create', '计划', '提醒', '新建', '创建'],
+          run: args.onStartPlanReminder,
         }]
       : []),
     {
