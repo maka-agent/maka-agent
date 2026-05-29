@@ -7,7 +7,7 @@
  * into UI; use {@link openPathFailureCopy} for human-facing strings.
  */
 
-export type OpenPathKey = 'workspace' | 'skills' | 'memory';
+export type OpenPathKey = 'workspace' | 'skills' | 'memory' | 'project';
 
 export type OpenPathFailureReason =
   | 'unknown-key'
@@ -51,5 +51,7 @@ export function openPathActionLabel(key: OpenPathKey): string {
       return 'Skills 目录';
     case 'memory':
       return '记忆目录';
+    case 'project':
+      return '项目目录';
   }
 }

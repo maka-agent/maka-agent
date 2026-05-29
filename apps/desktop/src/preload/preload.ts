@@ -513,13 +513,14 @@ contextBridge.exposeInMainWorld('maka', {
       arch: string;
       osRelease: string;
       workspacePath: string;
+      projectPath: string;
       buildMode: 'dev' | 'packaged';
       buildCommit: string | null;
     }> {
       return ipcRenderer.invoke('app:info');
     },
     openPath(
-      key: 'workspace' | 'skills' | 'memory',
+      key: 'workspace' | 'skills' | 'memory' | 'project',
     ): Promise<
       | { ok: true; opened: string }
       | {

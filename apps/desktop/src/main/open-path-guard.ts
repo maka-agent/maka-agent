@@ -1,7 +1,7 @@
 import { realpath, stat } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { join, resolve, relative, sep } from 'node:path';
 
-export type OpenPathKey = 'workspace' | 'skills' | 'memory';
+export type OpenPathKey = 'workspace' | 'skills' | 'memory' | 'project';
 
 export type OpenPathResult =
   | { ok: true; opened: OpenPathKey }
@@ -17,9 +17,10 @@ export type OpenPathFailureReason =
 export interface ResolveOpenPathInput {
   key: string;
   workspaceRoot: string;
+  projectRoot?: string;
 }
 
-const OPEN_PATHS: Record<OpenPathKey, (workspaceRoot: string) => string> = {
+const OPEN_PATHS: Record<Exclude<OpenPathKey, 'project'>, (workspaceRoot: string) => string> = {
   workspace: (workspaceRoot) => workspaceRoot,
   skills: (workspaceRoot) => join(workspaceRoot, 'skills'),
   memory: (workspaceRoot) => join(workspaceRoot, 'memory'),
@@ -31,19 +32,26 @@ export async function resolveOpenPath(input: ResolveOpenPathInput): Promise<
 > {
   if (!isOpenPathKey(input.key)) return { ok: false, reason: 'unknown-key' };
 
-  const candidate = OPEN_PATHS[input.key](input.workspaceRoot);
-  let root: string;
+  if (input.key === 'project' && !input.projectRoot) return { ok: false, reason: 'missing' };
+  const candidate = input.key === 'project'
+    ? resolve(input.projectRoot!)
+    : OPEN_PATHS[input.key](input.workspaceRoot);
+  let root: string | undefined;
   let target: string;
   try {
-    [root, target] = await Promise.all([
-      realpath(input.workspaceRoot),
-      realpath(candidate),
-    ]);
+    if (input.key === 'project') {
+      target = await realpath(candidate);
+    } else {
+      [root, target] = await Promise.all([
+        realpath(input.workspaceRoot),
+        realpath(candidate),
+      ]);
+    }
   } catch {
     return { ok: false, reason: 'missing' };
   }
 
-  if (!isInsideOrSamePath(root, target)) return { ok: false, reason: 'not-allowed' };
+  if (root && !isInsideOrSamePath(root, target)) return { ok: false, reason: 'not-allowed' };
 
   const targetStat = await stat(target).catch(() => null);
   if (!targetStat) return { ok: false, reason: 'missing' };
@@ -53,7 +61,7 @@ export async function resolveOpenPath(input: ResolveOpenPathInput): Promise<
 }
 
 function isOpenPathKey(value: string): value is OpenPathKey {
-  return value === 'workspace' || value === 'skills' || value === 'memory';
+  return value === 'workspace' || value === 'skills' || value === 'memory' || value === 'project';
 }
 
 function isInsideOrSamePath(root: string, target: string): boolean {

@@ -843,11 +843,12 @@ function registerIpc(): void {
     arch: osArch(),
     osRelease: osRelease(),
     workspacePath: workspaceRoot,
+    projectPath: process.cwd(),
     buildMode: buildInfo.mode,
     buildCommit: buildInfo.commit,
   }));
   ipcMain.handle('app:openPath', async (_event, key: string): Promise<OpenPathResult> => {
-    const resolved = await resolveOpenPath({ key, workspaceRoot });
+    const resolved = await resolveOpenPath({ key, workspaceRoot, projectRoot: process.cwd() });
     if (!resolved.ok) return resolved;
     const error = await shell.openPath(resolved.path);
     if (error) return { ok: false, reason: 'open-failed' };

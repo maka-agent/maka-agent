@@ -85,6 +85,16 @@ import './styles.css';
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
 
+interface RendererAppInfo {
+  projectPath: string;
+}
+
+function basenameFromPath(value: string): string {
+  const trimmed = value.replace(/[\\/]+$/, '');
+  const name = trimmed.split(/[\\/]/).filter(Boolean).pop();
+  return name || trimmed || '当前项目';
+}
+
 /**
  * PR-UI-16: read the persisted toast position from localStorage on app
  * boot so the first toast lands in the user's chosen corner without a
@@ -193,6 +203,7 @@ function AppShell(props: {
   const [userLabel, setUserLabel] = useState<string>('');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
+  const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(null);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   // Search modal state. Sidebar `搜索` opens the real thread-search
@@ -582,6 +593,9 @@ function AppShell(props: {
   useEffect(() => {
     void refreshSessions();
     void refreshConnections();
+    void window.maka.app.info().then((next) => {
+      setAppInfo({ projectPath: next.projectPath });
+    }).catch(() => setAppInfo(null));
     // Pull the persisted theme preference (auto/light/dark) and apply it
     // before any first paint settles. If settings are unreadable we leave the
     // default `auto` which still produces a correct result.
@@ -1181,6 +1195,13 @@ function AppShell(props: {
     const result = await window.maka.app.openPath('skills');
     if (!result.ok) {
       toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathFailureCopy(result.reason));
+    }
+  }
+
+  async function openProjectFolder() {
+    const result = await window.maka.app.openPath('project');
+    if (!result.ok) {
+      toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathFailureCopy(result.reason));
     }
   }
 
@@ -1894,6 +1915,15 @@ function AppShell(props: {
             sessionCounts={sessionCounts}
             sessions={visibleSessions}
             activeId={activeId}
+            projectBadge={
+              appInfo
+                ? {
+                    label: basenameFromPath(appInfo.projectPath),
+                    path: appInfo.projectPath,
+                    onOpen: () => void openProjectFolder(),
+                  }
+                : undefined
+            }
             skills={skills}
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}

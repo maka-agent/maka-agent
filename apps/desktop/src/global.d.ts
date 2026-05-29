@@ -286,11 +286,12 @@ declare global {
           arch: string;
           osRelease: string;
           workspacePath: string;
+          projectPath: string;
           buildMode: 'dev' | 'packaged';
           buildCommit: string | null;
         }>;
         openPath(
-          key: 'workspace' | 'skills' | 'memory',
+          key: 'workspace' | 'skills' | 'memory' | 'project',
         ): Promise<
           | { ok: true; opened: string }
           | {

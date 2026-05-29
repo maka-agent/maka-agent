@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -21,6 +21,21 @@ describe('open path guard', () => {
     });
   });
 
+  test('resolves the main-owned project directory without accepting renderer paths', async () => {
+    await withWorkspace(async (workspaceRoot, projectRoot) => {
+      const project = await resolveOpenPath({ key: 'project', workspaceRoot, projectRoot });
+
+      assert.equal(project.ok, true);
+      if (project.ok) {
+        assert.equal(project.key, 'project');
+        assert.equal(project.path, await realpath(projectRoot));
+      }
+
+      assert.deepEqual(await resolveOpenPath({ key: 'project', workspaceRoot }), { ok: false, reason: 'missing' });
+      assert.deepEqual(await resolveOpenPath({ key: projectRoot, workspaceRoot, projectRoot }), { ok: false, reason: 'unknown-key' });
+    });
+  });
+
   test('rejects unknown keys, missing targets, and files', async () => {
     await withWorkspace(async (workspaceRoot) => {
       assert.deepEqual(await resolveOpenPath({ key: 'unknown', workspaceRoot }), { ok: false, reason: 'unknown-key' });
@@ -28,6 +43,7 @@ describe('open path guard', () => {
 
       await writeFile(join(workspaceRoot, 'skills'), 'not a directory', 'utf8');
       assert.deepEqual(await resolveOpenPath({ key: 'skills', workspaceRoot }), { ok: false, reason: 'not-a-directory' });
+      assert.deepEqual(await resolveOpenPath({ key: 'project', workspaceRoot, projectRoot: join(workspaceRoot, 'skills') }), { ok: false, reason: 'not-a-directory' });
     });
   });
 

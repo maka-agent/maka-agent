@@ -268,6 +268,11 @@ export function SessionListPanel(props: {
   sessionCounts: Record<SessionFilter, number>;
   sessions: SessionSummary[];
   activeId?: string;
+  projectBadge?: {
+    label: string;
+    path: string;
+    onOpen(): void;
+  };
   skills?: SkillEntry[];
   planReminders?: PlanReminder[];
   /**
@@ -447,6 +452,18 @@ export function SessionListPanel(props: {
           <SquarePen className="maka-nav-primary-icon" strokeWidth={1.5} />
           <span>新建对话</span>
         </button>
+        {props.projectBadge && (
+          <button
+            type="button"
+            className="maka-project-badge"
+            onClick={props.projectBadge.onOpen}
+            title={props.projectBadge.path}
+            aria-label={`打开项目目录：${props.projectBadge.label}`}
+          >
+            <FolderOpen size={14} strokeWidth={1.6} aria-hidden="true" />
+            <span>项目 · {props.projectBadge.label}</span>
+          </button>
+        )}
       </header>
 
       {/*
