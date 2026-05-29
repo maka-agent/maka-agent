@@ -2234,6 +2234,7 @@ function MemorySettingsPage(props: {
   const [newMemoryTitle, setNewMemoryTitle] = useState('');
   const [newMemoryTags, setNewMemoryTags] = useState('');
   const [newMemoryContent, setNewMemoryContent] = useState('');
+  const [memoryEntryQuery, setMemoryEntryQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const toast = useToast();
@@ -2403,6 +2404,16 @@ function MemorySettingsPage(props: {
     activeEntries: [],
     archivedEntries: [],
   } satisfies LocalMemoryState;
+  const normalizedMemoryEntryQuery = memoryEntryQuery.trim();
+  const filteredActiveEntries = useMemo(
+    () => filterLocalMemoryEntries(effective.activeEntries, normalizedMemoryEntryQuery),
+    [effective.activeEntries, normalizedMemoryEntryQuery],
+  );
+  const filteredArchivedEntries = useMemo(
+    () => filterLocalMemoryEntries(effective.archivedEntries, normalizedMemoryEntryQuery),
+    [effective.archivedEntries, normalizedMemoryEntryQuery],
+  );
+  const filteredEntryCount = filteredActiveEntries.length + filteredArchivedEntries.length;
 
   return (
     <div className="settingsStructuredPage">
@@ -2485,12 +2496,42 @@ function MemorySettingsPage(props: {
       </div>
 
       {effective.entryCount > 0 && (
-        <div className="settingsMemoryEntryGroups">
-          <MemoryEntryList title="生效记忆" entries={effective.activeEntries} />
-          {effective.archivedEntries.length > 0 && (
-            <MemoryEntryList title="已归档记忆" entries={effective.archivedEntries} archived />
-          )}
-        </div>
+        <>
+          <div className="settingsMemoryFilter">
+            <input
+              type="search"
+              value={memoryEntryQuery}
+              onChange={(event) => setMemoryEntryQuery(event.currentTarget.value)}
+              aria-label="筛选本地记忆"
+              placeholder="筛选标题、内容或标签"
+            />
+            {normalizedMemoryEntryQuery ? (
+              <button type="button" className="settingsInlineTextButton" onClick={() => setMemoryEntryQuery('')}>
+                清除
+              </button>
+            ) : null}
+            <small>
+              {normalizedMemoryEntryQuery
+                ? `${filteredEntryCount} / ${effective.entryCount} 条匹配`
+                : `${effective.entryCount} 条记忆`}
+            </small>
+          </div>
+          <div className="settingsMemoryEntryGroups">
+            <MemoryEntryList
+              title="生效记忆"
+              entries={filteredActiveEntries}
+              filtered={normalizedMemoryEntryQuery.length > 0}
+            />
+            {effective.archivedEntries.length > 0 && (
+              <MemoryEntryList
+                title="已归档记忆"
+                entries={filteredArchivedEntries}
+                filtered={normalizedMemoryEntryQuery.length > 0}
+                archived
+              />
+            )}
+          </div>
+        </>
       )}
 
       <div className="settingsMemoryManualAdd" aria-label="手动添加本地记忆">
@@ -2576,6 +2617,7 @@ function MemorySettingsPage(props: {
 function MemoryEntryList(props: {
   title: string;
   entries: LocalMemoryState['activeEntries'];
+  filtered?: boolean;
   archived?: boolean;
 }) {
   return (
@@ -2585,7 +2627,7 @@ function MemoryEntryList(props: {
         <span>{props.entries.length} 条</span>
       </div>
       {props.entries.length === 0 ? (
-        <p className="settingsMemoryEntryEmpty">暂无条目。</p>
+        <p className="settingsMemoryEntryEmpty">{props.filtered ? '无匹配条目。' : '暂无条目。'}</p>
       ) : (
         <div className="settingsMemoryEntryList">
           {props.entries.map((entry) => (
@@ -2602,6 +2644,24 @@ function MemoryEntryList(props: {
       )}
     </section>
   );
+}
+
+function filterLocalMemoryEntries(
+  entries: LocalMemoryState['activeEntries'],
+  query: string,
+): LocalMemoryState['activeEntries'] {
+  if (!query) return entries;
+  const needle = query.toLocaleLowerCase('zh-CN');
+  return entries.filter((entry) => {
+    const haystack = [
+      entry.title,
+      entry.content,
+      entry.origin,
+      memoryOriginLabel(entry.origin),
+      ...entry.tags,
+    ].join('\n').toLocaleLowerCase('zh-CN');
+    return haystack.includes(needle);
+  });
 }
 
 function memoryOriginLabel(origin: NonNullable<LocalMemoryState['latestEntry']>['origin']): string {
