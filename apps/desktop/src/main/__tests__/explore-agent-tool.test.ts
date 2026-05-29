@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildExploreAgentTool, runReadOnlyExplore } from '../explore-agent-tool.js';
@@ -35,6 +35,7 @@ describe('ExploreAgent read-only worker', () => {
       });
 
       assert.equal(result.ok, true);
+      assert.equal(result.kind, 'explore_agent');
       assert.equal(result.mode, 'read_only');
       assert.deepEqual(result.roots, ['.']);
       assert.ok(result.filesInspected >= 2);
@@ -91,9 +92,24 @@ describe('ExploreAgent read-only worker', () => {
           emitOutput: () => {},
         },
       );
+      assert.equal(result.kind, 'explore_agent');
       assert.equal(result.ok, true);
       assert.ok(result.matches.some((match) => match.path === 'notes.md'));
     });
+  });
+
+  it('has a structured chat preview instead of raw JSON fallback', async () => {
+    const [components, events] = await Promise.all([
+      readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8'),
+      readFile(join(process.cwd(), '../../packages/core/src/events.ts'), 'utf8'),
+    ]);
+
+    assert.match(events, /kind: 'explore_agent'/);
+    assert.match(components, /function ExploreAgentPreview/);
+    assert.match(components, /content\.kind === 'explore_agent'/);
+    const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function presentExploreAgentReason/)?.[0] ?? '';
+    assert.match(previewBlock, /redactSecrets/);
+    assert.doesNotMatch(previewBlock, /<a\s/i, 'ExploreAgent preview should not create links from tool result paths');
   });
 });
 

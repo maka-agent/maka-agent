@@ -68,6 +68,7 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 export interface ExploreAgentResult {
+  kind: 'explore_agent';
   ok: boolean;
   mode: 'read_only';
   objective: string;
@@ -245,6 +246,7 @@ export async function runReadOnlyExplore(input: {
   if (bytesRead >= MAX_TOTAL_BYTES) notes.push('Total byte budget reached before all candidate files were inspected.');
 
   return {
+    kind: 'explore_agent',
     ok: true,
     mode: 'read_only',
     objective,
@@ -437,6 +439,7 @@ function failure(
   message: string,
 ): ExploreAgentResult {
   return {
+    kind: 'explore_agent',
     ok: false,
     mode: 'read_only',
     objective,

@@ -3875,6 +3875,129 @@ button:active {
   color: var(--destructive);
 }
 
+.maka-explore-agent-preview {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+  font-family: var(--font-sans);
+  white-space: normal;
+}
+
+.maka-explore-agent-preview[data-ok="false"] {
+  border-color: oklch(from var(--destructive) l c h / 0.22);
+}
+
+.maka-explore-agent-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-explore-agent-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.maka-explore-agent-head small,
+.maka-explore-agent-section small,
+.maka-explore-agent-meta dt {
+  font-size: 11px;
+  color: var(--foreground-50);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.maka-explore-agent-message {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: oklch(from var(--destructive) l c h / 0.07);
+  color: var(--destructive);
+  font-size: 12px;
+}
+
+.maka-explore-agent-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.maka-explore-agent-meta div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-explore-agent-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground-70);
+  font-size: 12px;
+}
+
+.maka-explore-agent-section {
+  display: grid;
+  gap: 6px;
+}
+
+.maka-explore-agent-section > strong {
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.maka-explore-agent-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.maka-explore-agent-section li {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 6px 0;
+  border-top: 1px solid var(--foreground-5);
+}
+
+.maka-explore-agent-section li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.maka-explore-agent-section code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.maka-explore-agent-section p,
+.maka-explore-agent-section span {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .composer {
   flex: 0 0 auto;
   padding-top: 10px;

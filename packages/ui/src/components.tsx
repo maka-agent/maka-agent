@@ -5322,6 +5322,7 @@ function permissionValuePreview(value: unknown): string {
  * - `terminal`: stdout + stderr split with exit-code badge + stderr in
  *   destructive tone
  * - `office_document`: Office adapter stdout/stderr/diagnostic cards
+ * - `explore_agent`: bounded read-only subagent findings
  * - `json`: pretty-printed in a code block
  * - `text` / others: plain `<pre>` fallback
  *
@@ -5374,6 +5375,10 @@ function OverlayPreview(props: { content: ToolResultContent }) {
     return <OfficeDocumentPreview result={content} />;
   }
 
+  if (content.kind === 'explore_agent') {
+    return <ExploreAgentPreview result={content} />;
+  }
+
   if (content.kind === 'json') {
     let body: string;
     try {
@@ -5404,6 +5409,119 @@ function OverlayPreview(props: { content: ToolResultContent }) {
       [{content.kind}]
     </pre>
   );
+}
+
+function ExploreAgentPreview(props: {
+  result: Extract<ToolResultContent, { kind: 'explore_agent' }>;
+}) {
+  const { result } = props;
+  const candidateFiles = result.candidateFiles.slice(0, 8);
+  const matches = result.matches.slice(0, 8);
+  const notes = result.notes.slice(0, 4);
+  const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
+  const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
+  const queries = result.queries.length > 0 ? result.queries.join(', ') : '未指定';
+
+  return (
+    <div className="maka-overlay-preview maka-explore-agent-preview" data-kind="explore_agent" data-ok={result.ok ? 'true' : 'false'}>
+      <header className="maka-explore-agent-head">
+        <strong>{redactSecrets(result.objective || '只读探索')}</strong>
+        <small>
+          {status} · 读 {result.filesInspected} 个文件 · 跳过 {result.filesSkipped} 个 · {formatBytes(result.bytesRead)}
+        </small>
+      </header>
+      {!result.ok && (
+        <div className="maka-explore-agent-message" role="note">
+          {redactSecrets(result.message ?? '只读探索未完成。')}
+        </div>
+      )}
+      <dl className="maka-explore-agent-meta">
+        <div>
+          <dt>范围</dt>
+          <dd>{redactSecrets(roots)}</dd>
+        </div>
+        <div>
+          <dt>查询</dt>
+          <dd>{redactSecrets(queries)}</dd>
+        </div>
+      </dl>
+      {candidateFiles.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="候选文件">
+          <strong>候选文件</strong>
+          <ul>
+            {candidateFiles.map((file) => (
+              <li key={file.path}>
+                <code>{redactSecrets(file.path)}</code>
+                <small>
+                  分数 {file.score}
+                  {file.reasons.length > 0 ? ` · ${presentExploreAgentCandidateReasons(file.reasons)}` : ''}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {matches.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="命中片段">
+          <strong>命中片段</strong>
+          <ul>
+            {matches.map((match, index) => (
+              <li key={`${match.path}:${match.line}:${index}`}>
+                <code>{redactSecrets(match.path)}:{match.line}</code>
+                <small>{redactSecrets(match.query)}</small>
+                <p>{redactSecrets(match.snippet)}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {notes.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="探索说明">
+          <strong>说明</strong>
+          <ul>
+            {notes.map((note, index) => (
+              <li key={`${index}:${note.slice(0, 24)}`}>
+                <span>{redactSecrets(note)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function presentExploreAgentReason(
+  reason: Extract<ToolResultContent, { kind: 'explore_agent' }>['reason'],
+): string | undefined {
+  switch (reason) {
+    case 'invalid_objective':
+      return '目标无效';
+    case 'invalid_root':
+      return '范围无效';
+    case 'no_readable_roots':
+      return '没有可读取范围';
+    case undefined:
+      return undefined;
+    default:
+      return '未知诊断';
+  }
+}
+
+function presentExploreAgentCandidateReasons(reasons: string[]): string {
+  return reasons.map((reason) => {
+    if (reason === 'content match') return '内容命中';
+    const pathMatch = reason.match(/^path contains "(.+)"$/);
+    if (pathMatch) return `路径命中 ${redactSecrets(pathMatch[1] ?? '')}`;
+    return '探索线索';
+  }).join(', ');
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function OfficeDocumentPreview(props: {
