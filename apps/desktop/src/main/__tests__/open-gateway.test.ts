@@ -47,6 +47,7 @@ describe('OpenGatewayService', () => {
     assert.deepEqual(authorized.body.capabilities, [
       'sessions.list',
       'sessions.messages.read',
+      'sessions.messages.page',
       'sessions.messages.send',
       'sessions.events.stream',
       'sessions.events.replay',
@@ -55,6 +56,13 @@ describe('OpenGatewayService', () => {
       'sessions.incidents.read',
       'search.thread',
     ]);
+    assert.deepEqual(authorized.body.sessionMessages, {
+      pagination: {
+        limitQuery: 'limit',
+        beforeQuery: 'before',
+        maxLimit: 200,
+      },
+    });
     assert.deepEqual(authorized.body.sessionEvents, {
       stream: true,
       cursor: {
@@ -103,6 +111,40 @@ describe('OpenGatewayService', () => {
     assert.equal(searchResponse.status, 200);
     assert.equal(searchedFor, 'gateway');
     assert.equal(searchResponse.body.result[0].target.sessionId, 's1');
+  });
+
+  test('paginates session messages with a before cursor without changing default reads', async () => {
+    const messages = [
+      userMessage('one', 'm1'),
+      userMessage('two', 'm2'),
+      userMessage('three', 'm3'),
+      userMessage('four', 'm4'),
+    ];
+    const service = makeService({
+      readMessages: async () => messages,
+    });
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const defaultResponse = await fetchJson(`${status.baseUrl}/v1/sessions/s1/messages`, 'dev-token');
+    assert.equal(defaultResponse.status, 200);
+    assert.deepEqual(defaultResponse.body.messages.map((message: StoredMessage) => message.id), ['m1', 'm2', 'm3', 'm4']);
+    assert.equal(defaultResponse.body.pagination, undefined);
+
+    const pageResponse = await fetchJson(`${status.baseUrl}/v1/sessions/s1/messages?limit=2&before=m4`, 'dev-token');
+    assert.equal(pageResponse.status, 200);
+    assert.deepEqual(pageResponse.body.messages.map((message: StoredMessage) => message.id), ['m2', 'm3']);
+    assert.deepEqual(pageResponse.body.pagination, {
+      limit: 2,
+      before: 'm4',
+      nextBefore: 'm2',
+      hasMoreBefore: true,
+    });
+
+    const invalidResponse = await fetchJson(`${status.baseUrl}/v1/sessions/s1/messages?limit=2&before=missing`, 'dev-token');
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(invalidResponse.body.error, 'invalid_before_cursor');
   });
 
   test('accepts token-protected session sends and returns the turn id', async () => {
@@ -456,8 +498,8 @@ function session(overrides: Partial<SessionSummary> & { id: string }): SessionSu
   };
 }
 
-function userMessage(text: string): StoredMessage {
-  return { type: 'user', id: 'm1', turnId: 't1', ts: 1_700_000_000_000, text };
+function userMessage(text: string, id = 'm1'): StoredMessage {
+  return { type: 'user', id, turnId: 't1', ts: 1_700_000_000_000, text };
 }
 
 function textDeltaEvent(input: { id: string; turnId: string; text: string }): SessionEvent {

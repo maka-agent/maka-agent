@@ -183,6 +183,13 @@ export class OpenGatewayService {
       writeJson(res, 200, {
         ok: true,
         capabilities: buildGatewayCapabilities(Boolean(this.deps.sendMessage)),
+        sessionMessages: {
+          pagination: {
+            limitQuery: 'limit',
+            beforeQuery: 'before',
+            maxLimit: OPEN_GATEWAY_MESSAGE_PAGE_MAX_LIMIT,
+          },
+        },
         sessionEvents: {
           stream: true,
           cursor: {
@@ -216,7 +223,13 @@ export class OpenGatewayService {
     if (messageMatch) {
       const sessionId = decodeURIComponent(messageMatch[1]!);
       if (req.method === 'GET') {
-        writeJson(res, 200, { ok: true, messages: await this.deps.readMessages(sessionId) });
+        const messages = await this.deps.readMessages(sessionId);
+        const page = paginateMessages(messages, url);
+        if (!page.ok) {
+          writeJson(res, 400, { ok: false, error: page.error });
+          return;
+        }
+        writeJson(res, 200, page.response);
         return;
       }
       if (!this.deps.sendMessage) {
@@ -418,6 +431,8 @@ type JsonBodyResult =
   | { ok: false; status: number; error: string };
 
 const OPEN_GATEWAY_MAX_BODY_BYTES = 16 * 1024;
+const OPEN_GATEWAY_MESSAGE_PAGE_DEFAULT_LIMIT = 100;
+const OPEN_GATEWAY_MESSAGE_PAGE_MAX_LIMIT = 200;
 const OPEN_GATEWAY_EVENT_HEARTBEAT_MS = 15_000;
 const OPEN_GATEWAY_EVENT_REPLAY_LIMIT = 100;
 const OPEN_GATEWAY_REPLAY_CURSOR_LIMIT = 256;
@@ -456,6 +471,7 @@ function buildGatewayCapabilities(sendAvailable: boolean): string[] {
   return [
     'sessions.list',
     'sessions.messages.read',
+    'sessions.messages.page',
     ...(sendAvailable ? ['sessions.messages.send'] : []),
     'sessions.events.stream',
     'sessions.events.replay',
@@ -464,6 +480,65 @@ function buildGatewayCapabilities(sendAvailable: boolean): string[] {
     'sessions.incidents.read',
     'search.thread',
   ];
+}
+
+type MessagePaginationResult =
+  | { ok: true; response: { ok: true; messages: StoredMessage[]; pagination?: MessagePagination } }
+  | { ok: false; error: 'invalid_limit' | 'invalid_before_cursor' };
+
+interface MessagePagination {
+  limit: number;
+  before: string | null;
+  nextBefore: string | null;
+  hasMoreBefore: boolean;
+}
+
+function paginateMessages(messages: StoredMessage[], url: URL): MessagePaginationResult {
+  const hasLimit = url.searchParams.has('limit');
+  const before = normalizeMessageCursor(url.searchParams.get('before'));
+  if (!hasLimit && before === null) return { ok: true, response: { ok: true, messages } };
+
+  const limit = parseMessagePageLimit(url.searchParams.get('limit'));
+  if (limit === null) return { ok: false, error: 'invalid_limit' };
+  if (url.searchParams.has('before') && before === undefined) return { ok: false, error: 'invalid_before_cursor' };
+  const beforeCursor = before ?? null;
+
+  const end = beforeCursor === null
+    ? messages.length
+    : messages.findIndex((message) => message.id === beforeCursor);
+  if (end < 0) return { ok: false, error: 'invalid_before_cursor' };
+
+  const start = Math.max(0, end - limit);
+  const page = messages.slice(start, end);
+  return {
+    ok: true,
+    response: {
+      ok: true,
+      messages: page,
+      pagination: {
+        limit,
+        before: beforeCursor,
+        nextBefore: page[0]?.id ?? null,
+        hasMoreBefore: start > 0,
+      },
+    },
+  };
+}
+
+function parseMessagePageLimit(value: string | null): number | null {
+  if (value === null || value.trim().length === 0) return OPEN_GATEWAY_MESSAGE_PAGE_DEFAULT_LIMIT;
+  if (!/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > OPEN_GATEWAY_MESSAGE_PAGE_MAX_LIMIT) return null;
+  return parsed;
+}
+
+function normalizeMessageCursor(value: string | null): string | null | undefined {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 256) return undefined;
+  if (/[\r\n]/.test(trimmed)) return undefined;
+  return trimmed;
 }
 
 interface GatewayReplayState {
