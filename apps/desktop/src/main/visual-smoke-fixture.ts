@@ -801,7 +801,7 @@ function turnMessages(now: number): StoredMessage[] {
       ts: now - 9 * 60_000 - 38_000,
       toolName: 'Read',
       displayName: '查看关键 diff',
-      intent: '确认 ModelTable 键盘行为是否有 test gate',
+      intent: '确认模型列表键盘行为是否有测试覆盖',
       args: { path: 'apps/desktop/src/renderer/settings/model-table-keyboard.ts' },
     },
     {
@@ -829,7 +829,7 @@ function turnMessages(now: number): StoredMessage[] {
       id: 'msg-assistant-1',
       turnId,
       ts: now - 9 * 60_000,
-      text: '当前主线风险集中在视觉 smoke 尚未自动化、provider capability 数据还未从后端丰富。ModelTable 的 source/fetchedAt 与键盘行为已经有 test gate，可以作为下一轮截图基线。',
+      text: '当前需要重点观察截图基线是否稳定、模型能力数据是否完整，以及模型列表的键盘操作是否顺手。这些状态会作为下一轮界面验收的基线。',
       thinking: {
         text: '这段是 fixture 用的模型推理草稿。它应默认折叠，并且不会进入默认复制答案路径。',
       },
