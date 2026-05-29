@@ -256,4 +256,14 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /result\.summary && <div className="maka-search-modal-result-meta">\{result\.summary\}<\/div>/, 'Search result rows must render source summary metadata');
     assert.match(styles, /\.maka-search-modal-result-meta/, 'Search result source summary needs dedicated styling');
   });
+
+  it('search modal copy reflects session title hits as part of the supported scope', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+
+    assert.match(searchModal, /placeholder="搜索会话标题和内容…"/, 'Search input placeholder must include session titles');
+    assert.match(searchModal, /aria-label="搜索会话标题和内容"/, 'Search input accessible label must include session titles');
+    assert.match(searchModal, /结果只包含会话标题和内容文本，不进入网络。/, 'Search empty-state copy must describe the actual local title/content scope');
+    assert.match(searchModal, /没有匹配的会话标题或内容。换个关键词试试。/, 'Search no-match copy must not imply title hits are unsupported');
+  });
 });
