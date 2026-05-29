@@ -5,6 +5,7 @@ import type {
   OpenGatewaySettings,
   SearchErrorReason,
   SearchResult,
+  SessionEvent,
   SessionSummary,
   StoredMessage,
 } from '@maka/core';
@@ -22,6 +23,7 @@ export interface OpenGatewayDeps {
 
 export class OpenGatewayService {
   private server: Server | null = null;
+  private readonly eventClients = new Map<string, Set<GatewayEventClient>>();
   private status: OpenGatewayStatus = {
     enabled: false,
     running: false,
@@ -35,6 +37,19 @@ export class OpenGatewayService {
 
   getStatus(): OpenGatewayStatus {
     return { ...this.status };
+  }
+
+  publishSessionEvent(sessionId: string, event: SessionEvent): void {
+    const clients = this.eventClients.get(sessionId);
+    if (!clients || clients.size === 0) return;
+    const payload = formatSseEvent({
+      id: event.id,
+      event: event.type,
+      data: event,
+    });
+    for (const client of clients) {
+      client.write(payload);
+    }
   }
 
   async sync(settings: OpenGatewaySettings): Promise<OpenGatewayStatus> {
@@ -112,6 +127,7 @@ export class OpenGatewayService {
   async stop(): Promise<void> {
     const server = this.server;
     this.server = null;
+    this.closeEventClients();
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -152,6 +168,7 @@ export class OpenGatewayService {
           'sessions.list',
           'sessions.messages.read',
           ...(this.deps.sendMessage ? ['sessions.messages.send'] : []),
+          'sessions.events.stream',
           'search.thread',
         ],
       });
@@ -190,6 +207,16 @@ export class OpenGatewayService {
       writeJson(res, 202, { ok: true, turnId: result.turnId });
       return;
     }
+    const eventsMatch = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/events$/);
+    if (eventsMatch) {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      const sessionId = decodeURIComponent(eventsMatch[1]!);
+      this.openSessionEventStream(sessionId, req, res);
+      return;
+    }
     if (url.pathname === '/v1/search/thread') {
       if (req.method !== 'GET') {
         writeJson(res, 405, { ok: false, error: 'method_not_allowed' });
@@ -210,6 +237,48 @@ export class OpenGatewayService {
   private now(): number {
     return this.deps.now?.() ?? Date.now();
   }
+
+  private openSessionEventStream(sessionId: string, req: IncomingMessage, res: ServerResponse): void {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.write('retry: 1000\n');
+    res.write(`: session ${sessionId} connected\n\n`);
+
+    const client: GatewayEventClient = {
+      response: res,
+      heartbeat: setInterval(() => {
+        res.write(`: heartbeat ${this.now()}\n\n`);
+      }, OPEN_GATEWAY_EVENT_HEARTBEAT_MS),
+      write(chunk) {
+        res.write(chunk);
+      },
+    };
+    const clients = this.eventClients.get(sessionId) ?? new Set<GatewayEventClient>();
+    clients.add(client);
+    this.eventClients.set(sessionId, clients);
+
+    req.on('close', () => this.removeEventClient(sessionId, client));
+  }
+
+  private removeEventClient(sessionId: string, client: GatewayEventClient): void {
+    clearInterval(client.heartbeat);
+    const clients = this.eventClients.get(sessionId);
+    if (clients) {
+      clients.delete(client);
+      if (clients.size === 0) this.eventClients.delete(sessionId);
+    }
+    if (!client.response.writableEnded) client.response.end();
+  }
+
+  private closeEventClients(): void {
+    for (const [sessionId, clients] of [...this.eventClients]) {
+      for (const client of [...clients]) this.removeEventClient(sessionId, client);
+    }
+    this.eventClients.clear();
+  }
 }
 
 function writeJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -227,6 +296,24 @@ type JsonBodyResult =
   | { ok: false; status: number; error: string };
 
 const OPEN_GATEWAY_MAX_BODY_BYTES = 16 * 1024;
+const OPEN_GATEWAY_EVENT_HEARTBEAT_MS = 15_000;
+
+interface GatewayEventClient {
+  response: ServerResponse;
+  heartbeat: ReturnType<typeof setInterval>;
+  write(chunk: string): void;
+}
+
+function formatSseEvent(input: { id: string; event: string; data: unknown }): string {
+  const data = JSON.stringify(input.data);
+  return [
+    `id: ${input.id}`,
+    `event: ${input.event}`,
+    `data: ${data}`,
+    '',
+    '',
+  ].join('\n');
+}
 
 async function readJsonBody(req: IncomingMessage): Promise<JsonBodyResult> {
   const declared = Number(req.headers['content-length'] ?? 0);

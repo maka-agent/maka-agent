@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { afterEach, describe, test } from 'node:test';
-import type { AppSettings, SearchResult, SessionSummary, StoredMessage } from '@maka/core';
+import type { AppSettings, SearchResult, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
 import { OpenGatewayService } from '../open-gateway.js';
 
@@ -48,6 +48,7 @@ describe('OpenGatewayService', () => {
       'sessions.list',
       'sessions.messages.read',
       'sessions.messages.send',
+      'sessions.events.stream',
       'search.thread',
     ]);
   });
@@ -82,7 +83,7 @@ describe('OpenGatewayService', () => {
     assert.equal(searchResponse.body.result[0].target.sessionId, 's1');
   });
 
-  test('accepts token-protected session sends without exposing a streaming socket', async () => {
+  test('accepts token-protected session sends and returns the turn id', async () => {
     let sent: { sessionId: string; text: string } | null = null;
     const service = makeService({
       sendMessage: async (sessionId, input) => {
@@ -110,6 +111,35 @@ describe('OpenGatewayService', () => {
     assert.equal(response.status, 202);
     assert.equal(response.body.turnId, 'turn-gateway');
     assert.deepEqual(sent, { sessionId: 's1', text: 'hello from gateway' });
+  });
+
+  test('streams token-protected live session events as SSE', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const unauthorized = await fetch(`${status.baseUrl}/v1/sessions/s1/events`);
+    assert.equal(unauthorized.status, 401);
+    assert.equal((await unauthorized.json()).error, 'unauthorized');
+
+    const controller = new AbortController();
+    const response = await fetch(`${status.baseUrl}/v1/sessions/s1/events`, {
+      headers: { Authorization: 'Bearer dev-token' },
+      signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
+
+    const reader = response.body!.getReader();
+    service.publishSessionEvent('s1', textDeltaEvent({ id: 'event-1', turnId: 'turn-1', text: 'hello gateway stream' }));
+    const chunk = await readUntil(reader, 'event: text_delta');
+    controller.abort();
+
+    assert.match(chunk, /id: event-1/);
+    assert.match(chunk, /event: text_delta/);
+    assert.match(chunk, /data: \{"type":"text_delta"/);
+    assert.match(chunk, /hello gateway stream/);
   });
 
   test('rejects invalid gateway send bodies before calling runtime send', async () => {
@@ -205,6 +235,30 @@ function session(overrides: Partial<SessionSummary> & { id: string }): SessionSu
 
 function userMessage(text: string): StoredMessage {
   return { type: 'user', id: 'm1', turnId: 't1', ts: 1_700_000_000_000, text };
+}
+
+function textDeltaEvent(input: { id: string; turnId: string; text: string }): SessionEvent {
+  return {
+    type: 'text_delta',
+    id: input.id,
+    turnId: input.turnId,
+    messageId: 'assistant-1',
+    ts: 1_700_000_000_000,
+    text: input.text,
+  };
+}
+
+async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, needle: string): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = '';
+  const deadline = Date.now() + 2_000;
+  while (!text.includes(needle)) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${needle}. Received: ${text}`);
+    const read = await reader.read();
+    if (read.done) break;
+    text += decoder.decode(read.value, { stream: true });
+  }
+  return text;
 }
 
 function searchResult(overrides: { sessionId: string; snippet?: string }): SearchResult {

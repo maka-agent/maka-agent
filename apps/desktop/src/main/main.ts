@@ -1762,6 +1762,7 @@ async function streamEvents(
         userAppendBroadcasted = true;
       }
       mainWindow?.webContents.send(`sessions:event:${sessionId}`, event);
+      openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
         emitSessionsChanged('status-change', sessionId);
       }
@@ -1774,7 +1775,7 @@ async function streamEvents(
       }
     }
   } catch (error) {
-    mainWindow?.webContents.send(`sessions:event:${sessionId}`, {
+    const event = {
       type: 'error',
       id: randomUUID(),
       turnId: fallbackTurnId ?? randomUUID(),
@@ -1783,7 +1784,9 @@ async function streamEvents(
       code: errorCode(error),
       reason: errorReason(error),
       message: errorMessage(error),
-    } satisfies SessionEvent);
+    } satisfies SessionEvent;
+    mainWindow?.webContents.send(`sessions:event:${sessionId}`, event);
+    openGateway.publishSessionEvent(sessionId, event);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
     if (!finalAppendBroadcasted) {
