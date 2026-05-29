@@ -1915,6 +1915,28 @@ button:active {
   box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
 }
 
+.maka-plan-search-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.maka-plan-search-summary button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0;
+}
+
 .maka-plan-filters {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

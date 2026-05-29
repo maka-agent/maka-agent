@@ -1055,18 +1055,18 @@ function PlanReminderPanel(props: {
   const [listQuery, setListQuery] = useState('');
   const parsedRunAt = Date.parse(runAtLocal);
   const normalizedListQuery = normalizePlanReminderSearchQuery(listQuery);
+  const searchMatchedReminders = normalizedListQuery
+    ? props.reminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery))
+    : props.reminders;
   const visibleReminders = listFilter === 'all'
-    ? props.reminders
-    : props.reminders.filter((reminder) => reminder.status === listFilter);
-  const searchedReminders = normalizedListQuery
-    ? visibleReminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery))
-    : visibleReminders;
-  const sortedReminders = [...searchedReminders].sort(comparePlanReminderForDisplay);
+    ? searchMatchedReminders
+    : searchMatchedReminders.filter((reminder) => reminder.status === listFilter);
+  const sortedReminders = [...visibleReminders].sort(comparePlanReminderForDisplay);
   const filterCounts: Record<PlanReminderListFilter, number> = {
-    all: props.reminders.length,
-    scheduled: props.reminders.filter((reminder) => reminder.status === 'scheduled').length,
-    paused: props.reminders.filter((reminder) => reminder.status === 'paused').length,
-    completed: props.reminders.filter((reminder) => reminder.status === 'completed').length,
+    all: searchMatchedReminders.length,
+    scheduled: searchMatchedReminders.filter((reminder) => reminder.status === 'scheduled').length,
+    paused: searchMatchedReminders.filter((reminder) => reminder.status === 'paused').length,
+    completed: searchMatchedReminders.filter((reminder) => reminder.status === 'completed').length,
   };
   const delivery: PlanReminderDeliveryTarget = deliveryChannel === 'bot'
     ? { channel: 'bot', platform: deliveryPlatform, chatId: deliveryChatId.trim() }
@@ -1286,6 +1286,12 @@ function PlanReminderPanel(props: {
             placeholder="搜索标题、备注、投递或执行记录…"
           />
         </label>
+        {normalizedListQuery && (
+          <div className="maka-plan-search-summary" role="status" aria-live="polite">
+            <span>找到 {searchMatchedReminders.length} 个匹配提醒</span>
+            <button type="button" onClick={() => setListQuery('')}>清除搜索</button>
+          </div>
+        )}
         <div className="maka-plan-filters" aria-label="计划提醒筛选">
           {[
             ['all', '全部'],

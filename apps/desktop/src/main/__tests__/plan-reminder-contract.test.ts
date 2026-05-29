@@ -74,6 +74,9 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /planReminderMatchesSearch/, 'list search must be centralized instead of ad hoc JSX checks');
     assert.match(ui, /planReminderSearchText/, 'list search must cover title, note, delivery, recurrence, and run history text');
     assert.match(ui, /没有匹配的提醒/, 'list search must have a distinct empty result state');
+    assert.match(ui, /searchMatchedReminders/, 'status counts must reflect the active search query');
+    assert.match(ui, /找到 \{searchMatchedReminders\.length\} 个匹配提醒/, 'search must expose a visible result count');
+    assert.match(ui, /清除搜索/, 'search must provide a one-click clear action');
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {
