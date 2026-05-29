@@ -20,7 +20,7 @@ import type {
   ToastPosition,
   UiDensity,
 } from '@maka/core';
-import { isToastPosition, preflightDroppedTextFilesForPromptImport } from '@maka/core';
+import { MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES, isToastPosition, preflightDroppedTextFilesForPromptImport } from '@maka/core';
 import {
   applyAssistantDelta,
   applyThinkingComplete,
@@ -1298,20 +1298,33 @@ function AppShell(props: {
         return '文件过大；请先截取需要讨论的部分。';
       case 'too-many-files':
         return '一次最多导入 5 个文本文件。';
+      case 'unsupported-type':
+        return '只支持导入文本文件；图片、PDF 和 Office 文件请先转成文本。';
     }
+  }
+
+  async function buildDroppedTextFilePreflightInputs(files: File[]) {
+    return Promise.all(files.map(async (file) => ({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      sampleBytes: new Uint8Array(await file.slice(0, MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES).arrayBuffer()),
+    })));
   }
 
   async function importDroppedTextFilesPrompt(files: File[]): Promise<string | undefined> {
     if (files.length === 0) return;
-    const preflight = preflightDroppedTextFilesForPromptImport(files);
-    if (!preflight.ok) {
-      toastApi.error('导入文本失败', droppedTextFilePreflightFailureCopy(preflight.reason));
-      return undefined;
-    }
     try {
+      const preflightInputs = await buildDroppedTextFilePreflightInputs(files);
+      const preflight = preflightDroppedTextFilesForPromptImport(preflightInputs);
+      if (!preflight.ok) {
+        toastApi.error('导入文本失败', droppedTextFilePreflightFailureCopy(preflight.reason));
+        return undefined;
+      }
       const payloads = await Promise.all(files.map(async (file) => ({
         name: file.name,
         size: file.size,
+        type: file.type,
         text: await file.text(),
       })));
       const result = await window.maka.context.importDroppedTextFiles(payloads);

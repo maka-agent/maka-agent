@@ -8,7 +8,9 @@ import {
   MAX_IMPORTED_TEXT_FILE_BYTES,
   MAX_IMPORTED_TEXT_FILE_CHARS,
   MAX_IMPORTED_TEXT_FILE_COUNT,
+  MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES,
   MAX_IMPORTED_TEXT_FILES_CHARS,
+  preflightDroppedTextFilesForPromptImport,
 } from '@maka/core';
 
 export {
@@ -19,6 +21,7 @@ export {
   MAX_IMPORTED_TEXT_FILE_BYTES,
   MAX_IMPORTED_TEXT_FILE_CHARS,
   MAX_IMPORTED_TEXT_FILE_COUNT,
+  MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES,
   MAX_IMPORTED_TEXT_FILES_CHARS,
 } from '@maka/core';
 
@@ -38,6 +41,7 @@ export type TextFileImportFailureReason =
   | 'too-large'
   | 'binary'
   | 'too-many-files'
+  | 'unsupported-type'
   | 'read-failed';
 
 export type TextFileImportResult =
@@ -57,6 +61,7 @@ export type TextFileImportResult =
 export interface DroppedTextFilePayload {
   name: string;
   size: number;
+  type?: string;
   text: string;
 }
 
@@ -136,7 +141,13 @@ export async function readTextFilesForPromptImport(filePaths: string[]): Promise
 export function readDroppedTextFilesForPromptImport(payloads: DroppedTextFilePayload[]): TextFileImportResult {
   const selected = payloads.filter((file) => file && typeof file.name === 'string');
   if (selected.length === 0) return { ok: false, reason: 'missing' };
-  if (selected.length > MAX_IMPORTED_TEXT_FILE_COUNT) return { ok: false, reason: 'too-many-files' };
+  const preflight = preflightDroppedTextFilesForPromptImport(selected.map((file) => ({
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    sampleBytes: Buffer.from(typeof file.text === 'string' ? file.text : '', 'utf8').subarray(0, MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES),
+  })));
+  if (!preflight.ok) return preflight;
 
   const loadedFiles = [];
   for (const payload of selected) {

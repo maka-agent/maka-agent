@@ -666,7 +666,9 @@ export {
   MAX_IMPORTED_TEXT_FILE_BYTES,
   MAX_IMPORTED_TEXT_FILE_CHARS,
   MAX_IMPORTED_TEXT_FILE_COUNT,
+  MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES,
   MAX_IMPORTED_TEXT_FILES_CHARS,
+  isDroppedTextFileImportCompatible,
   preflightDroppedTextFilesForPromptImport,
 } from './text-file-import.js';
 

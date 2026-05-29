@@ -110,7 +110,7 @@ export interface WorkspaceInstructionsState {
 
 export type TextFileImportResult =
   | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'read-failed'; message: string };
+  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'unsupported-type' | 'read-failed'; message: string };
 
 export type FolderOutlineImportResult =
   | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
@@ -307,7 +307,7 @@ contextBridge.exposeInMainWorld('maka', {
     importTextFile(): Promise<TextFileImportResult> {
       return ipcRenderer.invoke('context:importTextFile');
     },
-    importDroppedTextFiles(files: Array<{ name: string; size: number; text: string }>): Promise<TextFileImportResult> {
+    importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult> {
       return ipcRenderer.invoke('context:importDroppedTextFiles', files);
     },
     importFolderOutline(): Promise<FolderOutlineImportResult> {

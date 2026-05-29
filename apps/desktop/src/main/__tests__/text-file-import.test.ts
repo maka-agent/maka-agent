@@ -136,8 +136,8 @@ describe('text file context import', () => {
 
   it('formats dropped renderer text files through the same prompt boundary without paths', () => {
     const result = readDroppedTextFilesForPromptImport([
-      { name: '/private/tmp/alpha.md', size: 12, text: '# Alpha\nfirst' },
-      { name: 'beta.json', size: 13, text: '{"beta":true}' },
+      { name: '/private/tmp/alpha.md', size: 12, type: 'text/markdown', text: '# Alpha\nfirst' },
+      { name: 'beta.json', size: 13, type: 'application/json', text: '{"beta":true}' },
     ]);
 
     assert.equal(result.ok, true);
@@ -167,6 +167,10 @@ describe('text file context import', () => {
         })),
       ),
       { ok: false, reason: 'too-many-files' },
+    );
+    assert.deepEqual(
+      readDroppedTextFilesForPromptImport([{ name: 'photo.png', size: 8, type: 'image/png', text: 'PNG' }]),
+      { ok: false, reason: 'unsupported-type' },
     );
   });
 
@@ -207,11 +211,13 @@ describe('text file context import', () => {
     assert.match(mainSource, /onImportTextFile=\{importTextFileIntoComposer\}/);
     assert.match(mainSource, /onImportDroppedTextFiles=\{importDroppedTextFilesPrompt\}/);
     assert.match(mainSource, /onImportDroppedTextFiles=\{importDroppedTextFilesIntoComposer\}/);
-    assert.match(mainSource, /preflightDroppedTextFilesForPromptImport\(files\)/);
+    assert.match(mainSource, /buildDroppedTextFilePreflightInputs\(files\)/);
+    assert.match(mainSource, /file\.slice\(0, MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES\)\.arrayBuffer\(\)/);
+    assert.match(mainSource, /preflightDroppedTextFilesForPromptImport\(preflightInputs\)/);
     assert.match(mainSource, /window\.maka\.context\.importDroppedTextFiles\(payloads\)/);
     assert.ok(
-      mainSource.indexOf('preflightDroppedTextFilesForPromptImport(files)') < mainSource.indexOf('text: await file.text()'),
-      'renderer must preflight count/size before reading dropped/pasted file text',
+      mainSource.indexOf('preflightDroppedTextFilesForPromptImport(preflightInputs)') < mainSource.indexOf('text: await file.text()'),
+      'renderer must preflight count/size/type/sample before reading dropped/pasted file text',
     );
     assert.match(mainSource, /composerRef\.current\?\.appendText\(prompt\)/);
     assert.match(mainSource, /draftKey=\{activeId \?\? 'new-session'\}/);
