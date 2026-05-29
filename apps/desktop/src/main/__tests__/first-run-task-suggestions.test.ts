@@ -55,4 +55,19 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(source, /workspaceInstructionCount > 0/);
     assert.match(source, /onOpenSettingsSection\('memory'\)/);
   });
+
+  it('starts the shipped plan reminder form from the first-run checklist', async () => {
+    const checklist = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
+    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+
+    assert.match(checklist, /onStartPlanReminder\?\(\): void/);
+    assert.match(checklist, /id:\s*'plan-reminder'/);
+    assert.match(checklist, /建一条本地计划提醒/);
+    assert.match(
+      checklist,
+      /onClick:\s*\(\)\s*=>\s*props\.onStartPlanReminder\?\.\(\)\s*\?\?\s*props\.onOpenSidebarModule\('automations'\)/,
+    );
+    assert.match(main, /function\s+openPlanReminderForm\(\)/);
+    assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);
+  });
 });

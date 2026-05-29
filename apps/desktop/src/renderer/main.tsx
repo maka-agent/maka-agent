@@ -1159,7 +1159,7 @@ function AppShell(props: {
     setPermissionBySession({});
   }
 
-  function startPlanReminderFromPalette() {
+  function openPlanReminderForm() {
     setNavSelection({ section: 'automations' });
     closePalette();
     window.requestAnimationFrame(() => {
@@ -1946,6 +1946,7 @@ function AppShell(props: {
                           onOpenSidebarModule={(target) => {
                             setNavSelection({ section: target });
                           }}
+                          onStartPlanReminder={openPlanReminderForm}
                         />
                       )}
                     </div>
@@ -2054,7 +2055,7 @@ function AppShell(props: {
             onSelectSession: setActiveId,
             onNewChat: () => void createSession(),
             onStartDeepResearch: () => void handleQuickChatSubmit('', 'deep_research'),
-            onStartPlanReminder: startPlanReminderFromPalette,
+            onStartPlanReminder: openPlanReminderForm,
             onOpenSettings: openSettings,
             onOpenSettingsSection: (section) => openSettingsSection(section),
             // PR-UX-POLISH-1 commit 4 (WAWQAQ `e0dbad11` + kenji `2844f64f`):

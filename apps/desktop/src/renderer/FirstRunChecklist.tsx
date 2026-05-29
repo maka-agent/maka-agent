@@ -39,6 +39,7 @@ interface ChecklistItem {
 export interface FirstRunChecklistProps {
   onOpenSettingsSection(section: SettingsSection): void;
   onOpenSidebarModule(target: 'daily-review' | 'automations'): void;
+  onStartPlanReminder?(): void;
 }
 
 export function FirstRunChecklist(props: FirstRunChecklistProps) {
@@ -94,9 +95,9 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         id: 'plan-reminder',
         Icon: Clock,
         title: '建一条本地计划提醒',
-        reason: '能本地保存一条到点提醒，全程不离线开本机。',
+        reason: '能本地保存一条到点提醒，全程留在本机，不需要外部服务。',
         done: hasPlanReminder,
-        onClick: () => props.onOpenSidebarModule('automations'),
+        onClick: () => props.onStartPlanReminder?.() ?? props.onOpenSidebarModule('automations'),
       },
       {
         id: 'daily-review',

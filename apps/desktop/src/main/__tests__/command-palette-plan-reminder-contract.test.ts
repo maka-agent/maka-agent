@@ -20,9 +20,9 @@ describe('command palette plan reminder contract', () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
 
-    assert.match(main, /function\s+startPlanReminderFromPalette\(\)/);
+    assert.match(main, /function\s+openPlanReminderForm\(\)/);
     assert.match(main, /setNavSelection\(\{\s*section:\s*'automations'\s*\}\)/);
-    assert.match(main, /onStartPlanReminder:\s*startPlanReminderFromPalette/);
+    assert.match(main, /onStartPlanReminder:\s*openPlanReminderForm/);
     assert.match(main, /querySelector<HTMLInputElement>\('\[data-maka-plan-title-input="true"\]'\)/);
     assert.match(ui, /data-maka-plan-title-input="true"/);
   });
