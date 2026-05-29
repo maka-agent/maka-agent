@@ -2232,6 +2232,7 @@ function MemorySettingsPage(props: {
   > | null>(null);
   const [draft, setDraft] = useState('');
   const [newMemoryTitle, setNewMemoryTitle] = useState('');
+  const [newMemoryTags, setNewMemoryTags] = useState('');
   const [newMemoryContent, setNewMemoryContent] = useState('');
   const [busy, setBusy] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2363,6 +2364,7 @@ function MemorySettingsPage(props: {
     const result = appendManualLocalMemoryEntryDraft(draft, {
       title: newMemoryTitle,
       content: newMemoryContent,
+      tags: newMemoryTags.split(','),
     });
     if (!result.ok) {
       switch (result.reason) {
@@ -2379,6 +2381,7 @@ function MemorySettingsPage(props: {
     }
     setDraft(result.draft);
     setNewMemoryTitle('');
+    setNewMemoryTags('');
     setNewMemoryContent('');
     toast.success('已添加到草稿', '确认文件内容后点击保存。');
     requestAnimationFrame(() => {
@@ -2502,6 +2505,14 @@ function MemorySettingsPage(props: {
             onChange={(event) => setNewMemoryTitle(event.currentTarget.value)}
             aria-label="记忆标题"
             placeholder="标题"
+            disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+          />
+          <input
+            type="text"
+            value={newMemoryTags}
+            onChange={(event) => setNewMemoryTags(event.currentTarget.value)}
+            aria-label="记忆标签"
+            placeholder="标签（逗号分隔，可选）"
             disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
           />
           <textarea

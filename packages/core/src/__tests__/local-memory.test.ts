@@ -115,18 +115,20 @@ describe('local MEMORY.md contract', () => {
     const result = appendManualLocalMemoryEntryDraft('# Maka Memory\n', {
       title: '  Writing style  ',
       content: 'Prefer concise answers.',
+      tags: [' preference ', 'writing style', 'preference', ''],
       now: 1700000000000,
     });
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.match(result.draft, /^# Maka Memory\n\n## Writing style/m);
-    assert.match(result.draft, /id=manual-1700000000000 origin=manual createdAt=1700000000000 status=active/);
+    assert.match(result.draft, /id=manual-1700000000000 origin=manual createdAt=1700000000000 status=active tags=preference,writing-style/);
     assert.match(result.draft, /Prefer concise answers\.\n$/);
 
     const parsed = parseLocalMemoryMarkdown(result.draft);
     assert.equal(parsed.entries.length, 1);
     assert.equal(parsed.activeEntries[0]?.origin, 'manual');
+    assert.deepEqual(parsed.activeEntries[0]?.tags, ['preference', 'writing-style']);
   });
 
   it('rejects blank manual draft entries and oversized resulting drafts', () => {

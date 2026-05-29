@@ -64,6 +64,7 @@ export interface LocalMemoryState {
 export interface AppendManualLocalMemoryEntryInput {
   readonly title: string;
   readonly content: string;
+  readonly tags?: readonly string[];
   readonly now?: number;
 }
 
@@ -131,9 +132,17 @@ export function appendManualLocalMemoryEntryDraft(
   if (!content) return { ok: false, reason: 'empty_content' };
 
   const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
+  const tags = normalizeManualEntryTags(input.tags ?? []);
+  const meta = [
+    `id=manual-${now}`,
+    'origin=manual',
+    `createdAt=${now}`,
+    'status=active',
+    ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
+  ].join(' ');
   const entry = [
     `## ${title}`,
-    `<!-- maka-memory: id=manual-${now} origin=manual createdAt=${now} status=active -->`,
+    `<!-- maka-memory: ${meta} -->`,
     content,
   ].join('\n');
   const draft = currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
@@ -240,6 +249,23 @@ function normalizeManualEntryTitle(input: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
+}
+
+function normalizeManualEntryTags(input: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of input) {
+    const tag = raw
+      .replace(/[\s,]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .trim()
+      .slice(0, 24);
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= 8) break;
+  }
+  return tags;
 }
 
 function normalizeOrigin(input: string | undefined): LocalMemoryOrigin {
