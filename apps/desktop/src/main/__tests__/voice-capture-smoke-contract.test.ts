@@ -54,4 +54,17 @@ describe('voice capture smoke Settings contract', () => {
     assert.match(activityBlock![0], /屏幕与应用级录制未接入/, 'activity reason must keep the unshipped recorder boundary visible');
     assert.doesNotMatch(activityBlock![0], /activity timeline not implemented/, 'old placeholder reason must not return');
   });
+
+  it('capability center uses user-facing unavailable copy instead of implementation placeholders', async () => {
+    const [settings, snapshot] = await Promise.all([
+      readFile(SETTINGS_MODAL, 'utf8'),
+      readFile(CAPABILITY_SNAPSHOT, 'utf8'),
+    ]);
+    assert.match(settings, /case\s+'not_available':\s*return\s+'未开放'/, 'not_available label should be product-facing copy');
+    assert.doesNotMatch(settings, /尚未实现/, 'Settings capability UI must not render not_available as unfinished implementation copy');
+    assert.doesNotMatch(snapshot, /not implemented|missing_token|local gateway disabled/, 'capability reasons must not leak internal placeholder/error identifiers');
+    assert.match(snapshot, /原生控制 helper 未接入/, 'Computer Use must keep a clear product boundary reason');
+    assert.match(snapshot, /本地 Gateway 已关闭/, 'Open Gateway disabled state must use user-facing copy');
+    assert.match(snapshot, /缺少访问 token/, 'Open Gateway missing token state must use user-facing copy');
+  });
 });

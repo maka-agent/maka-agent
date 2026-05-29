@@ -49,7 +49,7 @@ export function buildCapabilitySnapshotCollection(input: {
       id: 'computer_use',
       label: 'Computer Use',
       now,
-      feature: { state: 'not_available', source: 'scaffold', reason: 'native helper not implemented' },
+      feature: { state: 'not_available', source: 'scaffold', reason: '原生控制 helper 未接入；需要独立 permission / audit gate' },
       requiredPermissions: [
         { id: 'accessibility', required: true, status: permissions.accessibility.status },
         { id: 'screen_recording', required: true, status: permissions.screen_recording.status },
@@ -105,7 +105,7 @@ export function buildCapabilitySnapshotCollection(input: {
       feature: {
         state: input.settings.openGateway.enabled ? 'enabled' : 'disabled',
         source: 'settings',
-        reason: input.settings.openGateway.enabled ? undefined : 'local gateway disabled',
+        reason: input.settings.openGateway.enabled ? undefined : '本地 Gateway 已关闭',
       },
       requiredPermissions: [],
       actionApproval: { state: 'required_per_action', source: 'capability_policy' },
@@ -113,7 +113,7 @@ export function buildCapabilitySnapshotCollection(input: {
       runtimeProbe: {
         state: input.settings.openGateway.enabled && input.settings.openGateway.token ? 'not_run' : 'not_available',
         source: input.settings.openGateway.enabled ? 'runtime_probe' : 'not_applicable',
-        reason: input.settings.openGateway.enabled && !input.settings.openGateway.token ? 'missing_token' : undefined,
+        reason: input.settings.openGateway.enabled && !input.settings.openGateway.token ? '缺少访问 token' : undefined,
       },
     }),
     staticCapability({

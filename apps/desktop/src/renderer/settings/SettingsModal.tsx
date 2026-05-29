@@ -3518,7 +3518,7 @@ function featureLabel(state: CapabilitySnapshot['feature']['state']): string {
     case 'enabled': return '已开启';
     case 'partial': return '部分可用';
     case 'disabled': return '已关闭';
-    case 'not_available': return '尚未实现';
+    case 'not_available': return '未开放';
   }
 }
 function featureTone(state: CapabilitySnapshot['feature']['state']): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
