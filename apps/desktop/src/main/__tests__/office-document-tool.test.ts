@@ -4,7 +4,12 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
-import { buildOfficeDocumentTool, runOfficeDocumentOperation } from '../office-document-tool.js';
+import {
+  buildOfficeDocumentEditTool,
+  buildOfficeDocumentTool,
+  runOfficeDocumentEditOperation,
+  runOfficeDocumentOperation,
+} from '../office-document-tool.js';
 
 describe('OfficeDocument read-only tool', () => {
   it('registers a read-only Office document adapter without permission prompts', () => {
@@ -15,6 +20,17 @@ describe('OfficeDocument read-only tool', () => {
     assert.match(tool.description, /Allowed operations are help/);
     assert.match(tool.description, /view outline\/text\/stats\/issues\/annotated/);
     assert.doesNotMatch(tool.description, /\badd\b.*\bset\b.*\bclose\b/);
+  });
+
+  it('registers a separate permission-gated Office document editor', () => {
+    const tool = buildOfficeDocumentEditTool();
+    assert.equal(tool.name, 'OfficeDocumentEdit');
+    assert.equal(tool.displayName, 'Office 文档编辑');
+    assert.equal(tool.permissionRequired, true);
+    assert.equal(tool.categoryHint, 'file_write');
+    assert.match(tool.description, /create, add, set, and remove/);
+    assert.match(tool.description, /prompts for file-write permission/);
+    assert.match(tool.description, /never runs raw, watch, batch, shell/);
   });
 
   it('supports read-only officecli help without a document path', async () => {
@@ -235,6 +251,138 @@ describe('OfficeDocument read-only tool', () => {
       assert.equal(result.ok, false);
       assert.equal(result.kind, 'office_document');
       assert.equal(result.ok ? null : result.reason, 'officecli_missing');
+    });
+  });
+
+  it('creates new Office documents through the write adapter without overwriting existing files', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const realWorkspaceRoot = await realpath(workspaceRoot);
+      const expectedPath = join(realWorkspaceRoot, 'draft.docx');
+      const calls: Array<{ cmd: string; args: string[] }> = [];
+      const created = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'draft.docx',
+        operation: 'create',
+        runner: fakeRunner((cmd, args, _options, callback) => {
+          calls.push({ cmd, args });
+          callback(null, 'created', '');
+        }),
+      });
+
+      assert.equal(created.ok, true);
+      if (!created.ok) return;
+      assert.equal(created.kind, 'office_document');
+      assert.equal(created.operation, 'create');
+      assert.equal(created.path, 'draft.docx');
+      assert.deepEqual(created.args, ['create', 'draft.docx']);
+      assert.deepEqual(calls, [{ cmd: 'officecli', args: ['create', expectedPath] }]);
+
+      await writeFile(join(workspaceRoot, 'existing.docx'), 'not a real docx');
+      const existing = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'existing.docx',
+        operation: 'create',
+      });
+      assert.equal(existing.ok, false);
+      assert.equal(existing.ok ? null : existing.reason, 'file_exists');
+    });
+  });
+
+  it('builds bounded add/set/remove edit args and keeps displayed paths relative', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeFile(join(workspaceRoot, 'report.docx'), 'not a real docx');
+      const realWorkspaceRoot = await realpath(workspaceRoot);
+      const expectedPath = join(realWorkspaceRoot, 'report.docx');
+      const calls: Array<{ cmd: string; args: string[] }> = [];
+      const runner = fakeRunner((cmd, args, _options, callback) => {
+        calls.push({ cmd, args });
+        callback(null, 'ok', '');
+      });
+
+      const added = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'report.docx',
+        operation: 'add',
+        target: '/body',
+        elementType: 'paragraph',
+        props: { text: 'Executive Summary', bold: true, size: 14 },
+        index: 0,
+        runner,
+      });
+      assert.equal(added.ok, true);
+      if (!added.ok) return;
+      assert.deepEqual(added.args, [
+        'add',
+        'report.docx',
+        '/body',
+        '--type',
+        'paragraph',
+        '--prop',
+        'text=Executive Summary',
+        '--prop',
+        'bold=true',
+        '--prop',
+        'size=14',
+        '--index',
+        '0',
+      ]);
+
+      const set = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'report.docx',
+        operation: 'set',
+        target: '/body/p[1]',
+        props: { color: '1F4E79' },
+        runner,
+      });
+      assert.equal(set.ok, true);
+
+      const removed = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'report.docx',
+        operation: 'remove',
+        target: '/body/p[2]',
+        runner,
+      });
+      assert.equal(removed.ok, true);
+
+      assert.deepEqual(calls, [
+        ['add', expectedPath, '/body', '--type', 'paragraph', '--prop', 'text=Executive Summary', '--prop', 'bold=true', '--prop', 'size=14', '--index', '0'],
+        ['set', expectedPath, '/body/p[1]', '--prop', 'color=1F4E79'],
+        ['remove', expectedPath, '/body/p[2]'],
+      ].map((args) => ({ cmd: 'officecli', args })));
+    });
+  });
+
+  it('fails closed on unsafe edit selectors, props, and paths', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeFile(join(workspaceRoot, 'report.docx'), 'not a real docx');
+
+      const missingTarget = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'report.docx',
+        operation: 'remove',
+      });
+      assert.equal(missingTarget.ok, false);
+      assert.equal(missingTarget.ok ? null : missingTarget.reason, 'invalid_selector');
+
+      const badProps = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: 'report.docx',
+        operation: 'set',
+        target: '/body/p[1]',
+        props: { 'bad key': 'value' },
+      });
+      assert.equal(badProps.ok, false);
+      assert.equal(badProps.ok ? null : badProps.reason, 'invalid_props');
+
+      const escaped = await runOfficeDocumentEditOperation({
+        cwd: workspaceRoot,
+        path: '../draft.docx',
+        operation: 'create',
+      });
+      assert.equal(escaped.ok, false);
+      assert.equal(escaped.ok ? null : escaped.reason, 'invalid_path');
     });
   });
 });

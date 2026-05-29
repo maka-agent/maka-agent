@@ -177,7 +177,7 @@ import {
   type TextFileImportFailureReason,
 } from './text-file-import.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
-import { buildOfficeDocumentTool } from './office-document-tool.js';
+import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -250,6 +250,7 @@ const builtinTools = [
   // itself only reads filenames/text snippets under the session cwd.
   buildExploreAgentTool(),
   buildOfficeDocumentTool(),
+  buildOfficeDocumentEditTool(),
   // PR-AGENT-WEB-SEARCH-TOOL-0: Tavily-backed WebSearch tool. Closed
   // over settingsStore so the renderer never sees the API key; the
   // permission engine routes it through the `web_read` policy which
