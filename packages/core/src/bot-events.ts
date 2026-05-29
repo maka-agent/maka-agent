@@ -131,3 +131,48 @@ function sanitizeBotUserName(value: string): string {
     .replace(/\s+/g, ' ')
     .trim() || 'unknown';
 }
+
+/**
+ * PR-BOT-LASTERROR-FROM-SEND-0 (Hermes deep-dive): translate the bridge's
+ * machine-readable `BotStatus.reason` into a short user-readable string
+ * suitable for persistence in `BotChannelSettings.lastError`. The Settings
+ * page reads `lastError` from persisted settings (not live status), so
+ * without this persistence step the user sees stale connection-test
+ * errors instead of the actual send-path failure that happened minutes
+ * ago.
+ *
+ * Returns `undefined` for non-error reasons (disabled/stopped/missing
+ * credentials — those have their own UI surface) and for unrecognized
+ * inputs whose pass-through risks leaking unredacted payloads.
+ *
+ * Length-capped at 200 chars defensively; a real Telegram error
+ * description is typically well under 80 chars.
+ */
+const BOT_REASON_HUMANIZE: Record<string, string | undefined> = {
+  'rate-limited': '发送被节流（429）；上一条回复可能截断，可以请用户再发一次',
+  'polling-timeout': '事件轮询超时；可能是网络抖动或代理失效',
+  'send-failed': '上一次发送失败，详细原因 Telegram 没有返回',
+  'get-me-failed': '凭据探测失败；请检查 Bot Token',
+  // Non-error states surface elsewhere in the UI — return undefined so
+  // we do not overwrite a real lastError with a benign status change.
+  'disabled': undefined,
+  'stopped': undefined,
+  'no-token': undefined,
+  'missing-feishu-credentials': undefined,
+  'feishu-domain-required': undefined,
+  'feishu-events-not-connected': undefined,
+  'scaffold-only': undefined,
+  'unimplemented': undefined,
+};
+
+export function humanizeBotStatusReason(reason: string | undefined): string | undefined {
+  if (typeof reason !== 'string' || reason.length === 0) return undefined;
+  if (reason in BOT_REASON_HUMANIZE) {
+    return BOT_REASON_HUMANIZE[reason];
+  }
+  // Pass-through for Telegram-supplied descriptions ("Bad Request: chat
+  // not found", etc.). Trim + length-cap to keep `lastError` bounded.
+  const trimmed = reason.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length > 200 ? trimmed.slice(0, 200) : trimmed;
+}

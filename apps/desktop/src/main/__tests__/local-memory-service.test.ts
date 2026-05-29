@@ -51,8 +51,30 @@ describe('LocalMemoryService', () => {
     ].join('\n');
     const state = await service.save(next);
     assert.equal(state.entryCount, 1);
+    assert.equal(state.activeEntryCount, 1);
+    assert.equal(state.archivedEntryCount, 0);
     assert.match(await readFile(service.file, 'utf8'), /喜欢短回答/);
     assert.match(await readFile(`${service.file}.bak`, 'utf8'), /示例/);
+  });
+
+  it('counts archived entries but previews the latest active entry', async () => {
+    const { service } = await makeService()();
+    const state = await service.save([
+      '# Maka Memory',
+      '',
+      '## Active',
+      '<!-- maka-memory: id=active origin=manual status=active -->',
+      'Use this.',
+      '',
+      '## Archived',
+      '<!-- maka-memory: id=archived origin=manual status=archived -->',
+      'Do not use this.',
+    ].join('\n'));
+
+    assert.equal(state.entryCount, 2);
+    assert.equal(state.activeEntryCount, 1);
+    assert.equal(state.archivedEntryCount, 1);
+    assert.equal(state.latestEntry?.id, 'active');
   });
 
   it('does not write oversized content', async () => {

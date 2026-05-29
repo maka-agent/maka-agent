@@ -6,6 +6,7 @@ import {
   botConversationKey,
   botDisplayLabel,
   formatBotMessageForSession,
+  humanizeBotStatusReason,
   isPlaintextHelpCommand,
   isPlaintextResetCommand,
   plaintextHelpReply,
@@ -141,5 +142,49 @@ describe('isPlaintextHelpCommand', () => {
         `help phrase ${phrase} must not also be a reset trigger`,
       );
     }
+  });
+});
+
+// PR-BOT-LASTERROR-FROM-SEND-0
+describe('humanizeBotStatusReason', () => {
+  test('returns undefined for non-error states so we do not overwrite a real lastError', () => {
+    assert.equal(humanizeBotStatusReason('disabled'), undefined);
+    assert.equal(humanizeBotStatusReason('stopped'), undefined);
+    assert.equal(humanizeBotStatusReason('no-token'), undefined);
+    assert.equal(humanizeBotStatusReason('scaffold-only'), undefined);
+    assert.equal(humanizeBotStatusReason('unimplemented'), undefined);
+    assert.equal(humanizeBotStatusReason('feishu-domain-required'), undefined);
+  });
+
+  test('translates known send-path failure reasons to user-readable copy', () => {
+    assert.match(humanizeBotStatusReason('rate-limited')!, /节流/);
+    assert.match(humanizeBotStatusReason('polling-timeout')!, /轮询超时/);
+    assert.match(humanizeBotStatusReason('send-failed')!, /发送失败/);
+    assert.match(humanizeBotStatusReason('get-me-failed')!, /凭据探测失败/);
+  });
+
+  test('passes through Telegram-supplied descriptions verbatim (trimmed)', () => {
+    assert.equal(
+      humanizeBotStatusReason('  Bad Request: chat not found  '),
+      'Bad Request: chat not found',
+    );
+    assert.equal(
+      humanizeBotStatusReason('Unauthorized'),
+      'Unauthorized',
+    );
+  });
+
+  test('length-caps unknown reasons to 200 chars defensively', () => {
+    const long = 'A'.repeat(300);
+    const out = humanizeBotStatusReason(long)!;
+    assert.equal(out.length, 200);
+    assert.equal(out, 'A'.repeat(200));
+  });
+
+  test('returns undefined for empty / whitespace / non-string', () => {
+    assert.equal(humanizeBotStatusReason(undefined), undefined);
+    assert.equal(humanizeBotStatusReason(''), undefined);
+    assert.equal(humanizeBotStatusReason('   '), undefined);
+    assert.equal(humanizeBotStatusReason('\t\n'), undefined);
   });
 });

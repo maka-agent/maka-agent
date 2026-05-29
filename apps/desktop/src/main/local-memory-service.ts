@@ -38,6 +38,8 @@ export class LocalMemoryService {
         status: 'incognito_blocked',
         content: '',
         entryCount: 0,
+        activeEntryCount: 0,
+        archivedEntryCount: 0,
         reason: '隐身模式下禁用本地记忆读写。',
       };
     }
@@ -49,6 +51,8 @@ export class LocalMemoryService {
         status: 'disabled',
         content: '',
         entryCount: 0,
+        activeEntryCount: 0,
+        archivedEntryCount: 0,
       };
     }
     try {
@@ -63,6 +67,8 @@ export class LocalMemoryService {
           status: 'safe_mode',
           content,
           entryCount: 0,
+          activeEntryCount: 0,
+          archivedEntryCount: 0,
           reason: parsed.reason,
         };
       }
@@ -73,7 +79,9 @@ export class LocalMemoryService {
         status: 'ok',
         content,
         entryCount: parsed.entries.length,
-        latestEntry: parsed.entries.at(-1),
+        activeEntryCount: parsed.activeEntries.length,
+        archivedEntryCount: parsed.archivedEntries.length,
+        latestEntry: parsed.activeEntries.at(-1),
       };
     } catch (error) {
       return {
@@ -83,6 +91,8 @@ export class LocalMemoryService {
         status: 'error',
         content: '',
         entryCount: 0,
+        activeEntryCount: 0,
+        archivedEntryCount: 0,
         reason: error instanceof Error ? error.message : 'memory read failed',
       };
     }
@@ -101,6 +111,8 @@ export class LocalMemoryService {
         status: 'safe_mode',
         content,
         entryCount: 0,
+        activeEntryCount: 0,
+        archivedEntryCount: 0,
         reason: parsed.reason,
       };
     }

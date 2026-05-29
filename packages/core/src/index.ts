@@ -385,13 +385,17 @@ export {
 
 // local-memory.ts — transparent user-visible MEMORY.md MVP.
 export type {
+  LocalMemoryEntryStatus,
   LocalMemoryEntryPreview,
+  LocalMemoryOrigin,
   LocalMemoryParseResult,
   LocalMemorySettings,
   LocalMemoryState,
 } from './local-memory.js';
 export {
   LOCAL_MEMORY_MAX_BYTES,
+  LOCAL_MEMORY_PROMPT_MAX_CHARS,
+  buildLocalMemoryPromptBody,
   defaultLocalMemoryMarkdown,
   defaultLocalMemorySettings,
   normalizeLocalMemorySettings,
@@ -607,6 +611,7 @@ export {
   botConversationKey,
   botDisplayLabel,
   formatBotMessageForSession,
+  humanizeBotStatusReason,
   isPlaintextHelpCommand,
   isPlaintextResetCommand,
   plaintextHelpReply,

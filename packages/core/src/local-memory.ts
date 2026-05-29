@@ -10,16 +10,37 @@ export interface LocalMemorySettings {
   readonly agentReadEnabled: boolean;
 }
 
+export type LocalMemoryOrigin = 'manual' | 'extracted' | 'imported' | 'unknown';
+export type LocalMemoryEntryStatus = 'active' | 'archived';
+
 export interface LocalMemoryEntryPreview {
   readonly id: string;
-  readonly origin: 'manual' | 'unknown';
+  readonly origin: LocalMemoryOrigin;
+  readonly status: LocalMemoryEntryStatus;
   readonly title: string;
   readonly content: string;
   readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly tags: readonly string[];
+  readonly decayTtlMs?: number;
 }
 
 export interface LocalMemoryParseResult {
   readonly entries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly activeEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly archivedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
+  readonly safeMode: boolean;
+  readonly reason?: 'empty' | 'oversize';
+}
+
+interface LocalMemoryRawEntry extends LocalMemoryEntryPreview {
+  readonly promptContent: string;
+}
+
+interface LocalMemoryRawParseResult {
+  readonly entries: ReadonlyArray<LocalMemoryRawEntry>;
+  readonly activeEntries: ReadonlyArray<LocalMemoryRawEntry>;
+  readonly archivedEntries: ReadonlyArray<LocalMemoryRawEntry>;
   readonly safeMode: boolean;
   readonly reason?: 'empty' | 'oversize';
 }
@@ -31,11 +52,14 @@ export interface LocalMemoryState {
   readonly status: 'ok' | 'disabled' | 'safe_mode' | 'incognito_blocked' | 'error';
   readonly content: string;
   readonly entryCount: number;
+  readonly activeEntryCount: number;
+  readonly archivedEntryCount: number;
   readonly latestEntry?: LocalMemoryEntryPreview;
   readonly reason?: string;
 }
 
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
+export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
 
 export function defaultLocalMemorySettings(): LocalMemorySettings {
   return { enabled: true, agentReadEnabled: false };
@@ -62,13 +86,37 @@ export function defaultLocalMemoryMarkdown(now = Date.now()): string {
 }
 
 export function parseLocalMemoryMarkdown(input: string): LocalMemoryParseResult {
+  const parsed = parseLocalMemoryMarkdownRaw(input);
+  if (parsed.safeMode || parsed.reason) return parsed;
+  return toPreviewParseResult(parsed);
+}
+
+export function buildLocalMemoryPromptBody(input: string): string | undefined {
+  const parsed = parseLocalMemoryMarkdownRaw(input);
+  if (parsed.safeMode || parsed.activeEntries.length === 0) return undefined;
+
+  const blocks = parsed.activeEntries.map((entry) => {
+    const lines = [`## ${entry.title}`];
+    if (entry.tags.length > 0) lines.push(`Tags: ${entry.tags.join(', ')}`);
+    lines.push(entry.promptContent);
+    return lines.join('\n');
+  });
+  const body = blocks.join('\n\n').trim();
+  if (body.length === 0) return undefined;
+  if (body.length <= LOCAL_MEMORY_PROMPT_MAX_CHARS) return body;
+  return `${body.slice(0, LOCAL_MEMORY_PROMPT_MAX_CHARS).trimEnd()}\n\n[本地记忆已按长度截断]`;
+}
+
+function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
   const size = new TextEncoder().encode(input).byteLength;
   if (size > LOCAL_MEMORY_MAX_BYTES) {
-    return { entries: [], safeMode: true, reason: 'oversize' };
+    return { entries: [], activeEntries: [], archivedEntries: [], safeMode: true, reason: 'oversize' };
   }
-  if (input.trim().length === 0) return { entries: [], safeMode: false, reason: 'empty' };
+  if (input.trim().length === 0) {
+    return { entries: [], activeEntries: [], archivedEntries: [], safeMode: false, reason: 'empty' };
+  }
 
-  const entries: LocalMemoryEntryPreview[] = [];
+  const entries: LocalMemoryRawEntry[] = [];
   const lines = input.split(/\r?\n/);
   let current: { title: string; body: string[]; meta?: Record<string, string> } | null = null;
 
@@ -77,15 +125,22 @@ export function parseLocalMemoryMarkdown(input: string): LocalMemoryParseResult 
     const content = current.body.join('\n').trim();
     if (content.length > 0) {
       const id = current.meta?.id ?? slugId(current.title);
-      const origin = current.meta?.origin === 'manual' ? 'manual' : 'unknown';
-      const createdAtRaw = current.meta?.createdAt;
-      const createdAt = createdAtRaw ? Number(createdAtRaw) : undefined;
+      const origin = normalizeOrigin(current.meta?.origin);
+      const status = current.meta?.status === 'archived' ? 'archived' : 'active';
+      const createdAt = parseFiniteNumber(current.meta?.createdAt);
+      const updatedAt = parseFiniteNumber(current.meta?.updatedAt);
+      const decayTtlMs = parseFiniteNumber(current.meta?.decayTtlMs);
       entries.push({
         id,
         origin,
+        status,
         title: current.title,
         content: content.slice(0, 500),
+        promptContent: content,
         ...(Number.isFinite(createdAt) ? { createdAt } : {}),
+        ...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
+        tags: parseTags(current.meta?.tags),
+        ...(Number.isFinite(decayTtlMs) ? { decayTtlMs } : {}),
       });
     }
     current = null;
@@ -107,7 +162,24 @@ export function parseLocalMemoryMarkdown(input: string): LocalMemoryParseResult 
     current.body.push(line);
   }
   flush();
-  return { entries, safeMode: false };
+  const archivedEntries = entries.filter((entry) => entry.status === 'archived');
+  const activeEntries = entries.filter((entry) => entry.status === 'active');
+  return { entries, activeEntries, archivedEntries, safeMode: false };
+}
+
+function toPreviewParseResult(parsed: LocalMemoryRawParseResult): LocalMemoryParseResult {
+  const entries = parsed.entries.map(stripPromptContent);
+  return {
+    ...parsed,
+    entries,
+    activeEntries: entries.filter((entry) => entry.status === 'active'),
+    archivedEntries: entries.filter((entry) => entry.status === 'archived'),
+  };
+}
+
+function stripPromptContent(entry: LocalMemoryRawEntry): LocalMemoryEntryPreview {
+  const { promptContent: _promptContent, ...preview } = entry;
+  return preview;
 }
 
 function parseMetaComment(line: string): Record<string, string> | null {
@@ -126,6 +198,37 @@ function parseMetaComment(line: string): Record<string, string> | null {
   return meta;
 }
 
+function normalizeOrigin(input: string | undefined): LocalMemoryOrigin {
+  switch (input) {
+    case 'manual':
+    case 'extracted':
+    case 'imported':
+      return input;
+    default:
+      return 'unknown';
+  }
+}
+
+function parseFiniteNumber(input: string | undefined): number | undefined {
+  if (!input) return undefined;
+  const value = Number(input);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function parseTags(input: string | undefined): string[] {
+  if (!input) return [];
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of input.split(',')) {
+    const tag = raw.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= 8) break;
+  }
+  return tags;
+}
+
 function slugId(title: string): string {
   const slug = title
     .trim()
@@ -135,4 +238,3 @@ function slugId(title: string): string {
     .slice(0, 48);
   return slug.length > 0 ? slug : 'memory-entry';
 }
-

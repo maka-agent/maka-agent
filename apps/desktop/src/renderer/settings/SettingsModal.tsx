@@ -2362,6 +2362,8 @@ function MemorySettingsPage(props: {
     status: 'disabled',
     content: '',
     entryCount: 0,
+    activeEntryCount: 0,
+    archivedEntryCount: 0,
   } satisfies LocalMemoryState;
 
   return (
@@ -2440,13 +2442,14 @@ function MemorySettingsPage(props: {
 
       <div className="settingsConnectionMeta">
         <span>{effective.path || 'MEMORY.md 尚未创建'}</span>
-        <span>{effective.entryCount} 条条目</span>
+        <span>{effective.activeEntryCount} 条生效</span>
+        {effective.archivedEntryCount > 0 && <span>{effective.archivedEntryCount} 条已归档</span>}
       </div>
 
       {effective.latestEntry && (
         <div className="settingsMemoryPreview">
           <strong>{effective.latestEntry.title}</strong>
-          <small>{effective.latestEntry.origin === 'manual' ? '手动记录' : '手写条目'}</small>
+          <small>{memoryOriginLabel(effective.latestEntry.origin)}</small>
           <p>{effective.latestEntry.content}</p>
         </div>
       )}
@@ -2487,6 +2490,15 @@ function MemorySettingsPage(props: {
       </div>
     </div>
   );
+}
+
+function memoryOriginLabel(origin: NonNullable<LocalMemoryState['latestEntry']>['origin']): string {
+  switch (origin) {
+    case 'manual': return '手动记录';
+    case 'imported': return '导入记录';
+    case 'extracted': return '确认提取';
+    case 'unknown': return '手写条目';
+  }
 }
 
 function memoryStatusLabel(status: LocalMemoryState['status']): string {
