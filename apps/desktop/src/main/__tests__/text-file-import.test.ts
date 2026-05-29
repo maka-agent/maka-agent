@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { appendPromptContextDraft, readComposerDraft, rememberComposerDraft } from '@maka/ui';
+import {
+  appendPromptContextDraft,
+  navigateComposerHistory,
+  readComposerDraft,
+  rememberComposerDraft,
+  rememberComposerHistoryEntry,
+} from '@maka/ui';
 import {
   MAX_IMPORTED_TEXT_FILE_BYTES,
   MAX_IMPORTED_TEXT_FILE_CHARS,
@@ -39,6 +45,29 @@ describe('text file context import', () => {
     rememberComposerDraft(store, 'session-a', '   ');
     assert.equal(readComposerDraft(store, 'session-a'), '');
     assert.equal(readComposerDraft(store, 'session-b'), 'B 里的问题');
+  });
+
+  it('keeps composer prompt history runtime-only and navigable', () => {
+    const entries = rememberComposerHistoryEntry(
+      rememberComposerHistoryEntry([], '第一条问题'),
+      '第二条问题',
+    );
+    assert.deepEqual(entries, ['第一条问题', '第二条问题']);
+    assert.deepEqual(rememberComposerHistoryEntry(entries, '第一条问题'), ['第二条问题', '第一条问题']);
+
+    const previous = navigateComposerHistory({ entries, index: -1, savedDraft: '' }, 'previous', '临时草稿');
+    assert.equal(previous.value, '第二条问题');
+    assert.equal(previous.state.savedDraft, '临时草稿');
+
+    const older = navigateComposerHistory(previous.state, 'previous', previous.value);
+    assert.equal(older.value, '第一条问题');
+
+    const newer = navigateComposerHistory(older.state, 'next', older.value);
+    assert.equal(newer.value, '第二条问题');
+
+    const restored = navigateComposerHistory(newer.state, 'next', newer.value);
+    assert.equal(restored.value, '临时草稿');
+    assert.equal(restored.state.index, -1);
   });
 
   it('formats a selected text file into a prompt fragment', async () => {
@@ -148,6 +177,9 @@ describe('text file context import', () => {
     assert.match(uiSource, /aria-label="导入文件夹目录"/);
     assert.match(uiSource, /rememberComposerDraft\(draftStoreRef\.current, previousKey/);
     assert.match(uiSource, /readComposerDraft\(draftStoreRef\.current, nextKey\)/);
+    assert.match(uiSource, /rememberComposerHistoryEntry\(promptHistoryRef\.current\.entries, text\)/);
+    assert.match(uiSource, /navigateComposerHistory\(/);
+    assert.doesNotMatch(uiSource, /localStorage\.setItem\([^)]*draft/i);
   });
 
   it('formats a selected folder into a bounded prompt outline', async () => {
