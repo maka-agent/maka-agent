@@ -1204,12 +1204,23 @@ function AppShell(props: {
     }
     await refreshSkills();
     toastApi.success('已创建示例技能', `${result.skill.id}/SKILL.md 已放到工作区 skills 目录。`);
+    const openResult = await window.maka.skills.open(result.skill.id, 'file');
+    if (!openResult.ok) {
+      toastApi.error('无法打开示例技能', openSkillFailureCopy(openResult.reason));
+    }
   }
 
   async function openSkillsFolder() {
     const result = await window.maka.app.openPath('skills');
     if (!result.ok) {
       toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathFailureCopy(result.reason));
+    }
+  }
+
+  async function openSkill(skillId: string) {
+    const result = await window.maka.skills.open(skillId, 'file');
+    if (!result.ok) {
+      toastApi.error('无法打开 Skill', openSkillFailureCopy(result.reason));
     }
   }
 
@@ -1224,6 +1235,17 @@ function AppShell(props: {
     if (reason === 'blocked_path') return 'skills 目录不是普通工作区目录，已阻止写入。';
     if (reason === 'already_exists') return '示例技能编号已占满，请先整理 skills 目录。';
     return '写入 skills 目录失败，请检查工作区权限。';
+  }
+
+  function openSkillFailureCopy(
+    reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed',
+  ): string {
+    if (reason === 'invalid_id') return 'Skill 名称不在允许范围内。';
+    if (reason === 'missing') return '没有找到对应的 SKILL.md。';
+    if (reason === 'blocked_path') return 'Skill 路径不在工作区 skills 目录内，已阻止打开。';
+    if (reason === 'not_file') return '目标不是一个可打开的 SKILL.md 文件。';
+    if (reason === 'not_directory') return '目标不是一个可打开的目录。';
+    return '系统打开文件失败。';
   }
 
   async function send(text: string): Promise<boolean> {
@@ -1948,6 +1970,7 @@ function AppShell(props: {
             skills={skills}
             onRefreshSkills={() => void refreshSkills()}
             onCreateSkillTemplate={() => void createSkillTemplate()}
+            onOpenSkill={(skillId) => void openSkill(skillId)}
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
@@ -1957,7 +1980,6 @@ function AppShell(props: {
             onOpenSettings={openSettings}
             onOpenUpdate={() => openSettingsSection('about')}
             onNew={createSession}
-            onOpenSkillFolder={() => void openSkillsFolder()}
             onOpenSearchModal={() => setSearchModalOpen(true)}
             onCreatePlanReminder={(input) => void createPlanReminder(input)}
             onUpdatePlanReminder={(id, patch) => void updatePlanReminder(id, patch)}

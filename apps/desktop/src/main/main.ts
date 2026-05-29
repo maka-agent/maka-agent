@@ -134,7 +134,7 @@ import { connectionTestStatusPatch } from './connection-test-status.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
 import { buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
-import { buildSkillsPromptFragment, createStarterSkill, listInstalledSkills } from './skills.js';
+import { buildSkillsPromptFragment, createStarterSkill, listInstalledSkills, resolveSkillOpenPath } from './skills.js';
 import {
   buildWorkspaceInstructionsPromptFragment,
   createWorkspaceInstructionFile,
@@ -1117,6 +1117,13 @@ function registerIpc(): void {
   });
   ipcMain.handle('skills:list', async () => listInstalledSkills(workspaceRoot));
   ipcMain.handle('skills:createStarter', async () => createStarterSkill(workspaceRoot));
+  ipcMain.handle('skills:open', async (_event, id: string, target: 'file' | 'directory' = 'file') => {
+    const resolved = await resolveSkillOpenPath(workspaceRoot, id, target);
+    if (!resolved.ok) return resolved;
+    const error = await shell.openPath(resolved.path);
+    if (error) return { ok: false, reason: 'open_failed' as const };
+    return { ok: true as const, target: resolved.target };
+  });
   ipcMain.handle('plans:list', () => planReminderStore.list());
   ipcMain.handle('plans:create', async (_event, input: unknown) => {
     const privacy = defaultWorkspacePrivacyContext();

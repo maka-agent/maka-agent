@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -9,6 +9,7 @@ import {
   createStarterSkill,
   listInstalledSkills,
   parseSkillFrontMatter,
+  resolveSkillOpenPath,
 } from '../skills.js';
 
 describe('skills ingestion', () => {
@@ -118,6 +119,45 @@ name: Existing
     });
   });
 
+  it('resolves only workspace-contained skill files for opening', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'writer', `---
+name: Writer
+---
+# Writer`);
+      const skillFile = await realpath(join(workspaceRoot, 'skills', 'writer', 'SKILL.md'));
+      const skillDirectory = await realpath(join(workspaceRoot, 'skills', 'writer'));
+      assert.deepEqual(
+        await resolveSkillOpenPath(workspaceRoot, 'writer', 'file'),
+        { ok: true, path: skillFile, target: 'file' },
+      );
+      assert.deepEqual(
+        await resolveSkillOpenPath(workspaceRoot, 'writer', 'directory'),
+        { ok: true, path: skillDirectory, target: 'directory' },
+      );
+      assert.deepEqual(await resolveSkillOpenPath(workspaceRoot, '../writer', 'file'), {
+        ok: false,
+        reason: 'invalid_id',
+      });
+    });
+  });
+
+  it('blocks symlinked skill directories when opening a specific skill', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const outside = await mkdtemp(join(tmpdir(), 'maka-skill-open-outside-'));
+      try {
+        await mkdir(join(workspaceRoot, 'skills'), { recursive: true });
+        await symlink(outside, join(workspaceRoot, 'skills', 'outside'));
+        assert.deepEqual(await resolveSkillOpenPath(workspaceRoot, 'outside', 'directory'), {
+          ok: false,
+          reason: 'blocked_path',
+        });
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('skills empty state can refresh without restarting Maka', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
@@ -136,8 +176,11 @@ name: Existing
     assert.match(renderer, /async function createSkillTemplate\(\)/);
     assert.match(renderer, /onRefreshSkills=\{\(\) => void refreshSkills\(\)\}/);
     assert.match(renderer, /onCreateSkillTemplate=\{\(\) => void createSkillTemplate\(\)\}/);
+    assert.match(renderer, /onOpenSkill=\{\(skillId\) => void openSkill\(skillId\)\}/);
     assert.match(preload, /createStarter\(\)/);
+    assert.match(preload, /open\(id: string, target: 'file' \| 'directory' = 'file'\)/);
     assert.match(main, /ipcMain\.handle\('skills:createStarter'/);
+    assert.match(main, /ipcMain\.handle\('skills:open'/);
   });
 
   it('parses inline and list-style allowed-tools front matter', () => {

@@ -348,6 +348,10 @@ declare global {
           | { ok: true; skill: { id: string; name: string; description: string; path: string; declaredTools: string[] }; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
         >;
+        open(id: string, target?: 'file' | 'directory'): Promise<
+          | { ok: true; target: 'file' | 'directory' }
+          | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed' }
+        >;
       };
     };
   }

@@ -312,7 +312,7 @@ export function SessionListPanel(props: {
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
   onNew(): void;
-  onOpenSkillFolder?(path: string): void;
+  onOpenSkill?(skillId: string): void;
   /** Opens the local version/build information surface. */
   onOpenUpdate(): void;
   /**
@@ -562,7 +562,7 @@ export function SessionListPanel(props: {
                     key={skill.id}
                     type="button"
                     className="maka-list-row maka-skill-row"
-                    onClick={() => props.onOpenSkillFolder?.(skill.path)}
+                    onClick={() => props.onOpenSkill?.(skill.id)}
                     title={hoverText}
                   >
                     <div className="maka-list-row-text">
