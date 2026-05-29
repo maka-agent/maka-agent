@@ -39,6 +39,8 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /编辑提醒/, '计划 UI must include reminder editing');
     assert.match(ui, /保存提醒/, '计划 edit UI must save through the existing update path');
     assert.match(ui, /onUpdatePlanReminder/, 'renderer must wire PlanReminderPanel edits to plans.update');
+    assert.match(ui, /复制/, '计划 UI must support duplicating an existing reminder into the create form');
+    assert.match(ui, /duplicateReminder/, 'duplicate action must reuse the create form instead of adding a second persistence path');
     assert.match(ui, /下次触发/, '计划 UI must show next trigger time');
     assert.match(ui, /重复/, '计划 UI must expose recurrence instead of only one-shot reminders');
     assert.match(ui, /Cron/, '计划 UI must expose cron syntax instead of only fixed recurrence presets');
