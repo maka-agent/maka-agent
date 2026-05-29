@@ -20,6 +20,7 @@ import {
   buildBotPlatformPromptFragment,
   botConversationKey,
   botDisplayLabel,
+  isBotDeliveryProvider,
   formatBotMessageForSession,
   formatPlanReminderDeliveryMessage,
 } from '@maka/core';
@@ -2129,6 +2130,15 @@ async function triggerDuePlanReminders(): Promise<void> {
 
 async function deliverPlanReminder(reminder: PlanReminder, now: number): Promise<void> {
   if (reminder.delivery.channel === 'bot') {
+    if (!isBotDeliveryProvider(reminder.delivery.platform)) {
+      const blocked = await planReminderStore.markBlocked(reminder.id, {
+        at: now,
+        message: `${botDisplayLabel(reminder.delivery.platform)} 通道未开放投递，计划提醒没有投递。`,
+        blockReason: 'bot_delivery_unavailable',
+      });
+      emitPlansChanged('blocked', blocked);
+      return;
+    }
     const sent = await botRegistry
       .sendMessage(reminder.delivery.platform, reminder.delivery.chatId, formatPlanReminderDeliveryMessage(reminder))
       .catch(() => null);

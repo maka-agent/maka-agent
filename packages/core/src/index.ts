@@ -565,18 +565,21 @@ export type {
 } from './settings.js';
 export {
   BOT_READINESS_STATES,
+  BOT_DELIVERY_PROVIDERS,
   BOT_PROVIDERS,
   DEFAULT_PROXY_BYPASS_DOMAINS,
   THEME_PALETTES,
   TOAST_POSITIONS,
   createDefaultBotChannel,
   createDefaultSettings,
+  isBotDeliveryProvider,
   isBotReadinessState,
   isThemePalette,
   isToastPosition,
   mergeSettings,
   normalizeSettings,
 } from './settings.js';
+export type { BotDeliveryProvider } from './settings.js';
 
 // bot-platform-hints.ts
 export type {

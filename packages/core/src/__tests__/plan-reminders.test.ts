@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BOT_DELIVERY_PROVIDERS,
+  BOT_PROVIDERS,
+  isBotDeliveryProvider,
+} from '../settings.js';
+import {
   isPlanReminderDue,
   nextPlanReminderStateAfterTrigger,
   nextPlanReminderRunAtAfter,
@@ -108,6 +113,19 @@ describe('plan reminder contract', () => {
     assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'email', address: 'x' }).ok, false);
     assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'mastodon', chatId: '1' }).ok, false);
     assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'telegram', chatId: ' ' }).ok, false);
+  });
+
+  it('only accepts live send-capable bot platforms for reminder delivery', () => {
+    assert.deepEqual(BOT_DELIVERY_PROVIDERS, ['telegram']);
+    assert.equal(isBotDeliveryProvider('telegram'), true);
+    for (const provider of BOT_PROVIDERS) {
+      const result = normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: provider, chatId: '123' });
+      assert.equal(
+        result.ok,
+        isBotDeliveryProvider(provider),
+        `${provider} delivery must match the send-capable provider allowlist`,
+      );
+    }
   });
 
   it('rejects empty title and past runAt instead of silently defaulting', () => {

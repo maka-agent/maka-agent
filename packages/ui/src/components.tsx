@@ -71,7 +71,7 @@ import type {
 } from '@maka/core';
 import {
   derivePermissionRequestHealth,
-  BOT_PROVIDERS,
+  BOT_DELIVERY_PROVIDERS,
   botDisplayLabel,
   formatPlanReminderDeliveryTarget,
   formatPermissionRequestWait,
@@ -1234,7 +1234,7 @@ function PlanReminderPanel(props: {
             <label className="maka-plan-field">
               <span>平台</span>
               <select value={deliveryPlatform} onChange={(event) => setDeliveryPlatform(event.currentTarget.value as BotProvider)}>
-                {BOT_PROVIDERS.map((provider) => (
+                {BOT_DELIVERY_PROVIDERS.map((provider) => (
                   <option key={provider} value={provider}>{botDisplayLabel(provider)}</option>
                 ))}
               </select>

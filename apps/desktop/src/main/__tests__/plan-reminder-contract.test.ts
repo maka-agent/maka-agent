@@ -47,6 +47,8 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /重复/, '计划 UI must expose recurrence instead of only one-shot reminders');
     assert.match(ui, /Cron/, '计划 UI must expose cron syntax instead of only fixed recurrence presets');
     assert.match(ui, /机器人聊天/, '计划 UI must expose bot delivery instead of hiding platform delivery behind code only');
+    assert.match(ui, /BOT_DELIVERY_PROVIDERS\.map/, 'bot delivery platform picker must list only send-capable bot providers');
+    assert.doesNotMatch(ui, /BOT_PROVIDERS\.map\(\(provider\)[\s\S]*botDisplayLabel\(provider\)/, 'bot delivery platform picker must not expose every scaffolded bot provider');
     assert.match(ui, /Chat ID/, 'bot delivery must require an explicit target chat id');
     assert.match(ui, /立即触发/, '计划 UI must expose a manual trigger path for smoke-testing delivery');
     assert.match(ui, /延后 10 分钟/, '计划 UI must expose a bounded snooze path');
@@ -93,6 +95,7 @@ describe('Plan reminder MVP contract', () => {
     assert.match(main, /triggerDuePlanReminders/, 'scheduler must process due reminders');
     assert.match(main, /markTriggered/, 'scheduler must persist triggered run records');
     assert.match(main, /deliverPlanReminder/, 'scheduler must route due reminders through the delivery boundary');
+    assert.match(main, /isBotDeliveryProvider\(reminder\.delivery\.platform\)/, 'scheduler must reject bot platforms that are not send-capable');
     assert.match(main, /botRegistry\s*\.\s*sendMessage/, 'bot delivery must use the bot registry send boundary');
     assert.match(main, /bot_delivery_unavailable/, 'bot delivery failure must be recorded as blocked, not triggered');
     assert.match(main, /plans:due/, 'scheduler must notify renderer when reminder fires');

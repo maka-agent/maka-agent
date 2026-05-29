@@ -351,6 +351,16 @@ export const BOT_PROVIDERS: BotProvider[] = [
   'qq',
 ];
 
+export type BotDeliveryProvider = Extract<BotProvider, 'telegram'>;
+
+export const BOT_DELIVERY_PROVIDERS: BotDeliveryProvider[] = [
+  'telegram',
+];
+
+export function isBotDeliveryProvider(value: unknown): value is BotDeliveryProvider {
+  return typeof value === 'string' && (BOT_DELIVERY_PROVIDERS as readonly string[]).includes(value);
+}
+
 export const DEFAULT_PROXY_BYPASS_DOMAINS = [
   'localhost',
   '127.0.0.1',

@@ -1,4 +1,4 @@
-import { BOT_PROVIDERS, type BotProvider } from './settings.js';
+import { BOT_PROVIDERS, isBotDeliveryProvider, type BotProvider } from './settings.js';
 
 export const PLAN_REMINDER_TITLE_MAX_CHARS = 120;
 export const PLAN_REMINDER_NOTE_MAX_CHARS = 1000;
@@ -304,6 +304,9 @@ export function normalizePlanReminderDeliveryTarget(input: unknown): PlanReminde
   const platform = (record as Partial<PlanReminderBotDeliveryTarget>).platform;
   if (!isBotProvider(platform)) {
     return invalid('invalid_delivery', 'Plan reminder bot delivery platform is not supported');
+  }
+  if (!isBotDeliveryProvider(platform)) {
+    return invalid('invalid_delivery', 'Plan reminder bot delivery platform is not enabled for delivery');
   }
   const chatId = normalizePlanReminderDeliveryChatId((record as Partial<PlanReminderBotDeliveryTarget>).chatId);
   if (!chatId.ok) return chatId;
