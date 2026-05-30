@@ -42,6 +42,9 @@ describe('deep research session profile', () => {
     const prompt = buildDeepResearchSystemPromptFragment();
     assert.match(prompt, /Read, Glob, Grep/);
     assert.match(prompt, /ExploreAgent/);
+    assert.match(prompt, /Do not use ExploreAgent just because it is available/);
+    assert.match(prompt, /known file, a specific symbol, package scripts, test setup, config, or 1-3 obvious files/);
+    assert.match(prompt, /goal, relevant paths or keywords, what to ignore, a stopping condition/);
     assert.match(prompt, /Do not write/);
     assert.match(prompt, /borrow \/ diverge \/ risk \/ gate/);
     for (const step of DEEP_RESEARCH_WORKFLOW_STEPS) {

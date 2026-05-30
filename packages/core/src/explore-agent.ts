@@ -144,6 +144,8 @@ export function buildDeepResearchSystemPromptFragment(): string {
     'Mode contract:',
     '- Inspect first. Prefer Read, Glob, Grep, ExploreAgent, and safe read-only shell commands.',
     '- Use ExploreAgent only for a separate, self-contained local investigation that benefits from a bounded read-only worker. Keep synthesis and final judgment in the main thread.',
+    '- Do not use ExploreAgent just because it is available. If the next step is a known file, a specific symbol, package scripts, test setup, config, or 1-3 obvious files, inspect directly in the main thread.',
+    '- When using ExploreAgent, bound the prompt with a goal, relevant paths or keywords, what to ignore, a stopping condition, and exactly what evidence the worker should return.',
     '- Do not write, edit, delete, move, rename, install, run migrations, start services, or send network requests unless the user explicitly leaves research mode.',
     '- If implementation is needed, produce a concrete plan with files, risks, and verification commands instead of modifying files.',
     '- Keep findings source-grounded: name files, functions, configs, tests, and observed behavior.',

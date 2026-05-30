@@ -177,7 +177,8 @@ export function buildExploreAgentTool(): MakaTool<
     description:
       'Run a bounded read-only local exploration worker for a self-contained research question. ' +
       'It inspects filenames and text snippets under the session cwd only, returns candidate files and source-grounded matches, ' +
-      'and never writes files, starts services, installs packages, or uses the network. Use it when a separate investigation saves main-thread work.',
+      'and never writes files, starts services, installs packages, or uses the network. Use it when a separate investigation saves main-thread work. ' +
+      'Do not use it for one known file, a specific symbol, package scripts, test setup, config, or 1-3 obvious files; inspect those directly.',
     parameters: z.object({
       objective: z.string().min(4).max(600).describe('Specific research objective for the read-only worker.'),
       roots: z.array(z.string().min(1).max(240)).max(MAX_ROOTS).optional()

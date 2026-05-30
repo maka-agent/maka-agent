@@ -13,6 +13,8 @@ describe('ExploreAgent read-only worker', () => {
     assert.equal(tool.categoryHint, 'subagent');
     assert.match(tool.description, /read-only/);
     assert.match(tool.description, /never writes/);
+    assert.match(tool.description, /Do not use it for one known file/);
+    assert.match(tool.description, /1-3 obvious files/);
   });
 
   it('returns source-grounded matches without absolute paths', async () => {
