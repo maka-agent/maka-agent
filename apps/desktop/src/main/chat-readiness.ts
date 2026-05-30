@@ -98,7 +98,7 @@ function messageForReason(
     case 'connection_disabled':
       return `模型连接 "${connection.name}" 已禁用。请到 设置 · 模型 启用或选择其他默认模型。`;
     case 'missing_api_key':
-      return `模型连接 "${connection.name}" 缺少 API key。请到 设置 · 模型 补齐密钥后再聊天。`;
+      return `模型连接 "${connection.name}" 等待填写 API key。请到 设置 · 模型 补齐密钥后再聊天。`;
     case 'missing_model':
       return `模型连接 "${connection.name}" 没有可用模型。请到 设置 · 模型 选择一个默认模型。`;
     case 'empty_model_list':

@@ -53,7 +53,7 @@ describe('chat readiness guard', () => {
         name: 'provider requires secret but has none',
         slug: 'anthropic',
         deps: deps({ connection: connection(), apiKey: null }),
-        includes: '缺少 API key',
+        includes: '等待填写 API key',
         reason: 'missing_api_key',
       },
     ];
@@ -156,7 +156,7 @@ describe('chat readiness guard', () => {
     await assertRejectsReadiness(
       'old ai session after key removal',
       () => assertSessionCanSend(header(), deps({ connection: connection(), apiKey: null })),
-      '缺少 API key',
+      '等待填写 API key',
       'missing_api_key',
     );
 
@@ -201,6 +201,19 @@ describe('chat readiness guard', () => {
       })),
       '没有可用模型',
       'missing_model',
+    );
+  });
+
+  test('missing_api_key copy is an actionable waiting state, not a raw missing-field error', async () => {
+    await assert.rejects(
+      () => requireReadyConnection('anthropic', deps({ connection: connection(), apiKey: null })),
+      (error) => {
+        const message = (error as Error).message;
+        assert.match(message, /等待填写 API key/);
+        assert.doesNotMatch(message, /缺少 API key/);
+        assert.equal(errorReason(error), 'missing_api_key');
+        return true;
+      },
     );
   });
 
