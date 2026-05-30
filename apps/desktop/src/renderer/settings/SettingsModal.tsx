@@ -874,7 +874,7 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
           </div>
           <p>
             每日回顾会按你选择的日期范围，把活跃会话、模型用量、工具调用聚合到一个面板里。
-            主内容栏里的 "每日回顾" 支持今日 / 本周 / 本月切换、左右翻页、复制 Markdown 摘要，也可以点击会话直接打开。
+            主内容栏里的 "每日回顾" 支持今日 / 本周 / 本月切换、左右翻页、复制 / 保存 Markdown 摘要，也可以把当前范围粘到输入框继续追问。
           </p>
           {props.onOpenDailyReview && (
             <button
@@ -898,7 +898,7 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
         <li>活跃对话（点击可直接打开）</li>
         <li>使用最频繁的模型 Top 8</li>
         <li>调用最频繁的工具 Top 8</li>
-        <li>复制 Markdown 摘要</li>
+        <li>复制 / 保存 Markdown 摘要，或粘到输入框继续追问</li>
       </ul>
 
       <div className="settingsFeatureStatusHeroHeading">
