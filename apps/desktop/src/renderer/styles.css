@@ -10422,22 +10422,41 @@ button:active {
    the same accent-emphasis as the surrounding Settings nav so the
    visual language stays consistent. */
 .maka-daily-review-range {
-  display: flex;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   padding: 4px 0 8px;
   border-bottom: 1px solid var(--foreground-10);
-  justify-content: center;
 }
 
-.maka-daily-review-range > button {
+.maka-daily-review-range-tabs,
+.maka-daily-review-actions {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.maka-daily-review-range-tabs > button {
   flex: 1;
   font-size: 12px;
 }
 
-.maka-daily-review-range > button[data-active="true"] {
+.maka-daily-review-actions > button {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.maka-daily-review-range-tabs > button[data-active="true"] {
   background: oklch(from var(--accent) l c h / 0.12);
   color: var(--accent);
   font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .maka-daily-review-range {
+    grid-template-columns: 1fr;
+  }
 }
 
 .maka-daily-review-totals {

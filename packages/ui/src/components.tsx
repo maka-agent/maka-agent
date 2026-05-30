@@ -351,7 +351,8 @@ export function SessionListPanel(props: {
   onSnoozePlanReminder?(id: string): void;
   onClearPlanReminderRunHistory?(id: string): void;
   onDeletePlanReminder?(id: string): void;
-  onCopyDailyReviewMarkdown?(input: { markdown: string; label: string; summary: DailyReviewSummary }): Promise<void> | void;
+  onCopyDailyReviewMarkdown?(input: DailyReviewMarkdownActionInput): Promise<void> | void;
+  onSaveDailyReviewMarkdown?(input: DailyReviewMarkdownActionInput): Promise<void> | void;
   /**
    * PR-DAILY-REVIEW-MVP-0: bridge for the `每日回顾` panel. When
    * provided, the daily-review section renders the real panel instead
@@ -815,11 +816,17 @@ export interface DailyReviewBridge {
  * diverge: no cron, no auto-push, no memory promotion (privacy default).
  */
 type DailyReviewRange = 1 | 7 | 30;
+type DailyReviewMarkdownActionInput = {
+  markdown: string;
+  label: string;
+  summary: DailyReviewSummary;
+};
 
 function DailyReviewPanel(props: {
   bridge: DailyReviewBridge;
   onSelectSession?: (sessionId: string) => void;
-  onCopyMarkdown?: (input: { markdown: string; label: string; summary: DailyReviewSummary }) => Promise<void> | void;
+  onCopyMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
+  onSaveMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
 }) {
   const [offsetDays, setOffsetDays] = useState(0);
   // PR-DAILY-REVIEW-RANGE-0: 今日 / 本周 / 本月 tabs that map to a
@@ -890,36 +897,53 @@ function DailyReviewPanel(props: {
         </button>
       </header>
       <nav className="maka-daily-review-range" aria-label="时间范围切换">
-        {([1, 7, 30] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            className="maka-button maka-button-ghost"
-            data-active={range === option ? 'true' : undefined}
-            onClick={() => {
-              setRange(option);
-              setOffsetDays(0);
-            }}
-          >
-            {option === 1 ? '今日' : option === 7 ? '本周' : '本月'}
-          </button>
-        ))}
+        <div className="maka-daily-review-range-tabs">
+          {([1, 7, 30] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="maka-button maka-button-ghost"
+              data-active={range === option ? 'true' : undefined}
+              onClick={() => {
+                setRange(option);
+                setOffsetDays(0);
+              }}
+            >
+              {option === 1 ? '今日' : option === 7 ? '本周' : '本月'}
+            </button>
+          ))}
+        </div>
         {summary && summary.totals.sessionCount + summary.totals.requestCount > 0 && (
-          <button
-            type="button"
-            className="maka-button maka-button-ghost maka-daily-review-copy"
-            onClick={() => {
-              const md = formatDailyReviewMarkdown(summary, dayLabel);
-              if (props.onCopyMarkdown) {
-                void props.onCopyMarkdown({ markdown: md, label: dayLabel, summary });
-                return;
-              }
-              void navigator.clipboard.writeText(md).catch(() => {});
-            }}
-            title="复制为 Markdown 摘要，方便分享 / 贴到笔记"
-          >
-            复制
-          </button>
+          <div className="maka-daily-review-actions" aria-label="回顾导出操作">
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-daily-review-copy"
+              onClick={() => {
+                const md = formatDailyReviewMarkdown(summary, dayLabel);
+                if (props.onCopyMarkdown) {
+                  void props.onCopyMarkdown({ markdown: md, label: dayLabel, summary });
+                  return;
+                }
+                void navigator.clipboard.writeText(md).catch(() => {});
+              }}
+              title="复制为 Markdown 摘要，方便分享 / 贴到笔记"
+            >
+              复制
+            </button>
+            {props.onSaveMarkdown && (
+              <button
+                type="button"
+                className="maka-button maka-button-ghost maka-daily-review-save"
+                onClick={() => {
+                  const md = formatDailyReviewMarkdown(summary, dayLabel);
+                  void props.onSaveMarkdown?.({ markdown: md, label: dayLabel, summary });
+                }}
+                title="保存为 Markdown 文件"
+              >
+                保存
+              </button>
+            )}
+          </div>
         )}
       </nav>
 
@@ -944,7 +968,7 @@ function DailyReviewPanel(props: {
         />
       ) : (
         <>
-          <section className="maka-daily-review-totals" aria-label="今日总览">
+          <section className="maka-daily-review-totals" aria-label={`${dayLabel}总览`}>
             <DailyReviewTotalsCell label="对话" value={summary.totals.sessionCount.toString()} />
             <DailyReviewTotalsCell label="请求" value={summary.totals.requestCount.toString()} />
             <DailyReviewTotalsCell
@@ -2780,7 +2804,8 @@ export function ChatView(props: {
   onClearPlanReminderRunHistory?: (id: string) => void;
   onDeletePlanReminder?: (id: string) => void;
   dailyReviewBridge?: DailyReviewBridge;
-  onCopyDailyReviewMarkdown?: (input: { markdown: string; label: string; summary: DailyReviewSummary }) => Promise<void> | void;
+  onCopyDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
+  onSaveDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
   onSelectSession?: (sessionId: string) => void;
   /**
    * Search-result navigation target. The desktop shell owns session
@@ -2938,6 +2963,7 @@ export function ChatView(props: {
             bridge={props.dailyReviewBridge}
             onSelectSession={props.onSelectSession}
             onCopyMarkdown={props.onCopyDailyReviewMarkdown}
+            onSaveMarkdown={props.onSaveDailyReviewMarkdown}
           />
         ) : (
           <EmptyState

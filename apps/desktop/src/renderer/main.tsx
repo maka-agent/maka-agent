@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useMemo, useRef, useState, type CSSProperties, t
 import { createRoot } from 'react-dom/client';
 import type {
   ConnectionEvent,
+  DailyReviewSummary,
   LlmConnection,
   PermissionMode,
   PlanReminder,
@@ -95,6 +96,23 @@ function basenameFromPath(value: string): string {
   const trimmed = value.replace(/[\\/]+$/, '');
   const name = trimmed.split(/[\\/]/).filter(Boolean).pop();
   return name || trimmed || '当前项目';
+}
+
+function dailyReviewExportDefaultName(label: string): string {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  const scope = label.includes('30')
+    ? '30d'
+    : label.includes('7')
+      ? '7d'
+      : label === '昨天'
+        ? 'yesterday'
+        : label === '今天'
+          ? 'today'
+          : 'day';
+  return `maka-daily-review-${scope}-${yyyy}-${mm}-${dd}.md`;
 }
 
 function App() {
@@ -239,6 +257,32 @@ function AppShell() {
     }),
     [],
   );
+  async function saveDailyReviewMarkdown(input: {
+    markdown: string;
+    label: string;
+    summary: DailyReviewSummary;
+  }) {
+    try {
+      const result = await window.maka.dailyReview.saveMarkdownToFile({
+        markdown: input.markdown,
+        defaultName: dailyReviewExportDefaultName(input.label),
+      });
+      if (result.ok) {
+        toastApi.success(
+          `已保存${input.label}回顾`,
+          `${input.summary.totals.sessionCount} 个对话 · ${input.summary.totals.requestCount} 个请求`,
+        );
+      } else if (result.reason === 'canceled') {
+        // User dismissed the dialog — no toast.
+      } else if (result.reason === 'invalid_input') {
+        toastApi.error('保存失败', '导出内容无效');
+      } else {
+        toastApi.error('保存失败', '无法写入选择的位置');
+      }
+    } catch (err) {
+      toastApi.error('保存失败', err instanceof Error ? err.message : '保存每日回顾失败');
+    }
+  }
   const activePermission = activeId ? permissionBySession[activeId] : undefined;
   const activeSession = sessions.find((session) => session.id === activeId);
   const activeConnection = activeSession
@@ -1987,6 +2031,7 @@ function AppShell() {
                 toastApi.error('复制失败', error instanceof Error ? error.message : '剪贴板不可用');
               }
             }}
+            onSaveDailyReviewMarkdown={(input) => void saveDailyReviewMarkdown(input)}
             dailyReviewBridge={dailyReviewBridge}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
@@ -2071,6 +2116,7 @@ function AppShell() {
                     toastApi.error('复制失败', error instanceof Error ? error.message : '剪贴板不可用');
                   }
                 }}
+                onSaveDailyReviewMarkdown={(input) => void saveDailyReviewMarkdown(input)}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
                     ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }
@@ -2398,24 +2444,7 @@ function AppShell() {
               try {
                 const summary = await dailyReviewBridge.fetchDay(0, 1);
                 const markdown = formatDailyReviewMarkdown(summary, '今天');
-                const localToday = new Date();
-                const yyyy = localToday.getFullYear();
-                const mm = String(localToday.getMonth() + 1).padStart(2, '0');
-                const dd = String(localToday.getDate()).padStart(2, '0');
-                const defaultName = `maka-daily-review-${yyyy}-${mm}-${dd}.md`;
-                const result = await window.maka.dailyReview.saveMarkdownToFile({ markdown, defaultName });
-                if (result.ok) {
-                  toastApi.success(
-                    '已保存今日回顾',
-                    `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
-                  );
-                } else if (result.reason === 'canceled') {
-                  // User dismissed the dialog — no toast.
-                } else if (result.reason === 'invalid_input') {
-                  toastApi.error('保存失败', '导出内容无效');
-                } else {
-                  toastApi.error('保存失败', '无法写入选择的位置');
-                }
+                await saveDailyReviewMarkdown({ markdown, label: '今天', summary });
               } catch (err) {
                 toastApi.error(
                   '保存失败',

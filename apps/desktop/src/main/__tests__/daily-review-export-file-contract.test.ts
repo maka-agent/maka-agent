@@ -11,6 +11,8 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
     const renderer = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const css = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles.css'), 'utf8');
 
     // IPC handler is registered and shape-validates its input before
     // hitting the save dialog or filesystem.
@@ -33,8 +35,15 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     // Renderer wires the callback to fetch summary, render markdown,
     // invoke IPC, and surface a toast on success/failure.
     assert.match(renderer, /onSaveTodayDailyReviewToFile:\s*async \(\)/);
-    assert.match(renderer, /dailyReview\.saveMarkdownToFile\(\{\s*markdown,\s*defaultName/);
-    assert.match(renderer, /toastApi\.success\(\s*['"]已保存今日回顾['"]/);
+    assert.match(renderer, /dailyReview\.saveMarkdownToFile\(\{\s*markdown:\s*input\.markdown,\s*defaultName/);
+    assert.match(renderer, /toastApi\.success\(\s*`已保存\$\{input\.label\}回顾`/);
+
+    // The main Daily Review panel exposes save next to copy, so export
+    // is not hidden behind command palette muscle memory.
+    assert.match(ui, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
+    assert.match(ui, /onSaveMarkdown=\{props\.onSaveDailyReviewMarkdown\}/);
+    assert.match(ui, /maka-daily-review-save[\s\S]*保存/);
+    assert.match(css, /\.maka-daily-review-actions/);
   });
 
   it('clamps the save payload size so a renderer cannot force a large write', async () => {
