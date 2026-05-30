@@ -69,9 +69,14 @@ describe('local MEMORY.md Settings UI contract', () => {
     const css = await readRepo('apps/desktop/src/renderer/styles.css');
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
+    assert.match(src, /LOCAL_MEMORY_PROMPT_MAX_CHARS/);
     assert.match(src, /buildLocalMemoryPromptBody/);
     assert.match(pageBlock, /const localMemoryPromptPreview = useMemo\(\(\) => buildLocalMemoryPromptBody\(draft\) \?\? '', \[draft\]\)/);
     assert.match(pageBlock, /localMemoryPromptPreviewBlockedReason\(effective\)/);
+    assert.match(pageBlock, /localMemoryPromptPreviewTruncated/);
+    assert.match(pageBlock, /localMemoryPromptPreviewBudgetLabel/);
+    assert.match(pageBlock, /预览已按 \$\{LOCAL_MEMORY_PROMPT_MAX_CHARS\.toLocaleString\('zh-CN'\)\} 字符上限截断/);
+    assert.match(pageBlock, /prompt 上限 \$\{LOCAL_MEMORY_PROMPT_MAX_CHARS\.toLocaleString\('zh-CN'\)\} 字符/);
     assert.match(pageBlock, /模型上下文预览/);
     assert.match(pageBlock, /发送时会注入/);
     assert.match(pageBlock, /当前不会注入/);
@@ -79,7 +84,12 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /已归档条目不会注入/);
     assert.match(pageBlock, /疑似密钥会遮蔽/);
     assert.match(pageBlock, /<pre>\{localMemoryPromptPreview\}<\/pre>/);
+    assert.match(pageBlock, /async function copyLocalMemoryPromptPreview/);
+    assert.match(pageBlock, /navigator\.clipboard\.writeText\(localMemoryPromptPreview\)/);
+    assert.match(pageBlock, /已复制模型上下文预览/);
+    assert.match(pageBlock, /复制上下文/);
     assert.match(css, /\.settingsMemoryPromptPreview/);
+    assert.match(css, /\.settingsMemoryPromptPreviewBudget/);
   });
 
   it('filters memory entries locally across title content id origin timestamps and tags', async () => {

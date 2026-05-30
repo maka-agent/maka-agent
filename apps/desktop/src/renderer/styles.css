@@ -9705,6 +9705,12 @@ button:active {
   font-size: 13px;
 }
 
+.settingsMemoryPromptPreviewHeader div {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .settingsMemoryPromptPreviewHeader span {
   flex-shrink: 0;
   color: var(--foreground-60);
@@ -9719,6 +9725,11 @@ button:active {
   color: var(--foreground-50);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.settingsMemoryPromptPreviewBudget {
+  font-family: var(--font-mono);
+  color: var(--foreground-60);
 }
 
 .settingsMemoryPromptPreview pre {
