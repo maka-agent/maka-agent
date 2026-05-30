@@ -115,7 +115,7 @@ export function buildCapabilitySnapshotCollection(input: {
       runtimeProbe: {
         state: input.settings.openGateway.enabled && input.settings.openGateway.token ? 'not_run' : 'not_available',
         source: input.settings.openGateway.enabled ? 'runtime_probe' : 'not_applicable',
-        reason: input.settings.openGateway.enabled && !input.settings.openGateway.token ? '缺少访问 token' : undefined,
+        reason: input.settings.openGateway.enabled && !input.settings.openGateway.token ? '等待生成访问 token' : undefined,
       },
     }),
     staticCapability({

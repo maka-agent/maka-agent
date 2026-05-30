@@ -67,6 +67,7 @@ describe('voice capture smoke Settings contract', () => {
     assert.doesNotMatch(snapshot, /not implemented|missing_token|local gateway disabled|未接入|尚未接入|helper/, 'capability reasons must not leak internal placeholder/error identifiers');
     assert.match(snapshot, /本机控制需要独立权限确认与审计/, 'Computer Use must keep a clear product boundary reason');
     assert.match(snapshot, /本地 Gateway 已关闭/, 'Open Gateway disabled state must use user-facing copy');
-    assert.match(snapshot, /缺少访问 token/, 'Open Gateway missing token state must use user-facing copy');
+    assert.match(snapshot, /等待生成访问 token/, 'Open Gateway missing token state must use actionable waiting copy');
+    assert.doesNotMatch(snapshot, /缺少访问 token/, 'Open Gateway missing token state should not read like a raw missing-field error');
   });
 });

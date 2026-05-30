@@ -119,10 +119,12 @@ describe('Settings coming-soon cleanup contract', () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
     assert.match(settings, /网关已开启，等待生成访问 token。生成 token 后服务会自动启动。/);
+    assert.match(settings, /生成访问 token 后服务会自动启动/);
+    assert.match(settings, /if \(error === 'missing_token'\) return '等待生成访问 token'/);
     assert.doesNotMatch(
       settings,
-      /网关已开启，但还没有 token/,
-      'Open Gateway token notice should frame the enabled-without-token state as a pending token action',
+      /网关已开启，但还没有 token|缺少访问 token/,
+      'Open Gateway token copy should frame enabled-without-token as a pending token action, not a raw missing-field error',
     );
   });
 

@@ -3195,14 +3195,14 @@ function presentGatewayStatus(
   settings: AppSettings['openGateway'],
 ): { label: string; detail: string } {
   if (!settings.enabled) return { label: '已关闭', detail: 'Settings 开关关闭' };
-  if (!settings.token) return { label: '未启动', detail: '缺少访问 token' };
+  if (!settings.token) return { label: '等待 token', detail: '生成访问 token 后服务会自动启动' };
   if (!status) return { label: '读取中', detail: '正在读取运行状态' };
   if (status.running) return { label: '运行中', detail: status.startedAt ? '本机 API 已启动' : '服务已监听' };
   return { label: '启动失败', detail: gatewayErrorCopy(status.lastError ?? 'gateway_start_failed') };
 }
 
 function gatewayErrorCopy(error: string): string {
-  if (error === 'missing_token') return '缺少访问 token';
+  if (error === 'missing_token') return '等待生成访问 token';
   if (error.includes('EADDRINUSE')) return '端口已被占用';
   return error;
 }
