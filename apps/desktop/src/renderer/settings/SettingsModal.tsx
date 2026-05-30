@@ -3747,8 +3747,8 @@ function botConnectionLabel(connection: BotStatus['connection']): string {
 function botStatusDetail(status: BotStatus): string {
   switch (status.reason) {
     case 'disabled': return '开关关闭';
-    case 'no-token': return '缺少 Bot Token';
-    case 'missing-feishu-credentials': return '缺少飞书 App ID 或 App Secret';
+    case 'no-token': return '等待填写 Bot Token';
+    case 'missing-feishu-credentials': return '等待填写飞书 App ID 或 App Secret';
     case 'feishu-domain-required': return '飞书凭据有效，等待填写事件订阅域名';
     case 'feishu-events-not-connected': return '飞书凭据有效，等待事件回调接入';
     case 'scaffold-only': return '该平台当前不可作为可用机器人';

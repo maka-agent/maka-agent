@@ -107,10 +107,12 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps bot credential follow-up copy action-oriented', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
+    assert.match(settings, /case 'no-token': return '等待填写 Bot Token'/);
+    assert.match(settings, /case 'missing-feishu-credentials': return '等待填写飞书 App ID 或 App Secret'/);
     assert.match(settings, /飞书凭据有效，等待填写事件订阅域名/);
     assert.doesNotMatch(
       settings,
-      /飞书凭据有效，但还没有事件订阅域名/,
+      /缺少 Bot Token|缺少飞书 App ID|飞书凭据有效，但还没有事件订阅域名/,
       'Feishu credential follow-up copy should describe the next setup action, not an unfinished missing state',
     );
   });
