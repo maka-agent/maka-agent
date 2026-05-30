@@ -2905,6 +2905,11 @@ function MemoryEntryList(props: {
         <strong>{props.title}</strong>
         <span>{props.entries.length} 条</span>
       </div>
+      {props.draftDirty && props.onStatusChange && (
+        <p className="settingsMemoryEntryDraftNotice" role="status">
+          当前归档/恢复操作只更新草稿，保存后才会写入 MEMORY.md。
+        </p>
+      )}
       {props.entries.length === 0 ? (
         <p className="settingsMemoryEntryEmpty">{props.filtered ? '无匹配条目。' : '暂无条目。'}</p>
       ) : (
