@@ -4501,6 +4501,7 @@ const COMPOSER_MAX_HEIGHT = 240;
 const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   placeholder: string;
   awaitingPermission: string;
+  sending: string;
   streamingHintPrefix: string;
   streamingHintInterrupt: string;
   enterHint: { send: string; newline: string };
@@ -4508,6 +4509,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   zh: {
     placeholder: '给 Maka 发消息…',
     awaitingPermission: '等待你确认权限…',
+    sending: '正在发送…',
     // PR-UX-POLISH-1 (yuejing UX audit msg `9c779b56`): composer streaming
     // hint now reads `正在回答` so it doesn't conflict with the
     // ReasoningPanel's `正在思考` (which displays the model's actual
@@ -4520,6 +4522,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   en: {
     placeholder: 'Message Maka…',
     awaitingPermission: 'Waiting for your permission decision…',
+    sending: 'Sending…',
     // PR-UX-POLISH-1: parallel en-locale fix — `is responding` instead of
     // `is thinking`, so it doesn't collide with the ReasoningPanel's
     // `Thinking…` label.
@@ -4530,7 +4533,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
 };
 
 const COMPOSER_BUTTON_COPY_BY_LOCALE: Record<UiLocale, { sendLabel: string; stopLabel: string }> = {
-  zh: { sendLabel: 'Send', stopLabel: 'Stop' },
+  zh: { sendLabel: '发送', stopLabel: '停止' },
   en: { sendLabel: 'Send', stopLabel: 'Stop' },
 };
 
@@ -4641,7 +4644,7 @@ export const Composer = forwardRef<
     hidden?: boolean;
     /**
      * When true, the assistant is currently streaming a response.
-     * Toolbar swaps to a "Maka 正在思考…" hint and the Stop button is
+     * Toolbar swaps to a "Maka 正在回答…" hint and the Stop button is
      * the only visible action — Send is hidden because the model is busy.
      */
     streaming?: boolean;
@@ -4657,8 +4660,10 @@ export const Composer = forwardRef<
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [sendPending, setSendPending] = useState(false);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
+  const sendPendingRef = useRef(false);
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
@@ -4744,12 +4749,20 @@ export const Composer = forwardRef<
   );
 
   async function sendCurrent() {
-    if (props.disabled) return;
+    if (props.disabled || sendPendingRef.current) return;
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
     if (!text) return;
-    const sent = await props.onSend(text);
+    sendPendingRef.current = true;
+    setSendPending(true);
+    let sent: boolean | void;
+    try {
+      sent = await props.onSend(text);
+    } finally {
+      sendPendingRef.current = false;
+      setSendPending(false);
+    }
     if (sent === false) return;
     promptHistoryRef.current = {
       entries: rememberComposerHistoryEntry(promptHistoryRef.current.entries, text),
@@ -4888,6 +4901,8 @@ export const Composer = forwardRef<
           <span>
             {props.disabled ? (
               copy.awaitingPermission
+            ) : sendPending ? (
+              copy.sending
             ) : props.streaming ? (
               <span className="maka-composer-streaming-hint">
                 <span className="maka-composer-streaming-dot" aria-hidden="true" />
@@ -4927,7 +4942,7 @@ export const Composer = forwardRef<
                 {buttonCopy.stopLabel}
               </button>
             ) : (
-              <button className="maka-button" data-variant="primary" type="submit" disabled={props.disabled}>
+              <button className="maka-button" data-variant="primary" type="submit" disabled={props.disabled || sendPending}>
                 {buttonCopy.sendLabel}
               </button>
             )}
