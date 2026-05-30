@@ -5227,13 +5227,17 @@ export function PermissionDialog(props: {
   onRespond(response: PermissionResponse): void;
 }) {
   const [rememberForTurn, setRememberForTurn] = useState(false);
+  const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const dialogRef = useRef<HTMLElement>(null);
+  const responsePendingRef = useRef(false);
   // No onEscape — a permission request requires an explicit allow/deny decision.
   useModalA11y(dialogRef);
 
   useEffect(() => {
     setRememberForTurn(false);
+    setResponsePending(false);
+    responsePendingRef.current = false;
     setNow(Date.now());
   }, [props.request.requestId]);
 
@@ -5244,11 +5248,20 @@ export function PermissionDialog(props: {
   }, [props.request.requestId]);
 
   function submit(decision: PermissionResponse['decision']) {
-    props.onRespond({
-      requestId: props.request.requestId,
-      decision,
-      rememberForTurn: decision === 'allow' ? rememberForTurn : false,
-    });
+    if (responsePendingRef.current) return;
+    responsePendingRef.current = true;
+    setResponsePending(true);
+    try {
+      props.onRespond({
+        requestId: props.request.requestId,
+        decision,
+        rememberForTurn: decision === 'allow' ? rememberForTurn : false,
+      });
+    } catch (error) {
+      responsePendingRef.current = false;
+      setResponsePending(false);
+      throw error;
+    }
   }
 
   const preset = REASON_PRESETS[props.request.reason] ?? REASON_PRESETS.custom;
@@ -5297,6 +5310,7 @@ export function PermissionDialog(props: {
             <input
               type="checkbox"
               checked={rememberForTurn}
+              disabled={responsePending}
               onChange={(event) => setRememberForTurn(event.currentTarget.checked)}
             />
             本轮对话内记住选择（同类型工具不再询问，关闭/切换对话后失效）
@@ -5313,14 +5327,15 @@ export function PermissionDialog(props: {
           )}
         </div>
         <div className="maka-modal-footer permissionActions">
-          <button className="maka-button" data-variant="ghost" type="button" onClick={() => submit('deny')}>拒绝</button>
+          <button className="maka-button" data-variant="ghost" type="button" disabled={responsePending} onClick={() => submit('deny')}>拒绝</button>
           <button
             className="maka-button"
             data-variant={isDestructive ? 'destructive' : 'primary'}
             type="button"
+            disabled={responsePending}
             onClick={() => submit('allow')}
           >
-            {isDestructive ? '我已确认，允许' : '允许'}
+            {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
           </button>
         </div>
       </section>
