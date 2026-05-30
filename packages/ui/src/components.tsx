@@ -5506,6 +5506,9 @@ function ExploreAgentPreview(props: {
   const ignoredPaths = Array.isArray(result.ignoredPaths) && result.ignoredPaths.length > 0
     ? result.ignoredPaths.join(', ')
     : '';
+  const stoppingCondition = typeof result.stoppingCondition === 'string'
+    ? result.stoppingCondition.trim()
+    : '';
   const skippedSummary = result.sensitiveFilesSkipped && result.sensitiveFilesSkipped > 0
     ? `跳过 ${result.filesSkipped} 个（含敏感 ${result.sensitiveFilesSkipped} 个）`
     : `跳过 ${result.filesSkipped} 个`;
@@ -5587,6 +5590,12 @@ function ExploreAgentPreview(props: {
           <div>
             <dt>忽略</dt>
             <dd>{redactSecrets(ignoredPaths)}</dd>
+          </div>
+        )}
+        {stoppingCondition && (
+          <div>
+            <dt>停止</dt>
+            <dd>{redactSecrets(stoppingCondition)}</dd>
           </div>
         )}
       </dl>

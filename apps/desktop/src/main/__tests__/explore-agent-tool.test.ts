@@ -16,6 +16,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(tool.description, /Do not use it for one known file/);
     assert.match(tool.description, /1-3 obvious files/);
     assert.ok('ignorePaths' in ((tool.parameters as { shape: Record<string, unknown> }).shape));
+    assert.ok('stoppingCondition' in ((tool.parameters as { shape: Record<string, unknown> }).shape));
   });
 
   it('returns source-grounded matches without absolute paths', async () => {
@@ -42,6 +43,7 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.mode, 'read_only');
       assert.deepEqual(result.roots, ['.']);
       assert.deepEqual(result.ignoredPaths, []);
+      assert.equal(result.stoppingCondition, '');
       assert.equal(typeof result.startedAt, 'number');
       assert.equal(typeof result.completedAt, 'number');
       assert.equal(typeof result.durationMs, 'number');
@@ -174,6 +176,29 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.matches.some((match) => match.path.startsWith('generated/')), false);
       assert.equal(result.candidateFiles.some((file) => file.path.startsWith('vendor/') || file.path.startsWith('generated/')), false);
       assert.ok(result.notes.some((note) => /已按请求忽略：vendor, generated/.test(note)));
+      assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
+    });
+  });
+
+  it('preserves the caller stopping condition in results and reports', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await mkdir(join(workspaceRoot, 'src'), { recursive: true });
+      await writeFile(join(workspaceRoot, 'src', 'alpha.ts'), 'export const alpha = "source";');
+
+      const result = await runReadOnlyExplore({
+        cwd: workspaceRoot,
+        objective: 'study alpha source implementation',
+        roots: ['.'],
+        queries: ['alpha'],
+        stoppingCondition: 'stop after finding the implementation entry and one evidence line',
+        maxFiles: 10,
+        maxMatches: 10,
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.stoppingCondition, 'stop after finding the implementation entry and one evidence line');
+      assert.match(result.report, /停止条件：stop after finding the implementation entry and one evidence line/);
+      assert.ok(result.notes.some((note) => /停止条件：stop after finding the implementation entry and one evidence line/.test(note)));
       assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
     });
   });
@@ -419,6 +444,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(events, /kind: 'explore_agent'/);
     assert.match(events, /partial\?: boolean/);
     assert.match(events, /ignoredPaths\?: string/);
+    assert.match(events, /stoppingCondition\?: string/);
     assert.match(events, /summary\?: string/);
     assert.match(events, /recentEvents\?: ReadonlyArray/);
     assert.match(components, /function ExploreAgentPreview/);
@@ -452,6 +478,8 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /sensitiveFilesSkipped/);
     assert.match(previewBlock, /ignoredPaths/);
     assert.match(previewBlock, /忽略/);
+    assert.match(previewBlock, /stoppingCondition/);
+    assert.match(previewBlock, /停止/);
     assert.match(previewBlock, /保留部分结果/);
     assert.match(previewBlock, /已取消/);
     assert.match(previewBlock, /项目配置/);

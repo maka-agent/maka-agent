@@ -134,6 +134,7 @@ export interface ExploreAgentResult {
   roots: string[];
   queries: string[];
   ignoredPaths: string[];
+  stoppingCondition: string;
   filesInspected: number;
   filesSkipped: number;
   sensitiveFilesSkipped: number;
@@ -170,6 +171,7 @@ export function buildExploreAgentTool(): MakaTool<
     roots?: string[];
     queries?: string[];
     ignorePaths?: string[];
+    stoppingCondition?: string;
     maxFiles?: number;
     maxMatches?: number;
   },
@@ -191,18 +193,21 @@ export function buildExploreAgentTool(): MakaTool<
         .describe('Optional search terms. If omitted, terms are derived from the objective.'),
       ignorePaths: z.array(z.string().min(1).max(240)).max(MAX_IGNORE_PATHS).optional()
         .describe('Optional relative files or directories to skip, such as generated output, vendors, or build artifacts.'),
+      stoppingCondition: z.string().min(1).max(240).optional()
+        .describe('Optional plain-language condition that tells the worker when this investigation is sufficiently answered.'),
       maxFiles: z.number().int().min(1).max(80).optional(),
       maxMatches: z.number().int().min(1).max(120).optional(),
     }),
     permissionRequired: true,
     categoryHint: 'subagent',
-    impl: async ({ objective, roots, queries, ignorePaths, maxFiles, maxMatches }, { cwd, abortSignal, emitOutput }) => {
+    impl: async ({ objective, roots, queries, ignorePaths, stoppingCondition, maxFiles, maxMatches }, { cwd, abortSignal, emitOutput }) => {
       return runReadOnlyExplore({
         cwd,
         objective,
         roots,
         queries,
         ignorePaths,
+        stoppingCondition,
         maxFiles,
         maxMatches,
         abortSignal,
@@ -218,6 +223,7 @@ export async function runReadOnlyExplore(input: {
   roots?: string[];
   queries?: string[];
   ignorePaths?: string[];
+  stoppingCondition?: string;
   maxFiles?: number;
   maxMatches?: number;
   abortSignal?: AbortSignal;
@@ -226,40 +232,41 @@ export async function runReadOnlyExplore(input: {
   const startedAt = Date.now();
   const objective = normalizeText(input.objective).slice(0, 600);
   if (objective.length < 4) {
-    return failure('invalid_objective', objective, [], [], [], '只读探索需要一个明确的研究目标。', [], startedAt);
+    return failure('invalid_objective', objective, [], [], [], '', '只读探索需要一个明确的研究目标。', [], startedAt);
   }
 
   const roots = normalizeRoots(input.roots);
   const queryTerms = normalizeQueries(input.queries, objective);
   const ignoredPaths = normalizeIgnorePaths(input.ignorePaths);
+  const stoppingCondition = normalizeText(input.stoppingCondition).slice(0, 240);
   let workspaceRoot: string;
   try {
     workspaceRoot = await realpath(input.cwd);
   } catch {
-    return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, '会话工作目录不可读取。', [], startedAt);
+    return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, stoppingCondition, '会话工作目录不可读取。', [], startedAt);
   }
   const maxFiles = clampInteger(input.maxFiles, 1, 80, DEFAULT_MAX_FILES);
   const maxMatches = clampInteger(input.maxMatches, 1, 120, DEFAULT_MAX_MATCHES);
   const discoveryBudget = Math.min(MAX_DISCOVERED_FILES, Math.max(maxFiles * 4, maxFiles));
   const progress = createProgressReporter(input.onProgress);
   if (input.abortSignal?.aborted) {
-    return abortFailure(objective, roots, queryTerms, ignoredPaths, progress, startedAt);
+    return abortFailure(objective, roots, queryTerms, ignoredPaths, stoppingCondition, progress, startedAt);
   }
   progress.report('started', `只读探索：准备范围（${roots.length} 个 root，${queryTerms.length} 个查询词）`);
 
   const resolvedRoots: Array<{ abs: string; rel: string }> = [];
   for (const root of roots) {
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, ignoredPaths, progress, startedAt);
+      return abortFailure(objective, roots, queryTerms, ignoredPaths, stoppingCondition, progress, startedAt);
     }
     const resolved = resolve(workspaceRoot, root);
     if (!isInside(workspaceRoot, resolved)) {
-      return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, `root 必须位于会话工作目录内：${root}`, progress, startedAt);
+      return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, stoppingCondition, `root 必须位于会话工作目录内：${root}`, progress, startedAt);
     }
     try {
       const actual = await realpath(resolved);
       if (!isInside(workspaceRoot, actual)) {
-        return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, `root 不能穿过符号链接离开工作目录：${root}`, progress, startedAt);
+        return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, stoppingCondition, `root 不能穿过符号链接离开工作目录：${root}`, progress, startedAt);
       }
       const rootStat = await stat(actual);
       if (!rootStat.isDirectory() && !rootStat.isFile()) continue;
@@ -269,7 +276,7 @@ export async function runReadOnlyExplore(input: {
     }
   }
   if (resolvedRoots.length === 0) {
-    return failure('no_readable_roots', objective, roots, queryTerms, ignoredPaths, '没有可读取的研究范围。', progress, startedAt);
+    return failure('no_readable_roots', objective, roots, queryTerms, ignoredPaths, stoppingCondition, '没有可读取的研究范围。', progress, startedAt);
   }
   progress.report('scope_resolved', `只读探索：确认 ${resolvedRoots.length} 个可读范围：${resolvedRoots.map((root) => root.rel).join(', ')}`);
 
@@ -281,18 +288,21 @@ export async function runReadOnlyExplore(input: {
   if (ignoredPaths.length > 0) {
     notes.push(`已按请求忽略：${ignoredPaths.join(', ')}`);
   }
+  if (stoppingCondition) {
+    notes.push(`停止条件：${stoppingCondition}`);
+  }
   let filesSkipped = 0;
   let sensitiveFilesSkipped = 0;
   for (const root of resolvedRoots) {
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, ignoredPaths, progress, startedAt);
+      return abortFailure(objective, roots, queryTerms, ignoredPaths, stoppingCondition, progress, startedAt);
     }
     const before = files.length;
     const skippedBefore = filesSkipped;
     const sensitiveBefore = sensitiveFilesSkipped;
     const listed = await listTextFiles(root.abs, workspaceRoot, discoveryBudget - files.length, ignoredPaths, input.abortSignal);
     if (listed.aborted) {
-      return abortFailure(objective, roots, queryTerms, ignoredPaths, progress, startedAt);
+      return abortFailure(objective, roots, queryTerms, ignoredPaths, stoppingCondition, progress, startedAt);
     }
     files.push(...listed.files);
     filesSkipped += listed.skipped;
@@ -331,6 +341,7 @@ export async function runReadOnlyExplore(input: {
         roots: resolvedRoots.map((root) => root.rel),
         queryTerms,
         ignoredPaths,
+        stoppingCondition,
         filesInspected: inspected,
         filesSkipped,
         sensitiveFilesSkipped,
@@ -376,6 +387,7 @@ export async function runReadOnlyExplore(input: {
         roots: resolvedRoots.map((root) => root.rel),
         queryTerms,
         ignoredPaths,
+        stoppingCondition,
         filesInspected: inspected,
         filesSkipped,
         sensitiveFilesSkipped,
@@ -434,6 +446,7 @@ export async function runReadOnlyExplore(input: {
     objective,
     roots: resolvedRoots.map((root) => root.rel),
     queryTerms,
+    stoppingCondition,
     filesInspected: inspected,
     filesSkipped,
     sensitiveFilesSkipped,
@@ -454,6 +467,7 @@ export async function runReadOnlyExplore(input: {
     roots: resolvedRoots.map((root) => root.rel),
     queries: queryTerms,
     ignoredPaths,
+    stoppingCondition,
     filesInspected: inspected,
     filesSkipped,
     sensitiveFilesSkipped,
@@ -773,6 +787,7 @@ function buildResearchReport(input: {
   objective: string;
   roots: string[];
   queryTerms: string[];
+  stoppingCondition: string;
   filesInspected: number;
   filesSkipped: number;
   sensitiveFilesSkipped: number;
@@ -788,6 +803,7 @@ function buildResearchReport(input: {
     `目标：${input.objective}`,
     `范围：${input.roots.length > 0 ? input.roots.join(', ') : '.'}`,
     `查询：${input.queryTerms.length > 0 ? input.queryTerms.join(', ') : '未指定'}`,
+    ...(input.stoppingCondition ? [`停止条件：${input.stoppingCondition}`] : []),
     `读取：${input.filesInspected} 个文件，跳过 ${input.filesSkipped} 个${input.sensitiveFilesSkipped > 0 ? `（含敏感 ${input.sensitiveFilesSkipped} 个）` : ''}，${formatReportBytes(input.bytesRead)}，耗时 ${formatReportDuration(input.durationMs)}`,
   ];
 
@@ -890,6 +906,7 @@ function failure(
   roots: string[],
   queries: string[],
   ignoredPaths: string[],
+  stoppingCondition: string,
   message: string,
   progress: string[] | ProgressState = [],
   startedAt = Date.now(),
@@ -910,6 +927,7 @@ function failure(
     roots,
     queries,
     ignoredPaths,
+    stoppingCondition,
     filesInspected: 0,
     filesSkipped: 0,
     sensitiveFilesSkipped: 0,
@@ -935,6 +953,7 @@ function partialAbortFailure(input: {
   roots: string[];
   queryTerms: string[];
   ignoredPaths: string[];
+  stoppingCondition: string;
   filesInspected: number;
   filesSkipped: number;
   sensitiveFilesSkipped: number;
@@ -946,7 +965,7 @@ function partialAbortFailure(input: {
   startedAt: number;
 }): ExploreAgentResult {
   if (input.filesInspected <= 0 && input.matches.length === 0 && input.candidates.size === 0) {
-    return abortFailure(input.objective, input.roots, input.queryTerms, input.ignoredPaths, input.progress, input.startedAt);
+    return abortFailure(input.objective, input.roots, input.queryTerms, input.ignoredPaths, input.stoppingCondition, input.progress, input.startedAt);
   }
   const completedAt = Date.now();
   appendExploreEvent(input.progress.recentEvents, {
@@ -980,6 +999,7 @@ function partialAbortFailure(input: {
     objective: input.objective,
     roots: input.roots,
     queryTerms: input.queryTerms,
+    stoppingCondition: input.stoppingCondition,
     filesInspected: input.filesInspected,
     filesSkipped: input.filesSkipped,
     sensitiveFilesSkipped: input.sensitiveFilesSkipped,
@@ -999,6 +1019,7 @@ function partialAbortFailure(input: {
     roots: input.roots,
     queries: input.queryTerms,
     ignoredPaths: input.ignoredPaths,
+    stoppingCondition: input.stoppingCondition,
     filesInspected: input.filesInspected,
     filesSkipped: input.filesSkipped,
     sensitiveFilesSkipped: input.sensitiveFilesSkipped,
@@ -1024,10 +1045,11 @@ function abortFailure(
   roots: string[],
   queries: string[],
   ignoredPaths: string[],
+  stoppingCondition: string,
   progress: string[] | ProgressState = [],
   startedAt = Date.now(),
 ): ExploreAgentResult {
-  return failure('aborted', objective, roots, queries, ignoredPaths, '只读探索已取消。', progress, startedAt);
+  return failure('aborted', objective, roots, queries, ignoredPaths, stoppingCondition, '只读探索已取消。', progress, startedAt);
 }
 
 function normalizeProgressState(progress: string[] | ProgressState, startedAt: number): ProgressState {

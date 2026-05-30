@@ -190,6 +190,7 @@ export type ToolResultContent =
       roots: string[];
       queries: string[];
       ignoredPaths?: string[];
+      stoppingCondition?: string;
       filesInspected: number;
       filesSkipped: number;
       sensitiveFilesSkipped?: number;
