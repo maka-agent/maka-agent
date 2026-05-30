@@ -186,6 +186,27 @@ describe('LocalMemoryService', () => {
     if (result.ok) assert.match(result.path, /MEMORY\.md\.bak$/);
   });
 
+  it('resolves a specific backup candidate by kind for explicit user inspection', async () => {
+    const { service } = await makeService()();
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## Before reset',
+      '<!-- maka-memory: id=before-reset origin=manual createdAt=1700000000000 -->',
+      '重置前。',
+      '',
+    ].join('\n'));
+    await service.reset();
+
+    const saveBackup = await service.resolveBackupForOpen('save');
+    const resetBackup = await service.resolveBackupForOpen('reset');
+
+    assert.equal(saveBackup.ok, true);
+    assert.equal(resetBackup.ok, true);
+    if (saveBackup.ok) assert.match(saveBackup.path, /MEMORY\.md\.bak$/);
+    if (resetBackup.ok) assert.match(resetBackup.path, /MEMORY\.md\.reset\.bak$/);
+  });
+
   it('does not resolve a backup symlink that escapes the workspace', async () => {
     const { service, workspaceRoot } = await makeService()();
     const outsideRoot = await mkdtemp(join(tmpdir(), 'maka-memory-backup-outside-'));
@@ -195,10 +216,13 @@ describe('LocalMemoryService', () => {
     await symlink(outsideFile, `${service.file}.bak`);
 
     const result = await service.resolveLatestBackupForOpen();
+    const explicitResult = await service.resolveBackupForOpen('save');
     const state = await service.getState();
 
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.reason, 'missing');
+    assert.equal(explicitResult.ok, false);
+    if (!explicitResult.ok) assert.equal(explicitResult.reason, 'missing');
     assert.equal(state.latestBackup, undefined);
     assert.match(service.file, new RegExp(workspaceRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   });

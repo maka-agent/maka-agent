@@ -956,6 +956,13 @@ function registerIpc(): void {
     const error = await shell.openPath(resolved.path);
     return error ? { ok: false, message: error } : { ok: true };
   });
+  ipcMain.handle('memory:openBackup', async (_event, kind: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
+    if (kind !== 'save' && kind !== 'reset') return { ok: false, message: localMemoryBackupOpenFailureCopy('not-allowed') };
+    const resolved = await localMemory.resolveBackupForOpen(kind);
+    if (!resolved.ok) return { ok: false, message: localMemoryBackupOpenFailureCopy(resolved.reason) };
+    const error = await shell.openPath(resolved.path);
+    return error ? { ok: false, message: error } : { ok: true };
+  });
   ipcMain.handle('workspaceInstructions:getState', () => getWorkspaceInstructionsState(process.cwd()));
   ipcMain.handle(
     'workspaceInstructions:openFile',

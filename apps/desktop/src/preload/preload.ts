@@ -297,6 +297,9 @@ contextBridge.exposeInMainWorld('maka', {
     openLatestBackup(): Promise<{ ok: true } | { ok: false; message: string }> {
       return ipcRenderer.invoke('memory:openLatestBackup');
     },
+    openBackup(kind: 'save' | 'reset'): Promise<{ ok: true } | { ok: false; message: string }> {
+      return ipcRenderer.invoke('memory:openBackup', kind);
+    },
   },
   workspaceInstructions: {
     getState(): Promise<WorkspaceInstructionsState> {

@@ -2566,6 +2566,13 @@ function MemorySettingsPage(props: {
     if (!result.ok) toast.error('打开上一版失败', result.message);
   }
 
+  async function openBackupCandidate(backup: NonNullable<LocalMemoryState['latestBackup']>) {
+    const result = await window.maka.memory.openBackup(backup.kind);
+    if (!result.ok) {
+      toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, result.message);
+    }
+  }
+
   async function openFolder() {
     const result = await window.maka.app.openPath('memory');
     if (!result.ok) {
@@ -2887,6 +2894,14 @@ function MemorySettingsPage(props: {
             {effective.backups.map((backup) => (
               <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate">
                 <span>{localMemoryBackupKindLabel(backup.kind)} · {localMemoryBackupSummary(backup)} · <RelativeTime ts={backup.updatedAt} /></span>
+                <button
+                  type="button"
+                  className="settingsInlineTextButton"
+                  disabled={busy || !effective.enabled}
+                  onClick={() => void openBackupCandidate(backup)}
+                >
+                  打开
+                </button>
                 <button type="button" className="settingsInlineTextButton" onClick={() => void copyBackupReference(backup)}>
                   复制引用
                 </button>

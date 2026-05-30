@@ -332,6 +332,27 @@ export class LocalMemoryService {
     }
   }
 
+  async resolveBackupForOpen(kind: LocalMemoryBackupInfo['kind']): Promise<
+    | { ok: true; path: string }
+    | { ok: false; reason: 'incognito_blocked' | 'disabled' | 'missing' | 'not-allowed' | 'not-a-file' }
+  > {
+    const settings = await this.deps.getSettings();
+    if ((await this.deps.getPrivacyContext()).incognitoActive) {
+      return { ok: false, reason: 'incognito_blocked' };
+    }
+    if (!settings.localMemory.enabled) return { ok: false, reason: 'disabled' };
+
+    await this.ensure();
+
+    const backup = (await this.backupInfos()).find((candidate) => candidate.kind === kind);
+    if (!backup) return { ok: false, reason: 'missing' };
+
+    const backupStat = await stat(backup.path).catch(() => null);
+    if (!backupStat) return { ok: false, reason: 'missing' };
+    if (!backupStat.isFile()) return { ok: false, reason: 'not-a-file' };
+    return { ok: true, path: backup.path };
+  }
+
   private async ensure(): Promise<void> {
     await mkdir(this.dir, { recursive: true, mode: 0o700 });
     const root = await realpath(this.deps.workspaceRoot);
