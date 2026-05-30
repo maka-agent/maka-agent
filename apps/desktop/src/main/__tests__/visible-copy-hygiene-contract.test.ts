@@ -173,6 +173,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
     reason:
       "Command Palette project-instruction fallback should frame the missing file as an actionable waiting state (`等待创建项目指引`), not unfinished project setup copy.",
   },
+  {
+    label: 'Daily Review empty activity title sounds unfinished',
+    needle: /今天还没有活动|\$\{dayLabel\}没有活动/,
+    reason:
+      "Daily Review empty-state titles should frame today's empty state as an actionable waiting state (`等待记录今天活动`) and past ranges as a concise fact (`无活动`), not unfinished activity copy.",
+  },
 ];
 
 /**

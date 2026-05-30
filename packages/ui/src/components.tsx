@@ -939,7 +939,7 @@ function DailyReviewPanel(props: {
       ) : summary.totals.sessionCount === 0 && summary.totals.requestCount === 0 ? (
         <EmptyState
           Icon={CalendarDays}
-          title={offsetDays === 0 ? '今天还没有活动' : `${dayLabel}没有活动`}
+          title={offsetDays === 0 ? '等待记录今天活动' : `${dayLabel}无活动`}
           body="这一天没有发起对话，也没有调用模型。"
         />
       ) : (
