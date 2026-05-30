@@ -1231,7 +1231,7 @@ function ClaudeSubscriptionCard() {
         // Envelope variant. `ok: true` shouldn't happen for
         // getAuthUrl (success returns the payload, not an envelope),
         // so this branch is the failure case in practice.
-        toast.error('登录暂不可用', payload.ok ? '请稍后再试。' : payload.message);
+        toast.error('无法开始登录', payload.ok ? '请稍后再试。' : payload.message);
         return;
       }
       setAuthRequestId(payload.authRequestId);
@@ -1462,9 +1462,9 @@ function presentSubscriptionState(state: SubscriptionAccountState): Subscription
       };
     case 'quota_unavailable':
       return {
-        label: '配额暂不可用',
+        label: '等待获取配额',
         tone: 'warning',
-        detail: state.errorMessage ?? '已登录，但配额接口暂时无法访问。',
+        detail: state.errorMessage ?? '已登录；配额接口当前没有返回可用数据。',
       };
     case 'provider_rejected':
       return {

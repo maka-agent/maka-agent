@@ -203,6 +203,17 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     );
   });
 
+  it('Settings subscription copy avoids generic unavailable wording', async () => {
+    const src = await readFile(SETTINGS_SOURCE, 'utf8');
+    assert.match(src, /无法开始登录/, 'authorization failure toast should describe the concrete failed action');
+    assert.match(src, /等待获取配额/, 'quota_unavailable state should read as a refreshable account state');
+    assert.doesNotMatch(
+      src,
+      /登录暂不可用|配额暂不可用|配额接口暂时无法访问/,
+      'subscription account copy should avoid generic unavailable/demo-stage wording',
+    );
+  });
+
   it('service getAuthorizationUrl return statement does not include url key', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     // Find the getAuthorizationUrl method and check the return
