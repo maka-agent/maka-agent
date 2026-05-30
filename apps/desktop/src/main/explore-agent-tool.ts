@@ -9,9 +9,49 @@ const DEFAULT_MAX_FILES = 30;
 const DEFAULT_MAX_MATCHES = 60;
 const MAX_ROOTS = 5;
 const MAX_QUERIES = 8;
+const MAX_DISCOVERED_FILES = 250;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const MATCH_CONTEXT_CHARS = 220;
+
+const PROJECT_MANIFEST_FILES = new Set([
+  'package.json',
+  'pnpm-workspace.yaml',
+  'turbo.json',
+  'vite.config.ts',
+  'vite.config.js',
+  'tsconfig.json',
+  'Cargo.toml',
+  'go.mod',
+  'pyproject.toml',
+  'Package.swift',
+]);
+
+const DOCUMENTATION_FILES = new Set([
+  'README.md',
+  'AGENTS.md',
+  'CLAUDE.md',
+  'GEMINI.md',
+  'CONTRIBUTING.md',
+  'ARCHITECTURE.md',
+]);
+
+const ENTRYPOINT_NAMES = new Set([
+  'main.ts',
+  'main.tsx',
+  'main.js',
+  'main.jsx',
+  'index.ts',
+  'index.tsx',
+  'index.js',
+  'index.jsx',
+  'server.ts',
+  'server.js',
+  'app.ts',
+  'app.tsx',
+  'app.js',
+  'app.jsx',
+]);
 
 const IGNORED_DIRS = new Set([
   '.git',
@@ -146,6 +186,7 @@ export async function runReadOnlyExplore(input: {
   const queryTerms = normalizeQueries(input.queries, objective);
   const maxFiles = clampInteger(input.maxFiles, 1, 80, DEFAULT_MAX_FILES);
   const maxMatches = clampInteger(input.maxMatches, 1, 120, DEFAULT_MAX_MATCHES);
+  const discoveryBudget = Math.min(MAX_DISCOVERED_FILES, Math.max(maxFiles * 4, maxFiles));
   const progress = createProgressReporter(input.onProgress);
   progress.report(`只读探索：准备范围（${roots.length} 个 root，${queryTerms.length} 个查询词）`);
 
@@ -181,7 +222,7 @@ export async function runReadOnlyExplore(input: {
   for (const root of resolvedRoots) {
     const before = files.length;
     const skippedBefore = filesSkipped;
-    const listed = await listTextFiles(root.abs, workspaceRoot, maxFiles - files.length);
+    const listed = await listTextFiles(root.abs, workspaceRoot, discoveryBudget - files.length);
     files.push(...listed.files);
     filesSkipped += listed.skipped;
     if (listed.truncated) notes.push(`Scope ${root.rel} was truncated at the file budget.`);
@@ -189,16 +230,28 @@ export async function runReadOnlyExplore(input: {
     const found = files.length - before;
     const skipped = filesSkipped - skippedBefore;
     progress.report(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项`);
-    if (files.length >= maxFiles) break;
+    if (files.length >= discoveryBudget) break;
   }
+  files.sort((left, right) => {
+    const leftRel = toRelative(workspaceRoot, left);
+    const rightRel = toRelative(workspaceRoot, right);
+    const leftScore = scorePath(leftRel, queryTerms).score;
+    const rightScore = scorePath(rightRel, queryTerms).score;
+    return rightScore - leftScore || leftRel.localeCompare(rightRel);
+  });
+  if (files.some((file) => scorePath(toRelative(workspaceRoot, file), queryTerms).reasons.some((reason) => reason.startsWith('project ')))) {
+    notes.push('Project landmark files are prioritized so broad research still starts from manifests, docs, entries, and tests.');
+  }
+  const filesToInspect = files.slice(0, maxFiles);
+  if (files.length > filesToInspect.length) notes.push(`Candidate discovery found ${files.length} text files; inspecting the top ${filesToInspect.length} by query and project-structure score.`);
 
   const candidates = new Map<string, { path: string; score: number; reasons: Set<string> }>();
   const matches: ExploreAgentResult['matches'] = [];
   let bytesRead = 0;
   let inspected = 0;
 
-  progress.report(`只读探索：开始读取 ${files.length} 个候选文件`);
-  for (const file of files) {
+  progress.report(`只读探索：开始读取 ${filesToInspect.length} 个候选文件`);
+  for (const file of filesToInspect) {
     const rel = toRelative(workspaceRoot, file);
     const filenameScore = scorePath(rel, queryTerms);
     if (filenameScore.score > 0) {
@@ -413,8 +466,30 @@ function isLikelyTextFile(abs: string): boolean {
 
 function scorePath(path: string, queries: string[]): { score: number; reasons: string[] } {
   const lowerPath = path.toLowerCase();
+  const base = basename(path);
+  const lowerBase = base.toLowerCase();
   const reasons: string[] = [];
   let score = 0;
+  if (PROJECT_MANIFEST_FILES.has(base)) {
+    score += 12;
+    reasons.push('project manifest');
+  }
+  if (DOCUMENTATION_FILES.has(base)) {
+    score += 10;
+    reasons.push('project documentation');
+  }
+  if (ENTRYPOINT_NAMES.has(lowerBase)) {
+    score += 8;
+    reasons.push('project entrypoint');
+  }
+  if (/\b(__tests__|tests?|specs?|e2e)\b/i.test(path) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(path)) {
+    score += 6;
+    reasons.push('project test surface');
+  }
+  if (/\b(src|app|packages|apps)\b/i.test(path)) {
+    score += 2;
+    reasons.push('project source surface');
+  }
   for (const query of queries) {
     const lowerQuery = query.toLowerCase();
     if (lowerPath.includes(lowerQuery)) {

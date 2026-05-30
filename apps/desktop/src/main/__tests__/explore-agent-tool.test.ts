@@ -130,6 +130,37 @@ describe('ExploreAgent read-only worker', () => {
     });
   });
 
+  it('prioritizes project landmarks during broad research scans', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await mkdir(join(workspaceRoot, 'src'), { recursive: true });
+      await mkdir(join(workspaceRoot, 'tests'), { recursive: true });
+      for (let index = 0; index < 20; index++) {
+        await writeFile(join(workspaceRoot, `aaa-filler-${index}.md`), `filler ${index}`);
+      }
+      await writeFile(join(workspaceRoot, 'package.json'), '{"scripts":{"test":"node --test"}}');
+      await writeFile(join(workspaceRoot, 'README.md'), '# Landmark project');
+      await writeFile(join(workspaceRoot, 'src', 'main.ts'), 'export function boot() {}');
+      await writeFile(join(workspaceRoot, 'tests', 'boot.test.ts'), 'test("boot", () => undefined)');
+
+      const result = await runReadOnlyExplore({
+        cwd: workspaceRoot,
+        objective: 'map this project architecture',
+        roots: ['.'],
+        queries: ['unlikely-query'],
+        maxFiles: 6,
+        maxMatches: 6,
+      });
+
+      assert.equal(result.ok, true);
+      assert.ok(result.candidateFiles.some((file) => file.path === 'package.json' && file.reasons.includes('project manifest')));
+      assert.ok(result.candidateFiles.some((file) => file.path === 'README.md' && file.reasons.includes('project documentation')));
+      assert.ok(result.candidateFiles.some((file) => file.path === 'src/main.ts' && file.reasons.includes('project entrypoint')));
+      assert.ok(result.candidateFiles.some((file) => file.path === 'tests/boot.test.ts' && file.reasons.includes('project test surface')));
+      assert.ok(result.notes.some((note) => /Project landmark files are prioritized/.test(note)));
+      assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
+    });
+  });
+
   it('has a structured chat preview instead of raw JSON fallback', async () => {
     const [components, events] = await Promise.all([
       readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8'),
