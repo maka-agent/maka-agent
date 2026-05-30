@@ -71,6 +71,8 @@ describe('getOnboardingHeroCopy — per-variant mapping', () => {
       false,
       'body should not embed the raw slug; component renders it as a separate <code>',
     );
+    assert.match(copy.body, /等待填写 API key/);
+    assert.doesNotMatch(copy.body, /缺少可用的 API key/);
   });
 
   it('needs_default_model carries the connectionSlug and points to models', () => {

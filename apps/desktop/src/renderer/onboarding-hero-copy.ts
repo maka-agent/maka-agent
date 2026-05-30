@@ -76,7 +76,7 @@ export function getOnboardingHeroCopy(state: OnboardingState): OnboardingHeroCop
         kind: state.kind,
         eyebrow: '补齐凭据',
         title: '为这个连接配置 API key。',
-        body: '默认连接缺少可用的 API key。请到「设置 · 模型」打开该连接，补齐密钥后再开始对话。',
+        body: '默认连接等待填写 API key。请到「设置 · 模型」打开该连接，补齐密钥后再开始对话。',
         connectionSlug: state.connectionSlug,
         cta: { label: '打开设置 · 模型', settingsSection: 'models' },
       };
