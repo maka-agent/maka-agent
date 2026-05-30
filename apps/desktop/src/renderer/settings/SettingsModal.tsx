@@ -2634,7 +2634,7 @@ function MemorySettingsPage(props: {
               value={memoryEntryQuery}
               onChange={(event) => setMemoryEntryQuery(event.currentTarget.value)}
               aria-label="筛选本地记忆"
-              placeholder="筛选标题、内容或标签"
+              placeholder="筛选标题、内容、ID 或标签"
             />
             {normalizedMemoryEntryQuery ? (
               <button type="button" className="settingsInlineTextButton" onClick={() => setMemoryEntryQuery('')}>
@@ -2816,10 +2816,13 @@ function filterLocalMemoryEntries(
   const needle = query.toLocaleLowerCase('zh-CN');
   return entries.filter((entry) => {
     const haystack = [
+      entry.id,
       entry.title,
       entry.content,
       entry.origin,
       memoryOriginLabel(entry.origin),
+      entry.createdAt === undefined ? '' : String(entry.createdAt),
+      entry.updatedAt === undefined ? '' : String(entry.updatedAt),
       ...entry.tags,
     ].join('\n').toLocaleLowerCase('zh-CN');
     return haystack.includes(needle);

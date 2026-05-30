@@ -33,12 +33,15 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(css, /\.settingsMemoryEntryFacts/);
   });
 
-  it('filters memory entries locally across title content origin and tags', async () => {
+  it('filters memory entries locally across title content id origin timestamps and tags', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
     assert.match(src, /function filterLocalMemoryEntries/);
     assert.match(src, /aria-label="筛选本地记忆"/);
-    assert.match(src, /筛选标题、内容或标签/);
+    assert.match(src, /筛选标题、内容、ID 或标签/);
+    assert.match(src, /entry\.id/);
+    assert.match(src, /String\(entry\.createdAt\)/);
+    assert.match(src, /String\(entry\.updatedAt\)/);
     assert.match(src, /\.\.\.entry\.tags/);
     assert.match(src, /memoryOriginLabel\(entry\.origin\)/);
     assert.match(src, /无匹配条目/);
