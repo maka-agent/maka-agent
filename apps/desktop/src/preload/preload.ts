@@ -454,6 +454,24 @@ contextBridge.exposeInMainWorld('maka', {
         ipcRenderer.on('settings:bots:statusChanged', listener);
         return () => ipcRenderer.off('settings:bots:statusChanged', listener);
       },
+      // PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): WeChat ClawBot
+      // scan-login QR fetch + status polling. The renderer never sees
+      // the raw HTTP body — main returns a structured envelope.
+      wechat: {
+        fetchQrcode(): Promise<Result<{ qrcodeUrl: string; qrToken: string }>> {
+          return ipcRenderer.invoke('settings:bots:wechat:fetchQrcode');
+        },
+        pollQrcodeStatus(qrToken: string): Promise<Result<
+          | { status: 'waiting' }
+          | { status: 'expired' }
+          | {
+              status: 'confirmed';
+              credentials: { botToken: string; baseUrl: string; botId: string; userId: string };
+            }
+        >> {
+          return ipcRenderer.invoke('settings:bots:wechat:pollQrcodeStatus', qrToken);
+        },
+      },
     },
   },
   usage: {

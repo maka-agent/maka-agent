@@ -360,6 +360,134 @@ function BotWeChatFields(props: {
   );
 }
 
+/**
+ * PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): WeChat scan-login
+ * modal. Fetches a QR from the ClawBot iLink endpoint via the main
+ * process, displays the QR image, polls every 2.5s for status, and
+ * persists the bot_token returned on confirmation. Mirrors the
+ * reference design's modal layout.
+ */
+function WeChatScanLoginModal(props: {
+  onClose(): void;
+  onConfirmed(credentials: { botToken: string; baseUrl: string; botId: string; userId: string }): Promise<void>;
+}) {
+  const [qr, setQr] = useState<{ qrcodeUrl: string; qrToken: string } | null>(null);
+  const [status, setStatus] = useState<'fetching' | 'waiting' | 'expired' | 'confirmed' | 'error'>('fetching');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, props.onClose);
+
+  async function fetchQr() {
+    setStatus('fetching');
+    setErrorMessage(null);
+    try {
+      const result = await window.maka.settings.bots.wechat.fetchQrcode();
+      if (!result.ok) {
+        setStatus('error');
+        setErrorMessage(result.error.message);
+        return;
+      }
+      setQr(result.data);
+      setStatus('waiting');
+    } catch (error) {
+      setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  useEffect(() => {
+    void fetchQr();
+  }, []);
+
+  useEffect(() => {
+    if (status !== 'waiting' || !qr?.qrToken) return;
+    let cancelled = false;
+    const interval = window.setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const result = await window.maka.settings.bots.wechat.pollQrcodeStatus(qr.qrToken);
+        if (cancelled) return;
+        if (!result.ok) {
+          setStatus('error');
+          setErrorMessage(result.error.message);
+          return;
+        }
+        if (result.data.status === 'confirmed') {
+          setStatus('confirmed');
+          await props.onConfirmed(result.data.credentials);
+        } else if (result.data.status === 'expired') {
+          setStatus('expired');
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setStatus('error');
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      }
+    }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [status, qr?.qrToken]);
+
+  const statusCopy = (() => {
+    switch (status) {
+      case 'fetching': return '正在获取二维码…';
+      case 'waiting': return '请使用 iOS / Android 微信 8.0.70+ 扫描二维码';
+      case 'expired': return '二维码已过期，请刷新';
+      case 'confirmed': return '已扫码登录';
+      case 'error': return errorMessage ?? '扫码登录失败';
+    }
+  })();
+
+  return (
+    <div className="settingsModalBackdrop" role="presentation" onClick={props.onClose}>
+      <div
+        ref={dialogRef}
+        className="settingsBotScanLoginModal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="微信扫码登录"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="settingsBotScanLoginHeader">
+          <h3>微信扫码登录</h3>
+          <button type="button" className="settingsCloseButton" aria-label="关闭" onClick={props.onClose}>
+            <X strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="settingsBotScanLoginBody">
+          {qr?.qrcodeUrl && (status === 'waiting' || status === 'confirmed') ? (
+            <img
+              className="settingsBotScanLoginQr"
+              src={qr.qrcodeUrl}
+              alt="微信扫码登录二维码"
+            />
+          ) : (
+            <div className="settingsBotScanLoginQrPlaceholder" aria-hidden="true">
+              {status === 'fetching' ? '…' : status === 'expired' ? '⟳' : '!'}
+            </div>
+          )}
+          <p className="settingsBotScanLoginStatus" data-status={status}>{statusCopy}</p>
+          <p className="settingsHelpText">
+            扫码登录通过 ClawBot iLink 接入个人微信。Maka 不保存中间状态；扫描确认后 bot_token 会保存到 设置 → 机器人对话 → 微信。
+          </p>
+        </div>
+        <div className="settingsBotScanLoginActions">
+          {(status === 'expired' || status === 'error') && (
+            <button className="settingsBotAction" type="button" onClick={() => void fetchQr()}>
+              刷新二维码
+            </button>
+          )}
+          <button className="settingsBotAction" type="button" onClick={props.onClose}>
+            {status === 'confirmed' ? '关闭' : '取消'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsModal(props: {
   connections: LlmConnection[];
   defaultSlug: string | null;
@@ -3750,6 +3878,7 @@ function BotChatSettingsPage(props: {
   const [selected, setSelected] = useState<BotProvider>('telegram');
   const [testing, setTesting] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [scanLoginOpen, setScanLoginOpen] = useState(false);
   const [statuses, setStatuses] = useState<Record<BotProvider, BotStatus> | null>(null);
   const channel = props.settings.botChat.channels[selected];
   const toast = useToast();
@@ -4124,18 +4253,28 @@ function BotChatSettingsPage(props: {
               user can scan the QR code there).
             - Everything else: 测试并连接 single outlined pill, OR
               (when listener already running) 测试连接 + 重启监听. */}
+        {scanLoginOpen && (
+          <WeChatScanLoginModal
+            onClose={() => setScanLoginOpen(false)}
+            onConfirmed={async (credentials) => {
+              await updateChannel({
+                token: credentials.botToken,
+                webhookUrl: credentials.baseUrl,
+                botUserId: credentials.botId,
+              });
+              await props.onReload();
+              setScanLoginOpen(false);
+              toast.success('微信已扫码登录', credentials.botId ? `Bot ID ${credentials.botId}` : '凭据已保存');
+            }}
+          />
+        )}
         <div className="settingsBotActionStack">
           {selected === 'wechat' ? (
             <>
               <button
                 className="settingsBotAction"
                 type="button"
-                onClick={() => {
-                  toast.success(
-                    '扫码登录由本机 wechat-bridge 处理',
-                    '请先启动本机 wechat-bridge 并按提示扫码登录 WeChat。',
-                  );
-                }}
+                onClick={() => setScanLoginOpen(true)}
               >
                 扫码登录
               </button>

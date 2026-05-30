@@ -164,6 +164,17 @@ declare global {
           listStatuses(): Promise<Record<BotProvider, BotStatus>>;
           restart(provider: BotProvider): Promise<BotStatus>;
           subscribeStatusChanges(handler: (status: BotStatus) => void): () => void;
+          wechat: {
+            fetchQrcode(): Promise<Result<{ qrcodeUrl: string; qrToken: string }>>;
+            pollQrcodeStatus(qrToken: string): Promise<Result<
+              | { status: 'waiting' }
+              | { status: 'expired' }
+              | {
+                  status: 'confirmed';
+                  credentials: { botToken: string; baseUrl: string; botId: string; userId: string };
+                }
+            >>;
+          };
         };
       };
       onboarding: {

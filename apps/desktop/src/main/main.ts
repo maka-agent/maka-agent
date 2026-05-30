@@ -120,6 +120,7 @@ import {
 } from '@maka/runtime';
 import type { BotIncomingMessage, ToolArtifactRecorderInput } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
+import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createArtifactStore, createConnectionStore, createPlanReminderStore, createSessionStore, createSettingsStore, createTelemetryRepo, resolveArtifactPath } from '@maka/storage';
 import {
@@ -1842,6 +1843,23 @@ function registerIpc(): void {
       const settings = await settingsStore.get();
       return testRuntimeBotChannel(provider, settings.botChat.channels[provider]);
     }, 'BOTS_TEST_FAILED'),
+  );
+
+  // PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): WeChat ClawBot
+  // scan-login. Renderer triggers the QR fetch from the modal, then
+  // polls the status endpoint until 'confirmed' or 'expired'. Main
+  // process owns the actual HTTP calls so the renderer never sees
+  // raw response bodies.
+  ipcMain.handle('settings:bots:wechat:fetchQrcode', () =>
+    tryResult(async () => fetchWeChatQrcode(), 'WECHAT_QR_FETCH_FAILED'),
+  );
+  ipcMain.handle('settings:bots:wechat:pollQrcodeStatus', (_event, qrToken: unknown) =>
+    tryResult(async () => {
+      if (typeof qrToken !== 'string' || !qrToken) {
+        throw new Error('qrToken must be a non-empty string');
+      }
+      return pollWeChatQrcodeStatus(qrToken);
+    }, 'WECHAT_QR_STATUS_FAILED'),
   );
   ipcMain.handle('settings:usageStats', (_event, range?: UsageRange) =>
     settingsStore.usageStats(range),

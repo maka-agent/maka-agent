@@ -5593,6 +5593,71 @@ button:active {
   padding-right: 32px;
 }
 
+/* PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): scan-login modal —
+   compact dialog centered above the backdrop with the QR + status. */
+.settingsBotScanLoginModal {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 22px 26px 24px;
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: var(--shadow-minimal);
+}
+.settingsBotScanLoginHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.settingsBotScanLoginHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.settingsBotScanLoginBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.settingsBotScanLoginQr {
+  width: 220px;
+  height: 220px;
+  border-radius: 12px;
+  background: white;
+  padding: 12px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+}
+.settingsBotScanLoginQrPlaceholder {
+  width: 220px;
+  height: 220px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--foreground-5);
+  border: 1px dashed var(--border);
+  color: var(--foreground-40);
+  font-size: 32px;
+}
+.settingsBotScanLoginStatus {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground-70);
+}
+.settingsBotScanLoginStatus[data-status="confirmed"] { color: var(--success-text); }
+.settingsBotScanLoginStatus[data-status="error"] { color: var(--destructive-text); }
+.settingsBotScanLoginStatus[data-status="expired"] { color: var(--info-text); }
+.settingsBotScanLoginActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 /* WeChat 高级设置 collapsible toggle. */
 .settingsBotAdvanced {
   display: flex;
