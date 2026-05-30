@@ -5474,6 +5474,8 @@ function ExploreAgentPreview(props: {
   const [processCopied, setProcessCopied] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
   const [evidenceCopied, setEvidenceCopied] = useState(false);
+  const [candidateCopied, setCandidateCopied] = useState(false);
+  const [matchesCopied, setMatchesCopied] = useState(false);
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const processLines = Array.isArray(result.recentEvents) && result.recentEvents.length > 0
@@ -5541,6 +5543,30 @@ function ExploreAgentPreview(props: {
       ].filter(Boolean).join(' — ')),
     ].join('\n')
     : '';
+  const candidateText = candidateFiles.length > 0
+    ? [
+      `状态：${status}`,
+      `终态：${terminalStatus}`,
+      `目标：${result.objective || '只读探索'}`,
+      `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
+      `候选：${candidateFiles.length}`,
+      ...candidateFiles.map((file) => [
+        `- ${file.path}`,
+        `分数 ${file.score}`,
+        file.reasons.length > 0 ? presentExploreAgentCandidateReasons(file.reasons) : '',
+      ].filter(Boolean).join(' — ')),
+    ].join('\n')
+    : '';
+  const matchesText = matches.length > 0
+    ? [
+      `状态：${status}`,
+      `终态：${terminalStatus}`,
+      `目标：${result.objective || '只读探索'}`,
+      `查询：${queries}`,
+      `命中片段：${matches.length}`,
+      ...matches.map((match) => `- ${match.path}:${match.line} [${match.query}] ${match.snippet}`),
+    ].join('\n')
+    : '';
 
   async function copyReport() {
     if (reportText.length === 0) return;
@@ -5581,6 +5607,28 @@ function ExploreAgentPreview(props: {
       await navigator.clipboard.writeText(redactSecrets(evidenceText));
       setEvidenceCopied(true);
       window.setTimeout(() => setEvidenceCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
+  async function copyCandidates() {
+    if (candidateText.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(candidateText));
+      setCandidateCopied(true);
+      window.setTimeout(() => setCandidateCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
+  async function copyMatches() {
+    if (matchesText.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(matchesText));
+      setMatchesCopied(true);
+      window.setTimeout(() => setMatchesCopied(false), 1400);
     } catch {
       /* clipboard unavailable — silently fail, button stays in default state */
     }
@@ -5737,7 +5785,20 @@ function ExploreAgentPreview(props: {
       )}
       {candidateFiles.length > 0 && (
         <section className="maka-explore-agent-section" aria-label="候选文件">
-          <strong>候选文件</strong>
+          <div className="maka-explore-agent-section-head">
+            <strong>候选文件</strong>
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-explore-agent-copy"
+              data-size="sm"
+              onClick={() => void copyCandidates()}
+              aria-label={candidateCopied ? '已复制候选文件' : '复制候选文件'}
+              data-copied={candidateCopied ? 'true' : 'false'}
+            >
+              {candidateCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{candidateCopied ? '已复制' : '复制候选'}</span>
+            </button>
+          </div>
           <ul>
             {candidateFiles.map((file) => (
               <li key={file.path}>
@@ -5753,7 +5814,20 @@ function ExploreAgentPreview(props: {
       )}
       {matches.length > 0 && (
         <section className="maka-explore-agent-section" aria-label="命中片段">
-          <strong>命中片段</strong>
+          <div className="maka-explore-agent-section-head">
+            <strong>命中片段</strong>
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-explore-agent-copy"
+              data-size="sm"
+              onClick={() => void copyMatches()}
+              aria-label={matchesCopied ? '已复制命中片段' : '复制命中片段'}
+              data-copied={matchesCopied ? 'true' : 'false'}
+            >
+              {matchesCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{matchesCopied ? '已复制' : '复制片段'}</span>
+            </button>
+          </div>
           <ul>
             {matches.map((match, index) => (
               <li key={`${match.path}:${match.line}:${index}`}>
