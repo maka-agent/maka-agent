@@ -232,8 +232,8 @@ export async function runReadOnlyExplore(input: {
 
   const files: string[] = [];
   const notes: string[] = [
-    'Read-only worker: no writes, no network, no process execution.',
-    `Search budget: up to ${maxFiles} files, ${maxMatches} matches, ${Math.round(MAX_TOTAL_BYTES / 1024)} KiB text.`,
+    '只读探索边界：不写文件、不联网、不启动进程。',
+    `搜索预算：最多读取 ${maxFiles} 个文件、返回 ${maxMatches} 处命中、读取 ${Math.round(MAX_TOTAL_BYTES / 1024)} KiB 文本。`,
   ];
   let filesSkipped = 0;
   for (const root of resolvedRoots) {
@@ -242,8 +242,8 @@ export async function runReadOnlyExplore(input: {
     const listed = await listTextFiles(root.abs, workspaceRoot, discoveryBudget - files.length);
     files.push(...listed.files);
     filesSkipped += listed.skipped;
-    if (listed.truncated) notes.push(`Scope ${root.rel} was truncated at the file budget.`);
-    if (files.length === before) notes.push(`Scope ${root.rel} had no readable text files within budget.`);
+    if (listed.truncated) notes.push(`范围 ${root.rel} 已到达候选文件预算，后续文件未继续扫描。`);
+    if (files.length === before) notes.push(`范围 ${root.rel} 在预算内没有可读取文本文件。`);
     const found = files.length - before;
     const skipped = filesSkipped - skippedBefore;
     progress.report(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项`);
@@ -257,10 +257,10 @@ export async function runReadOnlyExplore(input: {
     return rightScore - leftScore || leftRel.localeCompare(rightRel);
   });
   if (files.some((file) => scorePath(toRelative(workspaceRoot, file), queryTerms).reasons.some((reason) => reason.startsWith('project ')))) {
-    notes.push('Project landmark files are prioritized so broad research still starts from manifests, docs, entries, and tests.');
+    notes.push('广泛研究会优先读取项目配置、文档、入口和测试线索。');
   }
   const filesToInspect = files.slice(0, maxFiles);
-  if (files.length > filesToInspect.length) notes.push(`Candidate discovery found ${files.length} text files; inspecting the top ${filesToInspect.length} by query and project-structure score.`);
+  if (files.length > filesToInspect.length) notes.push(`已发现 ${files.length} 个文本候选；按查询命中和项目结构分读取前 ${filesToInspect.length} 个。`);
 
   const candidates = new Map<string, { path: string; score: number; reasons: Set<string> }>();
   const matches: ExploreAgentResult['matches'] = [];
@@ -326,8 +326,8 @@ export async function runReadOnlyExplore(input: {
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
     .slice(0, 20);
 
-  if (matches.length === 0) notes.push('No content matches found; use candidateFiles as the next read list.');
-  if (bytesRead >= MAX_TOTAL_BYTES) notes.push('Total byte budget reached before all candidate files were inspected.');
+  if (matches.length === 0) notes.push('没有找到内容命中；候选文件可作为下一步阅读清单。');
+  if (bytesRead >= MAX_TOTAL_BYTES) notes.push('总读取预算已用尽，部分候选文件未继续读取。');
   progress.report(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
 
   return {
@@ -586,7 +586,7 @@ function failure(
     progress,
     candidateFiles: [],
     matches: [],
-    notes: ['Read-only worker: no writes, no network, no process execution.'],
+    notes: ['只读探索边界：不写文件、不联网、不启动进程。'],
     reason,
     message,
   };
