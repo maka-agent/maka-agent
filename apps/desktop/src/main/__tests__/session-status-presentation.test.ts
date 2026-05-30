@@ -8,6 +8,8 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { SESSION_BLOCKED_REASONS, SESSION_STATUSES } from '@maka/core';
 import {
@@ -17,6 +19,8 @@ import {
   presentSessionStatus,
   sessionStatusAriaLabel,
 } from '../../renderer/session-status-presentation.js';
+
+const REPO_ROOT = resolve(process.cwd(), '..', '..');
 
 describe('presentSessionStatus', () => {
   it('covers every SessionStatus enum value', () => {
@@ -94,7 +98,15 @@ describe('describeBlockedReason (@kenji generalized copy contract)', () => {
 
   it('NO_REAL_CONNECTION maps to user-facing model-connection phrasing', () => {
     const text = describeBlockedReason('NO_REAL_CONNECTION');
-    assert.match(text, /模型|连接/);
+    assert.equal(text, '等待配置可用模型连接');
+    assert.doesNotMatch(text, /缺少可用模型连接/);
+  });
+
+  it('keeps the shared UI blocked-reason tooltip in sync with actionable waiting copy', async () => {
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+
+    assert.match(ui, /NO_REAL_CONNECTION:\s*'等待配置可用模型连接'/);
+    assert.doesNotMatch(ui, /NO_REAL_CONNECTION:\s*'缺少可用模型连接'/);
   });
 
   it('auth maps to re-login phrasing', () => {
