@@ -128,7 +128,7 @@ export function healthSignalFromConnection(connection: LlmConnection, checkedAt:
       status: 'warning',
       source: 'settings',
       checkedAt,
-      message: '连接缺少默认模型。',
+      message: '等待选择默认模型。',
       blocksSend: true,
     };
   }

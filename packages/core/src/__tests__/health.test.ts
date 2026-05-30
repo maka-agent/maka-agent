@@ -105,6 +105,14 @@ describe('HealthSignal contract', () => {
     expect(healthSignalFromConnectionRuntime(connection({ defaultModel: '' }), undefined, 30)).toBe(undefined);
   });
 
+  test('unconfigured connection health copy is an actionable waiting state', () => {
+    const result = healthSignalFromConnection(connection({ defaultModel: '' }), 20);
+
+    expect(result.message).toBe('等待选择默认模型。');
+    expect(/缺少默认模型/.test(result.message)).toBe(false);
+    expect(result.blocksSend).toBe(true);
+  });
+
   /*
    * PR-HEALTH-1 — I2 lock (B-series from audit catalog):
    * runtime_probe blocksSend must always be `false`. The signal is a
@@ -282,7 +290,7 @@ describe('HealthSignal contract', () => {
       healthSignalFromCapability(capability('bot:telegram', 'degraded')),
     ].filter((item): item is HealthSignal => Boolean(item));
     const englishImplementationCopy = /\b(?:Connection|Credential|endpoint|validation|Capability|runtime probe|agent send|errorClass|latency|model=)\b/;
-    const unfinishedStateCopy = /连接尚未验证|能力尚未完整配置|还没有记录到发送运行态探测/;
+    const unfinishedStateCopy = /连接尚未验证|能力尚未完整配置|还没有记录到发送运行态探测|连接缺少默认模型/;
 
     for (const signal of signals) {
       if (englishImplementationCopy.test(signal.message)) {
