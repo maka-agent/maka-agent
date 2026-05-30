@@ -168,6 +168,7 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('keeps archive and restore draft-only when MEMORY.md has unsaved edits', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
     const updateBlock = src.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
     const listBlock = src.match(/function MemoryEntryList\([\s\S]*?function filterLocalMemoryEntries/)?.[0] ?? '';
 
@@ -186,6 +187,10 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(listBlock, /const statusActionAriaLabel = props\.draftDirty/);
     assert.match(listBlock, /保存前不会写入 MEMORY\.md/);
     assert.match(listBlock, /aria-label=\{statusActionAriaLabel\}/);
+    assert.match(listBlock, /settingsMemoryEntryDraftNotice/);
+    assert.match(listBlock, /当前归档\/恢复操作只更新草稿/);
+    assert.match(css, /\.settingsMemoryEntryDraftNotice/);
+    assert.match(css, /var\(--warning\)/);
   });
 
   it('uses stopped-update copy for invalid memory entry ids instead of raw missing-field wording', async () => {
