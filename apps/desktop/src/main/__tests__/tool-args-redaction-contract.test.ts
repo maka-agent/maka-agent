@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatRedactedJson } from '@maka/ui';
+import { formatRedactedJson, formatToolIntent } from '@maka/ui';
 
 describe('tool and permission args redaction', () => {
   it('redacts JSON-shaped args before they are rendered', () => {
@@ -26,6 +26,21 @@ describe('tool and permission args redaction', () => {
     assert.doesNotMatch(toolActivity, /JSON\.stringify\(item\.args/);
     assert.match(permissionDialog, /\{formatRedactedJson\(props\.request\.args\)\}/);
     assert.doesNotMatch(permissionDialog, /JSON\.stringify\(props\.request\.args/);
+  });
+
+  it('redacts and caps model-authored tool intents before rendering', async () => {
+    const rendered = formatToolIntent(
+      `Use curl with Authorization: Bearer sk-live-secret-token ${'x'.repeat(320)}`,
+    );
+
+    assert.doesNotMatch(rendered, /sk-live-secret-token/);
+    assert.match(rendered, /Authorization: Bearer/);
+    assert.ok(rendered.length <= 241);
+
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const toolActivity = source.match(/export function ToolActivity[\s\S]*?function ToolOutputStream/)?.[0] ?? '';
+    assert.match(toolActivity, /\{formatToolIntent\(item\.intent\)\}/);
+    assert.doesNotMatch(toolActivity, /\{item\.intent\}/);
   });
 
   it('redacts permission summary previews before rendering command, path, or file content', async () => {

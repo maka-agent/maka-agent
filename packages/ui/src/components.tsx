@@ -5018,6 +5018,11 @@ export function formatRedactedJson(value: unknown): string {
   }
 }
 
+export function formatToolIntent(intent: string): string {
+  const safe = redactSecrets(intent.replace(/\s+/g, ' ').trim());
+  return safe.length > 240 ? `${safe.slice(0, 240)}…` : safe;
+}
+
 function formatDuration(ms: number | undefined): string | null {
   if (ms === undefined || ms < 0) return null;
   if (ms < 1000) return `${ms} ms`;
@@ -5054,7 +5059,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
             </summary>
             <div className="maka-tool-body">
               {errored && <ToolErrorBanner result={item.result} />}
-              {item.intent && <p className="maka-tool-intent">{item.intent}</p>}
+              {item.intent && <p className="maka-tool-intent">{formatToolIntent(item.intent)}</p>}
               {item.args !== undefined && (
                 <pre className="maka-code toolArgs">{formatRedactedJson(item.args)}</pre>
               )}
