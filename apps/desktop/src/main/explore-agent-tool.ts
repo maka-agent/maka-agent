@@ -140,6 +140,7 @@ export interface ExploreAgentResult {
   durationMs: number;
   progress: string[];
   evidence: Array<{ type: 'match' | 'candidate'; path: string; line?: number; label: string; score?: number }>;
+  summary: string;
   report: string;
   candidateFiles: Array<{ path: string; score: number; reasons: string[] }>;
   matches: Array<{ path: string; line: number; query: string; snippet: string }>;
@@ -369,6 +370,13 @@ export async function runReadOnlyExplore(input: {
   progress.report(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
   const completedAt = Date.now();
   const durationMs = Math.max(0, completedAt - startedAt);
+  const summary = buildResultSummary({
+    filesInspected: inspected,
+    matches: matches.length,
+    evidence: evidence.length,
+    candidateFiles: candidateFiles.length,
+    durationMs,
+  });
   const report = buildResearchReport({
     objective,
     roots: resolvedRoots.map((root) => root.rel),
@@ -400,6 +408,7 @@ export async function runReadOnlyExplore(input: {
     durationMs,
     progress: progress.messages,
     evidence,
+    summary,
     report,
     candidateFiles,
     matches,
@@ -710,6 +719,22 @@ function buildResearchReport(input: {
   return capReport(lines.join('\n'));
 }
 
+function buildResultSummary(input: {
+  filesInspected: number;
+  matches: number;
+  evidence: number;
+  candidateFiles: number;
+  durationMs: number;
+}): string {
+  return [
+    `读取 ${input.filesInspected} 个文件`,
+    `命中 ${input.matches} 处`,
+    `证据 ${input.evidence} 个`,
+    `候选 ${input.candidateFiles} 个`,
+    `耗时 ${formatReportDuration(input.durationMs)}`,
+  ].join(' · ');
+}
+
 function formatReportBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${Math.round(bytes / 1024)} KiB`;
@@ -782,6 +807,7 @@ function failure(
     durationMs: Math.max(0, completedAt - startedAt),
     progress,
     evidence: [],
+    summary: `未完成：${message}`,
     report: '',
     candidateFiles: [],
     matches: [],

@@ -5468,6 +5468,7 @@ function ExploreAgentPreview(props: {
   const matches = result.matches.slice(0, 8);
   const progress = (result.progress ?? []).slice(0, 6);
   const evidence = (result.evidence ?? []).slice(0, 6);
+  const resultSummary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const reportText = typeof result.report === 'string' ? result.report.trim() : '';
   const reportLines = reportText.split('\n').filter((line) => line.trim().length > 0).slice(0, 8);
   const notes = result.notes.slice(0, 4);
@@ -5498,6 +5499,7 @@ function ExploreAgentPreview(props: {
           {status} · 读 {result.filesInspected} 个文件 · {skippedSummary} · {formatBytes(result.bytesRead)}
           {duration ? ` · 耗时 ${duration}` : ''}
         </small>
+        {resultSummary.length > 0 && <small>{redactSecrets(resultSummary)}</small>}
       </header>
       {!result.ok && (
         <div className="maka-explore-agent-message" role="note">
