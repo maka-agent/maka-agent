@@ -10051,6 +10051,26 @@ button:active {
   outline-offset: 2px;
 }
 
+.settingsMemoryFilterEmpty {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsMemoryFilterEmpty strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryFilterEmpty small {
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .settingsMemoryManualAdd {
   display: grid;
   gap: 8px;

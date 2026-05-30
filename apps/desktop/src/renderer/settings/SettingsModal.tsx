@@ -2865,31 +2865,38 @@ function MemorySettingsPage(props: {
                 : `${visibleMemoryEntries.entries.length} 条记忆`}
             </small>
           </div>
-          <div className="settingsMemoryEntryGroups">
-            <MemoryEntryList
-              title="生效记忆"
-              entries={filteredActiveEntries}
-              filtered={normalizedMemoryEntryQuery.length > 0}
-              draftDirty={memoryDraftDirty}
-              busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
-              onCopyReference={copyMemoryEntryReference}
-              onFocusDraft={focusMemoryEntryInDraft}
-              onStatusChange={updateMemoryEntryStatus}
-            />
-            {visibleMemoryEntries.archivedEntries.length > 0 && (
+          {normalizedMemoryEntryQuery && filteredEntryCount === 0 ? (
+            <div className="settingsMemoryFilterEmpty" role="status">
+              <strong>没有匹配的记忆条目</strong>
+              <small>筛选不会修改 MEMORY.md；清除筛选后会恢复显示全部条目。</small>
+            </div>
+          ) : (
+            <div className="settingsMemoryEntryGroups">
               <MemoryEntryList
-                title="已归档记忆"
-                entries={filteredArchivedEntries}
+                title="生效记忆"
+                entries={filteredActiveEntries}
                 filtered={normalizedMemoryEntryQuery.length > 0}
-                archived
                 draftDirty={memoryDraftDirty}
                 busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
                 onCopyReference={copyMemoryEntryReference}
                 onFocusDraft={focusMemoryEntryInDraft}
                 onStatusChange={updateMemoryEntryStatus}
               />
-            )}
-          </div>
+              {visibleMemoryEntries.archivedEntries.length > 0 && (
+                <MemoryEntryList
+                  title="已归档记忆"
+                  entries={filteredArchivedEntries}
+                  filtered={normalizedMemoryEntryQuery.length > 0}
+                  archived
+                  draftDirty={memoryDraftDirty}
+                  busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+                  onCopyReference={copyMemoryEntryReference}
+                  onFocusDraft={focusMemoryEntryInDraft}
+                  onStatusChange={updateMemoryEntryStatus}
+                />
+              )}
+            </div>
+          )}
         </>
       )}
 
