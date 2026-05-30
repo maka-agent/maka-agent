@@ -64,6 +64,24 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(listBlock, /定位草稿/);
   });
 
+  it('previews the send-time memory prompt context from the core helper', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+
+    assert.match(src, /buildLocalMemoryPromptBody/);
+    assert.match(pageBlock, /const localMemoryPromptPreview = useMemo\(\(\) => buildLocalMemoryPromptBody\(draft\) \?\? '', \[draft\]\)/);
+    assert.match(pageBlock, /localMemoryPromptPreviewBlockedReason\(effective\)/);
+    assert.match(pageBlock, /模型上下文预览/);
+    assert.match(pageBlock, /发送时会注入/);
+    assert.match(pageBlock, /当前不会注入/);
+    assert.match(pageBlock, /只展示生效记忆会进入 prompt/);
+    assert.match(pageBlock, /已归档条目不会注入/);
+    assert.match(pageBlock, /疑似密钥会遮蔽/);
+    assert.match(pageBlock, /<pre>\{localMemoryPromptPreview\}<\/pre>/);
+    assert.match(css, /\.settingsMemoryPromptPreview/);
+  });
+
   it('filters memory entries locally across title content id origin timestamps and tags', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 

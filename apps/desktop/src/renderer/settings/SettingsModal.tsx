@@ -62,6 +62,7 @@ import {
   THEME_PALETTES,
   deriveProviderAuthContractFromConnection,
   appendManualLocalMemoryEntryDraft,
+  buildLocalMemoryPromptBody,
   defaultVoiceCaptureCaps,
   findLocalMemoryEntryDraftRange,
   setLocalMemoryEntryStatusDraft,
@@ -2577,6 +2578,9 @@ function MemorySettingsPage(props: {
     [effective.archivedEntries, normalizedMemoryEntryQuery],
   );
   const filteredEntryCount = filteredActiveEntries.length + filteredArchivedEntries.length;
+  const localMemoryPromptPreview = useMemo(() => buildLocalMemoryPromptBody(draft) ?? '', [draft]);
+  const promptPreviewBlockedReason = localMemoryPromptPreviewBlockedReason(effective);
+  const promptPreviewWillInject = localMemoryPromptPreview.length > 0 && !promptPreviewBlockedReason;
 
   return (
     <div className="settingsStructuredPage">
@@ -2656,6 +2660,22 @@ function MemorySettingsPage(props: {
         <span>{effective.path || '等待创建 MEMORY.md'}</span>
         <span>{effective.activeEntryCount} 条生效</span>
         {effective.archivedEntryCount > 0 && <span>{effective.archivedEntryCount} 条已归档</span>}
+      </div>
+
+      <div className="settingsMemoryPromptPreview" data-active={promptPreviewWillInject ? 'true' : 'false'}>
+        <div className="settingsMemoryPromptPreviewHeader">
+          <strong>模型上下文预览</strong>
+          <span>{promptPreviewWillInject ? '发送时会注入' : '当前不会注入'}</span>
+        </div>
+        <small>只展示生效记忆会进入 prompt 的内容；已归档条目不会注入，疑似密钥会遮蔽。</small>
+        {localMemoryPromptPreview ? (
+          <pre>{localMemoryPromptPreview}</pre>
+        ) : (
+          <p>{effective.status === 'safe_mode' ? 'MEMORY.md 过大，当前不会生成模型上下文预览。' : '没有生效记忆会进入 prompt。'}</p>
+        )}
+        {promptPreviewBlockedReason && localMemoryPromptPreview && (
+          <small>{promptPreviewBlockedReason}</small>
+        )}
       </div>
 
       {effective.entryCount > 0 && (
@@ -2911,6 +2931,14 @@ function memoryStatusLabel(status: LocalMemoryState['status']): string {
     case 'incognito_blocked': return '隐身禁用';
     case 'error': return '读取失败';
   }
+}
+
+function localMemoryPromptPreviewBlockedReason(state: LocalMemoryState): string {
+  if (!state.enabled) return '本地记忆已关闭。';
+  if (state.status === 'incognito_blocked') return '隐身模式下不会注入本地记忆。';
+  if (state.status === 'safe_mode') return 'MEMORY.md 过大，当前不会注入。';
+  if (!state.agentReadEnabled) return '模型上下文读取未开启。';
+  return '';
 }
 
 function workspaceInstructionStatusLabel(status: string, chars: number, truncated: boolean): string {
