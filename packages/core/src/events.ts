@@ -184,6 +184,7 @@ export type ToolResultContent =
   | {
       kind: 'explore_agent';
       ok: boolean;
+      partial?: boolean;
       mode: 'read_only';
       objective: string;
       roots: string[];

@@ -5482,7 +5482,11 @@ function ExploreAgentPreview(props: {
   const evidence = (result.evidence ?? []).slice(0, 6);
   const resultSummary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const reportText = typeof result.report === 'string' ? result.report.trim() : '';
-  const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
+  const status = result.ok
+    ? '已完成'
+    : result.reason === 'aborted' && result.partial === true
+      ? '已取消 · 保留部分结果'
+      : presentExploreAgentReason(result.reason) ?? '未完成';
   const summaryText = resultSummary.length > 0
     ? [
       `状态：${status}`,

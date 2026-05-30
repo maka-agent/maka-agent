@@ -127,6 +127,7 @@ const SENSITIVE_TEXT_FILE_NAMES = new Set([
 export interface ExploreAgentResult {
   kind: 'explore_agent';
   ok: boolean;
+  partial: boolean;
   mode: 'read_only';
   objective: string;
   roots: string[];
@@ -314,7 +315,20 @@ export async function runReadOnlyExplore(input: {
   progress.report('read', `只读探索：开始读取 ${filesToInspect.length} 个候选文件`);
   for (const file of filesToInspect) {
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress, startedAt);
+      return partialAbortFailure({
+        objective,
+        roots: resolvedRoots.map((root) => root.rel),
+        queryTerms,
+        filesInspected: inspected,
+        filesSkipped,
+        sensitiveFilesSkipped,
+        bytesRead,
+        candidates,
+        matches,
+        notes,
+        progress,
+        startedAt,
+      });
     }
     const rel = toRelative(workspaceRoot, file);
     const filenameScore = scorePath(rel, queryTerms);
@@ -345,7 +359,20 @@ export async function runReadOnlyExplore(input: {
       continue;
     }
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress, startedAt);
+      return partialAbortFailure({
+        objective,
+        roots: resolvedRoots.map((root) => root.rel),
+        queryTerms,
+        filesInspected: inspected,
+        filesSkipped,
+        sensitiveFilesSkipped,
+        bytesRead,
+        candidates,
+        matches,
+        notes,
+        progress,
+        startedAt,
+      });
     }
     if (looksBinary(text)) {
       filesSkipped++;
@@ -408,6 +435,7 @@ export async function runReadOnlyExplore(input: {
   return {
     kind: 'explore_agent',
     ok: true,
+    partial: false,
     mode: 'read_only',
     objective,
     roots: resolvedRoots.map((root) => root.rel),
@@ -699,6 +727,7 @@ function buildEvidenceAnchors(
 }
 
 function buildResearchReport(input: {
+  statusLine?: string;
   objective: string;
   roots: string[];
   queryTerms: string[];
@@ -713,6 +742,7 @@ function buildResearchReport(input: {
   durationMs: number;
 }): string {
   const lines = [
+    ...(input.statusLine ? [`状态：${input.statusLine}`] : []),
     `目标：${input.objective}`,
     `范围：${input.roots.length > 0 ? input.roots.join(', ') : '.'}`,
     `查询：${input.queryTerms.length > 0 ? input.queryTerms.join(', ') : '未指定'}`,
@@ -831,6 +861,7 @@ function failure(
   return {
     kind: 'explore_agent',
     ok: false,
+    partial: false,
     mode: 'read_only',
     objective,
     roots,
@@ -852,6 +883,93 @@ function failure(
     notes: ['只读探索边界：不写文件、不联网、不启动进程。'],
     reason,
     message,
+  };
+}
+
+function partialAbortFailure(input: {
+  objective: string;
+  roots: string[];
+  queryTerms: string[];
+  filesInspected: number;
+  filesSkipped: number;
+  sensitiveFilesSkipped: number;
+  bytesRead: number;
+  candidates: Map<string, { path: string; score: number; reasons: Set<string> }>;
+  matches: ExploreAgentResult['matches'];
+  notes: string[];
+  progress: ProgressState;
+  startedAt: number;
+}): ExploreAgentResult {
+  if (input.filesInspected <= 0 && input.matches.length === 0 && input.candidates.size === 0) {
+    return abortFailure(input.objective, input.roots, input.queryTerms, input.progress, input.startedAt);
+  }
+  const completedAt = Date.now();
+  appendExploreEvent(input.progress.recentEvents, {
+    type: 'aborted',
+    at: completedAt,
+    message: '只读探索已取消，已保留取消前的部分结果。',
+  });
+  const candidateFiles = Array.from(input.candidates.values())
+    .map((candidate) => ({
+      path: candidate.path,
+      score: candidate.score,
+      reasons: Array.from(candidate.reasons).sort(),
+    }))
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+    .slice(0, 20);
+  const evidence = buildEvidenceAnchors(input.matches, candidateFiles);
+  const durationMs = Math.max(0, completedAt - input.startedAt);
+  const notes = [
+    ...input.notes,
+    '只读探索已取消；以下为取消前已读取的部分结果，不代表完整结论。',
+  ];
+  const summary = `已取消：${buildResultSummary({
+    filesInspected: input.filesInspected,
+    matches: input.matches.length,
+    evidence: evidence.length,
+    candidateFiles: candidateFiles.length,
+    durationMs,
+  })}`;
+  const report = buildResearchReport({
+    statusLine: '已取消，以下为取消前部分结果。',
+    objective: input.objective,
+    roots: input.roots,
+    queryTerms: input.queryTerms,
+    filesInspected: input.filesInspected,
+    filesSkipped: input.filesSkipped,
+    sensitiveFilesSkipped: input.sensitiveFilesSkipped,
+    bytesRead: input.bytesRead,
+    evidence,
+    candidateFiles,
+    matches: input.matches,
+    notes,
+    durationMs,
+  });
+  return {
+    kind: 'explore_agent',
+    ok: false,
+    partial: true,
+    mode: 'read_only',
+    objective: input.objective,
+    roots: input.roots,
+    queries: input.queryTerms,
+    filesInspected: input.filesInspected,
+    filesSkipped: input.filesSkipped,
+    sensitiveFilesSkipped: input.sensitiveFilesSkipped,
+    bytesRead: input.bytesRead,
+    startedAt: input.startedAt,
+    completedAt,
+    durationMs,
+    progress: [...input.progress.messages],
+    recentEvents: [...input.progress.recentEvents],
+    evidence,
+    summary,
+    report,
+    candidateFiles,
+    matches: [...input.matches],
+    notes,
+    reason: 'aborted',
+    message: '只读探索已取消，已保留取消前的部分结果。',
   };
 }
 

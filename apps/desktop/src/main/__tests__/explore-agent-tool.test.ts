@@ -192,10 +192,47 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.message, '只读探索已取消。');
       assert.ok(result.recentEvents.some((event) => event.type === 'aborted' && /已取消/.test(event.message)));
       assert.equal(result.filesInspected, 0);
+      assert.equal(result.partial, false);
       assert.deepEqual(result.matches, []);
       assert.deepEqual(result.evidence, []);
       assert.equal(result.report, '');
       assert.equal(JSON.stringify(result).includes('reference explore worker notes'), false);
+    });
+  });
+
+  it('keeps bounded partial findings when canceled after reading files', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      for (let index = 0; index < 20; index++) {
+        await writeFile(join(workspaceRoot, `partial-${index}.md`), `alpha evidence ${index}`);
+      }
+      const abort = new AbortController();
+
+      const result = await runReadOnlyExplore({
+        cwd: workspaceRoot,
+        objective: 'find partial alpha evidence',
+        roots: ['.'],
+        queries: ['alpha'],
+        maxFiles: 20,
+        maxMatches: 20,
+        abortSignal: abort.signal,
+        onProgress: (message) => {
+          if (/已读取 10 个文件/.test(message)) abort.abort();
+        },
+      });
+
+      assert.equal(result.ok, false);
+      assert.equal(result.reason, 'aborted');
+      assert.equal(result.partial, true);
+      assert.equal(result.message, '只读探索已取消，已保留取消前的部分结果。');
+      assert.equal(result.filesInspected, 10);
+      assert.ok(result.matches.length > 0);
+      assert.ok(result.evidence.length > 0);
+      assert.match(result.summary, /^已取消：读取 10 个文件/);
+      assert.match(result.report, /状态：已取消，以下为取消前部分结果。/);
+      assert.match(result.report, /命中片段：/);
+      assert.ok(result.notes.some((note) => /取消前已读取的部分结果/.test(note)));
+      assert.ok(result.recentEvents.some((event) => event.type === 'aborted' && /部分结果/.test(event.message)));
+      assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
     });
   });
 
@@ -222,6 +259,7 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.reason, 'aborted');
       assert.equal(result.message, '只读探索已取消。');
       assert.equal(result.filesInspected, 0);
+      assert.equal(result.partial, false);
     });
   });
 
@@ -347,6 +385,7 @@ describe('ExploreAgent read-only worker', () => {
     ]);
 
     assert.match(events, /kind: 'explore_agent'/);
+    assert.match(events, /partial\?: boolean/);
     assert.match(events, /summary\?: string/);
     assert.match(events, /recentEvents\?: ReadonlyArray/);
     assert.match(components, /function ExploreAgentPreview/);
@@ -378,6 +417,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(reportText\)\)/);
     assert.doesNotMatch(previewBlock, /writeText\(result\.report\)/);
     assert.match(previewBlock, /sensitiveFilesSkipped/);
+    assert.match(previewBlock, /保留部分结果/);
     assert.match(previewBlock, /已取消/);
     assert.match(previewBlock, /项目配置/);
     assert.match(previewBlock, /入口文件/);
