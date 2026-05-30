@@ -5465,6 +5465,7 @@ function ExploreAgentPreview(props: {
   const { result } = props;
   const [reportCopied, setReportCopied] = useState(false);
   const [processCopied, setProcessCopied] = useState(false);
+  const [summaryCopied, setSummaryCopied] = useState(false);
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const recentEvents = Array.isArray(result.recentEvents) ? result.recentEvents.slice(0, 6) : [];
@@ -5474,10 +5475,21 @@ function ExploreAgentPreview(props: {
   const evidence = (result.evidence ?? []).slice(0, 6);
   const resultSummary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const reportText = typeof result.report === 'string' ? result.report.trim() : '';
-  const processText = progress.join('\n').trim();
+  const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
+  const summaryText = resultSummary.length > 0
+    ? [
+      `状态：${status}`,
+      `目标：${result.objective || '只读探索'}`,
+      `摘要：${resultSummary}`,
+    ].join('\n')
+    : '';
+  const processText = [
+    summaryText,
+    progress.length > 0 ? `事件：${progress.length}` : '',
+    progress.join('\n'),
+  ].filter((line) => line.trim().length > 0).join('\n').trim();
   const reportLines = reportText.split('\n').filter((line) => line.trim().length > 0).slice(0, 8);
   const notes = result.notes.slice(0, 4);
-  const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
   const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
   const queries = result.queries.length > 0 ? result.queries.join(', ') : '未指定';
   const skippedSummary = result.sensitiveFilesSkipped && result.sensitiveFilesSkipped > 0
@@ -5491,6 +5503,17 @@ function ExploreAgentPreview(props: {
       await navigator.clipboard.writeText(redactSecrets(reportText));
       setReportCopied(true);
       window.setTimeout(() => setReportCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
+  async function copySummary() {
+    if (summaryText.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(summaryText));
+      setSummaryCopied(true);
+      window.setTimeout(() => setSummaryCopied(false), 1400);
     } catch {
       /* clipboard unavailable — silently fail, button stays in default state */
     }
@@ -5515,7 +5538,22 @@ function ExploreAgentPreview(props: {
           {status} · 读 {result.filesInspected} 个文件 · {skippedSummary} · {formatBytes(result.bytesRead)}
           {duration ? ` · 耗时 ${duration}` : ''}
         </small>
-        {resultSummary.length > 0 && <small>{redactSecrets(resultSummary)}</small>}
+        {resultSummary.length > 0 && (
+          <div className="maka-explore-agent-summary-line">
+            <small>{redactSecrets(resultSummary)}</small>
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-explore-agent-copy"
+              data-size="sm"
+              onClick={() => void copySummary()}
+              aria-label={summaryCopied ? '已复制探索摘要' : '复制探索摘要'}
+              data-copied={summaryCopied ? 'true' : 'false'}
+            >
+              {summaryCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{summaryCopied ? '已复制' : '复制摘要'}</span>
+            </button>
+          </div>
+        )}
       </header>
       {!result.ok && (
         <div className="maka-explore-agent-message" role="note">

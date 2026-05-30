@@ -3935,6 +3935,21 @@ button:active {
   letter-spacing: 0.04em;
 }
 
+.maka-explore-agent-summary-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.maka-explore-agent-summary-line small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .maka-explore-agent-message {
   padding: 8px 10px;
   border-radius: 6px;
