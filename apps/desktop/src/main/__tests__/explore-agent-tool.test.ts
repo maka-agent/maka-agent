@@ -364,6 +364,9 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /研究报告/);
     assert.match(previewBlock, /耗时/);
     assert.match(previewBlock, /resultSummary/);
+    assert.match(previewBlock, /processText/);
+    assert.match(previewBlock, /复制过程/);
+    assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(processText\)\)/);
     assert.match(previewBlock, /复制报告/);
     assert.match(previewBlock, /reportText\.length === 0/);
     assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(reportText\)\)/);

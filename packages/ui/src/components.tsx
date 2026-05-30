@@ -5464,6 +5464,7 @@ function ExploreAgentPreview(props: {
 }) {
   const { result } = props;
   const [reportCopied, setReportCopied] = useState(false);
+  const [processCopied, setProcessCopied] = useState(false);
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const recentEvents = Array.isArray(result.recentEvents) ? result.recentEvents.slice(0, 6) : [];
@@ -5473,6 +5474,7 @@ function ExploreAgentPreview(props: {
   const evidence = (result.evidence ?? []).slice(0, 6);
   const resultSummary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const reportText = typeof result.report === 'string' ? result.report.trim() : '';
+  const processText = progress.join('\n').trim();
   const reportLines = reportText.split('\n').filter((line) => line.trim().length > 0).slice(0, 8);
   const notes = result.notes.slice(0, 4);
   const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
@@ -5489,6 +5491,17 @@ function ExploreAgentPreview(props: {
       await navigator.clipboard.writeText(redactSecrets(reportText));
       setReportCopied(true);
       window.setTimeout(() => setReportCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
+  async function copyProcess() {
+    if (processText.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(processText));
+      setProcessCopied(true);
+      window.setTimeout(() => setProcessCopied(false), 1400);
     } catch {
       /* clipboard unavailable — silently fail, button stays in default state */
     }
@@ -5521,7 +5534,20 @@ function ExploreAgentPreview(props: {
       </dl>
       {progress.length > 0 && (
         <section className="maka-explore-agent-section" aria-label="探索过程">
-          <strong>过程</strong>
+          <div className="maka-explore-agent-section-head">
+            <strong>过程</strong>
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-explore-agent-copy"
+              data-size="sm"
+              onClick={() => void copyProcess()}
+              aria-label={processCopied ? '已复制探索过程' : '复制探索过程'}
+              data-copied={processCopied ? 'true' : 'false'}
+            >
+              {processCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{processCopied ? '已复制' : '复制过程'}</span>
+            </button>
+          </div>
           <ul>
             {progress.map((item, index) => (
               <li key={`${index}:${item.slice(0, 24)}`}>
