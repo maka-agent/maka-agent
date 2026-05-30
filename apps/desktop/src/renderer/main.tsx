@@ -2116,6 +2116,13 @@ function AppShell() {
                     toastApi.error('复制失败', error instanceof Error ? error.message : '剪贴板不可用');
                   }
                 }}
+                onAppendDailyReviewMarkdown={({ markdown, label, summary }) => {
+                  composerRef.current?.appendText(markdown);
+                  toastApi.success(
+                    `已追加${label}回顾到输入框`,
+                    `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
+                  );
+                }}
                 onSaveDailyReviewMarkdown={(input) => void saveDailyReviewMarkdown(input)}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId

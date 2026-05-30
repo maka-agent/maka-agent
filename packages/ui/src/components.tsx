@@ -826,6 +826,7 @@ function DailyReviewPanel(props: {
   bridge: DailyReviewBridge;
   onSelectSession?: (sessionId: string) => void;
   onCopyMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
+  onAppendMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
   onSaveMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
 }) {
   const [offsetDays, setOffsetDays] = useState(0);
@@ -936,6 +937,19 @@ function DailyReviewPanel(props: {
             >
               复制
             </button>
+            {props.onAppendMarkdown && (
+              <button
+                type="button"
+                className="maka-button maka-button-ghost maka-daily-review-append"
+                onClick={() => {
+                  const md = formatDailyReviewMarkdown(summary, dayLabel);
+                  void props.onAppendMarkdown?.({ markdown: md, label: dayLabel, summary });
+                }}
+                title="追加到当前输入框草稿"
+              >
+                粘到输入框
+              </button>
+            )}
             {props.onSaveMarkdown && (
               <button
                 type="button"
@@ -2811,6 +2825,7 @@ export function ChatView(props: {
   onDeletePlanReminder?: (id: string) => void;
   dailyReviewBridge?: DailyReviewBridge;
   onCopyDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
+  onAppendDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
   onSaveDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
   onSelectSession?: (sessionId: string) => void;
   /**
@@ -2969,6 +2984,7 @@ export function ChatView(props: {
             bridge={props.dailyReviewBridge}
             onSelectSession={props.onSelectSession}
             onCopyMarkdown={props.onCopyDailyReviewMarkdown}
+            onAppendMarkdown={props.onAppendDailyReviewMarkdown}
             onSaveMarkdown={props.onSaveDailyReviewMarkdown}
           />
         ) : (
