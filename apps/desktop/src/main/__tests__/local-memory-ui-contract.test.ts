@@ -33,12 +33,31 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(css, /\.settingsMemoryEntryFacts/);
   });
 
-  it('filters memory entries locally across title content origin and tags', async () => {
+  it('can copy a stable memory entry reference for audit handoff', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+    const listBlock = src.match(/function MemoryEntryList\([\s\S]*?function filterLocalMemoryEntries/)?.[0] ?? '';
+
+    assert.match(pageBlock, /async function copyMemoryEntryReference/);
+    assert.match(pageBlock, /Memory entry: \$\{entry\.title\}/);
+    assert.match(pageBlock, /ID: \$\{entry\.id\}/);
+    assert.match(pageBlock, /Status: \$\{memoryEntryStatusLabel\(entry\.status\)\}/);
+    assert.match(pageBlock, /navigator\.clipboard\.writeText\(reference\)/);
+    assert.match(pageBlock, /toast\.success\('已复制记忆引用', entry\.id\)/);
+    assert.match(listBlock, /onCopyReference/);
+    assert.match(listBlock, /复制引用/);
+    assert.match(src, /function memoryEntryStatusLabel/);
+  });
+
+  it('filters memory entries locally across title content id origin timestamps and tags', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
     assert.match(src, /function filterLocalMemoryEntries/);
     assert.match(src, /aria-label="筛选本地记忆"/);
-    assert.match(src, /筛选标题、内容或标签/);
+    assert.match(src, /筛选标题、内容、ID 或标签/);
+    assert.match(src, /entry\.id/);
+    assert.match(src, /String\(entry\.createdAt\)/);
+    assert.match(src, /String\(entry\.updatedAt\)/);
     assert.match(src, /\.\.\.entry\.tags/);
     assert.match(src, /memoryOriginLabel\(entry\.origin\)/);
     assert.match(src, /无匹配条目/);

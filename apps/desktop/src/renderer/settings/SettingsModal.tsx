@@ -2458,6 +2458,24 @@ function MemorySettingsPage(props: {
     }
   }
 
+  async function copyMemoryEntryReference(entry: LocalMemoryState['entries'][number]) {
+    const reference = [
+      `Memory entry: ${entry.title}`,
+      `ID: ${entry.id}`,
+      `Status: ${memoryEntryStatusLabel(entry.status)}`,
+      `Origin: ${memoryOriginLabel(entry.origin)}`,
+      entry.createdAt === undefined ? '' : `Created: ${new Date(entry.createdAt).toISOString()}`,
+      entry.updatedAt === undefined ? '' : `Updated: ${new Date(entry.updatedAt).toISOString()}`,
+      entry.tags.length > 0 ? `Tags: ${entry.tags.join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+    try {
+      await navigator.clipboard.writeText(reference);
+      toast.success('已复制记忆引用', entry.id);
+    } catch {
+      toast.error('复制失败', '剪贴板不可用。');
+    }
+  }
+
   function addManualMemoryDraftEntry() {
     const result = appendManualLocalMemoryEntryDraft(draft, {
       title: newMemoryTitle,
@@ -2634,7 +2652,7 @@ function MemorySettingsPage(props: {
               value={memoryEntryQuery}
               onChange={(event) => setMemoryEntryQuery(event.currentTarget.value)}
               aria-label="筛选本地记忆"
-              placeholder="筛选标题、内容或标签"
+              placeholder="筛选标题、内容、ID 或标签"
             />
             {normalizedMemoryEntryQuery ? (
               <button type="button" className="settingsInlineTextButton" onClick={() => setMemoryEntryQuery('')}>
@@ -2653,6 +2671,7 @@ function MemorySettingsPage(props: {
               entries={filteredActiveEntries}
               filtered={normalizedMemoryEntryQuery.length > 0}
               busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+              onCopyReference={copyMemoryEntryReference}
               onStatusChange={updateMemoryEntryStatus}
             />
             {effective.archivedEntries.length > 0 && (
@@ -2662,6 +2681,7 @@ function MemorySettingsPage(props: {
                 filtered={normalizedMemoryEntryQuery.length > 0}
                 archived
                 busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+                onCopyReference={copyMemoryEntryReference}
                 onStatusChange={updateMemoryEntryStatus}
               />
             )}
@@ -2755,6 +2775,7 @@ function MemoryEntryList(props: {
   filtered?: boolean;
   archived?: boolean;
   busy?: boolean;
+  onCopyReference?(entry: LocalMemoryState['activeEntries'][number]): void | Promise<void>;
   onStatusChange?(entry: LocalMemoryState['activeEntries'][number], status: 'active' | 'archived'): void | Promise<void>;
 }) {
   return (
@@ -2788,16 +2809,27 @@ function MemoryEntryList(props: {
                 )}
               </small>
               <p>{entry.content}</p>
-              {props.onStatusChange && (
+              {(props.onCopyReference || props.onStatusChange) && (
                 <div className="settingsMemoryEntryActions">
-                  <button
-                    type="button"
-                    className="settingsInlineTextButton"
-                    disabled={props.busy}
-                    onClick={() => void props.onStatusChange?.(entry, props.archived ? 'active' : 'archived')}
-                  >
-                    {props.archived ? '恢复' : '归档'}
-                  </button>
+                  {props.onCopyReference && (
+                    <button
+                      type="button"
+                      className="settingsInlineTextButton"
+                      onClick={() => void props.onCopyReference?.(entry)}
+                    >
+                      复制引用
+                    </button>
+                  )}
+                  {props.onStatusChange && (
+                    <button
+                      type="button"
+                      className="settingsInlineTextButton"
+                      disabled={props.busy}
+                      onClick={() => void props.onStatusChange?.(entry, props.archived ? 'active' : 'archived')}
+                    >
+                      {props.archived ? '恢复' : '归档'}
+                    </button>
+                  )}
                 </div>
               )}
             </article>
@@ -2816,10 +2848,13 @@ function filterLocalMemoryEntries(
   const needle = query.toLocaleLowerCase('zh-CN');
   return entries.filter((entry) => {
     const haystack = [
+      entry.id,
       entry.title,
       entry.content,
       entry.origin,
       memoryOriginLabel(entry.origin),
+      entry.createdAt === undefined ? '' : String(entry.createdAt),
+      entry.updatedAt === undefined ? '' : String(entry.updatedAt),
       ...entry.tags,
     ].join('\n').toLocaleLowerCase('zh-CN');
     return haystack.includes(needle);
@@ -2832,6 +2867,13 @@ function memoryOriginLabel(origin: NonNullable<LocalMemoryState['latestEntry']>[
     case 'imported': return '导入记录';
     case 'extracted': return '确认提取';
     case 'unknown': return '手写条目';
+  }
+}
+
+function memoryEntryStatusLabel(status: LocalMemoryState['entries'][number]['status']): string {
+  switch (status) {
+    case 'active': return '生效';
+    case 'archived': return '已归档';
   }
 }
 
