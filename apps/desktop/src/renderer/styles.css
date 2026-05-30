@@ -5500,6 +5500,117 @@ button:active {
   box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.28);
 }
 
+/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
+   action buttons in bot settings follow the reference design — outlined
+   blue rounded pills, stacked vertically with a small gap. NOT primary
+   filled (which is reserved for the bottom-right 完成 CTA). */
+.settingsBotActionStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 8px;
+}
+.settingsBotAction {
+  appearance: none;
+  min-width: 110px;
+  min-height: 36px;
+  padding: 0 22px;
+  border: 1px solid oklch(from var(--accent) l c h / 0.45);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.settingsBotAction:hover {
+  background: oklch(from var(--accent) l c h / 0.08);
+}
+.settingsBotAction:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.22);
+}
+.settingsBotAction[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Inline hint after a field label — mirrors "(国内网络必填)" /
+   "(仅用于 Bot 鉴权)" in the reference. */
+.settingsFieldHint {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--foreground-50);
+  font-size: 11.5px;
+  margin-left: 6px;
+}
+
+/* Amber info notice with a leading ⓘ glyph — mirrors the reference
+   design's TUN-mode hints in Telegram + Discord. */
+.settingsBotInfoNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: oklch(from var(--info) l c h / 0.10);
+  border: 1px solid oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.settingsBotInfoNoticeIcon {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--info);
+  line-height: 1.4;
+}
+
+/* 飞书 域名 dropdown — match the input field height + border. */
+.settingsBotDomainSelect {
+  appearance: none;
+  width: 100%;
+  background: var(--background);
+  background-image: linear-gradient(45deg, transparent 50%, var(--foreground-55) 50%),
+                    linear-gradient(135deg, var(--foreground-55) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 12px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+
+/* WeChat 高级设置 collapsible toggle. */
+.settingsBotAdvanced {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settingsBotAdvancedToggle {
+  align-self: flex-start;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--foreground-55);
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 12px;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+.settingsBotAdvancedToggle:hover {
+  color: var(--foreground);
+}
+.settingsBotAdvancedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
 .settingsThemeSwatch {
   width: 56px;
   height: 40px;
