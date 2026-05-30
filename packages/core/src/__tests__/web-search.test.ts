@@ -4,17 +4,20 @@ import { describe, it } from 'node:test';
 import {
   MASKED_TOKEN_SENTINEL,
   WEB_SEARCH_DEFAULT_LIMIT,
+  WEB_SEARCH_CREDENTIAL_SOURCES,
   WEB_SEARCH_MAX_LIMIT,
   WEB_SEARCH_QUERY_MAX_CHARS,
   WEB_SEARCH_PROVIDERS,
   defaultWebSearchSettings,
   isWebSearchCredentialStatus,
+  isWebSearchCredentialSource,
   isWebSearchProvider,
   maskedTokenForDisplay,
   normalizeWebSearchLimit,
   normalizeWebSearchQuery,
   reconcileMaskedToken,
   webSearchCredentialStatusFromResponse,
+  webSearchCredentialSourceFromStoredKey,
 } from '../web-search.js';
 
 describe('normalizeWebSearchQuery', () => {
@@ -102,6 +105,7 @@ describe('defaultWebSearchSettings', () => {
     assert.equal(s.enabled, false);
     assert.equal(s.defaultProvider, 'tavily');
     assert.equal(s.providers.tavily.apiKey, '');
+    assert.equal(s.providers.tavily.credentialSource, 'none');
     assert.equal(s.providers.tavily.credentialVersion, 0);
     assert.equal(s.providers.tavily.credentialStatus, 'untested');
   });
@@ -113,6 +117,19 @@ describe('web search credential status helpers', () => {
     assert.equal(isWebSearchCredentialStatus('invalid_credentials'), true);
     assert.equal(isWebSearchCredentialStatus('unsupported_provider'), false);
     assert.equal(isWebSearchCredentialStatus(''), false);
+  });
+
+  it('accepts only the closed credential source enum', () => {
+    for (const source of WEB_SEARCH_CREDENTIAL_SOURCES) {
+      assert.equal(isWebSearchCredentialSource(source), true);
+    }
+    assert.equal(isWebSearchCredentialSource('anonymous'), false);
+    assert.equal(isWebSearchCredentialSource(''), false);
+  });
+
+  it('derives renderer-safe credential source from stored key presence', () => {
+    assert.equal(webSearchCredentialSourceFromStoredKey(''), 'none');
+    assert.equal(webSearchCredentialSourceFromStoredKey('tvly-secret'), 'saved');
   });
 
   it('maps test responses to persisted credential status without leaking unsupported provider', () => {

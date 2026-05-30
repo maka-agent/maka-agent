@@ -12,6 +12,7 @@ import {
   isWebSearchCredentialStatus,
   isWebSearchProvider,
   reconcileMaskedToken,
+  webSearchCredentialSourceFromStoredKey,
 } from './web-search.js';
 import { defaultLocalMemorySettings, normalizeLocalMemorySettings } from './local-memory.js';
 
@@ -559,6 +560,7 @@ function mergeWebSearchSettings(
     providers: {
       tavily: {
         apiKey: nextApiKey,
+        credentialSource: webSearchCredentialSourceFromStoredKey(nextApiKey),
         credentialVersion: nextCredentialVersion,
         credentialStatus,
         ...(credentialCheckedAt ? { credentialCheckedAt } : {}),
@@ -679,6 +681,7 @@ function normalizeWebSearchSettings(settings: WebSearchSettings): WebSearchSetti
     providers: {
       tavily: {
         apiKey,
+        credentialSource: webSearchCredentialSourceFromStoredKey(apiKey),
         credentialVersion,
         credentialStatus,
         ...(credentialCheckedAt ? { credentialCheckedAt } : {}),

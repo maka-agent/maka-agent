@@ -9,6 +9,7 @@ import { generalizedErrorMessage } from '@maka/core';
 import { SENSITIVE_PLACEHOLDER, maskSensitive } from '@maka/core/settings/network-settings';
 import type { BotTestResult } from '@maka/runtime';
 import { collectPersonalizationWarnings } from './personalization-prompt.js';
+import { getTavilyCredentialSource } from './web-search/credentials.js';
 
 export function preserveSensitivePlaceholders(
   patch: UpdateAppSettingsInput,
@@ -106,9 +107,8 @@ export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSet
       providers: {
         tavily: {
           ...settings.webSearch.providers.tavily,
-          apiKey: shouldReveal(revealPatch.webSearch?.providers?.tavily?.apiKey)
-            ? settings.webSearch.providers.tavily.apiKey
-            : maskSensitive(settings.webSearch.providers.tavily.apiKey) ?? '',
+          apiKey: maskSensitive(settings.webSearch.providers.tavily.apiKey) ?? '',
+          credentialSource: getTavilyCredentialSource(settings),
         },
       },
     },

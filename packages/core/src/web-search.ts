@@ -75,6 +75,9 @@ export const WEB_SEARCH_CREDENTIAL_STATUSES = [
 
 export type WebSearchCredentialStatus = typeof WEB_SEARCH_CREDENTIAL_STATUSES[number];
 
+export const WEB_SEARCH_CREDENTIAL_SOURCES = ['none', 'saved', 'env'] as const;
+export type WebSearchCredentialSource = typeof WEB_SEARCH_CREDENTIAL_SOURCES[number];
+
 /**
  * Settings-layer placeholder for a stored API key. The renderer may
  * see this when the settings store mirrors back the current value;
@@ -117,6 +120,8 @@ export function isWebSearchProvider(value: unknown): value is WebSearchProvider 
  */
 export interface WebSearchProviderSettings {
   readonly apiKey: string;
+  /** Renderer-safe credential source. Never carries the secret value. */
+  readonly credentialSource: WebSearchCredentialSource;
   /**
    * Monotonic local version for saved credentials. Async test/query results
    * carry the version they observed; stale results must not overwrite status
@@ -137,7 +142,7 @@ export function defaultWebSearchSettings(): WebSearchSettings {
   return {
     enabled: false,
     defaultProvider: 'tavily',
-    providers: { tavily: { apiKey: '', credentialVersion: 0, credentialStatus: 'untested' } },
+    providers: { tavily: { apiKey: '', credentialSource: 'none', credentialVersion: 0, credentialStatus: 'untested' } },
   };
 }
 
@@ -161,6 +166,17 @@ export function isWebSearchCredentialStatus(value: unknown): value is WebSearchC
     typeof value === 'string' &&
     (WEB_SEARCH_CREDENTIAL_STATUSES as readonly string[]).includes(value)
   );
+}
+
+export function isWebSearchCredentialSource(value: unknown): value is WebSearchCredentialSource {
+  return (
+    typeof value === 'string' &&
+    (WEB_SEARCH_CREDENTIAL_SOURCES as readonly string[]).includes(value)
+  );
+}
+
+export function webSearchCredentialSourceFromStoredKey(apiKey: string): WebSearchCredentialSource {
+  return apiKey.length > 0 ? 'saved' : 'none';
 }
 
 export function webSearchCredentialStatusFromResponse(

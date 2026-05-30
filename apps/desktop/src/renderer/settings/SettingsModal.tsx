@@ -2098,6 +2098,8 @@ function WebSearchSettingsPage(props: {
   const webSearch = props.settings.webSearch;
   const tavily = webSearch.providers.tavily;
   const tavilyKey = tavily.apiKey;
+  const credentialSource = tavily.credentialSource;
+  const usingEnvKey = credentialSource === 'env';
   const [draftKey, setDraftKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [liveQuery, setLiveQuery] = useState('');
@@ -2125,7 +2127,7 @@ function WebSearchSettingsPage(props: {
   }
 
   async function saveDraftKey() {
-    if (draftKey.length === 0) return;
+    if (usingEnvKey || draftKey.length === 0) return;
     await props.onUpdate({
       webSearch: { providers: { tavily: { apiKey: draftKey } } },
     });
@@ -2150,7 +2152,7 @@ function WebSearchSettingsPage(props: {
         provider: 'tavily',
         apiKey: usesDraftKey ? draftKey : undefined,
       });
-      if (!usesDraftKey && tavilyKey.length > 0) {
+      if (!usesDraftKey && hasUsableKey) {
         await persistCredentialStatus(webSearchCredentialStatusFromResponse(result), testedCredentialVersion);
       }
       if (result.ok) {
@@ -2180,12 +2182,12 @@ function WebSearchSettingsPage(props: {
       });
       if (result.ok) {
         setLiveQueryResults(result.results);
-        if (hasStoredKey) {
+        if (hasUsableKey) {
           await persistCredentialStatus('valid', queriedCredentialVersion);
         }
       } else {
         setLiveQueryError(result.message);
-        if (hasStoredKey) {
+        if (hasUsableKey) {
           await persistCredentialStatus(webSearchCredentialStatusFromResponse(result), queriedCredentialVersion);
         }
       }
@@ -2197,13 +2199,14 @@ function WebSearchSettingsPage(props: {
   }
 
   const hasStoredKey = tavilyKey.length > 0;
+  const hasUsableKey = hasStoredKey || usingEnvKey;
   const statusCopy = presentWebSearchCredentialStatus(
-    hasStoredKey,
+    credentialSource,
     webSearch.enabled,
     tavily.credentialStatus,
   );
   const queryDisabledReason = webSearchQueryDisabledReason({
-    hasStoredKey,
+    hasUsableKey,
     enabled: webSearch.enabled,
     query: liveQuery,
   });
@@ -2228,10 +2231,11 @@ function WebSearchSettingsPage(props: {
               最近测试 <RelativeTime ts={checkedAtMs} />
             </small>
           )}
+          <small>{presentWebSearchCredentialSource(credentialSource, hasStoredKey)}</small>
         </div>
         <Switch
           checked={webSearch.enabled}
-          disabled={!hasStoredKey}
+          disabled={!hasUsableKey}
           onChange={(enabled) => void setEnabled(enabled)}
         />
       </div>
@@ -2242,11 +2246,14 @@ function WebSearchSettingsPage(props: {
           <PasswordInput
             value={draftKey}
             onChange={setDraftKey}
-            placeholder={hasStoredKey ? '已保存（输入新 key 可替换）' : 'tvly-xxxxxxxx'}
+            disabled={usingEnvKey}
+            placeholder={usingEnvKey ? '由环境变量提供' : hasStoredKey ? '已保存（输入新 key 可替换）' : 'tvly-xxxxxxxx'}
             ariaLabel="Tavily API key"
           />
           <small>
-            存在主进程 settings 中，渲染器永远看不到明文。在 <a href="https://tavily.com" target="_blank" rel="noreferrer">tavily.com</a> 申请。
+            {usingEnvKey
+              ? '当前使用环境变量 TAVILY_API_KEY / MAKA_TAVILY_API_KEY；如需改用保存的 key，请移除环境变量后重启。'
+              : <>存在主进程 settings 中，渲染器永远看不到明文。在 <a href="https://tavily.com" target="_blank" rel="noreferrer">tavily.com</a> 申请。</>}
           </small>
         </label>
       </div>
@@ -2255,7 +2262,7 @@ function WebSearchSettingsPage(props: {
         <button
           type="button"
           className="maka-button"
-          disabled={draftKey.length === 0}
+          disabled={usingEnvKey || draftKey.length === 0}
           onClick={() => void saveDraftKey()}
         >
           保存 key
@@ -2263,7 +2270,7 @@ function WebSearchSettingsPage(props: {
         <button
           type="button"
           className="maka-button maka-button-ghost"
-          disabled={testing || (draftKey.length === 0 && !hasStoredKey)}
+          disabled={testing || (draftKey.length === 0 && !hasUsableKey)}
           onClick={() => void runTest()}
         >
           {testing ? '测试中…' : '测试凭据'}
@@ -2371,19 +2378,19 @@ function WebSearchSettingsPage(props: {
   );
 }
 
-function webSearchQueryDisabledReason(input: { hasStoredKey: boolean; enabled: boolean; query: string }): string | null {
-  if (!input.hasStoredKey) return '先保存 Tavily API key';
+function webSearchQueryDisabledReason(input: { hasUsableKey: boolean; enabled: boolean; query: string }): string | null {
+  if (!input.hasUsableKey) return '先保存 Tavily API key，或设置 TAVILY_API_KEY 环境变量';
   if (!input.enabled) return '先启用联网搜索';
   if (input.query.trim().length === 0) return '输入查询后再搜索';
   return null;
 }
 
 function presentWebSearchCredentialStatus(
-  hasStoredKey: boolean,
+  credentialSource: AppSettings['webSearch']['providers']['tavily']['credentialSource'],
   enabled: boolean,
   status: WebSearchCredentialStatus,
 ): { label: string; tone: 'success' | 'info' | 'warning' | 'destructive' } {
-  if (!hasStoredKey) return { label: '等待保存 key', tone: 'warning' };
+  if (credentialSource === 'none') return { label: '等待保存 key', tone: 'warning' };
   if (status === 'valid') {
     return enabled
       ? { label: '已验证 · 已启用', tone: 'success' }
@@ -2397,6 +2404,17 @@ function presentWebSearchCredentialStatus(
   return enabled
     ? { label: '未测试 · 已启用', tone: 'warning' }
     : { label: '未测试', tone: 'info' };
+}
+
+function presentWebSearchCredentialSource(
+  credentialSource: AppSettings['webSearch']['providers']['tavily']['credentialSource'],
+  hasStoredKey: boolean,
+): string {
+  if (credentialSource === 'env') {
+    return hasStoredKey ? '来源：环境变量（已保存 key 备用）' : '来源：环境变量';
+  }
+  if (credentialSource === 'saved') return '来源：本机已保存 key';
+  return '来源：未配置';
 }
 
 function MemorySettingsPage(props: {

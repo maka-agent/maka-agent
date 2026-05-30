@@ -73,6 +73,7 @@ import {
 } from '@maka/core';
 import { queryTavily, TAVILY_TEST_QUERY, TAVILY_TEST_LIMIT } from './web-search/tavily.js';
 import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
+import { resolveTavilyApiKey } from './web-search/credentials.js';
 import { runThreadSearch } from './search/thread-search.js';
 import {
   ClaudeSubscriptionService,
@@ -1452,9 +1453,7 @@ function registerIpc(): void {
           message: '请先在 设置 · 联网搜索 中启用 Tavily。',
         };
       }
-      const persistedKey = settings.webSearch.providers.tavily.apiKey;
-      const draftKey = typeof request?.apiKey === 'string' ? request.apiKey : '';
-      const effectiveKey = draftKey.length > 0 ? draftKey : persistedKey;
+      const effectiveKey = resolveTavilyApiKey({ settings, draftKey: request?.apiKey });
       const limit = normalizeWebSearchLimit(request?.limit);
       return queryTavily({ apiKey: effectiveKey, query, limit });
     },
@@ -1471,9 +1470,7 @@ function registerIpc(): void {
         return unsupportedWebSearchProviderResponse;
       }
       const settings = await settingsStore.get();
-      const persistedKey = settings.webSearch.providers.tavily.apiKey;
-      const draftKey = typeof request?.apiKey === 'string' ? request.apiKey : '';
-      const effectiveKey = draftKey.length > 0 ? draftKey : persistedKey;
+      const effectiveKey = resolveTavilyApiKey({ settings, draftKey: request?.apiKey });
       return queryTavily({
         apiKey: effectiveKey,
         query: TAVILY_TEST_QUERY,

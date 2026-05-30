@@ -517,6 +517,7 @@ describe('open gateway settings contract', () => {
     });
 
     expect(patched.webSearch.providers.tavily.apiKey).toBe('stored-key');
+    expect(patched.webSearch.providers.tavily.credentialSource).toBe('saved');
     expect(patched.webSearch.providers.tavily.credentialVersion).toBe(1);
     expect(patched.webSearch.providers.tavily.credentialStatus).toBe('valid');
     expect(patched.webSearch.providers.tavily.credentialCheckedAt).toBe('2026-05-29T00:00:00.000Z');
@@ -546,6 +547,7 @@ describe('open gateway settings contract', () => {
     });
 
     expect(patched.webSearch.providers.tavily.apiKey).toBe('new-key');
+    expect(patched.webSearch.providers.tavily.credentialSource).toBe('saved');
     expect(patched.webSearch.providers.tavily.credentialVersion).toBe(2);
     expect(patched.webSearch.providers.tavily.credentialStatus).toBe('untested');
     expect(patched.webSearch.providers.tavily.credentialCheckedAt).toBeUndefined();
@@ -595,6 +597,7 @@ describe('open gateway settings contract', () => {
     });
 
     expect(updatedKey.webSearch.providers.tavily.credentialVersion).toBe(2);
+    expect(staleResult.webSearch.providers.tavily.credentialSource).toBe('saved');
     expect(staleResult.webSearch.providers.tavily.credentialStatus).toBe('untested');
     expect(staleResult.webSearch.providers.tavily.credentialCheckedAt).toBeUndefined();
     expect(freshResult.webSearch.providers.tavily.credentialStatus).toBe('valid');

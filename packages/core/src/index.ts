@@ -699,6 +699,7 @@ export {
 export type {
   WebSearchErrorReason,
   WebSearchCredentialStatus,
+  WebSearchCredentialSource,
   WebSearchProvider,
   WebSearchProviderSettings,
   WebSearchResponse,
@@ -709,17 +710,20 @@ export {
   MASKED_TOKEN_SENTINEL,
   WEB_SEARCH_DEFAULT_LIMIT,
   WEB_SEARCH_CREDENTIAL_STATUSES,
+  WEB_SEARCH_CREDENTIAL_SOURCES,
   WEB_SEARCH_MAX_LIMIT,
   WEB_SEARCH_PROVIDERS,
   WEB_SEARCH_QUERY_MAX_CHARS,
   defaultWebSearchSettings,
   isWebSearchCredentialStatus,
+  isWebSearchCredentialSource,
   isWebSearchProvider,
   maskedTokenForDisplay,
   normalizeWebSearchLimit,
   normalizeWebSearchQuery,
   reconcileMaskedToken,
   webSearchCredentialStatusFromResponse,
+  webSearchCredentialSourceFromStoredKey,
 } from './web-search.js';
 
 // explore-agent.ts — read-only deep research session profile.

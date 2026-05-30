@@ -104,7 +104,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       settings,
-      /persistCredentialStatus\(webSearchCredentialStatusFromResponse\(result\), testedCredentialVersion\)/,
+      /if \(!usesDraftKey && hasUsableKey\)[\s\S]*?persistCredentialStatus\(webSearchCredentialStatusFromResponse\(result\), testedCredentialVersion\)/,
       'credential test result must carry the observed key version back to settings',
     );
     assert.match(
@@ -124,7 +124,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     const helper = settings.match(/function webSearchQueryDisabledReason[\s\S]*?function presentWebSearchCredentialStatus/);
 
     assert.ok(helper, 'Web search settings must have a dedicated disabled-reason helper');
-    assert.match(helper![0], /先保存 Tavily API key/);
+    assert.match(helper![0], /先保存 Tavily API key，或设置 TAVILY_API_KEY 环境变量/);
     assert.match(helper![0], /先启用联网搜索/);
     assert.match(helper![0], /输入查询后再搜索/);
     assert.match(settings, /disabled=\{liveQueryRunning \|\| queryDisabledReason !== null\}/);
@@ -143,7 +143,34 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(helper, 'Web search settings must centralize credential status presentation');
     assert.match(helper![0], /等待保存 key/);
     assert.match(helper![0], /等待配置/);
+    assert.match(helper![0], /来源：环境变量/);
+    assert.match(helper![0], /来源：本机已保存 key/);
     assert.doesNotMatch(helper![0], /未保存 key|label:\s*'未配置'/);
+  });
+
+  it('Settings exposes env credential source without enabling renderer key access', async () => {
+    const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);
+
+    assert.ok(page, 'Web search settings page block must exist');
+    assert.match(page![0], /const usingEnvKey = credentialSource === 'env'/);
+    assert.match(page![0], /由环境变量提供/);
+    assert.match(page![0], /TAVILY_API_KEY \/ MAKA_TAVILY_API_KEY/);
+    assert.match(page![0], /disabled=\{usingEnvKey\}/);
+    assert.doesNotMatch(page![0], /process\.env|TAVILY_API_KEY[\s\S]{0,40}apiKey/);
+  });
+
+  it('settings IPC masks Tavily keys even on save responses', async () => {
+    const helper = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/settings-ipc-helpers.ts'), 'utf8');
+    const webSearchMaskBlock = helper.match(/webSearch:\s*\{[\s\S]*?credentialSource: getTavilyCredentialSource\(settings\),[\s\S]*?\n\s*\},\n\s*\},\n\s*\},/);
+
+    assert.ok(webSearchMaskBlock, 'settings IPC must have a dedicated webSearch mask block');
+    assert.match(webSearchMaskBlock![0], /apiKey:\s*maskSensitive\(settings\.webSearch\.providers\.tavily\.apiKey\) \?\? ''/);
+    assert.doesNotMatch(
+      webSearchMaskBlock![0],
+      /shouldReveal/,
+      'web search API key must not use generic reveal-on-save behavior',
+    );
   });
 
   it('Settings live query copy uses product language instead of demo/debug wording', async () => {

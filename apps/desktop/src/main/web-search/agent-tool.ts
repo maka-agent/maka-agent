@@ -31,6 +31,7 @@ import { defaultWorkspacePrivacyContext } from '@maka/core/incognito';
 import type { MakaTool } from '@maka/runtime';
 import { queryTavily } from './tavily.js';
 import type { SettingsStore } from '@maka/storage';
+import { resolveTavilyApiKey } from './credentials.js';
 
 export const WEB_SEARCH_TOOL_NAME = 'WebSearch';
 
@@ -99,7 +100,7 @@ export function buildWebSearchAgentTool(deps: {
         };
         return response;
       }
-      const apiKey = settings.webSearch.providers.tavily.apiKey;
+      const apiKey = resolveTavilyApiKey({ settings });
       if (apiKey.length === 0) {
         const response: WebSearchResponse = {
           ok: false,
