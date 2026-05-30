@@ -190,8 +190,16 @@ export type ToolResultContent =
       queries: string[];
       filesInspected: number;
       filesSkipped: number;
+      sensitiveFilesSkipped?: number;
       bytesRead: number;
       progress: string[];
+      evidence?: ReadonlyArray<{
+        type: 'match' | 'candidate';
+        path: string;
+        line?: number;
+        label: string;
+        score?: number;
+      }>;
       candidateFiles: ReadonlyArray<{ path: string; score: number; reasons: string[] }>;
       matches: ReadonlyArray<{ path: string; line: number; query: string; snippet: string }>;
       notes: string[];

@@ -41,6 +41,8 @@ describe('ExploreAgent read-only worker', () => {
       assert.ok(result.filesInspected >= 2);
       assert.ok(result.matches.some((match) => match.path === 'src/permission.ts' && match.query === 'subagent'));
       assert.ok(result.candidateFiles.some((file) => file.path === 'src/permission.ts'));
+      assert.equal(result.sensitiveFilesSkipped, 0);
+      assert.ok(result.evidence.some((item) => item.type === 'match' && item.path === 'src/permission.ts' && item.line === 2));
       assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
       assert.ok(result.notes.some((note) => /不写文件、不联网、不启动进程/.test(note)));
       assert.equal(result.notes.some((note) => /Read-only worker|Search budget/.test(note)), false);
@@ -97,10 +99,13 @@ describe('ExploreAgent read-only worker', () => {
 
       assert.equal(result.ok, true);
       assert.ok(result.matches.some((match) => match.path === 'src/config.ts'));
+      assert.equal(result.sensitiveFilesSkipped, 3);
+      assert.ok(result.notes.some((note) => /已跳过 3 个疑似本地凭据\/密钥文件/.test(note)));
       assert.equal(JSON.stringify(result).includes('sk-ant-secret'), false);
       assert.equal(JSON.stringify(result).includes('npm_secret'), false);
       assert.equal(JSON.stringify(result).includes('secret-refresh'), false);
       assert.equal(result.candidateFiles.some((file) => file.path === '.env' || file.path === '.npmrc' || file.path === 'credentials.json'), false);
+      assert.equal(result.evidence.some((item) => item.path === '.env' || item.path === '.npmrc' || item.path === 'credentials.json'), false);
     });
   });
 
@@ -183,6 +188,8 @@ describe('ExploreAgent read-only worker', () => {
       assert.ok(result.candidateFiles.some((file) => file.path === 'README.md' && file.reasons.includes('project documentation')));
       assert.ok(result.candidateFiles.some((file) => file.path === 'src/main.ts' && file.reasons.includes('project entrypoint')));
       assert.ok(result.candidateFiles.some((file) => file.path === 'tests/boot.test.ts' && file.reasons.includes('project test surface')));
+      assert.ok(result.evidence.some((item) => item.type === 'candidate' && item.path === 'package.json' && item.label === '项目配置锚点'));
+      assert.ok(result.evidence.some((item) => item.type === 'candidate' && item.path === 'README.md' && item.label === '项目文档锚点'));
       assert.ok(result.notes.some((note) => /优先读取项目配置、文档、入口和测试线索/.test(note)));
       assert.ok(result.notes.some((note) => /按查询命中和项目结构分/.test(note)));
       assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
@@ -230,7 +237,10 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(components, /content\.kind === 'explore_agent'/);
     const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
+    assert.match(previewBlock, /result\.evidence/);
     assert.match(previewBlock, /探索过程/);
+    assert.match(previewBlock, /证据锚点/);
+    assert.match(previewBlock, /sensitiveFilesSkipped/);
     assert.match(previewBlock, /项目配置/);
     assert.match(previewBlock, /入口文件/);
     assert.match(previewBlock, /redactSecrets/);

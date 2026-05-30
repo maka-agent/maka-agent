@@ -133,8 +133,10 @@ export interface ExploreAgentResult {
   queries: string[];
   filesInspected: number;
   filesSkipped: number;
+  sensitiveFilesSkipped: number;
   bytesRead: number;
   progress: string[];
+  evidence: Array<{ type: 'match' | 'candidate'; path: string; line?: number; label: string; score?: number }>;
   candidateFiles: Array<{ path: string; score: number; reasons: string[] }>;
   matches: Array<{ path: string; line: number; query: string; snippet: string }>;
   notes: string[];
@@ -236,17 +238,21 @@ export async function runReadOnlyExplore(input: {
     `搜索预算：最多读取 ${maxFiles} 个文件、返回 ${maxMatches} 处命中、读取 ${Math.round(MAX_TOTAL_BYTES / 1024)} KiB 文本。`,
   ];
   let filesSkipped = 0;
+  let sensitiveFilesSkipped = 0;
   for (const root of resolvedRoots) {
     const before = files.length;
     const skippedBefore = filesSkipped;
+    const sensitiveBefore = sensitiveFilesSkipped;
     const listed = await listTextFiles(root.abs, workspaceRoot, discoveryBudget - files.length);
     files.push(...listed.files);
     filesSkipped += listed.skipped;
+    sensitiveFilesSkipped += listed.sensitiveSkipped;
     if (listed.truncated) notes.push(`范围 ${root.rel} 已到达候选文件预算，后续文件未继续扫描。`);
     if (files.length === before) notes.push(`范围 ${root.rel} 在预算内没有可读取文本文件。`);
     const found = files.length - before;
     const skipped = filesSkipped - skippedBefore;
-    progress.report(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项`);
+    const sensitive = sensitiveFilesSkipped - sensitiveBefore;
+    progress.report(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项${sensitive > 0 ? `（含 ${sensitive} 个敏感文件）` : ''}`);
     if (files.length >= discoveryBudget) break;
   }
   files.sort((left, right) => {
@@ -326,7 +332,9 @@ export async function runReadOnlyExplore(input: {
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
     .slice(0, 20);
 
+  const evidence = buildEvidenceAnchors(matches, candidateFiles);
   if (matches.length === 0) notes.push('没有找到内容命中；候选文件可作为下一步阅读清单。');
+  if (sensitiveFilesSkipped > 0) notes.push(`已跳过 ${sensitiveFilesSkipped} 个疑似本地凭据/密钥文件，只报告数量不读取内容。`);
   if (bytesRead >= MAX_TOTAL_BYTES) notes.push('总读取预算已用尽，部分候选文件未继续读取。');
   progress.report(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
 
@@ -339,8 +347,10 @@ export async function runReadOnlyExplore(input: {
     queries: queryTerms,
     filesInspected: inspected,
     filesSkipped,
+    sensitiveFilesSkipped,
     bytesRead,
     progress: progress.messages,
+    evidence,
     candidateFiles,
     matches,
     notes,
@@ -367,10 +377,12 @@ function createProgressReporter(onProgress: ((message: string) => void) | undefi
 async function listTextFiles(root: string, workspaceRoot: string, budget: number): Promise<{
   files: string[];
   skipped: number;
+  sensitiveSkipped: number;
   truncated: boolean;
 }> {
   const files: string[] = [];
   let skipped = 0;
+  let sensitiveSkipped = 0;
   let truncated = false;
 
   async function walk(abs: string): Promise<void> {
@@ -390,8 +402,14 @@ async function listTextFiles(root: string, workspaceRoot: string, budget: number
       return;
     }
     if (entryStat.isFile()) {
-      if (isLikelyTextFile(abs)) files.push(abs);
-      else skipped++;
+      if (isSensitiveTextFile(abs)) {
+        skipped++;
+        sensitiveSkipped++;
+      } else if (isLikelyTextFile(abs)) {
+        files.push(abs);
+      } else {
+        skipped++;
+      }
       return;
     }
     if (!entryStat.isDirectory()) {
@@ -425,7 +443,7 @@ async function listTextFiles(root: string, workspaceRoot: string, budget: number
   }
 
   await walk(root);
-  return { files, skipped, truncated };
+  return { files, skipped, sensitiveSkipped, truncated };
 }
 
 function normalizeRoots(roots: string[] | undefined): string[] {
@@ -478,7 +496,6 @@ function shouldSkipDir(abs: string): boolean {
 }
 
 function isLikelyTextFile(abs: string): boolean {
-  if (isSensitiveTextFile(abs)) return false;
   return TEXT_EXTENSIONS.has(extname(abs).toLowerCase());
 }
 
@@ -546,6 +563,51 @@ function findMatches(path: string, text: string, queries: string[], remaining: n
   return matches;
 }
 
+function buildEvidenceAnchors(
+  matches: ExploreAgentResult['matches'],
+  candidateFiles: ExploreAgentResult['candidateFiles'],
+): ExploreAgentResult['evidence'] {
+  const anchors: ExploreAgentResult['evidence'] = [];
+  const seen = new Set<string>();
+
+  for (const match of matches) {
+    if (anchors.length >= 10) break;
+    const key = `${match.path}:${match.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    anchors.push({
+      type: 'match',
+      path: match.path,
+      line: match.line,
+      label: `内容命中：${match.query}`,
+    });
+  }
+
+  for (const candidate of candidateFiles) {
+    if (anchors.length >= 10) break;
+    if (seen.has(candidate.path)) continue;
+    seen.add(candidate.path);
+    anchors.push({
+      type: 'candidate',
+      path: candidate.path,
+      label: evidenceLabelForCandidate(candidate.reasons),
+      score: candidate.score,
+    });
+  }
+
+  return anchors;
+}
+
+function evidenceLabelForCandidate(reasons: string[]): string {
+  if (reasons.includes('project manifest')) return '项目配置锚点';
+  if (reasons.includes('project documentation')) return '项目文档锚点';
+  if (reasons.includes('project entrypoint')) return '入口文件锚点';
+  if (reasons.includes('project test surface')) return '测试线索锚点';
+  if (reasons.includes('project source surface')) return '源码线索锚点';
+  if (reasons.includes('content match')) return '内容命中锚点';
+  return '候选阅读锚点';
+}
+
 function capSnippet(line: string): string {
   const cleaned = line.replace(/\s+/g, ' ').trim();
   return Array.from(cleaned).slice(0, MATCH_CONTEXT_CHARS).join('');
@@ -582,8 +644,10 @@ function failure(
     queries,
     filesInspected: 0,
     filesSkipped: 0,
+    sensitiveFilesSkipped: 0,
     bytesRead: 0,
     progress,
+    evidence: [],
     candidateFiles: [],
     matches: [],
     notes: ['只读探索边界：不写文件、不联网、不启动进程。'],

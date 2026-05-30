@@ -5466,17 +5466,21 @@ function ExploreAgentPreview(props: {
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const progress = (result.progress ?? []).slice(0, 6);
+  const evidence = (result.evidence ?? []).slice(0, 6);
   const notes = result.notes.slice(0, 4);
   const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
   const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
   const queries = result.queries.length > 0 ? result.queries.join(', ') : '未指定';
+  const skippedSummary = result.sensitiveFilesSkipped && result.sensitiveFilesSkipped > 0
+    ? `跳过 ${result.filesSkipped} 个（含敏感 ${result.sensitiveFilesSkipped} 个）`
+    : `跳过 ${result.filesSkipped} 个`;
 
   return (
     <div className="maka-overlay-preview maka-explore-agent-preview" data-kind="explore_agent" data-ok={result.ok ? 'true' : 'false'}>
       <header className="maka-explore-agent-head">
         <strong>{redactSecrets(result.objective || '只读探索')}</strong>
         <small>
-          {status} · 读 {result.filesInspected} 个文件 · 跳过 {result.filesSkipped} 个 · {formatBytes(result.bytesRead)}
+          {status} · 读 {result.filesInspected} 个文件 · {skippedSummary} · {formatBytes(result.bytesRead)}
         </small>
       </header>
       {!result.ok && (
@@ -5501,6 +5505,25 @@ function ExploreAgentPreview(props: {
             {progress.map((item, index) => (
               <li key={`${index}:${item.slice(0, 24)}`}>
                 <span>{redactSecrets(item)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {evidence.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="证据锚点">
+          <strong>证据锚点</strong>
+          <ul>
+            {evidence.map((item, index) => (
+              <li key={`${item.path}:${item.line ?? 'file'}:${index}`}>
+                <code>
+                  {redactSecrets(item.path)}
+                  {typeof item.line === 'number' ? `:${item.line}` : ''}
+                </code>
+                <small>
+                  {redactSecrets(item.label)}
+                  {typeof item.score === 'number' ? ` · 分数 ${item.score}` : ''}
+                </small>
               </li>
             ))}
           </ul>
