@@ -2493,7 +2493,7 @@ function MemorySettingsPage(props: {
     if (!result.ok) {
       switch (result.reason) {
         case 'invalid_id':
-          toast.error('无法更新记忆', '这条记忆缺少可识别的 ID。');
+          toast.error('无法更新记忆', '这条记忆没有可识别 ID，已停止更新。');
           return;
         case 'not_found':
           toast.error('无法更新记忆', '当前草稿里找不到这条记忆；请先保存或刷新后重试。');

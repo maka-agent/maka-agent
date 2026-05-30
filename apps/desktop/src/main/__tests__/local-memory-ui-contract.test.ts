@@ -84,4 +84,11 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, />\s*\{props\.archived \? '恢复' : '归档'\}\s*<\/button>/);
     assert.match(src, /window\.maka\.memory\.save\(result\.draft\)/);
   });
+
+  it('uses stopped-update copy for invalid memory entry ids instead of raw missing-field wording', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(src, /这条记忆没有可识别 ID，已停止更新。/);
+    assert.doesNotMatch(src, /这条记忆缺少可识别的 ID/);
+  });
 });
