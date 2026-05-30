@@ -493,6 +493,8 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /result\.progress/);
     assert.match(previewBlock, /result\.recentEvents/);
     assert.match(previewBlock, /formatExploreAgentEvent/);
+    assert.match(previewBlock, /formatExploreAgentEvent\(event, result\.startedAt\)/);
+    assert.match(previewBlock, /formatExploreAgentEventOffset/);
     assert.match(previewBlock, /result\.evidence/);
     assert.match(previewBlock, /result\.summary/);
     assert.match(previewBlock, /result\.report/);
@@ -535,6 +537,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /continuationText/);
     assert.match(previewBlock, /needsContinuation/);
     assert.match(previewBlock, /继续这次只读探索，不要修改文件/);
+    assert.match(previewBlock, /上一轮耗时：/);
     assert.match(previewBlock, /上一轮预算边界：/);
     assert.match(previewBlock, /优先补读候选：/);
     assert.match(previewBlock, /复制续研提示/);

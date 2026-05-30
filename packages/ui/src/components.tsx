@@ -5492,7 +5492,7 @@ function ExploreAgentPreview(props: {
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const processLines = Array.isArray(result.recentEvents) && result.recentEvents.length > 0
-    ? result.recentEvents.slice(0, 20).map(formatExploreAgentEvent)
+    ? result.recentEvents.slice(0, 20).map((event) => formatExploreAgentEvent(event, result.startedAt))
     : (result.progress ?? []).slice(0, 12);
   const progress = processLines.slice(0, 6);
   const evidence = (result.evidence ?? []).slice(0, 6);
@@ -5533,6 +5533,7 @@ function ExploreAgentPreview(props: {
       `范围：${roots}`,
       `查询：${queries}`,
       `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
+      duration ? `耗时：${duration}` : '',
       ignoredPaths ? `忽略：${ignoredPaths}` : '',
       stoppingCondition ? `停止条件：${stoppingCondition}` : '',
       limitReasons ? `预算边界：${limitReasons}` : '',
@@ -5594,6 +5595,7 @@ function ExploreAgentPreview(props: {
       `范围：${roots}`,
       `查询：${queries}`,
       `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
+      duration ? `上一轮耗时：${duration}` : '',
       ignoredPaths ? `继续忽略：${ignoredPaths}` : '',
       stoppingCondition ? `停止条件：${stoppingCondition}` : '',
       limitReasons ? `上一轮预算边界：${limitReasons}` : '',
@@ -5989,10 +5991,20 @@ function presentExploreAgentLimitReason(reason: string): string {
   }
 }
 
-function formatExploreAgentEvent(event: { type: string; message: string }): string {
+function formatExploreAgentEvent(event: { type: string; message: string; at?: number }, startedAt?: number): string {
   const label = presentExploreAgentEventType(event.type);
   const message = typeof event.message === 'string' ? event.message.trim() : '';
-  return label ? `${label}：${message}` : message;
+  const offset = formatExploreAgentEventOffset(event.at, startedAt);
+  const prefix = [label, offset].filter(Boolean).join(' ');
+  return prefix ? `${prefix}：${message}` : message;
+}
+
+function formatExploreAgentEventOffset(at: number | undefined, startedAt: number | undefined): string {
+  if (typeof at !== 'number' || typeof startedAt !== 'number') return '';
+  if (!Number.isFinite(at) || !Number.isFinite(startedAt)) return '';
+  const delta = Math.max(0, Math.floor(at - startedAt));
+  const formatted = formatDuration(delta);
+  return formatted ? `+${formatted}` : '';
 }
 
 function presentExploreAgentEventType(type: string): string {
