@@ -117,7 +117,7 @@ const STATUS_PRESENTATION: Record<ConnectionUiStatus, StatusPresentation> = {
   },
   error: {
     label: '连接出错',
-    detail: '上次测试失败：超时、网络或 provider 不可用。可重试或检查代理。',
+    detail: '上次测试失败：超时、网络或 provider 返回错误。可重试或检查代理。',
     tone: 'destructive',
   },
 };

@@ -185,4 +185,11 @@ describe('presentConnectionUiStatus copy gates (PR-UI-AUDIT-1, @kenji msg 7a16aa
     assert.match(presentation.detail, /等待填写 API key 或选择默认模型/);
     assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /未配置|缺少 API key/);
   });
+
+  it('error copy describes the failed test without saying the provider is unavailable', () => {
+    const presentation = presentConnectionUiStatus('error');
+    assert.equal(presentation.label, '连接出错');
+    assert.match(presentation.detail, /provider 返回错误/);
+    assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /provider 不可用/);
+  });
 });
