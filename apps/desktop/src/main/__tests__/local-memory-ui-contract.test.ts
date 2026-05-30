@@ -98,10 +98,19 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('filters memory entries locally across title content id origin timestamps and tags', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
     assert.match(src, /function filterLocalMemoryEntries/);
     assert.match(src, /aria-label="筛选本地记忆"/);
     assert.match(src, /筛选标题、内容、ID 或标签/);
+    assert.match(src, /setMemoryEntryQuery\(''\)/);
+    assert.match(src, /清除/);
+    assert.match(pageBlock, /filteredEntryCount === 0/);
+    assert.match(pageBlock, /settingsMemoryFilterEmpty/);
+    assert.match(pageBlock, /没有匹配的记忆条目/);
+    assert.match(pageBlock, /筛选不会修改 MEMORY\.md/);
+    assert.match(css, /\.settingsMemoryFilterEmpty/);
     assert.match(src, /entry\.id/);
     assert.match(src, /String\(entry\.createdAt\)/);
     assert.match(src, /String\(entry\.updatedAt\)/);
