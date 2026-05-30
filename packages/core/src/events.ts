@@ -196,6 +196,7 @@ export type ToolResultContent =
       completedAt?: number;
       durationMs?: number;
       progress: string[];
+      recentEvents?: ReadonlyArray<{ type: string; at: number; message: string }>;
       evidence?: ReadonlyArray<{
         type: 'match' | 'candidate';
         path: string;

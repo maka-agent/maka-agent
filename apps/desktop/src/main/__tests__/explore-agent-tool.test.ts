@@ -49,6 +49,9 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.sensitiveFilesSkipped, 0);
       assert.ok(result.evidence.some((item) => item.type === 'match' && item.path === 'src/permission.ts' && item.line === 2));
       assert.match(result.summary, /读取 \d+ 个文件 · 命中 \d+ 处 · 证据 \d+ 个 · 候选 \d+ 个 · 耗时 /);
+      assert.ok(result.recentEvents.some((event) => event.type === 'started' && /准备范围/.test(event.message)));
+      assert.ok(result.recentEvents.some((event) => event.type === 'completed' && /完成/.test(event.message)));
+      assert.ok(result.recentEvents.every((event) => typeof event.at === 'number' && !JSON.stringify(event).includes(workspaceRoot)));
       assert.match(result.report, /目标：study permission policy/);
       assert.match(result.report, /证据锚点：/);
       assert.match(result.report, /src\/permission\.ts:2/);
@@ -104,6 +107,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.equal(result.reason, 'invalid_root');
     assert.equal(result.message, '会话工作目录不可读取。');
     assert.equal(result.summary, '未完成：会话工作目录不可读取。');
+    assert.ok(result.recentEvents.some((event) => event.type === 'failed' && /工作目录不可读取/.test(event.message)));
     assert.equal(result.filesInspected, 0);
     assert.equal(result.matches.length, 0);
     assert.equal(JSON.stringify(result).includes(missingRoot), false);
@@ -184,6 +188,7 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.ok, false);
       assert.equal(result.reason, 'aborted');
       assert.equal(result.message, '只读探索已取消。');
+      assert.ok(result.recentEvents.some((event) => event.type === 'aborted' && /已取消/.test(event.message)));
       assert.equal(result.filesInspected, 0);
       assert.deepEqual(result.matches, []);
       assert.deepEqual(result.evidence, []);
@@ -235,6 +240,9 @@ describe('ExploreAgent read-only worker', () => {
 
       assert.equal(result.ok, true);
       assert.deepEqual(result.progress, progress);
+      assert.ok(result.recentEvents.length >= result.progress.length);
+      assert.ok(result.recentEvents.length <= 20);
+      assert.ok(result.recentEvents.some((event) => event.type === 'checkpoint' && /已读取 10 个文件/.test(event.message)));
       assert.ok(progress.length >= 5);
       assert.ok(progress.length <= 12);
       assert.ok(progress.some((message) => /已读取 10 个文件/.test(message)));
@@ -338,10 +346,13 @@ describe('ExploreAgent read-only worker', () => {
 
     assert.match(events, /kind: 'explore_agent'/);
     assert.match(events, /summary\?: string/);
+    assert.match(events, /recentEvents\?: ReadonlyArray/);
     assert.match(components, /function ExploreAgentPreview/);
     assert.match(components, /content\.kind === 'explore_agent'/);
     const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
+    assert.match(previewBlock, /result\.recentEvents/);
+    assert.match(previewBlock, /formatExploreAgentEvent/);
     assert.match(previewBlock, /result\.evidence/);
     assert.match(previewBlock, /result\.summary/);
     assert.match(previewBlock, /result\.report/);

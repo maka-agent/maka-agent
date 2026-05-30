@@ -139,6 +139,7 @@ export interface ExploreAgentResult {
   completedAt: number;
   durationMs: number;
   progress: string[];
+  recentEvents: ExploreAgentEvent[];
   evidence: Array<{ type: 'match' | 'candidate'; path: string; line?: number; label: string; score?: number }>;
   summary: string;
   report: string;
@@ -147,6 +148,17 @@ export interface ExploreAgentResult {
   notes: string[];
   reason?: 'invalid_objective' | 'invalid_root' | 'no_readable_roots' | 'aborted';
   message?: string;
+}
+
+export interface ExploreAgentEvent {
+  type: 'started' | 'scope_resolved' | 'scan' | 'read' | 'checkpoint' | 'completed' | 'failed' | 'aborted' | 'progress';
+  at: number;
+  message: string;
+}
+
+interface ProgressState {
+  messages: string[];
+  recentEvents: ExploreAgentEvent[];
 }
 
 export function buildExploreAgentTool(): MakaTool<
@@ -221,23 +233,23 @@ export async function runReadOnlyExplore(input: {
   const discoveryBudget = Math.min(MAX_DISCOVERED_FILES, Math.max(maxFiles * 4, maxFiles));
   const progress = createProgressReporter(input.onProgress);
   if (input.abortSignal?.aborted) {
-    return abortFailure(objective, roots, queryTerms, progress.messages, startedAt);
+    return abortFailure(objective, roots, queryTerms, progress, startedAt);
   }
-  progress.report(`只读探索：准备范围（${roots.length} 个 root，${queryTerms.length} 个查询词）`);
+  progress.report('started', `只读探索：准备范围（${roots.length} 个 root，${queryTerms.length} 个查询词）`);
 
   const resolvedRoots: Array<{ abs: string; rel: string }> = [];
   for (const root of roots) {
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress.messages, startedAt);
+      return abortFailure(objective, roots, queryTerms, progress, startedAt);
     }
     const resolved = resolve(workspaceRoot, root);
     if (!isInside(workspaceRoot, resolved)) {
-      return failure('invalid_root', objective, roots, queryTerms, `root 必须位于会话工作目录内：${root}`, progress.messages, startedAt);
+      return failure('invalid_root', objective, roots, queryTerms, `root 必须位于会话工作目录内：${root}`, progress, startedAt);
     }
     try {
       const actual = await realpath(resolved);
       if (!isInside(workspaceRoot, actual)) {
-        return failure('invalid_root', objective, roots, queryTerms, `root 不能穿过符号链接离开工作目录：${root}`, progress.messages, startedAt);
+        return failure('invalid_root', objective, roots, queryTerms, `root 不能穿过符号链接离开工作目录：${root}`, progress, startedAt);
       }
       const rootStat = await stat(actual);
       if (!rootStat.isDirectory() && !rootStat.isFile()) continue;
@@ -247,9 +259,9 @@ export async function runReadOnlyExplore(input: {
     }
   }
   if (resolvedRoots.length === 0) {
-    return failure('no_readable_roots', objective, roots, queryTerms, '没有可读取的研究范围。', progress.messages, startedAt);
+    return failure('no_readable_roots', objective, roots, queryTerms, '没有可读取的研究范围。', progress, startedAt);
   }
-  progress.report(`只读探索：确认 ${resolvedRoots.length} 个可读范围：${resolvedRoots.map((root) => root.rel).join(', ')}`);
+  progress.report('scope_resolved', `只读探索：确认 ${resolvedRoots.length} 个可读范围：${resolvedRoots.map((root) => root.rel).join(', ')}`);
 
   const files: string[] = [];
   const notes: string[] = [
@@ -260,14 +272,14 @@ export async function runReadOnlyExplore(input: {
   let sensitiveFilesSkipped = 0;
   for (const root of resolvedRoots) {
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress.messages, startedAt);
+      return abortFailure(objective, roots, queryTerms, progress, startedAt);
     }
     const before = files.length;
     const skippedBefore = filesSkipped;
     const sensitiveBefore = sensitiveFilesSkipped;
     const listed = await listTextFiles(root.abs, workspaceRoot, discoveryBudget - files.length, input.abortSignal);
     if (listed.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress.messages, startedAt);
+      return abortFailure(objective, roots, queryTerms, progress, startedAt);
     }
     files.push(...listed.files);
     filesSkipped += listed.skipped;
@@ -277,7 +289,7 @@ export async function runReadOnlyExplore(input: {
     const found = files.length - before;
     const skipped = filesSkipped - skippedBefore;
     const sensitive = sensitiveFilesSkipped - sensitiveBefore;
-    progress.report(`只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项${sensitive > 0 ? `（含 ${sensitive} 个敏感文件）` : ''}`);
+    progress.report('scan', `只读探索：扫描 ${root.rel}，找到 ${found} 个文本候选，跳过 ${skipped} 项${sensitive > 0 ? `（含 ${sensitive} 个敏感文件）` : ''}`);
     if (files.length >= discoveryBudget) break;
   }
   files.sort((left, right) => {
@@ -298,10 +310,10 @@ export async function runReadOnlyExplore(input: {
   let bytesRead = 0;
   let inspected = 0;
 
-  progress.report(`只读探索：开始读取 ${filesToInspect.length} 个候选文件`);
+  progress.report('read', `只读探索：开始读取 ${filesToInspect.length} 个候选文件`);
   for (const file of filesToInspect) {
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress.messages, startedAt);
+      return abortFailure(objective, roots, queryTerms, progress, startedAt);
     }
     const rel = toRelative(workspaceRoot, file);
     const filenameScore = scorePath(rel, queryTerms);
@@ -332,7 +344,7 @@ export async function runReadOnlyExplore(input: {
       continue;
     }
     if (input.abortSignal?.aborted) {
-      return abortFailure(objective, roots, queryTerms, progress.messages, startedAt);
+      return abortFailure(objective, roots, queryTerms, progress, startedAt);
     }
     if (looksBinary(text)) {
       filesSkipped++;
@@ -350,7 +362,7 @@ export async function runReadOnlyExplore(input: {
     }
     if (matches.length >= maxMatches || bytesRead >= MAX_TOTAL_BYTES) break;
     if (inspected > 0 && inspected % 10 === 0) {
-      progress.report(`只读探索：已读取 ${inspected} 个文件，命中 ${matches.length} 处`);
+      progress.report('checkpoint', `只读探索：已读取 ${inspected} 个文件，命中 ${matches.length} 处`);
     }
   }
 
@@ -367,7 +379,7 @@ export async function runReadOnlyExplore(input: {
   if (matches.length === 0) notes.push('没有找到内容命中；候选文件可作为下一步阅读清单。');
   if (sensitiveFilesSkipped > 0) notes.push(`已跳过 ${sensitiveFilesSkipped} 个疑似本地凭据/密钥文件，只报告数量不读取内容。`);
   if (bytesRead >= MAX_TOTAL_BYTES) notes.push('总读取预算已用尽，部分候选文件未继续读取。');
-  progress.report(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
+  progress.report('completed', `只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
   const completedAt = Date.now();
   const durationMs = Math.max(0, completedAt - startedAt);
   const summary = buildResultSummary({
@@ -407,6 +419,7 @@ export async function runReadOnlyExplore(input: {
     completedAt,
     durationMs,
     progress: progress.messages,
+    recentEvents: progress.recentEvents,
     evidence,
     summary,
     report,
@@ -418,19 +431,36 @@ export async function runReadOnlyExplore(input: {
 
 function createProgressReporter(onProgress: ((message: string) => void) | undefined): {
   messages: string[];
-  report(message: string): void;
+  recentEvents: ExploreAgentEvent[];
+  report(type: ExploreAgentEvent['type'], message: string): void;
 } {
   let emitted = 0;
   const messages: string[] = [];
+  const recentEvents: ExploreAgentEvent[] = [];
   return {
     messages,
-    report(message) {
-      if (emitted >= 12) return;
-      emitted++;
-      messages.push(message);
+    recentEvents,
+    report(type, message) {
+      appendExploreEvent(recentEvents, { type, at: Date.now(), message });
+      if (emitted < 12) {
+        emitted++;
+        messages.push(message);
+      }
       onProgress?.(message);
     },
   };
+}
+
+function appendExploreEvent(events: ExploreAgentEvent[], event: ExploreAgentEvent): void {
+  events.push(event);
+  while (events.length > 20) {
+    const evictIndex = events.findIndex((item) => !isLifecycleExploreEvent(item.type));
+    events.splice(evictIndex >= 0 ? evictIndex : 0, 1);
+  }
+}
+
+function isLifecycleExploreEvent(type: ExploreAgentEvent['type']): boolean {
+  return type === 'started' || type === 'completed' || type === 'failed' || type === 'aborted';
 }
 
 async function listTextFiles(root: string, workspaceRoot: string, budget: number, abortSignal?: AbortSignal): Promise<{
@@ -787,10 +817,16 @@ function failure(
   roots: string[],
   queries: string[],
   message: string,
-  progress: string[] = [],
+  progress: string[] | ProgressState = [],
   startedAt = Date.now(),
 ): ExploreAgentResult {
   const completedAt = Date.now();
+  const progressState = normalizeProgressState(progress, startedAt);
+  appendExploreEvent(progressState.recentEvents, {
+    type: reason === 'aborted' ? 'aborted' : 'failed',
+    at: completedAt,
+    message,
+  });
   return {
     kind: 'explore_agent',
     ok: false,
@@ -805,7 +841,8 @@ function failure(
     startedAt,
     completedAt,
     durationMs: Math.max(0, completedAt - startedAt),
-    progress,
+    progress: progressState.messages,
+    recentEvents: progressState.recentEvents,
     evidence: [],
     summary: `未完成：${message}`,
     report: '',
@@ -821,8 +858,25 @@ function abortFailure(
   objective: string,
   roots: string[],
   queries: string[],
-  progress: string[] = [],
+  progress: string[] | ProgressState = [],
   startedAt = Date.now(),
 ): ExploreAgentResult {
   return failure('aborted', objective, roots, queries, '只读探索已取消。', progress, startedAt);
+}
+
+function normalizeProgressState(progress: string[] | ProgressState, startedAt: number): ProgressState {
+  if (!Array.isArray(progress)) {
+    return {
+      messages: [...progress.messages],
+      recentEvents: progress.recentEvents.map((event) => ({ ...event })),
+    };
+  }
+  return {
+    messages: [...progress],
+    recentEvents: progress.map((message, index) => ({
+      type: 'progress',
+      at: startedAt + index,
+      message,
+    })),
+  };
 }

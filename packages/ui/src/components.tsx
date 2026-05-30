@@ -5466,7 +5466,10 @@ function ExploreAgentPreview(props: {
   const [reportCopied, setReportCopied] = useState(false);
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
-  const progress = (result.progress ?? []).slice(0, 6);
+  const recentEvents = Array.isArray(result.recentEvents) ? result.recentEvents.slice(0, 6) : [];
+  const progress = recentEvents.length > 0
+    ? recentEvents.map(formatExploreAgentEvent)
+    : (result.progress ?? []).slice(0, 6);
   const evidence = (result.evidence ?? []).slice(0, 6);
   const resultSummary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const reportText = typeof result.report === 'string' ? result.report.trim() : '';
@@ -5634,6 +5637,35 @@ function presentExploreAgentReason(
       return undefined;
     default:
       return '未知诊断';
+  }
+}
+
+function formatExploreAgentEvent(event: { type: string; message: string }): string {
+  const label = presentExploreAgentEventType(event.type);
+  const message = typeof event.message === 'string' ? event.message.trim() : '';
+  return label ? `${label}：${message}` : message;
+}
+
+function presentExploreAgentEventType(type: string): string {
+  switch (type) {
+    case 'started':
+      return '开始';
+    case 'scope_resolved':
+      return '范围';
+    case 'scan':
+      return '扫描';
+    case 'read':
+      return '读取';
+    case 'checkpoint':
+      return '进度';
+    case 'completed':
+      return '完成';
+    case 'failed':
+      return '失败';
+    case 'aborted':
+      return '取消';
+    default:
+      return '';
   }
 }
 
