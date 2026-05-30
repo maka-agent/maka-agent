@@ -5962,6 +5962,7 @@ function TerminalPreview(props: {
   stdout: string;
   stderr: string;
 }) {
+  const [handoffCopied, setHandoffCopied] = useState(false);
   const succeeded = props.exitCode === 0;
   const hasOutput = props.stdout.length > 0 || props.stderr.length > 0;
   // Redact + cap stdout/stderr independently. `npm test` against a misconfigured
@@ -5972,11 +5973,34 @@ function TerminalPreview(props: {
   // The cmd line is also user-runtime text — don't echo a `--api-key=...`
   // arg into the chat without masking it.
   const safeCmd = redactSecrets(props.cmd);
+  const safeCwd = redactSecrets(props.cwd);
   const hiddenLines = stdout.capped + stderr.capped;
+  const handoffText = [
+    '终端输出需要继续研读',
+    `工作目录：${safeCwd}`,
+    `命令：${safeCmd}`,
+    `退出码：${props.exitCode}`,
+    `截断：stdout 已隐藏 ${stdout.capped} 行，stderr 已隐藏 ${stderr.capped} 行`,
+    stdout.body.length > 0 ? `stdout 预览：\n${stdout.body}` : '',
+    stderr.body.length > 0 ? `stderr 预览：\n${stderr.body}` : '',
+    '请在深度研究 / 只读探索里结合相关路径确认完整输出影响和下一步。',
+  ].filter((line) => line.length > 0).join('\n\n');
+
+  async function copyHandoff() {
+    if (hiddenLines <= 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(handoffText));
+      setHandoffCopied(true);
+      window.setTimeout(() => setHandoffCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
   return (
     <div className="maka-overlay-preview maka-tool-terminal" data-kind="terminal">
       <header className="maka-tool-terminal-head">
-        <code className="maka-tool-terminal-cwd">{props.cwd}</code>
+        <code className="maka-tool-terminal-cwd">{safeCwd}</code>
         <code className="maka-tool-terminal-cmd">$ {safeCmd}</code>
         <span
           className="maka-tool-terminal-exit"
@@ -6000,9 +6024,22 @@ function TerminalPreview(props: {
         </pre>
       )}
       {hiddenLines > 0 && (
-        <p className="maka-tool-terminal-truncated-note">
-          输出较长，当前只展示每路输出的前 {TOOL_LINE_CAP} 行。需要继续研读时，可以切到深度研究并把命令、相关路径和想确认的问题交给只读探索。
-        </p>
+        <div className="maka-tool-terminal-truncated-note">
+          <span>
+            输出较长，当前只展示每路输出的前 {TOOL_LINE_CAP} 行。需要继续研读时，可以切到深度研究并把命令、相关路径和想确认的问题交给只读探索。
+          </span>
+          <button
+            type="button"
+            className="maka-button maka-button-ghost maka-tool-terminal-copy"
+            data-size="sm"
+            onClick={() => void copyHandoff()}
+            aria-label={handoffCopied ? '已复制终端研读提示' : '复制终端研读提示'}
+            data-copied={handoffCopied ? 'true' : 'false'}
+          >
+            {handoffCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+            <span>{handoffCopied ? '已复制' : '复制研读提示'}</span>
+          </button>
+        </div>
       )}
     </div>
   );

@@ -269,6 +269,31 @@ describe('terminal truncation handoff contract', () => {
       /深度研究.*只读探索/,
       'Long terminal output should point users toward the read-only deep-research workflow instead of ending at a dead truncated preview.',
     );
+    assert.match(
+      src,
+      /const handoffText = \[/,
+      'TerminalPreview should build a copyable handoff prompt for capped terminal output.',
+    );
+    assert.match(
+      src,
+      /工作目录：\$\{safeCwd\}/,
+      'The capped-output handoff should include the redacted working directory.',
+    );
+    assert.match(
+      src,
+      /命令：\$\{safeCmd\}/,
+      'The capped-output handoff should include the redacted command.',
+    );
+    assert.match(
+      src,
+      /navigator\.clipboard\.writeText\(redactSecrets\(handoffText\)\)/,
+      'The capped-output handoff copy path must apply the renderer redaction boundary before clipboard write.',
+    );
+    assert.match(
+      src,
+      /复制研读提示/,
+      'The truncation handoff should expose a visible copy action for the deep-research prompt.',
+    );
   });
 
   it('styles the terminal truncation handoff distinctly from raw terminal output', async () => {
@@ -285,6 +310,11 @@ describe('terminal truncation handoff contract', () => {
       src,
       /maka-tool-terminal-truncated-note[\s\S]*var\(--warning\)/,
       'The truncation handoff should use the warning token so it reads as a capped-output state.',
+    );
+    assert.match(
+      src,
+      /maka-tool-terminal-copy[\s\S]*flex:\s*0 0 auto;/,
+      'The copy action should keep a stable size inside the truncation handoff row.',
     );
   });
 });
