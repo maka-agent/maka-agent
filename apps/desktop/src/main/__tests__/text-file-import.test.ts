@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -86,6 +87,48 @@ describe('text file context import', () => {
       assert.equal(result.truncated, false);
       assert.match(result.prompt, /<local-text-file name="notes\.md" source="file-picker" fingerprint="sha256:[0-9a-f]{16}">/);
       assert.match(result.prompt, /Use the local context\./);
+    });
+  });
+
+  it('imports picked Office documents through officecli text view', async () => {
+    await withTempDir(async (root) => {
+      const filePath = join(root, 'deck.pptx');
+      await writeFile(filePath, 'not a real pptx');
+      const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+
+      const result = await readTextFileForPromptImport(filePath, {
+        runner: fakeExecFile((cmd, args, _options, callback) => {
+          calls.push({ cmd, args });
+          callback(null, `${filePath}\nSlide 1\napi_key=sk-test-secret`, '');
+        }),
+      });
+
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.equal(result.name, 'deck.pptx');
+      assert.equal(result.files, 1);
+      assert.deepEqual(calls, [{ cmd: 'officecli', args: ['view', filePath, 'text'] }]);
+      assert.match(result.prompt, /请结合下面从 Office 文档 "deck\.pptx" 导出的文本回答。/);
+      assert.match(result.prompt, /<local-office-document name="deck\.pptx" source="file-picker" fingerprint="sha256:[0-9a-f]{16}">/);
+      assert.match(result.prompt, /Slide 1/);
+      assert.match(result.prompt, /api_key=\[redacted\]/);
+      assert.doesNotMatch(result.prompt, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    });
+  });
+
+  it('maps officecli failures during picked Office import', async () => {
+    await withTempDir(async (root) => {
+      const filePath = join(root, 'report.docx');
+      await writeFile(filePath, 'not a real docx');
+      const missing = new Error('missing') as NodeJS.ErrnoException;
+      missing.code = 'ENOENT';
+
+      assert.deepEqual(
+        await readTextFileForPromptImport(filePath, {
+          runner: fakeExecFile((_cmd, _args, _options, callback) => callback(missing, '', '')),
+        }),
+        { ok: false, reason: 'officecli_missing' },
+      );
     });
   });
 
@@ -217,15 +260,19 @@ describe('text file context import', () => {
     });
   });
 
-  it('routes unsupported Office files toward the Office document workflow', async () => {
+  it('supports picked Office import while keeping dropped Office fail-closed', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const [main, renderer] = await Promise.all([
+    const [main, renderer, importer] = await Promise.all([
       readFile(join(repoRoot, 'apps/desktop/src/main/main.ts'), 'utf8'),
       readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8'),
+      readFile(join(repoRoot, 'apps/desktop/src/main/text-file-import.ts'), 'utf8'),
     ]);
 
+    assert.match(main, /\{ name: 'Office', extensions: \['docx', 'xlsx', 'pptx'\] \}/);
+    assert.match(importer, /local-office-document/);
+    assert.match(importer, /\['view', filePath, 'text'\]/);
     assert.match(main, /Office 文档工具或对应技能/);
     assert.match(renderer, /Office 文档工具或对应技能/);
     assert.doesNotMatch(main, /Office 文件请先转成文本/);
@@ -413,4 +460,18 @@ async function withTempDir(fn: (root: string) => Promise<void>): Promise<void> {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function fakeExecFile(
+  fn: (
+    file: string,
+    args: readonly string[],
+    options: Record<string, unknown>,
+    callback: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => void,
+): typeof import('node:child_process').execFile {
+  return ((file: string, args: readonly string[], options: Record<string, unknown>, callback: (...args: unknown[]) => void) => {
+    queueMicrotask(() => fn(file, args, options, callback as (error: Error | null, stdout: string, stderr: string) => void));
+    return new EventEmitter() as ReturnType<typeof import('node:child_process').execFile>;
+  }) as typeof import('node:child_process').execFile;
 }

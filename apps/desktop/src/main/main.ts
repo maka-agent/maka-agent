@@ -851,6 +851,12 @@ function textFileImportFailureCopy(reason: TextFileImportFailureReason): string 
       return '只支持直接导入文本文件；Office 文档请用 Office 文档工具或对应技能处理。';
     case 'read-failed':
       return '读取文件失败。';
+    case 'officecli_missing':
+      return '本机未检测到 officecli，暂时无法导入 Office 文档内容。';
+    case 'officecli_timeout':
+      return 'Office 文档内容导入超时。';
+    case 'officecli_failed':
+      return 'Office 文档内容导入失败。';
   }
 }
 
@@ -948,6 +954,7 @@ function registerIpc(): void {
     > => {
       const textFileFilters = [
         { name: 'Text', extensions: ['txt', 'text', 'md', 'markdown', 'mdx', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cc', 'cpp', 'h', 'hh', 'hpp', 'sh', 'zsh', 'sql', 'ini', 'conf', 'env'] },
+        { name: 'Office', extensions: ['docx', 'xlsx', 'pptx'] },
         { name: 'All Files', extensions: ['*'] },
       ];
       const result = mainWindow

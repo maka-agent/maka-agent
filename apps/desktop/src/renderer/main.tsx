@@ -1251,7 +1251,7 @@ function AppShell() {
       if (result.reason !== 'cancelled') toastApi.error('导入文本失败', result.message);
       return undefined;
     }
-    toastApi.success('已导入文本文件', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
+    toastApi.success('已导入文件内容', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
     return result.prompt;
   }
 
@@ -1303,7 +1303,7 @@ function AppShell() {
         toastApi.error('导入文本失败', result.message);
         return undefined;
       }
-      toastApi.success('已导入文本文件', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
+      toastApi.success('已导入文件内容', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
       return result.prompt;
     } catch (error) {
       toastApi.error('导入文本失败', cleanErrorMessage(error));

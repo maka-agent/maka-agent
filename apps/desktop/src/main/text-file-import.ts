@@ -1,6 +1,9 @@
-import { basename, join, relative } from 'node:path';
+import { execFile } from 'node:child_process';
+import { basename, extname, join, relative } from 'node:path';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { buildOfficeCliEnv } from './officecli-env.js';
+import { redactSecrets } from '@maka/core/redaction';
 import {
   MAX_IMPORTED_FOLDER_COUNT,
   MAX_IMPORTED_FOLDER_DEPTH,
@@ -36,6 +39,10 @@ const FOLDER_OUTLINE_SKIP_NAMES = new Set([
   'coverage',
   'node_modules',
 ]);
+const OFFICE_IMPORT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx']);
+const MAX_IMPORTED_OFFICE_FILE_BYTES = 50 * 1024 * 1024;
+const OFFICE_IMPORT_TIMEOUT_MS = 15_000;
+const OFFICE_IMPORT_MAX_BUFFER = 512 * 1024;
 
 export type TextFileImportFailureReason =
   | 'missing'
@@ -43,7 +50,10 @@ export type TextFileImportFailureReason =
   | 'binary'
   | 'too-many-files'
   | 'unsupported-type'
-  | 'read-failed';
+  | 'read-failed'
+  | 'officecli_missing'
+  | 'officecli_timeout'
+  | 'officecli_failed';
 
 export type TextFileImportResult =
   | {
@@ -66,6 +76,13 @@ export interface DroppedTextFilePayload {
   text: string;
 }
 
+type TextFileImportRunner = typeof execFile;
+
+interface TextFileImportOptions {
+  runner?: TextFileImportRunner;
+  timeoutMs?: number;
+}
+
 export type FolderOutlineImportFailureReason =
   | 'missing'
   | 'read-failed'
@@ -86,28 +103,31 @@ export type FolderOutlineImportResult =
       reason: FolderOutlineImportFailureReason;
     };
 
-export async function readTextFileForPromptImport(filePath: string): Promise<TextFileImportResult> {
-  const loaded = await loadTextFileForPromptImport(filePath);
+export async function readTextFileForPromptImport(filePath: string, options: TextFileImportOptions = {}): Promise<TextFileImportResult> {
+  const loaded = await loadTextFileForPromptImport(filePath, options);
   if (!loaded.ok) return loaded;
+  const prompt = loaded.kind === 'office'
+    ? formatImportedOfficeDocumentPrompt({ name: loaded.name, text: loaded.text, truncated: loaded.truncated, source: 'file-picker' })
+    : formatImportedTextFilePrompt({ name: loaded.name, text: loaded.text, truncated: loaded.truncated, source: 'file-picker' });
   return {
     ok: true,
     name: loaded.name,
     bytes: loaded.bytes,
     files: 1,
     truncated: loaded.truncated,
-    prompt: formatImportedTextFilePrompt({ name: loaded.name, text: loaded.text, truncated: loaded.truncated, source: 'file-picker' }),
+    prompt,
   };
 }
 
-export async function readTextFilesForPromptImport(filePaths: string[]): Promise<TextFileImportResult> {
+export async function readTextFilesForPromptImport(filePaths: string[], options: TextFileImportOptions = {}): Promise<TextFileImportResult> {
   const selected = filePaths.filter(Boolean);
   if (selected.length === 0) return { ok: false, reason: 'missing' };
-  if (selected.length === 1) return readTextFileForPromptImport(selected[0]);
+  if (selected.length === 1) return readTextFileForPromptImport(selected[0], options);
   if (selected.length > MAX_IMPORTED_TEXT_FILE_COUNT) return { ok: false, reason: 'too-many-files' };
 
   const loadedFiles = [];
   for (const filePath of selected) {
-    const loaded = await loadTextFileForPromptImport(filePath);
+    const loaded = await loadTextFileForPromptImport(filePath, options);
     if (!loaded.ok) return loaded;
     loadedFiles.push(loaded);
   }
@@ -120,23 +140,28 @@ export async function readTextFilesForPromptImport(filePaths: string[]): Promise
     const text = chars.length > remaining ? chars.slice(0, Math.max(0, remaining)).join('') : file.text;
     remaining -= Array.from(text).length;
     truncated = truncated || file.truncated || chars.length > Array.from(text).length || remaining <= 0;
-    fragments.push(formatImportedTextFileBlock({
+    const blockInput = {
       name: file.name,
       text,
       truncated: file.truncated || chars.length > Array.from(text).length,
       source: 'file-picker',
-    }));
+    } satisfies Parameters<typeof formatImportedTextFileBlock>[0];
+    fragments.push(file.kind === 'office' ? formatImportedOfficeDocumentBlock(blockInput) : formatImportedTextFileBlock(blockInput));
     if (remaining <= 0) break;
   }
 
   const totalBytes = loadedFiles.reduce((sum, file) => sum + file.bytes, 0);
   return {
     ok: true,
-    name: `${loadedFiles.length} 个文本文件`,
+    name: loadedFiles.every((file) => file.kind === 'text') ? `${loadedFiles.length} 个文本文件` : `${loadedFiles.length} 个本地文件`,
     bytes: totalBytes,
     files: loadedFiles.length,
     truncated,
-    prompt: formatImportedTextFilesPrompt({
+    prompt: loadedFiles.every((file) => file.kind === 'text') ? formatImportedTextFilesPrompt({
+      count: loadedFiles.length,
+      fragments: fragments.join('\n\n'),
+      truncated,
+    }) : formatImportedLocalFilesPrompt({
       count: loadedFiles.length,
       fragments: fragments.join('\n\n'),
       truncated,
@@ -201,9 +226,10 @@ export function readDroppedTextFilesForPromptImport(payloads: DroppedTextFilePay
   };
 }
 
-async function loadTextFileForPromptImport(filePath: string): Promise<
+async function loadTextFileForPromptImport(filePath: string, options: TextFileImportOptions = {}): Promise<
   | {
       ok: true;
+      kind: 'text' | 'office';
       name: string;
       bytes: number;
       text: string;
@@ -221,6 +247,9 @@ async function loadTextFileForPromptImport(filePath: string): Promise<
     return { ok: false, reason: 'missing' };
   }
   if (!fileStat.isFile()) return { ok: false, reason: 'missing' };
+  if (isOfficeDocumentPath(filePath)) {
+    return loadOfficeDocumentForPromptImport(filePath, fileStat.size, options);
+  }
   if (fileStat.size > MAX_IMPORTED_TEXT_FILE_BYTES) return { ok: false, reason: 'too-large' };
   const preflight = preflightDroppedTextFilesForPromptImport([{ name: filePath, size: fileStat.size }]);
   if (!preflight.ok) return preflight;
@@ -242,6 +271,7 @@ async function loadTextFileForPromptImport(filePath: string): Promise<
   const name = basename(filePath);
   return {
     ok: true,
+    kind: 'text',
     name,
     bytes: fileStat.size,
     text,
@@ -249,9 +279,85 @@ async function loadTextFileForPromptImport(filePath: string): Promise<
   };
 }
 
+async function loadOfficeDocumentForPromptImport(
+  filePath: string,
+  bytes: number,
+  options: TextFileImportOptions,
+): Promise<
+  | {
+      ok: true;
+      kind: 'office';
+      name: string;
+      bytes: number;
+      text: string;
+      truncated: boolean;
+    }
+  | {
+      ok: false;
+      reason: TextFileImportFailureReason;
+    }
+> {
+  if (bytes > MAX_IMPORTED_OFFICE_FILE_BYTES) return { ok: false, reason: 'too-large' };
+  const runner = options.runner ?? execFile;
+  const timeoutMs = options.timeoutMs ?? OFFICE_IMPORT_TIMEOUT_MS;
+  try {
+    const rawText = await runOfficeCliTextImport(runner, filePath, timeoutMs);
+    const cleaned = sanitizeImportedOfficeText(rawText, filePath);
+    if (!cleaned) return { ok: false, reason: 'officecli_failed' };
+    const chars = Array.from(cleaned);
+    const truncated = chars.length > MAX_IMPORTED_TEXT_FILE_CHARS;
+    const text = truncated ? chars.slice(0, MAX_IMPORTED_TEXT_FILE_CHARS).join('') : cleaned;
+    return {
+      ok: true,
+      kind: 'office',
+      name: basename(filePath),
+      bytes,
+      text,
+      truncated,
+    };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return { ok: false, reason: 'officecli_missing' };
+    if (code === 'ETIMEDOUT' || (error as { killed?: boolean }).killed) return { ok: false, reason: 'officecli_timeout' };
+    return { ok: false, reason: 'officecli_failed' };
+  }
+}
+
+function runOfficeCliTextImport(runner: TextFileImportRunner, filePath: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolveText, reject) => {
+    const child = runner(
+      'officecli',
+      ['view', filePath, 'text'],
+      {
+        timeout: timeoutMs,
+        maxBuffer: OFFICE_IMPORT_MAX_BUFFER,
+        env: buildOfficeCliEnv(),
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          Object.assign(error, { stdout, stderr });
+          reject(error);
+          return;
+        }
+        resolveText(String(stdout ?? ''));
+      },
+    );
+    child.on('error', reject);
+  });
+}
+
+function sanitizeImportedOfficeText(text: string, filePath: string): string {
+  return redactSecrets(text.replaceAll(filePath, '<selected-office-file>')).trim();
+}
+
+function isOfficeDocumentPath(filePath: string): boolean {
+  return OFFICE_IMPORT_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
+
 function loadDroppedTextFileForPromptImport(input: DroppedTextFilePayload):
   | {
       ok: true;
+      kind: 'text';
       name: string;
       bytes: number;
       text: string;
@@ -276,6 +382,7 @@ function loadDroppedTextFileForPromptImport(input: DroppedTextFilePayload):
   const name = sanitizeDroppedFileName(input.name);
   return {
     ok: true,
+    kind: 'text',
     name,
     bytes,
     text,
@@ -312,6 +419,29 @@ export function formatImportedTextFilesPrompt(input: { count: number; fragments:
   ].filter(Boolean).join('\n');
 }
 
+export function formatImportedOfficeDocumentPrompt(input: {
+  name: string;
+  text: string;
+  truncated: boolean;
+  source?: PromptContextSource;
+}): string {
+  return [
+    `请结合下面从 Office 文档 "${input.name}" 导出的文本回答。`,
+    input.truncated ? '文档内容较长，下面只包含前一部分。' : '',
+    '',
+    formatImportedOfficeDocumentBlock(input),
+  ].filter(Boolean).join('\n');
+}
+
+export function formatImportedLocalFilesPrompt(input: { count: number; fragments: string; truncated: boolean }): string {
+  return [
+    `请结合下面导入的 ${input.count} 个本地文件内容回答。`,
+    input.truncated ? '文件内容较长，下面只包含前一部分。' : '',
+    '',
+    input.fragments,
+  ].filter(Boolean).join('\n');
+}
+
 type PromptContextSource = 'file-picker' | 'drop-or-paste' | 'folder-picker';
 
 function formatImportedTextFileBlock(input: {
@@ -328,6 +458,23 @@ function formatImportedTextFileBlock(input: {
     })}>`,
     escapeXmlText(input.text),
     '</local-text-file>',
+  ].join('\n');
+}
+
+function formatImportedOfficeDocumentBlock(input: {
+  name: string;
+  text: string;
+  truncated: boolean;
+  source?: PromptContextSource;
+}): string {
+  return [
+    `<local-office-document name="${escapeXmlAttr(input.name)}"${formatPromptContextAttrs({
+      source: input.source,
+      fingerprint: fingerprintPromptContext(input.text),
+      truncated: input.truncated,
+    })}>`,
+    escapeXmlText(input.text),
+    '</local-office-document>',
   ].join('\n');
 }
 
