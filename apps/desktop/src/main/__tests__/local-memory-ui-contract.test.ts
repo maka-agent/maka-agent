@@ -91,4 +91,13 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /这条记忆没有可识别 ID，已停止更新。/);
     assert.doesNotMatch(src, /这条记忆缺少可识别的 ID/);
   });
+
+  it('tells the user when saving MEMORY.md redacted sensitive fields', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const saveBlock = src.match(/async function save\(\) \{[\s\S]*?\n  \}\n\n  async function reset/)?.[0] ?? '';
+
+    assert.match(saveBlock, /const redacted = next\.content !== draft/);
+    assert.match(saveBlock, /已保存并遮蔽敏感字段/);
+    assert.match(saveBlock, /token、API key 或密码/);
+  });
 });

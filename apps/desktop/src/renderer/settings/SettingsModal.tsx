@@ -2385,10 +2385,13 @@ function MemorySettingsPage(props: {
     setBusy(true);
     try {
       const next = await window.maka.memory.save(draft);
+      const redacted = next.content !== draft;
       setState(next);
       setDraft(next.content);
       if (next.status === 'safe_mode') {
         toast.error('保存被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
+      } else if (redacted) {
+        toast.success('已保存并遮蔽敏感字段', '写入前已替换疑似 token、API key 或密码。');
       } else {
         toast.success('已保存 MEMORY.md', '写入本地文件并保留上一版备份。');
       }
