@@ -5473,6 +5473,7 @@ function ExploreAgentPreview(props: {
   const [reportCopied, setReportCopied] = useState(false);
   const [processCopied, setProcessCopied] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
+  const [evidenceCopied, setEvidenceCopied] = useState(false);
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const processLines = Array.isArray(result.recentEvents) && result.recentEvents.length > 0
@@ -5521,6 +5522,18 @@ function ExploreAgentPreview(props: {
     processLines.length > 0 ? `事件：${processLines.length}` : '',
     processLines.join('\n'),
   ].filter((line) => line.trim().length > 0).join('\n').trim();
+  const evidenceText = evidence.length > 0
+    ? [
+      `状态：${status}`,
+      `目标：${result.objective || '只读探索'}`,
+      `证据：${evidence.length}`,
+      ...evidence.map((item) => [
+        `- ${item.path}${typeof item.line === 'number' ? `:${item.line}` : ''}`,
+        item.label,
+        typeof item.score === 'number' ? `分数 ${item.score}` : '',
+      ].filter(Boolean).join(' — ')),
+    ].join('\n')
+    : '';
 
   async function copyReport() {
     if (reportText.length === 0) return;
@@ -5550,6 +5563,17 @@ function ExploreAgentPreview(props: {
       await navigator.clipboard.writeText(redactSecrets(processText));
       setProcessCopied(true);
       window.setTimeout(() => setProcessCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
+  async function copyEvidence() {
+    if (evidenceText.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(evidenceText));
+      setEvidenceCopied(true);
+      window.setTimeout(() => setEvidenceCopied(false), 1400);
     } catch {
       /* clipboard unavailable — silently fail, button stays in default state */
     }
@@ -5641,7 +5665,20 @@ function ExploreAgentPreview(props: {
       )}
       {evidence.length > 0 && (
         <section className="maka-explore-agent-section" aria-label="证据锚点">
-          <strong>证据锚点</strong>
+          <div className="maka-explore-agent-section-head">
+            <strong>证据锚点</strong>
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-explore-agent-copy"
+              data-size="sm"
+              onClick={() => void copyEvidence()}
+              aria-label={evidenceCopied ? '已复制证据锚点' : '复制证据锚点'}
+              data-copied={evidenceCopied ? 'true' : 'false'}
+            >
+              {evidenceCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{evidenceCopied ? '已复制' : '复制证据'}</span>
+            </button>
+          </div>
           <ul>
             {evidence.map((item, index) => (
               <li key={`${item.path}:${item.line ?? 'file'}:${index}`}>
