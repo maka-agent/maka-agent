@@ -165,6 +165,19 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /window\.maka\.memory\.save\(result\.draft\)/);
   });
 
+  it('keeps archive and restore draft-only when MEMORY.md has unsaved edits', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const updateBlock = src.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
+
+    assert.match(updateBlock, /if \(memoryDraftDirty\) \{/);
+    assert.match(updateBlock, /setDraft\(result\.draft\)/);
+    assert.match(updateBlock, /已在草稿中归档记忆/);
+    assert.match(updateBlock, /已在草稿中恢复记忆/);
+    assert.match(updateBlock, /确认文件内容后点击保存/);
+    assert.match(updateBlock, /return;\n    }\n\n    setBusy\(true\)/);
+    assert.match(updateBlock, /window\.maka\.memory\.save\(result\.draft\)/);
+  });
+
   it('uses stopped-update copy for invalid memory entry ids instead of raw missing-field wording', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 

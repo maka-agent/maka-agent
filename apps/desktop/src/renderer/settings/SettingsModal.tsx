@@ -2552,6 +2552,12 @@ function MemorySettingsPage(props: {
       }
     }
 
+    if (memoryDraftDirty) {
+      setDraft(result.draft);
+      toast.success(status === 'archived' ? '已在草稿中归档记忆' : '已在草稿中恢复记忆', '确认文件内容后点击保存。');
+      return;
+    }
+
     setBusy(true);
     try {
       const next = await window.maka.memory.save(result.draft);
