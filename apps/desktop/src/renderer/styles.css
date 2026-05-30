@@ -3037,6 +3037,10 @@ button:active {
   gap: 6px;
 }
 
+.maka-error-copy-status {
+  color: var(--destructive-text);
+}
+
 .maka-fake-backend-banner {
   display: flex;
   align-items: center;
