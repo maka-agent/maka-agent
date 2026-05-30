@@ -91,8 +91,8 @@ const STATUS_PRESENTATION: Record<ConnectionUiStatus, StatusPresentation> = {
     tone: 'neutral',
   },
   not_configured: {
-    label: '未配置',
-    detail: '缺少 API key 或默认模型。点开模型设置补全。',
+    label: '待补齐',
+    detail: '等待填写 API key 或选择默认模型。点开模型设置补全。',
     tone: 'warning',
   },
   configured: {

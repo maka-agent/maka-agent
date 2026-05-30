@@ -178,4 +178,11 @@ describe('presentConnectionUiStatus copy gates (PR-UI-AUDIT-1, @kenji msg 7a16aa
     assert.match(presentation.detail, /点测试连接确认 provider 可达/);
     assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /未验证|还未真正调用/);
   });
+
+  it('not_configured copy frames missing setup as a next action', () => {
+    const presentation = presentConnectionUiStatus('not_configured');
+    assert.equal(presentation.label, '待补齐');
+    assert.match(presentation.detail, /等待填写 API key 或选择默认模型/);
+    assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /未配置|缺少 API key/);
+  });
 });
