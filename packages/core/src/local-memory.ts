@@ -5,6 +5,8 @@
  * hidden durable memory, extraction, embeddings, recall, or agent tools.
  */
 
+import { redactSecrets } from './redaction.js';
+
 export interface LocalMemorySettings {
   readonly enabled: boolean;
   readonly agentReadEnabled: boolean;
@@ -135,7 +137,7 @@ export function buildLocalMemoryPromptBody(input: string): string | undefined {
   const blocks = parsed.activeEntries.map((entry) => {
     const lines = [`## ${entry.title}`];
     if (entry.tags.length > 0) lines.push(`Tags: ${entry.tags.join(', ')}`);
-    lines.push(entry.promptContent);
+    lines.push(redactSecrets(entry.promptContent));
     return lines.join('\n');
   });
   const body = blocks.join('\n\n').trim();

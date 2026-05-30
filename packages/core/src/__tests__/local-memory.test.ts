@@ -99,6 +99,22 @@ describe('local MEMORY.md contract', () => {
     assert.doesNotMatch(body, /maka-memory|Archived|should not enter/);
   });
 
+  it('redacts legacy secrets before building the prompt body', () => {
+    const body = buildLocalMemoryPromptBody([
+      '# Maka Memory',
+      '',
+      '## Legacy pasted credential',
+      '<!-- maka-memory: id=legacy-secret origin=manual status=active -->',
+      'Authorization: Bearer sk-ant-api03-abc123def456ghi789jkl0mn1opq',
+      'Endpoint: https://api.example.test/models?api_key=raw-secret-value&timeout=30',
+    ].join('\n'));
+
+    assert.ok(body);
+    assert.doesNotMatch(body, /sk-ant-api03|raw-secret-value/);
+    assert.match(body, /Authorization: Bearer \[redacted\]/);
+    assert.match(body, /api_key=\[redacted\]/);
+  });
+
   it('does not apply UI preview truncation to the prompt body', () => {
     const longPreference = `${'a'.repeat(520)}tail-marker`;
     const body = buildLocalMemoryPromptBody([
