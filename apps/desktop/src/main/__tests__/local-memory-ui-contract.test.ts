@@ -33,6 +33,22 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(css, /\.settingsMemoryEntryFacts/);
   });
 
+  it('can copy a stable memory entry reference for audit handoff', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+    const listBlock = src.match(/function MemoryEntryList\([\s\S]*?function filterLocalMemoryEntries/)?.[0] ?? '';
+
+    assert.match(pageBlock, /async function copyMemoryEntryReference/);
+    assert.match(pageBlock, /Memory entry: \$\{entry\.title\}/);
+    assert.match(pageBlock, /ID: \$\{entry\.id\}/);
+    assert.match(pageBlock, /Status: \$\{memoryEntryStatusLabel\(entry\.status\)\}/);
+    assert.match(pageBlock, /navigator\.clipboard\.writeText\(reference\)/);
+    assert.match(pageBlock, /toast\.success\('已复制记忆引用', entry\.id\)/);
+    assert.match(listBlock, /onCopyReference/);
+    assert.match(listBlock, /复制引用/);
+    assert.match(src, /function memoryEntryStatusLabel/);
+  });
+
   it('filters memory entries locally across title content id origin timestamps and tags', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
