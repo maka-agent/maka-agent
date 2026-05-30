@@ -19,6 +19,20 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.ok(src.includes("entry.tags.join(' / ')"));
   });
 
+  it('renders stable entry metadata so local memory stays white-box', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+    const listBlock = src.match(/function MemoryEntryList\([\s\S]*?function filterLocalMemoryEntries/)?.[0] ?? '';
+
+    assert.match(listBlock, /settingsMemoryEntryFacts/);
+    assert.match(listBlock, /ID \{entry\.id\}/);
+    assert.match(listBlock, /entry\.createdAt !== undefined/);
+    assert.match(listBlock, /创建 <RelativeTime ts=\{entry\.createdAt\}/);
+    assert.match(listBlock, /entry\.updatedAt !== undefined/);
+    assert.match(listBlock, /更新 <RelativeTime ts=\{entry\.updatedAt\}/);
+    assert.match(css, /\.settingsMemoryEntryFacts/);
+  });
+
   it('filters memory entries locally across title content origin and tags', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 

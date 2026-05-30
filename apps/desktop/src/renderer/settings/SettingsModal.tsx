@@ -2770,9 +2770,22 @@ function MemoryEntryList(props: {
           {props.entries.map((entry) => (
             <article className="settingsMemoryEntryCard" key={entry.id}>
               <strong>{entry.title}</strong>
-              <small>
+              <small className="settingsMemoryEntryMeta">
                 {memoryOriginLabel(entry.origin)}
                 {entry.tags.length > 0 ? ` · ${entry.tags.join(' / ')}` : ''}
+              </small>
+              <small className="settingsMemoryEntryFacts">
+                <span>ID {entry.id}</span>
+                {entry.createdAt !== undefined && (
+                  <span>
+                    创建 <RelativeTime ts={entry.createdAt} className="settingsHelpInlineTime" />
+                  </span>
+                )}
+                {entry.updatedAt !== undefined && (
+                  <span>
+                    更新 <RelativeTime ts={entry.updatedAt} className="settingsHelpInlineTime" />
+                  </span>
+                )}
               </small>
               <p>{entry.content}</p>
               {props.onStatusChange && (

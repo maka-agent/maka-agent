@@ -9716,6 +9716,16 @@ button:active {
   color: var(--foreground-50);
 }
 
+.settingsMemoryEntryFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.settingsMemoryEntryFacts span {
+  min-width: 0;
+}
+
 .settingsMemoryEntryCard p,
 .settingsMemoryEntryEmpty {
   margin: 0;
