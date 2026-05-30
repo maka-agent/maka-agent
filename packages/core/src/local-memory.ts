@@ -85,6 +85,17 @@ export type SetLocalMemoryEntryStatusResult =
 export const LOCAL_MEMORY_MAX_BYTES = 128 * 1024;
 export const LOCAL_MEMORY_PROMPT_MAX_CHARS = 12_000;
 
+const SHA256_K = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+] as const;
+
 export function defaultLocalMemorySettings(): LocalMemorySettings {
   return { enabled: true, agentReadEnabled: false };
 }
@@ -99,12 +110,14 @@ export function normalizeLocalMemorySettings(input: unknown): LocalMemorySetting
 }
 
 export function defaultLocalMemoryMarkdown(now = Date.now()): string {
+  const exampleContent = '这里写你希望 Maka 记住的长期偏好。默认不会注入给 agent；需要在设置里单独开启“agent 可读取本地记忆”。';
+  const exampleId = stableLocalMemoryEntryId(exampleContent, now);
   return [
     '# Maka Memory',
     '',
     '## 示例：我的偏好',
-    `<!-- maka-memory: id=manual-${now} origin=manual createdAt=${now} -->`,
-    '这里写你希望 Maka 记住的长期偏好。默认不会注入给 agent；需要在设置里单独开启“agent 可读取本地记忆”。',
+    `<!-- maka-memory: id=${exampleId} origin=manual createdAt=${now} -->`,
+    exampleContent,
     '',
   ].join('\n');
 }
@@ -143,8 +156,9 @@ export function appendManualLocalMemoryEntryDraft(
 
   const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
   const tags = normalizeManualEntryTags(input.tags ?? []);
+  const id = stableLocalMemoryEntryId(content, now);
   const meta = [
-    `id=manual-${now}`,
+    `id=${id}`,
     'origin=manual',
     `createdAt=${now}`,
     'status=active',
@@ -160,6 +174,11 @@ export function appendManualLocalMemoryEntryDraft(
     return { ok: false, reason: 'oversize' };
   }
   return { ok: true, draft };
+}
+
+export function stableLocalMemoryEntryId(content: string, createdAt: number): string {
+  const normalizedCreatedAt = Number.isFinite(createdAt) ? Math.max(0, Math.floor(createdAt)) : 0;
+  return `mem-${sha256Hex(`${content.trim()}\n${normalizedCreatedAt}`).slice(0, 16)}`;
 }
 
 export function setLocalMemoryEntryStatusDraft(
@@ -406,4 +425,86 @@ function slugId(title: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
   return slug.length > 0 ? slug : 'memory-entry';
+}
+
+function sha256Hex(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  const bitLength = bytes.length * 8;
+  const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
+  const padded = new Uint8Array(paddedLength);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000), false);
+  view.setUint32(paddedLength - 4, bitLength >>> 0, false);
+
+  let h0 = 0x6a09e667;
+  let h1 = 0xbb67ae85;
+  let h2 = 0x3c6ef372;
+  let h3 = 0xa54ff53a;
+  let h4 = 0x510e527f;
+  let h5 = 0x9b05688c;
+  let h6 = 0x1f83d9ab;
+  let h7 = 0x5be0cd19;
+  const w = new Uint32Array(64);
+
+  for (let offset = 0; offset < paddedLength; offset += 64) {
+    for (let i = 0; i < 16; i += 1) {
+      w[i] = view.getUint32(offset + i * 4, false);
+    }
+    for (let i = 16; i < 64; i += 1) {
+      const s0 = rotateRight(w[i - 15]!, 7) ^ rotateRight(w[i - 15]!, 18) ^ (w[i - 15]! >>> 3);
+      const s1 = rotateRight(w[i - 2]!, 17) ^ rotateRight(w[i - 2]!, 19) ^ (w[i - 2]! >>> 10);
+      w[i] = add32(w[i - 16]!, s0, w[i - 7]!, s1);
+    }
+
+    let a = h0;
+    let b = h1;
+    let c = h2;
+    let d = h3;
+    let e = h4;
+    let f = h5;
+    let g = h6;
+    let h = h7;
+
+    for (let i = 0; i < 64; i += 1) {
+      const s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = add32(h, s1, ch, SHA256_K[i]!, w[i]!);
+      const s0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = add32(s0, maj);
+      h = g;
+      g = f;
+      f = e;
+      e = add32(d, temp1);
+      d = c;
+      c = b;
+      b = a;
+      a = add32(temp1, temp2);
+    }
+
+    h0 = add32(h0, a);
+    h1 = add32(h1, b);
+    h2 = add32(h2, c);
+    h3 = add32(h3, d);
+    h4 = add32(h4, e);
+    h5 = add32(h5, f);
+    h6 = add32(h6, g);
+    h7 = add32(h7, h);
+  }
+
+  return [h0, h1, h2, h3, h4, h5, h6, h7]
+    .map((word) => word.toString(16).padStart(8, '0'))
+    .join('');
+}
+
+function rotateRight(value: number, bits: number): number {
+  return (value >>> bits) | (value << (32 - bits));
+}
+
+function add32(...values: readonly number[]): number {
+  let result = 0;
+  for (const value of values) result = (result + value) >>> 0;
+  return result;
 }

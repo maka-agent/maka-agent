@@ -408,6 +408,7 @@ export {
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
   setLocalMemoryEntryStatusDraft,
+  stableLocalMemoryEntryId,
 } from './local-memory.js';
 
 // voice.ts (PR-VOICE-0) — core contract; no IPC/storage/provider/runtime/UI.

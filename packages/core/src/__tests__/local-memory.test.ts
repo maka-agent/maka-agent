@@ -9,6 +9,7 @@ import {
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
   setLocalMemoryEntryStatusDraft,
+  stableLocalMemoryEntryId,
 } from '../local-memory.js';
 
 describe('local MEMORY.md contract', () => {
@@ -113,6 +114,7 @@ describe('local MEMORY.md contract', () => {
   });
 
   it('appends a manual entry draft with visible metadata and preserves existing content', () => {
+    const stableId = stableLocalMemoryEntryId('Prefer concise answers.', 1700000000000);
     const result = appendManualLocalMemoryEntryDraft('# Maka Memory\n', {
       title: '  Writing style  ',
       content: 'Prefer concise answers.',
@@ -123,13 +125,64 @@ describe('local MEMORY.md contract', () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.match(result.draft, /^# Maka Memory\n\n## Writing style/m);
-    assert.match(result.draft, /id=manual-1700000000000 origin=manual createdAt=1700000000000 status=active tags=preference,writing-style/);
+    assert.equal(stableId, 'mem-eca1625ac35bd920');
+    assert.match(
+      result.draft,
+      /id=mem-eca1625ac35bd920 origin=manual createdAt=1700000000000 status=active tags=preference,writing-style/,
+    );
+    assert.doesNotMatch(result.draft, /id=manual-1700000000000/);
     assert.match(result.draft, /Prefer concise answers\.\n$/);
 
     const parsed = parseLocalMemoryMarkdown(result.draft);
     assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.activeEntries[0]?.id, stableId);
     assert.equal(parsed.activeEntries[0]?.origin, 'manual');
     assert.deepEqual(parsed.activeEntries[0]?.tags, ['preference', 'writing-style']);
+  });
+
+  it('keeps manual entry ids stable across title edits', () => {
+    const first = appendManualLocalMemoryEntryDraft('', {
+      title: 'Writing style',
+      content: 'Prefer concise answers.',
+      now: 1700000000000,
+    });
+    const renamed = appendManualLocalMemoryEntryDraft('', {
+      title: 'Updated writing style',
+      content: 'Prefer concise answers.',
+      now: 1700000000000,
+    });
+
+    assert.equal(first.ok, true);
+    assert.equal(renamed.ok, true);
+    if (!first.ok || !renamed.ok) return;
+    const firstId = parseLocalMemoryMarkdown(first.draft).entries[0]?.id;
+    const renamedId = parseLocalMemoryMarkdown(renamed.draft).entries[0]?.id;
+    assert.equal(firstId, 'mem-eca1625ac35bd920');
+    assert.equal(renamedId, firstId);
+    assert.match(renamed.draft, /## Updated writing style/);
+  });
+
+  it('parses and updates legacy manual timestamp ids', () => {
+    const legacy = [
+      '# Maka Memory',
+      '',
+      '## Legacy preference',
+      '<!-- maka-memory: id=manual-1700000000000 origin=manual createdAt=1700000000000 status=active -->',
+      'Legacy content stays editable.',
+    ].join('\n');
+
+    const parsed = parseLocalMemoryMarkdown(legacy);
+    assert.equal(parsed.entries[0]?.id, 'manual-1700000000000');
+
+    const archived = setLocalMemoryEntryStatusDraft(legacy, {
+      id: 'manual-1700000000000',
+      status: 'archived',
+      now: 1700000001000,
+    });
+    assert.equal(archived.ok, true);
+    if (!archived.ok) return;
+    assert.match(archived.draft, /id=manual-1700000000000 origin=manual createdAt=1700000000000 updatedAt=1700000001000 status=archived/);
+    assert.equal(parseLocalMemoryMarkdown(archived.draft).archivedEntries[0]?.id, 'manual-1700000000000');
   });
 
   it('archives and restores a memory entry by updating visible metadata', () => {
@@ -223,6 +276,7 @@ describe('local MEMORY.md contract', () => {
     const parsed = parseLocalMemoryMarkdown(defaultLocalMemoryMarkdown(1700000000000));
     assert.equal(parsed.safeMode, false);
     assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.entries[0]?.id, 'mem-5de3e38c014ca2d7');
     assert.equal(parsed.entries[0]?.origin, 'manual');
   });
 });
