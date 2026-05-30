@@ -2607,6 +2607,25 @@ function MemorySettingsPage(props: {
     }
   }
 
+  async function copyLatestBackupReference() {
+    const backup = state?.latestBackup;
+    if (!backup) return;
+    const reference = [
+      `Memory backup: ${localMemoryBackupKindLabel(backup.kind)}`,
+      `Path: ${backup.path}`,
+      `Updated: ${new Date(backup.updatedAt).toISOString()}`,
+      `Entries: ${localMemoryBackupSummary(backup)}`,
+      `Size: ${backup.sizeBytes} bytes`,
+      backup.safeMode ? `Safe mode: ${backup.reason ?? 'oversize'}` : 'Safe mode: false',
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(reference);
+      toast.success('已复制上一版引用', localMemoryBackupSummary(backup));
+    } catch {
+      toast.error('复制失败', '剪贴板不可用。');
+    }
+  }
+
   async function copyMemoryEntryReference(entry: LocalMemoryState['entries'][number]) {
     const reference = [
       `Memory entry: ${entry.title}`,
@@ -3048,6 +3067,9 @@ function MemorySettingsPage(props: {
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={!effective.path} onClick={() => void copyPath()}>
           复制路径
+        </button>
+        <button type="button" className="maka-button maka-button-ghost" disabled={!effective.latestBackup} onClick={() => void copyLatestBackupReference()}>
+          复制上一版引用
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled} onClick={() => void reset()}>
           重置并备份

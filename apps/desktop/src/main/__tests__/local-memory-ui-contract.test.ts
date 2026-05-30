@@ -393,4 +393,22 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, />\s*打开上一版\s*<\/button>/);
     assert.match(pageBlock, /!\s*effective\.latestBackup/);
   });
+
+  it('can copy a latest MEMORY.md backup reference without exposing backup content', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+    const copyBackupBlock = pageBlock.match(/async function copyLatestBackupReference[\s\S]*?\n  }\n\n  async function copyMemoryEntryReference/)?.[0] ?? '';
+
+    assert.match(pageBlock, /async function copyLatestBackupReference/);
+    assert.match(copyBackupBlock, /Memory backup: \$\{localMemoryBackupKindLabel\(backup\.kind\)\}/);
+    assert.match(copyBackupBlock, /Path: \$\{backup\.path\}/);
+    assert.match(copyBackupBlock, /Updated: \$\{new Date\(backup\.updatedAt\)\.toISOString\(\)\}/);
+    assert.match(copyBackupBlock, /Entries: \$\{localMemoryBackupSummary\(backup\)\}/);
+    assert.match(copyBackupBlock, /Size: \$\{backup\.sizeBytes\} bytes/);
+    assert.match(copyBackupBlock, /Safe mode: \$\{backup\.reason \?\? 'oversize'\}/);
+    assert.match(copyBackupBlock, /navigator\.clipboard\.writeText\(reference\)/);
+    assert.match(copyBackupBlock, /已复制上一版引用/);
+    assert.match(pageBlock, />\s*复制上一版引用\s*<\/button>/);
+    assert.doesNotMatch(copyBackupBlock, /backup\.content|readFile\(backup/);
+  });
 });
