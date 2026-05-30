@@ -5487,18 +5487,6 @@ function ExploreAgentPreview(props: {
     : result.reason === 'aborted' && result.partial === true
       ? '已取消 · 保留部分结果'
       : presentExploreAgentReason(result.reason) ?? '未完成';
-  const summaryText = resultSummary.length > 0
-    ? [
-      `状态：${status}`,
-      `目标：${result.objective || '只读探索'}`,
-      `摘要：${resultSummary}`,
-    ].join('\n')
-    : '';
-  const processText = [
-    summaryText,
-    processLines.length > 0 ? `事件：${processLines.length}` : '',
-    processLines.join('\n'),
-  ].filter((line) => line.trim().length > 0).join('\n').trim();
   const reportLines = reportText.split('\n').filter((line) => line.trim().length > 0).slice(0, 8);
   const notes = result.notes.slice(0, 4);
   const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
@@ -5516,6 +5504,23 @@ function ExploreAgentPreview(props: {
     ? `跳过 ${result.filesSkipped} 个（含敏感 ${result.sensitiveFilesSkipped} 个）`
     : `跳过 ${result.filesSkipped} 个`;
   const duration = formatDuration(result.durationMs);
+  const summaryText = resultSummary.length > 0
+    ? [
+      `状态：${status}`,
+      `目标：${result.objective || '只读探索'}`,
+      `摘要：${resultSummary}`,
+      `范围：${roots}`,
+      `查询：${queries}`,
+      ignoredPaths ? `忽略：${ignoredPaths}` : '',
+      stoppingCondition ? `停止条件：${stoppingCondition}` : '',
+      limitReasons ? `预算边界：${limitReasons}` : '',
+    ].filter((line) => line.length > 0).join('\n')
+    : '';
+  const processText = [
+    summaryText,
+    processLines.length > 0 ? `事件：${processLines.length}` : '',
+    processLines.join('\n'),
+  ].filter((line) => line.trim().length > 0).join('\n').trim();
 
   async function copyReport() {
     if (reportText.length === 0) return;
