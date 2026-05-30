@@ -2520,7 +2520,7 @@ function MemorySettingsPage(props: {
       toast.error('没有可恢复备份', '保存或重置 MEMORY.md 后才会生成上一版备份。');
       return;
     }
-    const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${new Date(backup.updatedAt).toLocaleString()}`;
+    const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)} · ${new Date(backup.updatedAt).toLocaleString()}`;
     if (!confirm(`恢复上一版会先备份当前 MEMORY.md，再用最近一次备份覆盖当前文件。\n\n将恢复：${backupLabel}\n\n确认恢复吗？`)) return;
     setBusy(true);
     try {
@@ -2814,7 +2814,7 @@ function MemorySettingsPage(props: {
         <span>{effective.path || '等待创建 MEMORY.md'}</span>
         {effective.latestBackup ? (
           <span className="settingsMemoryBackupState">
-            上一版 {localMemoryBackupKindLabel(effective.latestBackup.kind)} · <RelativeTime ts={effective.latestBackup.updatedAt} />
+            上一版 {localMemoryBackupKindLabel(effective.latestBackup.kind)} · {localMemoryBackupSummary(effective.latestBackup)} · <RelativeTime ts={effective.latestBackup.updatedAt} />
           </span>
         ) : (
           <span className="settingsMemoryBackupState" data-empty="true">等待生成上一版备份</span>
@@ -3181,6 +3181,12 @@ function formatLocalMemorySaveSummary(state: LocalMemoryState): string {
 
 function localMemoryBackupKindLabel(kind: NonNullable<LocalMemoryState['latestBackup']>['kind']): string {
   return kind === 'reset' ? '重置前备份' : '保存前备份';
+}
+
+function localMemoryBackupSummary(backup: NonNullable<LocalMemoryState['latestBackup']>): string {
+  if (backup.safeMode) return '备份过大，无法预览条目';
+  const archived = backup.archivedEntryCount > 0 ? ` / ${backup.archivedEntryCount} 条已归档` : '';
+  return `${backup.activeEntryCount} 条生效${archived}`;
 }
 
 function memoryStatusLabel(status: LocalMemoryState['status']): string {

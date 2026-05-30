@@ -39,6 +39,12 @@ export interface LocalMemoryBackupInfo {
   readonly path: string;
   readonly kind: 'save' | 'reset';
   readonly updatedAt: number;
+  readonly sizeBytes: number;
+  readonly entryCount: number;
+  readonly activeEntryCount: number;
+  readonly archivedEntryCount: number;
+  readonly safeMode: boolean;
+  readonly reason?: string;
 }
 
 interface LocalMemoryRawEntry extends LocalMemoryEntryPreview {

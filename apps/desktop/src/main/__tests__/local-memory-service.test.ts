@@ -59,6 +59,10 @@ describe('LocalMemoryService', () => {
     assert.equal(state.latestBackup?.kind, 'save');
     assert.match(state.latestBackup?.path ?? '', /MEMORY\.md\.bak$/);
     assert.equal(typeof state.latestBackup?.updatedAt, 'number');
+    assert.equal(state.latestBackup?.activeEntryCount, 1);
+    assert.equal(state.latestBackup?.archivedEntryCount, 0);
+    assert.equal(state.latestBackup?.safeMode, false);
+    assert.ok((state.latestBackup?.sizeBytes ?? 0) > 0);
     assert.match(await readFile(service.file, 'utf8'), /喜欢短回答/);
     assert.match(await readFile(`${service.file}.bak`, 'utf8'), /示例/);
   });
@@ -138,6 +142,10 @@ describe('LocalMemoryService', () => {
     assert.equal(state.latestBackup?.kind, 'reset');
     assert.match(state.latestBackup?.path ?? '', /MEMORY\.md\.reset\.bak$/);
     assert.equal(typeof state.latestBackup?.updatedAt, 'number');
+    assert.equal(state.latestBackup?.activeEntryCount, 1);
+    assert.equal(state.latestBackup?.archivedEntryCount, 0);
+    assert.equal(state.latestBackup?.safeMode, false);
+    assert.ok((state.latestBackup?.sizeBytes ?? 0) > 0);
   });
 
   it('redacts secrets before writing durable MEMORY.md content', async () => {

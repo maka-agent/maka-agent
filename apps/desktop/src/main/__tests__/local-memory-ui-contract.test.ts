@@ -345,17 +345,25 @@ describe('local MEMORY.md Settings UI contract', () => {
 
     assert.match(core, /interface LocalMemoryBackupInfo/);
     assert.match(core, /readonly kind: 'save' \| 'reset'/);
+    assert.match(core, /readonly sizeBytes: number/);
+    assert.match(core, /readonly activeEntryCount: number/);
+    assert.match(core, /readonly safeMode: boolean/);
     assert.match(core, /readonly latestBackup\?: LocalMemoryBackupInfo/);
     assert.match(service, /async latestBackupInfo/);
     assert.match(service, /kind: 'save' as const/);
     assert.match(service, /kind: 'reset' as const/);
+    assert.match(service, /parseLocalMemoryMarkdown\(await readFile\(path, 'utf8'\)\)/);
     assert.match(pageBlock, /settingsMemoryBackupState/);
     assert.match(pageBlock, /上一版 \{localMemoryBackupKindLabel\(effective\.latestBackup\.kind\)\}/);
+    assert.match(pageBlock, /localMemoryBackupSummary\(effective\.latestBackup\)/);
     assert.match(pageBlock, /<RelativeTime ts=\{effective\.latestBackup\.updatedAt\}/);
     assert.match(pageBlock, /等待生成上一版备份/);
     assert.match(pageBlock, /没有可恢复备份/);
     assert.match(pageBlock, /!\s*effective\.latestBackup/);
     assert.match(src, /function localMemoryBackupKindLabel/);
+    assert.match(src, /function localMemoryBackupSummary/);
+    assert.match(src, /备份过大，无法预览条目/);
+    assert.match(src, /\$\{backup\.activeEntryCount\} 条生效/);
     assert.match(src, /重置前备份/);
     assert.match(src, /保存前备份/);
     assert.match(css, /\.settingsMemoryBackupState/);

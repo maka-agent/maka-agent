@@ -203,21 +203,45 @@ export class LocalMemoryService {
   }
 
   private async latestBackupInfo(): Promise<LocalMemoryBackupInfo | null> {
-    const candidates = await Promise.all(
+    type BackupCandidate = LocalMemoryBackupInfo & { priority: number };
+    const candidates: Array<BackupCandidate | null> = await Promise.all(
       [
         { path: `${this.file}.bak`, priority: 0, kind: 'save' as const },
         { path: `${this.file}.reset.bak`, priority: 1, kind: 'reset' as const },
       ].map(async (candidate) => {
         const { path, priority, kind } = candidate;
         const fileStat = await stat(path).catch(() => null);
-        return fileStat?.isFile() ? { path, updatedAt: Math.round(fileStat.mtimeMs), priority, kind } : null;
+        if (!fileStat?.isFile()) return null;
+        const parsed = parseLocalMemoryMarkdown(await readFile(path, 'utf8'));
+        return {
+          path,
+          updatedAt: Math.round(fileStat.mtimeMs),
+          sizeBytes: fileStat.size,
+          entryCount: parsed.safeMode ? 0 : parsed.entries.length,
+          activeEntryCount: parsed.safeMode ? 0 : parsed.activeEntries.length,
+          archivedEntryCount: parsed.safeMode ? 0 : parsed.archivedEntries.length,
+          safeMode: parsed.safeMode,
+          reason: parsed.reason,
+          priority,
+          kind,
+        };
       }),
     );
     const latest = candidates
-      .filter((candidate): candidate is LocalMemoryBackupInfo & { priority: number } => candidate !== null)
+      .filter((candidate): candidate is BackupCandidate => candidate !== null)
       .sort((a, b) => b.updatedAt - a.updatedAt || b.priority - a.priority)[0];
     if (!latest) return null;
-    return { path: latest.path, kind: latest.kind, updatedAt: latest.updatedAt };
+    return {
+      path: latest.path,
+      kind: latest.kind,
+      updatedAt: latest.updatedAt,
+      sizeBytes: latest.sizeBytes,
+      entryCount: latest.entryCount,
+      activeEntryCount: latest.activeEntryCount,
+      archivedEntryCount: latest.archivedEntryCount,
+      safeMode: latest.safeMode,
+      reason: latest.reason,
+    };
   }
 
   private async requireLatestBackupInfo(): Promise<LocalMemoryBackupInfo> {
