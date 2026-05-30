@@ -48,6 +48,7 @@ describe('ExploreAgent read-only worker', () => {
       assert.ok(result.candidateFiles.some((file) => file.path === 'src/permission.ts'));
       assert.equal(result.sensitiveFilesSkipped, 0);
       assert.ok(result.evidence.some((item) => item.type === 'match' && item.path === 'src/permission.ts' && item.line === 2));
+      assert.match(result.summary, /读取 \d+ 个文件 · 命中 \d+ 处 · 证据 \d+ 个 · 候选 \d+ 个 · 耗时 /);
       assert.match(result.report, /目标：study permission policy/);
       assert.match(result.report, /证据锚点：/);
       assert.match(result.report, /src\/permission\.ts:2/);
@@ -102,6 +103,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'invalid_root');
     assert.equal(result.message, '会话工作目录不可读取。');
+    assert.equal(result.summary, '未完成：会话工作目录不可读取。');
     assert.equal(result.filesInspected, 0);
     assert.equal(result.matches.length, 0);
     assert.equal(JSON.stringify(result).includes(missingRoot), false);
@@ -335,17 +337,20 @@ describe('ExploreAgent read-only worker', () => {
     ]);
 
     assert.match(events, /kind: 'explore_agent'/);
+    assert.match(events, /summary\?: string/);
     assert.match(components, /function ExploreAgentPreview/);
     assert.match(components, /content\.kind === 'explore_agent'/);
     const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
     assert.match(previewBlock, /result\.evidence/);
+    assert.match(previewBlock, /result\.summary/);
     assert.match(previewBlock, /result\.report/);
     assert.match(previewBlock, /result\.durationMs/);
     assert.match(previewBlock, /探索过程/);
     assert.match(previewBlock, /证据锚点/);
     assert.match(previewBlock, /研究报告/);
     assert.match(previewBlock, /耗时/);
+    assert.match(previewBlock, /resultSummary/);
     assert.match(previewBlock, /复制报告/);
     assert.match(previewBlock, /reportText\.length === 0/);
     assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(reportText\)\)/);
