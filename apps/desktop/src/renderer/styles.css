@@ -3971,9 +3971,36 @@ button:active {
   gap: 6px;
 }
 
+.maka-explore-agent-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .maka-explore-agent-section > strong {
   font-size: 12px;
   color: var(--foreground);
+}
+
+.maka-explore-agent-section-head > strong {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.maka-explore-agent-copy {
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.maka-explore-agent-copy[data-copied="true"] {
+  color: var(--accent);
+  border-color: oklch(from var(--accent) l c h / 0.35);
 }
 
 .maka-explore-agent-section ul {
