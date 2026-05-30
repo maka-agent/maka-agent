@@ -137,6 +137,7 @@ export interface ExploreAgentResult {
   bytesRead: number;
   progress: string[];
   evidence: Array<{ type: 'match' | 'candidate'; path: string; line?: number; label: string; score?: number }>;
+  report: string;
   candidateFiles: Array<{ path: string; score: number; reasons: string[] }>;
   matches: Array<{ path: string; line: number; query: string; snippet: string }>;
   notes: string[];
@@ -357,6 +358,19 @@ export async function runReadOnlyExplore(input: {
   if (sensitiveFilesSkipped > 0) notes.push(`已跳过 ${sensitiveFilesSkipped} 个疑似本地凭据/密钥文件，只报告数量不读取内容。`);
   if (bytesRead >= MAX_TOTAL_BYTES) notes.push('总读取预算已用尽，部分候选文件未继续读取。');
   progress.report(`只读探索：完成，读取 ${inspected} 个文件，命中 ${matches.length} 处，候选 ${candidateFiles.length} 个`);
+  const report = buildResearchReport({
+    objective,
+    roots: resolvedRoots.map((root) => root.rel),
+    queryTerms,
+    filesInspected: inspected,
+    filesSkipped,
+    sensitiveFilesSkipped,
+    bytesRead,
+    evidence,
+    candidateFiles,
+    matches,
+    notes,
+  });
 
   return {
     kind: 'explore_agent',
@@ -371,6 +385,7 @@ export async function runReadOnlyExplore(input: {
     bytesRead,
     progress: progress.messages,
     evidence,
+    report,
     candidateFiles,
     matches,
     notes,
@@ -628,6 +643,66 @@ function buildEvidenceAnchors(
   return anchors;
 }
 
+function buildResearchReport(input: {
+  objective: string;
+  roots: string[];
+  queryTerms: string[];
+  filesInspected: number;
+  filesSkipped: number;
+  sensitiveFilesSkipped: number;
+  bytesRead: number;
+  evidence: ExploreAgentResult['evidence'];
+  candidateFiles: ExploreAgentResult['candidateFiles'];
+  matches: ExploreAgentResult['matches'];
+  notes: string[];
+}): string {
+  const lines = [
+    `目标：${input.objective}`,
+    `范围：${input.roots.length > 0 ? input.roots.join(', ') : '.'}`,
+    `查询：${input.queryTerms.length > 0 ? input.queryTerms.join(', ') : '未指定'}`,
+    `读取：${input.filesInspected} 个文件，跳过 ${input.filesSkipped} 个${input.sensitiveFilesSkipped > 0 ? `（含敏感 ${input.sensitiveFilesSkipped} 个）` : ''}，${formatReportBytes(input.bytesRead)}`,
+  ];
+
+  if (input.evidence.length > 0) {
+    lines.push('', '证据锚点：');
+    for (const item of input.evidence.slice(0, 8)) {
+      lines.push(`- ${item.path}${typeof item.line === 'number' ? `:${item.line}` : ''} — ${item.label}`);
+    }
+  }
+
+  if (input.matches.length > 0) {
+    lines.push('', '命中片段：');
+    for (const match of input.matches.slice(0, 5)) {
+      lines.push(`- ${match.path}:${match.line} [${match.query}] ${match.snippet}`);
+    }
+  }
+
+  if (input.candidateFiles.length > 0) {
+    lines.push('', '下一步阅读：');
+    for (const candidate of input.candidateFiles.slice(0, 5)) {
+      lines.push(`- ${candidate.path}（分数 ${candidate.score}）`);
+    }
+  }
+
+  if (input.notes.length > 0) {
+    lines.push('', '说明：');
+    for (const note of input.notes.slice(0, 5)) {
+      lines.push(`- ${note}`);
+    }
+  }
+
+  return capReport(lines.join('\n'));
+}
+
+function formatReportBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${Math.round(bytes / 1024)} KiB`;
+}
+
+function capReport(report: string): string {
+  return Array.from(report).slice(0, 6000).join('');
+}
+
 function evidenceLabelForCandidate(reasons: string[]): string {
   if (reasons.includes('project manifest')) return '项目配置锚点';
   if (reasons.includes('project documentation')) return '项目文档锚点';
@@ -678,6 +753,7 @@ function failure(
     bytesRead: 0,
     progress,
     evidence: [],
+    report: '',
     candidateFiles: [],
     matches: [],
     notes: ['只读探索边界：不写文件、不联网、不启动进程。'],

@@ -43,6 +43,10 @@ describe('ExploreAgent read-only worker', () => {
       assert.ok(result.candidateFiles.some((file) => file.path === 'src/permission.ts'));
       assert.equal(result.sensitiveFilesSkipped, 0);
       assert.ok(result.evidence.some((item) => item.type === 'match' && item.path === 'src/permission.ts' && item.line === 2));
+      assert.match(result.report, /目标：study permission policy/);
+      assert.match(result.report, /证据锚点：/);
+      assert.match(result.report, /src\/permission\.ts:2/);
+      assert.match(result.report, /命中片段：/);
       assert.equal(JSON.stringify(result).includes(workspaceRoot), false);
       assert.ok(result.notes.some((note) => /不写文件、不联网、不启动进程/.test(note)));
       assert.equal(result.notes.some((note) => /Read-only worker|Search budget/.test(note)), false);
@@ -101,6 +105,7 @@ describe('ExploreAgent read-only worker', () => {
       assert.ok(result.matches.some((match) => match.path === 'src/config.ts'));
       assert.equal(result.sensitiveFilesSkipped, 3);
       assert.ok(result.notes.some((note) => /已跳过 3 个疑似本地凭据\/密钥文件/.test(note)));
+      assert.match(result.report, /跳过 \d+ 个（含敏感 3 个）/);
       assert.equal(JSON.stringify(result).includes('sk-ant-secret'), false);
       assert.equal(JSON.stringify(result).includes('npm_secret'), false);
       assert.equal(JSON.stringify(result).includes('secret-refresh'), false);
@@ -156,6 +161,7 @@ describe('ExploreAgent read-only worker', () => {
       assert.equal(result.filesInspected, 0);
       assert.deepEqual(result.matches, []);
       assert.deepEqual(result.evidence, []);
+      assert.equal(result.report, '');
       assert.equal(JSON.stringify(result).includes('reference explore worker notes'), false);
     });
   });
@@ -275,6 +281,29 @@ describe('ExploreAgent read-only worker', () => {
     });
   });
 
+  it('keeps the generated research report bounded and source-grounded', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      for (let index = 0; index < 20; index++) {
+        await writeFile(join(workspaceRoot, `report-${index}.md`), `alpha line ${index}\nalpha detail ${index}`);
+      }
+
+      const result = await runReadOnlyExplore({
+        cwd: workspaceRoot,
+        objective: 'summarize alpha report evidence',
+        roots: ['.'],
+        queries: ['alpha'],
+        maxFiles: 20,
+        maxMatches: 60,
+      });
+
+      assert.equal(result.ok, true);
+      assert.ok(result.report.length <= 6000);
+      assert.match(result.report, /目标：summarize alpha report evidence/);
+      assert.match(result.report, /下一步阅读：/);
+      assert.equal(result.report.includes(workspaceRoot), false);
+    });
+  });
+
   it('has a structured chat preview instead of raw JSON fallback', async () => {
     const [components, events] = await Promise.all([
       readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8'),
@@ -287,8 +316,10 @@ describe('ExploreAgent read-only worker', () => {
     const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
     assert.match(previewBlock, /result\.evidence/);
+    assert.match(previewBlock, /result\.report/);
     assert.match(previewBlock, /探索过程/);
     assert.match(previewBlock, /证据锚点/);
+    assert.match(previewBlock, /研究报告/);
     assert.match(previewBlock, /sensitiveFilesSkipped/);
     assert.match(previewBlock, /已取消/);
     assert.match(previewBlock, /项目配置/);

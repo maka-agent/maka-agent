@@ -200,6 +200,7 @@ export type ToolResultContent =
         label: string;
         score?: number;
       }>;
+      report?: string;
       candidateFiles: ReadonlyArray<{ path: string; score: number; reasons: string[] }>;
       matches: ReadonlyArray<{ path: string; line: number; query: string; snippet: string }>;
       notes: string[];

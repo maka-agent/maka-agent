@@ -5467,6 +5467,9 @@ function ExploreAgentPreview(props: {
   const matches = result.matches.slice(0, 8);
   const progress = (result.progress ?? []).slice(0, 6);
   const evidence = (result.evidence ?? []).slice(0, 6);
+  const reportLines = typeof result.report === 'string'
+    ? result.report.split('\n').filter((line) => line.trim().length > 0).slice(0, 8)
+    : [];
   const notes = result.notes.slice(0, 4);
   const status = result.ok ? '已完成' : presentExploreAgentReason(result.reason) ?? '未完成';
   const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
@@ -5524,6 +5527,18 @@ function ExploreAgentPreview(props: {
                   {redactSecrets(item.label)}
                   {typeof item.score === 'number' ? ` · 分数 ${item.score}` : ''}
                 </small>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {reportLines.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="研究报告">
+          <strong>研究报告</strong>
+          <ul>
+            {reportLines.map((line, index) => (
+              <li key={`${index}:${line.slice(0, 24)}`}>
+                <span>{redactSecrets(line)}</span>
               </li>
             ))}
           </ul>
