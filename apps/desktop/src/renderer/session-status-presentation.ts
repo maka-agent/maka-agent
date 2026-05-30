@@ -72,7 +72,7 @@ export function presentSessionStatus(status: SessionStatus): SessionStatusPresen
  * tooltip slots — short phrase, sentence-cased Chinese, no period.
  */
 const BLOCKED_REASON_LABEL: Record<SessionBlockedReason, string> = {
-  NO_REAL_CONNECTION: '缺少可用模型连接',
+  NO_REAL_CONNECTION: '等待配置可用模型连接',
   auth: '需要重新登录',
   permission_required: '等待权限确认',
   tool_failed: '工具调用失败',
@@ -87,7 +87,7 @@ export function describeBlockedReason(reason: SessionBlockedReason | undefined):
 /**
  * Compose a single-line aria-label / tooltip for a blocked session,
  * combining the status label and the cause. Example:
- *   "已阻塞 · 缺少可用模型连接"
+ *   "已阻塞 · 等待配置可用模型连接"
  *
  * Non-blocked sessions return just the status label.
  */

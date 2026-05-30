@@ -2285,7 +2285,7 @@ const STATUS_TONE_BY_STATUS = {
 } as const;
 
 const BLOCKED_REASON_TOOLTIP = {
-  NO_REAL_CONNECTION: '缺少可用模型连接',
+  NO_REAL_CONNECTION: '等待配置可用模型连接',
   auth: '需要重新登录',
   permission_required: '等待权限确认',
   tool_failed: '工具调用失败',
