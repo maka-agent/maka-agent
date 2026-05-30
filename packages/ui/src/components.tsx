@@ -5488,6 +5488,7 @@ function ExploreAgentPreview(props: {
   const [evidenceCopied, setEvidenceCopied] = useState(false);
   const [candidateCopied, setCandidateCopied] = useState(false);
   const [matchesCopied, setMatchesCopied] = useState(false);
+  const [continuationCopied, setContinuationCopied] = useState(false);
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const processLines = Array.isArray(result.recentEvents) && result.recentEvents.length > 0
@@ -5579,6 +5580,39 @@ function ExploreAgentPreview(props: {
       ...matches.map((match) => `- ${match.path}:${match.line} [${match.query}] ${match.snippet}`),
     ].join('\n')
     : '';
+  const needsContinuation =
+    result.partial === true ||
+    !result.ok ||
+    Boolean(limitReasons) ||
+    result.terminalStatus === 'completed_empty';
+  const continuationText = needsContinuation
+    ? [
+      '继续这次只读探索，不要修改文件。',
+      `上一轮状态：${status}`,
+      `上一轮终态：${terminalStatus}`,
+      `目标：${result.objective || '只读探索'}`,
+      `范围：${roots}`,
+      `查询：${queries}`,
+      `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
+      ignoredPaths ? `继续忽略：${ignoredPaths}` : '',
+      stoppingCondition ? `停止条件：${stoppingCondition}` : '',
+      limitReasons ? `上一轮预算边界：${limitReasons}` : '',
+      resultSummary ? `上一轮摘要：${resultSummary}` : '',
+      candidateFiles.length > 0
+        ? [
+          '优先补读候选：',
+          ...candidateFiles.slice(0, 5).map((file) => `- ${file.path}（分数 ${file.score}）`),
+        ].join('\n')
+        : '',
+      matches.length > 0
+        ? [
+          '已有命中片段：',
+          ...matches.slice(0, 5).map((match) => `- ${match.path}:${match.line} [${match.query}] ${match.snippet}`),
+        ].join('\n')
+        : '',
+      '请只读检查仍缺证据的部分，输出新的证据锚点、候选文件、结论和下一步 gate。',
+    ].filter((line) => line.trim().length > 0).join('\n')
+    : '';
 
   async function copyReport() {
     if (reportText.length === 0) return;
@@ -5646,6 +5680,17 @@ function ExploreAgentPreview(props: {
     }
   }
 
+  async function copyContinuation() {
+    if (continuationText.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(redactSecrets(continuationText));
+      setContinuationCopied(true);
+      window.setTimeout(() => setContinuationCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently fail, button stays in default state */
+    }
+  }
+
   return (
     <div className="maka-overlay-preview maka-explore-agent-preview" data-kind="explore_agent" data-ok={result.ok ? 'true' : 'false'}>
       <header className="maka-explore-agent-head">
@@ -5668,6 +5713,22 @@ function ExploreAgentPreview(props: {
             >
               {summaryCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{summaryCopied ? '已复制' : '复制摘要'}</span>
+            </button>
+          </div>
+        )}
+        {continuationText.length > 0 && (
+          <div className="maka-explore-agent-actions" aria-label="只读探索后续操作">
+            <button
+              type="button"
+              className="maka-button maka-button-ghost maka-explore-agent-copy"
+              data-size="sm"
+              onClick={() => void copyContinuation()}
+              aria-label={continuationCopied ? '已复制续研提示' : '复制续研提示'}
+              data-copied={continuationCopied ? 'true' : 'false'}
+              title="复制一段可继续只读探索的提示"
+            >
+              {continuationCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{continuationCopied ? '已复制' : '复制续研提示'}</span>
             </button>
           </div>
         )}

@@ -3975,6 +3975,14 @@ button:active {
   white-space: nowrap;
 }
 
+.maka-explore-agent-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .maka-explore-agent-message {
   padding: 8px 10px;
   border-radius: 6px;

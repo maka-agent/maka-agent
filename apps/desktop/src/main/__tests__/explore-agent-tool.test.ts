@@ -532,6 +532,13 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /命中片段：/);
     assert.match(previewBlock, /复制片段/);
     assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(matchesText\)\)/);
+    assert.match(previewBlock, /continuationText/);
+    assert.match(previewBlock, /needsContinuation/);
+    assert.match(previewBlock, /继续这次只读探索，不要修改文件/);
+    assert.match(previewBlock, /上一轮预算边界：/);
+    assert.match(previewBlock, /优先补读候选：/);
+    assert.match(previewBlock, /复制续研提示/);
+    assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(continuationText\)\)/);
     assert.match(previewBlock, /复制报告/);
     assert.match(previewBlock, /reportText\.length === 0/);
     assert.match(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\(reportText\)\)/);
