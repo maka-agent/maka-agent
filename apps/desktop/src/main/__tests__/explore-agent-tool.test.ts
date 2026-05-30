@@ -196,9 +196,11 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(events, /kind: 'explore_agent'/);
     assert.match(components, /function ExploreAgentPreview/);
     assert.match(components, /content\.kind === 'explore_agent'/);
-    const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function presentExploreAgentReason/)?.[0] ?? '';
+    const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
     assert.match(previewBlock, /探索过程/);
+    assert.match(previewBlock, /项目配置/);
+    assert.match(previewBlock, /入口文件/);
     assert.match(previewBlock, /redactSecrets/);
     assert.doesNotMatch(previewBlock, /<a\s/i, 'ExploreAgent preview should not create links from tool result paths');
   });

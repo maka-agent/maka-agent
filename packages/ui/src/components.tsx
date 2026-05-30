@@ -5572,6 +5572,11 @@ function presentExploreAgentReason(
 function presentExploreAgentCandidateReasons(reasons: string[]): string {
   return reasons.map((reason) => {
     if (reason === 'content match') return '内容命中';
+    if (reason === 'project manifest') return '项目配置';
+    if (reason === 'project documentation') return '项目文档';
+    if (reason === 'project entrypoint') return '入口文件';
+    if (reason === 'project test surface') return '测试线索';
+    if (reason === 'project source surface') return '源码线索';
     const pathMatch = reason.match(/^path contains "(.+)"$/);
     if (pathMatch) return `路径命中 ${redactSecrets(pathMatch[1] ?? '')}`;
     return '探索线索';
