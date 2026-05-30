@@ -67,7 +67,8 @@ export class LocalMemoryService {
       await this.ensure();
       const content = await readFile(this.file, 'utf8');
       const parsed = parseLocalMemoryMarkdown(content);
-      const latestBackup = await this.latestBackupInfo();
+      const backups = await this.backupInfos();
+      const latestBackup = backups[0];
       if (parsed.safeMode) {
         return {
           path: this.file,
@@ -82,6 +83,7 @@ export class LocalMemoryService {
           activeEntries: [],
           archivedEntries: [],
           latestBackup: latestBackup ?? undefined,
+          backups,
           reason: parsed.reason,
         };
       }
@@ -99,6 +101,7 @@ export class LocalMemoryService {
         archivedEntries: parsed.archivedEntries,
         latestEntry: parsed.activeEntries.at(-1),
         latestBackup: latestBackup ?? undefined,
+        backups,
       };
     } catch (error) {
       return {
@@ -203,6 +206,10 @@ export class LocalMemoryService {
   }
 
   private async latestBackupInfo(): Promise<LocalMemoryBackupInfo | null> {
+    return (await this.backupInfos())[0] ?? null;
+  }
+
+  private async backupInfos(): Promise<ReadonlyArray<LocalMemoryBackupInfo>> {
     type BackupCandidate = LocalMemoryBackupInfo & { priority: number };
     const root = await realpath(this.deps.workspaceRoot);
     const candidates: Array<BackupCandidate | null> = await Promise.all(
@@ -232,19 +239,18 @@ export class LocalMemoryService {
     );
     const latest = candidates
       .filter((candidate): candidate is BackupCandidate => candidate !== null)
-      .sort((a, b) => b.updatedAt - a.updatedAt || b.priority - a.priority)[0];
-    if (!latest) return null;
-    return {
-      path: latest.path,
-      kind: latest.kind,
-      updatedAt: latest.updatedAt,
-      sizeBytes: latest.sizeBytes,
-      entryCount: latest.entryCount,
-      activeEntryCount: latest.activeEntryCount,
-      archivedEntryCount: latest.archivedEntryCount,
-      safeMode: latest.safeMode,
-      reason: latest.reason,
-    };
+      .sort((a, b) => b.updatedAt - a.updatedAt || b.priority - a.priority);
+    return latest.map((backup) => ({
+      path: backup.path,
+      kind: backup.kind,
+      updatedAt: backup.updatedAt,
+      sizeBytes: backup.sizeBytes,
+      entryCount: backup.entryCount,
+      activeEntryCount: backup.activeEntryCount,
+      archivedEntryCount: backup.archivedEntryCount,
+      safeMode: backup.safeMode,
+      reason: backup.reason,
+    }));
   }
 
   private async requireLatestBackupInfo(): Promise<LocalMemoryBackupInfo> {

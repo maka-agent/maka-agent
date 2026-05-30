@@ -73,6 +73,7 @@ export interface LocalMemoryState {
   readonly archivedEntries: ReadonlyArray<LocalMemoryEntryPreview>;
   readonly latestEntry?: LocalMemoryEntryPreview;
   readonly latestBackup?: LocalMemoryBackupInfo;
+  readonly backups?: ReadonlyArray<LocalMemoryBackupInfo>;
   readonly reason?: string;
 }
 

@@ -9918,6 +9918,41 @@ button:active {
   color: var(--foreground-40);
 }
 
+.settingsMemoryBackupList {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsMemoryBackupList strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.settingsMemoryBackupList div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settingsMemoryBackupList small {
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsMemoryBackupCandidate {
+  padding: 3px 7px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground-60);
+  font-size: 11px;
+}
+
 .settingsMemoryEntryGroups {
   display: grid;
   gap: 12px;

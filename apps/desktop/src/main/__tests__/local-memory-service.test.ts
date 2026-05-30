@@ -148,6 +148,26 @@ describe('LocalMemoryService', () => {
     assert.ok((state.latestBackup?.sizeBytes ?? 0) > 0);
   });
 
+  it('surfaces all validated MEMORY.md backup candidates without exposing content', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## Before reset',
+      '<!-- maka-memory: id=before-reset origin=manual createdAt=1700000000000 -->',
+      '重置前。',
+      '',
+    ].join('\n'));
+    const state = await service.reset();
+
+    assert.equal(state.backups?.length, 2);
+    assert.deepEqual(new Set(state.backups?.map((backup) => backup.kind)), new Set(['save', 'reset']));
+    assert.equal(state.latestBackup?.path, state.backups?.[0]?.path);
+    assert.ok(state.backups?.every((backup) => backup.sizeBytes > 0));
+    assert.ok(state.backups?.every((backup) => typeof backup.activeEntryCount === 'number'));
+    assert.ok(state.backups?.every((backup) => !('content' in backup)));
+  });
+
   it('resolves the latest backup for explicit user inspection', async () => {
     const { service } = await makeService()();
     await service.getState();

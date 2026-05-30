@@ -2876,6 +2876,20 @@ function MemorySettingsPage(props: {
         )}
       </div>
 
+      {effective.backups && effective.backups.length > 1 && (
+        <div className="settingsMemoryBackupList" role="status">
+          <strong>备份候选</strong>
+          <div>
+            {effective.backups.map((backup) => (
+              <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate">
+                {localMemoryBackupKindLabel(backup.kind)} · {localMemoryBackupSummary(backup)} · <RelativeTime ts={backup.updatedAt} />
+              </span>
+            ))}
+          </div>
+          <small>上一版操作会使用最近的候选；这里只显示 metadata，不展示备份正文。</small>
+        </div>
+      )}
+
       {lastSaveSummary && !memoryDraftDirty && (
         <div className="settingsMemorySaveSummary" role="status">
           <strong>{lastSaveSummary.title}</strong>

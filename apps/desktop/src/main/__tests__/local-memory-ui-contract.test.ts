@@ -349,7 +349,9 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(core, /readonly activeEntryCount: number/);
     assert.match(core, /readonly safeMode: boolean/);
     assert.match(core, /readonly latestBackup\?: LocalMemoryBackupInfo/);
+    assert.match(core, /readonly backups\?: ReadonlyArray<LocalMemoryBackupInfo>/);
     assert.match(service, /async latestBackupInfo/);
+    assert.match(service, /async backupInfos/);
     assert.match(service, /kind: 'save' as const/);
     assert.match(service, /kind: 'reset' as const/);
     assert.match(service, /parseLocalMemoryMarkdown\(await readFile\(backupPath, 'utf8'\)\)/);
@@ -367,6 +369,24 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /重置前备份/);
     assert.match(src, /保存前备份/);
     assert.match(css, /\.settingsMemoryBackupState/);
+  });
+
+  it('shows validated MEMORY.md backup candidates as metadata only', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+
+    assert.match(pageBlock, /effective\.backups && effective\.backups\.length > 1/);
+    assert.match(pageBlock, /settingsMemoryBackupList/);
+    assert.match(pageBlock, /备份候选/);
+    assert.match(pageBlock, /effective\.backups\.map\(\(backup\) =>/);
+    assert.match(pageBlock, /localMemoryBackupKindLabel\(backup\.kind\)/);
+    assert.match(pageBlock, /localMemoryBackupSummary\(backup\)/);
+    assert.match(pageBlock, /<RelativeTime ts=\{backup\.updatedAt\}/);
+    assert.match(pageBlock, /这里只显示 metadata，不展示备份正文/);
+    assert.doesNotMatch(pageBlock, /backup\.content|readFile\(backup/);
+    assert.match(css, /\.settingsMemoryBackupList/);
+    assert.match(css, /\.settingsMemoryBackupCandidate/);
   });
 
   it('opens the latest MEMORY.md backup only through a main-process validated path', async () => {
