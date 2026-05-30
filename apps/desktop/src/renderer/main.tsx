@@ -2349,8 +2349,8 @@ function AppShell() {
                 const available = state.files.find((f) => f.status === 'available');
                 if (!available) {
                   toastApi.info(
-                    '当前项目还没有项目指引',
-                    '在 Settings · 记忆 里可以创建 AGENTS.md 或 CLAUDE.md',
+                    '等待创建项目指引',
+                    '在 Settings · 记忆 创建 AGENTS.md 或 CLAUDE.md',
                   );
                   return;
                 }

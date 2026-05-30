@@ -167,6 +167,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
     reason:
       "shared empty-state titles should frame empty product surfaces as actionable waiting states (`等待开始对话` / `等待添加 Skill` / `等待创建计划提醒`), not unfinished setup copy.",
   },
+  {
+    label: 'workspace instruction missing-state toast sounds unfinished',
+    needle: /当前项目还没有项目指引/,
+    reason:
+      "Command Palette project-instruction fallback should frame the missing file as an actionable waiting state (`等待创建项目指引`), not unfinished project setup copy.",
+  },
 ];
 
 /**
