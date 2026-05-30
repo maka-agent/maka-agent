@@ -161,13 +161,14 @@ describe('local MEMORY.md Settings UI contract', () => {
 
     assert.match(src, /setLocalMemoryEntryStatusDraft\(draft/);
     assert.match(src, /onStatusChange=\{updateMemoryEntryStatus\}/);
-    assert.match(src, />\s*\{props\.archived \? '恢复' : '归档'\}\s*<\/button>/);
+    assert.match(src, /props\.archived \? '恢复' : '归档'/);
     assert.match(src, /window\.maka\.memory\.save\(result\.draft\)/);
   });
 
   it('keeps archive and restore draft-only when MEMORY.md has unsaved edits', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const updateBlock = src.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
+    const listBlock = src.match(/function MemoryEntryList\([\s\S]*?function filterLocalMemoryEntries/)?.[0] ?? '';
 
     assert.match(updateBlock, /if \(memoryDraftDirty\) \{/);
     assert.match(updateBlock, /setDraft\(result\.draft\)/);
@@ -176,6 +177,9 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(updateBlock, /确认文件内容后点击保存/);
     assert.match(updateBlock, /return;\n    }\n\n    setBusy\(true\)/);
     assert.match(updateBlock, /window\.maka\.memory\.save\(result\.draft\)/);
+    assert.match(src, /draftDirty=\{memoryDraftDirty\}/);
+    assert.match(listBlock, /draftDirty\?: boolean/);
+    assert.match(listBlock, /props\.draftDirty \? \(props\.archived \? '恢复到草稿' : '归档到草稿'\)/);
   });
 
   it('uses stopped-update copy for invalid memory entry ids instead of raw missing-field wording', async () => {

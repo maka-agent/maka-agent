@@ -2775,6 +2775,7 @@ function MemorySettingsPage(props: {
               title="生效记忆"
               entries={filteredActiveEntries}
               filtered={normalizedMemoryEntryQuery.length > 0}
+              draftDirty={memoryDraftDirty}
               busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
               onCopyReference={copyMemoryEntryReference}
               onFocusDraft={focusMemoryEntryInDraft}
@@ -2786,6 +2787,7 @@ function MemorySettingsPage(props: {
                 entries={filteredArchivedEntries}
                 filtered={normalizedMemoryEntryQuery.length > 0}
                 archived
+                draftDirty={memoryDraftDirty}
                 busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
                 onCopyReference={copyMemoryEntryReference}
                 onFocusDraft={focusMemoryEntryInDraft}
@@ -2891,6 +2893,7 @@ function MemoryEntryList(props: {
   entries: LocalMemoryState['activeEntries'];
   filtered?: boolean;
   archived?: boolean;
+  draftDirty?: boolean;
   busy?: boolean;
   onCopyReference?(entry: LocalMemoryState['activeEntries'][number]): void | Promise<void>;
   onFocusDraft?(entry: LocalMemoryState['activeEntries'][number]): void | Promise<void>;
@@ -2957,7 +2960,7 @@ function MemoryEntryList(props: {
                       disabled={props.busy}
                       onClick={() => void props.onStatusChange?.(entry, props.archived ? 'active' : 'archived')}
                     >
-                      {props.archived ? '恢复' : '归档'}
+                      {props.draftDirty ? (props.archived ? '恢复到草稿' : '归档到草稿') : (props.archived ? '恢复' : '归档')}
                     </button>
                   )}
                 </div>
