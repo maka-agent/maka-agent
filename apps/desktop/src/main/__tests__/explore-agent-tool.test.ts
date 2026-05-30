@@ -77,6 +77,32 @@ describe('ExploreAgent read-only worker', () => {
     });
   });
 
+  it('skips sensitive local credential files even when they match the query', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await mkdir(join(workspaceRoot, 'src'), { recursive: true });
+      await writeFile(join(workspaceRoot, '.env'), 'ANTHROPIC_API_KEY=sk-ant-secret');
+      await writeFile(join(workspaceRoot, '.npmrc'), '//registry.example/:_authToken=npm_secret');
+      await writeFile(join(workspaceRoot, 'credentials.json'), '{"refresh_token":"secret-refresh"}');
+      await writeFile(join(workspaceRoot, 'src', 'config.ts'), 'export const secretBoundary = "redacted in docs";');
+
+      const result = await runReadOnlyExplore({
+        cwd: workspaceRoot,
+        objective: 'study secret boundary',
+        roots: ['.'],
+        queries: ['secret'],
+        maxFiles: 20,
+        maxMatches: 20,
+      });
+
+      assert.equal(result.ok, true);
+      assert.ok(result.matches.some((match) => match.path === 'src/config.ts'));
+      assert.equal(JSON.stringify(result).includes('sk-ant-secret'), false);
+      assert.equal(JSON.stringify(result).includes('npm_secret'), false);
+      assert.equal(JSON.stringify(result).includes('secret-refresh'), false);
+      assert.equal(result.candidateFiles.some((file) => file.path === '.env' || file.path === '.npmrc' || file.path === 'credentials.json'), false);
+    });
+  });
+
   it('runs through the tool impl with the session cwd only', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeFile(join(workspaceRoot, 'notes.md'), 'reference explore worker notes');

@@ -107,6 +107,23 @@ const TEXT_EXTENSIONS = new Set([
   '.yml',
 ]);
 
+const SENSITIVE_TEXT_FILE_NAMES = new Set([
+  '.env',
+  '.env.local',
+  '.env.development',
+  '.env.production',
+  '.env.test',
+  '.npmrc',
+  '.pypirc',
+  '.netrc',
+  'credentials.json',
+  'secrets.json',
+  'id_rsa',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519',
+]);
+
 export interface ExploreAgentResult {
   kind: 'explore_agent';
   ok: boolean;
@@ -461,7 +478,16 @@ function shouldSkipDir(abs: string): boolean {
 }
 
 function isLikelyTextFile(abs: string): boolean {
+  if (isSensitiveTextFile(abs)) return false;
   return TEXT_EXTENSIONS.has(extname(abs).toLowerCase());
+}
+
+function isSensitiveTextFile(abs: string): boolean {
+  const base = basename(abs).toLowerCase();
+  if (SENSITIVE_TEXT_FILE_NAMES.has(base)) return true;
+  if (base.startsWith('.env.')) return true;
+  if (/\.(pem|key|p12|pfx|crt|cer)$/i.test(base)) return true;
+  return false;
 }
 
 function scorePath(path: string, queries: string[]): { score: number; reasons: string[] } {
