@@ -104,6 +104,28 @@ describe('Settings coming-soon cleanup contract', () => {
     );
   });
 
+  it('keeps bot credential follow-up copy action-oriented', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(settings, /飞书凭据有效，等待填写事件订阅域名/);
+    assert.doesNotMatch(
+      settings,
+      /飞书凭据有效，但还没有事件订阅域名/,
+      'Feishu credential follow-up copy should describe the next setup action, not an unfinished missing state',
+    );
+  });
+
+  it('keeps Open Gateway token setup copy action-oriented', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+
+    assert.match(settings, /网关已开启，等待生成访问 token。生成 token 后服务会自动启动。/);
+    assert.doesNotMatch(
+      settings,
+      /网关已开启，但还没有 token/,
+      'Open Gateway token notice should frame the enabled-without-token state as a pending token action',
+    );
+  });
+
   it('keeps Permission Center copy scoped to current product boundaries', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const permissionPage = settings.match(/function PermissionCenterPage\(\)[\s\S]*?function CapabilityRow/);
