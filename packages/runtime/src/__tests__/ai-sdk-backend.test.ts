@@ -330,6 +330,86 @@ describe('AiSdkBackend tool permission category hints', () => {
     release.forEach((resume) => resume());
     await Promise.all(pending);
   });
+
+  test('maps structured subagent terminal states to persisted tool status', async () => {
+    const messages: unknown[] = [];
+    const events: SessionEvent[] = [];
+    const telemetry: Array<{ status: string; toolCallId?: string }> = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('explore'),
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => ({}),
+      tools: [],
+      newId: idGenerator(),
+      now: () => 1,
+      recordToolInvocation: (record) => {
+        telemetry.push({ status: record.status, toolCallId: record.toolCallId });
+      },
+    });
+    const tool: MakaTool = {
+      name: 'ExploreAgent',
+      description: 'read-only worker',
+      parameters: {},
+      permissionRequired: true,
+      categoryHint: 'subagent',
+      impl: async (args: { reason?: string }) => ({
+        kind: 'explore_agent',
+        ok: false,
+        mode: 'read_only',
+        objective: 'bad scope',
+        roots: [],
+        queries: [],
+        filesInspected: 0,
+        filesSkipped: 0,
+        bytesRead: 0,
+        progress: [],
+        candidateFiles: [],
+        matches: [],
+        notes: [],
+        reason: args.reason === 'aborted' ? 'aborted' : 'invalid_root',
+        message: args.reason === 'aborted' ? '只读探索已取消。' : '范围无效。',
+      }),
+    };
+    const execute = (backend as unknown as {
+      wrapToolExecute(
+        tool: MakaTool,
+        turnId: string,
+        queue: { push(event: SessionEvent): void },
+      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
+    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+
+    await execute({ objective: 'bad scope' }, {
+      toolCallId: 'tool-failed',
+      abortSignal: new AbortController().signal,
+    });
+    await execute({ objective: 'cancelled', reason: 'aborted' }, {
+      toolCallId: 'tool-aborted',
+      abortSignal: new AbortController().signal,
+    });
+
+    assert.equal(
+      (messages.find((message) =>
+        (message as { type?: string; toolUseId?: string }).type === 'tool_result' &&
+        (message as { toolUseId?: string }).toolUseId === 'tool-failed',
+      ) as { isError?: boolean } | undefined)?.isError,
+      true,
+    );
+    assert.equal(
+      (events.find((event) => event.type === 'tool_result' && event.toolUseId === 'tool-aborted') as { isError?: boolean } | undefined)?.isError,
+      true,
+    );
+    assert.deepEqual(telemetry, [
+      { status: 'error', toolCallId: 'tool-failed' },
+      { status: 'aborted', toolCallId: 'tool-aborted' },
+    ]);
+  });
 });
 
 describe('AiSdkBackend tool-call repair', () => {

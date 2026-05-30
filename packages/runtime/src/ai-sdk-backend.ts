@@ -663,13 +663,14 @@ export class AiSdkBackend implements AgentBackend {
 
         // Coerce impl's return into ToolResultContent for storage + event.
         const content = this.coerceResultContent(result);
+        const toolResultStatus = deriveToolResultStatus(content);
         const resultMsg: ToolResultMessage = {
           type: 'tool_result',
           id: this.newId(),
           turnId,
           ts: this.now(),
           toolUseId,
-          isError: false,
+          isError: toolResultStatus !== 'success',
           content,
           durationMs,
         };
@@ -680,7 +681,7 @@ export class AiSdkBackend implements AgentBackend {
           turnId,
           ts: this.now(),
           toolUseId,
-          isError: false,
+          isError: toolResultStatus !== 'success',
           content,
           durationMs,
         } satisfies ToolResultEvent);
@@ -693,7 +694,7 @@ export class AiSdkBackend implements AgentBackend {
           providerId: this.input.connection.providerType,
           modelId: this.input.modelId,
           durationMs,
-          status: 'success',
+          status: toolResultStatus,
           argsSummary: summarizeArgs(args),
           bytesIn: byteLength(args),
           bytesOut: byteLength(result),
@@ -1102,6 +1103,14 @@ export function formatSyntheticToolErrorText(error: unknown): string {
   const redacted = redactSecrets(raw || 'Tool failed');
   if (redacted.length <= TOOL_ERROR_RESULT_MAX_CHARS) return redacted;
   return `${redacted.slice(0, TOOL_ERROR_RESULT_MAX_CHARS - 1)}…`;
+}
+
+function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecord['status'] {
+  if (content.kind === 'explore_agent' && content.ok === false) {
+    return content.reason === 'aborted' ? 'aborted' : 'error';
+  }
+  if (content.kind === 'office_document' && content.ok === false) return 'error';
+  return 'success';
 }
 
 function summarizeArgs(args: unknown): string {

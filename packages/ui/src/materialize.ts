@@ -100,12 +100,22 @@ export function materializeTools(messages: StoredMessage[]): ToolActivityItem[] 
         toolName: call.toolName,
         displayName: call.displayName,
         intent: call.intent,
-        status: result ? (result.isError ? 'errored' : 'completed') : 'interrupted',
+        status: result ? materializeToolResultStatus(result) : 'interrupted',
         args: call.args,
         result: result?.content,
         durationMs: result?.durationMs,
       };
     });
+}
+
+function materializeToolResultStatus(
+  result: Extract<StoredMessage, { type: 'tool_result' }>,
+): ToolActivityItem['status'] {
+  if (!result.isError) return 'completed';
+  if (result.content.kind === 'explore_agent' && result.content.reason === 'aborted') {
+    return 'interrupted';
+  }
+  return 'errored';
 }
 
 /**

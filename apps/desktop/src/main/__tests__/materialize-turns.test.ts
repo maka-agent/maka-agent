@@ -87,6 +87,39 @@ describe('materializeTurns', () => {
     assert.equal(turns[0]?.tools[0]?.status, 'interrupted');
   });
 
+  it('surfaces canceled ExploreAgent results as interrupted instead of failed', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallMsg('t1', 101, 'explore-1', 'ExploreAgent'),
+      {
+        type: 'tool_result',
+        id: 'r-explore-1',
+        turnId: 't1',
+        ts: 102,
+        toolUseId: 'explore-1',
+        isError: true,
+        content: {
+          kind: 'explore_agent',
+          ok: false,
+          mode: 'read_only',
+          objective: 'scan cancelled',
+          roots: [],
+          queries: [],
+          filesInspected: 0,
+          filesSkipped: 0,
+          bytesRead: 0,
+          progress: [],
+          candidateFiles: [],
+          matches: [],
+          notes: [],
+          reason: 'aborted',
+          message: '只读探索已取消。',
+        },
+      } as StoredMessage,
+    ]);
+    assert.equal(turns[0]?.tools[0]?.status, 'interrupted');
+  });
+
   it('routes live in-flight tools into the latest turn when no matching tool_call is persisted', () => {
     // Scenario: user sent a message, server hasn't persisted the tool_call
     // yet, but a live event stream surfaced a "running" tool. It should
