@@ -138,12 +138,14 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(permissionPage![0], /只读取系统权限与功能能力的当前快照/, 'Permission Center must explain the current read-only snapshot boundary');
     assert.match(permissionPage![0], /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
     assert.match(settings, /not_determined:\s*\{\s*label:\s*'等待授权'/, 'OS not_determined should read as an actionable waiting state');
+    assert.match(settings, /not_configured:\s*\{\s*label:\s*'等待配置'/, 'capability not_configured should read as an actionable waiting state');
     assert.match(settings, /仍有运行态、权限或子功能需要处理/, 'degraded capability copy should describe a current action state');
     assert.doesNotMatch(
       permissionPage![0],
       /原生 helper|上线后|接入后|即将可用|未接入|尚未授权|子功能没有完成/,
       'Permission Center visible copy must not expose implementation roadmap/helper language',
     );
+    assert.doesNotMatch(settings, /not_configured:\s*\{\s*label:\s*'未配置'/, 'capability not_configured must not use raw missing-configuration copy');
   });
 
   it('keeps bot readiness waiting states action-oriented', async () => {

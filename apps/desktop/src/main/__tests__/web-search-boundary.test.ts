@@ -136,6 +136,16 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
   });
 
+  it('Settings credential badge uses waiting-state copy instead of raw missing configuration copy', async () => {
+    const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const helper = settings.match(/function presentWebSearchCredentialStatus[\s\S]*?function MemorySettingsPage/);
+
+    assert.ok(helper, 'Web search settings must centralize credential status presentation');
+    assert.match(helper![0], /等待保存 key/);
+    assert.match(helper![0], /等待配置/);
+    assert.doesNotMatch(helper![0], /未保存 key|label:\s*'未配置'/);
+  });
+
   it('Settings live query copy uses product language instead of demo/debug wording', async () => {
     const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
     const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);
