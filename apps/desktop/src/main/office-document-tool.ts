@@ -249,16 +249,17 @@ async function runOfficeCliOperation(input: {
     const output = await runOfficeCli(runner, input.args, timeoutMs);
     const stdout = sanitizeOfficeCliOutput(output.stdout, workspaceRoot);
     const stderr = sanitizeOfficeCliOutput(output.stderr, workspaceRoot);
-    const capped = capOutput(stdout);
+    const cappedStdout = capOutput(stdout);
+    const cappedStderr = capOutput(stderr);
     return {
       kind: 'office_document',
       ok: true,
       operation: input.operation,
       ...(input.relPath ? { path: input.relPath } : {}),
       args: input.absPath && input.relPath ? displayArgs(input.args, input.absPath, input.relPath) : input.args,
-      stdout: capped.text,
-      ...(stderr.length > 0 ? { stderr: capOutput(stderr).text } : {}),
-      truncated: capped.truncated,
+      stdout: cappedStdout.text,
+      ...(stderr.length > 0 ? { stderr: cappedStderr.text } : {}),
+      truncated: cappedStdout.truncated || cappedStderr.truncated,
     };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -613,7 +614,7 @@ function capOutput(text: string): { text: string; truncated: boolean } {
   const chars = Array.from(text);
   if (chars.length <= OFFICE_DOCUMENT_OUTPUT_MAX_CHARS) return { text, truncated: false };
   return {
-    text: `${chars.slice(0, OFFICE_DOCUMENT_OUTPUT_MAX_CHARS).join('')}\n[output truncated]`,
+    text: `${chars.slice(0, OFFICE_DOCUMENT_OUTPUT_MAX_CHARS).join('')}\n[Office 文档输出已截断；请缩小 selector/query 或拆分读取范围后继续研读]`,
     truncated: true,
   };
 }

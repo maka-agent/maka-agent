@@ -84,6 +84,45 @@ describe('OfficeDocument read-only tool', () => {
     });
   });
 
+  it('uses Chinese truncation markers and reports stderr truncation', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeFile(join(workspaceRoot, 'deck.pptx'), 'not a real pptx');
+      const longStdout = `${'a'.repeat(60_050)}stdout-tail`;
+      const longStderr = `${'b'.repeat(60_050)}stderr-tail`;
+
+      const stdoutOnly = await runOfficeDocumentOperation({
+        cwd: workspaceRoot,
+        path: 'deck.pptx',
+        operation: 'view',
+        viewMode: 'text',
+        runner: fakeRunner((_cmd, _args, _options, callback) => {
+          callback(null, longStdout, '');
+        }),
+      });
+      assert.equal(stdoutOnly.ok, true);
+      if (!stdoutOnly.ok) return;
+      assert.equal(stdoutOnly.truncated, true);
+      assert.match(stdoutOnly.stdout, /Office 文档输出已截断/);
+      assert.doesNotMatch(stdoutOnly.stdout, /output truncated/);
+      assert.equal(stdoutOnly.stdout.includes('stdout-tail'), false);
+
+      const stderrOnly = await runOfficeDocumentOperation({
+        cwd: workspaceRoot,
+        path: 'deck.pptx',
+        operation: 'validate',
+        runner: fakeRunner((_cmd, _args, _options, callback) => {
+          callback(null, 'ok', longStderr);
+        }),
+      });
+      assert.equal(stderrOnly.ok, true);
+      if (!stderrOnly.ok) return;
+      assert.equal(stderrOnly.truncated, true);
+      assert.match(stderrOnly.stderr ?? '', /Office 文档输出已截断/);
+      assert.doesNotMatch(stderrOnly.stderr ?? '', /output truncated/);
+      assert.equal((stderrOnly.stderr ?? '').includes('stderr-tail'), false);
+    });
+  });
+
   it('supports get/query/validate but rejects missing selector/query', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeFile(join(workspaceRoot, 'report.docx'), 'not a real docx');
