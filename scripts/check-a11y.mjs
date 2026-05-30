@@ -341,6 +341,15 @@ function looksLikeExampleValue(value) {
   const trimmed = value.trim().replace(/…+|\.\.\.+/g, '');
   // Single bare word like "my-provider" or "model-id"
   if (/^[a-z][a-z0-9-]*$/.test(trimmed)) return true;
+  // PR-BOT-WECHAT-SCAN-LOGIN-0: developer credential placeholders that
+  // use lowercase + underscore + 'x' wildcards as the canonical example,
+  // e.g. "cli_xxxx" (飞书 App ID), "dingxxxxxxxx" (钉钉 AppKey).
+  if (/^[a-z][a-z0-9_-]*$/.test(trimmed)) return true;
+  // Token-prefix style placeholders that mix uppercase + lowercase, e.g.
+  // "MTAx" (Discord Bot Token prefix).
+  if (/^[A-Z][A-Za-z0-9_-]*$/.test(trimmed)) return true;
+  // Numeric-prefix wildcards like "102xxxxxx" (QQ AppID).
+  if (/^[0-9]+x+$/i.test(trimmed)) return true;
   // URL / scheme
   if (/^https?:\/\//i.test(trimmed)) return true;
   if (/^[a-z]+:\/\//i.test(trimmed)) return true;

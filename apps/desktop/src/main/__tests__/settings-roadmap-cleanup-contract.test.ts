@@ -92,13 +92,15 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps runtime bot platform copy aligned with shipped receive and send paths', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
-    const discordBlock = settings.match(/selected === 'discord'[\s\S]*?\n\s*\)\}/)?.[0] ?? '';
-    const qqBlock = settings.match(/selected === 'qq'[\s\S]*?\n\s*\)\}/)?.[0] ?? '';
 
-    assert.match(discordBlock, /启动监听后会通过 Gateway 接收消息，并用 REST 回复对应频道/);
-    assert.match(qqBlock, /启动监听后会通过 QQ Gateway 接收频道、群和私聊事件，并用 REST 投递回复/);
+    // PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6`): per-platform
+    // help text now lives in BOT_LABELS to match the reference design's
+    // single short sentence. The per-platform section detail no longer
+    // duplicates a runtime narrative — that's intentional.
+    assert.match(settings, /discord:\s*\{[\s\S]*?help:\s*'在 Discord Developer Portal 创建 Bot'/);
+    assert.match(settings, /qq:\s*\{[\s\S]*?help:\s*'在 QQ 开放平台创建机器人并获取 AppID 和 AppSecret'/);
     assert.doesNotMatch(
-      `${discordBlock}\n${qqBlock}`,
+      settings,
       /事件接入需要|独立后续|凭据有效不代表运行可用/,
       'runtime bot detail copy must not describe shipped Gateway bridges as future work',
     );

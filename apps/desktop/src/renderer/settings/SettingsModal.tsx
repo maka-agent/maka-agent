@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import type {
   AppSettings,
+  BotChannelSettings,
   BotProvider,
   BotReadinessState,
   CapabilityId,
@@ -179,40 +180,43 @@ const BOT_BRAND: Record<BotProvider, { color: string; glyph: string; configDocUr
   qq:       { color: '#EB1923', glyph: 'Q', configDocUrl: 'https://bot.q.qq.com/wiki/' },
 };
 
+// PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6`): help copy
+// rewritten per reference screenshots — short product sentence pointing
+// at where to provision credentials; not a runtime technical breakdown.
 const BOT_LABELS: Record<BotProvider, { label: string; help: string; support: 'runtime' | 'credentials' | 'planned' }> = {
   telegram: {
     label: 'Telegram',
-    help: '填写机器人 Token 后测试凭据；启动监听后，用户发给机器人的消息会进入 Maka，会话完成后自动回复。',
+    help: '通过 @BotFather 创建 Bot 并获取 Token',
     support: 'runtime',
   },
   feishu: {
     label: '飞书',
-    help: '填写飞书自建应用的 App ID、App Secret 和事件订阅域名；当前先验证凭据，事件接收需要企业后台回调接入。',
+    help: '在飞书开放平台创建应用并获取凭证',
     support: 'credentials',
   },
   wecom: {
     label: '企业微信',
-    help: '填入企业的 corp_id 与自建应用的 secret 后测试凭据；当前先验证凭据，事件接收需要在企业后台配置 callback 域名。',
+    help: '通过企业微信 AI 应用接入，使用 WebSocket 长连接',
     support: 'credentials',
   },
   wechat: {
     label: '微信',
-    help: '填写公众号 App ID / App Secret 可测试官方凭据；连接本机 wechat-bridge 后可作为计划提醒投递目标发送到指定 wxid。',
+    help: '通过本机 wechat-bridge 接入个人微信，需 iOS / Android 微信 8.0.70+。',
     support: 'credentials',
   },
   discord: {
     label: 'Discord',
-    help: '填入 Bot Token 后测试凭据；启动监听后通过 Discord Gateway 接收 MESSAGE_CREATE，会话完成后通过 REST 回复对应频道（含 reply threading）。',
+    help: '在 Discord Developer Portal 创建 Bot',
     support: 'runtime',
   },
   dingtalk: {
     label: '钉钉',
-    help: '填入自建应用的 appkey 与 appsecret 后测试凭据；启动监听后通过 DingTalk Stream（outbound WebSocket）接收 bot 消息，会话完成后通过 open-platform robot 接口投递回原会话。',
+    help: '在钉钉开发者后台创建机器人应用',
     support: 'runtime',
   },
   qq: {
     label: 'QQ',
-    help: '填入 QQ 官方机器人的 App ID 与 Client Secret 后测试凭据；启动监听后通过 QQ Gateway WebSocket 接收 AT_MESSAGE / DIRECT / GROUP / C2C 事件，会话完成后通过 REST 投递回原会话。',
+    help: '在 QQ 开放平台创建机器人并获取 AppID 和 AppSecret',
     support: 'runtime',
   },
 };
@@ -277,6 +281,82 @@ function BotStatusPill(props: { tone: 'neutral' | 'info' | 'success' | 'warning'
       <span className="settingsBotStatusPillDot" aria-hidden="true" />
       {props.label}
     </span>
+  );
+}
+
+/**
+ * PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `1d9c412e` / `e0ae9de2`):
+ * WeChat detail follows the reference design — primary surface is a
+ * single Bot Token field for the local bridge, with 公众号 (App ID /
+ * App Secret) and the bridge URL tucked into a collapsed "高级设置"
+ * section so backend wiring stays intact for users that depend on
+ * 公众号 messaging.
+ *
+ * The Bot Token field maps to `channel.token` (used by wechat-bridge
+ * for Bearer auth). Advanced fields keep `appId / appSecret /
+ * webhookUrl` so the existing runtime contract continues to work.
+ */
+function BotWeChatFields(props: {
+  channel: BotChannelSettings;
+  updateChannel(patch: Partial<BotChannelSettings>): Promise<void>;
+}) {
+  const { channel, updateChannel } = props;
+  const hasAdvanced = Boolean(channel.appId || channel.appSecret || channel.webhookUrl);
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(hasAdvanced);
+  return (
+    <>
+      <label className="settingsField">
+        <span>Bot Token</span>
+        <PasswordInput
+          value={channel.token}
+          onChange={(next) => updateChannel({ token: next })}
+          placeholder="本机 wechat-bridge Bearer Token"
+          ariaLabel="微信 Bot Token"
+        />
+      </label>
+      <div className="settingsBotAdvanced">
+        <button
+          type="button"
+          className="settingsBotAdvancedToggle"
+          aria-expanded={advancedOpen}
+          onClick={() => setAdvancedOpen((current) => !current)}
+        >
+          {advancedOpen ? '收起高级设置' : '高级设置（公众号 / 本机 bridge 地址）'}
+        </button>
+        {advancedOpen && (
+          <div className="settingsBotAdvancedBody">
+            <label className="settingsField">
+              <span>本机 bridge 地址</span>
+              <input
+                value={channel.webhookUrl ?? ''}
+                onChange={(event) => updateChannel({ webhookUrl: event.currentTarget.value })}
+                placeholder="http://127.0.0.1:18400"
+              />
+            </label>
+            <label className="settingsField">
+              <span>公众号 App ID</span>
+              <input
+                value={channel.appId ?? ''}
+                onChange={(event) => updateChannel({ appId: event.currentTarget.value })}
+                placeholder="微信公众号 App ID"
+              />
+            </label>
+            <label className="settingsField">
+              <span>公众号 App Secret</span>
+              <PasswordInput
+                value={channel.appSecret ?? ''}
+                onChange={(next) => updateChannel({ appSecret: next })}
+                placeholder="微信公众号 App Secret"
+                ariaLabel="微信公众号 App Secret"
+              />
+            </label>
+            <div className="settingsNotice">
+              本机 bridge 默认为 <code>http://127.0.0.1:18400</code>。公众号 App ID / App Secret 仅用于公众号消息发送，个人微信扫码登录走本机 bridge。
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -3685,22 +3765,28 @@ function BotChatSettingsPage(props: {
           <Switch checked={channel.enabled} onChange={(enabled) => updateChannel({ enabled })} disabled={support === 'planned'} />
         </div>
 
+        {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
+            each platform's fields, labels, placeholders and notices
+            rewritten to match the reference design 1:1. The previous
+            implementations diverged with technical wording, extra
+            fields, and missing TUN-mode amber notices. */}
         {selected === 'telegram' && (
           <>
             <label className="settingsField">
-              <span>机器人 Token</span>
-              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="123456:ABC-DEF…" ariaLabel="Telegram Bot Token" />
+              <span>Bot Token</span>
+              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="123456:ABC-DEF..." ariaLabel="Telegram Bot Token" />
             </label>
             <label className="settingsField">
-              <span>代理地址</span>
+              <span>代理地址 <em className="settingsFieldHint">(国内网络必填)</em></span>
               <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" />
             </label>
             <BotAllowedUserIdsField
               value={channel.allowedUserIds}
               onChange={(next) => updateChannel({ allowedUserIds: next })}
             />
-            <div className="settingsNotice">
-              Telegram 国内网络通常需要代理。保存并测试凭据后，打开开关并重启监听；用户向机器人发消息后，Maka 会创建对话并自动回复。
+            <div className="settingsBotInfoNotice">
+              <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
+              <span>提示：请打开网络的 TUN 模式后重启应用，以便完成 Telegram Bot 设置</span>
             </div>
           </>
         )}
@@ -3709,19 +3795,23 @@ function BotChatSettingsPage(props: {
           <>
             <label className="settingsField">
               <span>App ID</span>
-              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="飞书应用 ID" />
+              <input aria-label="飞书凭据 ID" value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="cli_xxxx" />
             </label>
             <label className="settingsField">
               <span>App Secret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="飞书开放平台 App Secret" ariaLabel="飞书 App Secret" />
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="xxxx" ariaLabel="飞书 App Secret" />
             </label>
             <label className="settingsField">
-              <span>事件订阅域名</span>
-              <input value={channel.domain ?? ''} onChange={(event) => updateChannel({ domain: event.currentTarget.value })} placeholder="https://maka.example.com/feishu/events" />
+              <span>域名</span>
+              <select
+                className="settingsBotDomainSelect"
+                value={channel.domain ?? 'feishu.cn'}
+                onChange={(event) => updateChannel({ domain: event.currentTarget.value })}
+              >
+                <option value="feishu.cn">飞书 (feishu.cn)</option>
+                <option value="larksuite.com">Lark (larksuite.com)</option>
+              </select>
             </label>
-            <div className="settingsNotice">
-              飞书凭据测试会申请 tenant_access_token；事件订阅域名用于企业后台回调。未接通事件回调前，状态只能到“凭据有效”，不会显示成运行可用。
-            </div>
           </>
         )}
 
@@ -3729,10 +3819,15 @@ function BotChatSettingsPage(props: {
           <>
             <label className="settingsField">
               <span>Bot Token</span>
-              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="Discord 开发者后台的 Bot Token" ariaLabel="Discord Bot Token" />
+              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="MTAx..." ariaLabel="Discord Bot Token" />
             </label>
-            <div className="settingsNotice">
-              Discord 凭据测试会请求 `/users/@me` 验证 token 对应一个真实 Bot 应用；启动监听后会通过 Gateway 接收消息，并用 REST 回复对应频道。
+            <label className="settingsField">
+              <span>代理地址 <em className="settingsFieldHint">(仅用于 Bot 鉴权)</em></span>
+              <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" />
+            </label>
+            <div className="settingsBotInfoNotice">
+              <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
+              <span>国内网络访问 Discord：上方代理仅作用于 Bot 鉴权请求，消息收发走 WebSocket 长连接需要系统级代理。请打开网络的 TUN 模式后重启应用。</span>
             </div>
           </>
         )}
@@ -3740,86 +3835,50 @@ function BotChatSettingsPage(props: {
         {selected === 'dingtalk' && (
           <>
             <label className="settingsField">
-              <span>自建应用 appkey</span>
-              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="钉钉开放平台 - 应用 appkey" />
+              <span>Client ID (AppKey)</span>
+              <input aria-label="钉钉应用密钥" value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="dingxxxxxxxx" />
             </label>
             <label className="settingsField">
-              <span>自建应用 appsecret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="钉钉开放平台 - 应用 appsecret" ariaLabel="钉钉应用 appsecret" />
+              <span>Client Secret (AppSecret)</span>
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="xxxx" ariaLabel="钉钉 Client Secret" />
             </label>
-            <div className="settingsNotice">
-              钉钉凭据测试会请求 `gettoken`，验证 appkey + appsecret 真实存在。事件接收需要在 outgoing 机器人或 Stream 模式里配置，凭据有效不代表运行可用。
-            </div>
           </>
         )}
 
         {selected === 'wecom' && (
           <>
             <label className="settingsField">
-              <span>企业 corp_id</span>
-              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="企业微信后台 - 我的企业 - 企业 ID" />
+              <span>Bot ID</span>
+              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="企业微信 AI 应用 Bot ID" />
             </label>
             <label className="settingsField">
-              <span>自建应用 secret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="企业微信自建应用 secret" ariaLabel="企业微信应用 secret" />
+              <span>Secret</span>
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="AI 应用 Secret" ariaLabel="企业微信 Secret" />
             </label>
-            <label className="settingsField">
-              <span>事件 callback 域名</span>
-              <input value={channel.domain ?? ''} onChange={(event) => updateChannel({ domain: event.currentTarget.value })} placeholder="https://maka.example.com/wecom/events" />
-            </label>
-            <div className="settingsNotice">
-              企业微信凭据测试会请求 `gettoken`，验证 corp_id + secret 是否真实存在；事件接收需要在企业后台配置 callback 域名。未接通 callback 前，状态只到“凭据有效”，不会显示成运行可用。
-            </div>
           </>
         )}
 
-        {/* PR-BOT-WECHAT-BRIDGE-0: WeChat has two credential-level
-            surfaces: official-account App credentials for token probing,
-            and the localhost-only wechat-bridge surface for local personal
-            WeChat delivery. Runtime keeps the bridge URL localhost-only. */}
+        {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `1d9c412e`): WeChat
+            personal account integration. Reference design uses ONE
+            Bot Token field for the local bridge connection + a
+            scan-login affordance. 公众号 (App ID / App Secret) and
+            advanced bridge URL stay available behind a collapsed
+            「高级设置」section so runtime backward compatibility is
+            preserved. */}
         {selected === 'wechat' && (
-          <>
-            <label className="settingsField">
-              <span>App ID</span>
-              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="微信公众号 App ID" />
-            </label>
-            <label className="settingsField">
-              <span>App Secret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="微信公众号 App Secret" ariaLabel="微信公众号 App Secret" />
-            </label>
-            <div className="settingsNotice">
-              微信公众号凭据测试会向官方 token 接口申请 access_token；若要让计划提醒投递到个人微信，需启动本机 `wechat-bridge` 并填写下面的 bridge 地址。
-            </div>
-            <label className="settingsField">
-              <span>本机 bridge 地址</span>
-              <input value={channel.webhookUrl ?? ''} onChange={(event) => updateChannel({ webhookUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:18400" />
-            </label>
-            <label className="settingsField">
-              <span>Bearer Token（可选）</span>
-              <PasswordInput value={channel.token} onChange={(next) => updateChannel({ token: next })} placeholder="本机 bridge Bearer Token" ariaLabel="本机 bridge Bearer Token" />
-            </label>
-            <div className="settingsNotice">
-              微信桥接只允许连接本机 `wechat-bridge`。凭据测试会请求 `/health`；计划提醒发送时会调用 `/send`，Chat ID 填 wxid、filehelper 或群 wxid。
-            </div>
-          </>
+          <BotWeChatFields channel={channel} updateChannel={updateChannel} />
         )}
 
-        {/* PR-BOT-QQ-OPERATIONAL-0: QQ 官方机器人运行级配置。`appId` =
-            App ID，`appSecret` = Client Secret，跟 WeCom / DingTalk 同语义
-            不另开字段。 */}
         {selected === 'qq' && (
           <>
             <label className="settingsField">
-              <span>App ID</span>
-              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="QQ 开放平台 - 机器人 App ID" />
+              <span>AppID</span>
+              <input aria-label="QQ 应用编号" value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="102xxxxxx" />
             </label>
             <label className="settingsField">
-              <span>Client Secret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="QQ 开放平台 - 机器人 Client Secret" ariaLabel="QQ 机器人 Client Secret" />
+              <span>AppSecret</span>
+              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => updateChannel({ appSecret: next })} placeholder="xxxx" ariaLabel="QQ AppSecret" />
             </label>
-            <div className="settingsNotice">
-              QQ 凭据测试会请求 `getAppAccessToken`，验证 App ID + Client Secret；启动监听后会通过 QQ Gateway 接收频道、群和私聊事件，并用 REST 投递回复。
-            </div>
           </>
         )}
 
@@ -3882,20 +3941,40 @@ function BotChatSettingsPage(props: {
           </div>
         )}
 
-        {/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): mirror the
-            reference design's combined action surface.
-            - Unconnected + runtime support → "测试并连接" runs
-              testChannel → if ok, flips enabled on → restartChannel.
-            - Already connected → keep the test/restart split so the
-              user can re-verify or restart the listener without
-              flipping the toggle.
-            - Credentials-only platforms only show "测试凭据" since
-              there's no listener to restart. */}
-        <div className="settingsActionRow">
-          {support === 'runtime' && !selectedStatus?.running ? (
+        {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
+            actions follow the reference design exactly.
+            - WeChat: 扫码登录 + 测试连接 stacked vertically as outlined
+              pills (扫码登录 hands off to local wechat-bridge so the
+              user can scan the QR code there).
+            - Everything else: 测试并连接 single outlined pill, OR
+              (when listener already running) 测试连接 + 重启监听. */}
+        <div className="settingsBotActionStack">
+          {selected === 'wechat' ? (
+            <>
+              <button
+                className="settingsBotAction"
+                type="button"
+                onClick={() => {
+                  toast.success(
+                    '扫码登录由本机 wechat-bridge 处理',
+                    '请先启动本机 wechat-bridge 并按提示扫码登录 WeChat。',
+                  );
+                }}
+              >
+                扫码登录
+              </button>
+              <button
+                className="settingsBotAction"
+                type="button"
+                disabled={testing}
+                onClick={testChannel}
+              >
+                {testing ? '测试中…' : '测试连接'}
+              </button>
+            </>
+          ) : support === 'runtime' && !selectedStatus?.running ? (
             <button
-              className="maka-button"
-              data-variant="primary"
+              className="settingsBotAction"
               type="button"
               disabled={testing || restarting}
               onClick={testAndConnect}
@@ -3903,12 +3982,12 @@ function BotChatSettingsPage(props: {
               {testing ? '测试中…' : restarting ? '启动中…' : '测试并连接'}
             </button>
           ) : (
-            <button className="maka-button" type="button" disabled={testing || support === 'planned'} onClick={testChannel}>
-              {testing ? '测试中…' : support === 'runtime' ? '测试连接' : '测试凭据'}
+            <button className="settingsBotAction" type="button" disabled={testing || support === 'planned'} onClick={testChannel}>
+              {testing ? '测试中…' : support === 'runtime' ? '测试连接' : '测试并连接'}
             </button>
           )}
-          {support === 'runtime' && selectedStatus?.running && (
-            <button className="maka-button subtle" type="button" disabled={restarting} onClick={restartChannel}>
+          {support === 'runtime' && selectedStatus?.running && selected !== 'wechat' && (
+            <button className="settingsBotAction" type="button" disabled={restarting} onClick={restartChannel}>
               {restarting ? '重启中…' : '重启监听'}
             </button>
           )}
