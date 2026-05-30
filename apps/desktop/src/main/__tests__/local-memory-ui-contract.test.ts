@@ -188,4 +188,18 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /保存时会先遮蔽疑似 token、API key 或密码，再写入 MEMORY\.md/);
     assert.match(css, /\.settingsMemoryDraftWarning/);
   });
+
+  it('shows whether the visible MEMORY.md draft has unsaved changes', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+
+    assert.match(pageBlock, /const memoryDraftDirty = draft !== effective\.content/);
+    assert.match(pageBlock, /settingsMemoryDirtyState/);
+    assert.match(pageBlock, /有未保存修改/);
+    assert.match(pageBlock, /草稿已保存/);
+    assert.match(pageBlock, /disabled=\{busy \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
+    assert.match(pageBlock, /\{memoryDraftDirty \? '保存' : '已保存'\}/);
+    assert.match(css, /\.settingsMemoryDirtyState\[data-dirty="true"\]/);
+  });
 });

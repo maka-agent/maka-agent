@@ -9841,6 +9841,11 @@ button:active {
   color: var(--foreground-70);
 }
 
+.settingsMemoryDirtyState[data-dirty="true"] {
+  color: var(--warning);
+  font-weight: 600;
+}
+
 .settingsMemoryEntryCard p,
 .settingsMemoryEntryEmpty {
   margin: 0;

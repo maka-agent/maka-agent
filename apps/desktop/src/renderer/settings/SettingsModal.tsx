@@ -2569,6 +2569,7 @@ function MemorySettingsPage(props: {
     activeEntries: [],
     archivedEntries: [],
   } satisfies LocalMemoryState;
+  const memoryDraftDirty = draft !== effective.content;
   const normalizedMemoryEntryQuery = memoryEntryQuery.trim();
   const filteredActiveEntries = useMemo(
     () => filterLocalMemoryEntries(effective.activeEntries, normalizedMemoryEntryQuery),
@@ -2676,6 +2677,9 @@ function MemorySettingsPage(props: {
 
       <div className="settingsConnectionMeta">
         <span>{effective.path || '等待创建 MEMORY.md'}</span>
+        <span className="settingsMemoryDirtyState" data-dirty={memoryDraftDirty ? 'true' : 'false'}>
+          {memoryDraftDirty ? '有未保存修改' : '草稿已保存'}
+        </span>
         <span>{effective.activeEntryCount} 条生效</span>
         {effective.archivedEntryCount > 0 && <span>{effective.archivedEntryCount} 条已归档</span>}
       </div>
@@ -2821,8 +2825,8 @@ function MemorySettingsPage(props: {
       )}
 
       <div className="settingsActionRow">
-        <button type="button" className="maka-button" disabled={busy || !effective.enabled} onClick={() => void save()}>
-          保存
+        <button type="button" className="maka-button" disabled={busy || !effective.enabled || !memoryDraftDirty} onClick={() => void save()}>
+          {memoryDraftDirty ? '保存' : '已保存'}
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled} onClick={() => void openFile()}>
           打开 MEMORY.md
