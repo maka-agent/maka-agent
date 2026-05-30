@@ -236,6 +236,7 @@ export class LocalMemoryService {
       [
         { path: `${this.file}.bak`, priority: 0, kind: 'save' as const },
         { path: `${this.file}.reset.bak`, priority: 1, kind: 'reset' as const },
+        { path: `${this.file}.restore.bak`, priority: 2, kind: 'restore' as const },
       ].map(async (candidate) => {
         const { path, priority, kind } = candidate;
         const backupPath = await realpath(path).catch(() => null);

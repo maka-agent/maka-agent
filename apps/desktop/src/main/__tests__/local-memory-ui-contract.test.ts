@@ -344,7 +344,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
     assert.match(core, /interface LocalMemoryBackupInfo/);
-    assert.match(core, /readonly kind: 'save' \| 'reset'/);
+    assert.match(core, /readonly kind: 'save' \| 'reset' \| 'restore'/);
     assert.match(core, /readonly sizeBytes: number/);
     assert.match(core, /readonly activeEntryCount: number/);
     assert.match(core, /readonly safeMode: boolean/);
@@ -354,6 +354,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(service, /async backupInfos/);
     assert.match(service, /kind: 'save' as const/);
     assert.match(service, /kind: 'reset' as const/);
+    assert.match(service, /kind: 'restore' as const/);
     assert.match(service, /parseLocalMemoryMarkdown\(await readFile\(backupPath, 'utf8'\)\)/);
     assert.match(pageBlock, /settingsMemoryBackupState/);
     assert.match(pageBlock, /上一版 \{localMemoryBackupKindLabel\(effective\.latestBackup\.kind\)\}/);
@@ -368,6 +369,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /\$\{backup\.activeEntryCount\} 条生效/);
     assert.match(src, /重置前备份/);
     assert.match(src, /保存前备份/);
+    assert.match(src, /恢复前备份/);
     assert.match(css, /\.settingsMemoryBackupState/);
   });
 
@@ -427,12 +429,12 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(service, /async resolveBackupForOpen\(kind: LocalMemoryBackupInfo\['kind'\]\)/);
     assert.match(service, /backupInfos\(\)\)\.find\(\(candidate\) => candidate\.kind === kind\)/);
     assert.match(main, /ipcMain\.handle\('memory:openBackup'/);
-    assert.match(main, /kind !== 'save' && kind !== 'reset'/);
+    assert.match(main, /kind !== 'save' && kind !== 'reset' && kind !== 'restore'/);
     assert.match(main, /localMemory\.resolveBackupForOpen\(kind\)/);
     assert.match(main, /shell\.openPath\(resolved\.path\)/);
-    assert.match(preload, /openBackup\(kind: 'save' \| 'reset'\)/);
+    assert.match(preload, /openBackup\(kind: 'save' \| 'reset' \| 'restore'\)/);
     assert.match(preload, /memory:openBackup', kind/);
-    assert.match(globalTypes, /openBackup\(kind: 'save' \| 'reset'\)/);
+    assert.match(globalTypes, /openBackup\(kind: 'save' \| 'reset' \| 'restore'\)/);
     assert.match(pageBlock, /async function openBackupCandidate/);
     assert.match(pageBlock, /window\.maka\.memory\.openBackup\(backup\.kind\)/);
     assert.match(pageBlock, /打开\$\{localMemoryBackupKindLabel\(backup\.kind\)\}失败/);
@@ -453,11 +455,11 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(service, /restoreBackupBySelector/);
     assert.match(service, /candidate\.kind === kind/);
     assert.match(main, /ipcMain\.handle\('memory:restoreBackup'/);
-    assert.match(main, /kind !== 'save' && kind !== 'reset'/);
+    assert.match(main, /kind !== 'save' && kind !== 'reset' && kind !== 'restore'/);
     assert.match(main, /localMemory\.restoreBackup\(kind\)/);
-    assert.match(preload, /restoreBackup\(kind: 'save' \| 'reset'\)/);
+    assert.match(preload, /restoreBackup\(kind: 'save' \| 'reset' \| 'restore'\)/);
     assert.match(preload, /memory:restoreBackup', kind/);
-    assert.match(globalTypes, /restoreBackup\(kind: 'save' \| 'reset'\)/);
+    assert.match(globalTypes, /restoreBackup\(kind: 'save' \| 'reset' \| 'restore'\)/);
     assert.match(pageBlock, /async function restoreBackupCandidate/);
     assert.match(pageBlock, /window\.maka\.memory\.restoreBackup\(backup\.kind\)/);
     assert.match(pageBlock, /恢复这个备份候选会先备份当前 MEMORY\.md/);

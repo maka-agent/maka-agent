@@ -3291,7 +3291,11 @@ function formatLocalMemorySaveSummary(state: LocalMemoryState): string {
 }
 
 function localMemoryBackupKindLabel(kind: NonNullable<LocalMemoryState['latestBackup']>['kind']): string {
-  return kind === 'reset' ? '重置前备份' : '保存前备份';
+  switch (kind) {
+    case 'reset': return '重置前备份';
+    case 'restore': return '恢复前备份';
+    case 'save': return '保存前备份';
+  }
 }
 
 function localMemoryBackupSummary(backup: NonNullable<LocalMemoryState['latestBackup']>): string {

@@ -191,12 +191,12 @@ declare global {
         save(content: string): Promise<LocalMemoryState>;
         reset(): Promise<LocalMemoryState>;
         restoreLatestBackup(): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }>;
-        restoreBackup(kind: 'save' | 'reset'): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }>;
+        restoreBackup(kind: 'save' | 'reset' | 'restore'): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }>;
         setEnabled(enabled: boolean): Promise<LocalMemoryState>;
         setAgentReadEnabled(enabled: boolean): Promise<LocalMemoryState>;
         openFile(): Promise<{ ok: true } | { ok: false; message: string }>;
         openLatestBackup(): Promise<{ ok: true } | { ok: false; message: string }>;
-        openBackup(kind: 'save' | 'reset'): Promise<{ ok: true } | { ok: false; message: string }>;
+        openBackup(kind: 'save' | 'reset' | 'restore'): Promise<{ ok: true } | { ok: false; message: string }>;
       };
       workspaceInstructions: {
         getState(): Promise<WorkspaceInstructionsState>;

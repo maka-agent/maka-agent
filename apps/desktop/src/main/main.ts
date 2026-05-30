@@ -941,7 +941,7 @@ function registerIpc(): void {
   ipcMain.handle('memory:restoreBackup', async (_event, kind: unknown): Promise<
     { ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }
   > => {
-    if (kind !== 'save' && kind !== 'reset') {
+    if (kind !== 'save' && kind !== 'reset' && kind !== 'restore') {
       return { ok: false, state: await localMemory.getState(), message: '只能恢复已验证的 MEMORY.md 备份候选。' };
     }
     return localMemory.restoreBackup(kind);
@@ -965,7 +965,7 @@ function registerIpc(): void {
     return error ? { ok: false, message: error } : { ok: true };
   });
   ipcMain.handle('memory:openBackup', async (_event, kind: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-    if (kind !== 'save' && kind !== 'reset') return { ok: false, message: localMemoryBackupOpenFailureCopy('not-allowed') };
+    if (kind !== 'save' && kind !== 'reset' && kind !== 'restore') return { ok: false, message: localMemoryBackupOpenFailureCopy('not-allowed') };
     const resolved = await localMemory.resolveBackupForOpen(kind);
     if (!resolved.ok) return { ok: false, message: localMemoryBackupOpenFailureCopy(resolved.reason) };
     const error = await shell.openPath(resolved.path);

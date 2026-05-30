@@ -285,7 +285,7 @@ contextBridge.exposeInMainWorld('maka', {
     restoreLatestBackup(): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }> {
       return ipcRenderer.invoke('memory:restoreLatestBackup');
     },
-    restoreBackup(kind: 'save' | 'reset'): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }> {
+    restoreBackup(kind: 'save' | 'reset' | 'restore'): Promise<{ ok: true; state: LocalMemoryState } | { ok: false; state: LocalMemoryState; message: string }> {
       return ipcRenderer.invoke('memory:restoreBackup', kind);
     },
     setEnabled(enabled: boolean): Promise<LocalMemoryState> {
@@ -300,7 +300,7 @@ contextBridge.exposeInMainWorld('maka', {
     openLatestBackup(): Promise<{ ok: true } | { ok: false; message: string }> {
       return ipcRenderer.invoke('memory:openLatestBackup');
     },
-    openBackup(kind: 'save' | 'reset'): Promise<{ ok: true } | { ok: false; message: string }> {
+    openBackup(kind: 'save' | 'reset' | 'restore'): Promise<{ ok: true } | { ok: false; message: string }> {
       return ipcRenderer.invoke('memory:openBackup', kind);
     },
   },

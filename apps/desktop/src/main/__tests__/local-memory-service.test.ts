@@ -152,6 +152,36 @@ describe('LocalMemoryService', () => {
     assert.doesNotMatch(restored.state.content, /第二版/);
   });
 
+  it('surfaces the pre-restore backup as a restorable candidate', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## First',
+      '<!-- maka-memory: id=first origin=manual createdAt=1700000000000 -->',
+      '第一版。',
+      '',
+    ].join('\n'));
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## Second',
+      '<!-- maka-memory: id=second origin=manual createdAt=1700000000001 -->',
+      '第二版。',
+      '',
+    ].join('\n'));
+
+    const restored = await service.restoreBackup('save');
+    const restoreBackup = await service.resolveBackupForOpen('restore');
+
+    assert.equal(restored.ok, true);
+    assert.equal(restored.state.latestBackup?.kind, 'restore');
+    assert.match(restored.state.latestBackup?.path ?? '', /MEMORY\.md\.restore\.bak$/);
+    assert.ok(restored.state.backups?.some((backup) => backup.kind === 'restore'));
+    assert.equal(restoreBackup.ok, true);
+    if (restoreBackup.ok) assert.match(restoreBackup.path, /MEMORY\.md\.restore\.bak$/);
+  });
+
   it('surfaces reset backup metadata so restore is visible before click', async () => {
     const { service } = await makeService(1_700_000_000_000)();
     await service.save([

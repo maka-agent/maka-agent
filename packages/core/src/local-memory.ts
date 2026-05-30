@@ -37,7 +37,7 @@ export interface LocalMemoryParseResult {
 
 export interface LocalMemoryBackupInfo {
   readonly path: string;
-  readonly kind: 'save' | 'reset';
+  readonly kind: 'save' | 'reset' | 'restore';
   readonly updatedAt: number;
   readonly sizeBytes: number;
   readonly entryCount: number;
