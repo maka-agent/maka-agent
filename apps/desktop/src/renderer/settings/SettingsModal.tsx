@@ -3076,7 +3076,7 @@ function OpenGatewaySettingsPage(props: {
       <div className="settingsUsageSummary" aria-label="开放网关状态">
         <MetricCard title="状态" value={state.label} detail={state.detail} />
         <MetricCard title="监听地址" value={baseUrl} detail={gateway.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
-        <MetricCard title="访问凭据" value={gateway.token ? '已配置' : '未配置'} detail="Bearer token 保护所有 /v1 API" />
+        <MetricCard title="访问凭据" value={gateway.token ? '已配置' : '等待 token'} detail="Bearer token 保护所有 /v1 API" />
         <MetricCard title="实时连接" value={String(status?.activeEventStreams ?? 0)} detail="SSE 客户端" />
         <MetricCard title="能力" value="19 个端点" detail="/health · openapi · state · sessions · events · requests" />
       </div>
@@ -4335,7 +4335,7 @@ function featureTone(state: CapabilitySnapshot['feature']['state']): 'neutral' |
 function configurationLabel(state: CapabilitySnapshot['configuration']['state']): string {
   switch (state) {
     case 'not_required': return '不需要配置';
-    case 'missing': return '缺少必要配置';
+    case 'missing': return '等待补齐配置';
     case 'present': return '已填写';
   }
 }

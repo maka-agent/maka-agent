@@ -122,10 +122,11 @@ describe('Settings coming-soon cleanup contract', () => {
 
     assert.match(settings, /网关已开启，等待生成访问 token。生成 token 后服务会自动启动。/);
     assert.match(settings, /生成访问 token 后服务会自动启动/);
+    assert.match(settings, /gateway\.token \? '已配置' : '等待 token'/);
     assert.match(settings, /if \(error === 'missing_token'\) return '等待生成访问 token'/);
     assert.doesNotMatch(
       settings,
-      /网关已开启，但还没有 token|缺少访问 token/,
+      /网关已开启，但还没有 token|缺少访问 token|gateway\.token \? '已配置' : '未配置'/,
       'Open Gateway token copy should frame enabled-without-token as a pending token action, not a raw missing-field error',
     );
   });
@@ -139,6 +140,7 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(permissionPage![0], /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
     assert.match(settings, /not_determined:\s*\{\s*label:\s*'等待授权'/, 'OS not_determined should read as an actionable waiting state');
     assert.match(settings, /not_configured:\s*\{\s*label:\s*'等待配置'/, 'capability not_configured should read as an actionable waiting state');
+    assert.match(settings, /case\s+'missing':\s*return\s+'等待补齐配置'/, 'configuration missing should read as an actionable waiting state');
     assert.match(settings, /仍有运行态、权限或子功能需要处理/, 'degraded capability copy should describe a current action state');
     assert.doesNotMatch(
       permissionPage![0],
@@ -146,6 +148,7 @@ describe('Settings coming-soon cleanup contract', () => {
       'Permission Center visible copy must not expose implementation roadmap/helper language',
     );
     assert.doesNotMatch(settings, /not_configured:\s*\{\s*label:\s*'未配置'/, 'capability not_configured must not use raw missing-configuration copy');
+    assert.doesNotMatch(settings, /case\s+'missing':\s*return\s+'缺少必要配置'/, 'configuration missing must not use raw missing-field copy');
   });
 
   it('keeps bot readiness waiting states action-oriented', async () => {
