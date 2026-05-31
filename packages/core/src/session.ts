@@ -101,7 +101,7 @@ export interface SessionHeader {
   schemaVersion: 1;
 }
 
-export type BackendKind = 'ai-sdk' | 'fake';
+export type BackendKind = 'ai-sdk' | 'fake' | 'pi-agent';
 
 export interface SessionSummary {
   id: string;

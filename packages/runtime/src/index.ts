@@ -34,6 +34,13 @@ export type {
   ModelFactory,
   ModelFactoryInput,
 } from './ai-sdk-backend.js';
+export { PiAgentBackend, normalizePiAgentFrame } from './pi-agent-backend.js';
+export type {
+  PiAgentBackendInput,
+  PiAgentFrame,
+  PiAgentSendInput,
+  PiAgentTransport,
+} from './pi-agent-backend.js';
 
 export { buildBuiltinTools } from './builtin-tools.js';
 export type { MakaTool as BuiltinMakaTool, MakaToolContext as BuiltinMakaToolContext } from './builtin-tools.js';

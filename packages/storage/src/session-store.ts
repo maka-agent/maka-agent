@@ -284,8 +284,11 @@ function migrateHeader(header: StoredSessionHeader): SessionHeader {
   if (header.backend === 'claude') {
     return { ...header, ...statusFields, backend: 'ai-sdk', model, permissionMode };
   }
+  if (header.backend === 'pi-agent') {
+    return { ...header, ...statusFields, backend: 'pi-agent', model, permissionMode };
+  }
   if (header.backend === 'pi') {
-    return { ...header, ...statusFields, backend: 'fake', model, permissionMode };
+    return { ...header, ...statusFields, backend: 'pi-agent', model, permissionMode };
   }
   return {
     ...header,
