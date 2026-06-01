@@ -79,6 +79,18 @@ import {
   ClaudeSubscriptionService,
   isSubscriptionExperimentalEnabled,
 } from './oauth/claude-subscription-service.js';
+import {
+  CodexSubscriptionService,
+  isCodexSubscriptionExperimentalEnabled,
+} from './oauth/codex-subscription-service.js';
+import {
+  CursorSubscriptionService,
+  isCursorSubscriptionExperimentalEnabled,
+} from './oauth/cursor-subscription-service.js';
+import {
+  AntigravitySubscriptionService,
+  isAntigravitySubscriptionExperimentalEnabled,
+} from './oauth/antigravity-subscription-service.js';
 import { defaultWorkspacePrivacyContext } from '@maka/core/incognito';
 import type {
   PricingConfig,
@@ -207,6 +219,20 @@ const credentialStore = createSafeStorageCredentialStore(workspaceRoot);
 // imported behind MAKA_CLAUDE_SUBSCRIPTION_CLOAK flag (xuan G-X4)
 // and lives in a separate module not statically imported here.
 const claudeSubscription = new ClaudeSubscriptionService({
+  userDataDir: app.getPath('userData'),
+});
+// PR-MODEL-OAUTH-ALL-0: Codex / Cursor / Antigravity subscription
+// services. Same shape as `claudeSubscription` — main-process only,
+// IPC payloads never carry tokens, each gated behind its own
+// MAKA_*_EXPERIMENTAL env var. Antigravity is a `preview` placeholder
+// until the Google client_id question is resolved.
+const codexSubscription = new CodexSubscriptionService({
+  userDataDir: app.getPath('userData'),
+});
+const cursorSubscription = new CursorSubscriptionService({
+  userDataDir: app.getPath('userData'),
+});
+const antigravitySubscription = new AntigravitySubscriptionService({
   userDataDir: app.getPath('userData'),
 });
 const planReminderStore = createPlanReminderStore(workspaceRoot);
@@ -1433,6 +1459,198 @@ function registerIpc(): void {
   ipcMain.handle('claude-subscription:is-experimental-enabled', async () =>
     isSubscriptionExperimentalEnabled(),
   );
+
+  // ===========================================================
+  // PR-MODEL-OAUTH-ALL-0: Codex / Cursor / Antigravity subscription
+  // IPC. Same envelope shape as `claude-subscription:*` — every
+  // handler returns either a state snapshot or a
+  // `SubscriptionActionResult` envelope. Tokens never cross the
+  // IPC boundary; the experimental kill-switch is re-checked here
+  // so a DevTools-triggered `window.maka.codexSubscription.*`
+  // call cannot bypass the renderer-side hide.
+  // ===========================================================
+  const codexDisabledResponse = {
+    ok: false as const,
+    reason: 'experimental_disabled' as const,
+    message: 'OpenAI Codex 订阅账号为内部实验，当前未开启。',
+  };
+  ipcMain.handle('codex-subscription:is-experimental-enabled', async () =>
+    isCodexSubscriptionExperimentalEnabled(),
+  );
+  ipcMain.handle('codex-subscription:get-auth-url', async () => {
+    if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
+    return codexSubscription.getAuthorizationUrl();
+  });
+  ipcMain.handle(
+    'codex-subscription:open-auth-url',
+    async (_event, authRequestId: unknown) => {
+      if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
+      if (typeof authRequestId !== 'string') {
+        return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
+      }
+      return codexSubscription.openAuthorizationUrl(authRequestId);
+    },
+  );
+  ipcMain.handle(
+    'codex-subscription:complete-authorization',
+    async (_event, authRequestId: unknown) => {
+      if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
+      if (typeof authRequestId !== 'string') {
+        return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
+      }
+      return codexSubscription.completeAuthorization(authRequestId);
+    },
+  );
+  ipcMain.handle(
+    'codex-subscription:cancel-authorization',
+    async (_event, authRequestId: unknown) => {
+      if (!isCodexSubscriptionExperimentalEnabled()) return { ok: true as const };
+      codexSubscription.cancelAuthorization(
+        typeof authRequestId === 'string' ? authRequestId : undefined,
+      );
+      return { ok: true as const };
+    },
+  );
+  ipcMain.handle('codex-subscription:get-account-state', async () => {
+    if (!isCodexSubscriptionExperimentalEnabled()) {
+      return {
+        provider: 'codex-subscription' as const,
+        runtimeState: 'not_logged_in' as const,
+      };
+    }
+    return codexSubscription.getAccountState();
+  });
+  ipcMain.handle('codex-subscription:refresh-tokens', async () => {
+    if (!isCodexSubscriptionExperimentalEnabled()) return codexDisabledResponse;
+    return codexSubscription.refreshTokens();
+  });
+  ipcMain.handle('codex-subscription:logout', async () => {
+    // Logout is always allowed — even if experimental is off,
+    // clearing a stale local token file is harmless.
+    return codexSubscription.logout();
+  });
+
+  const cursorDisabledResponse = {
+    ok: false as const,
+    reason: 'experimental_disabled' as const,
+    message: 'Cursor 订阅账号为内部实验，当前未开启。',
+  };
+  ipcMain.handle('cursor-subscription:is-experimental-enabled', async () =>
+    isCursorSubscriptionExperimentalEnabled(),
+  );
+  ipcMain.handle('cursor-subscription:get-auth-url', async () => {
+    if (!isCursorSubscriptionExperimentalEnabled()) return cursorDisabledResponse;
+    return cursorSubscription.getAuthorizationUrl();
+  });
+  ipcMain.handle(
+    'cursor-subscription:open-auth-url',
+    async (_event, authRequestId: unknown) => {
+      if (!isCursorSubscriptionExperimentalEnabled()) return cursorDisabledResponse;
+      if (typeof authRequestId !== 'string') {
+        return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
+      }
+      return cursorSubscription.openAuthorizationUrl(authRequestId);
+    },
+  );
+  ipcMain.handle(
+    'cursor-subscription:complete-authorization',
+    async (_event, authRequestId: unknown) => {
+      if (!isCursorSubscriptionExperimentalEnabled()) return cursorDisabledResponse;
+      if (typeof authRequestId !== 'string') {
+        return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
+      }
+      return cursorSubscription.completeAuthorization(authRequestId);
+    },
+  );
+  ipcMain.handle(
+    'cursor-subscription:cancel-authorization',
+    async (_event, authRequestId: unknown) => {
+      if (!isCursorSubscriptionExperimentalEnabled()) return { ok: true as const };
+      cursorSubscription.cancelAuthorization(
+        typeof authRequestId === 'string' ? authRequestId : undefined,
+      );
+      return { ok: true as const };
+    },
+  );
+  ipcMain.handle('cursor-subscription:get-account-state', async () => {
+    if (!isCursorSubscriptionExperimentalEnabled()) {
+      return {
+        provider: 'cursor-subscription' as const,
+        runtimeState: 'not_logged_in' as const,
+      };
+    }
+    return cursorSubscription.getAccountState();
+  });
+  ipcMain.handle('cursor-subscription:refresh-tokens', async () => {
+    if (!isCursorSubscriptionExperimentalEnabled()) return cursorDisabledResponse;
+    return cursorSubscription.refreshTokens();
+  });
+  ipcMain.handle('cursor-subscription:logout', async () => {
+    return cursorSubscription.logout();
+  });
+
+  const antigravityDisabledResponse = {
+    ok: false as const,
+    reason: 'experimental_disabled' as const,
+    message: 'Google Antigravity 订阅账号为内部实验，当前未开启。',
+  };
+  ipcMain.handle('antigravity-subscription:is-experimental-enabled', async () =>
+    isAntigravitySubscriptionExperimentalEnabled(),
+  );
+  ipcMain.handle('antigravity-subscription:get-auth-url', async () => {
+    if (!isAntigravitySubscriptionExperimentalEnabled()) return antigravityDisabledResponse;
+    // The service itself returns the "需要 Google client_id" envelope
+    // when GOOGLE_CLIENT_ID is empty (preview status). This handler
+    // just forwards.
+    return antigravitySubscription.getAuthorizationUrl();
+  });
+  ipcMain.handle(
+    'antigravity-subscription:open-auth-url',
+    async (_event, authRequestId: unknown) => {
+      if (!isAntigravitySubscriptionExperimentalEnabled()) return antigravityDisabledResponse;
+      if (typeof authRequestId !== 'string') {
+        return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
+      }
+      return antigravitySubscription.openAuthorizationUrl(authRequestId);
+    },
+  );
+  ipcMain.handle(
+    'antigravity-subscription:complete-authorization',
+    async (_event, authRequestId: unknown) => {
+      if (!isAntigravitySubscriptionExperimentalEnabled()) return antigravityDisabledResponse;
+      if (typeof authRequestId !== 'string') {
+        return { ok: false as const, reason: 'authorization_pending' as const, message: '授权会话不存在。' };
+      }
+      return antigravitySubscription.completeAuthorization(authRequestId);
+    },
+  );
+  ipcMain.handle(
+    'antigravity-subscription:cancel-authorization',
+    async (_event, authRequestId: unknown) => {
+      if (!isAntigravitySubscriptionExperimentalEnabled()) return { ok: true as const };
+      antigravitySubscription.cancelAuthorization(
+        typeof authRequestId === 'string' ? authRequestId : undefined,
+      );
+      return { ok: true as const };
+    },
+  );
+  ipcMain.handle('antigravity-subscription:get-account-state', async () => {
+    if (!isAntigravitySubscriptionExperimentalEnabled()) {
+      return {
+        provider: 'antigravity-subscription' as const,
+        status: 'preview' as const,
+        runtimeState: 'not_logged_in' as const,
+      };
+    }
+    return antigravitySubscription.getAccountState();
+  });
+  ipcMain.handle('antigravity-subscription:refresh-tokens', async () => {
+    if (!isAntigravitySubscriptionExperimentalEnabled()) return antigravityDisabledResponse;
+    return antigravitySubscription.refreshTokens();
+  });
+  ipcMain.handle('antigravity-subscription:logout', async () => {
+    return antigravitySubscription.logout();
+  });
 
   // PR-WEB-SEARCH-TAVILY-0: explicit user-triggered web search. Token
   // is read from settings inside main; renderer never sees it. Falls

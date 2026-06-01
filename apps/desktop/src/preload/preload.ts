@@ -390,6 +390,107 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('claude-subscription:logout');
     },
   },
+  // PR-MODEL-OAUTH-ALL-0: Codex / Cursor / Antigravity subscription
+  // bridges. Same shape as `claudeSubscription` (no token-shaped
+  // fields, opaque authRequestId, action-result envelopes). Each
+  // service's state snapshot is provider-specific because the
+  // upstream auth claims differ (Codex carries JWT account_id /
+  // plan; Cursor has no public profile; Antigravity is preview-only).
+  codexSubscription: {
+    isExperimentalEnabled(): Promise<boolean> {
+      return ipcRenderer.invoke('codex-subscription:is-experimental-enabled');
+    },
+    getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult> {
+      return ipcRenderer.invoke('codex-subscription:get-auth-url');
+    },
+    openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('codex-subscription:open-auth-url', authRequestId);
+    },
+    completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('codex-subscription:complete-authorization', authRequestId);
+    },
+    cancelAuthorization(authRequestId?: string): Promise<{ ok: true }> {
+      return ipcRenderer.invoke('codex-subscription:cancel-authorization', authRequestId);
+    },
+    getAccountState(): Promise<{
+      provider: 'codex-subscription';
+      runtimeState: 'not_logged_in' | 'authorizing' | 'authenticated' | 'refreshing' | 'refresh_failed';
+      accountId?: string;
+      email?: string;
+      plan?: string;
+      picture?: string;
+      errorMessage?: string;
+    }> {
+      return ipcRenderer.invoke('codex-subscription:get-account-state');
+    },
+    refreshTokens(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('codex-subscription:refresh-tokens');
+    },
+    logout(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('codex-subscription:logout');
+    },
+  },
+  cursorSubscription: {
+    isExperimentalEnabled(): Promise<boolean> {
+      return ipcRenderer.invoke('cursor-subscription:is-experimental-enabled');
+    },
+    getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult> {
+      return ipcRenderer.invoke('cursor-subscription:get-auth-url');
+    },
+    openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('cursor-subscription:open-auth-url', authRequestId);
+    },
+    completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('cursor-subscription:complete-authorization', authRequestId);
+    },
+    cancelAuthorization(authRequestId?: string): Promise<{ ok: true }> {
+      return ipcRenderer.invoke('cursor-subscription:cancel-authorization', authRequestId);
+    },
+    getAccountState(): Promise<{
+      provider: 'cursor-subscription';
+      runtimeState: 'not_logged_in' | 'authorizing' | 'authenticated' | 'refreshing' | 'refresh_failed';
+      errorMessage?: string;
+    }> {
+      return ipcRenderer.invoke('cursor-subscription:get-account-state');
+    },
+    refreshTokens(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('cursor-subscription:refresh-tokens');
+    },
+    logout(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('cursor-subscription:logout');
+    },
+  },
+  antigravitySubscription: {
+    isExperimentalEnabled(): Promise<boolean> {
+      return ipcRenderer.invoke('antigravity-subscription:is-experimental-enabled');
+    },
+    getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult> {
+      return ipcRenderer.invoke('antigravity-subscription:get-auth-url');
+    },
+    openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('antigravity-subscription:open-auth-url', authRequestId);
+    },
+    completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('antigravity-subscription:complete-authorization', authRequestId);
+    },
+    cancelAuthorization(authRequestId?: string): Promise<{ ok: true }> {
+      return ipcRenderer.invoke('antigravity-subscription:cancel-authorization', authRequestId);
+    },
+    getAccountState(): Promise<{
+      provider: 'antigravity-subscription';
+      status: 'preview';
+      runtimeState: 'not_logged_in' | 'authorizing' | 'authenticated' | 'refreshing' | 'refresh_failed';
+      errorMessage?: string;
+    }> {
+      return ipcRenderer.invoke('antigravity-subscription:get-account-state');
+    },
+    refreshTokens(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('antigravity-subscription:refresh-tokens');
+    },
+    logout(): Promise<SubscriptionActionResult> {
+      return ipcRenderer.invoke('antigravity-subscription:logout');
+    },
+  },
   plans: {
     list(): Promise<PlanReminder[]> {
       return ipcRenderer.invoke('plans:list');
