@@ -246,6 +246,68 @@ declare global {
         refreshTokens(): Promise<SubscriptionActionResult>;
         logout(): Promise<SubscriptionActionResult>;
       };
+      codexSubscription: {
+        isExperimentalEnabled(): Promise<boolean>;
+        getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult>;
+        openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult>;
+        completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult>;
+        cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
+        getAccountState(): Promise<{
+          provider: 'codex-subscription';
+          runtimeState:
+            | 'not_logged_in'
+            | 'authorizing'
+            | 'authenticated'
+            | 'refreshing'
+            | 'refresh_failed';
+          accountId?: string;
+          email?: string;
+          plan?: string;
+          picture?: string;
+          errorMessage?: string;
+        }>;
+        refreshTokens(): Promise<SubscriptionActionResult>;
+        logout(): Promise<SubscriptionActionResult>;
+      };
+      cursorSubscription: {
+        isExperimentalEnabled(): Promise<boolean>;
+        getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult>;
+        openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult>;
+        completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult>;
+        cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
+        getAccountState(): Promise<{
+          provider: 'cursor-subscription';
+          runtimeState:
+            | 'not_logged_in'
+            | 'authorizing'
+            | 'authenticated'
+            | 'refreshing'
+            | 'refresh_failed';
+          errorMessage?: string;
+        }>;
+        refreshTokens(): Promise<SubscriptionActionResult>;
+        logout(): Promise<SubscriptionActionResult>;
+      };
+      antigravitySubscription: {
+        isExperimentalEnabled(): Promise<boolean>;
+        getAuthUrl(): Promise<AuthorizationUrlPayload | SubscriptionActionResult>;
+        openAuthUrl(authRequestId: string): Promise<SubscriptionActionResult>;
+        completeAuthorization(authRequestId: string): Promise<SubscriptionActionResult>;
+        cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
+        getAccountState(): Promise<{
+          provider: 'antigravity-subscription';
+          status: 'preview';
+          runtimeState:
+            | 'not_logged_in'
+            | 'authorizing'
+            | 'authenticated'
+            | 'refreshing'
+            | 'refresh_failed';
+          errorMessage?: string;
+        }>;
+        refreshTokens(): Promise<SubscriptionActionResult>;
+        logout(): Promise<SubscriptionActionResult>;
+      };
       plans: {
         list(): Promise<PlanReminder[]>;
         create(input: { title: string; note?: string; runAt: number | string; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }): Promise<PlanReminder>;
