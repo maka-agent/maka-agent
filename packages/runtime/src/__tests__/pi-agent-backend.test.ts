@@ -89,6 +89,50 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(third.value?.type === 'tool_result' ? third.value.isError : false, true);
   });
 
+  test('suppresses later child output for a denied permission request', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'ask' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_500) }),
+      transport: frames([
+        {
+          type: 'permission_request',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          args: { command: 'rm -rf tmp' },
+          categoryHint: 'shell_unsafe',
+        },
+        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'rm -rf tmp' } },
+        { type: 'tool_output_delta', toolUseId: 'tool-1', stream: 'stdout', chunk: 'deleted tmp\n' },
+        { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'executed' } },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(4_600),
+    });
+
+    const iterator = backend.send({ turnId: 'turn-1', text: 'delete temp files', context: [] })[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    assert.equal(first.value?.type, 'permission_request');
+    const requestId = first.value?.type === 'permission_request' ? first.value.requestId : '';
+
+    const secondPromise = iterator.next();
+    await backend.respondToPermission({ requestId, decision: 'deny' });
+    const events = [
+      (await secondPromise).value,
+      (await iterator.next()).value,
+      (await iterator.next()).value,
+    ].filter(Boolean) as SessionEvent[];
+
+    assert.deepEqual(events.map((event) => event.type), ['permission_decision_ack', 'tool_result', 'complete']);
+    const toolResults = messages.filter((message) => message.type === 'tool_result');
+    assert.equal(toolResults.length, 1);
+    assert.equal(toolResults[0]?.type === 'tool_result' ? toolResults[0].isError : false, true);
+    assert.equal(JSON.stringify(toolResults).includes('executed'), false);
+  });
+
   test('stop aborts a parked permission request and disposes the transport', async () => {
     let stopReason: string | null = null;
     let disposed = false;

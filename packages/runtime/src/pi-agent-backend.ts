@@ -66,6 +66,7 @@ export class PiAgentBackend implements AgentBackend {
   private currentTurnId: string | null = null;
   private outputSeqByTool = new Map<string, number>();
   private writtenToolCalls = new Set<string>();
+  private suppressedToolUseIds = new Set<string>();
 
   constructor(input: PiAgentBackendInput) {
     this.input = input;
@@ -83,6 +84,7 @@ export class PiAgentBackend implements AgentBackend {
     this.currentTurnId = turnId;
     this.outputSeqByTool = new Map();
     this.writtenToolCalls = new Set();
+    this.suppressedToolUseIds = new Set();
     this.input.permissionEngine.beginTurn(turnId);
 
     try {
@@ -130,6 +132,7 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'tool_start': {
+            if (this.suppressedToolUseIds.has(frame.toolUseId)) break;
             await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, frame.args, frame.displayName, frame.intent);
             yield {
               type: 'tool_start',
@@ -145,6 +148,7 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'tool_output_delta': {
+            if (this.suppressedToolUseIds.has(frame.toolUseId)) break;
             const seq = (this.outputSeqByTool.get(frame.toolUseId) ?? 0) + 1;
             this.outputSeqByTool.set(frame.toolUseId, seq);
             const redacted = redactBoundedText(frame.chunk);
@@ -165,6 +169,7 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'tool_result': {
+            if (this.suppressedToolUseIds.has(frame.toolUseId)) break;
             const content = normalizeToolResultContent(frame.content);
             await this.appendToolResult(turnId, frame.toolUseId, Boolean(frame.isError), content);
             yield {
@@ -248,6 +253,7 @@ export class PiAgentBackend implements AgentBackend {
       this.currentTurnId = null;
       this.outputSeqByTool.clear();
       this.writtenToolCalls.clear();
+      this.suppressedToolUseIds.clear();
       this.stopped = false;
     }
   }
@@ -289,6 +295,7 @@ export class PiAgentBackend implements AgentBackend {
     });
 
     if (verdict.kind === 'block') {
+      this.suppressedToolUseIds.add(frame.toolUseId);
       const content: ToolResultContent = { kind: 'text', text: redactBoundedText(verdict.reason) };
       await this.appendToolResult(turnId, frame.toolUseId, true, content);
       yield this.toolResultEvent(turnId, frame.toolUseId, true, content);
@@ -334,6 +341,7 @@ export class PiAgentBackend implements AgentBackend {
     };
 
     if (response.decision === 'deny') {
+      this.suppressedToolUseIds.add(frame.toolUseId);
       const content: ToolResultContent = { kind: 'text', text: 'User denied permission' };
       await this.appendToolResult(turnId, frame.toolUseId, true, content);
       yield this.toolResultEvent(turnId, frame.toolUseId, true, content);
