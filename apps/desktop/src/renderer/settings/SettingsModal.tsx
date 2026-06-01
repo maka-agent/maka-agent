@@ -4119,6 +4119,23 @@ function BotChatSettingsPage(props: {
     setStatuses(nextStatuses);
   }
 
+  async function disconnectWechatLogin() {
+    if (!confirm('断开微信登录会清除本机保存的扫码登录凭据，确认吗？')) return;
+    const isIlink = channel.webhookUrl?.trim().startsWith('https://ilinkai.weixin.qq.com') ?? false;
+    await updateChannel({
+      token: '',
+      ...(isIlink ? { webhookUrl: '' } : {}),
+      botUserId: undefined,
+      connected: false,
+      readiness: 'scaffolded',
+      readinessReason: undefined,
+      readinessUpdatedAt: Date.now(),
+      lastError: undefined,
+    });
+    await refreshBotStatuses();
+    toast.success('微信登录已断开', '本机扫码登录凭据已清除。');
+  }
+
   const support = BOT_LABELS[selected].support;
   const readiness = support === 'credentials'
     ? channel.readiness
@@ -4401,6 +4418,15 @@ function BotChatSettingsPage(props: {
               >
                 扫码登录
               </button>
+              {(channel.token || selectedStatus?.identity) && (
+                <button
+                  className="settingsBotAction"
+                  type="button"
+                  onClick={() => void disconnectWechatLogin()}
+                >
+                  断开微信登录
+                </button>
+              )}
               <button
                 className="settingsBotAction"
                 type="button"

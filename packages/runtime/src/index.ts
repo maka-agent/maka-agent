@@ -102,10 +102,13 @@ export {
   botReadinessFromSettings,
   botSettingsRequireRestart,
   getWechatBridgeQrCode,
+  mapWechatIlinkMessage,
   normalizeWechatBridgeUrl,
+  normalizeWechatIlinkBaseUrl,
   proxiedFetch,
   testBotChannel,
   testWechatBridge,
+  testWechatIlinkCredentials,
   WechatBridge,
 } from './bots/index.js';
 export { setActiveProxy, resolveActiveProxy } from './network/active-proxy-state.js';

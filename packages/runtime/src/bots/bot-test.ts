@@ -1,7 +1,7 @@
 import { botDisplayLabel, type BotChannelSettings, type BotProvider } from '@maka/core';
 import type { BotTestResult } from './types.js';
 import { proxiedFetch } from './proxied-fetch.js';
-import { testWechatBridge } from './wechat-bridge.js';
+import { normalizeWechatIlinkBaseUrl, testWechatBridge, testWechatIlinkCredentials } from './wechat-bridge.js';
 
 const BOT_TEST_TIMEOUT_MS = 10_000;
 
@@ -28,6 +28,9 @@ export async function testBotChannel(provider: BotProvider, channel: BotChannelS
 }
 
 async function testWechat(channel: BotChannelSettings): Promise<BotTestResult> {
+  if (channel.token.trim() && normalizeWechatIlinkBaseUrl(channel.webhookUrl)) {
+    return testWechatIlinkCredentials(channel);
+  }
   const appId = channel.appId?.trim() ?? '';
   const appSecret = channel.appSecret?.trim() || channel.token.trim();
   if (!appId || !appSecret) {
