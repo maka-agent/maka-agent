@@ -362,65 +362,77 @@ export function ProviderLogo(props: { type: ProviderType; compact?: boolean }) {
 }
 
 /**
- * PR-MODEL-OAUTH-SECTION-0 (WAWQAQ msg `ac1bdf15` / `0b924818`): dedicated
- * OAuth login section pinned to the top of Settings → 模型. Lists the
- * four account-bound providers as prominent brand cards instead of
- * burying them under the API-key catalog. Claude wires to the existing
- * ClaudeSubscriptionCard flow in Settings → 账号; Codex / Antigravity /
- * Cursor land as service implementations in follow-up sprints
- * (PR-CODEX-OAUTH-0, PR-ANTIGRAVITY-OAUTH-0, PR-CURSOR-OAUTH-0).
+ * PR-MODEL-OAUTH-SECTION-0 / PR-MODEL-OAUTH-ALL-0:
+ *
+ * Dedicated OAuth login section pinned to the top of Settings → 模型.
+ * Lists the four account-bound providers as prominent brand cards.
+ *
+ * Claude continues to jump to Settings → 账号 (its dedicated
+ * ClaudeSubscriptionCard with quota meter lives there). Codex /
+ * Cursor / Antigravity each open an inline modal here that drives
+ * the corresponding `window.maka.<provider>Subscription` bridge —
+ * getAuthUrl → openExternal → wait for completion → refresh state.
  */
-function ModelOAuthSection() {
-  const cards: ReadonlyArray<{
-    id: string;
-    name: string;
-    accent: string;
-    description: string;
-    status: 'available' | 'planned';
-    statusLabel: string;
-  }> = [
-    {
-      id: 'claude',
-      name: 'Claude Pro / Max',
-      accent: '#D97757',
-      description: '用 ChatGPT 之外的订阅给 Anthropic 模型，登录在 设置 → 账号。',
-      status: 'available',
-      statusLabel: '可用',
-    },
-    {
-      id: 'codex',
-      name: 'OpenAI Codex',
-      accent: '#10A37F',
-      description: '用 ChatGPT Plus / Pro 订阅给 OpenAI Codex / GPT-5 等模型。',
-      status: 'planned',
-      statusLabel: '即将',
-    },
-    {
-      id: 'antigravity',
-      name: 'Google Antigravity',
-      accent: '#4285F4',
-      description: '用 Google 账号给 Gemini 系列模型。',
-      status: 'planned',
-      statusLabel: '即将',
-    },
-    {
-      id: 'cursor',
-      name: 'Cursor',
-      accent: '#000000',
-      description: '用 Cursor 订阅给本机 OpenAI-compatible 代理。',
-      status: 'planned',
-      statusLabel: '即将',
-    },
-  ];
+type OAuthCardId = 'claude' | 'codex' | 'antigravity' | 'cursor';
+type OAuthServiceId = Exclude<OAuthCardId, 'claude'>;
 
-  function handleClick(id: string) {
+interface ModelOAuthCard {
+  id: OAuthCardId;
+  name: string;
+  accent: string;
+  description: string;
+  status: 'available';
+  statusLabel: string;
+}
+
+const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
+  {
+    id: 'claude',
+    name: 'Claude Pro / Max',
+    accent: '#D97757',
+    description: '用 Anthropic 订阅给 Claude 模型，登录在 设置 → 账号。',
+    status: 'available',
+    statusLabel: '可用',
+  },
+  {
+    id: 'codex',
+    name: 'OpenAI Codex',
+    accent: '#10A37F',
+    description: '用 ChatGPT Plus / Pro 订阅给 OpenAI Codex / GPT-5 等模型。',
+    status: 'available',
+    statusLabel: '可用',
+  },
+  {
+    id: 'antigravity',
+    name: 'Google Antigravity',
+    accent: '#4285F4',
+    description: '用 Google 账号给 Gemini 系列模型。',
+    status: 'available',
+    statusLabel: '预览',
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    accent: '#000000',
+    description: '用 Cursor 订阅给本机 OpenAI-compatible 代理。',
+    status: 'available',
+    statusLabel: '可用',
+  },
+];
+
+function ModelOAuthSection() {
+  const [openModal, setOpenModal] = useState<OAuthServiceId | null>(null);
+
+  function handleClick(id: OAuthCardId) {
     if (id === 'claude') {
       // Open Settings → 账号 where ClaudeSubscriptionCard lives. The
       // cmd-palette already supports cross-section jumps via the
       // 'requestedSection' prop wired into SettingsModal.
       const event = new CustomEvent('maka:jumpToSettingsSection', { detail: { section: 'account' } });
       window.dispatchEvent(event);
+      return;
     }
+    setOpenModal(id);
   }
 
   return (
@@ -430,13 +442,13 @@ function ModelOAuthSection() {
         <p>用账号订阅替代 API key —— 不需要拷贝 token，登录后直接用模型。</p>
       </div>
       <div className="providerOAuthGrid">
-        {cards.map((card) => (
+        {MODEL_OAUTH_CARDS.map((card) => (
           <button
             key={card.id}
             type="button"
             className="providerOAuthCard"
+            data-card-id={card.id}
             data-status={card.status}
-            disabled={card.status === 'planned'}
             style={{ ['--oauth-accent' as string]: card.accent }}
             onClick={() => handleClick(card.id)}
           >
@@ -446,8 +458,261 @@ function ModelOAuthSection() {
           </button>
         ))}
       </div>
+      {openModal !== null && (
+        <SubscriptionLoginModal
+          serviceId={openModal}
+          onClose={() => setOpenModal(null)}
+        />
+      )}
     </section>
   );
+}
+
+/**
+ * Inline modal that drives a Codex / Cursor / Antigravity OAuth
+ * flow against the matching `window.maka.<service>Subscription`
+ * bridge. Mirrors the ClaudeSubscriptionCard pattern (Settings →
+ * 账号) but does NOT expose a paste-code field — these flows are
+ * loopback (Codex / Antigravity) or polling (Cursor) so the
+ * browser handoff is enough.
+ *
+ * Tokens never enter the renderer; this component reads only
+ * account-state snapshots returned by getAccountState().
+ */
+function SubscriptionLoginModal(props: { serviceId: OAuthServiceId; onClose(): void }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  useModalA11y(dialogRef, props.onClose);
+  const toast = useToast();
+  const bridge = pickSubscriptionBridge(props.serviceId);
+  const [state, setState] = useState<SubscriptionSnapshot | null>(null);
+  const [authRequestId, setAuthRequestId] = useState<string | null>(null);
+  const [stateHint, setStateHint] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const display = subscriptionDisplay(props.serviceId);
+
+  async function refresh() {
+    try {
+      const next = (await bridge.getAccountState()) as SubscriptionSnapshot;
+      setState(next);
+    } catch {
+      // Surface as not_logged_in; modal stays open.
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  // Cancel any pending authorization if the modal closes mid-flow.
+  useEffect(() => {
+    return () => {
+      if (authRequestId) {
+        void bridge.cancelAuthorization(authRequestId);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authRequestId]);
+
+  async function startLogin() {
+    setPendingAction(true);
+    setErrorMessage(null);
+    try {
+      const payload = await bridge.getAuthUrl();
+      if ('ok' in payload) {
+        const failureMessage = payload.ok ? '请稍后再试。' : payload.message;
+        toast.error('无法开始登录', failureMessage);
+        setErrorMessage(failureMessage);
+        return;
+      }
+      setAuthRequestId(payload.authRequestId);
+      setStateHint(payload.stateHint);
+      const opened = await bridge.openAuthUrl(payload.authRequestId);
+      if (!opened.ok) {
+        toast.error('无法打开浏览器', opened.message);
+        setErrorMessage(opened.message);
+        setAuthRequestId(null);
+        setStateHint(null);
+        return;
+      }
+      await refresh();
+      // Loopback / polling — wait for the backend to complete.
+      const result = await bridge.completeAuthorization(payload.authRequestId);
+      setAuthRequestId(null);
+      setStateHint(null);
+      if (result.ok) {
+        toast.success('登录成功', `${display.name} 已绑定本机。`);
+        await refresh();
+      } else {
+        toast.error('登录未完成', result.message);
+        setErrorMessage(result.message);
+      }
+    } finally {
+      setPendingAction(false);
+    }
+  }
+
+  async function logout() {
+    if (!confirm(`退出登录将删除本地保存的${display.name}凭据，确认吗？`)) return;
+    setPendingAction(true);
+    try {
+      const result = await bridge.logout();
+      if (result.ok) {
+        toast.success('已退出登录', '本地凭据已清除。');
+        await refresh();
+      } else {
+        toast.error('退出失败', result.message);
+      }
+    } finally {
+      setPendingAction(false);
+    }
+  }
+
+  const runtimeState = state?.runtimeState ?? 'loading';
+  const isLoggedIn = runtimeState === 'authenticated' || runtimeState === 'refreshing';
+
+  return (
+    <div className="providerConfigOverlay" role="presentation" onMouseDown={props.onClose}>
+      <section
+        ref={dialogRef as RefObject<HTMLDivElement>}
+        className="providerConfigSheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${display.name} 登录`}
+        data-subscription={props.serviceId}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="providerConfigHeader">
+          <div>
+            <h3>{display.name}</h3>
+            <p>{display.detail}</p>
+          </div>
+          <button
+            type="button"
+            className="maka-button"
+            data-variant="ghost"
+            onClick={props.onClose}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </header>
+        <div className="settingsConnectionRow" data-status={runtimeState}>
+          <p className="settingsConnectionDetail">
+            {presentSnapshotDetail(state, display)}
+          </p>
+          {stateHint && (
+            <small>提示：state 以 <code>{stateHint}</code> 开头。</small>
+          )}
+          {errorMessage && (
+            <small className="settingsErrorText">{errorMessage}</small>
+          )}
+          <div className="settingsConnectionActions">
+            {!isLoggedIn ? (
+              <button
+                type="button"
+                className="maka-button"
+                data-variant="primary"
+                onClick={() => void startLogin()}
+                disabled={pendingAction}
+              >
+                {pendingAction ? '等待浏览器…' : `登录 ${display.shortName}`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="maka-button"
+                data-variant="ghost"
+                onClick={() => void logout()}
+                disabled={pendingAction}
+              >
+                退出登录
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+interface SubscriptionSnapshot {
+  runtimeState: 'not_logged_in' | 'authorizing' | 'authenticated' | 'refreshing' | 'refresh_failed';
+  email?: string;
+  plan?: string;
+  status?: 'preview';
+  errorMessage?: string;
+}
+
+interface SubscriptionBridge {
+  getAuthUrl(): Promise<
+    { authRequestId: string; stateHint: string } | { ok: boolean; reason?: string; message: string }
+  >;
+  openAuthUrl(authRequestId: string): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
+  completeAuthorization(authRequestId: string): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
+  cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
+  getAccountState(): Promise<unknown>;
+  logout(): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
+}
+
+function pickSubscriptionBridge(serviceId: OAuthServiceId): SubscriptionBridge {
+  switch (serviceId) {
+    case 'codex':
+      return window.maka.codexSubscription as unknown as SubscriptionBridge;
+    case 'cursor':
+      return window.maka.cursorSubscription as unknown as SubscriptionBridge;
+    case 'antigravity':
+      return window.maka.antigravitySubscription as unknown as SubscriptionBridge;
+  }
+}
+
+interface SubscriptionDisplay {
+  name: string;
+  shortName: string;
+  detail: string;
+}
+
+function subscriptionDisplay(serviceId: OAuthServiceId): SubscriptionDisplay {
+  switch (serviceId) {
+    case 'codex':
+      return {
+        name: 'OpenAI Codex',
+        shortName: 'Codex',
+        detail: '点击下方按钮打开浏览器登录，授权完成后会自动回写到本机（127.0.0.1:1455）。',
+      };
+    case 'cursor':
+      return {
+        name: 'Cursor',
+        shortName: 'Cursor',
+        detail: '点击下方按钮打开浏览器登录；Maka 会自动等待 Cursor 后端确认凭据。',
+      };
+    case 'antigravity':
+      return {
+        name: 'Google Antigravity',
+        shortName: 'Antigravity',
+        detail: '使用 Google 账号登录给 Gemini 模型。当前为预览占位卡片，等待 antigravity-auth 客户端配置。',
+      };
+  }
+}
+
+function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: SubscriptionDisplay): string {
+  if (!state) return '正在加载账号状态…';
+  switch (state.runtimeState) {
+    case 'not_logged_in':
+      return `${display.name} 尚未登录。`;
+    case 'authorizing':
+      return '请在弹出的浏览器窗口完成登录。';
+    case 'authenticated': {
+      const parts = ['已登录'];
+      if (state.email) parts.push(state.email);
+      if (state.plan) parts.push(state.plan);
+      return parts.join(' · ');
+    }
+    case 'refreshing':
+      return '正在刷新访问令牌…';
+    case 'refresh_failed':
+      return state.errorMessage ?? '令牌刷新失败，请重新登录。';
+  }
 }
 
 function ProviderLogoMark({ type }: { type: ProviderType }) {
