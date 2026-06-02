@@ -75,6 +75,7 @@ import { queryTavily, TAVILY_TEST_QUERY, TAVILY_TEST_LIMIT } from './web-search/
 import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
 import { resolveTavilyApiKey } from './web-search/credentials.js';
 import { runThreadSearch } from './search/thread-search.js';
+import { normalizePermissionResponse } from './permission-response-guard.js';
 import {
   ClaudeSubscriptionService,
   isSubscriptionExperimentalEnabled,
@@ -1741,7 +1742,7 @@ function registerIpc(): void {
     runtime.stopSession(sessionId, input),
   );
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
-    runtime.respondToPermission(sessionId, response),
+    runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
   );
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: SessionCommand) => {
     if (command.type !== 'send') return;
