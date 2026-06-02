@@ -141,6 +141,26 @@ describe('permission response IPC boundary', () => {
     assert.doesNotMatch(sendHandler, /command\.attachments/);
   });
 
+  it('renderer stop() and respondToPermission() surface IPC failures as toasts (PR-STOP-ERROR-SURFACE-0)', async () => {
+    // The Composer wires onStop via both the button onClick and the
+    // Escape key handler, neither of which awaits the returned
+    // promise. If stop() lets the IPC reject without try/catch the
+    // failure dies as UnhandledPromiseRejection and the user sees
+    // nothing while the model keeps streaming. Same applies to
+    // respondToPermission().
+    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
+    const renderer = await readFile(rendererPath, 'utf8');
+    // Match `async function stop()` body up to its closing brace.
+    const stop = renderer.match(/async function stop\(\)\s*\{[\s\S]*?\n  \}/);
+    assert.ok(stop, 'stop() must exist in main.tsx');
+    assert.match(stop[0], /try\s*\{[\s\S]*?await window\.maka\.sessions\.stop/);
+    assert.match(stop[0], /catch \(error\)[\s\S]*?toastApi\.error\(['"]停止失败['"]/);
+    const respond = renderer.match(/async function respondToPermission\([\s\S]*?\n  \}/);
+    assert.ok(respond, 'respondToPermission() must exist');
+    assert.match(respond[0], /try\s*\{[\s\S]*?await window\.maka\.sessions\.respondToPermission/);
+    assert.match(respond[0], /catch \(error\)[\s\S]*?toastApi\.error\(['"]响应失败['"]/);
+  });
+
   it('refreshes active messages when a sessions:changed message-appended event arrives', async () => {
     const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
     const renderer = await readFile(rendererPath, 'utf8');
