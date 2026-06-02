@@ -40,7 +40,6 @@ import type {
   CreateConnectionInput,
   CreateSessionInput,
   DailyReviewSummary,
-  SessionCommand,
   SessionChangedEvent,
   SessionChangedReason,
   SessionEvent,
@@ -77,6 +76,8 @@ import {
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
   normalizeRetryTurnInput,
+  normalizeSessionSendCommand,
+  normalizeStopSessionInput,
 } from './permission-response-guard.js';
 import {
   ClaudeSubscriptionService,
@@ -1741,25 +1742,26 @@ function registerIpc(): void {
     });
   });
   ipcMain.handle('sessions:stop', (_event, sessionId: string, input?: { source?: 'stop_button' }) =>
-    runtime.stopSession(sessionId, input),
+    runtime.stopSession(sessionId, normalizeStopSessionInput(input)),
   );
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
   );
-  ipcMain.handle('sessions:send', async (event, sessionId: string, command: SessionCommand) => {
-    if (command.type !== 'send') return;
+  ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
+    const sendCommand = normalizeSessionSendCommand(command);
+    if (!sendCommand) return;
     await ensureSessionCanSend(sessionId);
-    const attachments = validateRendererAttachments(command.attachments, {
+    const attachments = validateRendererAttachments(sendCommand.attachments, {
       senderId: event.sender.id,
       approvals: attachmentApprovals,
     });
     if (!attachments.ok) {
       throw new Error(attachmentValidationFailureCopy(attachments.reason));
     }
-    const turnId = command.turnId || randomUUID();
+    const turnId = sendCommand.turnId || randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
-      text: command.text,
+      text: sendCommand.text,
       attachments: attachments.attachments,
     });
     void streamEvents(sessionId, iterator, turnId);

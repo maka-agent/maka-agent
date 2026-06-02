@@ -138,7 +138,7 @@ describe('renderer attachment validation', () => {
     const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
 
     assert.match(source, /const attachmentApprovals = createAttachmentApprovalRegistry\(\)/);
-    assert.match(source, /validateRendererAttachments\(command\.attachments/);
+    assert.match(source, /validateRendererAttachments\(sendCommand\.attachments/);
     assert.match(source, /senderId: event\.sender\.id/);
     assert.match(source, /attachments: attachments\.attachments/);
     assert.doesNotMatch(source, /attachments: command\.attachments/);

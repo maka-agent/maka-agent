@@ -8,6 +8,8 @@ import {
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
   normalizeRetryTurnInput,
+  normalizeSessionSendCommand,
+  normalizeStopSessionInput,
 } from '../permission-response-guard.js';
 
 describe('permission response IPC boundary', () => {
@@ -88,5 +90,51 @@ describe('permission response IPC boundary', () => {
     assert.doesNotMatch(regenerateHandler, /runtime\.regenerateTurn\(sessionId,\s*\{\s*\.\.\.input/);
     assert.match(branchHandler, /normalizeBranchFromTurnInput\(input\)/);
     assert.doesNotMatch(branchHandler, /runtime\.branchFromTurn\(sessionId,\s*input\)/);
+  });
+
+  it('normalizes session send commands and rejects malformed send payloads', () => {
+    assert.deepEqual(
+      normalizeSessionSendCommand({
+        type: 'send',
+        turnId: 'turn-1',
+        text: 'hello',
+        attachments: [{ kind: 'image' }],
+        extra: true,
+      }),
+      {
+        type: 'send',
+        turnId: 'turn-1',
+        text: 'hello',
+        attachments: [{ kind: 'image' }],
+      },
+    );
+    assert.deepEqual(
+      normalizeSessionSendCommand({ type: 'send', text: 'hello' }),
+      { type: 'send', text: 'hello' },
+    );
+    assert.equal(normalizeSessionSendCommand({ type: 'stop' }), undefined);
+    assert.throws(() => normalizeSessionSendCommand(null), /session command/);
+    assert.throws(() => normalizeSessionSendCommand({ type: 'send', text: '' }), /send text/);
+    assert.throws(() => normalizeSessionSendCommand({ type: 'send', turnId: 1, text: 'hello' }), /send turnId/);
+  });
+
+  it('normalizes stop session input and rejects malformed stop sources', () => {
+    assert.deepEqual(normalizeStopSessionInput(undefined), {});
+    assert.deepEqual(normalizeStopSessionInput({ source: 'stop_button', extra: true }), { source: 'stop_button' });
+    assert.throws(() => normalizeStopSessionInput(null), /stop session input/);
+    assert.throws(() => normalizeStopSessionInput({ source: 'toolbar' }), /stop session source/);
+  });
+
+  it('routes send and stop IPC payloads through main-process normalizers', async () => {
+    const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
+    const main = await readFile(mainPath, 'utf8');
+    const stopHandler = main.match(/ipcMain\.handle\('sessions:stop'[\s\S]*?\n  \);/)?.[0] ?? '';
+    const sendHandler = main.match(/ipcMain\.handle\('sessions:send'[\s\S]*?\n  \);/)?.[0] ?? '';
+
+    assert.match(stopHandler, /normalizeStopSessionInput\(input\)/);
+    assert.doesNotMatch(stopHandler, /runtime\.stopSession\(sessionId,\s*input\)/);
+    assert.match(sendHandler, /normalizeSessionSendCommand\(command\)/);
+    assert.doesNotMatch(sendHandler, /command\.text/);
+    assert.doesNotMatch(sendHandler, /command\.attachments/);
   });
 });
