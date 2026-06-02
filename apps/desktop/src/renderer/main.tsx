@@ -670,6 +670,10 @@ function AppShell() {
       ) {
         clearPendingTurnActionsForSession(event.sessionId);
       }
+      const changedSessionId = event.sessionId;
+      if (event.reason === 'message-appended' && changedSessionId && changedSessionId === activeIdRef.current) {
+        void refreshMessages(changedSessionId);
+      }
       if (event.reason === 'rebound') {
         const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
         toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);

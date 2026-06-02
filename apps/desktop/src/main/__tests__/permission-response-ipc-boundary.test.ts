@@ -133,8 +133,21 @@ describe('permission response IPC boundary', () => {
 
     assert.match(stopHandler, /normalizeStopSessionInput\(input\)/);
     assert.doesNotMatch(stopHandler, /runtime\.stopSession\(sessionId,\s*input\)/);
+    assert.match(stopHandler, /emitSessionsChanged\('status-change',\s*sessionId\)/);
+    assert.match(stopHandler, /emitSessionsChanged\('turn-status-change',\s*sessionId\)/);
+    assert.match(stopHandler, /emitSessionsChanged\('message-appended',\s*sessionId\)/);
     assert.match(sendHandler, /normalizeSessionSendCommand\(command\)/);
     assert.doesNotMatch(sendHandler, /command\.text/);
     assert.doesNotMatch(sendHandler, /command\.attachments/);
+  });
+
+  it('refreshes active messages when a sessions:changed message-appended event arrives', async () => {
+    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
+    const renderer = await readFile(rendererPath, 'utf8');
+
+    assert.match(
+      renderer,
+      /event\.reason === 'message-appended' && event\.sessionId === activeIdRef\.current[\s\S]*?refreshMessages\(event\.sessionId\)/,
+    );
   });
 });

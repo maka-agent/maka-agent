@@ -1741,9 +1741,12 @@ function registerIpc(): void {
       getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
     });
   });
-  ipcMain.handle('sessions:stop', (_event, sessionId: string, input?: { source?: 'stop_button' }) =>
-    runtime.stopSession(sessionId, normalizeStopSessionInput(input)),
-  );
+  ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
+    await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
+    emitSessionsChanged('status-change', sessionId);
+    emitSessionsChanged('turn-status-change', sessionId);
+    emitSessionsChanged('message-appended', sessionId);
+  });
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
   );
