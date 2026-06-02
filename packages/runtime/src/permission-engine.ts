@@ -198,6 +198,14 @@ export class PermissionEngine {
     turnId: string,
     response: PermissionResponse,
   ): { category: ToolCategory; toolUseId: string } | null {
+    if (
+      !response ||
+      typeof response.requestId !== 'string' ||
+      (response.decision !== 'allow' && response.decision !== 'deny') ||
+      (response.rememberForTurn !== undefined && typeof response.rememberForTurn !== 'boolean')
+    ) {
+      throw new Error('Invalid permission response');
+    }
     const state = this.turns.get(turnId);
     if (!state) return null;
     const parked = state.parked.get(response.requestId);

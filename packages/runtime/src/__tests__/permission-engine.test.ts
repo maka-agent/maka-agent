@@ -4,6 +4,7 @@
  */
 
 import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import { PermissionEngine, type PermissionEngineDeps } from '../permission-engine.js';
 import type { PermissionResponse } from '@maka/core/permission';
@@ -245,6 +246,34 @@ describe('PermissionEngine — turn lifecycle', () => {
 });
 
 describe('PermissionEngine — recordResponse edge cases', () => {
+  test('malformed response decisions fail closed before resolving parked tools', async () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Write',
+      args: {},
+      mode: 'ask',
+    });
+    if (r.kind !== 'prompt') throw new Error('expected prompt');
+
+    assert.throws(
+      () => engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'approve' } as unknown as PermissionResponse),
+      /Invalid permission response/,
+    );
+    assert.throws(
+      () => engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'allow', rememberForTurn: 'yes' } as unknown as PermissionResponse),
+      /Invalid permission response/,
+    );
+    expect(engine.pendingCount('t1')).toBe(1);
+
+    engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'deny' });
+    const resolved = await r.parked;
+    expect(resolved.decision).toBe('deny');
+  });
+
   test('unknown requestId → null, no throw', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
