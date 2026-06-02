@@ -91,6 +91,37 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     );
   });
 
+  it('OAuth token endpoint UA matches the claude-cli/X.Y.Z shape Anthropic accepts (PR-CLAUDE-CARD-MOVE-0)', async () => {
+    // WAWQAQ msg a62a4c1c reported "Authorization failed / Invalid
+    // request format" after login. Root cause was that the OAuth
+    // token endpoint (https://console.anthropic.com/v1/oauth/token)
+    // rejected our `maka-desktop/0.1.0 (oauth-subscription)` UA. The
+    // alma reference at main.js:15919 + 16143 sends
+    // `claude-cli/X.Y.Z (external, cli)`. This is distinct from the
+    // SEND-PATH cloak UA tested above; OAuth must use this UA
+    // unconditionally for the endpoint to accept the request.
+    const src = await readFile(SERVICE_SOURCE, 'utf8');
+    assert.match(
+      src,
+      /OAUTH_USER_AGENT\s*=\s*'claude-cli\/\d+\.\d+\.\d+\s+\(external,\s*cli\)'/,
+      'OAuth UA constant must match claude-cli/X.Y.Z (external, cli) shape',
+    );
+    assert.doesNotMatch(
+      src,
+      /'maka-desktop\/[^']*\(oauth-subscription\)'/,
+      'OAuth UA must NOT advertise maka-desktop — Anthropic rejects non-claude-cli UAs',
+    );
+    // Every OAuth-related fetch (token exchange, refresh, usage,
+    // profile) must reference the OAUTH_USER_AGENT constant, not
+    // any inline literal.
+    const uaUses = src.match(/'User-Agent':\s*\w+/g) ?? [];
+    assert.ok(uaUses.length >= 4,
+      `expected at least 4 OAuth fetches to set User-Agent (token / refresh / usage / profile), got ${uaUses.length}`);
+    for (const u of uaUses) {
+      assert.match(u, /OAUTH_USER_AGENT/, `${u} must reference the OAUTH_USER_AGENT constant`);
+    }
+  });
+
   it('token storage fails closed when safeStorage encryption is unavailable', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(

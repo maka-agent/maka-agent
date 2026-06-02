@@ -57,10 +57,17 @@ const CLAUDE_USAGE_ENDPOINT = 'https://api.anthropic.com/api/oauth/usage';
 const CLAUDE_PROFILE_ENDPOINT = 'https://api.anthropic.com/api/oauth/profile';
 const CLAUDE_SCOPE = 'org:create_api_key user:profile user:inference';
 
-// Standard OAuth UA — NOT the cloaked Claude Code UA. The cloak
-// path lives in a separate module that's only imported when the
-// env flag is set (xuan G-X4).
-const PLAIN_USER_AGENT = 'maka-desktop/0.1.0 (oauth-subscription)';
+// Anthropic's OAuth token endpoint rejects requests whose
+// User-Agent does not match the `claude-cli/X.Y.Z (external, cli)`
+// shape (verified against the external reference at main.js:15919).
+// WAWQAQ msg a62a4c1c reported "Invalid request format" after
+// login; the symptom was the OAuth endpoint rejecting our previous
+// `maka-desktop/0.1.0 (oauth-subscription)` UA. The cloak path is a
+// SEPARATE concern (system prefix + metadata on the SEND path) and
+// remains opt-in via `MAKA_CLAUDE_SUBSCRIPTION_CLOAK=1`. WAWQAQ
+// already accepted the ToS implication of the OAuth flow at all
+// (msg `fd421634`, baked into `isSubscriptionExperimentalEnabled`).
+const OAUTH_USER_AGENT = 'claude-cli/2.1.88 (external, cli)';
 
 // =============================================================
 // Token storage — encrypted via safeStorage, mode 0o600.
@@ -349,7 +356,7 @@ export class ClaudeSubscriptionService {
     try {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${accessToken}`,
-        'User-Agent': PLAIN_USER_AGENT,
+        'User-Agent': OAUTH_USER_AGENT,
       };
       const response = await this.fetchFn(CLAUDE_USAGE_ENDPOINT, { headers });
       if (!response.ok) {
@@ -488,7 +495,7 @@ export class ClaudeSubscriptionService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': PLAIN_USER_AGENT,
+        'User-Agent': OAUTH_USER_AGENT,
       },
       body: JSON.stringify({
         code,
@@ -525,7 +532,7 @@ export class ClaudeSubscriptionService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': PLAIN_USER_AGENT,
+        'User-Agent': OAUTH_USER_AGENT,
       },
       body: JSON.stringify({
         grant_type: 'refresh_token',
@@ -596,7 +603,7 @@ export class ClaudeSubscriptionService {
       const response = await this.fetchFn(CLAUDE_PROFILE_ENDPOINT, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'User-Agent': PLAIN_USER_AGENT,
+          'User-Agent': OAUTH_USER_AGENT,
         },
       });
       if (!response.ok) return;

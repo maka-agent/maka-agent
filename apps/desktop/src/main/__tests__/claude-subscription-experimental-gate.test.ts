@@ -123,7 +123,10 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
   });
 
   it('Settings UI gates the Claude subscription card on isExperimentalEnabled', async () => {
-    const src = await readFile(SETTINGS_SOURCE, 'utf8');
+    // PR-CLAUDE-CARD-MOVE-0: the ClaudeSubscriptionCard moved
+    // from SettingsModal.tsx → ProvidersPanel.tsx; the source we
+    // scan for the self-gate must follow it.
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
     // The card component must:
     // 1. Read isExperimentalEnabled() on mount.
     // 2. Return null when the flag is not truthy (no teasing UI).
@@ -195,16 +198,27 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
   });
 
   it('Settings UI does not reference payload.url (defensive — payload no longer has it)', async () => {
-    const src = await readFile(SETTINGS_SOURCE, 'utf8');
-    assert.doesNotMatch(
-      src,
-      /payload\.url\b/,
-      'Settings UI must not read payload.url — the field is gone',
-    );
+    // PR-CLAUDE-CARD-MOVE-0: scan both surfaces since the OAuth UI
+    // is now split between SettingsModal (login modal for the 3
+    // other providers) and ProvidersPanel (full Claude card).
+    const [settings, providers] = await Promise.all([
+      readFile(SETTINGS_SOURCE, 'utf8'),
+      readFile(PROVIDERS_PANEL_SOURCE, 'utf8'),
+    ]);
+    for (const src of [settings, providers]) {
+      assert.doesNotMatch(
+        src,
+        /payload\.url\b/,
+        'Settings UI must not read payload.url — the field is gone',
+      );
+    }
   });
 
   it('Settings subscription copy avoids generic unavailable wording', async () => {
-    const src = await readFile(SETTINGS_SOURCE, 'utf8');
+    // PR-CLAUDE-CARD-MOVE-0: the Claude-specific copy lives in
+    // ProvidersPanel now; SettingsModal only contains the modal
+    // for Codex/Cursor/Antigravity.
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
     assert.match(src, /无法开始登录/, 'authorization failure toast should describe the concrete failed action');
     assert.match(src, /等待获取配额/, 'quota_unavailable state should read as a refreshable account state');
     assert.doesNotMatch(
