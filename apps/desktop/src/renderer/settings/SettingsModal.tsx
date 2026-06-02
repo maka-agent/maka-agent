@@ -1708,6 +1708,22 @@ function PersonalizationSettingsPage(props: {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
 
+  // PR-PERSONALIZATION-SYNC-0: sync form state when the persisted
+  // personalization changes externally. Two real scenarios:
+  //   1. Server-side sanitization (control chars, secret-shaped
+  //      patterns) rewrites the input on save — local state would
+  //      otherwise keep showing the raw typed value while the
+  //      persisted store has the sanitized version.
+  //   2. Another agent / background sync mutates settings while the
+  //      panel is open.
+  // The user's in-progress edits aren't blown away — this only
+  // fires when the persisted reference identity actually changes.
+  useEffect(() => {
+    setDisplayName(value.displayName);
+    setAssistantTone(value.assistantTone);
+    setUiLocale(value.uiLocale);
+  }, [value.displayName, value.assistantTone, value.uiLocale]);
+
   async function save() {
     setSaving(true);
     try {
