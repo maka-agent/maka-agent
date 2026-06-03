@@ -253,6 +253,26 @@ describe('HealthSignal contract', () => {
     expect(degraded.scope).toBe('bot');
   });
 
+  test('capability details localize internal reason strings before renderer display', () => {
+    const paused = healthSignalFromCapability(capability('bot:telegram', 'paused', {
+      feature: { state: 'disabled', source: 'settings', reason: 'disabled' },
+    }));
+    const missing = healthSignalFromCapability(capability('bot:telegram', 'not_configured', {
+      configuration: { state: 'missing', source: 'settings', reason: 'missing platform credentials' },
+    }));
+    const unknownEnglish = healthSignalFromCapability(capability('bot:telegram', 'degraded', {
+      runtimeProbe: { state: 'degraded', source: 'runtime_probe', reason: 'polling-timeout' },
+    }));
+    const chinese = healthSignalFromCapability(capability('activity_recorder', 'enabled', {
+      runtimeProbe: { state: 'healthy', source: 'runtime_probe', reason: '打开 Daily Review 可查看本地活动聚合结果' },
+    }));
+
+    expect(paused.detail).toBe('该能力当前已关闭。');
+    expect(missing.detail).toBe('等待填写平台凭据。');
+    expect(unknownEnglish.detail).toBe('状态详情请见对应设置页。');
+    expect(chinese.detail).toBe('打开 Daily Review 可查看本地活动聚合结果');
+  });
+
   test('health signal visible copy does not expose English implementation wording', () => {
     const signals = [
       healthSignalFromConnection(connection({ enabled: false }), 20),
@@ -284,13 +304,20 @@ describe('HealthSignal contract', () => {
         20,
       ),
       healthSignalFromCapability(capability('bot:telegram', 'enabled')),
-      healthSignalFromCapability(capability('bot:telegram', 'paused')),
-      healthSignalFromCapability(capability('bot:telegram', 'not_configured')),
+      healthSignalFromCapability(capability('bot:telegram', 'paused', {
+        feature: { state: 'disabled', source: 'settings', reason: 'disabled' },
+      })),
+      healthSignalFromCapability(capability('bot:telegram', 'not_configured', {
+        configuration: { state: 'missing', source: 'settings', reason: 'missing platform credentials' },
+      })),
       healthSignalFromCapability(capability('computer_use', 'denied')),
-      healthSignalFromCapability(capability('bot:telegram', 'degraded')),
+      healthSignalFromCapability(capability('bot:telegram', 'degraded', {
+        runtimeProbe: { state: 'degraded', source: 'runtime_probe', reason: 'polling-timeout' },
+      })),
     ].filter((item): item is HealthSignal => Boolean(item));
     const englishImplementationCopy = /\b(?:Connection|Credential|endpoint|validation|Capability|runtime probe|agent send|errorClass|latency|model=)\b/;
     const unfinishedStateCopy = /连接尚未验证|能力尚未完整配置|还没有记录到发送运行态探测|连接缺少默认模型/;
+    const rawReasonCopy = /\b(?:disabled|missing platform credentials|polling-timeout)\b/;
 
     for (const signal of signals) {
       if (englishImplementationCopy.test(signal.message)) {
@@ -298,6 +325,9 @@ describe('HealthSignal contract', () => {
       }
       if (signal.detail && englishImplementationCopy.test(signal.detail)) {
         throw new Error(`Health signal detail exposes English implementation copy: ${signal.detail}`);
+      }
+      if (signal.detail && rawReasonCopy.test(signal.detail)) {
+        throw new Error(`Health signal detail exposes raw reason copy: ${signal.detail}`);
       }
       if (unfinishedStateCopy.test(signal.message)) {
         throw new Error(`Health signal message should describe an actionable state: ${signal.message}`);

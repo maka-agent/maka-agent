@@ -97,7 +97,7 @@ export function healthSignalFromCapability(capability: CapabilitySnapshot): Heal
     source: 'capability_snapshot',
     checkedAt: capability.updatedAt,
     message: capabilityMessage(capability.readiness),
-    detail: capability.runtimeProbe.reason ?? capability.feature.reason ?? capability.configuration.reason,
+    detail: capabilityDetail(capability),
     relatedCapabilityId: capability.id,
     blocksCapability: capability.readiness === 'denied' || capability.readiness === 'degraded',
   };
@@ -290,6 +290,29 @@ function capabilityMessage(readiness: CapabilityReadinessState): string {
       return '能力被必要系统权限阻塞。';
     case 'degraded':
       return '能力运行态探测处于降级状态。';
+  }
+}
+
+function capabilityDetail(capability: CapabilitySnapshot): string | undefined {
+  return userVisibleCapabilityReason(
+    capability.runtimeProbe.reason ?? capability.feature.reason ?? capability.configuration.reason,
+  );
+}
+
+function userVisibleCapabilityReason(reason: string | undefined): string | undefined {
+  const raw = reason?.trim();
+  if (!raw) return undefined;
+  switch (raw) {
+    case 'disabled':
+      return '该能力当前已关闭。';
+    case 'missing platform credentials':
+      return '等待填写平台凭据。';
+    case 'macOS TCC only':
+      return '仅 macOS 系统权限可探测。';
+    case 'no Electron API for per-target Apple Events TCC status':
+      return '系统未提供可直接读取的授权状态。';
+    default:
+      return /[\u3400-\u9fff]/.test(raw) ? raw : '状态详情请见对应设置页。';
   }
 }
 
