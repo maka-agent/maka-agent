@@ -580,7 +580,7 @@ export function SessionListPanel(props: {
       */}
 
       <section className="maka-session-list" aria-label={title}>
-        <div className="maka-session-list-title">{title}</div>
+        <div className="maka-session-list-title" aria-hidden="true">{title}</div>
         {props.selection.section === 'skills' ? (
           <SidebarModuleHint
             Icon={Sparkles}

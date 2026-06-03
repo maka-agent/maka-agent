@@ -123,6 +123,22 @@ describe('localized main shell contract', () => {
     );
   });
 
+  it('does not announce the session module heading twice in the sidebar', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const sessionList = components.match(/<section className="maka-session-list"[\s\S]*?<div className="maka-session-list-title"[\s\S]*?>/)?.[0] ?? '';
+
+    assert.match(
+      sessionList,
+      /<section className="maka-session-list" aria-label=\{title\}>/,
+      'the sidebar module region should keep a single semantic section label',
+    );
+    assert.match(
+      sessionList,
+      /className="maka-session-list-title" aria-hidden="true"/,
+      'the visible module title is duplicate orientation copy and must not be announced before the group label',
+    );
+  });
+
   it('keeps the project badge accessibility help concise instead of exposing the absolute workspace path', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const projectBadge = components.match(/className="maka-project-badge"[\s\S]*?aria-label=\{props\.projectBadge\.branch[\s\S]*?>/)?.[0] ?? '';
