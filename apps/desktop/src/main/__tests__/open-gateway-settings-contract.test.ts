@@ -58,4 +58,20 @@ describe('Open Gateway Settings endpoint contract', () => {
       assert.ok(settingsSource.includes(endpoint), `Settings should list ${endpoint}`);
     }
   });
+
+  it('surfaces clipboard failures for every Open Gateway copy action', () => {
+    const helper = settingsSource.match(/async function copyGatewayText[\s\S]*?async function copyBaseUrl/)?.[0] ?? '';
+    assert.match(helper, /try \{[\s\S]*navigator\.clipboard\.writeText\(text\)[\s\S]*toast\.success\(successTitle, successDetail\)/);
+    assert.match(helper, /catch \(error\) \{[\s\S]*toast\.error\('复制失败'/);
+    assert.match(helper, /剪贴板不可用或被系统拒绝/);
+
+    const gatewayBlock = settingsSource.match(/function OpenGatewaySettingsPage[\s\S]*?function presentGatewayStatus/)?.[0] ?? '';
+    assert.match(gatewayBlock, /copyGatewayText\(baseUrl, '已复制网关地址'/);
+    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制总览 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制接口说明 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制单会话状态 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制事件流 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制最近事件 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制最近请求 curl'/);
+  });
 });

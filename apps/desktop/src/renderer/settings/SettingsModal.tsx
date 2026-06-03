@@ -3507,30 +3507,35 @@ function OpenGatewaySettingsPage(props: {
     toast.success('网关 token 已生成', '本机 API 需要 Authorization Bearer token。');
   }
 
+  async function copyGatewayText(text: string, successTitle: string, successDetail: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(successTitle, successDetail);
+    } catch (error) {
+      toast.error('复制失败', error instanceof Error ? error.message : '剪贴板不可用或被系统拒绝');
+    }
+  }
+
   async function copyBaseUrl() {
     const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
-    await navigator.clipboard.writeText(baseUrl);
-    toast.success('已复制网关地址', baseUrl);
+    await copyGatewayText(baseUrl, '已复制网关地址', baseUrl);
   }
 
   const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
   async function copyOverviewCurl() {
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await navigator.clipboard.writeText(command);
-    toast.success('已复制总览 curl', '可在终端验证开放网关状态。');
+    await copyGatewayText(command, '已复制总览 curl', '可在终端验证开放网关状态。');
   }
 
   async function copyOpenApiCurl() {
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/openapi.json`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await navigator.clipboard.writeText(command);
-    toast.success('已复制接口说明 curl', '可交给外部工具发现本机 API。');
+    await copyGatewayText(command, '已复制接口说明 curl', '可交给外部工具发现本机 API。');
   }
 
   async function copySessionStateCurl() {
     const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await navigator.clipboard.writeText(command);
-    toast.success('已复制单会话状态 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看单个会话状态。');
+    await copyGatewayText(command, '已复制单会话状态 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看单个会话状态。');
   }
 
   async function copyEventStreamCurl() {
@@ -3543,21 +3548,18 @@ function OpenGatewaySettingsPage(props: {
       '-H',
       shellSingleQuote('Accept: text/event-stream'),
     ].join(' ');
-    await navigator.clipboard.writeText(command);
-    toast.success('已复制事件流 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端观察当前会话事件。');
+    await copyGatewayText(command, '已复制事件流 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端观察当前会话事件。');
   }
 
   async function copyRecentEventsCurl() {
     const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/events/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await navigator.clipboard.writeText(command);
-    toast.success('已复制最近事件 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看最近事件摘要。');
+    await copyGatewayText(command, '已复制最近事件 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看最近事件摘要。');
   }
 
   async function copyRecentRequestsCurl() {
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/requests/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await navigator.clipboard.writeText(command);
-    toast.success('已复制最近请求 curl', '可在终端查看网关请求元数据。');
+    await copyGatewayText(command, '已复制最近请求 curl', '可在终端查看网关请求元数据。');
   }
 
   const state = presentGatewayStatus(status, gateway);
