@@ -64,6 +64,22 @@ describe('localized main shell contract', () => {
     );
   });
 
+  it('exposes the selected Daily Review range in the segmented control', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const dailyReviewRange = components.match(/<nav className="maka-daily-review-range"[\s\S]*?\{summary && summary\.totals/)?.[0] ?? '';
+
+    assert.match(
+      dailyReviewRange,
+      /data-active=\{range === option \? 'true' : undefined\}/,
+      'Daily Review range buttons must keep their visual selected state',
+    );
+    assert.match(
+      dailyReviewRange,
+      /aria-pressed=\{range === option\}/,
+      'Daily Review range buttons must expose the selected segment to assistive technology',
+    );
+  });
+
   it('clears drag-active composer state when the drag leaves the window', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const composerBlock = components.match(/export const Composer[\s\S]*?if \(props\.hidden\) return null;/)?.[0] ?? '';

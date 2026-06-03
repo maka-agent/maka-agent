@@ -948,6 +948,7 @@ function DailyReviewPanel(props: {
               type="button"
               className="maka-button maka-button-ghost"
               data-active={range === option ? 'true' : undefined}
+              aria-pressed={range === option}
               onClick={() => {
                 setRange(option);
                 setOffsetDays(0);
