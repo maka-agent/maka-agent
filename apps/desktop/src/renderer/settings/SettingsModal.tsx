@@ -2193,7 +2193,7 @@ function WebSearchSettingsPage(props: {
       <div className="settingsFormRow">
         <div>
           <strong>启用联网搜索</strong>
-          <small>开关启用后，UI 里显式触发的查询才会真的请求 Tavily。Agent 不会自动调用。</small>
+          <small>开关启用后，界面里显式触发的查询才会真的请求 Tavily。模型不会自动调用。</small>
         </div>
         <div className="settingsWebSearchStatusCluster">
           <span className="settingsConnectionBadge" data-tone={statusCopy.tone}>
@@ -2207,6 +2207,7 @@ function WebSearchSettingsPage(props: {
           <small>{presentWebSearchCredentialSource(credentialSource, hasStoredKey)}</small>
         </div>
         <Switch
+          ariaLabel="启用联网搜索"
           checked={webSearch.enabled}
           disabled={!hasUsableKey}
           onChange={(enabled) => void setEnabled(enabled)}
@@ -2226,7 +2227,7 @@ function WebSearchSettingsPage(props: {
           <small>
             {usingEnvKey
               ? '当前使用环境变量 TAVILY_API_KEY / MAKA_TAVILY_API_KEY；如需改用保存的 key，请移除环境变量后重启。'
-              : <>存在主进程 settings 中，渲染器永远看不到明文。在 <a href="https://tavily.com" target="_blank" rel="noreferrer">tavily.com</a> 申请。</>}
+              : <>保存在主进程设置中，渲染器永远看不到明文。在 <a href="https://tavily.com" target="_blank" rel="noreferrer">tavily.com</a> 申请。</>}
           </small>
         </label>
       </div>
@@ -2791,7 +2792,12 @@ function MemorySettingsPage(props: {
         <span className="settingsConnectionBadge" data-tone={memoryStatusTone(effective.status)}>
           {memoryStatusLabel(effective.status)}
         </span>
-        <Switch checked={effective.enabled} disabled={busy} onChange={(enabled) => void setEnabled(enabled)} />
+        <Switch
+          ariaLabel="启用本地 MEMORY.md"
+          checked={effective.enabled}
+          disabled={busy}
+          onChange={(enabled) => void setEnabled(enabled)}
+        />
       </div>
 
       <div className="settingsFormRow">
@@ -2800,6 +2806,7 @@ function MemorySettingsPage(props: {
           <small>默认关闭。开启后才允许发送消息时把本地记忆加入 prompt；隐身模式下仍会禁用。</small>
         </div>
         <Switch
+          ariaLabel="允许模型上下文读取本地记忆"
           checked={effective.agentReadEnabled}
           disabled={busy || !effective.enabled}
           onChange={(enabled) => void setAgentReadEnabled(enabled)}
@@ -2812,6 +2819,7 @@ function MemorySettingsPage(props: {
           <small>读取当前工作区的 AGENTS.md / CLAUDE.md / GEMINI.md；按低优先级指令注入，可随时关闭。</small>
         </div>
         <Switch
+          ariaLabel="启用项目指令文件"
           checked={props.settings.workspaceInstructions.enabled}
           disabled={busy}
           onChange={(enabled) => void setWorkspaceInstructionsEnabled(enabled)}
@@ -3359,7 +3367,11 @@ function NetworkSettingsPage(props: {
           <strong>代理服务器</strong>
           <small>为 AI 模型请求配置网络代理</small>
         </div>
-        <Switch checked={proxy.enabled} onChange={(enabled) => updateProxy({ enabled })} />
+        <Switch
+          ariaLabel="启用代理服务器"
+          checked={proxy.enabled}
+          onChange={(enabled) => updateProxy({ enabled })}
+        />
       </div>
 
       {proxy.enabled && (
@@ -3388,7 +3400,11 @@ function NetworkSettingsPage(props: {
               <strong>代理认证</strong>
               <small>需要用户名和密码时开启。</small>
             </div>
-            <Switch checked={proxy.authEnabled} onChange={(authEnabled) => updateProxy({ authEnabled })} />
+            <Switch
+              ariaLabel="启用代理认证"
+              checked={proxy.authEnabled}
+              onChange={(authEnabled) => updateProxy({ authEnabled })}
+            />
           </div>
 
           {proxy.authEnabled && (
@@ -3552,7 +3568,12 @@ function OpenGatewaySettingsPage(props: {
           <strong>开放本机 API 网关</strong>
           <small>启动一个本机 HTTP 服务，让外部工具读取会话、消息和本地搜索结果。</small>
         </div>
-        <Switch checked={gateway.enabled} disabled={saving} onChange={(enabled) => updateGateway({ enabled })} />
+        <Switch
+          ariaLabel="开放本机 API 网关"
+          checked={gateway.enabled}
+          disabled={saving}
+          onChange={(enabled) => updateGateway({ enabled })}
+        />
       </div>
 
       <div className="settingsFormGrid settingsFormGridProxy">
@@ -3942,7 +3963,12 @@ function BotChatSettingsPage(props: {
               )}
             </small>
           </div>
-          <Switch checked={channel.enabled} onChange={(enabled) => updateChannel({ enabled })} disabled={support === 'planned'} />
+          <Switch
+            ariaLabel={`启用${BOT_LABELS[selected].label}机器人`}
+            checked={channel.enabled}
+            onChange={(enabled) => updateChannel({ enabled })}
+            disabled={support === 'planned'}
+          />
         </div>
 
         {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
@@ -4406,7 +4432,11 @@ function UsageSettingsPage(props: {
           )}
           <label>
             <span>详情记录</span>
-            <Switch checked={usage.showDetails} onChange={(showDetails) => props.onUpdate({ usage: { showDetails } })} />
+            <Switch
+              ariaLabel="显示使用统计详情记录"
+              checked={usage.showDetails}
+              onChange={(showDetails) => props.onUpdate({ usage: { showDetails } })}
+            />
           </label>
           {usage.showDetails && <small>共 {filteredLogs.length} 条记录</small>}
           {usage.showDetails && hasRequestFilters && (
@@ -4533,12 +4563,13 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, strin
   );
 }
 
-function Switch(props: { checked: boolean; onChange(checked: boolean): void; disabled?: boolean }) {
+function Switch(props: { ariaLabel: string; checked: boolean; onChange(checked: boolean): void; disabled?: boolean }) {
   return (
     <button
       className="settingsSwitch"
       type="button"
       role="switch"
+      aria-label={props.ariaLabel}
       aria-checked={props.checked}
       data-checked={props.checked}
       disabled={props.disabled}

@@ -69,6 +69,27 @@ describe('localized main shell contract', () => {
     assert.doesNotMatch(components, /DailyReviewTotalsCell\s+label="Tokens"/);
   });
 
+  it('labels Settings switch controls for accessibility', async () => {
+    const settings = await readFile(join(process.cwd(), 'src', 'renderer', 'settings', 'SettingsModal.tsx'), 'utf8');
+    const switchSignature = settings.match(/function Switch\(props: \{[\s\S]*?\}\) \{/)?.[0] ?? '';
+    const switchCalls = [...settings.matchAll(/<Switch\b[\s\S]*?\/>/g)].map((match) => match[0]);
+
+    assert.match(switchSignature, /ariaLabel: string/);
+    assert.match(settings, /aria-label=\{props\.ariaLabel\}/);
+    assert.ok(switchCalls.length >= 8, 'expected Settings to keep using the shared Switch control');
+    for (const call of switchCalls) {
+      assert.match(call, /ariaLabel=\{?["`]/, `missing ariaLabel on ${call}`);
+    }
+    assert.match(settings, /ariaLabel="启用联网搜索"/);
+    assert.match(settings, /界面里显式触发的查询/);
+    assert.match(settings, /保存在主进程设置中/);
+    assert.doesNotMatch(settings, /主进程 settings/);
+    assert.doesNotMatch(settings, /Agent 不会自动调用/);
+    assert.match(settings, /ariaLabel="启用本地 MEMORY\.md"/);
+    assert.match(settings, /ariaLabel="开放本机 API 网关"/);
+    assert.match(settings, /ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}机器人`\}/);
+  });
+
   it('keeps English skill metadata out of the visible skills list copy', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const skillPanel = components.match(/function SkillLibraryPanel[\s\S]*?function formatSkillLibraryDescription/)?.[0] ?? '';
