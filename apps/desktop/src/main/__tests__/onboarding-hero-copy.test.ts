@@ -14,6 +14,7 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import type { OnboardingState } from '@maka/core';
 import { getOnboardingHeroCopy } from '../../renderer/onboarding-hero-copy.js';
 
@@ -216,5 +217,24 @@ describe('getOnboardingHeroCopy — invariants', () => {
         assert.equal(copy.tone, undefined, `${variant.kind} must not have warning tone`);
       }
     }
+  });
+});
+
+describe('OnboardingHero Quick Chat draft lifecycle', () => {
+  it('keeps the first prompt when quick chat submission fails', async () => {
+    const source = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+    const propsBlock = source.match(/export interface OnboardingHeroProps \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const readyBlock = source.match(/function ReadyEmptyHero[\s\S]*?return \(/)?.[0] ?? '';
+
+    assert.match(
+      propsBlock,
+      /onQuickChatSubmit: \(prompt: string, mode\?: QuickChatMode\) => boolean \| Promise<boolean>/,
+      'Quick Chat submit prop must report success/failure to the presentational hero',
+    );
+    assert.match(
+      readyBlock,
+      /const submit = useCallback\(async \(\) => \{[\s\S]*?const submitted = await props\.onQuickChatSubmit\(draft, draftMode\);[\s\S]*?if \(!submitted\) return;[\s\S]*?setDraft\(''\);[\s\S]*?setDraftMode\(undefined\);/,
+      'ReadyEmptyHero must clear the draft only after the parent reports a successful session creation',
+    );
   });
 });

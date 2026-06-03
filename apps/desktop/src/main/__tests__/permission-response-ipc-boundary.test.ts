@@ -262,9 +262,19 @@ describe('permission response IPC boundary', () => {
       'initial mount should call bootstrapSessions(), not raw refreshSessions(), for boot-only selection',
     );
     const quickChatHandler = renderer.match(
-      /async function handleQuickChatSubmit\(prompt: string, mode\?: QuickChatMode\): Promise<void> \{[\s\S]*?\n  \}/,
+      /async function handleQuickChatSubmit\(prompt: string, mode\?: QuickChatMode\): Promise<boolean> \{[\s\S]*?\n  \}/,
     );
     assert.ok(quickChatHandler, 'handleQuickChatSubmit() must exist');
+    assert.match(
+      renderer,
+      /const quickChatPendingRef = useRef\(false\)/,
+      'quick chat must use a ref-backed pending gate so same-frame double submit cannot start two sessions',
+    );
+    assert.match(
+      quickChatHandler[0],
+      /if \(quickChatPendingRef\.current\) return false;[\s\S]*?quickChatPendingRef\.current = true/,
+      'quick chat submit must synchronously reject while another start call is in flight',
+    );
     const quickChat = quickChatHandler[0].match(/if \(result\.ok\) \{[\s\S]*?if \(!prompt\.trim\(\)\) \{/);
     assert.ok(quickChat, 'quick chat success branch must exist');
     assert.match(
@@ -276,6 +286,26 @@ describe('permission response IPC boundary', () => {
       quickChat[0],
       /await refreshSessions\(\)[\s\S]*?setActiveId\(result\.sessionId\)/,
       'refreshing before selecting the quick-chat session can briefly select an older session',
+    );
+    assert.match(
+      quickChatHandler[0],
+      /return true;/,
+      'quick chat must report success so the first-run composer can clear its draft only after a session is created',
+    );
+    assert.match(
+      quickChatHandler[0],
+      /result\.reason === 'setup_required'[\s\S]*?return false;/,
+      'setup failures must return false so the first-run composer keeps the user draft',
+    );
+    assert.match(
+      quickChatHandler[0],
+      /toastApi\.error\('开始对话失败', result\.message\);[\s\S]*?return false;/,
+      'send failures must return false so the first-run composer keeps the user draft',
+    );
+    assert.match(
+      quickChatHandler[0],
+      /quickChatPendingRef\.current = false;[\s\S]*?setQuickChatPending\(false\)/,
+      'quick chat pending ref must be cleared with the visible pending state',
     );
   });
 });

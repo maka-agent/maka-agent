@@ -93,9 +93,11 @@ export interface OnboardingHeroProps {
    * Quick Chat submit handler (PR110b `quickChat:start`). Only
    * called from the `ready_empty` branch. The caller is responsible
    * for handling the discriminated-union result (setActiveId on
-   * success, toast on `send_failed`, etc.).
+   * success, toast on `send_failed`, etc.). Returns true only after
+   * the target session is created; the hero keeps the draft on false
+   * so a setup/send failure does not erase the user's first prompt.
    */
-  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => void;
+  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
   /**
    * Flag set when a `quickChat:start` call is in flight, so the
    * composer can disable its submit button without owning the
@@ -396,7 +398,7 @@ function BlockedHero(props: {
 }
 
 function ReadyEmptyHero(props: {
-  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => void;
+  onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
   quickChatPending: boolean;
   onImportTextFile?: () => Promise<string | undefined>;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
@@ -422,12 +424,13 @@ function ReadyEmptyHero(props: {
     (suggestion) => hiddenSuggestionIds.has(FIRST_RUN_TASK_SUGGESTION_MILESTONES[suggestion.id]),
   );
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     if (props.quickChatPending) return;
     // PR110b contract: empty prompt is OK — main creates the session
     // without sending. Caller (main.tsx) decides whether to focus the
     // composer afterward.
-    props.onQuickChatSubmit(draft, draftMode);
+    const submitted = await props.onQuickChatSubmit(draft, draftMode);
+    if (!submitted) return;
     setDraft('');
     setDraftMode(undefined);
   }, [draft, draftMode, props]);

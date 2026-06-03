@@ -611,6 +611,7 @@ function AppShell() {
   // aborted) takes over with the existing chat surface.
   const onboarding = useOnboardingSnapshot();
   const [quickChatPending, setQuickChatPending] = useState(false);
+  const quickChatPendingRef = useRef(false);
   const onboardingState = onboarding.snapshot?.state;
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
@@ -1765,8 +1766,9 @@ function AppShell() {
    *     generalized Chinese message via toast. The session may have
    *     been created already, so we also call `refreshSessions()`.
    */
-  async function handleQuickChatSubmit(prompt: string, mode?: QuickChatMode): Promise<void> {
-    if (quickChatPending) return;
+  async function handleQuickChatSubmit(prompt: string, mode?: QuickChatMode): Promise<boolean> {
+    if (quickChatPendingRef.current) return false;
+    quickChatPendingRef.current = true;
     setQuickChatPending(true);
     try {
       const result = await window.maka.quickChat.start({ prompt, mode });
@@ -1780,17 +1782,22 @@ function AppShell() {
         if (!prompt.trim()) {
           composerRef.current?.focus();
         }
+        return true;
       } else if (result.reason === 'setup_required') {
         // Defensive re-pull; the upstream events should cover this.
         onboarding.refresh();
+        return false;
       } else {
         // send_failed — main already generalized the message.
         await refreshSessions();
         toastApi.error('开始对话失败', result.message);
+        return false;
       }
     } catch (error) {
       toastApi.error('开始对话失败', cleanErrorMessage(error));
+      return false;
     } finally {
+      quickChatPendingRef.current = false;
       setQuickChatPending(false);
     }
   }
@@ -2208,9 +2215,7 @@ function AppShell() {
                           if (section) openSettingsSection(section);
                           else openSettings();
                         }}
-                        onQuickChatSubmit={(prompt, mode) => {
-                          void handleQuickChatSubmit(prompt, mode);
-                        }}
+                        onQuickChatSubmit={handleQuickChatSubmit}
                         quickChatPending={quickChatPending}
                         connections={connections}
                         onRefreshConnections={refreshConnections}
