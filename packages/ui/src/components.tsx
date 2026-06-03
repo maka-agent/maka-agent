@@ -1,4 +1,4 @@
-import React, { createContext, forwardRef, memo, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import React, { createContext, forwardRef, memo, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -2478,7 +2478,9 @@ function SessionRow(props: {
 }) {
   const { session, active, streaming, stale, actions, onSelect } = props;
   const [editing, setEditing] = useState(false);
+  const [actionsVisible, setActionsVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const actionTabIndex = actionsVisible ? 0 : -1;
 
   // Auto-focus + select-all when the row enters edit mode so the user can
   // overwrite the current name without an extra Cmd+A.
@@ -2515,6 +2517,11 @@ function SessionRow(props: {
     actions.onDelete(session.id);
   }
 
+  function handleRowBlur(event: FocusEvent<HTMLDivElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setActionsVisible(false);
+  }
+
   return (
     <div
       className="maka-list-row"
@@ -2522,6 +2529,13 @@ function SessionRow(props: {
       data-editing={editing}
       data-streaming={streaming ? 'true' : undefined}
       data-stale={stale ? 'true' : undefined}
+      onMouseEnter={() => setActionsVisible(true)}
+      onMouseLeave={(event) => {
+        if (event.currentTarget.contains(document.activeElement)) return;
+        setActionsVisible(false);
+      }}
+      onFocus={() => setActionsVisible(true)}
+      onBlur={handleRowBlur}
     >
       {editing ? (
         <form
@@ -2638,10 +2652,16 @@ function SessionRow(props: {
         </button>
       )}
       {actions && !editing && (
-        <div className="maka-list-row-actions" aria-label="对话操作">
+        <div
+          className="maka-list-row-actions"
+          aria-label="对话操作"
+          aria-hidden={actionsVisible ? undefined : 'true'}
+          data-visible={actionsVisible ? 'true' : undefined}
+        >
           <button
             type="button"
             className="maka-list-row-action"
+            tabIndex={actionTabIndex}
             onClick={(event) => {
               stopPropagation(event);
               actions.onToggleFlag(session.id, !session.isFlagged);
@@ -2657,6 +2677,7 @@ function SessionRow(props: {
           <button
             type="button"
             className="maka-list-row-action"
+            tabIndex={actionTabIndex}
             onClick={startRename}
             aria-label="重命名对话"
             title="重命名（双击行名也可）"
@@ -2666,6 +2687,7 @@ function SessionRow(props: {
           <button
             type="button"
             className="maka-list-row-action"
+            tabIndex={actionTabIndex}
             onClick={(event) => {
               stopPropagation(event);
               session.isArchived
@@ -2682,6 +2704,7 @@ function SessionRow(props: {
           <button
             type="button"
             className="maka-list-row-action maka-list-row-action-danger"
+            tabIndex={actionTabIndex}
             onClick={handleDelete}
             aria-label="删除对话"
             title="删除"

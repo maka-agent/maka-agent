@@ -181,6 +181,42 @@ describe('sidebar session row density CSS contract (PR-SIDEBAR-IA-0 Phase 3)', (
     );
   });
 
+  it('hidden row actions stay out of the accessibility tree and tab order', async () => {
+    const ui = await readFile(UI_COMPONENTS_PATH, 'utf8');
+    const sessionRow = ui.slice(ui.indexOf('function SessionRow'), ui.indexOf('interface PermissionModeMeta'));
+
+    assert.match(
+      sessionRow,
+      /const \[actionsVisible,\s*setActionsVisible\] = useState\(false\);/,
+      'SessionRow must track whether hover/focus actions are actually visible',
+    );
+    assert.match(
+      sessionRow,
+      /const actionTabIndex = actionsVisible \? 0 : -1;/,
+      'hidden row action buttons must not remain in the tab order',
+    );
+    assert.match(
+      sessionRow,
+      /onMouseEnter=\{\(\) => setActionsVisible\(true\)\}/,
+      'mouse hover must expose row actions',
+    );
+    assert.match(
+      sessionRow,
+      /onFocus=\{\(\) => setActionsVisible\(true\)\}/,
+      'keyboard focus on the row must expose row actions before the next Tab stop',
+    );
+    assert.match(
+      sessionRow,
+      /aria-hidden=\{actionsVisible \? undefined : 'true'\}/,
+      'hidden row action clusters must be removed from the accessibility tree',
+    );
+    assert.match(
+      sessionRow,
+      /className="maka-list-row-action"[\s\S]*?tabIndex=\{actionTabIndex\}/,
+      'row action buttons must share the visibility-controlled tabIndex',
+    );
+  });
+
   it('.maka-list-row-actions overlays via absolute positioning so title gets full row width by default', async () => {
     // Per xuan `2d4526b5` "actions 用 absolute/预留区域" + kenji
     // `e949119d` "如果 280px 左栏里标题只剩很短一截，那就需要把
