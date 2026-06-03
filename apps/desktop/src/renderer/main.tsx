@@ -623,7 +623,7 @@ function AppShell() {
   }, [activeId]);
 
   useEffect(() => {
-    void refreshSessions();
+    void bootstrapSessions();
     void refreshConnections();
     void window.maka.app.info().then((next) => {
       setAppInfo({ projectPath: next.projectPath, projectGit: next.projectGit });
@@ -857,6 +857,11 @@ function AppShell() {
   async function refreshSessions() {
     const next = await window.maka.sessions.list();
     setSessions(next);
+    return next;
+  }
+
+  async function bootstrapSessions() {
+    const next = await refreshSessions();
     if (!activeIdRef.current && next[0] && next[0].lastMessageAt) setActiveId(next[0].id);
   }
 

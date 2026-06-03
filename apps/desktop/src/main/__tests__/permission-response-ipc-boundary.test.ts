@@ -224,20 +224,42 @@ describe('permission response IPC boundary', () => {
     const renderer = await readFile(rendererPath, 'utf8');
     const setActiveId = renderer.match(/function setActiveId\(next: string \| undefined\): void \{[\s\S]*?\n  \}/);
     const refreshSessions = renderer.match(/async function refreshSessions\(\) \{[\s\S]*?\n  \}/);
+    const bootstrapSessions = renderer.match(/async function bootstrapSessions\(\) \{[\s\S]*?\n  \}/);
 
     assert.ok(setActiveId, 'renderer must route active session changes through a ref-synchronized setter');
     assert.match(setActiveId[0], /activeIdRef\.current\s*=\s*next/);
     assert.match(setActiveId[0], /setActiveIdState\(next\)/);
     assert.ok(refreshSessions, 'refreshSessions() must exist');
-    assert.match(
+    assert.doesNotMatch(
       refreshSessions[0],
-      /if \(!activeIdRef\.current && next\[0\] && next\[0\]\.lastMessageAt\) setActiveId\(next\[0\]\.id\)/,
-      'refreshSessions() must read activeIdRef, not stale activeId from the render that scheduled the refresh',
+      /setActiveId\(/,
+      'refreshSessions() must stay a pure data refresh; background session events must not change selection',
     );
     assert.doesNotMatch(
       refreshSessions[0],
       /if \(!activeId && next\[0\]/,
       'stale activeId closure can re-select an old session after creating a new chat and immediately sending',
+    );
+    assert.ok(bootstrapSessions, 'boot-only session selection helper must exist');
+    assert.match(
+      bootstrapSessions[0],
+      /const next = await refreshSessions\(\)/,
+      'bootstrapSessions() should reuse refreshSessions() for the list pull',
+    );
+    assert.match(
+      bootstrapSessions[0],
+      /if \(!activeIdRef\.current && next\[0\] && next\[0\]\.lastMessageAt\) setActiveId\(next\[0\]\.id\)/,
+      'only bootstrapSessions() may auto-select the first existing chat on app startup',
+    );
+    assert.match(
+      renderer,
+      /useEffect\(\(\) => \{[\s\S]*?void bootstrapSessions\(\)/,
+      'initial mount must use the boot-only selector instead of putting selection side effects inside refreshSessions()',
+    );
+    assert.doesNotMatch(
+      renderer,
+      /useEffect\(\(\) => \{[\s\S]{0,120}?void refreshSessions\(\)/,
+      'initial mount should call bootstrapSessions(), not raw refreshSessions(), for boot-only selection',
     );
     const quickChatHandler = renderer.match(
       /async function handleQuickChatSubmit\(prompt: string, mode\?: QuickChatMode\): Promise<void> \{[\s\S]*?\n  \}/,
