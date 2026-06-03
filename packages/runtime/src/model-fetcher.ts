@@ -6,6 +6,7 @@ import {
 } from '@maka/core/llm-connections';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import { proxiedFetch } from './bots/proxied-fetch.js';
+import { anthropicV1Url } from './subscription-auth.js';
 
 const MODEL_FETCH_TIMEOUT_MS = 10_000;
 const CLAUDE_SUBSCRIPTION_BETA =
@@ -41,7 +42,7 @@ async function fetchProviderModelsStrict(
 
   switch (PROVIDER_DEFAULTS[connection.providerType].protocol) {
     case 'anthropic': {
-      const r = await proxiedFetch(`${stripTrailing(baseUrl)}/v1/models`, {
+      const r = await proxiedFetch(anthropicV1Url(baseUrl, '/models'), {
         headers: anthropicModelHeaders(connection, apiKey),
         timeoutMs: MODEL_FETCH_TIMEOUT_MS,
       });

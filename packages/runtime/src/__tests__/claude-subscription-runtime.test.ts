@@ -12,31 +12,22 @@ after(async () => {
 });
 
 describe('Claude subscription runtime wiring', () => {
-  test('testConnection uses Claude OAuth bearer headers, not x-api-key', async () => {
+  test('testConnection validates Claude OAuth through the account profile endpoint', async () => {
     let observedAuth = '';
     let observedApiKey = '';
     let observedBeta = '';
-    let observedBody = '';
+    let observedPath = '';
     const server = await startJsonServer((request, response) => {
       observedAuth = request.headers.authorization ?? '';
       observedApiKey = (request.headers['x-api-key'] as string | undefined) ?? '';
       observedBeta = (request.headers['anthropic-beta'] as string | undefined) ?? '';
-      assert.equal(request.method, 'POST');
-      assert.equal(request.url, '/v1/messages');
-      request.setEncoding('utf8');
-      request.on('data', (chunk) => {
-        observedBody += chunk;
-      });
-      request.on('end', () => {
-        respondJson(response, 200, {
-          id: 'msg_test',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'ok' }],
-          model: 'claude-sonnet-4-5-20250929',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 1, output_tokens: 1 },
-        });
+      observedPath = request.url ?? '';
+      assert.equal(request.method, 'GET');
+      respondJson(response, 200, {
+        account: {
+          uuid: 'acct_test',
+          email: 'user@example.com',
+        },
       });
     });
 
@@ -48,8 +39,8 @@ describe('Claude subscription runtime wiring', () => {
     assert.equal(result.ok, true);
     assert.equal(observedAuth, 'Bearer oauth-access-token');
     assert.equal(observedApiKey, '');
+    assert.equal(observedPath, '/api/oauth/profile');
     assert.match(observedBeta, /oauth-2025-04-20/);
-    assert.match(observedBody, /claude-sonnet-4-5-20250929/);
   });
 
   test('model factory constructs Anthropic with authToken for claude-subscription', async () => {
@@ -58,8 +49,19 @@ describe('Claude subscription runtime wiring', () => {
     assert.notEqual(caseIdx, -1, 'claude-subscription case must exist');
     const caseRegion = src.slice(caseIdx, src.indexOf("case 'codex-subscription'", caseIdx));
     assert.match(caseRegion, /createAnthropic\(\{[\s\S]*authToken:\s*apiKey/, 'Claude OAuth must use AI SDK Anthropic authToken');
+    assert.match(caseRegion, /baseURL:\s*anthropicV1BaseUrl\(baseURL\)/, 'Claude OAuth must pass the AI SDK a /v1 Anthropic base URL');
     assert.doesNotMatch(caseRegion, /throw new Error/, 'Claude OAuth must not remain in the experimental throw branch');
     assert.match(caseRegion, /anthropic-beta[\s\S]*CLAUDE_SUBSCRIPTION_BETA/, 'Claude OAuth must send the Claude Code beta header set');
+  });
+
+  test('model factory gives API-key Anthropic the /v1 SDK base without changing Kimi', async () => {
+    const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
+    const anthropicCase = src.slice(src.indexOf("case 'anthropic'"), src.indexOf("case 'kimi-coding-plan'"));
+    const kimiCase = src.slice(src.indexOf("case 'kimi-coding-plan'"), src.indexOf("case 'claude-subscription'"));
+
+    assert.match(anthropicCase, /baseURL:\s*anthropicV1BaseUrl\(baseURL\)/, 'Anthropic API-key sends must use the SDK /v1 base URL');
+    assert.match(kimiCase, /baseURL,\s*[\s\S]*headers:/, 'Kimi Anthropic-compatible endpoint must keep its provider-specific base URL');
+    assert.doesNotMatch(kimiCase, /anthropicV1BaseUrl/, 'Kimi endpoint must not be blindly rewritten to /v1');
   });
 
   test('model factory wires codex-subscription to OpenAI Responses instead of throwing', async () => {
@@ -74,7 +76,9 @@ describe('Claude subscription runtime wiring', () => {
   });
 
   test('testConnection maps Claude OAuth 429 to readable rate limit copy', async () => {
-    const server = await startJsonServer((_request, response) => {
+    let observedPath = '';
+    const server = await startJsonServer((request, response) => {
+      observedPath = request.url ?? '';
       respondJson(response, 429, {
         type: 'error',
         error: { type: 'rate_limit_error', message: 'Error' },
@@ -88,10 +92,27 @@ describe('Claude subscription runtime wiring', () => {
     }, 'oauth-access-token');
 
     assert.equal(result.ok, false);
+    assert.equal(observedPath, '/api/oauth/profile');
     assert.equal(result.statusCode, 429);
     assert.equal(result.errorClass, 'provider_unavailable');
     assert.match(result.errorMessage ?? '', /rate limit/);
     assert.doesNotMatch(result.errorMessage ?? '', /request_id|req_hidden|\{"type"/);
+  });
+
+  test('Claude OAuth profile probe accepts a stored /v1 base URL without doubling the path', async () => {
+    let observedPath = '';
+    const server = await startJsonServer((request, response) => {
+      observedPath = request.url ?? '';
+      respondJson(response, 200, { account: { uuid: 'acct_test' } });
+    });
+
+    const result = await testConnection({
+      ...claudeOAuthConnection(),
+      baseUrl: `${server.url}/v1`,
+    }, 'oauth-access-token');
+
+    assert.equal(result.ok, true);
+    assert.equal(observedPath, '/api/oauth/profile');
   });
 
   test('testConnection uses Codex OAuth Responses API path and account header', async () => {

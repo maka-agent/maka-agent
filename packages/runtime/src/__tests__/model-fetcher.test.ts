@@ -133,6 +133,28 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'claude-sonnet-4-5-20250929' }]);
   });
 
+  test('Claude subscription model fetch accepts a stored /v1 base URL without doubling it', async () => {
+    let observedPath = '';
+    const server = await startJsonServer((request, response) => {
+      observedPath = request.url ?? '';
+      respondJson(response, 200, { data: [{ id: 'claude-haiku-4-5-20251001' }] });
+    });
+
+    const models = await fetchProviderModels({
+      slug: 'claude-subscription',
+      name: 'Claude OAuth',
+      providerType: 'claude-subscription',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'claude-haiku-4-5-20251001',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    }, 'oauth-access-token');
+
+    assert.equal(observedPath, '/v1/models');
+    assert.deepEqual(models, [{ id: 'claude-haiku-4-5-20251001' }]);
+  });
+
   test('Codex subscription model fetch uses the pinned subscription model list', async () => {
     const models = await fetchProviderModels({
       slug: 'codex-subscription',

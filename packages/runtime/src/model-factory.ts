@@ -4,7 +4,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
 import { effectiveBaseUrl, type LlmConnection } from '@maka/core/llm-connections';
-import { codexSubscriptionHeaders } from './subscription-auth.js';
+import { anthropicV1BaseUrl, codexSubscriptionHeaders } from './subscription-auth.js';
 
 export interface ModelFactoryInput {
   connection: LlmConnection;
@@ -24,6 +24,12 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
 
   switch (connection.providerType) {
     case 'anthropic':
+      return createAnthropic({
+        apiKey,
+        baseURL: anthropicV1BaseUrl(baseURL),
+        headers: { 'anthropic-beta': ANTHROPIC_BETA },
+      }).chat(modelId);
+
     case 'kimi-coding-plan':
       return createAnthropic({
         apiKey,
@@ -34,7 +40,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
     case 'claude-subscription':
       return createAnthropic({
         authToken: apiKey,
-        baseURL,
+        baseURL: anthropicV1BaseUrl(baseURL),
         headers: {
           'anthropic-beta': CLAUDE_SUBSCRIPTION_BETA,
           'User-Agent': CLAUDE_SUBSCRIPTION_USER_AGENT,
