@@ -1127,8 +1127,10 @@ function AppShell() {
       await window.maka.plans.create(input);
       await refreshPlanReminders();
       toastApi.success('已创建计划提醒', input.title);
+      return true;
     } catch (error) {
       toastApi.error('创建计划失败', cleanErrorMessage(error));
+      return false;
     }
   }
 
@@ -1137,8 +1139,10 @@ function AppShell() {
       await window.maka.plans.update(id, patch);
       await refreshPlanReminders();
       toastApi.success('已保存计划提醒', patch.title);
+      return true;
     } catch (error) {
       toastApi.error('保存计划失败', cleanErrorMessage(error));
+      return false;
     }
   }
 
