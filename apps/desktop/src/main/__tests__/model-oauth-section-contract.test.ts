@@ -241,6 +241,22 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
+  it('does not leave Save enabled when an existing connection has no draft changes', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+
+    assert.match(
+      detail,
+      /const hasSaveChanges =[\s\S]*apiKey\.length > 0[\s\S]*draftBaseUrl !== savedBaseUrl[\s\S]*defaultModel !== connection\.defaultModel/,
+      'ConnectionDetail must compute dirty state from the fields that Save actually writes',
+    );
+    assert.match(
+      detail,
+      /disabled=\{busy \|\| !hasSaveChanges\}/,
+      'Save must be disabled until the user changes a writable field',
+    );
+  });
+
   it('claude opens a modal from the equal-size card instead of rendering a full inline card above the grid', async () => {
     const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
     const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function ClaudeSubscriptionModal/);
