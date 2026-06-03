@@ -160,6 +160,7 @@ describe('localized main shell contract', () => {
   it('keeps the resizable session-list width as integer pixels for readable splitter values', async () => {
     const main = await readFile(join(process.cwd(), 'src', 'renderer', 'main.tsx'), 'utf8');
     const resizeBlock = main.slice(main.indexOf('function startColumnResize'), main.indexOf('function onResizeHandleKeyDown'));
+    const persistBlock = main.slice(main.indexOf("useEffect(() => {\n    try {\n      localStorage.setItem('maka-chat-list-width-v1'"), main.indexOf('// Persist sidebar nav selection'));
     const keyBlock = main.slice(main.indexOf('function onResizeHandleKeyDown'), main.indexOf('const hasModalOpen'));
     const readBlock = main.slice(main.indexOf('function readSessionListWidth'), main.indexOf('function isNoRealConnectionError'));
 
@@ -168,6 +169,11 @@ describe('localized main shell contract', () => {
     assert.match(keyBlock, /setSessionListWidth\(clampSessionListWidth\(next\)\)/);
     assert.match(readBlock, /return clampSessionListWidth\(stored\);/);
     assert.match(main, /aria-valuenow=\{sessionListWidth\}/, 'splitter aria-valuenow should receive the normalized integer state');
+    assert.match(persistBlock, /try \{[\s\S]*localStorage\.setItem\('maka-chat-list-width-v1', String\(sessionListWidth\)\);[\s\S]*\} catch \{/, 'width persistence must not crash when localStorage is unavailable');
+    assert.match(readBlock, /try \{[\s\S]*localStorage\.getItem\('maka-chat-list-width-v1'\)[\s\S]*\} catch \{/, 'width restore must not crash when localStorage is unavailable');
+    assert.match(resizeBlock, /setPointerCapture\(event\.pointerId\)/, 'dragging the splitter should capture pointer events while resizing');
+    assert.match(resizeBlock, /window\.addEventListener\('blur', cleanupResize\)/, 'resize cleanup must run if the window loses focus mid-drag');
+    assert.match(resizeBlock, /window\.removeEventListener\('blur', cleanupResize\)/, 'resize cleanup must remove the blur listener');
   });
 
   it('keeps English skill metadata out of the visible skills list copy', async () => {

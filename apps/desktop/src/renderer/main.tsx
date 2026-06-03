@@ -839,7 +839,11 @@ function AppShell() {
   }, [activeId, activeSession?.status, activeStreaming.length, liveTools.length, activePermission?.requestId]);
 
   useEffect(() => {
-    localStorage.setItem('maka-chat-list-width-v1', String(sessionListWidth));
+    try {
+      localStorage.setItem('maka-chat-list-width-v1', String(sessionListWidth));
+    } catch {
+      /* localStorage unavailable; width resets to the default next launch */
+    }
   }, [sessionListWidth]);
 
   // Persist sidebar nav selection so the app remembers what bucket the user
@@ -1965,25 +1969,35 @@ function AppShell() {
 
   function startColumnResize(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      /* pointer capture can fail if the target is detached mid-drag */
+    }
     const startX = event.clientX;
     const start = sessionListWidth;
     document.body.classList.add('isResizingColumns');
+    let cleaned = false;
 
     function onMove(moveEvent: globalThis.PointerEvent) {
       const delta = moveEvent.clientX - startX;
       setSessionListWidth(clampSessionListWidth(start + delta));
     }
 
-    function onUp() {
+    function cleanupResize() {
+      if (cleaned) return;
+      cleaned = true;
       document.body.classList.remove('isResizingColumns');
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointerup', cleanupResize);
+      window.removeEventListener('pointercancel', cleanupResize);
+      window.removeEventListener('blur', cleanupResize);
     }
 
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointerup', cleanupResize);
+    window.addEventListener('pointercancel', cleanupResize);
+    window.addEventListener('blur', cleanupResize);
   }
 
   function onResizeHandleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -2687,8 +2701,12 @@ function readNavSelection(): NavSelection {
 }
 
 function readSessionListWidth(): number {
-  const stored = Number(localStorage.getItem('maka-chat-list-width-v1'));
-  if (Number.isFinite(stored) && stored > 0) return clampSessionListWidth(stored);
+  try {
+    const stored = Number(localStorage.getItem('maka-chat-list-width-v1'));
+    if (Number.isFinite(stored) && stored > 0) return clampSessionListWidth(stored);
+  } catch {
+    /* localStorage unavailable */
+  }
   return 320;
 }
 
