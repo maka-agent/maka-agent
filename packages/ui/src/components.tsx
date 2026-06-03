@@ -775,8 +775,8 @@ function SkillLibraryPanel(props: {
         const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
         const description = formatSkillLibraryDescription(skill);
         const hoverText = tools.length > 0
-          ? `${skill.path}\n\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
-          : skill.path;
+          ? `打开技能文件：${skill.id}\n\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
+          : `打开技能文件：${skill.id}`;
         return (
           <button
             key={skill.id}

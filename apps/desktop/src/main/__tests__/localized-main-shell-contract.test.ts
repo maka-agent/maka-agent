@@ -284,6 +284,19 @@ describe('localized main shell contract', () => {
     assert.match(formatter, /打开技能文件查看适用场景。/);
   });
 
+  it('does not leak absolute skill paths through row hover or accessibility help', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const skillPanel = components.match(/function SkillLibraryPanel[\s\S]*?function formatSkillLibraryDescription/)?.[0] ?? '';
+
+    assert.doesNotMatch(
+      skillPanel,
+      /const hoverText[\s\S]{0,240}skill\.path/,
+      'Skill row title becomes Accessibility Help, so it must not expose absolute local paths',
+    );
+    assert.match(skillPanel, /打开技能文件：\$\{skill\.id\}/);
+    assert.match(skillPanel, /title=\{hoverText\}/);
+  });
+
   it('surfaces permission denial in Chinese instead of raw English backend text', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const aiSdk = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'runtime', 'src', 'ai-sdk-backend.ts'), 'utf8');
