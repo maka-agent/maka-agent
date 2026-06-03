@@ -436,6 +436,21 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(body, /bridge\.completeAuthorization\(payload\.authRequestId\)/);
   });
 
+  it('OAuth login modals surface thrown IPC/service failures instead of leaving console-only rejections', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const helper = src.match(/function subscriptionActionErrorMessage[\s\S]*?async function getSubscriptionSnapshot/)?.[0] ?? '';
+    const browserModal = src.match(/function SubscriptionLoginModal[\s\S]*?function ClaudeSubscriptionCard/)?.[0] ?? '';
+    const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
+
+    assert.match(helper, /登录服务暂时不可用，请检查网络后重试。/, 'OAuth thrown-error fallback must be user-facing Chinese copy');
+    assert.match(browserModal, /catch \(error\) \{[\s\S]*toast\.error\('登录失败', message\);[\s\S]*setErrorMessage\(message\);/, 'browser OAuth login must toast thrown failures');
+    assert.match(browserModal, /catch \(error\) \{[\s\S]*toast\.error\('退出失败', subscriptionActionErrorMessage\(error\)\);/, 'browser OAuth logout must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('无法开始登录', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth start must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('授权码提交失败', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth paste submit must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('取消登录失败', subscriptionActionErrorMessage\(error\)\);/, 'Claude OAuth cancel must toast thrown failures');
+    assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('刷新配额失败', subscriptionActionErrorMessage\(error\)\);/, 'Claude OAuth quota refresh must toast thrown failures');
+  });
+
   it('preload exposes the three new subscription namespaces alongside claudeSubscription', async () => {
     const src = await readFile(PRELOAD_SOURCE, 'utf8');
     assert.match(src, /codexSubscription:\s*\{/, 'preload must expose window.maka.codexSubscription');
