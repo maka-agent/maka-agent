@@ -60,16 +60,26 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const [records, setRecords] = useState<ArtifactRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
+  const artifactListRequestSeqRef = useRef(0);
 
   // ---- live data ---------------------------------------------------------
 
   const refresh = useCallback(async () => {
+    const requestSeq = ++artifactListRequestSeqRef.current;
     if (!sessionId) {
       setRecords([]);
       return;
     }
-    const next = await window.maka.artifacts.list(sessionId);
-    setRecords(next);
+    try {
+      const next = await window.maka.artifacts.list(sessionId);
+      if (requestSeq === artifactListRequestSeqRef.current) {
+        setRecords(next);
+      }
+    } catch {
+      if (requestSeq === artifactListRequestSeqRef.current) {
+        setRecords([]);
+      }
+    }
   }, [sessionId]);
 
   useEffect(() => {
@@ -84,7 +94,10 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
         void refresh();
       }
     });
-    return unsubscribe;
+    return () => {
+      artifactListRequestSeqRef.current += 1;
+      unsubscribe();
+    };
   }, [sessionId, refresh]);
 
   useEffect(() => {
