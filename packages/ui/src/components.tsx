@@ -486,7 +486,7 @@ export function SessionListPanel(props: {
             type="button"
             className="maka-project-badge"
             onClick={props.projectBadge.onOpen}
-            title={props.projectBadge.branch ? `${props.projectBadge.path}\n分支：${props.projectBadge.branch}` : props.projectBadge.path}
+            title={props.projectBadge.branch ? `打开项目目录 · ${props.projectBadge.branch}` : '打开项目目录'}
             aria-label={props.projectBadge.branch
               ? `打开项目目录：${props.projectBadge.label}，当前分支 ${props.projectBadge.branch}`
               : `打开项目目录：${props.projectBadge.label}`}
@@ -508,6 +508,7 @@ export function SessionListPanel(props: {
         <button
           className="maka-nav-row"
           data-active={isModuleActive('sessions')}
+          aria-current={isModuleActive('sessions') ? 'page' : undefined}
           type="button"
           onClick={() => selectModule('sessions')}
         >
@@ -526,6 +527,7 @@ export function SessionListPanel(props: {
         <button
           className="maka-nav-row"
           data-active={isModuleActive('automations')}
+          aria-current={isModuleActive('automations') ? 'page' : undefined}
           type="button"
           onClick={() => selectModule('automations')}
           aria-label={activePlanReminderCount > 0 ? `计划，${activePlanReminderCount} 个未完成提醒` : undefined}
@@ -539,6 +541,7 @@ export function SessionListPanel(props: {
         <button
           className="maka-nav-row"
           data-active={isModuleActive('skills')}
+          aria-current={isModuleActive('skills') ? 'page' : undefined}
           type="button"
           onClick={() => selectModule('skills')}
         >
@@ -548,6 +551,7 @@ export function SessionListPanel(props: {
         <button
           className="maka-nav-row"
           data-active={isModuleActive('daily-review')}
+          aria-current={isModuleActive('daily-review') ? 'page' : undefined}
           type="button"
           onClick={() => selectModule('daily-review')}
         >
@@ -2591,6 +2595,7 @@ function SessionRow(props: {
           className="maka-list-row-main"
           type="button"
           data-session-id={session.id}
+          aria-current={active ? 'true' : undefined}
           title={session.name}
           onClick={() => onSelect(session.id)}
           onDoubleClick={(event) => {

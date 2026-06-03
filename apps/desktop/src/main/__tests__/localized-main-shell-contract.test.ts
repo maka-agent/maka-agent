@@ -98,6 +98,47 @@ describe('localized main shell contract', () => {
     assert.match(settingsNavButton, /aria-current=\{section === item\.id \? 'page' : undefined\}/, 'Settings nav must expose the current page to accessibility APIs');
   });
 
+  it('exposes the active main sidebar section to assistive technology', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('sessions'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('sessions'\) \? 'page' : undefined\}/,
+      'the active Sessions nav row must expose aria-current, not only data-active styling',
+    );
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('automations'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('automations'\) \? 'page' : undefined\}/,
+      'the active Plans nav row must expose aria-current, not only data-active styling',
+    );
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('skills'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('skills'\) \? 'page' : undefined\}/,
+      'the active Skills nav row must expose aria-current, not only data-active styling',
+    );
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('daily-review'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('daily-review'\) \? 'page' : undefined\}/,
+      'the active Daily Review nav row must expose aria-current, not only data-active styling',
+    );
+  });
+
+  it('keeps the project badge accessibility help concise instead of exposing the absolute workspace path', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const projectBadge = components.match(/className="maka-project-badge"[\s\S]*?aria-label=\{props\.projectBadge\.branch[\s\S]*?>/)?.[0] ?? '';
+
+    assert.match(
+      projectBadge,
+      /title=\{props\.projectBadge\.branch \? `打开项目目录 · \$\{props\.projectBadge\.branch\}` : '打开项目目录'\}/,
+      'project badge title should stay concise because native title is exposed as Accessibility Help',
+    );
+    assert.doesNotMatch(
+      projectBadge,
+      /title=\{props\.projectBadge\.branch \? `\$\{props\.projectBadge\.path\}/,
+      'project badge must not expose absolute workspace paths through native title / AX Help',
+    );
+  });
+
   it('hides the app shell from the accessibility tree while a top-level modal is open', async () => {
     const main = await readFile(join(process.cwd(), 'src', 'renderer', 'main.tsx'), 'utf8');
     const appShell = main.match(/const hasModalOpen[\s\S]*?<div\s+className="app maka-shell-2col"[\s\S]*?style=\{\{/)?.[0] ?? '';

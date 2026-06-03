@@ -161,6 +161,22 @@ describe('sidebar session row density CSS contract (PR-SIDEBAR-IA-0 Phase 3)', (
     );
   });
 
+  it('active session row exposes current-session semantics, not only visual accent styling', async () => {
+    const ui = await readFile(UI_COMPONENTS_PATH, 'utf8');
+    const sessionRow = ui.slice(ui.indexOf('function SessionRow'), ui.indexOf('interface PermissionModeMeta'));
+
+    assert.match(
+      sessionRow,
+      /data-active=\{active\}/,
+      'SessionRow must keep its visual active-state hook',
+    );
+    assert.match(
+      sessionRow,
+      /aria-current=\{active \? 'true' : undefined\}/,
+      'the current conversation row must expose aria-current so assistive tech can announce the selected conversation',
+    );
+  });
+
   it('row actions reveal on :hover AND :focus-within (keyboard a11y)', async () => {
     // Per xuan `2d4526b5`: actions must be reachable via keyboard.
     // The reveal rule must include both `:hover` and `:focus-within`
