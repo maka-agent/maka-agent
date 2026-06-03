@@ -64,6 +64,39 @@ describe('localized main shell contract', () => {
     );
   });
 
+  it('keeps decorative button and nav icons out of the accessibility tree', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const settings = await readFile(join(process.cwd(), 'src', 'renderer', 'settings', 'SettingsModal.tsx'), 'utf8');
+
+    for (const icon of ['MessageSquare', 'Search', 'Clock', 'Sparkles', 'CalendarDays', 'DownloadCloud', 'Settings']) {
+      assert.match(
+        components,
+        new RegExp(`<${icon} className="maka-nav-icon" strokeWidth=\\{1\\.5\\} aria-hidden="true" />`),
+        `${icon} sidebar icon is decorative; the adjacent label/aria-current provides the accessible name`,
+      );
+    }
+    assert.match(
+      components,
+      /<button className="maka-chat-tab-plus"[\s\S]*?<Plus strokeWidth=\{1\.5\} aria-hidden="true" \/>/,
+      'New-chat plus buttons already have aria-label and must not expose a redundant icon',
+    );
+    assert.match(
+      components,
+      /<button className="maka-button maka-plan-submit"[\s\S]*?<Check size=\{14\} strokeWidth=\{1\.75\} aria-hidden="true" \/>[\s\S]*?<Plus size=\{14\} strokeWidth=\{1\.75\} aria-hidden="true" \/>/,
+      'Plan submit icons are decorative because the button text says 保存提醒 / 创建提醒',
+    );
+    assert.match(
+      components,
+      /className="maka-button maka-tool-error-copy"[\s\S]*?<Check size=\{14\} aria-hidden="true" \/>[\s\S]*?<Copy size=\{14\} aria-hidden="true" \/>/,
+      'Tool-error copy icons are decorative because the button has explicit copy text and aria-label',
+    );
+    assert.match(
+      settings,
+      /aria-label="关闭微信扫码登录"[\s\S]*?<X size=\{17\} aria-hidden="true" \/>/,
+      'WeChat QR close button has a label; the X icon should stay decorative',
+    );
+  });
+
   it('exposes the selected Daily Review range in the segmented control', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const dailyReviewRange = components.match(/<nav className="maka-daily-review-range"[\s\S]*?\{summary && summary\.totals/)?.[0] ?? '';

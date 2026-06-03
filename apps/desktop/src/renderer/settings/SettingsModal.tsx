@@ -563,7 +563,7 @@ function WechatQrLoginModal(props: {
             aria-label="关闭微信扫码登录"
             onClick={props.onClose}
           >
-            <X size={17} />
+            <X size={17} aria-hidden="true" />
           </button>
         </div>
 

@@ -512,7 +512,7 @@ export function SessionListPanel(props: {
           type="button"
           onClick={() => selectModule('sessions')}
         >
-          <MessageSquare className="maka-nav-icon" strokeWidth={1.5} />
+          <MessageSquare className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL.sessions}</span>
         </button>
         <button
@@ -522,7 +522,7 @@ export function SessionListPanel(props: {
           onClick={() => selectModule('search')}
           aria-haspopup="dialog"
         >
-          <Search className="maka-nav-icon" strokeWidth={1.5} />
+          <Search className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL.search}</span>
         </button>
         <button
@@ -533,7 +533,7 @@ export function SessionListPanel(props: {
           onClick={() => selectModule('automations')}
           aria-label={activePlanReminderCount > 0 ? `计划，${activePlanReminderCount} 个未完成提醒` : undefined}
         >
-          <Clock className="maka-nav-icon" strokeWidth={1.5} />
+          <Clock className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL.automations}</span>
           {activePlanReminderCount > 0 && (
             <small className="maka-nav-count" aria-hidden="true">{activePlanReminderCount}</small>
@@ -546,7 +546,7 @@ export function SessionListPanel(props: {
           type="button"
           onClick={() => selectModule('skills')}
         >
-          <Sparkles className="maka-nav-icon" strokeWidth={1.5} />
+          <Sparkles className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL.skills}</span>
         </button>
         <button
@@ -556,7 +556,7 @@ export function SessionListPanel(props: {
           type="button"
           onClick={() => selectModule('daily-review')}
         >
-          <CalendarDays className="maka-nav-icon" strokeWidth={1.5} />
+          <CalendarDays className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL['daily-review']}</span>
         </button>
       </nav>
@@ -648,7 +648,7 @@ export function SessionListPanel(props: {
           onClick={props.onOpenUpdate}
           aria-label="版本信息"
         >
-          <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} />
+          <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>版本信息</span>
         </button>
         <button
@@ -656,7 +656,7 @@ export function SessionListPanel(props: {
           type="button"
           onClick={props.onOpenSettings}
         >
-          <Settings className="maka-nav-icon" strokeWidth={1.5} />
+          <Settings className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>设置</span>
         </button>
         {/*
@@ -1403,7 +1403,7 @@ function PlanReminderPanel(props: {
           </p>
         )}
         <button className="maka-button maka-plan-submit" type="submit" disabled={!canCreate}>
-          {isEditing ? <Check size={14} strokeWidth={1.75} /> : <Plus size={14} strokeWidth={1.75} />}
+          {isEditing ? <Check size={14} strokeWidth={1.75} aria-hidden="true" /> : <Plus size={14} strokeWidth={1.75} aria-hidden="true" />}
           <span>{isEditing ? '保存提醒' : '创建提醒'}</span>
         </button>
         {isEditing && (
@@ -3070,7 +3070,7 @@ export function ChatView(props: {
         <header className="maka-chat-header">
           <ChatTab title="新建对话" />
           <button className="maka-chat-tab-plus" type="button" aria-label="新建对话" onClick={props.onNew}>
-            <Plus strokeWidth={1.5} />
+            <Plus strokeWidth={1.5} aria-hidden="true" />
           </button>
           <span className="maka-chat-header-spacer" />
           <PermissionModeSwitcher mode="ask" disabled disabledReason="新建对话后再切换模式。" />
@@ -3099,7 +3099,7 @@ export function ChatView(props: {
             : undefined}
         />
         <button className="maka-chat-tab-plus" type="button" aria-label="新建对话" onClick={props.onNew}>
-          <Plus strokeWidth={1.5} />
+          <Plus strokeWidth={1.5} aria-hidden="true" />
         </button>
         <span className="maka-chat-header-spacer" />
         {props.memoryActive && (
@@ -5300,7 +5300,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
           aria-label={copied ? '已复制错误信息' : '复制错误信息'}
           onClick={() => void copy()}
         >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
           <span>{copied ? '已复制' : '复制'}</span>
         </button>
       )}
