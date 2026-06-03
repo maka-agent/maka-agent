@@ -349,8 +349,8 @@ export function SessionListPanel(props: {
    * lifecycle behind this callback.
    */
   onOpenSearchModal?(): void;
-  onCreatePlanReminder?(input: PlanReminderDraftInput): void;
-  onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): void;
+  onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
+  onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
   onTogglePlanReminder?(id: string, enabled: boolean): void;
   onTriggerPlanReminderNow?(id: string): void;
   onSnoozePlanReminder?(id: string): void;
@@ -1164,8 +1164,8 @@ function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<Daily
 
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
-  onCreate?(input: PlanReminderDraftInput): void;
-  onUpdate?(id: string, patch: PlanReminderUpdatePatch): void;
+  onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
+  onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
   onToggle?(id: string, enabled: boolean): void;
   onTriggerNow?(id: string): void;
   onSnooze?(id: string): void;
@@ -1182,6 +1182,7 @@ function PlanReminderPanel(props: {
   const [deliveryPlatform, setDeliveryPlatform] = useState<BotProvider>('telegram');
   const [deliveryChatId, setDeliveryChatId] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [submitPending, setSubmitPending] = useState(false);
   const [listFilter, setListFilter] = useState<PlanReminderListFilter>('all');
   const [listQuery, setListQuery] = useState('');
   const parsedRunAt = Date.parse(runAtLocal);
@@ -1211,6 +1212,7 @@ function PlanReminderPanel(props: {
     now: Date.now(),
   });
   const canCreate = validationMessage === null;
+  const submitDisabled = !canCreate || submitPending;
   const isEditing = editingId !== null;
 
   useEffect(() => {
@@ -1267,9 +1269,9 @@ function PlanReminderPanel(props: {
     setRunAtLocal(toDatetimeLocalValue(planReminderPresetRunAt(preset)));
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canCreate) return;
+    if (submitDisabled) return;
     const input = {
       title: title.trim(),
       note: note.trim(),
@@ -1278,20 +1280,23 @@ function PlanReminderPanel(props: {
       ...(recurrence === 'cron' ? { cronExpression: cronExpression.trim() } : {}),
       delivery,
     };
-    if (editingId) {
-      props.onUpdate?.(editingId, input);
-    } else {
-      props.onCreate?.({
-        ...input,
-        ...(input.note ? { note: input.note } : {}),
-      });
+    setSubmitPending(true);
+    try {
+      const result = editingId
+        ? await props.onUpdate?.(editingId, input)
+        : await props.onCreate?.({
+          ...input,
+          ...(input.note ? { note: input.note } : {}),
+        });
+      if (result !== false) resetForm();
+    } finally {
+      setSubmitPending(false);
     }
-    resetForm();
   }
 
   return (
     <div className="maka-plan-panel">
-      <form className="maka-plan-form" onSubmit={submit}>
+      <form className="maka-plan-form" onSubmit={submit} aria-busy={submitPending ? 'true' : undefined}>
         <div className="maka-plan-form-title">{isEditing ? '编辑提醒' : '新建提醒'}</div>
         <label className="maka-plan-field">
           <span>标题</span>
@@ -1402,9 +1407,9 @@ function PlanReminderPanel(props: {
             {validationMessage}
           </p>
         )}
-        <button className="maka-button maka-plan-submit" type="submit" disabled={!canCreate}>
+        <button className="maka-button maka-plan-submit" type="submit" disabled={submitDisabled}>
           {isEditing ? <Check size={14} strokeWidth={1.75} aria-hidden="true" /> : <Plus size={14} strokeWidth={1.75} aria-hidden="true" />}
-          <span>{isEditing ? '保存提醒' : '创建提醒'}</span>
+          <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
         </button>
         {isEditing && (
           <button className="maka-button secondary maka-plan-submit" type="button" onClick={resetForm}>
@@ -2872,8 +2877,8 @@ export function ChatView(props: {
   onCreateSkillTemplate?(): void;
   onOpenSkill?(skillId: string): void;
   planReminders?: PlanReminder[];
-  onCreatePlanReminder?(input: PlanReminderDraftInput): void;
-  onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): void;
+  onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
+  onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
   onTogglePlanReminder?: (id: string, enabled: boolean) => void;
   onTriggerPlanReminderNow?: (id: string) => void;
   onSnoozePlanReminder?: (id: string) => void;

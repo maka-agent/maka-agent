@@ -93,6 +93,22 @@ describe('Plan reminder MVP contract', () => {
     );
   });
 
+  it('keeps reminder drafts until async create or save succeeds', async () => {
+    const [ui, renderer] = await Promise.all([
+      readRepo('packages/ui/src/components.tsx'),
+      readRepo('apps/desktop/src/renderer/main.tsx'),
+    ]);
+
+    const panelBlock = ui.match(/function PlanReminderPanel[\s\S]*?function comparePlanReminderForDisplay/)?.[0] ?? '';
+    assert.match(panelBlock, /const \[submitPending, setSubmitPending\] = useState\(false\)/, 'plan form must gate duplicate async submits');
+    assert.match(panelBlock, /const submitDisabled = !canCreate \|\| submitPending/, 'pending create/save must disable the submit button');
+    assert.match(panelBlock, /const result = editingId[\s\S]*await props\.onUpdate\?\.\(editingId, input\)[\s\S]*await props\.onCreate\?\.\(/, 'plan form must await async create/save callbacks');
+    assert.match(panelBlock, /if \(result !== false\) resetForm\(\)/, 'plan form must keep the user draft when the parent reports failure');
+    assert.doesNotMatch(panelBlock, /props\.onCreate\?\([\s\S]*?\);\s*}\s*resetForm\(\)/, 'plan form must not clear fields immediately after firing create');
+    assert.match(renderer, /toastApi\.success\('已创建计划提醒'[\s\S]*return true;[\s\S]*toastApi\.error\('创建计划失败'[\s\S]*return false;/, 'createPlanReminder must report success/failure to the form');
+    assert.match(renderer, /toastApi\.success\('已保存计划提醒'[\s\S]*return true;[\s\S]*toastApi\.error\('保存计划失败'[\s\S]*return false;/, 'updatePlanReminder must report success/failure to the form');
+  });
+
   it('scheduler records trigger outcomes and emits due events', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     assert.match(main, /refreshPlanReminderTimers\(\)/, 'app startup must restore reminder timers');
