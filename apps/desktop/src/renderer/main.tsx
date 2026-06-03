@@ -781,13 +781,18 @@ function AppShell() {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
+    setMessages([]);
     setSessionEventHealthBySession((current) => ({
       ...current,
       [activeId]: createSessionEventStreamSubscription({ sessionId: activeId, now: subscribedAt }),
     }));
-    void window.maka.sessions.readMessages(activeId).then((next) => {
-      if (!disposed) setMessages(next);
-    });
+    void window.maka.sessions.readMessages(activeId)
+      .then((next) => {
+        if (!disposed && activeIdRef.current === activeId) setMessages(next);
+      })
+      .catch(() => {
+        if (!disposed && activeIdRef.current === activeId) setMessages([]);
+      });
     const unsubscribe = window.maka.sessions.subscribeEvents(activeId, (event) => {
       setSessionEventHealthBySession((current) => {
         const previous = current[activeId];
@@ -1438,9 +1443,15 @@ function AppShell() {
   }
 
   async function refreshMessages(sessionId: string) {
-    const next = await window.maka.sessions.readMessages(sessionId);
-    if (activeIdRef.current === sessionId) {
-      setMessages(next);
+    try {
+      const next = await window.maka.sessions.readMessages(sessionId);
+      if (activeIdRef.current === sessionId) {
+        setMessages(next);
+      }
+    } catch {
+      if (activeIdRef.current === sessionId) {
+        setMessages([]);
+      }
     }
   }
 
