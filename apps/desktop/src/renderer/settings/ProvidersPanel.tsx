@@ -716,6 +716,10 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
         toast.error('登录未完成', result.message);
         setErrorMessage(result.message);
       }
+    } catch (error) {
+      const message = subscriptionActionErrorMessage(error);
+      toast.error('登录失败', message);
+      setErrorMessage(message);
     } finally {
       setPendingAction(false);
     }
@@ -732,6 +736,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
       } else {
         toast.error('退出失败', result.message);
       }
+    } catch (error) {
+      toast.error('退出失败', subscriptionActionErrorMessage(error));
     } finally {
       setPendingAction(false);
     }
@@ -829,6 +835,15 @@ interface SubscriptionBridge {
   cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
   getAccountState(): Promise<unknown>;
   logout(): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
+}
+
+function subscriptionActionErrorMessage(error: unknown): string {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'string'
+      ? error
+      : '';
+  return message.trim() || '登录服务暂时不可用，请检查网络后重试。';
 }
 
 async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<SubscriptionSnapshot> {
@@ -1736,6 +1751,10 @@ function ClaudeSubscriptionCard() {
         setStateHint(null);
       }
       await refresh();
+    } catch (error) {
+      const message = subscriptionActionErrorMessage(error);
+      toast.error('无法开始登录', message);
+      setPasteError(message);
     } finally {
       setPendingAction(false);
     }
@@ -1759,6 +1778,10 @@ function ClaudeSubscriptionCard() {
       } else {
         setPasteError(result.message);
       }
+    } catch (error) {
+      const message = subscriptionActionErrorMessage(error);
+      toast.error('授权码提交失败', message);
+      setPasteError(message);
     } finally {
       setPendingAction(false);
     }
@@ -1766,12 +1789,19 @@ function ClaudeSubscriptionCard() {
 
   async function cancelLogin() {
     if (!authRequestId) return;
-    await window.maka.claudeSubscription.cancelAuthorization(authRequestId);
-    setAuthRequestId(null);
-    setStateHint(null);
-    setPasteValue('');
-    setPasteError(null);
-    await refresh();
+    setPendingAction(true);
+    try {
+      await window.maka.claudeSubscription.cancelAuthorization(authRequestId);
+      setAuthRequestId(null);
+      setStateHint(null);
+      setPasteValue('');
+      setPasteError(null);
+      await refresh();
+    } catch (error) {
+      toast.error('取消登录失败', subscriptionActionErrorMessage(error));
+    } finally {
+      setPendingAction(false);
+    }
   }
 
   async function logout() {
@@ -1785,6 +1815,8 @@ function ClaudeSubscriptionCard() {
       } else {
         toast.error('退出失败', result.message);
       }
+    } catch (error) {
+      toast.error('退出失败', subscriptionActionErrorMessage(error));
     } finally {
       setPendingAction(false);
     }
@@ -1795,6 +1827,8 @@ function ClaudeSubscriptionCard() {
     try {
       await window.maka.claudeSubscription.refreshQuota();
       await refresh();
+    } catch (error) {
+      toast.error('刷新配额失败', subscriptionActionErrorMessage(error));
     } finally {
       setPendingAction(false);
     }
