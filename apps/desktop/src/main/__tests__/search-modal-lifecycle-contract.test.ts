@@ -195,6 +195,33 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(styles, /\.maka-search-modal-result\[data-active="true"\]:not\(\[disabled\]\)/, 'Active search result must have dedicated styling');
   });
 
+  it('search input keeps focus after results load until the user navigates results', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+    const hook = components.slice(components.indexOf('export function useModalA11y'), components.indexOf('const FOCUSABLE_SELECTOR'));
+
+    assert.match(
+      hook,
+      /initialFocusRef\?: RefObject<HTMLElement \| null>/,
+      'useModalA11y must allow a modal to nominate the correct initial focus target',
+    );
+    assert.match(
+      searchModal,
+      /useModalA11y\(dialogRef,\s*props\.onClose,\s*inputRef\)/,
+      'SearchModal must give initial modal focus to the search input, not the close button',
+    );
+    assert.match(
+      searchModal,
+      /setResults\(response\);\s*setError\(null\);\s*setActiveResultIndex\(-1\);/m,
+      'Search results must not automatically move active-descendant focus onto the first result while the user is still typing',
+    );
+    assert.match(
+      searchModal,
+      /const next = current < 0\s*\?\s*\(delta > 0 \? 0 : results\.length - 1\)/,
+      'Arrow navigation should still select the first or last result from the input',
+    );
+  });
+
   it('search query has an explicit clear button because the native search cancel is hidden', async () => {
     const components = await readFile(COMPONENTS_PATH, 'utf8');
     const styles = await readFile(STYLES_PATH, 'utf8');
@@ -273,6 +300,17 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(searchModal, /搜索服务需要刷新，请重试。/);
     assert.doesNotMatch(searchModal, /搜索暂时不可用，请稍后重试。/, 'Search modal fallback error should not read like a generic unavailable feature');
+  });
+
+  it('modal focus restoration does not steal focus during React StrictMode effect replay', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const hook = components.slice(components.indexOf('export function useModalA11y'), components.indexOf('const FOCUSABLE_SELECTOR'));
+
+    assert.match(
+      hook,
+      /queueMicrotask\(\(\) => \{\s*if \(document\.contains\(container\)\) return;\s*if \(previouslyFocused && document\.contains\(previouslyFocused\)\)/m,
+      'StrictMode effect cleanup must not restore focus to the opener while the modal container is still mounted',
+    );
   });
 
   it('session time buckets use product labels without unfinished-state wording', async () => {

@@ -101,6 +101,7 @@ describe('localized main shell contract', () => {
   it('hides the app shell from the accessibility tree while a top-level modal is open', async () => {
     const main = await readFile(join(process.cwd(), 'src', 'renderer', 'main.tsx'), 'utf8');
     const appShell = main.match(/const hasModalOpen[\s\S]*?<div\s+className="app maka-shell-2col"[\s\S]*?style=\{\{/)?.[0] ?? '';
+    const modalMounts = main.match(/<\/div>\s*\{activePermission && \([\s\S]*?\{settingsOpen && \(/)?.[0] ?? '';
 
     assert.match(
       appShell,
@@ -114,8 +115,18 @@ describe('localized main shell contract', () => {
     );
     assert.match(
       appShell,
+      /inert=\{hasModalOpen \? true : undefined\}/,
+      'the background app shell must be inert while modal siblings are mounted so focus and pointer events cannot escape behind the modal',
+    );
+    assert.match(
+      appShell,
       /data-modal-background-hidden=\{hasModalOpen \? 'true' : undefined\}/,
       'the modal background-hidden state should remain inspectable in visual/a11y smoke runs',
+    );
+    assert.match(
+      modalMounts,
+      /\{activePermission && \([\s\S]*?<PermissionDialog[\s\S]*?\)\}\s*\{settingsOpen && \(/,
+      'top-level modals must remain siblings after the hidden/inert app shell, not descendants of it',
     );
   });
 

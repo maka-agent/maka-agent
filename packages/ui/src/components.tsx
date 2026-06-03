@@ -162,6 +162,7 @@ const MODULE_NAV_LABEL: Record<ModuleNavId, string> = {
 export function useModalA11y(
   containerRef: RefObject<HTMLElement | null>,
   onEscape?: () => void,
+  initialFocusRef?: RefObject<HTMLElement | null>,
 ): void {
   useEffect(() => {
     const container = containerRef.current;
@@ -169,9 +170,12 @@ export function useModalA11y(
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
-    const initial = getFocusable(container);
-    if (initial.length > 0) {
-      initial[0]!.focus({ preventScroll: true });
+    const preferredInitial = initialFocusRef?.current;
+    const initial = preferredInitial && container.contains(preferredInitial)
+      ? preferredInitial
+      : getFocusable(container)[0];
+    if (initial) {
+      initial.focus({ preventScroll: true });
     } else {
       if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '-1');
       container.focus({ preventScroll: true });
@@ -209,12 +213,13 @@ export function useModalA11y(
       // Defer restoration so any in-flight focus changes (e.g. clicking a
       // button that unmounts the modal) settle before we yank focus back.
       queueMicrotask(() => {
+        if (document.contains(container)) return;
         if (previouslyFocused && document.contains(previouslyFocused)) {
           previouslyFocused.focus?.({ preventScroll: true });
         }
       });
     };
-  }, [containerRef, onEscape]);
+  }, [containerRef, onEscape, initialFocusRef]);
 }
 
 const FOCUSABLE_SELECTOR =
@@ -1823,7 +1828,6 @@ export function SearchModal(props: {
   deps?: SearchModalDeps;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useModalA11y(dialogRef, props.onClose);
 
   // PR-UX-POLISH-1 commit 5 (kenji `2844f64f` SEARCH gate):
   //   - `query` is local state ONLY (no localStorage / no IPC echo).
@@ -1846,6 +1850,7 @@ export function SearchModal(props: {
   const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const ticketRef = useRef(0);
   const searchThread = props.deps?.searchThread;
+  useModalA11y(dialogRef, props.onClose, inputRef);
 
   // Debounced search: ~180ms after the user stops typing, send the
   // request. Empty query clears state without an IPC roundtrip.
@@ -1873,7 +1878,7 @@ export function SearchModal(props: {
         if (Array.isArray(response)) {
           setResults(response);
           setError(null);
-          setActiveResultIndex(response.length > 0 ? 0 : -1);
+          setActiveResultIndex(-1);
         } else {
           setResults([]);
           setError({ reason: response.reason, message: response.message });
@@ -1895,12 +1900,6 @@ export function SearchModal(props: {
     }, 180);
     return () => window.clearTimeout(handle);
   }, [query, searchThread]);
-
-  // Focus the input on mount so users can type immediately. The
-  // useModalA11y hook handles focus trap + restore on close.
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   useEffect(() => {
     if (activeResultIndex < 0) return;

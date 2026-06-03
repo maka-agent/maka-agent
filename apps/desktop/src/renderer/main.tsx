@@ -2022,6 +2022,7 @@ function AppShell() {
       <div
         className="app maka-shell-2col"
         aria-hidden={hasModalOpen ? 'true' : undefined}
+        inert={hasModalOpen ? true : undefined}
         data-modal-background-hidden={hasModalOpen ? 'true' : undefined}
         style={{
           '--maka-session-list-width': `${sessionListWidth}px`,
