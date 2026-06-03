@@ -98,6 +98,27 @@ describe('localized main shell contract', () => {
     assert.match(settingsNavButton, /aria-current=\{section === item\.id \? 'page' : undefined\}/, 'Settings nav must expose the current page to accessibility APIs');
   });
 
+  it('hides the app shell from the accessibility tree while a top-level modal is open', async () => {
+    const main = await readFile(join(process.cwd(), 'src', 'renderer', 'main.tsx'), 'utf8');
+    const appShell = main.match(/const hasModalOpen[\s\S]*?<div\s+className="app maka-shell-2col"[\s\S]*?style=\{\{/)?.[0] ?? '';
+
+    assert.match(
+      appShell,
+      /const hasModalOpen = Boolean\(activePermission\) \|\| settingsOpen \|\| helpOpen \|\| paletteOpen \|\| searchModalOpen;/,
+      'all top-level modal states must contribute to the accessibility background-hide flag',
+    );
+    assert.match(
+      appShell,
+      /aria-hidden=\{hasModalOpen \? 'true' : undefined\}/,
+      'the background app shell must be hidden from assistive tech while modal siblings are mounted',
+    );
+    assert.match(
+      appShell,
+      /data-modal-background-hidden=\{hasModalOpen \? 'true' : undefined\}/,
+      'the modal background-hidden state should remain inspectable in visual/a11y smoke runs',
+    );
+  });
+
   it('keeps English skill metadata out of the visible skills list copy', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const skillPanel = components.match(/function SkillLibraryPanel[\s\S]*?function formatSkillLibraryDescription/)?.[0] ?? '';

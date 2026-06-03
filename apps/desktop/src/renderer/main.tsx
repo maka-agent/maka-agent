@@ -2015,10 +2015,14 @@ function AppShell() {
     setSessionListWidth(clamp(next, MIN, MAX));
   }
 
+  const hasModalOpen = Boolean(activePermission) || settingsOpen || helpOpen || paletteOpen || searchModalOpen;
+
   return (
     <div className="appFrame">
       <div
         className="app maka-shell-2col"
+        aria-hidden={hasModalOpen ? 'true' : undefined}
+        data-modal-background-hidden={hasModalOpen ? 'true' : undefined}
         style={{
           '--maka-session-list-width': `${sessionListWidth}px`,
         } as CSSProperties}
