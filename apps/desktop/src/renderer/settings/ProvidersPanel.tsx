@@ -1143,6 +1143,12 @@ function ConnectionDetail(props: {
   const credentialTroubleshootingCopy = needsOAuth
     ? 'OAuth 登录 / 代理设置'
     : 'API key / Base URL / 代理设置';
+  const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
+  const draftBaseUrl = hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl;
+  const hasSaveChanges =
+    apiKey.length > 0 ||
+    draftBaseUrl !== savedBaseUrl ||
+    defaultModel !== connection.defaultModel;
 
   async function save() {
     setBusy(true);
@@ -1308,7 +1314,7 @@ function ConnectionDetail(props: {
         </a>
       )}
       <div className="providerActions">
-        <button className="maka-button" data-variant="primary" type="button" disabled={busy} onClick={save}>
+        <button className="maka-button" data-variant="primary" type="button" disabled={busy || !hasSaveChanges} onClick={save}>
           {busy ? '保存中…' : '保存修改'}
         </button>
         <button className="maka-button" type="button" disabled={testing || (requiresCredential && !hasSecret)} onClick={runTest}>
