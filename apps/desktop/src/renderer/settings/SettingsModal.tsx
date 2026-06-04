@@ -487,7 +487,7 @@ function WeChatScanLoginModal(props: {
 
 function WechatQrLoginModal(props: {
   onClose(): void;
-  onRefreshStatuses(): Promise<void>;
+  onRefreshStatuses(): void | Promise<unknown>;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<WechatBridgeQrCodeResult | null>(null);
@@ -3893,6 +3893,7 @@ function BotChatSettingsPage(props: {
   const [scanLoginOpen, setScanLoginOpen] = useState(false);
   const [wechatQrOpen, setWechatQrOpen] = useState(false);
   const [statuses, setStatuses] = useState<Record<BotProvider, BotStatus> | null>(null);
+  const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
   const channel = props.settings.botChat.channels[selected];
   const toast = useToast();
   const selectedStatus = statuses?.[selected];
@@ -3910,11 +3911,17 @@ function BotChatSettingsPage(props: {
   useEffect(() => {
     let active = true;
     void window.maka.settings.bots.listStatuses().then((next) => {
-      if (active) setStatuses(next);
-    }).catch(() => {
-      if (active) setStatuses(null);
+      if (!active) return;
+      setStatuses(next);
+      setStatusLoadError(null);
+    }).catch((error) => {
+      if (!active) return;
+      const message = settingsActionErrorMessage(error);
+      setStatusLoadError(message);
+      toast.error('载入机器人运行状态失败', message);
     });
     const unsubscribe = window.maka.settings.bots.subscribeStatusChanges((status) => {
+      setStatusLoadError(null);
       setStatuses((current) => ({
         ...(current ?? ({} as Record<BotProvider, BotStatus>)),
         [status.platform]: status,
@@ -3941,9 +3948,7 @@ function BotChatSettingsPage(props: {
       } else {
         toast.error(`${platform} 凭据测试失败`, result.message);
       }
-      await props.onReload();
-      const nextStatuses = await window.maka.settings.bots.listStatuses();
-      setStatuses(nextStatuses);
+      await refreshBotStatuses();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`${BOT_LABELS[selected].label} 测试出错`, message);
@@ -3971,9 +3976,7 @@ function BotChatSettingsPage(props: {
       } else {
         toast.error(`${platform} 凭据测试失败`, result.message);
       }
-      await props.onReload();
-      const nextStatuses = await window.maka.settings.bots.listStatuses();
-      setStatuses(nextStatuses);
+      await refreshBotStatuses();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`${BOT_LABELS[selected].label} 测试出错`, message);
@@ -4020,10 +4023,19 @@ function BotChatSettingsPage(props: {
     }
   }
 
-  async function refreshBotStatuses() {
-    await props.onReload();
-    const nextStatuses = await window.maka.settings.bots.listStatuses();
-    setStatuses(nextStatuses);
+  async function refreshBotStatuses(): Promise<boolean> {
+    try {
+      await props.onReload();
+      const nextStatuses = await window.maka.settings.bots.listStatuses();
+      setStatuses(nextStatuses);
+      setStatusLoadError(null);
+      return true;
+    } catch (error) {
+      const message = settingsActionErrorMessage(error);
+      setStatusLoadError(message);
+      toast.error('刷新机器人运行状态失败', message);
+      return false;
+    }
   }
 
   async function disconnectWechatLogin() {
@@ -4305,6 +4317,11 @@ function BotChatSettingsPage(props: {
           </div>
         </dl>
 
+        {statusLoadError && (
+          <div className="settingsBotReason" data-tone="error" role="alert">
+            机器人运行状态刷新失败：{statusLoadError}
+          </div>
+        )}
         {selectedStatus?.reason && <div className="settingsBotReason">{botStatusDetail(selectedStatus)}</div>}
 
         {/* PR-BOT-CHAT-POLISH-0: surface the last persisted test error
