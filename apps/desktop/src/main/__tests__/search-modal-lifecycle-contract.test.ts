@@ -213,12 +213,18 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /aria-activedescendant=\{activeResultId\}/, 'Search input must expose the active result to assistive tech');
     assert.match(searchModal, /role="listbox" aria-label="搜索结果"/, 'Search results must expose a listbox for aria-activedescendant');
     assert.match(searchModal, /role="option"[\s\S]*aria-selected=\{activeResultIndex === index\}/, 'Search result rows must expose selected option state');
-    assert.match(searchModal, /event\.key === 'ArrowDown'[\s\S]*moveActiveResult\(1\)/, 'ArrowDown must move to the next result');
-    assert.match(searchModal, /event\.key === 'ArrowUp'[\s\S]*moveActiveResult\(-1\)/, 'ArrowUp must move to the previous result');
-    assert.match(searchModal, /function jumpActiveResult\(index: number\)/, 'SearchModal must support direct active-result jumps');
-    assert.match(searchModal, /event\.key === 'Home'[\s\S]*jumpActiveResult\(0\)/, 'Home must jump to the first result');
-    assert.match(searchModal, /event\.key === 'End'[\s\S]*jumpActiveResult\(results\.length - 1\)/, 'End must jump to the last result');
-    assert.match(searchModal, /event\.key === 'Enter'[\s\S]*selectResult\(results\[activeResultIndex\]!\)/, 'Enter must open the active result');
+    assert.match(searchModal, /keyboardKey\(event, \['ArrowDown', 'Down'\]\)[\s\S]*moveActiveResult\(1,\s*\{ focusResult: true \}\)/, 'ArrowDown/Down must move focus to the next result');
+    assert.match(searchModal, /keyboardKey\(event, \['ArrowUp', 'Up'\]\)[\s\S]*moveActiveResult\(-1,\s*\{ focusResult: true \}\)/, 'ArrowUp/Up must move focus to the previous result');
+    assert.match(searchModal, /function jumpActiveResult\(index: number,\s*options\?: \{ focusResult\?: boolean \}\)/, 'SearchModal must support direct active-result jumps');
+    assert.match(searchModal, /keyboardKey\(event, \['Home'\]\)[\s\S]*jumpActiveResult\(0,\s*\{ focusResult: true \}\)/, 'Home must jump focus to the first result');
+    assert.match(searchModal, /keyboardKey\(event, \['End'\]\)[\s\S]*jumpActiveResult\(results\.length - 1,\s*\{ focusResult: true \}\)/, 'End must jump focus to the last result');
+    assert.match(searchModal, /function selectKeyboardResult\(\) \{[\s\S]*results\[activeResultIndex >= 0 \? activeResultIndex : 0\]/, 'Enter/Return must fall back to opening the first result when no row is active');
+    assert.match(searchModal, /keyboardKey\(event, \['Enter', 'Return'\]\) && showResults[\s\S]*selectKeyboardResult\(\)/, 'Enter/Return must open a keyboard result from the input');
+    assert.match(searchModal, /onKeyUp=\{\(event\) => \{[\s\S]*keyboardKey\(event, \['Enter', 'Return'\]\) && showResults[\s\S]*selectKeyboardResult\(\)/, 'Search input must also handle Enter/Return on keyup for Electron search-field activation quirks');
+    assert.match(searchModal, /function handleResultKeyDown\(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult\)/, 'Focused search result rows must have their own keyboard handler');
+    assert.match(searchModal, /keyboardKey\(event, \['Enter', 'Return', 'Space', ' '\]\)[\s\S]*selectResult\(result\)/, 'Focused search result rows must activate on Enter, Return, or Space');
+    assert.match(searchModal, /tabIndex=\{-1\}/, 'Search result rows should be arrow-key focused, not extra tab stops');
+    assert.match(searchModal, /onKeyDown=\{\(event\) => handleResultKeyDown\(event, index, result\)\}/, 'Search result rows must wire the keyboard handler');
     assert.match(searchModal, /data-active=\{activeResultIndex === index \? 'true' : undefined\}/, 'Active result must get a visible state hook');
     assert.match(styles, /\.maka-search-modal-result\[data-active="true"\]:not\(\[disabled\]\)/, 'Active search result must have dedicated styling');
   });
@@ -245,7 +251,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       searchModal,
-      /const next = current < 0\s*\?\s*\(delta > 0 \? 0 : results\.length - 1\)/,
+      /const next = activeResultIndex < 0\s*\?\s*\(delta > 0 \? 0 : results\.length - 1\)/,
       'Arrow navigation should still select the first or last result from the input',
     );
   });
@@ -270,7 +276,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /function clearSearchState\(\) \{\s*ticketRef\.current \+= 1;\s*setResults\(\[\]\);/m, 'Shared clear state helper must invalidate in-flight search before clearing results');
     assert.match(searchModal, /function updateSearchQuery\(nextQuery: string\) \{[\s\S]*if \(nextQuery\.trim\(\)\.length === 0\) \{[\s\S]*clearSearchState\(\);[\s\S]*\}/, 'Typing/deleting to an empty query must synchronously invalidate in-flight search');
     assert.match(searchModal, /onChange=\{\(event\) => updateSearchQuery\(event\.currentTarget\.value\)\}/, 'Search input changes must go through the synchronized update helper');
-    assert.match(searchModal, /event\.key === 'Escape' && query[\s\S]*clearSearchQuery\(\);/, 'Escape clear path must synchronously invalidate in-flight search');
+    assert.match(searchModal, /keyboardKey\(event, \['Escape'\]\) && query[\s\S]*clearSearchQuery\(\);/, 'Escape clear path must synchronously invalidate in-flight search');
     assert.match(
       searchModal,
       /if \(trimmed\.length === 0\) \{\s*ticketRef\.current \+= 1;\s*setResults\(\[\]\);/m,

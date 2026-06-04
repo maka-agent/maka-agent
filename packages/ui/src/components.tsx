@@ -1924,6 +1924,11 @@ export function SearchModal(props: {
     props.onClose();
   }
 
+  function selectKeyboardResult() {
+    if (!showResults) return;
+    selectResult(results[activeResultIndex >= 0 ? activeResultIndex : 0]!);
+  }
+
   function clearSearchState() {
     ticketRef.current += 1;
     setResults([]);
@@ -1945,19 +1950,66 @@ export function SearchModal(props: {
     inputRef.current?.focus();
   }
 
-  function moveActiveResult(delta: 1 | -1) {
-    if (results.length === 0) return;
-    setActiveResultIndex((current) => {
-      const next = current < 0
-        ? (delta > 0 ? 0 : results.length - 1)
-        : (current + delta + results.length) % results.length;
-      return next;
+  function focusSearchResult(index: number) {
+    window.requestAnimationFrame(() => {
+      resultRefs.current[index]?.focus({ preventScroll: true });
     });
   }
 
-  function jumpActiveResult(index: number) {
+  function moveActiveResult(delta: 1 | -1, options?: { focusResult?: boolean }) {
     if (results.length === 0) return;
-    setActiveResultIndex(Math.max(0, Math.min(results.length - 1, index)));
+    const next = activeResultIndex < 0
+      ? (delta > 0 ? 0 : results.length - 1)
+      : (activeResultIndex + delta + results.length) % results.length;
+    setActiveResultIndex(next);
+    if (options?.focusResult) focusSearchResult(next);
+  }
+
+  function jumpActiveResult(index: number, options?: { focusResult?: boolean }) {
+    if (results.length === 0) return;
+    const next = Math.max(0, Math.min(results.length - 1, index));
+    setActiveResultIndex(next);
+    if (options?.focusResult) focusSearchResult(next);
+  }
+
+  function keyboardKey(event: KeyboardEvent, keys: string[]) {
+    return keys.includes(event.key) || keys.includes(event.code);
+  }
+
+  function handleResultKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult) {
+    if (keyboardKey(event, ['Enter', 'Return', 'Space', ' '])) {
+      event.preventDefault();
+      selectResult(result);
+      return;
+    }
+    if (keyboardKey(event, ['ArrowDown', 'Down'])) {
+      event.preventDefault();
+      moveActiveResult(1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['ArrowUp', 'Up'])) {
+      event.preventDefault();
+      moveActiveResult(-1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['Home'])) {
+      event.preventDefault();
+      jumpActiveResult(0, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['End'])) {
+      event.preventDefault();
+      jumpActiveResult(results.length - 1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['Escape'])) {
+      event.preventDefault();
+      props.onClose();
+      return;
+    }
+    if (index !== activeResultIndex) {
+      setActiveResultIndex(index);
+    }
   }
 
   const incognitoBlocked = error?.reason === 'incognito_active';
@@ -2005,34 +2057,40 @@ export function SearchModal(props: {
             value={query}
             onChange={(event) => updateSearchQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Escape' && query) {
+              if (keyboardKey(event, ['Escape']) && query) {
                 event.preventDefault();
                 clearSearchQuery();
                 return;
               }
-              if (event.key === 'ArrowDown' && showResults) {
+              if (keyboardKey(event, ['ArrowDown', 'Down']) && showResults) {
                 event.preventDefault();
-                moveActiveResult(1);
+                moveActiveResult(1, { focusResult: true });
                 return;
               }
-              if (event.key === 'ArrowUp' && showResults) {
+              if (keyboardKey(event, ['ArrowUp', 'Up']) && showResults) {
                 event.preventDefault();
-                moveActiveResult(-1);
+                moveActiveResult(-1, { focusResult: true });
                 return;
               }
-              if (event.key === 'Home' && showResults) {
+              if (keyboardKey(event, ['Home']) && showResults) {
                 event.preventDefault();
-                jumpActiveResult(0);
+                jumpActiveResult(0, { focusResult: true });
                 return;
               }
-              if (event.key === 'End' && showResults) {
+              if (keyboardKey(event, ['End']) && showResults) {
                 event.preventDefault();
-                jumpActiveResult(results.length - 1);
+                jumpActiveResult(results.length - 1, { focusResult: true });
                 return;
               }
-              if (event.key === 'Enter' && showResults && activeResultIndex >= 0) {
+              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
                 event.preventDefault();
-                selectResult(results[activeResultIndex]!);
+                selectKeyboardResult();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
+                event.preventDefault();
+                selectKeyboardResult();
               }
             }}
             autoComplete="off"
@@ -2099,9 +2157,12 @@ export function SearchModal(props: {
                       type="button"
                       role="option"
                       aria-selected={activeResultIndex === index}
+                      tabIndex={-1}
                       className="maka-search-modal-result"
                       data-active={activeResultIndex === index ? 'true' : undefined}
                       onClick={() => selectResult(result)}
+                      onKeyDown={(event) => handleResultKeyDown(event, index, result)}
+                      onFocus={() => setActiveResultIndex(index)}
                       onMouseEnter={() => setActiveResultIndex(index)}
                       disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
                     >
