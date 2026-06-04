@@ -1295,7 +1295,7 @@ function AppShell() {
 
   async function deleteSession(sessionId: string) {
     const session = sessions.find((entry) => entry.id === sessionId);
-    const name = session?.name ?? 'this chat';
+    const name = session?.name ?? '当前会话';
     const ok = await toastApi.confirm({
       title: `删除 "${name}"`,
       description: '会话和全部消息会从磁盘上永久移除。该操作不可撤销。',

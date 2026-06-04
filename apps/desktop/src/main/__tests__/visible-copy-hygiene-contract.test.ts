@@ -139,6 +139,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
       "tool result previews are user-visible runtime output surfaces; truncation markers should use Chinese product copy such as `已隐藏 N 行`, not English debug copy.",
   },
   {
+    label: 'English chat fallback name in destructive confirmation',
+    needle: /this chat/,
+    reason:
+      "delete confirmations are user-visible product copy. A missing session title should fall back to Chinese `当前会话`, not English `this chat` inside a Chinese dialog.",
+  },
+  {
     label: 'English terminal empty-output marker',
     needle: /\(no output\)/,
     reason:
