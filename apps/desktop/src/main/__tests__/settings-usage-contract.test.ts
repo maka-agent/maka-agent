@@ -126,6 +126,10 @@ describe('Settings usage dashboard contract', () => {
     assert.match(settingsSrc, /onOpenSession\?\(sessionId: string\): void/);
     assert.match(settingsSrc, /onOpenSession=\{props\.onOpenSession\}/);
     assert.match(mainSrc, /onOpenSession=\{\(sessionId\) => \{/);
-    assert.match(mainSrc, /closeSettings\(\);[\s\S]*setActiveId\(sessionId\);/);
+    assert.match(
+      mainSrc,
+      /closeSettings\(\);[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(sessionId\);/,
+      'opening a session from Settings must switch the shell back to the chat surface before selecting it',
+    );
   });
 });

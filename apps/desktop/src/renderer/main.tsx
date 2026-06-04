@@ -2382,6 +2382,7 @@ function AppShell() {
           }}
           onOpenSession={(sessionId) => {
             closeSettings();
+            setNavSelection({ section: 'sessions', filter: 'chats' });
             setActiveId(sessionId);
           }}
         />
