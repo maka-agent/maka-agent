@@ -4877,7 +4877,7 @@ const CAPABILITY_READINESS_COPY: Record<CapabilityReadinessState, { label: strin
 
 const OS_PERMISSION_COPY: Record<OsPermissionId, { label: string; purpose: string }> = {
   accessibility: { label: '辅助功能', purpose: 'Computer Use 需要它来读取窗口焦点 / 模拟键盘鼠标。' },
-  screen_recording: { label: '屏幕录制', purpose: 'Computer Use 与 Activity Recorder 需要它来读取窗口内容。' },
+  screen_recording: { label: '屏幕录制', purpose: 'Computer Use 需要它来读取窗口内容；未来屏幕活动录制也会使用。' },
   microphone: { label: '麦克风', purpose: 'Voice 通道需要它来采集语音输入。' },
   notifications: { label: '通知', purpose: '权限申请、回顾完成等系统通知需要它。' },
   automation: { label: '自动化（Apple Events）', purpose: 'Computer Use 控制其他 App 需要逐 target 授权。' },

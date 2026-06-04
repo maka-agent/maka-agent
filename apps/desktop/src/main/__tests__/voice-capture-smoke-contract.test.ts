@@ -54,6 +54,7 @@ describe('voice capture smoke Settings contract', () => {
     assert.match(activityBlock![0], /state:\s*'partial'/, 'activity recorder must be partial, not not_available');
     assert.match(activityBlock![0], /Daily Review 已聚合本地会话/, 'activity reason must name the shipped local aggregation path');
     assert.match(activityBlock![0], /当前不包含屏幕与应用级录制/, 'activity reason must keep the unshipped recorder boundary visible without implementation-status copy');
+    assert.match(activityBlock![0], /id:\s*'screen_recording',\s*required:\s*false/, 'unshipped screen recorder permission must not make Health show an app-wide error');
     assert.doesNotMatch(activityBlock![0], /activity timeline not implemented/, 'old placeholder reason must not return');
   });
 

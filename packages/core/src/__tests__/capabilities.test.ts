@@ -80,6 +80,15 @@ describe('permission and capability snapshot contracts', () => {
     })).toBe('denied');
   });
 
+  test('optional denied OS permission does not block a partial shipped capability', () => {
+    expect(deriveCapabilityReadiness({
+      feature: { state: 'partial', source: 'runtime', reason: 'local activity aggregation only' },
+      configuration: presentConfig,
+      osPermissions: [{ id: 'screen_recording', required: false, status: 'denied' }],
+      runtimeProbe: noRuntime,
+    })).toBe('not_configured');
+  });
+
   test('required not_determined or unknown OS permission is not configured yet', () => {
     expect(deriveCapabilityReadiness({
       feature: enabledFeature,

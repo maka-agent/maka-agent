@@ -70,7 +70,7 @@ export function buildCapabilitySnapshotCollection(input: {
         reason: 'Daily Review 已聚合本地会话 / 工具 / 模型活动；当前不包含屏幕与应用级录制',
       },
       requiredPermissions: [
-        { id: 'screen_recording', required: true, status: permissions.screen_recording.status },
+        { id: 'screen_recording', required: false, status: permissions.screen_recording.status },
       ],
       actionApproval: { state: 'not_required', source: 'not_applicable' },
       memoryAcceptance: { state: 'disabled', source: 'memory_contract' },
