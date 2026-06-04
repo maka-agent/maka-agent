@@ -1156,11 +1156,11 @@ function AddProviderForm(props: {
       )}
       <label>
         <span>Slug</span>
-        <input value={slug} onChange={(event) => setSlug(event.currentTarget.value)} placeholder="my-provider" disabled={isExperimental} />
+        <input value={slug} onChange={(event) => setSlug(event.currentTarget.value)} placeholder="my-provider" disabled={isExperimental} aria-label="模型供应商 Slug" />
       </label>
       <label>
         <span>显示名称</span>
-        <input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental} />
+        <input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental} aria-label="模型供应商显示名称" />
       </label>
       <label>
         <span>Base URL {requiresBaseUrl ? '(required)' : ''}</span>
@@ -1169,6 +1169,7 @@ function AddProviderForm(props: {
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
           placeholder={defaults.baseUrl || 'https://…'}
           disabled={isExperimental}
+          aria-label="模型供应商 Base URL"
         />
       </label>
       <label>
@@ -1178,6 +1179,7 @@ function AddProviderForm(props: {
           onChange={(event) => setDefaultModel(event.currentTarget.value)}
           placeholder={defaults.fallbackModels[0] || 'model-id'}
           disabled={isExperimental}
+          aria-label="模型供应商默认模型"
         />
       </label>
       {error && <p className="providerError">{error}</p>}
@@ -1438,7 +1440,7 @@ function ConnectionDetail(props: {
       </header>
       <label>
         <span>Slug</span>
-        <input value={connection.slug} disabled />
+        <input value={connection.slug} disabled aria-label="模型连接 Slug" />
       </label>
       <label>
         <span>Base URL {hasFixedOAuthBaseUrl ? '（OAuth 固定）' : ''}</span>
@@ -1448,6 +1450,7 @@ function ConnectionDetail(props: {
           placeholder={defaults.baseUrl}
           readOnly={hasFixedOAuthBaseUrl}
           aria-readonly={hasFixedOAuthBaseUrl ? 'true' : undefined}
+          aria-label={hasFixedOAuthBaseUrl ? '模型连接 Base URL，OAuth 固定' : '模型连接 Base URL'}
         />
       </label>
       {needsApiKey && (
@@ -1681,6 +1684,7 @@ function ModelTable(props: {
           onChange={(event) => setQuery(event.currentTarget.value)}
           autoComplete="off"
           spellCheck={false}
+          aria-label="搜索模型"
         />
       )}
 

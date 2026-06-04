@@ -367,6 +367,7 @@ function BotWeChatFields(props: {
                 value={channel.webhookUrl ?? ''}
                 onChange={(event) => updateChannel({ webhookUrl: event.currentTarget.value })}
                 placeholder="http://127.0.0.1:18400"
+                aria-label="微信本机 bridge 地址"
               />
             </label>
             <label className="settingsField">
@@ -375,6 +376,7 @@ function BotWeChatFields(props: {
                 value={channel.appId ?? ''}
                 onChange={(event) => updateChannel({ appId: event.currentTarget.value })}
                 placeholder="微信公众号 App ID"
+                aria-label="微信公众号 App ID"
               />
             </label>
             <label className="settingsField">
@@ -1899,6 +1901,7 @@ function PersonalizationSettingsPage(props: {
           maxLength={60}
           autoComplete="off"
           spellCheck={false}
+          aria-label="显示名称"
         />
         <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
       </label>
@@ -1933,6 +1936,7 @@ function PersonalizationSettingsPage(props: {
           rows={4}
           maxLength={500}
           spellCheck={false}
+          aria-label="助手语气偏好"
           style={{ minHeight: 84, resize: 'vertical', borderRadius: 12 }}
         />
         <small>
@@ -2462,6 +2466,7 @@ function WebSearchSettingsPage(props: {
             value={liveQuery}
             onChange={(event) => setLiveQuery(event.currentTarget.value)}
             placeholder="例如：Electron safeStorage 最佳实践"
+            aria-label="联网搜索真实查询"
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !liveQueryRunning) {
                 event.preventDefault();
@@ -3335,6 +3340,7 @@ function MemorySettingsPage(props: {
           disabled={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
           rows={12}
           spellCheck={false}
+          aria-label="MEMORY.md 内容"
         />
       </label>
 
@@ -3640,7 +3646,11 @@ function NetworkSettingsPage(props: {
           <div className="settingsFormGrid settingsFormGridProxy">
             <label>
               <span>代理协议</span>
-              <select value={proxy.protocol} onChange={(event) => void updateProxy({ protocol: event.currentTarget.value as NetworkProxySettings['protocol'] })}>
+              <select
+                value={proxy.protocol}
+                onChange={(event) => void updateProxy({ protocol: event.currentTarget.value as NetworkProxySettings['protocol'] })}
+                aria-label="代理协议"
+              >
                 <option value="http">HTTP/HTTPS</option>
                 <option value="https">HTTPS</option>
                 <option value="socks5">SOCKS5</option>
@@ -3648,11 +3658,11 @@ function NetworkSettingsPage(props: {
             </label>
             <label>
               <span>服务器地址</span>
-              <input value={proxy.host} onChange={(event) => void updateProxy({ host: event.currentTarget.value })} placeholder="127.0.0.1" />
+              <input value={proxy.host} onChange={(event) => void updateProxy({ host: event.currentTarget.value })} placeholder="127.0.0.1" aria-label="代理服务器地址" />
             </label>
             <label>
               <span>端口</span>
-              <input value={String(proxy.port || '')} onChange={(event) => void updateProxy({ port: Number(event.currentTarget.value) || 0 })} placeholder="7890" />
+              <input value={String(proxy.port || '')} onChange={(event) => void updateProxy({ port: Number(event.currentTarget.value) || 0 })} placeholder="7890" aria-label="代理端口" />
             </label>
           </div>
 
@@ -3672,7 +3682,7 @@ function NetworkSettingsPage(props: {
             <div className="settingsFormGrid">
               <label>
                 <span>用户名</span>
-                <input value={proxy.username} onChange={(event) => void updateProxy({ username: event.currentTarget.value })} />
+                <input value={proxy.username} onChange={(event) => void updateProxy({ username: event.currentTarget.value })} aria-label="代理用户名" />
               </label>
               <label>
                 <span>密码</span>
@@ -3687,6 +3697,7 @@ function NetworkSettingsPage(props: {
               value={proxy.bypassList.join(', ')}
               onChange={(event) => void updateProxy({ bypassList: csvList(event.currentTarget.value) })}
               placeholder="metaso.cn, baidu.com"
+              aria-label="代理白名单"
             />
             <small>这些域名将绕过代理直连，多个用逗号分隔。</small>
           </label>
@@ -3869,6 +3880,7 @@ function OpenGatewaySettingsPage(props: {
             value={gateway.host}
             disabled={saving}
             onChange={(event) => void updateGateway({ host: event.currentTarget.value as AppSettings['openGateway']['host'] })}
+            aria-label="开放网关监听地址"
           >
             <option value="127.0.0.1">127.0.0.1</option>
             <option value="0.0.0.0">0.0.0.0</option>
@@ -3881,6 +3893,7 @@ function OpenGatewaySettingsPage(props: {
             disabled={saving}
             inputMode="numeric"
             onChange={(event) => void updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
+            aria-label="开放网关端口"
           />
         </label>
         <label>
@@ -3903,6 +3916,7 @@ function OpenGatewaySettingsPage(props: {
             disabled={saving}
             placeholder="留空则复制 <SESSION_ID> 模板"
             onChange={(event) => setEventSessionId(event.currentTarget.value)}
+            aria-label="开放网关会话 sessionId"
           />
         </label>
       </div>
@@ -4313,7 +4327,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>代理地址 <em className="settingsFieldHint">(国内网络必填)</em></span>
-              <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" />
+              <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" aria-label="Telegram 代理地址" />
             </label>
             <BotAllowedUserIdsField
               value={channel.allowedUserIds}
@@ -4342,6 +4356,7 @@ function BotChatSettingsPage(props: {
                 className="settingsBotDomainSelect"
                 value={channel.domain ?? 'feishu.cn'}
                 onChange={(event) => updateChannel({ domain: event.currentTarget.value })}
+                aria-label="飞书域名"
               >
                 <option value="feishu.cn">飞书 (feishu.cn)</option>
                 <option value="larksuite.com">Lark (larksuite.com)</option>
@@ -4358,7 +4373,7 @@ function BotChatSettingsPage(props: {
             </label>
             <label className="settingsField">
               <span>代理地址 <em className="settingsFieldHint">(仅用于 Bot 鉴权)</em></span>
-              <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" />
+              <input value={channel.proxyUrl} onChange={(event) => updateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" aria-label="Discord 代理地址" />
             </label>
             <div className="settingsBotInfoNotice">
               <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
@@ -4384,7 +4399,7 @@ function BotChatSettingsPage(props: {
           <>
             <label className="settingsField">
               <span>Bot ID</span>
-              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="企业微信 AI 应用 Bot ID" />
+              <input value={channel.appId ?? ''} onChange={(event) => updateChannel({ appId: event.currentTarget.value })} placeholder="企业微信 AI 应用 Bot ID" aria-label="企业微信 Bot ID" />
             </label>
             <label className="settingsField">
               <span>Secret</span>
@@ -4634,6 +4649,7 @@ function BotAllowedUserIdsField(props: {
         rows={3}
         spellCheck={false}
         placeholder={'每行一个用户 ID，留空表示不限\n例如：123456789'}
+        aria-label="允许的用户 ID"
       />
       <small>
         Telegram 用户 ID 是 64 位整数；填入后只接收列表里这些 ID 的来信，其它人发的消息会被静默忽略（不会回弹任何提示）。
@@ -4769,8 +4785,8 @@ function UsageSettingsPage(props: {
         <div className="settingsUsageFilters">
           {usage.showDetails && (
             <>
-              <input value={usage.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" />
-              <select value={usage.status} onChange={(event) => void updateUsage({ status: event.currentTarget.value as typeof usage.status })}>
+              <input value={usage.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" aria-label="按模型或工具筛选请求记录" />
+              <select value={usage.status} onChange={(event) => void updateUsage({ status: event.currentTarget.value as typeof usage.status })} aria-label="请求状态筛选">
                 <option value="all">全部状态</option>
                 <option value="success">成功</option>
                 <option value="error">错误</option>
