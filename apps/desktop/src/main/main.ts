@@ -158,7 +158,7 @@ import { connectionTestStatusPatch } from './connection-test-status.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
-import { resolveProjectGitInfo } from './project-context.js';
+import { resolveProjectGitInfo, resolveProjectRoot } from './project-context.js';
 import { buildSessionEnvironmentPromptFragment } from './session-environment-prompt.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -1126,8 +1126,12 @@ function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReas
 }
 
 function registerIpc(): void {
+  async function currentProjectRoot(): Promise<string> {
+    return resolveProjectRoot([process.cwd(), app.getAppPath()]);
+  }
+
   ipcMain.handle('app:info', async () => {
-    const projectPath = process.cwd();
+    const projectPath = await currentProjectRoot();
     return {
       appVersion: app.getVersion(),
       electronVersion: process.versions.electron ?? '',
@@ -1144,7 +1148,7 @@ function registerIpc(): void {
     };
   });
   ipcMain.handle('app:openPath', async (_event, key: string): Promise<OpenPathResult> => {
-    const resolved = await resolveOpenPath({ key, workspaceRoot, projectRoot: process.cwd() });
+    const resolved = await resolveOpenPath({ key, workspaceRoot, projectRoot: await currentProjectRoot() });
     if (!resolved.ok) return resolved;
     const error = await shell.openPath(resolved.path);
     if (error) return { ok: false, reason: 'open-failed' };

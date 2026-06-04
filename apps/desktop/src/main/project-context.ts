@@ -22,6 +22,38 @@ export async function resolveProjectGitInfo(projectRoot: string): Promise<Projec
   }
 }
 
+export async function resolveProjectRoot(candidates: readonly string[]): Promise<string> {
+  let firstUsable: string | undefined;
+  for (const candidate of candidates) {
+    const directory = await normalizeProjectCandidate(candidate);
+    if (!directory) continue;
+    firstUsable ??= directory;
+    const gitRoot = await findGitRoot(directory);
+    if (gitRoot) return gitRoot;
+  }
+  return firstUsable ?? resolve(process.cwd());
+}
+
+async function normalizeProjectCandidate(candidate: string | undefined): Promise<string | undefined> {
+  if (!candidate) return undefined;
+  const resolved = resolve(candidate);
+  const candidateStat = await stat(resolved).catch(() => null);
+  if (!candidateStat) return undefined;
+  if (candidateStat.isDirectory()) return resolved;
+  if (candidateStat.isFile()) return dirname(resolved);
+  return undefined;
+}
+
+async function findGitRoot(start: string): Promise<string | undefined> {
+  let current = start;
+  while (true) {
+    if (await resolveGitDir(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
 async function resolveGitDir(projectRoot: string): Promise<string | undefined> {
   const marker = join(projectRoot, '.git');
   const markerStat = await stat(marker).catch(() => null);

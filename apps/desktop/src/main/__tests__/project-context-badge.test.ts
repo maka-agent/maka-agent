@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveProjectGitInfo } from '../project-context.js';
+import { resolveProjectGitInfo, resolveProjectRoot } from '../project-context.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -33,12 +33,29 @@ describe('project context badge', () => {
     }
   });
 
+  it('resolves the project root by walking upward from nested app paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-project-root-'));
+    const nested = join(root, 'apps', 'desktop');
+    const fallback = await mkdtemp(join(tmpdir(), 'maka-project-root-fallback-'));
+    try {
+      await mkdir(join(root, '.git'), { recursive: true });
+      await writeFile(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+      await mkdir(nested, { recursive: true });
+
+      assert.equal(await resolveProjectRoot(['/', nested]), root);
+      assert.equal(await resolveProjectRoot([fallback]), fallback);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(fallback, { recursive: true, force: true });
+    }
+  });
+
   it('exposes the main-owned project path through app info', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
 
-    assert.match(main, /projectPath = process\.cwd\(\)/);
+    assert.match(main, /resolveProjectRoot\(\[process\.cwd\(\), app\.getAppPath\(\)\]\)/);
     assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
     assert.match(preload, /projectPath:\s*string;/);
     assert.match(preload, /projectGit:\s*\{ isGitRepo: boolean; branch\?: string \};/);
@@ -51,7 +68,7 @@ describe('project context badge', () => {
     const guard = await readRepo('apps/desktop/src/main/open-path-guard.ts');
     const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
 
-    assert.match(main, /resolveOpenPath\(\{ key, workspaceRoot, projectRoot:\s*process\.cwd\(\) \}\)/);
+    assert.match(main, /resolveOpenPath\(\{ key, workspaceRoot, projectRoot:\s*await currentProjectRoot\(\) \}\)/);
     assert.match(guard, /value === 'project'/);
     assert.match(renderer, /window\.maka\.app\.openPath\('project'\)/);
     assert.doesNotMatch(renderer, /openPath\(appInfo\.projectPath\)/);
