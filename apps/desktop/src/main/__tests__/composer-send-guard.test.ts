@@ -4,6 +4,21 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 describe('composer send guard', () => {
+  it('renders disabled primary buttons as inert neutral controls, not active CTAs', async () => {
+    const css = await readFile(join(process.cwd(), 'src', 'renderer', 'maka-tokens.css'), 'utf8');
+
+    assert.match(
+      css,
+      /\.maka-button\[data-variant="primary"\]\[disabled\],[\s\S]*?\.maka-button\[data-variant="primary"\]\[aria-disabled="true"\]\s*\{[\s\S]*?background:\s*var\(--background\);[\s\S]*?color:\s*var\(--foreground-50\);[\s\S]*?border-color:\s*var\(--border\);/,
+      'disabled primary buttons must not keep the accent background; empty composer send looked clickable while disabled',
+    );
+    assert.match(
+      css,
+      /\.maka-button\[data-variant="primary"\]\[disabled\]:hover,[\s\S]*?\.maka-button\[data-variant="primary"\]\[aria-disabled="true"\]:active\s*\{[\s\S]*?transform:\s*none;/,
+      'disabled primary buttons must not react to hover/active like enabled CTAs',
+    );
+  });
+
   it('keeps follow-up submits single-flight until the current send settles', async () => {
     const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';

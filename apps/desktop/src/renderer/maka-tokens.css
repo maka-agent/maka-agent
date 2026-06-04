@@ -1622,6 +1622,22 @@
   .maka-button[data-variant="primary"]:focus-visible {
     box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.28);
   }
+  .maka-button[data-variant="primary"][disabled],
+  .maka-button[data-variant="primary"][aria-disabled="true"] {
+    background: var(--background);
+    color: var(--foreground-50);
+    border-color: var(--border);
+    box-shadow: none;
+  }
+  .maka-button[data-variant="primary"][disabled]:hover,
+  .maka-button[data-variant="primary"][aria-disabled="true"]:hover,
+  .maka-button[data-variant="primary"][disabled]:active,
+  .maka-button[data-variant="primary"][aria-disabled="true"]:active {
+    background: var(--background);
+    color: var(--foreground-50);
+    border-color: var(--border);
+    transform: none;
+  }
   .maka-button[data-variant="destructive"] {
     border-color: oklch(from var(--destructive) l c h / 0.35);
     color: var(--destructive-text);
