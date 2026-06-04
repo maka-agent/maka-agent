@@ -480,6 +480,23 @@ describe('SessionManager permission mode updates', () => {
     expect(activeTurn?.status).toBe('completed');
   });
 
+  test('startup recovery does not leave persisted running sessions stuck when message read fails', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_900) });
+    const running = await manager.createSession(makeInput({ status: 'running' }));
+    const active = await manager.createSession(makeInput({ status: 'active' }));
+    store.failReadMessagesFor.add(running.id);
+    store.failReadMessagesFor.add(active.id);
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([running.id]);
+    expect((await store.readHeader(running.id)).status).toBe('active');
+    expect((await store.readHeader(active.id)).status).toBe('active');
+  });
+
   test('retry creates a new sibling turn and does not rewrite the aborted source turn', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -629,6 +646,7 @@ class PartialAbortBackend implements AgentBackend {
 class MemorySessionStore implements SessionStore {
   private headers = new Map<string, SessionHeader>();
   private messages = new Map<string, StoredMessage[]>();
+  readonly failReadMessagesFor = new Set<string>();
   disposeCount = 0;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
@@ -671,6 +689,7 @@ class MemorySessionStore implements SessionStore {
   }
 
   async readMessages(sessionId: string): Promise<StoredMessage[]> {
+    if (this.failReadMessagesFor.has(sessionId)) throw new Error(`Cannot read messages for ${sessionId}`);
     return [...(this.messages.get(sessionId) ?? [])];
   }
 

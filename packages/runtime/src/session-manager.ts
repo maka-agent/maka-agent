@@ -158,7 +158,16 @@ export class SessionManager {
     const recovered: string[] = [];
     for (const session of interrupted) {
       if (this.active.has(session.id)) continue;
-      const messages = await this.deps.store.readMessages(session.id).catch(() => []);
+      let messages: StoredMessage[];
+      try {
+        messages = await this.deps.store.readMessages(session.id);
+      } catch {
+        if (session.status === 'running' || session.status === 'waiting_for_user') {
+          await this.updateStatus(session.id, 'active').catch(() => {});
+          recovered.push(session.id);
+        }
+        continue;
+      }
       const recoveries = interruptedTurnRecoveries(messages);
       if (recoveries.length === 0) continue;
       for (const recovery of recoveries) {
