@@ -156,6 +156,7 @@ export class ClaudeSubscriptionService {
   private lastRefreshFailedMessage: string | null = null;
   private lastRejectionMessage: string | null = null;
   private quotaFetchFailedMessage: string | null = null;
+  private lastStorageFailedMessage: string | null = null;
   private authorizing = false;
   private refreshing = false;
 
@@ -308,6 +309,13 @@ export class ClaudeSubscriptionService {
   async getAccountState(): Promise<SubscriptionAccountState> {
     const tokens = await this.loadTokens();
     if (!tokens) {
+      if (this.lastStorageFailedMessage) {
+        return {
+          provider: 'claude-subscription',
+          runtimeState: 'storage_failed',
+          errorMessage: this.lastStorageFailedMessage,
+        };
+      }
       return {
         provider: 'claude-subscription',
         runtimeState: this.authorizing ? 'authorizing' : 'not_logged_in',
@@ -425,6 +433,7 @@ export class ClaudeSubscriptionService {
     this.lastRefreshFailedMessage = null;
     this.lastRejectionMessage = null;
     this.quotaFetchFailedMessage = null;
+    this.lastStorageFailedMessage = null;
     this.pending.clear();
     this.authorizing = false;
     try {
@@ -467,6 +476,7 @@ export class ClaudeSubscriptionService {
   ): import('@maka/core').OAuthSubscriptionRuntimeState {
     if (this.refreshing) return 'refreshing';
     if (this.lastRefreshFailedMessage) return 'refresh_failed';
+    if (this.lastStorageFailedMessage) return 'storage_failed';
     if (this.lastRejectionMessage) return 'provider_rejected';
     if (this.quotaFetchFailedMessage) return 'quota_unavailable';
     if (tokens.expires_at - this.now() <= TOKEN_REFRESH_SKEW_MS) return 'authenticated';
@@ -479,6 +489,8 @@ export class ClaudeSubscriptionService {
     switch (state) {
       case 'refresh_failed':
         return this.lastRefreshFailedMessage ?? undefined;
+      case 'storage_failed':
+        return this.lastStorageFailedMessage ?? undefined;
       case 'provider_rejected':
         return this.lastRejectionMessage ?? undefined;
       case 'quota_unavailable':
@@ -576,6 +588,7 @@ export class ClaudeSubscriptionService {
     // Re-apply mode explicitly in case the existing file had a
     // different mode (writeFile only sets it on create).
     await fs.chmod(this.tokenFilePath, 0o600);
+    this.lastStorageFailedMessage = null;
   }
 
   private async loadTokens(): Promise<PersistedTokens | null> {
@@ -583,19 +596,28 @@ export class ClaudeSubscriptionService {
     let buffer: Buffer;
     try {
       buffer = await fs.readFile(this.tokenFilePath);
-    } catch {
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        this.lastStorageFailedMessage = '读取 Claude OAuth 本地凭据失败，请检查文件权限或重新登录。';
+      }
       return null;
     }
-    if (!safeStorage.isEncryptionAvailable()) return null;
+    if (!safeStorage.isEncryptionAvailable()) {
+      this.lastStorageFailedMessage = '系统 safeStorage 当前不可用，无法读取 Claude OAuth 本地凭据。';
+      return null;
+    }
     try {
       const decoded = safeStorage.decryptString(buffer);
       const parsed = JSON.parse(decoded) as PersistedTokens;
       this.cachedTokens = parsed;
+      this.lastStorageFailedMessage = null;
       return parsed;
     } catch {
       // Token file exists but is unreadable (keychain rolled, file
       // corrupted, JSON shape drifted). Delete it so the next
       // login attempt doesn't observe a stuck-corrupt state.
+      this.lastStorageFailedMessage = 'Claude OAuth 本地凭据无法解密，已清理损坏文件，请重新登录。';
       try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
       return null;
     }

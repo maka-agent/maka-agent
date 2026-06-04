@@ -902,6 +902,7 @@ interface SubscriptionSnapshot {
     | 'authenticated'
     | 'refreshing'
     | 'refresh_failed'
+    | 'storage_failed'
     | 'quota_unavailable'
     | 'provider_rejected';
   email?: string;
@@ -1008,6 +1009,8 @@ function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: Subs
       return '正在刷新访问令牌…';
     case 'refresh_failed':
       return state.errorMessage ?? '令牌刷新失败，请重新登录。';
+    case 'storage_failed':
+      return state.errorMessage ?? `${display.name} 本地凭据读取失败，请重新登录。`;
     case 'quota_unavailable':
     case 'provider_rejected':
       return state.errorMessage ?? `${display.name} 已登录，但当前 provider 状态不可用。`;
@@ -2090,7 +2093,7 @@ function ClaudeSubscriptionCard() {
       )}
 
       <div className="settingsConnectionActions">
-        {state?.runtimeState === 'not_logged_in' || state?.runtimeState === 'refresh_failed' ? (
+        {state?.runtimeState === 'not_logged_in' || state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed' ? (
           <button
             type="button"
             className="maka-button"
@@ -2098,7 +2101,7 @@ function ClaudeSubscriptionCard() {
             onClick={() => void startLogin()}
             disabled={pendingAction || authRequestId !== null}
           >
-            {state.runtimeState === 'refresh_failed' ? '重新登录' : '登录订阅'}
+            {state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' ? '重新登录' : '登录订阅'}
           </button>
         ) : (
           <>
@@ -2194,6 +2197,12 @@ function presentSubscriptionState(state: SubscriptionAccountState): Subscription
         label: '刷新失败',
         tone: 'warning',
         detail: state.errorMessage ?? '令牌刷新失败，请重新登录。',
+      };
+    case 'storage_failed':
+      return {
+        label: '凭据读取失败',
+        tone: 'warning',
+        detail: state.errorMessage ?? '本地 OAuth 凭据读取失败，请重新登录。',
       };
     case 'quota_unavailable':
       return {

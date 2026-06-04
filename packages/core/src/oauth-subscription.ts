@@ -51,6 +51,7 @@ export type OAuthSubscriptionRuntimeState =
   | 'authenticated'        // tokens valid; not yet proven operational
   | 'refreshing'           // refresh attempt in flight
   | 'refresh_failed'       // refresh errored; user must re-login (token file NOT auto-deleted per kenji)
+  | 'storage_failed'       // token file / safeStorage read failed; do not present as logged out
   | 'quota_unavailable'    // tokens valid but /oauth/usage failed
   | 'provider_rejected';   // last send rejected by provider (likely policy / cloak needed)
 
@@ -110,7 +111,7 @@ export interface SubscriptionAccountState {
   /** Present when quota fetch succeeded; absent when `quota_unavailable`. */
   quota?: QuotaSnapshot;
   /** Optional human-readable error message for `refresh_failed` /
-   *  `provider_rejected` / `quota_unavailable` states. */
+   *  `storage_failed` / `provider_rejected` / `quota_unavailable` states. */
   errorMessage?: string;
 }
 

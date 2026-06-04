@@ -25,6 +25,11 @@ const SERVICES_WITH_LOAD_TOKENS = [
   'antigravity-subscription-service.ts',
 ];
 
+const WIRED_OAUTH_SEND_SERVICES = [
+  'claude-subscription-service.ts',
+  'codex-subscription-service.ts',
+];
+
 describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)', () => {
   for (const file of SERVICES_WITH_LOOPBACK_SERVER) {
     it(`${file} drops in-flight sockets before close()`, async () => {
@@ -70,6 +75,46 @@ describe('OAuth loadTokens: unlinks corrupt files (B-SWEEP-3)', () => {
       const tail = source.slice(loadTokensStart, loadTokensStart + 1500);
       assert.match(tail, /fs\.unlink\(this\.tokenFilePath\)/,
         `loadTokens in ${file} must unlink the token file on decrypt failure`);
+    });
+  }
+});
+
+describe('OAuth loadTokens: storage failures are not shown as logged out', () => {
+  for (const file of WIRED_OAUTH_SEND_SERVICES) {
+    it(`${file} reports storage_failed instead of not_logged_in for local credential read failures`, async () => {
+      const source = await readFile(resolve(OAUTH_DIR, file), 'utf8');
+      const getAccountStateStart = source.indexOf('async getAccountState()');
+      assert.ok(getAccountStateStart > 0, `getAccountState not found in ${file}`);
+      const getAccountState = source.slice(getAccountStateStart, getAccountStateStart + 900);
+      const loadTokensStart = source.indexOf('private async loadTokens(');
+      assert.ok(loadTokensStart > 0, `loadTokens not found in ${file}`);
+      const loadTokens = source.slice(loadTokensStart, loadTokensStart + 1800);
+
+      assert.match(
+        source,
+        /lastStorageFailedMessage/,
+        `${file} must preserve local credential storage errors as state`,
+      );
+      assert.match(
+        getAccountState,
+        /lastStorageFailedMessage[\s\S]*runtimeState:\s*'storage_failed'[\s\S]*errorMessage:\s*this\.lastStorageFailedMessage/,
+        `${file} getAccountState must not collapse local storage failures into not_logged_in`,
+      );
+      assert.match(
+        loadTokens,
+        /safeStorage\.isEncryptionAvailable\(\)[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
+        `${file} safeStorage-unavailable reads must set storage_failed detail`,
+      );
+      assert.match(
+        loadTokens,
+        /catch \(error\)[\s\S]*code !== 'ENOENT'[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
+        `${file} token-file read errors other than ENOENT must set storage_failed detail`,
+      );
+      assert.match(
+        loadTokens,
+        /decryptString[\s\S]*JSON\.parse[\s\S]*catch \{[\s\S]*lastStorageFailedMessage[\s\S]*fs\.unlink\(this\.tokenFilePath\)/,
+        `${file} decrypt/parse failures must set storage_failed detail before corrupt-token cleanup`,
+      );
     });
   }
 });

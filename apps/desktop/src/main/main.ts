@@ -264,14 +264,16 @@ async function syncClaudeSubscriptionConnection(): Promise<LlmConnection | null>
   const state = await claudeSubscription.getAccountState();
   const existing = await connectionStore.get(CLAUDE_SUBSCRIPTION_CONNECTION_SLUG);
   if (!isClaudeSubscriptionAuthenticatedState(state)) {
-    if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'not_logged_in')) {
+    if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' || state.runtimeState === 'not_logged_in')) {
       return connectionStore.update(existing.slug, {
         enabled: false,
         lastTestStatus: 'needs_reauth',
         lastTestAt: new Date().toISOString(),
         lastTestMessage: state.errorMessage ?? (state.runtimeState === 'not_logged_in'
           ? 'Claude OAuth 未登录。'
-          : 'Claude OAuth 需要重新登录。'),
+          : state.runtimeState === 'storage_failed'
+            ? 'Claude OAuth 本地凭据读取失败。'
+            : 'Claude OAuth 需要重新登录。'),
       });
     }
     return existing;
@@ -312,14 +314,16 @@ async function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> 
   const state = await codexSubscription.getAccountState();
   const existing = await connectionStore.get(CODEX_SUBSCRIPTION_CONNECTION_SLUG);
   if (!isCodexSubscriptionAuthenticatedState(state)) {
-    if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'not_logged_in')) {
+    if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' || state.runtimeState === 'not_logged_in')) {
       return connectionStore.update(existing.slug, {
         enabled: false,
         lastTestStatus: 'needs_reauth',
         lastTestAt: new Date().toISOString(),
         lastTestMessage: state.errorMessage ?? (state.runtimeState === 'not_logged_in'
           ? 'Codex OAuth 未登录。'
-          : 'Codex OAuth 需要重新登录。'),
+          : state.runtimeState === 'storage_failed'
+            ? 'Codex OAuth 本地凭据读取失败。'
+            : 'Codex OAuth 需要重新登录。'),
       });
     }
     return existing;

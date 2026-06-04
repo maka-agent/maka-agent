@@ -592,6 +592,34 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('刷新配额失败', subscriptionActionErrorMessage\(error\)\);/, 'Claude OAuth quota refresh must toast thrown failures');
   });
 
+  it('OAuth local credential storage failures are visible and repairable', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const snapshotPresenter = src.match(/function presentSnapshotDetail[\s\S]*?function ProviderLogoMark/)?.[0] ?? '';
+    const claudePresenter = src.match(/function presentSubscriptionState[\s\S]*?\n\}/)?.[0] ?? '';
+    const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
+
+    assert.match(
+      src,
+      /storage_failed/,
+      'OAuth UI must understand storage_failed instead of collapsing it to not_logged_in',
+    );
+    assert.match(
+      snapshotPresenter,
+      /case 'storage_failed':[\s\S]*本地凭据读取失败，请重新登录/,
+      'browser OAuth cards must explain local credential read failures',
+    );
+    assert.match(
+      claudePresenter,
+      /case 'storage_failed':[\s\S]*label: '凭据读取失败'[\s\S]*本地 OAuth 凭据读取失败，请重新登录/,
+      'Claude OAuth card must explain local credential read failures',
+    );
+    assert.match(
+      claudeCard,
+      /state\?\.runtimeState === 'not_logged_in' \|\| state\?\.runtimeState === 'refresh_failed' \|\| state\?\.runtimeState === 'storage_failed'/,
+      'Claude OAuth storage failures must keep the re-login action visible so the user can repair the local credential',
+    );
+  });
+
   it('preload exposes the three new subscription namespaces alongside claudeSubscription', async () => {
     const src = await readFile(PRELOAD_SOURCE, 'utf8');
     assert.match(src, /codexSubscription:\s*\{/, 'preload must expose window.maka.codexSubscription');

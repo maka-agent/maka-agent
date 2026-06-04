@@ -119,6 +119,7 @@ export class CodexSubscriptionService {
   private pending: Map<string, PendingAuthorization> = new Map();
 
   private lastRefreshFailedMessage: string | null = null;
+  private lastStorageFailedMessage: string | null = null;
   private authorizing = false;
   private refreshing = false;
 
@@ -273,6 +274,13 @@ export class CodexSubscriptionService {
   async getAccountState(): Promise<CodexAccountStateSnapshot> {
     const tokens = await this.loadTokens();
     if (!tokens) {
+      if (this.lastStorageFailedMessage) {
+        return {
+          provider: 'codex-subscription',
+          runtimeState: 'storage_failed',
+          errorMessage: this.lastStorageFailedMessage,
+        };
+      }
       return {
         provider: 'codex-subscription',
         runtimeState: this.authorizing ? 'authorizing' : 'not_logged_in',
@@ -325,6 +333,7 @@ export class CodexSubscriptionService {
     this.cachedTokens = null;
     this.cachedClaims = null;
     this.lastRefreshFailedMessage = null;
+    this.lastStorageFailedMessage = null;
     for (const id of [...this.pending.keys()]) this.disposePending(id);
     this.authorizing = false;
     try {
@@ -362,11 +371,13 @@ export class CodexSubscriptionService {
   private deriveRuntimeState(): CodexRuntimeState {
     if (this.refreshing) return 'refreshing';
     if (this.lastRefreshFailedMessage) return 'refresh_failed';
+    if (this.lastStorageFailedMessage) return 'storage_failed';
     return 'authenticated';
   }
 
   private errorForState(state: CodexRuntimeState): string | undefined {
     if (state === 'refresh_failed') return this.lastRefreshFailedMessage ?? undefined;
+    if (state === 'storage_failed') return this.lastStorageFailedMessage ?? undefined;
     return undefined;
   }
 
@@ -537,6 +548,7 @@ export class CodexSubscriptionService {
     const buffer = safeStorage.encryptString(serialized);
     await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
     await fs.chmod(this.tokenFilePath, 0o600);
+    this.lastStorageFailedMessage = null;
   }
 
   private async loadTokens(): Promise<PersistedTokens | null> {
@@ -544,19 +556,28 @@ export class CodexSubscriptionService {
     let buffer: Buffer;
     try {
       buffer = await fs.readFile(this.tokenFilePath);
-    } catch {
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        this.lastStorageFailedMessage = '读取 Codex OAuth 本地凭据失败，请检查文件权限或重新登录。';
+      }
       return null;
     }
-    if (!safeStorage.isEncryptionAvailable()) return null;
+    if (!safeStorage.isEncryptionAvailable()) {
+      this.lastStorageFailedMessage = '系统 safeStorage 当前不可用，无法读取 Codex OAuth 本地凭据。';
+      return null;
+    }
     try {
       const decoded = safeStorage.decryptString(buffer);
       const parsed = JSON.parse(decoded) as PersistedTokens;
       this.cachedTokens = parsed;
+      this.lastStorageFailedMessage = null;
       return parsed;
     } catch {
       // Token file exists but is unreadable (keychain rolled, file
       // corrupted, JSON shape drifted). Delete it so the next login
       // flow doesn't observe a stuck-corrupt state. Best-effort.
+      this.lastStorageFailedMessage = 'Codex OAuth 本地凭据无法解密，已清理损坏文件，请重新登录。';
       try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
       return null;
     }
@@ -584,6 +605,7 @@ export type CodexRuntimeState =
   | 'authorizing'
   | 'authenticated'
   | 'refreshing'
+  | 'storage_failed'
   | 'refresh_failed';
 
 export interface CodexAccountStateSnapshot {
