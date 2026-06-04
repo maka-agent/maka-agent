@@ -4454,6 +4454,7 @@ function UsageSettingsPage(props: {
   const usage = props.settings.usage;
   const [refreshing, setRefreshing] = useState(false);
   const stats = props.stats;
+  const toast = useToast();
   const normalizedModelFilter = usage.modelFilter.trim().toLowerCase();
   const hasRequestFilters = usage.status !== 'all' || normalizedModelFilter.length > 0;
   const showRequestDetails = usage.activeTab === 'requests' && usage.showDetails;
@@ -4469,8 +4470,19 @@ function UsageSettingsPage(props: {
   }, [stats, usage.status, normalizedModelFilter]);
 
   async function setRange(range: UsageRange) {
-    await props.onUpdate({ usage: { range } });
+    const saved = await updateUsage({ range });
+    if (!saved) return;
     await props.onReload(range);
+  }
+
+  async function updateUsage(patch: Partial<AppSettings['usage']>): Promise<boolean> {
+    try {
+      await props.onUpdate({ usage: patch });
+      return true;
+    } catch (error) {
+      toast.error('保存使用统计设置失败', settingsActionErrorMessage(error));
+      return false;
+    }
   }
 
   async function refresh() {
@@ -4483,7 +4495,7 @@ function UsageSettingsPage(props: {
   }
 
   function clearRequestFilters() {
-    void props.onUpdate({ usage: { status: 'all', modelFilter: '' } });
+    void updateUsage({ status: 'all', modelFilter: '' });
   }
 
   return (
@@ -4518,15 +4530,15 @@ function UsageSettingsPage(props: {
           ['tools', '工具统计'],
           ['pricing', '定价配置'],
         ]}
-        onChange={(activeTab) => void props.onUpdate({ usage: { activeTab: activeTab as typeof usage.activeTab } })}
+        onChange={(activeTab) => void updateUsage({ activeTab: activeTab as typeof usage.activeTab })}
       />
 
       {usage.activeTab === 'requests' && (
         <div className="settingsUsageFilters">
           {usage.showDetails && (
             <>
-              <input value={usage.modelFilter} onChange={(event) => void props.onUpdate({ usage: { modelFilter: event.currentTarget.value } })} placeholder="按模型或工具筛选…" />
-              <select value={usage.status} onChange={(event) => void props.onUpdate({ usage: { status: event.currentTarget.value as typeof usage.status } })}>
+              <input value={usage.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" />
+              <select value={usage.status} onChange={(event) => void updateUsage({ status: event.currentTarget.value as typeof usage.status })}>
                 <option value="all">全部状态</option>
                 <option value="success">成功</option>
                 <option value="error">错误</option>
@@ -4538,7 +4550,7 @@ function UsageSettingsPage(props: {
             <Switch
               ariaLabel="显示使用统计详情记录"
               checked={usage.showDetails}
-              onChange={(showDetails) => props.onUpdate({ usage: { showDetails } })}
+              onChange={(showDetails) => void updateUsage({ showDetails })}
             />
           </label>
           {usage.showDetails && <small>共 {filteredLogs.length} 条记录</small>}
@@ -4554,7 +4566,7 @@ function UsageSettingsPage(props: {
         <div className="settingsNotice">
           当前仅显示汇总指标。打开详情记录后，可以查看逐条模型请求和工具调用，按模型、工具或状态筛选，并用于排查费用与失败请求。
           <div className="settingsActionRow" style={{ marginTop: 8 }}>
-            <button type="button" className="maka-button maka-button-ghost" data-size="sm" onClick={() => void props.onUpdate({ usage: { showDetails: true } })}>
+            <button type="button" className="maka-button maka-button-ghost" data-size="sm" onClick={() => void updateUsage({ showDetails: true })}>
               显示明细
             </button>
           </div>

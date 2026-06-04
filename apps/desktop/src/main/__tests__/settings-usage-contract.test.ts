@@ -56,6 +56,29 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usagePage![0], /logs=\{showRequestDetails \? filteredLogs : \[\]\}/);
   });
 
+  it('surfaces usage preference save failures instead of leaving filter controls silent', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
+
+    assert.ok(usagePage, 'Usage settings page block must exist');
+    assert.match(usagePage![0], /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean>/);
+    assert.match(
+      usagePage![0],
+      /try \{[\s\S]*await props\.onUpdate\(\{ usage: patch \}\)[\s\S]*return true[\s\S]*catch \(error\) \{[\s\S]*toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false/,
+      'Usage settings updates must toast thrown save failures and report failure to callers',
+    );
+    assert.match(
+      usagePage![0],
+      /const saved = await updateUsage\(\{ range \}\);[\s\S]*if \(!saved\) return;[\s\S]*await props\.onReload\(range\)/,
+      'Changing the usage range must not reload stats after the preference save fails',
+    );
+    assert.doesNotMatch(
+      usagePage![0],
+      /void props\.onUpdate\(\{ usage:/,
+      'Usage filter controls must not fire-and-forget raw settings updates',
+    );
+  });
+
   it('does not render raw request status enums in the usage table', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const usageTable = src.match(/function UsageTable\([\s\S]*?function SimpleStatsTable/);
