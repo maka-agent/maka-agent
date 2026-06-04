@@ -119,6 +119,43 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
   });
 
+  it('Settings surfaces save failures without turning search results into query failures', async () => {
+    const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);
+
+    assert.ok(page, 'Web search settings page block must exist');
+    assert.match(
+      page![0],
+      /async function updateWebSearch\([\s\S]*?failureTitle = '保存联网搜索设置失败'[\s\S]*?await props\.onUpdate\(\{ webSearch: patch \}\);[\s\S]*?return true;[\s\S]*?catch \(error\) \{[\s\S]*?toast\.error\(failureTitle, settingsActionErrorMessage\(error\)\);[\s\S]*?return false;/,
+      'Web search settings updates must surface persistence failures',
+    );
+    assert.match(
+      page![0],
+      /return updateWebSearch\([\s\S]*'保存联网搜索状态失败'[\s\S]*\);/,
+      'Credential status writeback failures should have their own visible copy',
+    );
+    assert.match(
+      page![0],
+      /const saved = await updateWebSearch\(\{ providers: \{ tavily: \{ apiKey: draftKey \} \} \}\);[\s\S]*if \(!saved\) return;[\s\S]*toast\.success\('已保存 Tavily API key'/,
+      'Saving a Tavily key must not show success after a failed settings save',
+    );
+    assert.match(
+      page![0],
+      /const saved = await updateWebSearch\(\{ enabled: false, providers: \{ tavily: \{ apiKey: '' \} \} \}\);[\s\S]*if \(!saved\) return;[\s\S]*toast\.success\('已清空 Tavily 凭据'/,
+      'Clearing a Tavily key must not show success after a failed settings save',
+    );
+    assert.match(
+      page![0],
+      /if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*void persistCredentialStatus\('valid', queriedCredentialVersion\);[\s\S]*\} else \{/,
+      'Successful live query results must render even if credential-status persistence later fails',
+    );
+    assert.doesNotMatch(
+      page![0],
+      /await persistCredentialStatus\(/,
+      'Credential-status persistence must not block test/query result handling',
+    );
+  });
+
   it('Settings live query button explains the actionable disabled reason', async () => {
     const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
     const helper = settings.match(/function webSearchQueryDisabledReason[\s\S]*?function presentWebSearchCredentialStatus/);

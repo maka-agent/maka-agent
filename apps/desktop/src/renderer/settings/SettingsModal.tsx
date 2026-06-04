@@ -2117,13 +2117,26 @@ function WebSearchSettingsPage(props: {
   const [liveQueryError, setLiveQueryError] = useState<string | null>(null);
   const toast = useToast();
 
-  async function setEnabled(enabled: boolean) {
-    await props.onUpdate({ webSearch: { enabled } });
+  async function updateWebSearch(
+    patch: NonNullable<Parameters<typeof window.maka.settings.update>[0]['webSearch']>,
+    failureTitle = '保存联网搜索设置失败',
+  ): Promise<boolean> {
+    try {
+      await props.onUpdate({ webSearch: patch });
+      return true;
+    } catch (error) {
+      toast.error(failureTitle, settingsActionErrorMessage(error));
+      return false;
+    }
   }
 
-  async function persistCredentialStatus(status: WebSearchCredentialStatus, credentialVersion: number) {
-    await props.onUpdate({
-      webSearch: {
+  async function setEnabled(enabled: boolean) {
+    await updateWebSearch({ enabled });
+  }
+
+  async function persistCredentialStatus(status: WebSearchCredentialStatus, credentialVersion: number): Promise<boolean> {
+    return updateWebSearch(
+      {
         providers: {
           tavily: {
             credentialVersion,
@@ -2132,22 +2145,21 @@ function WebSearchSettingsPage(props: {
           },
         },
       },
-    });
+      '保存联网搜索状态失败',
+    );
   }
 
   async function saveDraftKey() {
     if (usingEnvKey || draftKey.length === 0) return;
-    await props.onUpdate({
-      webSearch: { providers: { tavily: { apiKey: draftKey } } },
-    });
+    const saved = await updateWebSearch({ providers: { tavily: { apiKey: draftKey } } });
+    if (!saved) return;
     setDraftKey('');
     toast.success('已保存 Tavily API key', '可点击「测试」做一次真实请求验证。');
   }
 
   async function clearKey() {
-    await props.onUpdate({
-      webSearch: { enabled: false, providers: { tavily: { apiKey: '' } } },
-    });
+    const saved = await updateWebSearch({ enabled: false, providers: { tavily: { apiKey: '' } } });
+    if (!saved) return;
     setDraftKey('');
     toast.success('已清空 Tavily 凭据', '联网搜索已自动关闭。');
   }
@@ -2162,7 +2174,7 @@ function WebSearchSettingsPage(props: {
         apiKey: usesDraftKey ? draftKey : undefined,
       });
       if (!usesDraftKey && hasUsableKey) {
-        await persistCredentialStatus(webSearchCredentialStatusFromResponse(result), testedCredentialVersion);
+        void persistCredentialStatus(webSearchCredentialStatusFromResponse(result), testedCredentialVersion);
       }
       if (result.ok) {
         toast.success('Tavily 凭据可用', `返回 ${result.results.length} 条结果。`);
@@ -2192,12 +2204,12 @@ function WebSearchSettingsPage(props: {
       if (result.ok) {
         setLiveQueryResults(result.results);
         if (hasUsableKey) {
-          await persistCredentialStatus('valid', queriedCredentialVersion);
+          void persistCredentialStatus('valid', queriedCredentialVersion);
         }
       } else {
         setLiveQueryError(result.message);
         if (hasUsableKey) {
-          await persistCredentialStatus(webSearchCredentialStatusFromResponse(result), queriedCredentialVersion);
+          void persistCredentialStatus(webSearchCredentialStatusFromResponse(result), queriedCredentialVersion);
         }
       }
     } catch (err) {
