@@ -128,8 +128,13 @@ describe('Settings usage dashboard contract', () => {
     assert.match(mainSrc, /onOpenSession=\{\(sessionId\) => \{/);
     assert.match(
       mainSrc,
-      /closeSettings\(\);[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(sessionId\);/,
+      /closeSettings\(\);[\s\S]*openSessionInChat\(sessionId\);/,
       'opening a session from Settings must switch the shell back to the chat surface before selecting it',
+    );
+    assert.match(
+      mainSrc,
+      /function openSessionInChat\(sessionId: string, turnId\?: string\): void \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(sessionId\);/,
+      'openSessionInChat must own the shell route + active-session transition',
     );
   });
 });

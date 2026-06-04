@@ -12,7 +12,7 @@ describe('command palette session navigation contract', () => {
 
     assert.match(
       paletteBlock,
-      /onSelectSession: \(sessionId\) => \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(sessionId\);[\s\S]*setSearchScrollTarget\(null\);[\s\S]*\}/,
+      /onSelectSession: \(sessionId\) => \{[\s\S]*openSessionInChat\(sessionId\);[\s\S]*\}/,
       'ordinary Command Palette session hits must switch modules back to Chat before selecting the session',
     );
     assert.doesNotMatch(
