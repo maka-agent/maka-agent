@@ -1115,12 +1115,16 @@ function AppShell() {
   }
 
   async function refreshConnections() {
-    const [next, nextDefault] = await Promise.all([
-      window.maka.connections.list(),
-      window.maka.connections.getDefault(),
-    ]);
-    setConnections(next);
-    setDefaultConnection(nextDefault);
+    try {
+      const [next, nextDefault] = await Promise.all([
+        window.maka.connections.list(),
+        window.maka.connections.getDefault(),
+      ]);
+      setConnections(next);
+      setDefaultConnection(nextDefault);
+    } catch (error) {
+      toastApi.error('刷新模型连接失败', cleanErrorMessage(error));
+    }
   }
 
   async function refreshPlanReminders() {

@@ -7,10 +7,16 @@ describe('renderer startup fail-soft contract', () => {
   it('catches fire-and-forget app shell settings probes', async () => {
     const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
     const mountEffect = main.match(/useEffect\(\(\) => \{[\s\S]*?const unsubscribeConnections =/)?.[0] ?? '';
+    const refreshConnections = main.match(/async function refreshConnections\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(mountEffect, /window\.maka\.app\.info\(\)\.then\([\s\S]*?\.catch\(\(\) => setAppInfo\(null\)\)/);
     assert.match(mountEffect, /window\.maka\.memory\.getState\(\)\.then\([\s\S]*?\.catch\(\(\) => setMemoryActive\(false\)\)/);
     assert.match(mountEffect, /window\.maka\.settings\.get\(\)\.then\([\s\S]*?\.catch\(\(\) => \{[\s\S]*applyUiLocale\('auto'\)[\s\S]*applyTheme\('auto'\)[\s\S]*applyDensity\('comfortable'\)[\s\S]*applyThemePalette\('default'\)/);
+    assert.match(
+      refreshConnections,
+      /try \{[\s\S]*window\.maka\.connections\.list\(\)[\s\S]*window\.maka\.connections\.getDefault\(\)[\s\S]*setConnections\(next\)[\s\S]*setDefaultConnection\(nextDefault\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新模型连接失败', cleanErrorMessage\(error\)\)/,
+      'startup / connections:event refreshConnections is fire-and-forget and must catch IPC failures',
+    );
   });
 
   it('catches Settings modal status probes that run on page mount', async () => {
