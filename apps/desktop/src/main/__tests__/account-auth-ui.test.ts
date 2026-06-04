@@ -1,4 +1,6 @@
 import { strict as assert } from 'node:assert';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   deriveProviderAuthContract,
@@ -134,4 +136,36 @@ describe('Account auth UI contract mapping', () => {
   for (const gate of gates) {
     it(gate.name, gate.run);
   }
+});
+
+describe('Account settings credential probe UI', () => {
+  it('does not display credential-probe failures as missing credentials', async () => {
+    // task #38 sweep: Settings -> 账号 used to map a thrown
+    // `connections.hasSecret(slug)` to `false`, which rendered an
+    // unknown safeStorage/OAuth read failure as "待配置". Unknown is
+    // not missing.
+    const source = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = source.match(/function AccountSettingsPage[\s\S]*?function AccountConnectionRow/)?.[0] ?? '';
+    const row = source.match(/function AccountConnectionRow[\s\S]*?function AccountAuthActionView/)?.[0] ?? '';
+
+    assert.match(source, /type AccountSecretProbeStatus = boolean \| 'loading' \| 'error'/);
+    assert.match(page, /useState<Record<string, AccountSecretProbeStatus>>\(\{\}\)/);
+    assert.match(
+      page,
+      /catch \(error\) \{[\s\S]*return \{ slug: connection\.slug, status: 'error', message: settingsActionErrorMessage\(error\) \}/,
+      'hasSecret probe failures must be carried as error state with a message',
+    );
+    assert.doesNotMatch(
+      page,
+      /catch \{[\s\S]*return \[connection\.slug, false\] as const/,
+      'hasSecret probe failures must not be downgraded to missing credentials',
+    );
+    assert.match(page, /toast\.error\('读取模型凭据状态失败', failure\.message\)/);
+    assert.match(page, /模型凭据状态暂时没刷新成功，已避免把未知状态显示成待配置/);
+    assert.match(page, /secretStatus=\{secretMap\[connection\.slug\] \?\? 'loading'\}/);
+    assert.match(row, /const secretProbePending = requiresSecret && \(props\.secretStatus === 'loading' \|\| props\.secretStatus === 'error'\)/);
+    assert.match(row, /secretProbePending \? true : hasSecretForKnownStatus/);
+    assert.match(row, /label: props\.secretStatus === 'loading' \? '读取凭据状态…' : '凭据状态未知'/);
+    assert.match(row, /stateLabel: props\.secretStatus === 'loading' \? '读取中' : '读取失败'/);
+  });
 });

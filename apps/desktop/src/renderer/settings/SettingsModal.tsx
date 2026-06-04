@@ -73,6 +73,7 @@ import {
   webSearchCredentialStatusFromResponse,
 } from '@maka/core';
 import { BOT_PROVIDERS, MAX_ALLOWED_USER_IDS, createDefaultSettings, parseAllowedUserIdsFromText } from '@maka/core/settings';
+import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { RelativeTime, redactSecrets, useModalA11y, useToast } from '@maka/ui';
 import { normalizeSearchUrl } from '@maka/core';
 import { ProvidersPanel } from './ProvidersPanel';
@@ -105,6 +106,11 @@ type SettingsNavItem = {
   /** Group label rendered as a small uppercase divider above this item. */
   group: SettingsNavGroup;
 };
+
+type AccountSecretProbeStatus = boolean | 'loading' | 'error';
+type AccountSecretProbeResult =
+  | { slug: string; status: boolean }
+  | { slug: string; status: 'error'; message: string };
 
 function focusRadioValue(container: HTMLElement, value: string) {
   container
@@ -1481,24 +1487,34 @@ function AccountSettingsPage(props: {
   // derives the display status from `enabled + hasSecret + defaultModel +
   // lastTestStatus + authKind` per @kenji's status-contract priority list,
   // so we never produce mixed labels like "disabled + verified".
-  const [secretMap, setSecretMap] = useState<Record<string, boolean>>({});
+  const [secretMap, setSecretMap] = useState<Record<string, AccountSecretProbeStatus>>({});
+  const [secretProbeError, setSecretProbeError] = useState<string | null>(null);
   const [testingSlug, setTestingSlug] = useState<string | null>(null);
   const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all(
+    void Promise.all<AccountSecretProbeResult>(
       props.connections.map(async (connection) => {
         try {
           const has = await window.maka.connections.hasSecret(connection.slug);
-          return [connection.slug, has] as const;
-        } catch {
-          return [connection.slug, false] as const;
+          return { slug: connection.slug, status: has };
+        } catch (error) {
+          return { slug: connection.slug, status: 'error', message: settingsActionErrorMessage(error) };
         }
       }),
     ).then((entries) => {
       if (cancelled) return;
-      setSecretMap(Object.fromEntries(entries));
+      setSecretMap(Object.fromEntries(entries.map((entry) => [entry.slug, entry.status])));
+      const failure = entries.find(
+        (entry): entry is Extract<AccountSecretProbeResult, { status: 'error' }> => entry.status === 'error',
+      );
+      if (failure) {
+        setSecretProbeError(failure.message);
+        toast.error('读取模型凭据状态失败', failure.message);
+      } else {
+        setSecretProbeError(null);
+      }
     });
     return () => {
       cancelled = true;
@@ -1549,6 +1565,11 @@ function AccountSettingsPage(props: {
       </SettingsRows>
 
       <h3 className="settingsSubheading">模型连接</h3>
+      {secretProbeError && (
+        <div className="settingsNotice" role="alert">
+          模型凭据状态暂时没刷新成功，已避免把未知状态显示成待配置。{secretProbeError}
+        </div>
+      )}
       {totalCount === 0 ? (
         <div className="settingsEmptyState">等待添加模型连接。可在 设置 · 模型 添加。</div>
       ) : (
@@ -1557,7 +1578,7 @@ function AccountSettingsPage(props: {
             <AccountConnectionRow
               key={connection.slug}
               connection={connection}
-              hasSecret={secretMap[connection.slug] ?? false}
+              secretStatus={secretMap[connection.slug] ?? 'loading'}
               isDefault={connection.slug === props.defaultSlug}
               testing={testingSlug === connection.slug}
               canTest={testingSlug === null}
@@ -1585,17 +1606,43 @@ function AccountSettingsPage(props: {
 
 function AccountConnectionRow(props: {
   connection: LlmConnection;
-  hasSecret: boolean;
+  secretStatus: AccountSecretProbeStatus;
   isDefault: boolean;
   testing: boolean;
   canTest: boolean;
   onTest(): void;
 }) {
-  const status: ConnectionUiStatus = connectionUiStatusFromRecord(props.connection, props.hasSecret);
-  const presentation = presentConnectionUiStatus(status);
-  const authContract = deriveProviderAuthContractFromConnection(props.connection, props.hasSecret);
-  const authPresentation = presentAccountAuthState(authContract);
-  const authActions = deriveAccountAuthActions(authContract);
+  const requiresSecret = PROVIDER_DEFAULTS[props.connection.providerType].authKind !== 'none';
+  const secretProbePending = requiresSecret && (props.secretStatus === 'loading' || props.secretStatus === 'error');
+  const hasSecretForKnownStatus = props.secretStatus === true;
+  const status: ConnectionUiStatus = connectionUiStatusFromRecord(
+    props.connection,
+    secretProbePending ? true : hasSecretForKnownStatus,
+  );
+  const presentation = secretProbePending
+    ? {
+        label: props.secretStatus === 'loading' ? '读取凭据状态…' : '凭据状态未知',
+        detail: props.secretStatus === 'loading'
+          ? '正在读取本机凭据状态；不会把读取中显示成待配置。'
+          : '暂时无法读取本机凭据状态；请刷新或到模型设置查看。',
+        tone: props.secretStatus === 'loading' ? 'info' as const : 'warning' as const,
+      }
+    : presentConnectionUiStatus(status);
+  const authContract = secretProbePending
+    ? undefined
+    : deriveProviderAuthContractFromConnection(props.connection, hasSecretForKnownStatus);
+  const authPresentation = authContract
+    ? presentAccountAuthState(authContract)
+    : {
+        label: '凭据状态读取中',
+        detail: props.secretStatus === 'loading'
+          ? '正在读取 safeStorage / OAuth 登录状态。'
+          : '读取 safeStorage / OAuth 登录状态失败，当前不会显示为待配置。',
+        stateLabel: props.secretStatus === 'loading' ? '读取中' : '读取失败',
+        tone: props.secretStatus === 'loading' ? 'info' as const : 'warning' as const,
+      };
+  const authActions = authContract ? deriveAccountAuthActions(authContract) : [];
+  const authContractState = authContract?.state ?? (props.secretStatus === 'loading' ? 'loading' : 'error');
   const subtitle = `${props.connection.providerType} · ${props.connection.defaultModel || '未设默认模型'}`;
   const lastTestAtMs = props.connection.lastTestAt
     ? Date.parse(props.connection.lastTestAt)
@@ -1623,7 +1670,7 @@ function AccountConnectionRow(props: {
         </span>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
-      <div className="settingsAuthContract" data-state={authContract.state}>
+      <div className="settingsAuthContract" data-state={authContractState}>
         <div className="settingsAuthContractText">
           <strong>{authPresentation.label}</strong>
           <span>{authPresentation.detail}</span>
