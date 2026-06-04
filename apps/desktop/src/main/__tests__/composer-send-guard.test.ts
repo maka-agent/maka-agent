@@ -24,4 +24,15 @@ describe('composer send guard', () => {
     assert.match(toolbar, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty or submit is in flight');
     assert.match(source, /zh: \{ sendLabel: '发送', stopLabel: '停止' \}/, 'Chinese UI must not keep English Send/Stop button copy');
   });
+
+  it('clears the submitted draft key when first send switches into a new session', async () => {
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(
+      sendCurrent,
+      /const submittedDraftKey = activeDraftKeyRef\.current;[\s\S]*sent = await props\.onSend\(text\);[\s\S]*if \(sent === false\) return;[\s\S]*rememberComposerDraft\(draftStoreRef\.current, submittedDraftKey, ''\);[\s\S]*saveCurrentDraft\(''\);/,
+      'successful sends must clear both the original draft key and the current key after a new-session send changes draftKey',
+    );
+  });
 });

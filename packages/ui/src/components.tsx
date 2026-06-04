@@ -4839,6 +4839,7 @@ export const Composer = forwardRef<
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
     if (!text) return;
+    const submittedDraftKey = activeDraftKeyRef.current;
     sendPendingRef.current = true;
     setSendPending(true);
     let sent: boolean | void;
@@ -4854,6 +4855,7 @@ export const Composer = forwardRef<
       index: -1,
       savedDraft: '',
     };
+    rememberComposerDraft(draftStoreRef.current, submittedDraftKey, '');
     saveCurrentDraft('');
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
