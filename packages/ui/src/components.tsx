@@ -3975,6 +3975,40 @@ function PermissionModeSwitcher(props: {
   onChange?(mode: PermissionMode): void;
 }) {
   const active = PERMISSION_MODE_META[props.mode];
+  const changeModeByKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (props.disabled || !props.onChange) return;
+    const currentIndex = PERMISSION_MODE_ORDER.indexOf(props.mode);
+    if (currentIndex === -1) return;
+    let nextIndex: number | null = null;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        nextIndex = (currentIndex + 1) % PERMISSION_MODE_ORDER.length;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        nextIndex = (currentIndex - 1 + PERMISSION_MODE_ORDER.length) % PERMISSION_MODE_ORDER.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = PERMISSION_MODE_ORDER.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    const group = event.currentTarget;
+    const nextMode = PERMISSION_MODE_ORDER[nextIndex];
+    if (!nextMode || nextMode === props.mode) return;
+    props.onChange(nextMode);
+    requestAnimationFrame(() => {
+      group
+        .querySelector<HTMLButtonElement>(`[data-mode="${nextMode}"]`)
+        ?.focus({ preventScroll: true });
+    });
+  };
   return (
     <div
       className="maka-mode-switcher"
@@ -3982,6 +4016,7 @@ function PermissionModeSwitcher(props: {
       aria-label="权限模式"
       data-disabled={props.disabled || undefined}
       title={props.disabledReason ?? active.hint}
+      onKeyDown={changeModeByKeyboard}
     >
       {PERMISSION_MODE_ORDER.map((mode) => {
         const meta = PERMISSION_MODE_META[mode];
@@ -3994,6 +4029,7 @@ function PermissionModeSwitcher(props: {
             aria-checked={isActive}
             disabled={props.disabled || !props.onChange}
             data-active={isActive}
+            data-mode={mode}
             data-tone={meta.tone}
             className="maka-mode-switcher-option"
             onClick={() => {

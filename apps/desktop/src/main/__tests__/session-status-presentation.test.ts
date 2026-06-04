@@ -147,6 +147,21 @@ describe('permission mode transition guard copy', () => {
     assert.match(chatShellBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
     assert.match(ui, /disabledReason=\{permissionModeDisabledReason\}/);
   });
+
+  it('supports standard radiogroup keyboard navigation on the mode switcher', async () => {
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const switcherBlock = ui.match(/function PermissionModeSwitcher[\s\S]*?function createAbsoluteTimeFormat/)?.[0] ?? '';
+
+    assert.match(switcherBlock, /role="radiogroup"[\s\S]*aria-label="权限模式"/);
+    assert.match(switcherBlock, /onKeyDown=\{changeModeByKeyboard\}/);
+    assert.match(switcherBlock, /case 'ArrowRight':[\s\S]*case 'ArrowDown':[\s\S]*currentIndex \+ 1/);
+    assert.match(switcherBlock, /case 'ArrowLeft':[\s\S]*case 'ArrowUp':[\s\S]*currentIndex - 1/);
+    assert.match(switcherBlock, /case 'Home':[\s\S]*nextIndex = 0/);
+    assert.match(switcherBlock, /case 'End':[\s\S]*PERMISSION_MODE_ORDER\.length - 1/);
+    assert.match(switcherBlock, /data-mode=\{mode\}/);
+    assert.match(switcherBlock, /const group = event\.currentTarget/);
+    assert.match(switcherBlock, /focus\(\{ preventScroll: true \}\)/);
+  });
 });
 
 describe('describeTurnErrorClass (PR109e-d @kenji gate #3)', () => {
