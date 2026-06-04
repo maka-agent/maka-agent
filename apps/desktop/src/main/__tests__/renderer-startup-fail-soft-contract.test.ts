@@ -10,9 +10,20 @@ describe('renderer startup fail-soft contract', () => {
     const refreshConnections = main.match(/async function refreshConnections\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshPlanReminders = main.match(/async function refreshPlanReminders\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshSkills = main.match(/async function refreshSkills\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const refreshMemoryActive = main.match(/async function refreshMemoryActive[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(mountEffect, /window\.maka\.app\.info\(\)\.then\([\s\S]*?\.catch\(\(\) => setAppInfo\(null\)\)/);
-    assert.match(mountEffect, /window\.maka\.memory\.getState\(\)\.then\([\s\S]*?\.catch\(\(\) => setMemoryActive\(false\)\)/);
+    assert.match(mountEffect, /void refreshMemoryActive\('载入本地记忆状态失败'\)/);
+    assert.match(
+      refreshMemoryActive,
+      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(failureTitle, cleanErrorMessage\(error\)\)/,
+      'memory-active refresh failures must be visible and preserve the last known header pill state',
+    );
+    assert.doesNotMatch(
+      main,
+      /catch\(\(\) => setMemoryActive\(false\)\)|catch \(error\) \{[\s\S]*setMemoryActive\(false\)/,
+      'memory-active refresh failures must not silently hide the existing memory pill',
+    );
     assert.match(mountEffect, /window\.maka\.settings\.get\(\)\.then\([\s\S]*?\.catch\(\(\) => \{[\s\S]*applyUiLocale\('auto'\)[\s\S]*applyTheme\('auto'\)[\s\S]*applyDensity\('comfortable'\)[\s\S]*applyThemePalette\('default'\)/);
     assert.match(
       refreshConnections,

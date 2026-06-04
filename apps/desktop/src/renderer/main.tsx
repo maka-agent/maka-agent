@@ -733,9 +733,7 @@ function AppShell() {
     // Pull the persisted theme preference (auto/light/dark) and apply it
     // before any first paint settles. If settings are unreadable we leave the
     // default `auto` which still produces a correct result.
-    void window.maka.memory.getState().then((next) => {
-      setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
-    }).catch(() => setMemoryActive(false));
+    void refreshMemoryActive('载入本地记忆状态失败');
     void window.maka.settings.get().then((next) => {
       const pref = next.appearance?.theme ?? 'auto';
       const den = next.appearance?.density ?? 'comfortable';
@@ -1410,6 +1408,15 @@ function AppShell() {
     }
   }
 
+  async function refreshMemoryActive(failureTitle = '刷新本地记忆状态失败') {
+    try {
+      const next = await window.maka.memory.getState();
+      setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
+    } catch (error) {
+      toastApi.error(failureTitle, cleanErrorMessage(error));
+    }
+  }
+
   async function createSkillTemplate() {
     try {
       const result = await window.maka.skills.createStarter();
@@ -1956,13 +1963,7 @@ function AppShell() {
     // PR-MEMORY-VISIBILITY-INDICATOR-0: same recompute path for the
     // chat-header memory pill — user may have just flipped the
     // agentReadEnabled switch.
-    void window.maka.memory.getState().then((next) => {
-      setMemoryActive(
-        next.agentReadEnabled
-        && next.status === 'ok'
-        && next.content.trim().length > 0,
-      );
-    }).catch(() => setMemoryActive(false));
+    void refreshMemoryActive();
   }
 
   /**
