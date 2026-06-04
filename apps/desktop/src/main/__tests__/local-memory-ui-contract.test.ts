@@ -266,7 +266,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /settingsMemoryDirtyState/);
     assert.match(pageBlock, /有未保存修改/);
     assert.match(pageBlock, /草稿已保存/);
-    assert.match(pageBlock, /disabled=\{busy \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
+    assert.match(pageBlock, /disabled=\{memoryControlsDisabled \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
     assert.match(pageBlock, /\{memoryDraftDirty \? '保存' : '已保存'\}/);
     assert.match(css, /\.settingsMemoryDirtyState\[data-dirty="true"\]/);
   });
@@ -309,6 +309,18 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /未保存的草稿修改已丢弃/);
     assert.match(pageBlock, /onClick=\{\(\) => void reloadDraftFromDisk\(\)\}/);
     assert.match(pageBlock, />\s*重新载入\s*<\/button>/);
+  });
+
+  it('keeps MEMORY.md editing disabled until the initial disk state has loaded', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+    const reloadBlock = pageBlock.match(/async function reload\(\)[\s\S]*?async function reloadDraftFromDisk/)?.[0] ?? '';
+
+    assert.match(pageBlock, /const \[loadingMemory, setLoadingMemory\] = useState\(true\)/);
+    assert.match(reloadBlock, /finally \{[\s\S]*setLoadingMemory\(false\)/);
+    assert.match(pageBlock, /const memoryControlsDisabled = loadingMemory \|\| busy/);
+    assert.match(pageBlock, /disabled=\{memoryControlsDisabled \|\| effective\.status === 'incognito_blocked' \|\| !effective\.enabled\}/);
+    assert.match(pageBlock, /disabled=\{memoryControlsDisabled \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
   });
 
   it('surfaces thrown local memory and workspace instruction action failures', async () => {

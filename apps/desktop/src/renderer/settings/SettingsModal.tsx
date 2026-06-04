@@ -2486,6 +2486,7 @@ function MemorySettingsPage(props: {
   const [newMemoryContent, setNewMemoryContent] = useState('');
   const [memoryEntryQuery, setMemoryEntryQuery] = useState('');
   const [lastSaveSummary, setLastSaveSummary] = useState<{ title: string; detail: string; savedAt: number } | null>(null);
+  const [loadingMemory, setLoadingMemory] = useState(true);
   const [busy, setBusy] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const toast = useToast();
@@ -2504,6 +2505,8 @@ function MemorySettingsPage(props: {
     } catch (error) {
       toast.error('载入本地记忆失败', settingsActionErrorMessage(error));
       return false;
+    } finally {
+      setLoadingMemory(false);
     }
   }
 
@@ -2895,6 +2898,7 @@ function MemorySettingsPage(props: {
       : `预览 ${localMemoryPromptPreview.length.toLocaleString('zh-CN')} / ${LOCAL_MEMORY_PROMPT_MAX_CHARS.toLocaleString('zh-CN')} 字符`
     : `prompt 上限 ${LOCAL_MEMORY_PROMPT_MAX_CHARS.toLocaleString('zh-CN')} 字符`;
   const memoryDraftHasSensitiveFields = useMemo(() => redactSecrets(draft) !== draft, [draft]);
+  const memoryControlsDisabled = loadingMemory || busy;
 
   async function copyLocalMemoryPromptPreview() {
     if (!localMemoryPromptPreview) return;
@@ -2919,7 +2923,7 @@ function MemorySettingsPage(props: {
         <Switch
           ariaLabel="启用本地 MEMORY.md"
           checked={effective.enabled}
-          disabled={busy}
+          disabled={memoryControlsDisabled}
           onChange={(enabled) => void setEnabled(enabled)}
         />
       </div>
@@ -2932,7 +2936,7 @@ function MemorySettingsPage(props: {
         <Switch
           ariaLabel="允许模型上下文读取本地记忆"
           checked={effective.agentReadEnabled}
-          disabled={busy || !effective.enabled}
+          disabled={memoryControlsDisabled || !effective.enabled}
           onChange={(enabled) => void setAgentReadEnabled(enabled)}
         />
       </div>
@@ -2945,7 +2949,7 @@ function MemorySettingsPage(props: {
         <Switch
           ariaLabel="启用项目指令文件"
           checked={props.settings.workspaceInstructions.enabled}
-          disabled={busy}
+          disabled={memoryControlsDisabled}
           onChange={(enabled) => void setWorkspaceInstructionsEnabled(enabled)}
         />
       </div>
@@ -2975,7 +2979,7 @@ function MemorySettingsPage(props: {
                   <button
                     type="button"
                     className="settingsInlineTextButton"
-                    disabled={busy}
+                    disabled={memoryControlsDisabled}
                     onClick={() => void createWorkspaceInstructionFile(file.file)}
                   >
                     创建
@@ -3021,7 +3025,7 @@ function MemorySettingsPage(props: {
                 <button
                   type="button"
                   className="settingsInlineTextButton"
-                  disabled={busy || !effective.enabled}
+                  disabled={memoryControlsDisabled || !effective.enabled}
                   onClick={() => void openBackupCandidate(backup)}
                 >
                   打开
@@ -3029,7 +3033,7 @@ function MemorySettingsPage(props: {
                 <button
                   type="button"
                   className="settingsInlineTextButton"
-                  disabled={busy || !effective.enabled}
+                  disabled={memoryControlsDisabled || !effective.enabled}
                   onClick={() => void restoreBackupCandidate(backup)}
                 >
                   恢复
@@ -3121,7 +3125,7 @@ function MemorySettingsPage(props: {
                 entries={filteredActiveEntries}
                 filtered={normalizedMemoryEntryQuery.length > 0}
                 draftDirty={memoryDraftDirty}
-                busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+                busy={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
                 onCopyReference={copyMemoryEntryReference}
                 onFocusDraft={focusMemoryEntryInDraft}
                 onStatusChange={updateMemoryEntryStatus}
@@ -3133,7 +3137,7 @@ function MemorySettingsPage(props: {
                   filtered={normalizedMemoryEntryQuery.length > 0}
                   archived
                   draftDirty={memoryDraftDirty}
-                  busy={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+                  busy={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
                   onCopyReference={copyMemoryEntryReference}
                   onFocusDraft={focusMemoryEntryInDraft}
                   onStatusChange={updateMemoryEntryStatus}
@@ -3163,7 +3167,7 @@ function MemorySettingsPage(props: {
             onChange={(event) => setNewMemoryTitle(event.currentTarget.value)}
             aria-label="记忆标题"
             placeholder="标题"
-            disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+            disabled={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
           />
           <input
             type="text"
@@ -3171,7 +3175,7 @@ function MemorySettingsPage(props: {
             onChange={(event) => setNewMemoryTags(event.currentTarget.value)}
             aria-label="记忆标签"
             placeholder="标签（逗号分隔，可选）"
-            disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+            disabled={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
           />
           <textarea
             value={newMemoryContent}
@@ -3179,13 +3183,13 @@ function MemorySettingsPage(props: {
             aria-label="记忆内容"
             placeholder="内容"
             rows={3}
-            disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+            disabled={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
           />
         </div>
         <button
           type="button"
           className="maka-button maka-button-ghost"
-          disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+          disabled={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
           onClick={addManualMemoryDraftEntry}
         >
           添加到草稿
@@ -3205,7 +3209,7 @@ function MemorySettingsPage(props: {
           ref={editorRef}
           value={draft}
           onChange={(event) => setDraft(event.currentTarget.value)}
-          disabled={busy || effective.status === 'incognito_blocked' || !effective.enabled}
+          disabled={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
           rows={12}
           spellCheck={false}
         />
@@ -3218,19 +3222,19 @@ function MemorySettingsPage(props: {
       )}
 
       <div className="settingsActionRow">
-        <button type="button" className="maka-button" disabled={busy || !effective.enabled || !memoryDraftDirty} onClick={() => void save()}>
+        <button type="button" className="maka-button" disabled={memoryControlsDisabled || !effective.enabled || !memoryDraftDirty} onClick={() => void save()}>
           {memoryDraftDirty ? '保存' : '已保存'}
         </button>
-        <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled} onClick={() => void openFile()}>
+        <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled} onClick={() => void openFile()}>
           打开 MEMORY.md
         </button>
-        <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled} onClick={() => void openFolder()}>
+        <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled} onClick={() => void openFolder()}>
           打开所在目录
         </button>
-        <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled} onClick={() => void reloadDraftFromDisk()}>
+        <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled} onClick={() => void reloadDraftFromDisk()}>
           重新载入
         </button>
-        <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled || !effective.latestBackup} onClick={() => void openLatestBackup()}>
+        <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled || !effective.latestBackup} onClick={() => void openLatestBackup()}>
           打开上一版
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={!effective.path} onClick={() => void copyPath()}>
@@ -3239,10 +3243,10 @@ function MemorySettingsPage(props: {
         <button type="button" className="maka-button maka-button-ghost" disabled={!effective.latestBackup} onClick={() => void copyLatestBackupReference()}>
           复制上一版引用
         </button>
-        <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled} onClick={() => void reset()}>
+        <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled} onClick={() => void reset()}>
           重置并备份
         </button>
-        <button type="button" className="maka-button maka-button-ghost" disabled={busy || !effective.enabled || !effective.latestBackup} onClick={() => void restoreLatestBackup()}>
+        <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled || !effective.latestBackup} onClick={() => void restoreLatestBackup()}>
           恢复上一版
         </button>
       </div>
