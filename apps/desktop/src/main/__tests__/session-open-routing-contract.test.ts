@@ -47,4 +47,19 @@ describe('session open routing contract', () => {
       'branch navigation must not wait for sidebar refresh before binding the newly created session',
     );
   });
+
+  it('new-chat navigation does not wipe other sessions live renderer state', async () => {
+    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const createSession = main.match(/async function createSession\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(createSession, /setActiveId\(undefined\);/);
+    assert.match(createSession, /setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);/);
+    assert.match(createSession, /setSearchScrollTarget\(null\);/);
+    assert.match(createSession, /setMessages\(\[\]\);/);
+    assert.doesNotMatch(
+      createSession,
+      /setStreamingBySession\(\{\}\)|setLiveToolsBySession\(\{\}\)|setPermissionBySession\(\{\}\)/,
+      'new chat should clear only the current empty chat surface, not wipe live state for other running sessions',
+    );
+  });
 });

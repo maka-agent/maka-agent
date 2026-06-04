@@ -1295,10 +1295,8 @@ function AppShell() {
   async function createSession() {
     setActiveId(undefined);
     setNavSelection({ section: 'sessions', filter: 'chats' });
+    setSearchScrollTarget(null);
     setMessages([]);
-    setStreamingBySession({});
-    setLiveToolsBySession({});
-    setPermissionBySession({});
   }
 
   function openPlanReminderForm() {
