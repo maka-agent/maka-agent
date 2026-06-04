@@ -10,6 +10,20 @@ describe('Claude subscription runtime wiring', () => {
     assert.equal(result.ok, true);
   });
 
+  test('testConnection never burns Claude OAuth quota with a synthetic messages probe', async () => {
+    const src = await readFile(new URL('../../src/test-connection.ts', import.meta.url), 'utf8');
+    const branchIdx = src.indexOf("connection.providerType === 'claude-subscription'");
+    assert.notEqual(branchIdx, -1, 'Claude OAuth test branch must exist');
+    const branchRegion = src.slice(branchIdx, src.indexOf("const r = await proxiedFetch", branchIdx));
+    assert.match(
+      branchRegion,
+      /return \{ ok: true, latencyMs: Date\.now\(\) - t0, modelTested: model \}/,
+      'Claude OAuth connection test should validate stored login presence without calling the chat endpoint',
+    );
+    assert.doesNotMatch(branchRegion, /anthropicV1Url\(baseUrl, '\/messages'\)/);
+    assert.doesNotMatch(branchRegion, /messages:\s*\[\{ role: 'user', content: 'Hi' \}\]/);
+  });
+
   test('model factory constructs Anthropic with authToken for claude-subscription', async () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
     const caseIdx = src.indexOf("case 'claude-subscription'");
