@@ -5086,6 +5086,14 @@ export const Composer = forwardRef<
   function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Skip when an IME composition is active so CJK input isn't interrupted.
     if (event.nativeEvent.isComposing || event.key === 'Process') return;
+    // Esc while a drag-active highlight is showing should clear it
+    // immediately. The existing useEffect listens for blur/dragend/drop
+    // but not keydown, so a user who hits Esc to cancel a stuck drag
+    // gesture would otherwise see the highlight linger until they
+    // blurred the window or completed a real drop somewhere.
+    if (event.key === 'Escape' && dragActive) {
+      setDragActive(false);
+    }
     // Esc during streaming interrupts the model. We don't preventDefault
     // unconditionally so Esc still works to close modals when the composer
     // happens to be focused outside a streaming turn.

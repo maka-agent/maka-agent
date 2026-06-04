@@ -442,8 +442,14 @@ function ReadyEmptyHero(props: {
         event.preventDefault();
         submit();
       }
+      // Esc while drag-active clears the stuck highlight. The useEffect
+      // listens for blur/dragend/drop but not keydown, so a user who
+      // hits Esc mid-drag would otherwise see the highlight linger.
+      if (event.key === 'Escape' && dragActive) {
+        setDragActive(false);
+      }
     },
-    [submit],
+    [submit, dragActive],
   );
 
   const prefillSuggestion = useCallback((prompt: string, mode?: QuickChatMode) => {
