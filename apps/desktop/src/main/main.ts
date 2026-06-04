@@ -7,6 +7,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
   generalizedErrorMessage,
+  redactSecrets,
   buildHealthSnapshot,
   healthSignalFromCapability,
   healthSignalFromConnection,
@@ -127,6 +128,7 @@ import {
   buildBuiltinTools,
   fetchProviderModels,
   getAIModel,
+  buildProviderOptions,
   recordLlmCall,
   recordToolInvocation,
   buildPricingLookup,
@@ -654,9 +656,7 @@ function isInsideOrSamePath(root: string, target: string): boolean {
 
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
-  const modelFetch = connection.providerType === 'claude-subscription' && isCloakEnabled()
-    ? buildClaudeSubscriptionCloakedFetch(ctx.sessionId, model)
-    : undefined;
+  const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -668,6 +668,7 @@ backends.register('ai-sdk', async (ctx) => {
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
     tools: builtinTools,
+    providerOptions: buildProviderOptions(connection, model),
     systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd),
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
@@ -686,6 +687,120 @@ backends.register('ai-sdk', async (ctx) => {
     now: Date.now,
   });
 });
+
+function buildSubscriptionModelFetch(
+  connection: LlmConnection,
+  sessionId: string,
+  modelId: string,
+): typeof fetch | undefined {
+  if (connection.providerType === 'claude-subscription' && isCloakEnabled()) {
+    return buildClaudeSubscriptionCloakedFetch(sessionId, modelId);
+  }
+  if (connection.providerType === 'codex-subscription') {
+    return buildCodexSubscriptionFetch(sessionId);
+  }
+  return undefined;
+}
+
+function buildCodexSubscriptionFetch(sessionId: string): typeof fetch {
+  return async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const headers = new Headers(init?.headers);
+    headers.set('OpenAI-Beta', 'responses=experimental');
+    headers.set('originator', 'codex_cli_rs');
+    headers.set('session_id', sessionId);
+    headers.set('x-client-request-id', sessionId);
+    headers.set('content-type', 'application/json');
+
+    const rawBody = init?.body;
+    if (typeof rawBody !== 'string') {
+      return checkedCodexSubscriptionFetch(url, { ...init, headers });
+    }
+
+    let parsedBody: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(rawBody) as unknown;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return checkedCodexSubscriptionFetch(url, { ...init, headers });
+      }
+      parsedBody = parsed as Record<string, unknown>;
+    } catch {
+      return checkedCodexSubscriptionFetch(url, { ...init, headers });
+    }
+
+    return checkedCodexSubscriptionFetch(url, {
+      ...init,
+      headers,
+      body: JSON.stringify({
+        ...parsedBody,
+        instructions: codexInstructionsFromBody(parsedBody),
+        store: false,
+        parallel_tool_calls: parsedBody.parallel_tool_calls ?? true,
+        text: {
+          ...(parsedBody.text !== null && typeof parsedBody.text === 'object'
+            ? parsedBody.text as Record<string, unknown>
+            : {}),
+          verbosity: (
+            parsedBody.text !== null
+            && typeof parsedBody.text === 'object'
+            && typeof (parsedBody.text as { verbosity?: unknown }).verbosity === 'string'
+          )
+            ? (parsedBody.text as { verbosity: string }).verbosity
+            : 'medium',
+        },
+      }),
+    });
+  };
+}
+
+async function checkedCodexSubscriptionFetch(
+  url: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+): Promise<Response> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const detail = await response.clone().text().catch(() => '');
+    throw new Error(formatCodexSubscriptionHttpError(response.status, detail));
+  }
+  return response;
+}
+
+function codexInstructionsFromBody(body: Record<string, unknown>): string {
+  if (typeof body.instructions === 'string' && body.instructions.trim()) {
+    return body.instructions;
+  }
+  if (typeof body.system === 'string' && body.system.trim()) {
+    return body.system;
+  }
+  const input = body.input;
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      if (record.role !== 'system') continue;
+      const content = record.content;
+      if (typeof content === 'string' && content.trim()) return content;
+      if (!Array.isArray(content)) continue;
+      const text = content
+        .map((part) => {
+          if (!part || typeof part !== 'object') return '';
+          const value = (part as Record<string, unknown>).text;
+          return typeof value === 'string' ? value : '';
+        })
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (text) return text;
+    }
+  }
+  return 'You are Maka, a helpful AI assistant.';
+}
+
+function formatCodexSubscriptionHttpError(statusCode: number, detail: string): string {
+  const compact = redactSecrets(detail).replace(/\s+/g, ' ').trim().slice(0, 240);
+  return compact
+    ? `Codex OAuth request failed: HTTP ${statusCode} ${compact}`
+    : `Codex OAuth request failed: HTTP ${statusCode}`;
+}
 
 function buildClaudeSubscriptionCloakedFetch(sessionId: string, modelId: string): typeof fetch {
   return async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

@@ -138,6 +138,16 @@ describe('Codex JWT account-id extraction', () => {
     assert.equal(claims.accountId, 'sub-2');
   });
 
+  it('prefers ChatGPT organization/account claims over JWT sub for backend account routing', () => {
+    const access = makeJwt({ sub: 'sub-not-chatgpt-account' });
+    const id = makeJwt({
+      sub: 'id-sub-not-chatgpt-account',
+      organizations: [{ id: 'org_chatgpt_account' }],
+    });
+    const claims = extractAccountClaims(access, id);
+    assert.equal(claims.accountId, 'org_chatgpt_account');
+  });
+
   it('throws when neither token contains an account id', () => {
     const access = makeJwt({});
     assert.throws(() => extractAccountClaims(access), /account ID/i);

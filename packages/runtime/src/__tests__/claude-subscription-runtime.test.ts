@@ -1,15 +1,8 @@
 import assert from 'node:assert/strict';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { after, describe, test } from 'node:test';
+import { describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
 import { testConnection } from '../test-connection.js';
-
-const servers: Array<{ close(): Promise<void> }> = [];
-
-after(async () => {
-  await Promise.all(servers.map((server) => server.close()));
-});
 
 describe('Claude subscription runtime wiring', () => {
   test('testConnection treats resolved Claude OAuth token as a usable login', async () => {
@@ -39,74 +32,48 @@ describe('Claude subscription runtime wiring', () => {
     assert.doesNotMatch(kimiCase, /anthropicV1BaseUrl/, 'Kimi endpoint must not be blindly rewritten to /v1');
   });
 
-  test('model factory wires codex-subscription to OpenAI Responses instead of throwing', async () => {
+  test('model factory wires codex-subscription to OpenAI Responses with account-scoped fetch/header shape', async () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
     const caseIdx = src.indexOf("case 'codex-subscription'");
     assert.notEqual(caseIdx, -1, 'codex-subscription case must exist');
     const caseRegion = src.slice(caseIdx, src.indexOf("case 'gemini-cli'", caseIdx));
     assert.match(caseRegion, /createOpenAI\(\{[\s\S]*apiKey/, 'Codex OAuth must use OpenAI client with OAuth token');
+    assert.match(caseRegion, /fetch,/, 'Codex OAuth must accept the desktop ChatGPT backend fetch wrapper');
     assert.match(caseRegion, /codexSubscriptionHeaders\(apiKey\)/, 'Codex OAuth must attach account-scoped headers');
     assert.match(caseRegion, /\.responses\(modelId\)/, 'Codex OAuth must use Responses API');
     assert.doesNotMatch(caseRegion, /throw new Error/, 'Codex OAuth must not remain in the experimental throw branch');
   });
 
-  test('testConnection uses Codex OAuth Responses API path and account header', async () => {
-    let observedAuth = '';
-    let observedAccountId = '';
-    let observedPath = '';
-    let observedBody = '';
-    const server = await startJsonServer((request, response) => {
-      observedAuth = request.headers.authorization ?? '';
-      observedAccountId = (request.headers['chatgpt-account-id'] as string | undefined) ?? '';
-      observedPath = request.url ?? '';
-      request.setEncoding('utf8');
-      request.on('data', (chunk) => {
-        observedBody += chunk;
-      });
-      request.on('end', () => {
-        respondJson(response, 200, {
-          id: 'resp_test',
-          object: 'response',
-          model: 'gpt-5.5',
-        });
-      });
-    });
-
-    const result = await testConnection({
-      ...codexOAuthConnection(),
-      baseUrl: server.url,
-    }, codexAccessToken('acct_test'));
-
+  test('testConnection treats resolved Codex OAuth token as a usable login', async () => {
+    const result = await testConnection(codexOAuthConnection(), codexAccessToken('acct_test'));
     assert.equal(result.ok, true);
-    assert.equal(observedPath, '/responses');
-    assert.equal(observedAuth, `Bearer ${codexAccessToken('acct_test')}`);
-    assert.equal(observedAccountId, 'acct_test');
-    assert.match(observedBody, /gpt-5\.5/);
-    assert.match(observedBody, /store/);
+    assert.equal(result.modelTested, 'gpt-5.5');
+  });
+
+  test('Codex OAuth headers include ChatGPT Responses beta and account id', async () => {
+    const src = await readFile(new URL('../../src/subscription-auth.ts', import.meta.url), 'utf8');
+    assert.match(src, /OpenAI-Beta['"]:\s*['"]responses=experimental/, 'Codex OAuth must opt into ChatGPT Responses beta');
+    assert.equal(
+      (await import('../subscription-auth.js')).codexSubscriptionHeaders(codexAccessToken('acct_test'))['ChatGPT-Account-Id'],
+      'acct_test',
+    );
+  });
+
+  test('Codex OAuth headers do not fall back to JWT sub as ChatGPT account id', async () => {
+    const { codexSubscriptionHeaders } = await import('../subscription-auth.js');
+    const headers = codexSubscriptionHeaders(codexAccessTokenWithoutChatGptAccount('sub_not_account'));
+    assert.equal(headers['ChatGPT-Account-Id'], undefined);
+  });
+
+  test('Codex OAuth provider options use non-persistent ChatGPT backend defaults', async () => {
+    const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
+    const fnIdx = src.indexOf('export function buildProviderOptions');
+    const caseIdx = src.indexOf("case 'codex-subscription'", fnIdx);
+    const caseRegion = src.slice(caseIdx, src.indexOf("case 'openai'", caseIdx));
+    assert.match(caseRegion, /store:\s*false/, 'Codex OAuth sends must not persist Responses API inputs by default');
+    assert.match(caseRegion, /textVerbosity:\s*['"]medium['"]/, 'Codex OAuth sends must use the ChatGPT backend text verbosity shape');
   });
 });
-
-async function startJsonServer(
-  handler: (request: IncomingMessage, response: ServerResponse) => void,
-): Promise<{ url: string; close(): Promise<void> }> {
-  const server = createServer(handler);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  const control = {
-    url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
-  };
-  servers.push(control);
-  return control;
-}
-
-function respondJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json' });
-  response.end(JSON.stringify(body));
-}
 
 function claudeOAuthConnection(): LlmConnection {
   return {
@@ -141,6 +108,14 @@ function codexAccessToken(accountId: string): string {
         chatgpt_account_id: accountId,
       },
     }),
+    'signature',
+  ].join('.');
+}
+
+function codexAccessTokenWithoutChatGptAccount(sub: string): string {
+  return [
+    base64url({ alg: 'none', typ: 'JWT' }),
+    base64url({ sub }),
     'signature',
   ].join('.');
 }

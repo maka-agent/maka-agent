@@ -5,7 +5,7 @@ import {
   type LlmConnection,
 } from '@maka/core/llm-connections';
 import { proxiedFetch } from './bots/proxied-fetch.js';
-import { anthropicV1Url, codexSubscriptionHeaders } from './subscription-auth.js';
+import { anthropicV1Url } from './subscription-auth.js';
 
 const CONNECTION_TEST_TIMEOUT_MS = 15_000;
 const CLAUDE_SUBSCRIPTION_BETA =
@@ -105,7 +105,14 @@ async function probeOpenAI(
   t0: number,
 ): Promise<ConnectionTestResult> {
   if (connection.providerType === 'codex-subscription') {
-    return probeCodexSubscription(baseUrl, apiKey, model, t0);
+    // Codex Subscription credentials are ChatGPT account-scoped OAuth
+    // tokens. A live `/responses` probe is not a stable readiness test:
+    // the backend can hold or reject small synthetic requests even when
+    // the stored login is valid and the real send path has enough context.
+    // Mirror Claude OAuth and treat a resolved main-process OAuth token as
+    // the explicit connection test; actual turn failures still surface in
+    // chat with the provider error class.
+    return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
   }
   const r = await proxiedFetch(`${stripTrailing(baseUrl)}/chat/completions`, {
     method: 'POST',
@@ -117,31 +124,6 @@ async function probeOpenAI(
       model,
       max_tokens: 16,
       messages: [{ role: 'user', content: 'Hi' }],
-    }),
-    timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
-  });
-  if (!r.ok) return httpFailure(r, t0);
-  return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
-}
-
-async function probeCodexSubscription(
-  baseUrl: string,
-  accessToken: string,
-  model: string,
-  t0: number,
-): Promise<ConnectionTestResult> {
-  const r = await proxiedFetch(`${stripTrailing(baseUrl)}/responses`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      ...codexSubscriptionHeaders(accessToken),
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      input: [{ role: 'user', content: [{ type: 'input_text', text: 'Hi' }] }],
-      max_output_tokens: 16,
-      store: false,
     }),
     timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
   });

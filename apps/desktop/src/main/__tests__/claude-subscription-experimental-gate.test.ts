@@ -425,7 +425,7 @@ describe('Claude OAuth model connection bridge', () => {
     assert.match(
       src,
       /providerType === 'codex-subscription'[\s\S]*codexSubscription\.getAccessTokenInternal\(\)/,
-      'resolveConnectionSecret must map codex-subscription to its stored OAuth access token',
+      'resolveConnectionSecret must let the Codex OAuth service apply its normal refresh policy before handing the access token to the send path',
     );
   });
 

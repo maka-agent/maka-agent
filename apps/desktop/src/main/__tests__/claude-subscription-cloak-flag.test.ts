@@ -80,10 +80,25 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
 
   it('main wires Claude OAuth sends through the dynamic cloak fetch wrapper by default', async () => {
     const src = await readFile(MAIN_SOURCE, 'utf8');
-    assert.match(src, /isCloakEnabled\(\)[\s\S]*buildClaudeSubscriptionCloakedFetch\(ctx\.sessionId,\s*model\)/);
+    assert.match(src, /buildSubscriptionModelFetch\(connection,\s*ctx\.sessionId,\s*model\)/);
+    assert.match(src, /isCloakEnabled\(\)[\s\S]*buildClaudeSubscriptionCloakedFetch\(sessionId,\s*modelId\)/);
     assert.match(src, /modelFactory:\s*\(input\)\s*=>\s*getAIModel\(\{\s*\.\.\.input,\s*fetch:\s*modelFetch\s*\}\)/);
     assert.match(src, /import\('\.\/oauth\/cloaked-request\.js'\)/, 'cloak module must be dynamically imported from the send path');
     assert.match(src, /buildCloakedRequest\(\{[\s\S]*deviceId[\s\S]*accountUuid[\s\S]*sessionId/, 'cloak wrapper must stamp Claude Code identity metadata');
+  });
+
+  it('main maps Codex OAuth system prompt into ChatGPT backend instructions', async () => {
+    const src = await readFile(MAIN_SOURCE, 'utf8');
+    assert.match(src, /providerType === 'codex-subscription'[\s\S]*buildCodexSubscriptionFetch\(sessionId\)/);
+    assert.match(
+      src,
+      /instructions:\s*codexInstructionsFromBody\(parsedBody\)/,
+      'Codex OAuth backend rejects requests without top-level instructions',
+    );
+    assert.match(src, /function codexInstructionsFromBody\(body:\s*Record<string,\s*unknown>\):\s*string/);
+    assert.match(src, /typeof body\.system === 'string'/, 'Codex instructions must inherit the AI SDK system prompt when present');
+    assert.match(src, /record\.role !== 'system'/, 'Codex instructions must also recover system input items defensively');
+    assert.match(src, /You are Maka, a helpful AI assistant\./, 'Codex instructions must have a non-empty fallback');
   });
 
   it('token exchange uses the pasted OAuth state, not the verifier', async () => {

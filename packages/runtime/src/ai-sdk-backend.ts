@@ -206,6 +206,8 @@ export interface AiSdkBackendInput {
   streamIdleTimeoutMs?: number;
   /** Optional system prompt (skills + workspace AGENTS.md merged upstream). */
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
+  /** Provider-native options passed through to ai-sdk. */
+  providerOptions?: Record<string, unknown>;
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
   recordLlmCall?: LlmTelemetryRecorder;
   recordToolInvocation?: ToolTelemetryRecorder;
@@ -366,6 +368,7 @@ export class AiSdkBackend implements AgentBackend {
             });
           },
           system: await this.resolveSystemPrompt(),
+          providerOptions: this.input.providerOptions,
           stopWhen: stepCountIs(this.maxSteps),
           abortSignal: this.abortController!.signal,
         });

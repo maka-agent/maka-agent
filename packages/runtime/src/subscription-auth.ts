@@ -1,4 +1,4 @@
-export const CODEX_SUBSCRIPTION_USER_AGENT = 'codex-cli/0.0.0 (external, cli)';
+export const CODEX_SUBSCRIPTION_USER_AGENT = 'codex_cli_rs/0.0.0 (Maka)';
 
 /**
  * The Anthropic AI SDK expects a versioned API prefix and appends
@@ -23,7 +23,11 @@ export function anthropicV1Url(baseUrl: string, path: string): string {
 export function codexSubscriptionHeaders(accessToken: string): Record<string, string> {
   const accountId = extractCodexAccountId(accessToken);
   return {
-    ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
+    ...(accountId ? {
+      'ChatGPT-Account-Id': accountId,
+    } : {}),
+    'OpenAI-Beta': 'responses=experimental',
+    originator: 'codex_cli_rs',
     'User-Agent': CODEX_SUBSCRIPTION_USER_AGENT,
   };
 }
@@ -36,8 +40,17 @@ export function extractCodexAccountId(accessToken: string): string | null {
     const value = (auth as Record<string, unknown>).chatgpt_account_id;
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
-  const sub = payload.sub;
-  return typeof sub === 'string' && sub.trim() ? sub.trim() : null;
+  const value = payload.chatgpt_account_id;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  const organizations = payload.organizations;
+  if (Array.isArray(organizations)) {
+    for (const organization of organizations) {
+      if (!organization || typeof organization !== 'object') continue;
+      const id = (organization as Record<string, unknown>).id;
+      if (typeof id === 'string' && id.trim()) return id.trim();
+    }
+  }
+  return null;
 }
 
 function stripTrailing(u: string): string {

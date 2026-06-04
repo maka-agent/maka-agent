@@ -55,6 +55,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
       return createOpenAI({
         apiKey,
         baseURL,
+        fetch,
         headers: codexSubscriptionHeaders(apiKey),
       }).responses(modelId);
 
@@ -119,6 +120,13 @@ export function buildProviderOptions(
     case 'kimi-coding-plan':
     case 'claude-subscription':
       return { anthropic: {} };
+    case 'codex-subscription':
+      return {
+        openai: {
+          store: false,
+          textVerbosity: 'medium',
+        },
+      };
     case 'openai':
       return { openai: {} };
     case 'google':

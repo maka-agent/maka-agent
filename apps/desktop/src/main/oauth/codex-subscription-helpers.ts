@@ -107,6 +107,25 @@ function readNestedString(obj: Record<string, unknown>, path: string[]): string 
   return typeof cur === 'string' && cur.length > 0 ? cur : undefined;
 }
 
+function readFirstOrganizationId(obj: Record<string, unknown>): string | undefined {
+  const organizations = obj.organizations;
+  if (!Array.isArray(organizations)) return undefined;
+  for (const organization of organizations) {
+    if (!organization || typeof organization !== 'object') continue;
+    const id = (organization as Record<string, unknown>).id;
+    if (typeof id === 'string' && id.trim()) return id.trim();
+  }
+  return undefined;
+}
+
+function readChatGptAccountId(obj: Record<string, unknown>): string | undefined {
+  return (
+    readNestedString(obj, ['chatgpt_account_id']) ||
+    readNestedString(obj, ['https://api.openai.com/auth', 'chatgpt_account_id']) ||
+    readFirstOrganizationId(obj)
+  );
+}
+
 export function extractAccountClaims(
   accessToken: string,
   idToken?: string,
@@ -115,8 +134,8 @@ export function extractAccountClaims(
   const secondary = idToken ? safeDecode(idToken) ?? {} : {};
 
   const accountId =
-    readNestedString(primary, ['https://api.openai.com/auth', 'chatgpt_account_id']) ||
-    readNestedString(secondary, ['https://api.openai.com/auth', 'chatgpt_account_id']) ||
+    readChatGptAccountId(secondary) ||
+    readChatGptAccountId(primary) ||
     readNestedString(primary, ['sub']) ||
     readNestedString(secondary, ['sub']) ||
     '';

@@ -301,7 +301,7 @@ export class CodexSubscriptionService {
     if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
     this.refreshing = true;
     try {
-      const next = await this.requestRefresh(tokens.refresh_token);
+      const next = await this.requestRefresh(tokens);
       await this.saveTokens(next);
       this.cachedTokens = next;
       this.cachedClaims = extractAccountClaims(next.access_token, next.id_token);
@@ -343,10 +343,10 @@ export class CodexSubscriptionService {
    * responsible for keeping the returned token inside the main
    * process — never IPC it out.
    */
-  async getAccessTokenInternal(): Promise<string | null> {
+  async getAccessTokenInternal(options: { forceRefresh?: boolean } = {}): Promise<string | null> {
     const tokens = await this.loadTokens();
     if (!tokens) return null;
-    if (tokens.expires_at - this.now() <= TOKEN_REFRESH_SKEW_MS) {
+    if (options.forceRefresh || tokens.expires_at - this.now() <= TOKEN_REFRESH_SKEW_MS) {
       const refreshed = await this.refreshTokens();
       if (!refreshed.ok) return null;
       const next = await this.loadTokens();
@@ -495,11 +495,11 @@ export class CodexSubscriptionService {
     };
   }
 
-  private async requestRefresh(refreshToken: string): Promise<PersistedTokens> {
+  private async requestRefresh(tokens: PersistedTokens): Promise<PersistedTokens> {
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: CODEX_CLIENT_ID,
-      refresh_token: refreshToken,
+      refresh_token: tokens.refresh_token,
     });
     const response = await this.fetchFn(CODEX_TOKEN_ENDPOINT, {
       method: 'POST',
@@ -516,13 +516,14 @@ export class CodexSubscriptionService {
       id_token?: string;
       expires_in: number;
     };
-    const claims = extractAccountClaims(payload.access_token, payload.id_token);
+    const nextIdToken = payload.id_token ?? tokens.id_token;
+    const claims = extractAccountClaims(payload.access_token, nextIdToken);
     return {
       access_token: payload.access_token,
-      refresh_token: payload.refresh_token ?? refreshToken,
-      id_token: payload.id_token,
+      refresh_token: payload.refresh_token ?? tokens.refresh_token,
+      id_token: nextIdToken,
       expires_at: this.now() + 1000 * payload.expires_in,
-      account_id: claims.accountId,
+      account_id: claims.accountId || tokens.account_id,
     };
   }
 
