@@ -324,6 +324,22 @@ describe('Claude OAuth model connection bridge', () => {
     assert.match(listRegion, /await syncOAuthModelConnections\(\);[\s\S]*return connectionStore\.list\(\)/, 'connection list reads must materialize logged-in OAuth model connections');
   });
 
+  it('OAuth model connection sync is per-provider fail-soft', async () => {
+    const src = await readFile(MAIN_SOURCE, 'utf8');
+    const syncMatch = src.match(/async function syncOAuthModelConnections\(\): Promise<void> \{[\s\S]*?\n\}/);
+    assert.ok(syncMatch, 'syncOAuthModelConnections helper must exist');
+    assert.match(
+      syncMatch[0],
+      /Promise\.allSettled\(\[[\s\S]*syncClaudeSubscriptionConnection\(\),[\s\S]*syncCodexSubscriptionConnection\(\),[\s\S]*\]\)/,
+      'one OAuth provider state failure must not reject the whole model connection list read',
+    );
+    assert.doesNotMatch(
+      syncMatch[0],
+      /Promise\.all\(\[/,
+      'OAuth sync must not use Promise.all because a broken Codex token file can block Claude from appearing in enabled models',
+    );
+  });
+
   it('model connection IPC resolves Claude OAuth token from the subscription service, not credentialStore api_key', async () => {
     const src = await readFile(MAIN_SOURCE, 'utf8');
     assert.match(

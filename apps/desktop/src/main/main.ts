@@ -341,10 +341,15 @@ async function syncCodexSubscriptionConnection(): Promise<LlmConnection | null> 
 }
 
 async function syncOAuthModelConnections(): Promise<void> {
-  await Promise.all([
+  const results = await Promise.allSettled([
     syncClaudeSubscriptionConnection(),
     syncCodexSubscriptionConnection(),
   ]);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.warn('[maka] OAuth model connection sync failed', result.reason);
+    }
+  }
 }
 
 async function resolveConnectionSecret(slug: string): Promise<string | null> {
