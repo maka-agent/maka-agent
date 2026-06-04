@@ -311,6 +311,37 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, />\s*重新载入\s*<\/button>/);
   });
 
+  it('surfaces thrown local memory and workspace instruction action failures', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+    const reloadBlock = pageBlock.match(/async function reload\(\)[\s\S]*?async function reloadDraftFromDisk/)?.[0] ?? '';
+    const saveBlock = pageBlock.match(/async function save\(\)[\s\S]*?async function reset/)?.[0] ?? '';
+    const resetBlock = pageBlock.match(/async function reset\(\)[\s\S]*?async function restoreLatestBackup/)?.[0] ?? '';
+    const restoreLatestBlock = pageBlock.match(/async function restoreLatestBackup\(\)[\s\S]*?async function restoreBackupCandidate/)?.[0] ?? '';
+    const restoreCandidateBlock = pageBlock.match(/async function restoreBackupCandidate[\s\S]*?async function openFile/)?.[0] ?? '';
+    const openFileBlock = pageBlock.match(/async function openFile\(\)[\s\S]*?async function openLatestBackup/)?.[0] ?? '';
+    const openLatestBlock = pageBlock.match(/async function openLatestBackup\(\)[\s\S]*?async function openBackupCandidate/)?.[0] ?? '';
+    const openCandidateBlock = pageBlock.match(/async function openBackupCandidate[\s\S]*?async function openFolder/)?.[0] ?? '';
+    const openFolderBlock = pageBlock.match(/async function openFolder\(\)[\s\S]*?async function openWorkspaceInstructionFile/)?.[0] ?? '';
+    const openInstructionBlock = pageBlock.match(/async function openWorkspaceInstructionFile[\s\S]*?async function createWorkspaceInstructionFile/)?.[0] ?? '';
+    const createInstructionBlock = pageBlock.match(/async function createWorkspaceInstructionFile[\s\S]*?async function copyPath/)?.[0] ?? '';
+    const updateStatusBlock = pageBlock.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
+
+    assert.match(src, /function settingsActionErrorMessage\(error: unknown\)/);
+    assert.match(reloadBlock, /catch \(error\) \{[\s\S]*toast\.error\('载入本地记忆失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(saveBlock, /catch \(error\) \{[\s\S]*toast\.error\('保存 MEMORY\.md 失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(resetBlock, /catch \(error\) \{[\s\S]*toast\.error\('重置 MEMORY\.md 失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(restoreLatestBlock, /catch \(error\) \{[\s\S]*toast\.error\('恢复上一版失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(restoreCandidateBlock, /catch \(error\) \{[\s\S]*toast\.error\('恢复备份失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(openFileBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(openLatestBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开上一版失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(openCandidateBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{localMemoryBackupKindLabel\(backup\.kind\)\}失败`, settingsActionErrorMessage\(error\)\)/);
+    assert.match(openFolderBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{openPathActionLabel\('memory'\)\}失败`, settingsActionErrorMessage\(error\)\)/);
+    assert.match(openInstructionBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开项目指令失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(createInstructionBlock, /catch \(error\) \{[\s\S]*toast\.error\('创建项目指令失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(updateStatusBlock, /catch \(error\) \{[\s\S]*toast\.error\(status === 'archived' \? '归档记忆失败' : '恢复记忆失败', settingsActionErrorMessage\(error\)\)/);
+  });
+
   it('can restore the latest MEMORY.md backup through an explicit reversible action', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');

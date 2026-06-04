@@ -2419,22 +2419,28 @@ function MemorySettingsPage(props: {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const toast = useToast();
 
-  async function reload() {
-    const [next, instructions] = await Promise.all([
-      window.maka.memory.getState(),
-      window.maka.workspaceInstructions.getState(),
-    ]);
-    setState(next);
-    setWorkspaceInstructionState(instructions);
-    setDraft(next.content);
-    setLastSaveSummary(null);
+  async function reload(): Promise<boolean> {
+    try {
+      const [next, instructions] = await Promise.all([
+        window.maka.memory.getState(),
+        window.maka.workspaceInstructions.getState(),
+      ]);
+      setState(next);
+      setWorkspaceInstructionState(instructions);
+      setDraft(next.content);
+      setLastSaveSummary(null);
+      return true;
+    } catch (error) {
+      toast.error('载入本地记忆失败', settingsActionErrorMessage(error));
+      return false;
+    }
   }
 
   async function reloadDraftFromDisk() {
     setBusy(true);
     try {
-      await reload();
-      toast.success('已重新载入 MEMORY.md', '未保存的草稿修改已丢弃。');
+      const ok = await reload();
+      if (ok) toast.success('已重新载入 MEMORY.md', '未保存的草稿修改已丢弃。');
     } finally {
       setBusy(false);
     }
@@ -2451,6 +2457,8 @@ function MemorySettingsPage(props: {
       await props.onReloadSettings();
       setState(next);
       setDraft(next.content);
+    } catch (error) {
+      toast.error('更新本地记忆开关失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2463,6 +2471,8 @@ function MemorySettingsPage(props: {
       await props.onReloadSettings();
       setState(next);
       setDraft(next.content);
+    } catch (error) {
+      toast.error('更新模型读取权限失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2473,6 +2483,8 @@ function MemorySettingsPage(props: {
     try {
       await props.onUpdate({ workspaceInstructions: { enabled } });
       await props.onReloadSettings();
+    } catch (error) {
+      toast.error('更新项目指令开关失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2497,6 +2509,8 @@ function MemorySettingsPage(props: {
         setLastSaveSummary({ title: '已保存 MEMORY.md', detail, savedAt: Date.now() });
         toast.success('已保存 MEMORY.md', detail);
       }
+    } catch (error) {
+      toast.error('保存 MEMORY.md 失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2510,6 +2524,8 @@ function MemorySettingsPage(props: {
       setDraft(next.content);
       setLastSaveSummary(null);
       toast.success('已重置 MEMORY.md', '上一版已保存为备份文件。');
+    } catch (error) {
+      toast.error('重置 MEMORY.md 失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2534,6 +2550,8 @@ function MemorySettingsPage(props: {
       } else {
         toast.error('恢复失败', result.message);
       }
+    } catch (error) {
+      toast.error('恢复上一版失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2553,39 +2571,61 @@ function MemorySettingsPage(props: {
       } else {
         toast.error('恢复失败', result.message);
       }
+    } catch (error) {
+      toast.error('恢复备份失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
   }
 
   async function openFile() {
-    const result = await window.maka.memory.openFile();
-    if (!result.ok) toast.error('打开失败', result.message);
+    try {
+      const result = await window.maka.memory.openFile();
+      if (!result.ok) toast.error('打开失败', result.message);
+    } catch (error) {
+      toast.error('打开失败', settingsActionErrorMessage(error));
+    }
   }
 
   async function openLatestBackup() {
-    const result = await window.maka.memory.openLatestBackup();
-    if (!result.ok) toast.error('打开上一版失败', result.message);
+    try {
+      const result = await window.maka.memory.openLatestBackup();
+      if (!result.ok) toast.error('打开上一版失败', result.message);
+    } catch (error) {
+      toast.error('打开上一版失败', settingsActionErrorMessage(error));
+    }
   }
 
   async function openBackupCandidate(backup: NonNullable<LocalMemoryState['latestBackup']>) {
-    const result = await window.maka.memory.openBackup(backup.kind);
-    if (!result.ok) {
-      toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, result.message);
+    try {
+      const result = await window.maka.memory.openBackup(backup.kind);
+      if (!result.ok) {
+        toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, result.message);
+      }
+    } catch (error) {
+      toast.error(`打开${localMemoryBackupKindLabel(backup.kind)}失败`, settingsActionErrorMessage(error));
     }
   }
 
   async function openFolder() {
-    const result = await window.maka.app.openPath('memory');
-    if (!result.ok) {
-      toast.error(`打开${openPathActionLabel('memory')}失败`, openPathFailureCopy(result.reason));
+    try {
+      const result = await window.maka.app.openPath('memory');
+      if (!result.ok) {
+        toast.error(`打开${openPathActionLabel('memory')}失败`, openPathFailureCopy(result.reason));
+      }
+    } catch (error) {
+      toast.error(`打开${openPathActionLabel('memory')}失败`, settingsActionErrorMessage(error));
     }
   }
 
   async function openWorkspaceInstructionFile(file: string) {
-    const result = await window.maka.workspaceInstructions.openFile(file);
-    if (!result.ok) {
-      toast.error('打开项目指令失败', result.message);
+    try {
+      const result = await window.maka.workspaceInstructions.openFile(file);
+      if (!result.ok) {
+        toast.error('打开项目指令失败', result.message);
+      }
+    } catch (error) {
+      toast.error('打开项目指令失败', settingsActionErrorMessage(error));
     }
   }
 
@@ -2601,6 +2641,8 @@ function MemorySettingsPage(props: {
       setWorkspaceInstructionState(instructions);
       toast.success('已创建项目指令', file);
       await openWorkspaceInstructionFile(file);
+    } catch (error) {
+      toast.error('创建项目指令失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2735,6 +2777,8 @@ function MemorySettingsPage(props: {
       } else {
         toast.success(status === 'archived' ? '已归档记忆' : '已恢复记忆', entry.title);
       }
+    } catch (error) {
+      toast.error(status === 'archived' ? '归档记忆失败' : '恢复记忆失败', settingsActionErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -3337,6 +3381,12 @@ function memoryStatusTone(status: LocalMemoryState['status']): 'success' | 'info
     case 'incognito_blocked': return 'warning';
     case 'error': return 'destructive';
   }
+}
+
+function settingsActionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  return '未知错误，请稍后重试。';
 }
 
 function NetworkSettingsPage(props: {
