@@ -1294,9 +1294,13 @@ function AppShell() {
   }
 
   async function openProjectFolder() {
-    const result = await window.maka.app.openPath('project');
-    if (!result.ok) {
-      toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathFailureCopy(result.reason));
+    try {
+      const result = await window.maka.app.openPath('project');
+      if (!result.ok) {
+        toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathFailureCopy(result.reason));
+      }
+    } catch (error) {
+      toastApi.error(`无法打开${openPathActionLabel('project')}`, cleanErrorMessage(error));
     }
   }
 
@@ -2426,9 +2430,13 @@ function AppShell() {
               }
             },
             onOpenWorkspace: async () => {
-              const result = await window.maka.app.openPath('workspace');
-              if (!result.ok) {
-                toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+              try {
+                const result = await window.maka.app.openPath('workspace');
+                if (!result.ok) {
+                  toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+                }
+              } catch (error) {
+                toastApi.error(`无法打开${openPathActionLabel('workspace')}`, cleanErrorMessage(error));
               }
             },
             onOpenProjectFolder: () => openProjectFolder(),

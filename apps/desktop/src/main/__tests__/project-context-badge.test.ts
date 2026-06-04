@@ -76,11 +76,15 @@ describe('project context badge', () => {
   it('adds a command palette action for the same guarded project open path', async () => {
     const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
     const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const openProjectBlock = renderer.match(/async function openProjectFolder\(\)[\s\S]*?function createSkillFailureCopy/)?.[0] ?? '';
+    const openWorkspaceBlock = renderer.match(/onOpenWorkspace: async \(\) => \{[\s\S]*?onOpenProjectFolder:/)?.[0] ?? '';
 
     assert.match(palette, /onOpenProjectFolder\?\(\): Promise<void> \| void/);
     assert.match(palette, /id:\s*'diag:open-project-folder'/);
     assert.match(palette, /label:\s*'打开项目目录'/);
     assert.match(renderer, /onOpenProjectFolder:\s*\(\) => openProjectFolder\(\)/);
+    assert.match(openProjectBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('project'\)\}`, cleanErrorMessage\(error\)\)/);
+    assert.match(openWorkspaceBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(palette, /openPath\('project'\)/);
   });
 });
