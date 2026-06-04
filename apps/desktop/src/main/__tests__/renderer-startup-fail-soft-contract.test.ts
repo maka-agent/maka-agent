@@ -22,4 +22,17 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(dataPage, /catch \(error\) \{[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, settingsActionErrorMessage\(error\)\)/);
     assert.match(botPage, /window\.maka\.settings\.bots\.listStatuses\(\)\.then\([\s\S]*?\.catch\(\(\) => \{[\s\S]*setStatuses\(null\)/);
   });
+
+  it('keeps Settings modal usable when root settings or usage stats loading fails', async () => {
+    const settings = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const modalBlock = settings.match(/export function SettingsModal\([\s\S]*?function SettingsPage/)?.[0] ?? '';
+    const reloadSettingsBlock = modalBlock.match(/async function reloadSettings\(\)[\s\S]*?async function updateSettings/)?.[0] ?? '';
+    const reloadUsageBlock = modalBlock.match(/async function reloadUsage[\s\S]*?useEffect\(\(\) => \{[\s\S]*?void reloadSettings/)?.[0] ?? '';
+
+    assert.match(reloadSettingsBlock, /try \{[\s\S]*window\.maka\.settings\.get\(\)/);
+    assert.match(reloadSettingsBlock, /catch \(error\) \{[\s\S]*toast\.error\('载入设置失败', settingsActionErrorMessage\(error\)\)/);
+    assert.match(reloadSettingsBlock, /finally \{[\s\S]*setLoading\(false\)/);
+    assert.match(reloadUsageBlock, /try \{[\s\S]*window\.maka\.settings\.usageStats\(range\)/);
+    assert.match(reloadUsageBlock, /catch \(error\) \{[\s\S]*setUsageStats\(null\)[\s\S]*toast\.error\('载入使用统计失败', settingsActionErrorMessage\(error\)\)/);
+  });
 });

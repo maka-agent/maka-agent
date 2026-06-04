@@ -749,11 +749,17 @@ function SettingsSurface(props: {
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
 
   async function reloadSettings() {
-    const next = await window.maka.settings.get();
-    setSettings(next);
-    setLoading(false);
+    try {
+      const next = await window.maka.settings.get();
+      setSettings(next);
+    } catch (error) {
+      toast.error('载入设置失败', settingsActionErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function updateSettings(patch: Parameters<typeof window.maka.settings.update>[0]) {
@@ -767,7 +773,12 @@ function SettingsSurface(props: {
   }
 
   async function reloadUsage(range: UsageRange = settings.usage.range) {
-    setUsageStats(await window.maka.settings.usageStats(range));
+    try {
+      setUsageStats(await window.maka.settings.usageStats(range));
+    } catch (error) {
+      setUsageStats(null);
+      toast.error('载入使用统计失败', settingsActionErrorMessage(error));
+    }
   }
 
   useEffect(() => {
