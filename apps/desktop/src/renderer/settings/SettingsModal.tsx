@@ -3425,7 +3425,11 @@ function NetworkSettingsPage(props: {
   const toast = useToast();
 
   async function updateProxy(patch: Partial<NetworkProxySettings>) {
-    await props.onUpdate({ network: { proxy: patch } });
+    try {
+      await props.onUpdate({ network: { proxy: patch } });
+    } catch (error) {
+      toast.error('保存网络设置失败', settingsActionErrorMessage(error));
+    }
   }
 
   async function testProxy() {
@@ -3456,7 +3460,7 @@ function NetworkSettingsPage(props: {
         <Switch
           ariaLabel="启用代理服务器"
           checked={proxy.enabled}
-          onChange={(enabled) => updateProxy({ enabled })}
+          onChange={(enabled) => void updateProxy({ enabled })}
         />
       </div>
 
@@ -3465,7 +3469,7 @@ function NetworkSettingsPage(props: {
           <div className="settingsFormGrid settingsFormGridProxy">
             <label>
               <span>代理协议</span>
-              <select value={proxy.protocol} onChange={(event) => updateProxy({ protocol: event.currentTarget.value as NetworkProxySettings['protocol'] })}>
+              <select value={proxy.protocol} onChange={(event) => void updateProxy({ protocol: event.currentTarget.value as NetworkProxySettings['protocol'] })}>
                 <option value="http">HTTP/HTTPS</option>
                 <option value="https">HTTPS</option>
                 <option value="socks5">SOCKS5</option>
@@ -3473,11 +3477,11 @@ function NetworkSettingsPage(props: {
             </label>
             <label>
               <span>服务器地址</span>
-              <input value={proxy.host} onChange={(event) => updateProxy({ host: event.currentTarget.value })} placeholder="127.0.0.1" />
+              <input value={proxy.host} onChange={(event) => void updateProxy({ host: event.currentTarget.value })} placeholder="127.0.0.1" />
             </label>
             <label>
               <span>端口</span>
-              <input value={String(proxy.port || '')} onChange={(event) => updateProxy({ port: Number(event.currentTarget.value) || 0 })} placeholder="7890" />
+              <input value={String(proxy.port || '')} onChange={(event) => void updateProxy({ port: Number(event.currentTarget.value) || 0 })} placeholder="7890" />
             </label>
           </div>
 
@@ -3489,7 +3493,7 @@ function NetworkSettingsPage(props: {
             <Switch
               ariaLabel="启用代理认证"
               checked={proxy.authEnabled}
-              onChange={(authEnabled) => updateProxy({ authEnabled })}
+              onChange={(authEnabled) => void updateProxy({ authEnabled })}
             />
           </div>
 
@@ -3497,11 +3501,11 @@ function NetworkSettingsPage(props: {
             <div className="settingsFormGrid">
               <label>
                 <span>用户名</span>
-                <input value={proxy.username} onChange={(event) => updateProxy({ username: event.currentTarget.value })} />
+                <input value={proxy.username} onChange={(event) => void updateProxy({ username: event.currentTarget.value })} />
               </label>
               <label>
                 <span>密码</span>
-                <PasswordInput value={proxy.password} onChange={(next) => updateProxy({ password: next })} ariaLabel="代理密码" />
+                <PasswordInput value={proxy.password} onChange={(next) => void updateProxy({ password: next })} ariaLabel="代理密码" />
               </label>
             </div>
           )}
@@ -3510,7 +3514,7 @@ function NetworkSettingsPage(props: {
             <span>代理白名单</span>
             <input
               value={proxy.bypassList.join(', ')}
-              onChange={(event) => updateProxy({ bypassList: csvList(event.currentTarget.value) })}
+              onChange={(event) => void updateProxy({ bypassList: csvList(event.currentTarget.value) })}
               placeholder="metaso.cn, baidu.com"
             />
             <small>这些域名将绕过代理直连，多个用逗号分隔。</small>
@@ -3563,24 +3567,30 @@ function OpenGatewaySettingsPage(props: {
     setTokenDraft(gateway.token);
   }, [gateway.token]);
 
-  async function updateGateway(patch: Partial<AppSettings['openGateway']>) {
+  async function updateGateway(patch: Partial<AppSettings['openGateway']>): Promise<boolean> {
     setSaving(true);
     try {
       await props.onUpdate({ openGateway: patch });
+      return true;
+    } catch (error) {
+      toast.error('保存开放网关设置失败', settingsActionErrorMessage(error));
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
   async function saveToken(nextToken = tokenDraft.trim()) {
-    await updateGateway({ token: nextToken });
+    const saved = await updateGateway({ token: nextToken });
+    if (!saved) return;
     toast.success(nextToken ? '网关 token 已保存' : '网关 token 已清空');
   }
 
   async function generateToken() {
     const token = generateGatewayToken();
     setTokenDraft(token);
-    await updateGateway({ token });
+    const saved = await updateGateway({ token });
+    if (!saved) return;
     toast.success('网关 token 已生成', '本机 API 需要 Authorization Bearer token。');
   }
 
@@ -3660,7 +3670,7 @@ function OpenGatewaySettingsPage(props: {
           ariaLabel="开放本机 API 网关"
           checked={gateway.enabled}
           disabled={saving}
-          onChange={(enabled) => updateGateway({ enabled })}
+          onChange={(enabled) => void updateGateway({ enabled })}
         />
       </div>
 
@@ -3670,7 +3680,7 @@ function OpenGatewaySettingsPage(props: {
           <select
             value={gateway.host}
             disabled={saving}
-            onChange={(event) => updateGateway({ host: event.currentTarget.value as AppSettings['openGateway']['host'] })}
+            onChange={(event) => void updateGateway({ host: event.currentTarget.value as AppSettings['openGateway']['host'] })}
           >
             <option value="127.0.0.1">127.0.0.1</option>
             <option value="0.0.0.0">0.0.0.0</option>
@@ -3682,7 +3692,7 @@ function OpenGatewaySettingsPage(props: {
             value={String(gateway.port)}
             disabled={saving}
             inputMode="numeric"
-            onChange={(event) => updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
+            onChange={(event) => void updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
           />
         </label>
         <label>
