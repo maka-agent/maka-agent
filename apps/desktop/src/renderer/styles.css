@@ -10680,6 +10680,16 @@ button:active {
   font-variant-numeric: tabular-nums;
 }
 
+.maka-first-run-checklist-error {
+  border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: 8px;
+  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
+  color: var(--warning-text, var(--info-text));
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
 .maka-first-run-checklist-list {
   list-style: none;
   margin: 0;

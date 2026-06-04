@@ -92,11 +92,20 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
 
   it('fails soft when first-run checklist status probes reject', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
+    const styles = await readFile(join(process.cwd(), 'src/renderer/styles.css'), 'utf8');
     const effectBlock = source.match(/useEffect\(\(\) => \{[\s\S]*?return \(\) => \{[\s\S]*?cancelled = true;[\s\S]*?\};[\s\S]*?\}, \[\]\);/)?.[0] ?? '';
 
-    assert.match(effectBlock, /window\.maka\.settings\.get\(\)\.then\([\s\S]*?\.catch\(\(\) => \{[\s\S]*setSettings\(null\)/);
-    assert.match(effectBlock, /window\.maka\.plans\.list\(\)\.then\([\s\S]*?\.catch\(\(\) => \{[\s\S]*setPlanReminders\(\[\]\)/);
-    assert.match(effectBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(\) => \{[\s\S]*setWorkspaceInstructionCount\(0\)/);
+    assert.match(effectBlock, /window\.maka\.settings\.get\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setSettingsLoadFailed\(true\);[\s\S]*surfaceProbeFailure\(error\)/);
+    assert.match(effectBlock, /window\.maka\.plans\.list\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setPlanReminders\(null\);[\s\S]*surfaceProbeFailure\(error\)/);
+    assert.match(effectBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setWorkspaceInstructionCount\(null\);[\s\S]*surfaceProbeFailure\(error\)/);
+    assert.doesNotMatch(effectBlock, /catch[\s\S]*setSettings\(null\)|catch[\s\S]*setPlanReminders\(\[\]\)|catch[\s\S]*setWorkspaceInstructionCount\(0\)/);
+    assert.match(source, /planReminders,\s*setPlanReminders\] = useState<ReadonlyArray<PlanReminder> \| null>\(null\)/);
+    assert.match(source, /workspaceInstructionCount,\s*setWorkspaceInstructionCount\] = useState<number \| null>\(null\)/);
+    assert.match(source, /trackCompletion:\s*planStatusKnown/);
+    assert.match(source, /trackCompletion:\s*workspaceInstructionStatusKnown/);
+    assert.match(source, /部分状态暂时没刷新成功，已避免把未知状态计成未完成/);
+    assert.match(source, /role="alert"/);
+    assert.match(styles, /\.maka-first-run-checklist-error\s*\{/);
   });
 
   it('starts the shipped plan reminder form from the first-run checklist', async () => {

@@ -22,9 +22,10 @@
  * - Pure UI. No new IPC, no settings writes.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, Search, Sparkles, User } from 'lucide-react';
 import type { AppSettings, PlanReminder, SettingsSection } from '@maka/core';
+import { useToast } from '@maka/ui';
 
 interface ChecklistItem {
   id: string;
@@ -49,25 +50,50 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   // whenever the panel remounts (which happens whenever sessions
   // drops back to 0).
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [planReminders, setPlanReminders] = useState<ReadonlyArray<PlanReminder>>([]);
-  const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState(0);
+  const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
+  const [planReminders, setPlanReminders] = useState<ReadonlyArray<PlanReminder> | null>(null);
+  const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState<number | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const failureToastShownRef = useRef(false);
+  const toast = useToast();
+
+  function surfaceProbeFailure(error: unknown) {
+    const message = firstRunChecklistErrorMessage(error);
+    setStatusError(message);
+    if (!failureToastShownRef.current) {
+      failureToastShownRef.current = true;
+      toast.error('刷新首次使用清单失败', message);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
     void window.maka.settings.get().then((next) => {
-      if (!cancelled) setSettings(next);
-    }).catch(() => {
-      if (!cancelled) setSettings(null);
+      if (!cancelled) {
+        setSettings(next);
+        setSettingsLoadFailed(false);
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        setSettingsLoadFailed(true);
+        surfaceProbeFailure(error);
+      }
     });
     void window.maka.plans.list().then((list) => {
       if (!cancelled) setPlanReminders(list);
-    }).catch(() => {
-      if (!cancelled) setPlanReminders([]);
+    }).catch((error) => {
+      if (!cancelled) {
+        setPlanReminders(null);
+        surfaceProbeFailure(error);
+      }
     });
     void window.maka.workspaceInstructions.getState().then((state) => {
       if (!cancelled) setWorkspaceInstructionCount(state.detectedCount);
-    }).catch(() => {
-      if (!cancelled) setWorkspaceInstructionCount(0);
+    }).catch((error) => {
+      if (!cancelled) {
+        setWorkspaceInstructionCount(null);
+        surfaceProbeFailure(error);
+      }
     });
     return () => {
       cancelled = true;
@@ -80,7 +106,9 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
     const webSearch = settings.webSearch;
     const tavilyConfigured =
       webSearch.enabled && webSearch.providers.tavily.apiKey.length > 0;
-    const hasPlanReminder = planReminders.length > 0;
+    const planStatusKnown = planReminders !== null;
+    const workspaceInstructionStatusKnown = workspaceInstructionCount !== null;
+    const hasPlanReminder = planStatusKnown && planReminders.length > 0;
     return [
       {
         id: 'personalization',
@@ -102,8 +130,11 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         id: 'plan-reminder',
         Icon: Clock,
         title: '建一条本地计划提醒',
-        reason: '能本地保存一条到点提醒，全程留在本机，不需要外部服务。',
+        reason: planStatusKnown
+          ? '能本地保存一条到点提醒，全程留在本机，不需要外部服务。'
+          : '计划提醒状态暂时没刷新成功，打开计划页可查看。',
         done: hasPlanReminder,
+        trackCompletion: planStatusKnown,
         onClick: () => props.onStartPlanReminder?.() ?? props.onOpenSidebarModule('automations'),
       },
       {
@@ -121,8 +152,11 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         id: 'workspace-instructions',
         Icon: FileText,
         title: '创建项目指令文件',
-        reason: '把这个工作区的约定写进 AGENTS.md / CLAUDE.md / GEMINI.md，之后可随时关闭。',
-        done: workspaceInstructionCount > 0,
+        reason: workspaceInstructionStatusKnown
+          ? '把这个工作区的约定写进 AGENTS.md / CLAUDE.md / GEMINI.md，之后可随时关闭。'
+          : '项目指令状态暂时没刷新成功，打开记忆设置可查看。',
+        done: workspaceInstructionStatusKnown && workspaceInstructionCount > 0,
+        trackCompletion: workspaceInstructionStatusKnown,
         onClick: () => props.onOpenSettingsSection('memory'),
       },
       {
@@ -158,6 +192,16 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
     ];
   }, [settings, planReminders, workspaceInstructionCount, props]);
 
+  if (!settings && settingsLoadFailed) {
+    return (
+      <aside className="maka-first-run-checklist" role="alert" aria-label="接下来可以探索暂时不可用">
+        <div className="maka-first-run-checklist-error">
+          首次使用清单暂时没刷新成功。{statusError ?? '请稍后重试。'}
+        </div>
+      </aside>
+    );
+  }
+
   if (!settings || items.length === 0) return null;
 
   const completableItems = items.filter((item) => item.trackCompletion !== false);
@@ -173,6 +217,11 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         <strong>接下来可以探索</strong>
         <span className="maka-first-run-checklist-count">{remaining} / {completableItems.length} 待完成</span>
       </header>
+      {statusError && (
+        <div className="maka-first-run-checklist-error" role="alert">
+          部分状态暂时没刷新成功，已避免把未知状态计成未完成。{statusError}
+        </div>
+      )}
       <ul className="maka-first-run-checklist-list">
         {items.map((item) => (
           <li
@@ -205,4 +254,13 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
       </ul>
     </aside>
   );
+}
+
+function firstRunChecklistErrorMessage(error: unknown): string {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'string'
+      ? error
+      : '';
+  return message.trim() || '状态服务暂时不可用，请稍后重试。';
 }
