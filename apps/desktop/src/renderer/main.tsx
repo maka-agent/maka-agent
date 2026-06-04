@@ -85,6 +85,7 @@ import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import {
   createSessionEventStreamSubscription,
   evaluateSessionEventStreamSnapshot,
+  hasInFlightToolActivity,
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from './session-event-health';
@@ -321,6 +322,7 @@ function AppShell() {
     [sessions],
   );
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
+  const hasInFlightLiveTools = useMemo(() => hasInFlightToolActivity(liveTools), [liveTools]);
   const activeSessionEventHealth = activeId ? sessionEventHealthBySession[activeId] : undefined;
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
   // Memoized so the panel's `useEffect` cleanup keys
@@ -920,7 +922,7 @@ function AppShell() {
 
   useEffect(() => {
     if (!activeId) return;
-    const hasLiveActivity = activeStreaming.length > 0 || liveTools.length > 0 || Boolean(activePermission);
+    const hasLiveActivity = activeStreaming.length > 0 || hasInFlightLiveTools || Boolean(activePermission);
     const evaluate = () => {
       const result = evaluateSessionEventStreamSnapshot({
         previous: sessionEventHealthBySessionRef.current[activeId],
@@ -948,7 +950,7 @@ function AppShell() {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [activeId, activeSession?.status, activeStreaming.length, liveTools.length, activePermission?.requestId]);
+  }, [activeId, activeSession?.status, activeStreaming.length, hasInFlightLiveTools, activePermission?.requestId]);
 
   useEffect(() => {
     try {

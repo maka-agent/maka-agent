@@ -1,4 +1,5 @@
 import type { SessionEventStreamSnapshot, SessionStatus } from '@maka/core';
+import type { ToolActivityItem } from '@maka/ui';
 import {
   deriveSessionEventStreamStatus,
   sessionExpectsEventStream,
@@ -77,4 +78,14 @@ export function evaluateSessionEventStreamSnapshot(input: {
     },
     shouldRefresh: refreshDue,
   };
+}
+
+export function hasInFlightToolActivity(
+  liveTools: readonly Pick<ToolActivityItem, 'status'>[],
+): boolean {
+  return liveTools.some((tool) =>
+    tool.status === 'pending'
+    || tool.status === 'running'
+    || tool.status === 'waiting_permission',
+  );
 }

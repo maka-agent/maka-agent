@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   createSessionEventStreamSubscription,
   evaluateSessionEventStreamSnapshot,
+  hasInFlightToolActivity,
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from '../../renderer/session-event-health.js';
@@ -74,5 +75,39 @@ describe('renderer session event health projection', () => {
     });
     assert.equal(result.snapshot?.status, 'closed');
     assert.equal(result.shouldRefresh, false);
+  });
+
+  it('does not treat terminal live tools as ongoing event-stream activity', () => {
+    assert.equal(
+      hasInFlightToolActivity([
+        { status: 'completed' },
+        { status: 'errored' },
+        { status: 'interrupted' },
+      ]),
+      false,
+    );
+    assert.equal(hasInFlightToolActivity([{ status: 'pending' }]), true);
+    assert.equal(hasInFlightToolActivity([{ status: 'running' }]), true);
+    assert.equal(hasInFlightToolActivity([{ status: 'waiting_permission' }]), true);
+  });
+
+  it('wires the active health effect to in-flight tool status, not live tool count', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { resolve } = await import('node:path');
+    const repoRoot = resolve(import.meta.dirname, '../../../../..');
+    const main = await readFile(resolve(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+
+    assert.match(main, /const hasInFlightLiveTools = useMemo\(\(\) => hasInFlightToolActivity\(liveTools\), \[liveTools\]\);/);
+    assert.match(main, /activeStreaming\.length > 0 \|\| hasInFlightLiveTools \|\| Boolean\(activePermission\)/);
+    assert.match(
+      main,
+      /\}, \[activeId, activeSession\?\.status, activeStreaming\.length, hasInFlightLiveTools, activePermission\?\.requestId\]\);/,
+      'session event health effect must rerun when tool status changes terminal without changing liveTools.length',
+    );
+    assert.doesNotMatch(
+      main,
+      /activeStreaming\.length > 0 \|\| liveTools\.length > 0 \|\| Boolean\(activePermission\)/,
+      'terminal completed/errored live tools must not keep the event stream health checker alive',
+    );
   });
 });
