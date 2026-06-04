@@ -45,4 +45,18 @@ describe('ArtifactPane async lifecycle contract', () => {
       'session-change cleanup must invalidate in-flight artifact list responses before unsubscribing',
     );
   });
+
+  it('surfaces thrown artifact action failures instead of leaving toolbar clicks silent', async () => {
+    const src = await readFile(ARTIFACT_PANE_SOURCE, 'utf8');
+    const openBlock = src.match(/async function openInFinder[\s\S]*?async function copyText/)?.[0] ?? '';
+    const copyBlock = src.match(/async function copyText[\s\S]*?async function saveAs/)?.[0] ?? '';
+    const saveBlock = src.match(/async function saveAs[\s\S]*?async function deleteArtifact/)?.[0] ?? '';
+    const deleteBlock = src.match(/async function deleteArtifact[\s\S]*?\n  \}\n\n  \/\/ ---- render/)?.[0] ?? '';
+
+    assert.match(src, /function artifactActionErrorMessage\(error: unknown\)/);
+    assert.match(openBlock, /catch \(error\) \{[\s\S]*toast\.error\('无法在 Finder 中打开生成文件', artifactActionErrorMessage\(error\)\)/);
+    assert.match(copyBlock, /catch \(error\) \{[\s\S]*toast\.error\('复制失败', artifactActionErrorMessage\(error\)\)/);
+    assert.match(saveBlock, /catch \(error\) \{[\s\S]*toast\.error\('另存失败', artifactActionErrorMessage\(error\)\)/);
+    assert.match(deleteBlock, /catch \(error\) \{[\s\S]*toast\.error\(`删除 \$\{name\} 失败`, artifactActionErrorMessage\(error\)\)/);
+  });
 });

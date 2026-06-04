@@ -136,9 +136,13 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   // ---- actions -----------------------------------------------------------
 
   async function openInFinder(artifactId: string) {
-    const result = await window.maka.app.openArtifactPath(artifactId);
-    if (!result.ok) {
-      toast.error('无法在 Finder 中打开生成文件', openPathFailureCopy(result.reason));
+    try {
+      const result = await window.maka.app.openArtifactPath(artifactId);
+      if (!result.ok) {
+        toast.error('无法在 Finder 中打开生成文件', openPathFailureCopy(result.reason));
+      }
+    } catch (error) {
+      toast.error('无法在 Finder 中打开生成文件', artifactActionErrorMessage(error));
     }
   }
 
@@ -148,28 +152,32 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
     // call doesn't leak base64 into the clipboard.
     const record = records.find((entry) => entry.id === artifactId);
     if (!record || !isTextKind(record.kind)) return;
-    const result = await window.maka.artifacts.readText(artifactId);
-    if (!result.ok) {
-      toast.error('复制失败', '无法读取生成文件文本内容。');
-      return;
-    }
     try {
+      const result = await window.maka.artifacts.readText(artifactId);
+      if (!result.ok) {
+        toast.error('复制失败', '无法读取生成文件文本内容。');
+        return;
+      }
       await navigator.clipboard.writeText(result.text);
       toast.success('已复制生成文件文本', `${record.name} · ${formatBytes(record.sizeBytes)}`);
-    } catch {
-      toast.error('复制失败', '剪贴板不可用。');
+    } catch (error) {
+      toast.error('复制失败', artifactActionErrorMessage(error));
     }
   }
 
   async function saveAs(artifactId: string) {
-    const result = await window.maka.app.saveArtifactAs(artifactId);
-    if (result.ok) {
-      const record = records.find((entry) => entry.id === artifactId);
-      toast.success('已另存生成文件', record?.name ?? result.saved);
-      return;
+    try {
+      const result = await window.maka.app.saveArtifactAs(artifactId);
+      if (result.ok) {
+        const record = records.find((entry) => entry.id === artifactId);
+        toast.success('已另存生成文件', record?.name ?? result.saved);
+        return;
+      }
+      if (result.reason === 'canceled') return;
+      toast.error('另存失败', saveArtifactFailureCopy(result.reason));
+    } catch (error) {
+      toast.error('另存失败', artifactActionErrorMessage(error));
     }
-    if (result.reason === 'canceled') return;
-    toast.error('另存失败', saveArtifactFailureCopy(result.reason));
   }
 
   async function deleteArtifact(artifactId: string) {
@@ -183,9 +191,13 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
       destructive: true,
     });
     if (!ok) return;
-    await window.maka.artifacts.delete(artifactId);
-    await refresh();
-    toast.success(`已删除 ${name}`);
+    try {
+      await window.maka.artifacts.delete(artifactId);
+      await refresh();
+      toast.success(`已删除 ${name}`);
+    } catch (error) {
+      toast.error(`删除 ${name} 失败`, artifactActionErrorMessage(error));
+    }
   }
 
   // ---- render ------------------------------------------------------------
@@ -412,6 +424,12 @@ function saveArtifactFailureCopy(reason: string): string {
     default:
       return '无法保存生成文件。';
   }
+}
+
+function artifactActionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  return '未知错误，请稍后重试。';
 }
 
 function KindIcon(props: { kind: ArtifactKind }) {
