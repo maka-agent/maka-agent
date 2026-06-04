@@ -318,4 +318,44 @@ describe('permission response IPC boundary', () => {
       'quick chat pending ref must be cleared with the visible pending state',
     );
   });
+
+  it('keeps normal Composer first-send visible in the newly created session', async () => {
+    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
+    const renderer = await readFile(rendererPath, 'utf8');
+    const sendBlock = renderer.match(
+      /async function send\(text: string\): Promise<boolean> \{[\s\S]*?async function importTextFilePrompt/,
+    )?.[0] ?? '';
+    const newSessionBranch = sendBlock.match(/if \(!activeId\) \{[\s\S]*?return true;/)?.[0] ?? '';
+    const existingSessionBranch = sendBlock.match(/const sessionId = activeId;[\s\S]*?return true;/)?.[0] ?? '';
+    const refreshUntilTurn = renderer.match(
+      /async function refreshMessagesUntilTurn\(sessionId: string, turnId: string\): Promise<void> \{[\s\S]*?\n  \}/,
+    )?.[0] ?? '';
+
+    assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
+    assert.match(
+      newSessionBranch,
+      /setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*upsertSessionSummary\(session\)[\s\S]*setMessages\(\[\]\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text \}\)[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*refreshSessions\(\)/,
+      'normal Composer first-send must switch the current view to the created session and wait for the first user turn to render',
+    );
+    assert.doesNotMatch(
+      newSessionBranch,
+      /await refreshSessions\(\)[\s\S]*window\.maka\.sessions\.send\(session\.id/,
+      'refreshing the sidebar before sending leaves the current chat surface dependent on a later event-stream race',
+    );
+    assert.match(
+      existingSessionBranch,
+      /window\.maka\.sessions\.send\(sessionId, \{ type: 'send', turnId, text \}\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
+      'existing sessions should also wait for the persisted user turn instead of relying only on stream events',
+    );
+    assert.match(
+      refreshUntilTurn,
+      /readMessages\(sessionId\)[\s\S]*setMessages\(next\)[\s\S]*message\.type === 'user' && message\.turnId === turnId/,
+      'the visible-message wait must be tied to the exact turnId sent by the Composer',
+    );
+    assert.match(
+      refreshUntilTurn,
+      /USER_MESSAGE_VISIBLE_TIMEOUT_MS[\s\S]*USER_MESSAGE_VISIBLE_POLL_MS[\s\S]*refreshMessages\(sessionId\)/,
+      'the wait must be bounded and fall back to the normal refresh path',
+    );
+  });
 });
