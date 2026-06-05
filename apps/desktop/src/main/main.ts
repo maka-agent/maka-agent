@@ -859,6 +859,17 @@ function buildClaudeSubscriptionCloakedFetch(sessionId: string, modelId: string)
       headers.set(key, value);
     }
     headers.set('content-type', 'application/json');
+    // Match alma's Claude OAuth send (readable/main.js:16521): the
+    // outbound request is OAuth-only (`Authorization: Bearer <token>`
+    // added by AI SDK from `authToken`). AI SDK's Anthropic provider
+    // also adds an empty / placeholder `x-api-key` header because we
+    // never set `apiKey`. Anthropic's OAuth subscription endpoint
+    // rejects requests that present BOTH `Authorization: Bearer` and
+    // a non-OAuth-compatible `x-api-key` — the user-visible symptom is
+    // a 401 / 403 rendered as `鉴权失败`. Strip `x-api-key` so only
+    // the Bearer token is presented, exactly as the alma reference
+    // does.
+    headers.delete('x-api-key');
 
     return fetch(url, {
       ...init,

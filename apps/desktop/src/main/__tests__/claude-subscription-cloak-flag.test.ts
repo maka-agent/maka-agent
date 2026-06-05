@@ -85,6 +85,15 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     assert.match(src, /modelFactory:\s*\(input\)\s*=>\s*getAIModel\(\{\s*\.\.\.input,\s*fetch:\s*modelFetch\s*\}\)/);
     assert.match(src, /import\('\.\/oauth\/cloaked-request\.js'\)/, 'cloak module must be dynamically imported from the send path');
     assert.match(src, /buildCloakedRequest\(\{[\s\S]*deviceId[\s\S]*accountUuid[\s\S]*sessionId/, 'cloak wrapper must stamp Claude Code identity metadata');
+    // PR-CLAUDE-OAUTH-XAPIKEY-STRIP-0: alma (`readable/main.js:16521`)
+    // explicitly deletes the x-api-key header from the outbound
+    // Claude OAuth send so that only `Authorization: Bearer <token>`
+    // is presented. AI SDK's Anthropic provider adds an empty
+    // x-api-key when `apiKey` isn't set; Anthropic's OAuth endpoint
+    // rejects requests that present both an empty x-api-key AND a
+    // Bearer header (user-visible as `鉴权失败` / 401-403). Match the
+    // alma reference exactly.
+    assert.match(src, /headers\.delete\(['"]x-api-key['"]\)/, 'cloak fetch must strip x-api-key to match alma OAuth send (readable/main.js:16521)');
   });
 
   it('main maps Codex OAuth system prompt into ChatGPT backend instructions', async () => {
