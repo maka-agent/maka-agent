@@ -2364,7 +2364,7 @@ function WebSearchSettingsPage(props: {
         toast.error('Tavily 测试失败', result.message);
       }
     } catch (err) {
-      toast.error('Tavily 测试出错', err instanceof Error ? err.message : String(err));
+      toast.error('Tavily 测试出错', settingsActionErrorMessage(err));
     } finally {
       setTesting(false);
     }
@@ -2395,7 +2395,7 @@ function WebSearchSettingsPage(props: {
         }
       }
     } catch (err) {
-      setLiveQueryError(err instanceof Error ? err.message : String(err));
+      setLiveQueryError(settingsActionErrorMessage(err));
     } finally {
       setLiveQueryRunning(false);
     }

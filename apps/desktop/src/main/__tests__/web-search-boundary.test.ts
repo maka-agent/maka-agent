@@ -156,6 +156,28 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
   });
 
+  it('Settings web-search thrown errors pass through the shared Settings scrubber', async () => {
+    const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);
+
+    assert.ok(page, 'Web search settings page block must exist');
+    assert.match(
+      page![0],
+      /catch \(err\) \{[\s\S]*toast\.error\('Tavily 测试出错', settingsActionErrorMessage\(err\)\)/,
+      'Tavily credential-test thrown errors must not echo raw IPC/provider messages',
+    );
+    assert.match(
+      page![0],
+      /catch \(err\) \{[\s\S]*setLiveQueryError\(settingsActionErrorMessage\(err\)\)/,
+      'Tavily live-query thrown errors must render scrubbed Settings copy',
+    );
+    assert.doesNotMatch(
+      page![0],
+      /Tavily 测试出错', err instanceof Error \? err\.message : String\(err\)|setLiveQueryError\(err instanceof Error \? err\.message : String\(err\)\)/,
+      'Web search Settings must not surface raw thrown error messages',
+    );
+  });
+
   it('Settings live query button explains the actionable disabled reason', async () => {
     const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
     const helper = settings.match(/function webSearchQueryDisabledReason[\s\S]*?function presentWebSearchCredentialStatus/);
