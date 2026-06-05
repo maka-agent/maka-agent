@@ -139,6 +139,37 @@ describe('Account auth UI contract mapping', () => {
 });
 
 describe('Account settings credential probe UI', () => {
+  it('sanitizes account-page connection test failures before toast', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = source.match(/function AccountSettingsPage[\s\S]*?function AccountConnectionRow/)?.[0] ?? '';
+    const helper = source.match(/function accountConnectionTestFailureMessage\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const fallback = source.match(/function accountConnectionTestFailureFallback\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(
+      helper,
+      /generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
+      'Account page connection-test failures must classify/redact raw provider messages before toast',
+    );
+    assert.match(fallback, /statusCode === 429[\s\S]*触发速率限制/);
+    assert.match(fallback, /errorClass === 'auth'[\s\S]*鉴权失败/);
+    assert.match(fallback, /errorClass === 'network'[\s\S]*网络错误/);
+    assert.match(
+      page,
+      /toast\.error\('连接测试失败', accountConnectionTestFailureMessage\(result\)\)/,
+      'Account page test failure toast must not use result.errorMessage directly',
+    );
+    assert.match(
+      page,
+      /toast\.error\('测试出错', settingsActionErrorMessage\(error\)\)/,
+      'Account page thrown test failures must use the shared Settings sanitized error helper',
+    );
+    assert.doesNotMatch(
+      page,
+      /toast\.error\('连接测试失败', result\.errorMessage \?\? '未知错误'\)|error instanceof Error \? error\.message : String\(error\)/,
+      'Account page connection test must not echo raw result.errorMessage or raw Error.message',
+    );
+  });
+
   it('does not display credential-probe failures as missing credentials', async () => {
     // task #38 sweep: Settings -> 账号 used to map a thrown
     // `connections.hasSecret(slug)` to `false`, which rendered an

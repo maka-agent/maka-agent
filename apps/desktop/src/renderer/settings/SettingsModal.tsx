@@ -30,6 +30,7 @@ import type {
   CapabilityReadinessState,
   CapabilitySnapshot,
   CapabilitySnapshotCollection,
+  ConnectionTestResult,
   HealthSignal,
   HealthSignalLayer,
   HealthSignalSource,
@@ -1481,6 +1482,25 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string
   { value: 'auto', label: '跟随系统', help: '匹配 macOS 的当前 Light/Dark 偏好。' },
 ];
 
+function accountConnectionTestFailureMessage(result: ConnectionTestResult): string {
+  const fallback = accountConnectionTestFailureFallback(result);
+  if (!result.errorMessage) return fallback;
+  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
+}
+
+function accountConnectionTestFailureFallback(result: ConnectionTestResult): string {
+  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
+  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
+  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
+    return '鉴权失败，请检查 API key、OAuth 登录或凭据配置后重试。';
+  }
+  if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
+    return '模型服务暂时不可用，请稍后重试。';
+  }
+  if (result.errorClass === 'network') return '网络错误，请检查 Base URL 或代理设置后重试。';
+  return '连接测试失败，请检查模型连接配置后重试。';
+}
+
 function AccountSettingsPage(props: {
   connections: LlmConnection[];
   defaultSlug: string | null;
@@ -1531,12 +1551,12 @@ function AccountSettingsPage(props: {
       if (result.ok) {
         toast.success('连接已验证', `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`);
       } else {
-        toast.error('连接测试失败', result.errorMessage ?? '未知错误');
+        toast.error('连接测试失败', accountConnectionTestFailureMessage(result));
       }
     } catch (error) {
       // Main is supposed to return a structured result; if something escapes
       // to throw form, surface the generalized message anyway.
-      toast.error('测试出错', error instanceof Error ? error.message : String(error));
+      toast.error('测试出错', settingsActionErrorMessage(error));
     } finally {
       setTestingSlug(null);
       // Pull the freshest lastTestStatus/lastTestAt/lastTestMessage so the
