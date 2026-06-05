@@ -31,4 +31,22 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(src, /label: '新建对话',[^\n]*\n\s*hint: '开始新的会话',/);
     assert.doesNotMatch(src, /hint: 'New chat'/, 'visible command palette hints must not leak English fallback copy');
   });
+
+  it('scrubs thrown command action failures before toast', async () => {
+    const main = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const commandPaletteBlock = main.match(/commands=\{buildCommandList\(\{[\s\S]*?\n\s*\}\)\}/)?.[0] ?? '';
+    const helperBlock = main.match(/function commandPaletteActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(helperBlock, /generalizedErrorMessageChinese\(error, fallback\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '导出当前对话失败，请稍后重试。'\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '无法打开 MEMORY\.md，请稍后重试。'\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '无法打开项目指引，请稍后重试。'\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '剪贴板不可用或被系统拒绝'\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '网络代理测试暂时不可用，请稍后重试。'\)/);
+    assert.doesNotMatch(
+      commandPaletteBlock,
+      /err instanceof Error \? err\.message : (?:'导出当前对话失败'|'路径无效'|'剪贴板不可用'|'网络代理测试异常')/,
+      'Command palette actions must not toast raw thrown Error.message',
+    );
+  });
 });
