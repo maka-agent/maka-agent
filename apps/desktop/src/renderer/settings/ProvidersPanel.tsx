@@ -2083,6 +2083,11 @@ function ClaudeSubscriptionCard() {
 
   // Closed-state render mapping per the runtime state enum.
   const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'muted', detail: '' };
+  const canStartClaudeLogin =
+    state?.runtimeState === 'not_logged_in' ||
+    state?.runtimeState === 'refresh_failed' ||
+    state?.runtimeState === 'storage_failed';
+  const claudeLoginPending = authRequestId !== null || state?.runtimeState === 'authorizing';
 
   return (
     <>
@@ -2128,15 +2133,19 @@ function ClaudeSubscriptionCard() {
       )}
 
       <div className="settingsConnectionActions">
-        {state?.runtimeState === 'not_logged_in' || state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed' ? (
+        {canStartClaudeLogin || claudeLoginPending ? (
           <button
             type="button"
             className="maka-button"
             data-variant="primary"
             onClick={() => void startLogin()}
-            disabled={pendingAction || authRequestId !== null}
+            disabled={pendingAction || claudeLoginPending}
           >
-            {state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' ? '重新登录' : '登录订阅'}
+            {claudeLoginPending
+              ? '登录中…'
+              : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
+                ? '重新登录'
+                : '登录订阅'}
           </button>
         ) : (
           <>

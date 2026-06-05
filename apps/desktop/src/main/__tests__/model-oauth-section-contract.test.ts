@@ -715,8 +715,32 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       claudeCard,
-      /state\?\.runtimeState === 'not_logged_in' \|\| state\?\.runtimeState === 'refresh_failed' \|\| state\?\.runtimeState === 'storage_failed'/,
+      /const canStartClaudeLogin =[\s\S]*state\?\.runtimeState === 'not_logged_in'[\s\S]*state\?\.runtimeState === 'refresh_failed'[\s\S]*state\?\.runtimeState === 'storage_failed'/,
       'Claude OAuth storage failures must keep the re-login action visible so the user can repair the local credential',
+    );
+  });
+
+  it('Claude paste-code login keeps authorizing out of logout/refresh actions', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
+    const actionsBlock = claudeCard.match(/<div className="settingsConnectionActions">[\s\S]*?\{authRequestId &&/)?.[0] ?? '';
+
+    assert.match(
+      claudeCard,
+      /const claudeLoginPending = authRequestId !== null \|\| state\?\.runtimeState === 'authorizing'/,
+      'Claude OAuth must model paste-code authorization as an in-progress login, not an authenticated account',
+    );
+    assert.match(
+      actionsBlock,
+      /\{canStartClaudeLogin \|\| claudeLoginPending \? \(/,
+      'authorizing must take the start/login branch instead of the authenticated refresh/logout branch',
+    );
+    assert.match(actionsBlock, /disabled=\{pendingAction \|\| claudeLoginPending\}/);
+    assert.match(actionsBlock, /\? '登录中…'/, 'pending Claude OAuth should show a disabled login-in-progress action');
+    assert.match(
+      actionsBlock,
+      /\{canStartClaudeLogin \|\| claudeLoginPending \? \([\s\S]*'登录中…'[\s\S]*\) : \([\s\S]*刷新配额[\s\S]*退出登录/,
+      'refresh/logout actions must be behind the non-pending branch so they cannot clear pending authorization before paste submit',
     );
   });
 
