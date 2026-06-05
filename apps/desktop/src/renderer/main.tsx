@@ -129,6 +129,10 @@ function dailyReviewActionErrorMessage(error: unknown, fallback: string): string
   return generalizedErrorMessageChinese(error, fallback);
 }
 
+function commandPaletteActionErrorMessage(error: unknown, fallback: string): string {
+  return generalizedErrorMessageChinese(error, fallback);
+}
+
 function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModelChoice[] {
   const choices: ChatModelChoice[] = [];
   for (const connection of connections) {
@@ -2767,7 +2771,7 @@ function AppShell() {
               } catch (err) {
                 toastApi.error(
                   '保存失败',
-                  err instanceof Error ? err.message : '导出当前对话失败',
+                  commandPaletteActionErrorMessage(err, '导出当前对话失败，请稍后重试。'),
                 );
               }
             },
@@ -2778,7 +2782,10 @@ function AppShell() {
                   toastApi.error('无法打开 MEMORY.md', result.message);
                 }
               } catch (err) {
-                toastApi.error('打开失败', err instanceof Error ? err.message : '路径无效');
+                toastApi.error(
+                  '打开失败',
+                  commandPaletteActionErrorMessage(err, '无法打开 MEMORY.md，请稍后重试。'),
+                );
               }
             },
             onOpenWorkspaceInstructionsFile: async () => {
@@ -2801,7 +2808,10 @@ function AppShell() {
                   toastApi.error(`无法打开 ${available.file}`, result.message);
                 }
               } catch (err) {
-                toastApi.error('打开失败', err instanceof Error ? err.message : '路径无效');
+                toastApi.error(
+                  '打开失败',
+                  commandPaletteActionErrorMessage(err, '无法打开项目指引，请稍后重试。'),
+                );
               }
             },
             onSetPermissionMode: (mode) => void setPermissionMode(mode),
@@ -2883,7 +2893,7 @@ function AppShell() {
               } catch (err) {
                 toastApi.error(
                   '复制失败',
-                  err instanceof Error ? err.message : '剪贴板不可用',
+                  commandPaletteActionErrorMessage(err, '剪贴板不可用或被系统拒绝'),
                 );
               }
             },
@@ -2904,7 +2914,7 @@ function AppShell() {
               } catch (err) {
                 toastApi.error(
                   '测试失败',
-                  err instanceof Error ? err.message : '网络代理测试异常',
+                  commandPaletteActionErrorMessage(err, '网络代理测试暂时不可用，请稍后重试。'),
                 );
               }
             },
