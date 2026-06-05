@@ -1175,7 +1175,7 @@ function PlanReminderPanel(props: {
   type PlanReminderListFilter = 'all' | PlanReminderStatus;
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
-  const [runAtLocal, setRunAtLocal] = useState(() => toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+  const [runAtLocal, setRunAtLocal] = useState(() => toPlanReminderDateTimeInputValue(Date.now() + 60 * 60 * 1000));
   const [recurrence, setRecurrence] = useState<PlanReminderRecurrence>('none');
   const [cronExpression, setCronExpression] = useState('0 9 * * 1-5');
   const [deliveryChannel, setDeliveryChannel] = useState<PlanReminderDeliveryTarget['channel']>('local');
@@ -1227,7 +1227,7 @@ function PlanReminderPanel(props: {
     setDeliveryChannel('local');
     setDeliveryPlatform('telegram');
     setDeliveryChatId('');
-    setRunAtLocal(toDatetimeLocalValue(Date.now() + 60 * 60 * 1000));
+    setRunAtLocal(toPlanReminderDateTimeInputValue(Date.now() + 60 * 60 * 1000));
     setEditingId(null);
   }
 
@@ -1235,7 +1235,7 @@ function PlanReminderPanel(props: {
     setEditingId(reminder.id);
     setTitle(reminder.title);
     setNote(reminder.note);
-    setRunAtLocal(toDatetimeLocalValue(planReminderEditableRunAt(reminder)));
+    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderEditableRunAt(reminder)));
     setRecurrence(planReminderRecurrenceValue(reminder));
     setCronExpression(reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5');
     setDeliveryChannel(reminder.delivery.channel);
@@ -1252,7 +1252,7 @@ function PlanReminderPanel(props: {
     setEditingId(null);
     setTitle(duplicatePlanReminderTitle(reminder.title));
     setNote(reminder.note);
-    setRunAtLocal(toDatetimeLocalValue(planReminderEditableRunAt(reminder)));
+    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderEditableRunAt(reminder)));
     setRecurrence(planReminderRecurrenceValue(reminder));
     setCronExpression(reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5');
     setDeliveryChannel(reminder.delivery.channel);
@@ -1266,7 +1266,7 @@ function PlanReminderPanel(props: {
   }
 
   function applyRunAtPreset(preset: 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday') {
-    setRunAtLocal(toDatetimeLocalValue(planReminderPresetRunAt(preset)));
+    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderPresetRunAt(preset)));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -1313,7 +1313,12 @@ function PlanReminderPanel(props: {
           <input
             value={runAtLocal}
             onChange={(event) => setRunAtLocal(event.currentTarget.value)}
-            type="datetime-local"
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="2026-06-05 13:44"
+            aria-label="提醒时间"
           />
         </label>
         <div className="maka-plan-presets" aria-label="快速设置提醒时间">
@@ -1590,10 +1595,10 @@ function PlanReminderPanel(props: {
   );
 }
 
-function toDatetimeLocalValue(ts: number): string {
+function toPlanReminderDateTimeInputValue(ts: number): string {
   const date = new Date(ts);
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function planReminderPresetRunAt(preset: 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday', now: number = Date.now()): number {

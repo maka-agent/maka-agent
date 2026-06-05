@@ -68,6 +68,10 @@ describe('Plan reminder MVP contract', () => {
     assert.match(ui, /10 分钟后/, 'quick presets must include near-term reminder creation');
     assert.match(ui, /下周一 9 点/, 'quick presets must include weekly planning');
     assert.match(ui, /planReminderPresetRunAt/, 'quick presets must centralize time calculation');
+    assert.match(ui, /toPlanReminderDateTimeInputValue/, 'plan time field must format a plain local date-time string');
+    assert.match(ui, /placeholder="2026-06-05 13:44"/, 'plan time field must show a readable local date-time example');
+    assert.match(ui, /aria-label="提醒时间"/, 'plan time field must have a stable accessible name');
+    assert.doesNotMatch(ui, /type="datetime-local"/, 'native datetime-local exposes English Chromium picker controls in the AX tree');
     assert.match(ui, /planReminderFormValidationMessage/, 'create/edit form must centralize validation copy');
     assert.match(ui, /填写标题后才能保存提醒/, 'create/edit form must explain missing title');
     assert.match(ui, /Cron 需要 5 段表达式/, 'create/edit form must explain invalid cron shape');
