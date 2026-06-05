@@ -1,9 +1,10 @@
 /**
  * PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): WeChat personal-account
  * scan-login via the iLink ClawBot endpoints. The reference design uses
- * an external service hosted by Tencent that returns a QR image URL +
- * a token; the user scans the QR with WeChat on their phone; we poll
- * the status endpoint for `confirmed` / `expired`.
+ * an external service hosted by Tencent that returns QR payload content
+ * + a token. Alma renders that payload into a local PNG data URL before
+ * handing it to the renderer; the user scans the QR with WeChat on their
+ * phone; we poll the status endpoint for `confirmed` / `expired`.
  *
  * Endpoints (reverse-engineered from the upstream desktop client at
  * external reference main.js:41518-41600):
@@ -30,13 +31,14 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { createRequire } from 'node:module';
 
 const ILINK_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const QR_FETCH_TIMEOUT_MS = 15_000;
 const QR_STATUS_TIMEOUT_MS = 15_000;
 
 export interface WeChatQrcode {
-  /** Tencent-hosted PNG URL the renderer can render directly in an <img>. */
+  /** PNG data URL the renderer can render directly in an <img>. */
   qrcodeUrl: string;
   /** Opaque session token the status poller passes back. */
   qrToken: string;
@@ -60,6 +62,25 @@ function wechatUinHeader(): string {
   // Same shape as the upstream client uses.
   const value = randomBytes(4).readUInt32LE(0);
   return Buffer.from(String(value), 'utf-8').toString('base64');
+}
+
+const require = createRequire(import.meta.url);
+
+async function renderWeChatQrcode(raw: string): Promise<string> {
+  if (raw.startsWith('data:image/')) return raw;
+  if (looksLikeBase64Png(raw)) return `data:image/png;base64,${raw}`;
+  const qrcode = require('qrcode') as {
+    toDataURL(input: string, options: Record<string, unknown>): Promise<string>;
+  };
+  return qrcode.toDataURL(raw, {
+    width: 256,
+    margin: 2,
+    errorCorrectionLevel: 'M',
+  });
+}
+
+function looksLikeBase64Png(value: string): boolean {
+  return value.length > 80 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
 }
 
 async function ilinkGet<T>(path: string, timeoutMs: number, extraHeaders: Record<string, string> = {}): Promise<T> {
@@ -91,12 +112,12 @@ export async function fetchWeChatQrcode(): Promise<WeChatQrcode> {
   if (typeof payload.ret === 'number' && payload.ret !== 0) {
     throw new Error(`QR fetch returned ret=${payload.ret}`);
   }
-  const qrcodeUrl = typeof payload.qrcode_img_content === 'string' ? payload.qrcode_img_content : '';
+  const qrcodeContent = typeof payload.qrcode_img_content === 'string' ? payload.qrcode_img_content : '';
   const qrToken = typeof payload.qrcode === 'string' ? payload.qrcode : '';
-  if (!qrcodeUrl || !qrToken) {
+  if (!qrcodeContent || !qrToken) {
     throw new Error('QR fetch missing qrcode_img_content / qrcode');
   }
-  return { qrcodeUrl, qrToken };
+  return { qrcodeUrl: await renderWeChatQrcode(qrcodeContent), qrToken };
 }
 
 export async function pollWeChatQrcodeStatus(qrToken: string): Promise<WeChatQrcodeStatus> {
