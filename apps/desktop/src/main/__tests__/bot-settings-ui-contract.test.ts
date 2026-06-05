@@ -45,7 +45,9 @@ describe('Bot settings UI contract', () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const styles = await readRepo('apps/desktop/src/renderer/styles.css');
     const updateChannelBlock = settings.match(/async function updateChannel\(patch: Partial<typeof channel>\): Promise<boolean>[\s\S]*?\n\s*useEffect\(\(\) =>/)?.[0] ?? '';
+    const testChannelBlock = settings.match(/async function testChannel\(\)[\s\S]*?\n\s*\/\*\*/)?.[0] ?? '';
     const testAndConnectBlock = settings.match(/async function testAndConnect\(\)[\s\S]*?\n\s*async function restartChannel/)?.[0] ?? '';
+    const restartChannelBlock = settings.match(/async function restartChannel\(\)[\s\S]*?\n\s*async function refreshBotStatuses/)?.[0] ?? '';
     const actionRowBlock = settings.match(/<div className="settingsBotActionStack">[\s\S]*?<\/div>/)?.[0] ?? '';
     const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}机器人`\}[\s\S]*?\/>/)?.[0] ?? '';
 
@@ -60,9 +62,13 @@ describe('Bot settings UI contract', () => {
     assert.match(switchBlock, /ariaDescribedBy=\{enableSwitchHint \? enableSwitchHintId : undefined\}/, 'Disabled enable switch must point assistive tech at the reason');
     assert.match(switchBlock, /disabled=\{enableSwitchDisabled\}/, 'Bot enable switch must use the guarded disabled state');
     assert.match(testAndConnectBlock, /testBotChannel\(selected\)/, 'Combined action must validate credentials before enabling');
+    assert.match(testChannelBlock, /catch \(error\) \{[\s\S]*toast\.error\(`\$\{BOT_LABELS\[selected\]\.label\} 测试出错`, settingsActionErrorMessage\(error\)\)/, 'Separate bot credential tests must scrub thrown IPC failures');
+    assert.match(testAndConnectBlock, /catch \(error\) \{[\s\S]*toast\.error\(`\$\{BOT_LABELS\[selected\]\.label\} 测试出错`, settingsActionErrorMessage\(error\)\)/, 'Combined bot credential tests must scrub thrown IPC failures');
     assert.match(testAndConnectBlock, /if \(!testOk \|\| support !== 'runtime'\) return;/, 'Combined action must stop after a failed credential test');
     assert.match(testAndConnectBlock, /const saved = await updateChannel\(\{ enabled: true \}\);[\s\S]*if \(!saved\) return;/, 'Combined action must stop if enabling the runtime channel fails to save');
     assert.match(testAndConnectBlock, /await restartChannel\(\)/, 'Combined action must start the listener after enabling');
+    assert.match(restartChannelBlock, /catch \(error\) \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*toast\.error\(`\$\{BOT_LABELS\[selected\]\.label\} 启动失败`, message\)/, 'Bot restart failures must use the Settings error scrubber');
+    assert.doesNotMatch(`${testChannelBlock}\n${testAndConnectBlock}\n${restartChannelBlock}`, /error instanceof Error \? error\.message : String\(error\)/, 'Bot test/restart actions must not toast raw Error.message');
     assert.match(actionRowBlock, /support === 'runtime' && !selectedStatus\?\.running/, 'Runtime channels that are not listening must use the combined onboarding path');
     assert.match(actionRowBlock, /测试并连接/, 'Runtime onboarding CTA must keep the user-facing combined action label');
     // PR-BOT-RESTART-RACE-0 added `|| restarting` so the button

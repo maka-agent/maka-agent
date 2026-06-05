@@ -40,6 +40,7 @@ describe('Settings network and gateway persistence contract', () => {
   it('localizes proxy test failure messages before returning them to Settings', () => {
     const helper = mainSource.match(/function proxyTestFailureMessage\(result: TestProxyResult\): string \{[\s\S]*?\n\}/);
     const handler = mainSource.match(/settings:testNetworkProxy[\s\S]*?satisfies SettingsTestResult;/)?.[0] ?? '';
+    const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
 
     assert.ok(helper, 'main must normalize proxy test failures at the IPC boundary');
     assert.match(helper![0], /proxy disabled[\s\S]*代理未启用，请先打开代理开关/);
@@ -53,6 +54,16 @@ describe('Settings network and gateway persistence contract', () => {
       handler,
       /message: result\.error \?\? \(result\.status \? `HTTP \$\{result\.status\}` : '代理不可达'\)/,
       'proxy test IPC must not pass through runtime English/raw failure messages',
+    );
+    assert.match(
+      networkBlock,
+      /catch \(error\) \{[\s\S]*toast\.error\('代理测试出错', settingsActionErrorMessage\(error\)\)/,
+      'Renderer-side proxy test IPC rejections must use the Settings error scrubber',
+    );
+    assert.doesNotMatch(
+      networkBlock,
+      /代理测试出错[\s\S]{0,120}error instanceof Error \? error\.message : String\(error\)/,
+      'Renderer-side proxy test must not toast raw Error.message on rejected IPC',
     );
   });
 
