@@ -56,6 +56,23 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usagePage![0], /logs=\{showRequestDetails \? filteredLogs : \[\]\}/);
   });
 
+  it('names usage segmented radiogroups for assistive technology', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
+
+    assert.ok(usagePage, 'Usage settings page block must exist');
+    assert.match(
+      usagePage![0],
+      /<Segmented[\s\S]*value=\{usage\.range\}[\s\S]*ariaLabel="使用统计时间范围"/,
+      'range segmented control must expose what the 24h/7天/30天/all group changes',
+    );
+    assert.match(
+      usagePage![0],
+      /<Segmented[\s\S]*value=\{usage\.activeTab\}[\s\S]*ariaLabel="使用统计视图"/,
+      'tab segmented control must expose what the request/provider/model/tools/pricing group changes',
+    );
+  });
+
   it('surfaces usage preference save failures instead of leaving filter controls silent', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);

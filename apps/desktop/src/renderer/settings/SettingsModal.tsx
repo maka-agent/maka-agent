@@ -4795,6 +4795,7 @@ function UsageSettingsPage(props: {
       <div className="settingsUsageToolbar">
         <Segmented
           value={usage.range}
+          ariaLabel="使用统计时间范围"
           options={[
             ['24h', '24h'],
             ['7d', '7天'],
@@ -4815,6 +4816,7 @@ function UsageSettingsPage(props: {
 
       <Segmented
         value={usage.activeTab}
+        ariaLabel="使用统计视图"
         options={[
           ['requests', '请求日志'],
           ['providers', '供应商统计'],
