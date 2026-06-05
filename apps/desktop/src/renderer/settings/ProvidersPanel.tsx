@@ -1167,7 +1167,7 @@ function AddProviderForm(props: {
       });
       await props.onCreated(connection.slug);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(providerPanelActionErrorMessage(err));
     } finally {
       setBusy(false);
     }

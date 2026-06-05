@@ -90,6 +90,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const providers = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
     const main = await readFile(MAIN_SOURCE, 'utf8');
     const detail = providers.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+    const addForm = providers.match(/function AddProviderForm[\s\S]*?function nextSlug/)?.[0] ?? '';
 
     assert.match(
       providers,
@@ -120,6 +121,16 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       detail,
       /error instanceof Error \? error\.message : String\(error\)/,
       'provider detail action toasts must not directly echo raw Error.message',
+    );
+    assert.match(
+      addForm,
+      /catch \(err\) \{[\s\S]*setError\(providerPanelActionErrorMessage\(err\)\)/,
+      'AddProviderForm create failures must use the shared localized action-error helper',
+    );
+    assert.doesNotMatch(
+      addForm,
+      /setError\(err instanceof Error \? err\.message : String\(err\)\)/,
+      'AddProviderForm must not render raw create-connection Error.message inline',
     );
     assert.match(
       main,
