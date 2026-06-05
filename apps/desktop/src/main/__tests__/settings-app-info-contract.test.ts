@@ -66,4 +66,26 @@ describe('Settings app-info loading contract', () => {
     assert.doesNotMatch(dataBlock, /credentials/);
     assert.doesNotMatch(dataBlock, /usage stats/);
   });
+
+  it('keeps About page privacy and storage copy Chinese-first and accessible', () => {
+    const aboutBlock = blockBetween('function AboutSettingsPage', 'function SettingsSkeleton');
+
+    assert.match(aboutBlock, /<ul aria-label="隐私与安全说明">/);
+    assert.match(aboutBlock, /所有会话、设置、凭据和 Skill 指令文件/);
+    assert.match(aboutBlock, /模型供应商密钥通过系统安全存储加密保存/);
+    assert.match(aboutBlock, /权限策略会判断工具调用风险/);
+    assert.match(aboutBlock, /每个会话都会在本机保留消息、工具调用、权限决策与模式变更记录/);
+    assert.match(aboutBlock, /会话记录、设置文件、SQLite 使用统计和系统安全存储加密的模型密钥/);
+    assert.match(aboutBlock, /可直接粘贴到问题报告/);
+    assert.doesNotMatch(aboutBlock, /settings、credentials、skills/);
+    assert.doesNotMatch(aboutBlock, /provider API key/);
+    assert.doesNotMatch(aboutBlock, /safeStorage/);
+    assert.doesNotMatch(aboutBlock, /risk 分类/);
+    assert.doesNotMatch(aboutBlock, /chat 内/);
+    assert.doesNotMatch(aboutBlock, /tool 调用/);
+    assert.doesNotMatch(aboutBlock, /mode_change/);
+    assert.doesNotMatch(aboutBlock, /SQLite usage stats/);
+    assert.doesNotMatch(aboutBlock, /provider credentials/);
+    assert.doesNotMatch(aboutBlock, /bug report/);
+  });
 });
