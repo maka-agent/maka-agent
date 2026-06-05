@@ -44,14 +44,11 @@ describe('localized main shell contract', () => {
     assert.match(commandPalette, /权限 · 只读[\s\S]*权限 · 确认[\s\S]*权限 · 执行/);
   });
 
-  it('keeps the idle Composer shortcut hint visual-only in the accessibility tree', async () => {
+  it('does not render idle Composer keyboard shortcut copy in the chat surface', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
 
-    assert.match(
-      components,
-      /className="maka-composer-shortcut-hint" aria-hidden="true"/,
-      'the idle Enter / Shift+Enter visual shortcut hint should not be announced as scattered text nodes',
-    );
+    assert.doesNotMatch(components, /maka-composer-shortcut-hint/);
+    assert.doesNotMatch(components, /enterHint/);
     assert.match(
       components,
       /copy\.awaitingPermission/,

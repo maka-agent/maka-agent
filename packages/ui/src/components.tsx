@@ -4811,7 +4811,6 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   sending: string;
   streamingHintPrefix: string;
   streamingHintInterrupt: string;
-  enterHint: { send: string; newline: string };
 }> = {
   zh: {
     placeholder: '给 Maka 发消息…',
@@ -4825,7 +4824,6 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     // ReasoningPanel = reasoning-streaming; distinct signals, distinct copy.
     streamingHintPrefix: 'Maka 正在回答…',
     streamingHintInterrupt: '或点停止中断',
-    enterHint: { send: '发送', newline: '换行' },
   },
   en: {
     placeholder: 'Message Maka…',
@@ -4837,7 +4835,6 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     // `Thinking…` label.
     streamingHintPrefix: 'Maka is responding…',
     streamingHintInterrupt: 'or click Stop to interrupt',
-    enterHint: { send: 'to send', newline: 'for newline' },
   },
 };
 
@@ -5253,7 +5250,7 @@ export const Composer = forwardRef<
                 {copy.streamingHintPrefix} <kbd>Esc</kbd> {copy.streamingHintInterrupt}
               </span>
             ) : (
-              <span className="maka-composer-shortcut-hint" aria-hidden="true"><kbd>Enter</kbd> {copy.enterHint.send} · <kbd>Shift</kbd>+<kbd>Enter</kbd> {copy.enterHint.newline}</span>
+              null
             )}
           </span>
           <div>
