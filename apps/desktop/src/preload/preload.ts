@@ -639,6 +639,9 @@ contextBridge.exposeInMainWorld('maka', {
       ipcRenderer.on('window:openSettings', listener);
       return () => ipcRenderer.off('window:openSettings', listener);
     },
+    setTitlebarControlsVisible(visible: boolean): Promise<void> {
+      return ipcRenderer.invoke('window:setTitlebarControlsVisible', visible);
+    },
   },
   app: {
     info(): Promise<{

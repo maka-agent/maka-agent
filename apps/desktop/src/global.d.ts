@@ -354,6 +354,7 @@ declare global {
       };
       appWindow: {
         subscribeOpenSettings(handler: () => void): () => void;
+        setTitlebarControlsVisible(visible: boolean): Promise<void>;
       };
       app: {
         info(): Promise<{

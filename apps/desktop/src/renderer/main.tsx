@@ -2363,6 +2363,12 @@ function AppShell() {
   }
 
   const hasModalOpen = Boolean(activePermission) || settingsOpen || helpOpen || paletteOpen || searchModalOpen;
+  useEffect(() => {
+    void window.maka.appWindow.setTitlebarControlsVisible(!hasModalOpen).catch(() => {});
+    return () => {
+      void window.maka.appWindow.setTitlebarControlsVisible(true).catch(() => {});
+    };
+  }, [hasModalOpen]);
 
   return (
     <div className="appFrame">

@@ -909,6 +909,8 @@ const onboardingService = createOnboardingService(
 );
 
 let mainWindow: BrowserWindow | null = null;
+const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 24, y: 24 } as const;
+const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 const planReminderTimers = new Map<string, NodeJS.Timeout>();
 const PLAN_REMINDER_DEFAULT_SNOOZE_MS = 10 * 60 * 1000;
 
@@ -991,7 +993,7 @@ async function createWindow(): Promise<void> {
     ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
     title: 'Maka',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 24, y: 24 },
+    trafficLightPosition: MAIN_WINDOW_TRAFFIC_LIGHT_POSITION,
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5 (WAWQAQ msg `5b85fdb1`,
     // xuan `eea556cd`): explicit `resizable: true` so a future
     // patch can't silently disable window edge resize. Default is
@@ -1343,6 +1345,13 @@ function registerIpc(): void {
     return resolveProjectRoot([process.cwd(), app.getAppPath()]);
   }
 
+  ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
+    const target = BrowserWindow.fromWebContents(event.sender);
+    if (!target || target !== mainWindow || process.platform !== 'darwin') return;
+    const shouldShow = visible === true;
+    target.setWindowButtonVisibility(shouldShow);
+    target.setWindowButtonPosition(shouldShow ? MAIN_WINDOW_TRAFFIC_LIGHT_POSITION : HIDDEN_TRAFFIC_LIGHT_POSITION);
+  });
   ipcMain.handle('app:info', async () => {
     const projectPath = await currentProjectRoot();
     return {

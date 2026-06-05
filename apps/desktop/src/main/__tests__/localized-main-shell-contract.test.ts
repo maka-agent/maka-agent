@@ -243,7 +243,11 @@ describe('localized main shell contract', () => {
 
   it('hides the app shell from the accessibility tree while a top-level modal is open', async () => {
     const main = await readFile(join(process.cwd(), 'src', 'renderer', 'main.tsx'), 'utf8');
+    const preload = await readFile(join(process.cwd(), 'src', 'preload', 'preload.ts'), 'utf8');
+    const mainProcess = await readFile(join(process.cwd(), 'src', 'main', 'main.ts'), 'utf8');
+    const globalTypes = await readFile(join(process.cwd(), 'src', 'global.d.ts'), 'utf8');
     const appShell = main.match(/const hasModalOpen[\s\S]*?<div\s+className="app maka-shell-2col"[\s\S]*?style=\{\{/)?.[0] ?? '';
+    const titlebarControlsEffect = main.match(/const hasModalOpen[\s\S]*?useEffect\(\(\) => \{[\s\S]*?\}, \[hasModalOpen\]\);/)?.[0] ?? '';
     const modalMounts = main.match(/<\/div>\s*\{activePermission && \([\s\S]*?\{settingsOpen && \(/)?.[0] ?? '';
 
     assert.match(
@@ -265,6 +269,36 @@ describe('localized main shell contract', () => {
       appShell,
       /data-modal-background-hidden=\{hasModalOpen \? 'true' : undefined\}/,
       'the modal background-hidden state should remain inspectable in visual/a11y smoke runs',
+    );
+    assert.match(
+      titlebarControlsEffect,
+      /setTitlebarControlsVisible\(!hasModalOpen\)/,
+      'top-level modals must hide native macOS titlebar controls so traffic lights do not float above the in-app modal scrim',
+    );
+    assert.match(
+      titlebarControlsEffect,
+      /setTitlebarControlsVisible\(true\)/,
+      'native titlebar controls must be restored when the modal-owning shell unmounts or closes',
+    );
+    assert.match(
+      preload,
+      /setTitlebarControlsVisible\(visible: boolean\): Promise<void> \{\s*return ipcRenderer\.invoke\('window:setTitlebarControlsVisible', visible\);/,
+      'preload must expose a typed titlebar controls bridge instead of letting renderer reach Electron directly',
+    );
+    assert.match(
+      globalTypes,
+      /setTitlebarControlsVisible\(visible: boolean\): Promise<void>;/,
+      'window.maka.appWindow must type the titlebar controls bridge',
+    );
+    assert.match(
+      mainProcess,
+      /const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = \{ x: 24, y: 24 \} as const;[\s\S]*?const HIDDEN_TRAFFIC_LIGHT_POSITION = \{ x: -100, y: -100 \} as const;/,
+      'main must keep named visible/hidden traffic-light positions instead of scattering magic coordinates',
+    );
+    assert.match(
+      mainProcess,
+      /ipcMain\.handle\('window:setTitlebarControlsVisible'[\s\S]*?BrowserWindow\.fromWebContents\(event\.sender\)[\s\S]*?target !== mainWindow[\s\S]*?process\.platform !== 'darwin'[\s\S]*?setWindowButtonVisibility\(shouldShow\)[\s\S]*?setWindowButtonPosition\(shouldShow \? MAIN_WINDOW_TRAFFIC_LIGHT_POSITION : HIDDEN_TRAFFIC_LIGHT_POSITION\)/,
+      'main must own the native window button visibility and position change, scoped to the current main BrowserWindow on macOS',
     );
     assert.match(
       modalMounts,
