@@ -1920,8 +1920,7 @@ function PersonalizationSettingsPage(props: {
         toast.success('个性化已保存');
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error('保存失败', message);
+      toast.error('保存失败', settingsActionErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -3667,8 +3666,7 @@ function NetworkSettingsPage(props: {
         toast.error('代理测试失败', result.message);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error('代理测试出错', message);
+      toast.error('代理测试出错', settingsActionErrorMessage(error));
     } finally {
       setTesting(false);
     }
@@ -4152,8 +4150,7 @@ function BotChatSettingsPage(props: {
       }
       await refreshBotStatuses();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error(`${BOT_LABELS[selected].label} 测试出错`, message);
+      toast.error(`${BOT_LABELS[selected].label} 测试出错`, settingsActionErrorMessage(error));
     } finally {
       setTesting(false);
     }
@@ -4180,8 +4177,7 @@ function BotChatSettingsPage(props: {
       }
       await refreshBotStatuses();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error(`${BOT_LABELS[selected].label} 测试出错`, message);
+      toast.error(`${BOT_LABELS[selected].label} 测试出错`, settingsActionErrorMessage(error));
     } finally {
       setTesting(false);
     }
@@ -4212,13 +4208,7 @@ function BotChatSettingsPage(props: {
         toast.error(`${platform} 启动后未进入监听`, botStatusDetail(status));
       }
     } catch (error) {
-      // PR-BOT-RESTART-RACE-0: an Error with empty `.message` (rare
-      // but observed when the underlying bridge throws an
-      // uninformative `new Error()`) would render as a blank
-      // toast detail. Fall back to a generic actionable hint so
-      // the user knows next-step instead of staring at nothing.
-      const raw = error instanceof Error ? error.message : String(error);
-      const message = raw.trim() || '未知错误，请检查凭据或网络后重试。';
+      const message = settingsActionErrorMessage(error);
       toast.error(`${BOT_LABELS[selected].label} 启动失败`, message);
     } finally {
       setRestarting(false);
