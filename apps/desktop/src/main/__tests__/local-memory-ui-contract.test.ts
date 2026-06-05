@@ -354,6 +354,42 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(updateStatusBlock, /catch \(error\) \{[\s\S]*toast\.error\(status === 'archived' \? '归档记忆失败' : '恢复记忆失败', settingsActionErrorMessage\(error\)\)/);
   });
 
+  it('does not return raw shell.openPath errors from local memory open IPC', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const memoryOpenRegion = main.match(/ipcMain\.handle\('memory:openFile'[\s\S]*?ipcMain\.handle\(\s*'workspaceInstructions:getState'/)?.[0] ?? '';
+
+    assert.match(
+      main,
+      /case 'open-failed':[\s\S]*系统未能打开 MEMORY\.md。/,
+      'MEMORY.md open failure copy must have a stable product message',
+    );
+    assert.match(
+      main,
+      /case 'open-failed':[\s\S]*系统未能打开 MEMORY\.md 备份。/,
+      'MEMORY.md backup open failure copy must have a stable product message',
+    );
+    assert.match(
+      memoryOpenRegion,
+      /memory:openFile[\s\S]*shell\.openPath\(resolved\.path\)[\s\S]*localMemoryOpenFailureCopy\('open-failed'\)/,
+      'memory:openFile must not return shell.openPath raw error strings',
+    );
+    assert.match(
+      memoryOpenRegion,
+      /memory:openLatestBackup[\s\S]*shell\.openPath\(resolved\.path\)[\s\S]*localMemoryBackupOpenFailureCopy\('open-failed'\)/,
+      'memory:openLatestBackup must not return shell.openPath raw error strings',
+    );
+    assert.match(
+      memoryOpenRegion,
+      /memory:openBackup[\s\S]*shell\.openPath\(resolved\.path\)[\s\S]*localMemoryBackupOpenFailureCopy\('open-failed'\)/,
+      'memory:openBackup must not return shell.openPath raw error strings',
+    );
+    assert.doesNotMatch(
+      memoryOpenRegion,
+      /return error \? \{ ok: false, message: error \}/,
+      'local memory open IPC must never forward raw shell.openPath errors to Settings toasts',
+    );
+  });
+
   it('can restore the latest MEMORY.md backup through an explicit reversible action', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');

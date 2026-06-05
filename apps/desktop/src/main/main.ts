@@ -1211,6 +1211,8 @@ function localMemoryOpenFailureCopy(reason: string): string {
       return 'MEMORY.md 不在允许的工作区范围内。';
     case 'not-a-file':
       return 'MEMORY.md 不是普通文件。';
+    case 'open-failed':
+      return '系统未能打开 MEMORY.md。';
     default:
       return '无法打开 MEMORY.md。';
   }
@@ -1228,6 +1230,8 @@ function localMemoryBackupOpenFailureCopy(reason: string): string {
       return 'MEMORY.md 备份不在允许的工作区范围内。';
     case 'not-a-file':
       return 'MEMORY.md 备份不是普通文件。';
+    case 'open-failed':
+      return '系统未能打开 MEMORY.md 备份。';
     default:
       return '无法打开 MEMORY.md 备份。';
   }
@@ -1379,20 +1383,20 @@ function registerIpc(): void {
     const resolved = await localMemory.resolveFileForOpen();
     if (!resolved.ok) return { ok: false, message: localMemoryOpenFailureCopy(resolved.reason) };
     const error = await shell.openPath(resolved.path);
-    return error ? { ok: false, message: error } : { ok: true };
+    return error ? { ok: false, message: localMemoryOpenFailureCopy('open-failed') } : { ok: true };
   });
   ipcMain.handle('memory:openLatestBackup', async (): Promise<{ ok: true } | { ok: false; message: string }> => {
     const resolved = await localMemory.resolveLatestBackupForOpen();
     if (!resolved.ok) return { ok: false, message: localMemoryBackupOpenFailureCopy(resolved.reason) };
     const error = await shell.openPath(resolved.path);
-    return error ? { ok: false, message: error } : { ok: true };
+    return error ? { ok: false, message: localMemoryBackupOpenFailureCopy('open-failed') } : { ok: true };
   });
   ipcMain.handle('memory:openBackup', async (_event, kind: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
     if (kind !== 'save' && kind !== 'reset' && kind !== 'restore') return { ok: false, message: localMemoryBackupOpenFailureCopy('not-allowed') };
     const resolved = await localMemory.resolveBackupForOpen(kind);
     if (!resolved.ok) return { ok: false, message: localMemoryBackupOpenFailureCopy(resolved.reason) };
     const error = await shell.openPath(resolved.path);
-    return error ? { ok: false, message: error } : { ok: true };
+    return error ? { ok: false, message: localMemoryBackupOpenFailureCopy('open-failed') } : { ok: true };
   });
   ipcMain.handle('workspaceInstructions:getState', () => getWorkspaceInstructionsState(process.cwd()));
   ipcMain.handle(
