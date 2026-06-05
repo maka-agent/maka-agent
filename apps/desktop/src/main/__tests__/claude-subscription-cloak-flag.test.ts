@@ -101,17 +101,52 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     assert.match(src, /You are Maka, a helpful AI assistant\./, 'Codex instructions must have a non-empty fallback');
   });
 
-  it('token exchange uses the pasted OAuth state, not the verifier', async () => {
+  it('token exchange uses the pasted OAuth state and can recover the verifier from Claude Code state', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(
       src,
-      /exchangeCodeForTokens\(parsed\.code,\s*pending\.verifier,\s*parsed\.state\)/,
+      /const parsed = parsePastedAuthorization\(rawPasted\);[\s\S]*?const pending = this\.pending\.get\(authRequestId\)/,
+      'completeAuthorization must parse the pasted code#state before treating missing pending state as fatal',
+    );
+    assert.match(
+      src,
+      /const recoverFromPastedState = !pending \|\| pendingExpired;/,
+      'Claude Code state is the PKCE verifier, so Maka must recover from a lost in-memory pending map',
+    );
+    assert.match(
+      src,
+      /const verifier = recoverFromPastedState \? parsed\.state : pending!\.verifier;/,
+      'recovered Claude OAuth attempts must use pasted state as code_verifier',
+    );
+    assert.match(
+      src,
+      /exchangeCodeForTokens\(parsed\.code,\s*verifier,\s*parsed\.state\)/,
       'completeAuthorization must pass the user-pasted state into token exchange after validating it',
     );
     assert.doesNotMatch(
       src,
       /state:\s*verifier/,
       'token exchange body must not send the PKCE verifier as OAuth state when state and verifier are distinct',
+    );
+  });
+
+  it('token exchange failures do not consume pending authorization or collapse into generic auth copy', async () => {
+    const src = await readFile(SERVICE_SOURCE, 'utf8');
+    const completeStart = src.indexOf('async completeAuthorization(');
+    assert.ok(completeStart > 0, 'completeAuthorization must exist');
+    const completeRegion = src.slice(completeStart, completeStart + 2600);
+    const exchangeIdx = completeRegion.indexOf('exchangeCodeForTokens(parsed.code, verifier, parsed.state)');
+    const deleteIdx = completeRegion.indexOf('this.pending.delete(authRequestId)', exchangeIdx);
+    assert.ok(exchangeIdx > 0 && deleteIdx > exchangeIdx, 'pending authorization should be consumed only after token exchange succeeds');
+    assert.match(
+      completeRegion,
+      /failureFromError\('token_exchange_failed', err, '授权码已过期、已使用或与本次登录不匹配，请重新点击“登录订阅”获取新的授权码。'\)/,
+      'token exchange failures should tell the user to get a fresh authorization code, not surface generic 鉴权失败',
+    );
+    assert.match(
+      src,
+      /class ClaudeTokenExchangeError extends Error[\s\S]*readonly status: number/,
+      'token endpoint non-2xx responses should be typed before mapping to user copy',
     );
   });
 

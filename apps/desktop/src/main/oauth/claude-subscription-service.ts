@@ -118,6 +118,13 @@ interface PendingAuthorization {
   url: string;
 }
 
+class ClaudeTokenExchangeError extends Error {
+  constructor(readonly status: number) {
+    super(`Claude OAuth token endpoint returned ${status}.`);
+    this.name = 'ClaudeTokenExchangeError';
+  }
+}
+
 // =============================================================
 // Node SHA-256 implementation, injected into core's pure helpers.
 // =============================================================
@@ -243,23 +250,20 @@ export class ClaudeSubscriptionService {
   }
 
   /**
-   * Validate the pasted code, then exchange for tokens. xuan G-X1 +
-   * G-X2: strict shape + state match + TTL + one-shot consumption.
+   * Validate the pasted code, then exchange for tokens.
+   *
+   * Claude Code / Alma use the PKCE verifier itself as OAuth state.
+   * That means the pasted `code#state` contains the verifier needed
+   * for token exchange. We still validate against pending state when
+   * pending exists, but if the in-memory pending map was lost
+   * (renderer reload, modal unmount, main-process restart) we can
+   * recover from the pasted state instead of forcing the user into a
+   * dead "authorization_pending" path.
    */
   async completeAuthorization(
     authRequestId: string,
     rawPasted: unknown,
   ): Promise<SubscriptionActionResult> {
-    const pending = this.pending.get(authRequestId);
-    if (!pending) {
-      this.authorizing = false;
-      return { ok: false, reason: 'authorization_pending', message: '请先点击“登录订阅”再粘贴授权码。' };
-    }
-    if (this.now() - pending.createdAt > PENDING_AUTHORIZATION_TTL_MS) {
-      this.pending.delete(authRequestId);
-      this.authorizing = false;
-      return { ok: false, reason: 'authorization_expired', message: '授权请求已过期，请重新点击“登录订阅”。' };
-    }
     const parsed = parsePastedAuthorization(rawPasted);
     if (!parsed) {
       return {
@@ -268,17 +272,25 @@ export class ClaudeSubscriptionService {
         message: '授权码格式不正确，请粘贴完整字符串（包含 `#` 分隔符）。',
       };
     }
-    if (!constantTimeStringEqual(parsed.state, pending.state)) {
+    const pending = this.pending.get(authRequestId);
+    const pendingExpired = pending ? this.now() - pending.createdAt > PENDING_AUTHORIZATION_TTL_MS : false;
+    if (pending && !constantTimeStringEqual(parsed.state, pending.state)) {
+      if (pendingExpired) this.pending.delete(authRequestId);
       return { ok: false, reason: 'invalid_paste_code', message: '授权码 state 校验失败，请重新登录。' };
     }
-    // ONE-SHOT consumption (G-X1): delete BEFORE the network call
-    // so a concurrent retry can't replay the same verifier.
-    this.pending.delete(authRequestId);
+    if (pendingExpired) this.pending.delete(authRequestId);
+    const recoverFromPastedState = !pending || pendingExpired;
+    if (recoverFromPastedState && !looksLikeClaudePkceVerifier(parsed.state)) {
+      this.authorizing = false;
+      return { ok: false, reason: 'authorization_pending', message: '请重新点击“登录订阅”获取新的授权码。' };
+    }
+    const verifier = recoverFromPastedState ? parsed.state : pending!.verifier;
 
     try {
-      const tokens = await this.exchangeCodeForTokens(parsed.code, pending.verifier, parsed.state);
+      const tokens = await this.exchangeCodeForTokens(parsed.code, verifier, parsed.state);
       await this.saveTokens(tokens);
       this.cachedTokens = tokens;
+      this.pending.delete(authRequestId);
       this.authorizing = false;
       // Kick a profile fetch in the background; failure is non-fatal
       // (the user is authenticated regardless of profile success).
@@ -286,7 +298,7 @@ export class ClaudeSubscriptionService {
       return { ok: true };
     } catch (err) {
       this.authorizing = false;
-      return this.failureFromError('token_exchange_failed', err);
+      return this.failureFromError('token_exchange_failed', err, '授权码已过期、已使用或与本次登录不匹配，请重新点击“登录订阅”获取新的授权码。');
     }
   }
 
@@ -524,7 +536,7 @@ export class ClaudeSubscriptionService {
       }),
     });
     if (!response.ok) {
-      throw new Error(`Token exchange failed (${response.status}).`);
+      throw new ClaudeTokenExchangeError(response.status);
     }
     const payload = (await response.json()) as {
       access_token: string;
@@ -652,7 +664,17 @@ export class ClaudeSubscriptionService {
   private failureFromError(
     fallbackReason: SubscriptionActionFailureReason,
     err: unknown,
+    fallbackMessage = '操作失败。',
   ): SubscriptionActionResult {
+    if (err instanceof ClaudeTokenExchangeError) {
+      if (err.status === 429) {
+        return { ok: false, reason: fallbackReason, message: 'Claude OAuth 请求过于频繁，请稍后重新登录。' };
+      }
+      if (err.status >= 500) {
+        return { ok: false, reason: fallbackReason, message: 'Claude OAuth 服务暂时不可用，请稍后重新登录。' };
+      }
+      return { ok: false, reason: fallbackReason, message: fallbackMessage };
+    }
     const message = err instanceof Error ? err.message : '操作失败。';
     return { ok: false, reason: fallbackReason, message };
   }
@@ -697,6 +719,10 @@ export class ClaudeSubscriptionService {
  */
 export function isCloakEnabled(): boolean {
   return process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK !== '0';
+}
+
+function looksLikeClaudePkceVerifier(value: string): boolean {
+  return /^[A-Za-z0-9_-]{43,128}$/.test(value);
 }
 
 /**
