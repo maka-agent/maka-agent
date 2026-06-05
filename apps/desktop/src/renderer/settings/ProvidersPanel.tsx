@@ -532,8 +532,8 @@ type BrowserOAuthServiceId = Exclude<OAuthServiceId, 'claude'>;
 
 interface ModelOAuthCard {
   id: OAuthCardId;
+  providerType: ProviderType;
   name: string;
-  accent: string;
   description: string;
   status: 'available';
   statusLabel: string;
@@ -542,33 +542,33 @@ interface ModelOAuthCard {
 const MODEL_OAUTH_CARDS: ReadonlyArray<ModelOAuthCard> = [
   {
     id: 'claude',
+    providerType: 'claude-subscription',
     name: 'Claude Code',
-    accent: '#D97757',
-    description: '用 Claude Pro / Max 订阅给 Claude Code / Claude OAuth 模型。',
+    description: 'Claude Pro / Max 订阅账号登录。',
     status: 'available',
     statusLabel: '可用',
   },
   {
     id: 'codex',
+    providerType: 'codex-subscription',
     name: 'OpenAI Codex',
-    accent: '#10A37F',
-    description: '用 ChatGPT Plus / Pro 订阅给 OpenAI Codex / GPT-5 等模型。',
+    description: 'ChatGPT Plus / Pro 订阅账号登录。',
     status: 'available',
     statusLabel: '可用',
   },
   {
     id: 'antigravity',
+    providerType: 'gemini-cli',
     name: 'Google Antigravity',
-    accent: '#4285F4',
-    description: '用 Google 账号给 Gemini 系列模型。',
+    description: 'Google 账号登录 Gemini。',
     status: 'available',
     statusLabel: '预览',
   },
   {
     id: 'cursor',
+    providerType: 'openai-compatible',
     name: 'Cursor',
-    accent: '#000000',
-    description: '用 Cursor 订阅给本机 OpenAI 兼容代理。',
+    description: 'Cursor 订阅账号登录。',
     status: 'available',
     statusLabel: '可用',
   },
@@ -662,16 +662,23 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
             <button
               key={card.id}
               type="button"
-              className="providerOAuthCard"
+              className="providerCatalogCard providerOAuthCard"
               data-card-id={card.id}
-              data-status={card.status}
+              data-provider={card.providerType}
+              data-status="ready"
+              data-oauth-status={card.status}
               data-logged-in={isLoggedIn ? 'true' : undefined}
-              style={{ ['--oauth-accent' as string]: card.accent }}
+              aria-label={providerOAuthAriaLabel(card, liveBadge, liveDescription)}
               onClick={() => setOpenModal(card.id)}
             >
-              <span className="providerOAuthCardBadge">{liveBadge}</span>
-              <span className="providerOAuthCardName">{card.name}</span>
-              <span className="providerOAuthCardDescription">{liveDescription}</span>
+              <ProviderLogo type={card.providerType} />
+              <span className="providerCatalogCopy providerOAuthCardCopy">
+                <span className="providerCatalogTitle">
+                  <strong>{card.name}</strong>
+                  <em className="providerOAuthCardBadge">{liveBadge}</em>
+                </span>
+                <small className="providerOAuthCardDescription">{liveDescription}</small>
+              </span>
             </button>
           );
         })}
@@ -697,6 +704,10 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
       )}
     </div>
   );
+}
+
+function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description: string): string {
+  return `打开 OAuth 登录：${card.name}，状态：${badge}，${description.replace(/[。.!！？?]+$/u, '')}`;
 }
 
 /**

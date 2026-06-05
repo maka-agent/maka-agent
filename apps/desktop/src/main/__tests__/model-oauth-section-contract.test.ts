@@ -292,6 +292,71 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
+  it('keeps OAuth cards visually aligned with domestic and overseas provider cards', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const styles = await readFile(resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');
+    const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function providerOAuthAriaLabel/);
+    assert.ok(sectionMatch, 'ModelOAuthSection render block must exist');
+    const section = sectionMatch[0]!;
+
+    assert.match(
+      section,
+      /className="providerCatalogCard providerOAuthCard"/,
+      'OAuth tab cards must reuse the same provider catalog card chrome as 国内 / 海外 / 本地 cards',
+    );
+    assert.match(
+      section,
+      /<ProviderLogo type=\{card\.providerType\} \/>/,
+      'OAuth cards must show the same provider logo affordance as provider catalog cards',
+    );
+    assert.match(
+      section,
+      /className="providerCatalogCopy providerOAuthCardCopy"[\s\S]*className="providerCatalogTitle"/,
+      'OAuth cards must reuse the same title/description hierarchy as provider catalog cards',
+    );
+    assert.doesNotMatch(
+      section,
+      /style=\{\{\s*\['--oauth-accent' as string\]/,
+      'OAuth cards must not keep a separate accent-tinted card surface',
+    );
+
+    assert.match(
+      styles,
+      /\.providerMarketGrid,[\s\S]*?grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(198px,\s*1fr\)\)/,
+      'provider market tabs must use stable auto-fill columns so 国内 and 海外 card widths do not diverge',
+    );
+    assert.match(
+      styles,
+      /\.providerCatalogCard\s*\{[\s\S]*?height:\s*172px;/,
+      'provider catalog cards need a fixed shared height so tab content does not jump between categories',
+    );
+    assert.match(
+      styles,
+      /\.providerOAuthGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(198px,\s*1fr\)\)[\s\S]*?align-content:\s*start;/,
+      'OAuth tab must use the same 198px provider grid as the API-key provider tabs without stretching the card row',
+    );
+    assert.match(
+      styles,
+      /\.providerMarketGrid \.providerCatalogCard\s*\{[\s\S]*?max-width:\s*286px;[\s\S]*?min-height:\s*172px;/,
+      'API-key provider cards must use the same fixed card height as OAuth cards',
+    );
+    assert.match(
+      styles,
+      /\.providerOAuthGrid \.providerCatalogCard\s*\{[\s\S]*?max-width:\s*286px;[\s\S]*?min-height:\s*172px;/,
+      'OAuth cards must use the same max width and minimum height as provider catalog cards',
+    );
+    assert.match(
+      styles,
+      /\.providerOAuthCardDescription\s*\{[\s\S]*?-webkit-line-clamp:\s*2;/,
+      'OAuth account labels and descriptions must not stretch the card grid vertically',
+    );
+    assert.doesNotMatch(
+      styles,
+      /\.providerOAuthCard\s*\{[\s\S]*?display:\s*flex;[\s\S]*?background:\s*color-mix/,
+      'OAuth cards must not keep the old separate flex/color-mix card implementation',
+    );
+  });
+
   it('every card declares status: "available" (no more "planned" placeholders)', async () => {
     const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);

@@ -7189,6 +7189,7 @@ button:active {
 }
 
 .providerCatalogCard {
+  height: 172px;
   min-height: 104px;
   display: grid;
   grid-template-columns: 1fr;
@@ -7764,8 +7765,8 @@ button:active {
 
 /* Account-bound OAuth providers live under the OAuth catalog tab, as
    a peer of 国内 / 海外 / 本地 instead of a pinned standalone section.
-   Each card uses its brand accent color via the inline
-   `--oauth-accent` custom property. */
+   Keep the same catalog grid/card chrome across every provider tab so
+   OAuth, 国内, 海外, and 本地 do not look like unrelated surfaces. */
 .providerOAuthCatalog {
   min-height: 0;
   display: grid;
@@ -7784,63 +7785,36 @@ button:active {
 }
 .providerOAuthGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(198px, 1fr));
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding-right: 4px;
 }
-.providerOAuthCard {
-  appearance: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-height: 118px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--oauth-accent, var(--accent)) 24%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--oauth-accent, var(--accent)) 6%, var(--background));
-  color: var(--foreground);
-  cursor: pointer;
-  text-align: left;
-  position: relative;
-  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+
+.providerOAuthGrid .providerCatalogCard {
+  width: 100%;
+  max-width: 286px;
+  min-height: 172px;
 }
-.providerOAuthCard:hover {
-  background: color-mix(in srgb, var(--oauth-accent, var(--accent)) 12%, var(--background));
-  border-color: color-mix(in srgb, var(--oauth-accent, var(--accent)) 40%, transparent);
-}
-.providerOAuthCard:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oauth-accent, var(--accent)) 28%, transparent);
-}
-.providerOAuthCard[data-status="planned"] {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
+
 .providerOAuthCardBadge {
-  position: absolute;
-  top: 12px;
-  right: 14px;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.02em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--oauth-accent, var(--accent)) 16%, var(--background));
-  color: var(--foreground-70);
 }
-.providerOAuthCard[data-status="available"] .providerOAuthCardBadge {
+
+.providerOAuthCard[data-logged-in="true"] .providerOAuthCardBadge {
   background: color-mix(in srgb, var(--success) 16%, var(--background));
   color: var(--success-text);
 }
-.providerOAuthCardName {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--oauth-accent, var(--accent));
-}
+
 .providerOAuthCardDescription {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--foreground-60);
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .enabledStrip {
@@ -8021,7 +7995,7 @@ button:active {
 
 .providerMarketGrid,
 .settingsSurface[data-modal="true"] .providerMarketGrid {
-  grid-template-columns: repeat(auto-fit, minmax(198px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(198px, 1fr));
   gap: 12px;
   overflow: auto;
   padding-right: 4px;
@@ -8030,7 +8004,7 @@ button:active {
 .providerMarketGrid .providerCatalogCard {
   width: 100%;
   max-width: 286px;
-  min-height: 132px;
+  min-height: 172px;
 }
 
 .providerCatalogCard {
