@@ -3937,7 +3937,17 @@ function NetworkSettingsPage(props: {
   const proxyPendingSaveCountRef = useRef(0);
   const proxySaveTicketRef = useRef(0);
   const proxyTestRunningRef = useRef(false);
+  const networkPageMountedRef = useRef(false);
   const toast = useToast();
+
+  useEffect(() => {
+    networkPageMountedRef.current = true;
+    return () => {
+      networkPageMountedRef.current = false;
+      proxySaveTicketRef.current += 1;
+      proxyTestRunningRef.current = false;
+    };
+  }, []);
 
   function commitProxyDraft(next: NetworkProxySettings) {
     proxyDraftRef.current = next;
@@ -3959,14 +3969,14 @@ function NetworkSettingsPage(props: {
     commitProxyDraft(nextDraft);
     try {
       const result = await props.onUpdate({ network: { proxy: patch } });
-      if (ticket === proxySaveTicketRef.current) {
+      if (networkPageMountedRef.current && ticket === proxySaveTicketRef.current) {
         commitProxyDraft(result.settings.network.proxy);
       }
     } catch (error) {
-      if (ticket === proxySaveTicketRef.current) {
+      if (networkPageMountedRef.current && ticket === proxySaveTicketRef.current) {
         commitProxyDraft(persistedProxyRef.current);
+        toast.error('保存网络设置失败', settingsActionErrorMessage(error));
       }
-      toast.error('保存网络设置失败', settingsActionErrorMessage(error));
     } finally {
       proxyPendingSaveCountRef.current = Math.max(0, proxyPendingSaveCountRef.current - 1);
     }
@@ -3979,16 +3989,20 @@ function NetworkSettingsPage(props: {
     try {
       const result = await window.maka.settings.testNetworkProxy(toProxyTestInput(proxyDraftRef.current));
       const latency = result.latencyMs !== undefined ? ` · ${result.latencyMs} ms` : '';
-      if (result.ok) {
+      if (result.ok && networkPageMountedRef.current) {
         toast.success('代理可达', `${result.message}${latency}`);
-      } else {
+      } else if (networkPageMountedRef.current) {
         toast.error('代理测试失败', result.message);
       }
     } catch (error) {
-      toast.error('代理测试出错', settingsActionErrorMessage(error));
+      if (networkPageMountedRef.current) {
+        toast.error('代理测试出错', settingsActionErrorMessage(error));
+      }
     } finally {
       proxyTestRunningRef.current = false;
-      setTesting(false);
+      if (networkPageMountedRef.current) {
+        setTesting(false);
+      }
     }
   }
 

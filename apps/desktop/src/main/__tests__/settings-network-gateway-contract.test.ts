@@ -138,6 +138,51 @@ describe('Settings network and gateway persistence contract', () => {
     assert.match(networkBlock, /onClick=\{\(\) => void testProxy\(\)\}/, 'Network proxy test click handler must explicitly discard the async promise');
   });
 
+  it('drops late network proxy save and test UI writes after Settings is closed', () => {
+    const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
+
+    assert.match(
+      networkBlock,
+      /const networkPageMountedRef = useRef\(false\);/,
+      'Network proxy page must track mounted ownership for async save/test actions',
+    );
+    assert.match(
+      networkBlock,
+      /useEffect\(\(\) => \{[\s\S]*networkPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*networkPageMountedRef\.current = false;[\s\S]*proxySaveTicketRef\.current \+= 1;[\s\S]*proxyTestRunningRef\.current = false;/,
+      'Network proxy cleanup must invalidate save tickets and release test ownership when Settings closes',
+    );
+    assert.match(
+      networkBlock,
+      /if \(networkPageMountedRef\.current && ticket === proxySaveTicketRef\.current\) \{[\s\S]*commitProxyDraft\(result\.settings\.network\.proxy\);/,
+      'Network proxy save success must not write local draft state after unmount',
+    );
+    assert.match(
+      networkBlock,
+      /catch \(error\) \{[\s\S]*if \(networkPageMountedRef\.current && ticket === proxySaveTicketRef\.current\) \{[\s\S]*commitProxyDraft\(persistedProxyRef\.current\);[\s\S]*toast\.error\('保存网络设置失败', settingsActionErrorMessage\(error\)\);/,
+      'Network proxy save failure must not rollback draft state or toast after unmount',
+    );
+    assert.match(
+      networkBlock,
+      /if \(result\.ok && networkPageMountedRef\.current\) \{[\s\S]*toast\.success\('代理可达'/,
+      'Network proxy test success toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      networkBlock,
+      /else if \(networkPageMountedRef\.current\) \{[\s\S]*toast\.error\('代理测试失败', result\.message\);/,
+      'Network proxy test failure toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      networkBlock,
+      /catch \(error\) \{[\s\S]*if \(networkPageMountedRef\.current\) \{[\s\S]*toast\.error\('代理测试出错', settingsActionErrorMessage\(error\)\);/,
+      'Network proxy test thrown-error toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      networkBlock,
+      /finally \{[\s\S]*proxyTestRunningRef\.current = false;[\s\S]*if \(networkPageMountedRef\.current\) \{[\s\S]*setTesting\(false\);/,
+      'Network proxy test cleanup must release the ref but not write React state after unmount',
+    );
+  });
+
   it('keeps gateway success toasts behind a successful settings save', () => {
     const gatewayBlock = blockBetween('function OpenGatewaySettingsPage', 'function presentGatewayStatus');
 
