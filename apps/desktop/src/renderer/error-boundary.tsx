@@ -40,35 +40,54 @@ export function formatRendererErrorReport(error: Error, info?: ErrorInfo | null)
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   state: State = { error: null, errorInfo: null, copyState: 'idle' };
+  private mounted = false;
+  private copyRequestSeq = 0;
 
   static getDerivedStateFromError(error: Error): State {
     return { error, errorInfo: null, copyState: 'idle' };
+  }
+
+  componentDidMount(): void {
+    this.mounted = true;
+  }
+
+  componentWillUnmount(): void {
+    this.mounted = false;
+    this.copyRequestSeq += 1;
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // In Electron's renderer this lands in DevTools console + main-process
     // stderr via the contextBridge logging path.
     console.error('Maka renderer error boundary caught:', error, info);
+    this.copyRequestSeq += 1;
     this.setState({ errorInfo: info });
   }
 
   private handleReset = () => {
+    this.copyRequestSeq += 1;
     this.setState({ error: null, errorInfo: null, copyState: 'idle' });
   };
 
   private handleReload = () => {
+    this.copyRequestSeq += 1;
     window.location.reload();
   };
+
+  private isCurrentCopyRequest(copyRequestId: number, error: Error): boolean {
+    return this.mounted && this.copyRequestSeq === copyRequestId && this.state.error === error;
+  }
 
   private handleCopyReport = async () => {
     const { error, errorInfo } = this.state;
     if (!error || this.state.copyState === 'pending') return;
+    const copyRequestId = ++this.copyRequestSeq;
     this.setState({ copyState: 'pending' });
     try {
       await navigator.clipboard.writeText(formatRendererErrorReport(error, errorInfo));
-      this.setState({ copyState: 'copied' });
+      if (this.isCurrentCopyRequest(copyRequestId, error)) this.setState({ copyState: 'copied' });
     } catch {
-      this.setState({ copyState: 'failed' });
+      if (this.isCurrentCopyRequest(copyRequestId, error)) this.setState({ copyState: 'failed' });
     }
   };
 
