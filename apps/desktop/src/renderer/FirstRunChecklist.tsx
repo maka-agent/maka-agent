@@ -55,9 +55,19 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusRefreshPending, setStatusRefreshPending] = useState(false);
+  const checklistMountedRef = useRef(true);
   const failureToastShownRef = useRef(false);
   const statusRefreshPendingRef = useRef(false);
   const toast = useToast();
+
+  useEffect(() => {
+    checklistMountedRef.current = true;
+    return () => {
+      checklistMountedRef.current = false;
+    };
+  }, []);
+
+  const isChecklistUnmounted = useCallback(() => !checklistMountedRef.current, []);
 
   const surfaceProbeFailure = useCallback((error: unknown) => {
     const message = firstRunChecklistErrorMessage(error);
@@ -68,7 +78,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
     }
   }, [toast]);
 
-  const refreshChecklistStatus = useCallback(async (isCancelled: () => boolean = () => false) => {
+  const refreshChecklistStatus = useCallback(async (isCancelled: () => boolean = isChecklistUnmounted) => {
     if (statusRefreshPendingRef.current) return;
     statusRefreshPendingRef.current = true;
     setStatusRefreshPending(true);
@@ -113,11 +123,11 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
       statusRefreshPendingRef.current = false;
       if (!isCancelled()) setStatusRefreshPending(false);
     }
-  }, [surfaceProbeFailure]);
+  }, [isChecklistUnmounted, surfaceProbeFailure]);
 
   useEffect(() => {
     let cancelled = false;
-    void refreshChecklistStatus(() => cancelled);
+    void refreshChecklistStatus(() => cancelled || !checklistMountedRef.current);
     return () => {
       cancelled = true;
     };

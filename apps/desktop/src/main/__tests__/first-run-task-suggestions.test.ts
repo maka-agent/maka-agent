@@ -193,11 +193,20 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(refreshBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setWorkspaceInstructionCount\(null\);[\s\S]*handleProbeFailure\(error\)/);
     assert.doesNotMatch(refreshBlock, /catch[\s\S]*setSettings\(null\)|catch[\s\S]*setPlanReminders\(\[\]\)|catch[\s\S]*setWorkspaceInstructionCount\(0\)/);
     assert.match(source, /const \[statusRefreshPending, setStatusRefreshPending\] = useState\(false\)/);
+    assert.match(source, /const checklistMountedRef = useRef\(true\)/);
     assert.match(source, /const statusRefreshPendingRef = useRef\(false\)/);
+    assert.match(
+      source,
+      /useEffect\(\(\) => \{[\s\S]*checklistMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*checklistMountedRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      'first-run checklist must restore mounted state during StrictMode replay',
+    );
+    assert.match(source, /const isChecklistUnmounted = useCallback\(\(\) => !checklistMountedRef\.current, \[\]\)/);
+    assert.match(refreshBlock, /isCancelled: \(\) => boolean = isChecklistUnmounted/);
+    assert.doesNotMatch(refreshBlock, /isCancelled: \(\) => boolean = \(\) => false/);
     assert.match(refreshBlock, /let hadFailure = false;[\s\S]*const handleProbeFailure = \(error: unknown\) => \{[\s\S]*hadFailure = true;[\s\S]*surfaceProbeFailure\(error\)/);
     assert.match(refreshBlock, /if \(statusRefreshPendingRef\.current\) return;[\s\S]*statusRefreshPendingRef\.current = true[\s\S]*setStatusRefreshPending\(true\)[\s\S]*await Promise\.all\(\[[\s\S]*statusRefreshPendingRef\.current = false[\s\S]*setStatusRefreshPending\(false\)/);
     assert.match(refreshBlock, /if \(!isCancelled\(\) && !hadFailure\) setStatusError\(null\)/);
-    assert.match(effectBlock, /void refreshChecklistStatus\(\(\) => cancelled\)/);
+    assert.match(effectBlock, /void refreshChecklistStatus\(\(\) => cancelled \|\| !checklistMountedRef\.current\)/);
     assert.match(source, /onClick=\{\(\) => void refreshChecklistStatus\(\)\}/);
     assert.match(source, /disabled=\{statusRefreshPending\}/);
     assert.match(source, /aria-busy=\{statusRefreshPending \? 'true' : undefined\}/);
