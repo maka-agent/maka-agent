@@ -4,9 +4,9 @@
  *
  * The React hook (`useOnboardingSnapshotImpl`) is a thin shell over
  * `createOnboardingSnapshotPoller`. We test the pure poller here —
- * stale-response defense, error handling — and verify the helper
- * predicate `isSetupRequired`. The React wiring is covered by smoke
- * + manual UI testing in PR110d.
+ * stale-response defense, lifecycle gating, error handling — and
+ * verify the helper predicate `isSetupRequired`. The React wiring is
+ * covered by smoke + manual UI testing in PR110d.
  */
 
 import { strict as assert } from 'node:assert';
@@ -134,6 +134,73 @@ describe('createOnboardingSnapshotPoller', () => {
     assert.equal(snaps.length, 1);
     assert.equal(errs.length, 0, 'stale error from older pull must NOT emit');
   });
+
+  it('dispose() prevents pending getSnapshot callbacks after unmount', async () => {
+    let resolveSnapshot!: (snap: OnboardingSnapshot) => void;
+    const events: Array<{ type: 'snap' | 'err'; payload: unknown }> = [];
+    const poller = createOnboardingSnapshotPoller(
+      {
+        getSnapshot: () =>
+          new Promise<OnboardingSnapshot>((resolve) => {
+            resolveSnapshot = resolve;
+          }),
+      },
+      {
+        onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
+        onError: (m) => events.push({ type: 'err', payload: m }),
+      },
+    );
+
+    const pull = poller.pull();
+    poller.dispose();
+    resolveSnapshot(READY_SNAPSHOT);
+    await pull;
+
+    assert.deepEqual(events, [], 'pending snapshot callbacks must not fire after dispose');
+  });
+
+  it('dispose() prevents pending error callbacks after unmount', async () => {
+    let rejectSnapshot!: (error: Error) => void;
+    const events: Array<{ type: 'snap' | 'err'; payload: unknown }> = [];
+    const poller = createOnboardingSnapshotPoller(
+      {
+        getSnapshot: () =>
+          new Promise<OnboardingSnapshot>((_resolve, reject) => {
+            rejectSnapshot = reject;
+          }),
+      },
+      {
+        onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
+        onError: (m) => events.push({ type: 'err', payload: m }),
+      },
+    );
+
+    const pull = poller.pull();
+    poller.dispose();
+    rejectSnapshot(new Error('late failure'));
+    await pull;
+
+    assert.deepEqual(events, [], 'pending error callbacks must not fire after dispose');
+  });
+
+  it('activate() restores callbacks after StrictMode cleanup replay', async () => {
+    const events: Array<{ type: 'snap' | 'err'; payload: unknown }> = [];
+    const poller = createOnboardingSnapshotPoller(
+      { getSnapshot: async () => READY_SNAPSHOT },
+      {
+        onSnapshot: (s) => events.push({ type: 'snap', payload: s }),
+        onError: (m) => events.push({ type: 'err', payload: m }),
+      },
+    );
+
+    poller.dispose();
+    await poller.pull();
+    assert.deepEqual(events, [], 'disposed poller must ignore pulls');
+
+    poller.activate();
+    await poller.pull();
+    assert.deepEqual(events, [{ type: 'snap', payload: READY_SNAPSHOT }]);
+  });
 });
 
 describe('first-run error boundaries', () => {
@@ -142,8 +209,13 @@ describe('first-run error boundaries', () => {
     const checklist = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
 
     assert.match(onboarding, /function onboardingSnapshotErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '首次使用状态暂时不可用，请稍后重试。'\)/);
-    assert.match(onboarding, /callbacks\.onError\(onboardingSnapshotErrorMessage\(err\)\)/);
+    assert.match(onboarding, /emitError\(onboardingSnapshotErrorMessage\(err\)\)/);
     assert.doesNotMatch(onboarding, /callbacks\.onError\(err instanceof Error \? err\.message : String\(err\)\)/);
+    assert.match(onboarding, /export interface OnboardingSnapshotPoller \{[\s\S]*activate\(\): void;[\s\S]*pull\(\): Promise<void>;[\s\S]*dispose\(\): void;/);
+    assert.match(onboarding, /poller\.activate\(\);[\s\S]*void poller\.pull\(\);[\s\S]*unsubscribe\(\);[\s\S]*poller\.dispose\(\);/);
+    assert.match(onboarding, /let active = true;/);
+    assert.match(onboarding, /if \(!active \|\| ticket !== inflightTicket\) return/);
+    assert.match(onboarding, /dispose\(\): void \{[\s\S]*active = false;[\s\S]*inflightTicket \+= 1;/);
 
     assert.match(checklist, /function firstRunChecklistErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '状态服务暂时不可用，请稍后重试。'\)/);
     assert.doesNotMatch(checklist, /error instanceof Error[\s\S]*error\.message[\s\S]*String\(error\)/);
