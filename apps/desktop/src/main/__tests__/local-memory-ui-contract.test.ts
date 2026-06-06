@@ -46,10 +46,15 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /Memory entry: \$\{entry\.title\}/);
     assert.match(pageBlock, /ID: \$\{entry\.id\}/);
     assert.match(pageBlock, /Status: \$\{memoryEntryStatusLabel\(entry\.status\)\}/);
+    assert.match(pageBlock, /runMemoryAction\(`entry:\$\{entry\.id\}:copy`/);
     assert.match(pageBlock, /navigator\.clipboard\.writeText\(reference\)/);
     assert.match(pageBlock, /toast\.success\('已复制记忆引用', entry\.id\)/);
+    assert.match(pageBlock, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
     assert.match(listBlock, /onCopyReference/);
-    assert.match(listBlock, /复制引用/);
+    assert.match(listBlock, /pendingCopyIds\?: ReadonlySet<string>/);
+    assert.match(listBlock, /const copyPending = props\.pendingCopyIds\?\.has\(`entry:\$\{entry\.id\}:copy`\) \?\? false/);
+    assert.match(listBlock, /disabled=\{copyPending\}/);
+    assert.match(listBlock, /copyPending \? '复制中…' : '复制引用'/);
     assert.match(src, /function memoryEntryStatusLabel/);
   });
 
@@ -89,9 +94,11 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /疑似密钥会遮蔽/);
     assert.match(pageBlock, /<pre>\{localMemoryPromptPreview\}<\/pre>/);
     assert.match(pageBlock, /async function copyLocalMemoryPromptPreview/);
+    assert.match(pageBlock, /runMemoryAction\('memory:prompt-preview:copy'/);
     assert.match(pageBlock, /navigator\.clipboard\.writeText\(localMemoryPromptPreview\)/);
     assert.match(pageBlock, /已复制模型上下文预览/);
-    assert.match(pageBlock, /复制上下文/);
+    assert.match(pageBlock, /isMemoryActionPending\('memory:prompt-preview:copy'\) \? '复制中…' : '复制上下文'/);
+    assert.match(pageBlock, /disabled=\{!localMemoryPromptPreview \|\| isMemoryActionPending\('memory:prompt-preview:copy'\)\}/);
     assert.match(css, /\.settingsMemoryPromptPreview/);
     assert.match(css, /\.settingsMemoryPromptPreviewBudget/);
   });
