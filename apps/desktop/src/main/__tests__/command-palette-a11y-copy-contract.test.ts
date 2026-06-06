@@ -53,8 +53,19 @@ describe('Command palette accessibility and visible copy', () => {
     const main = await readRepo('apps/desktop/src/renderer/main.tsx');
     const commandPaletteBlock = main.match(/commands=\{buildCommandList\(\{[\s\S]*?\n\s*\}\)\}/)?.[0] ?? '';
     const helperBlock = main.match(/function commandPaletteActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const connectionTestHelperBlock = main.match(/function commandPaletteConnectionTestFailureMessage\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const connectionTestFallbackBlock = main.match(/function commandPaletteConnectionTestFailureFallback\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
 
     assert.match(helperBlock, /generalizedErrorMessageChinese\(error, fallback\)/);
+    assert.match(
+      connectionTestHelperBlock,
+      /generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
+      'Command palette connection-test failures must classify/redact raw provider messages before toast',
+    );
+    assert.match(connectionTestFallbackBlock, /statusCode === 429[\s\S]*触发速率限制/);
+    assert.match(connectionTestFallbackBlock, /errorClass === 'auth'[\s\S]*鉴权失败/);
+    assert.match(connectionTestFallbackBlock, /errorClass === 'network'[\s\S]*网络错误/);
+    assert.match(commandPaletteBlock, /toastApi\.error\(`连接测试失败 · \$\{name\}`, commandPaletteConnectionTestFailureMessage\(result\)\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '导出当前对话失败，请稍后重试。'\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '连接测试暂时不可用，请稍后重试。'\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '默认模型暂时无法切换，请稍后重试。'\)/);
@@ -66,6 +77,11 @@ describe('Command palette accessibility and visible copy', () => {
       commandPaletteBlock,
       /(?:err|error) instanceof Error \? (?:err|error)\.message : (?:String\((?:err|error)\)|'导出当前对话失败'|'路径无效'|'剪贴板不可用'|'网络代理测试异常')/,
       'Command palette actions must not toast raw thrown Error.message',
+    );
+    assert.doesNotMatch(
+      commandPaletteBlock,
+      /toastApi\.error\(`连接测试失败 · \$\{name\}`, result\.errorMessage \?\? '未知错误'\)/,
+      'Command palette connection test must not echo raw ConnectionTestResult.errorMessage',
     );
   });
 });

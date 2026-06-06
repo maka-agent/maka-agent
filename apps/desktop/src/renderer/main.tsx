@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import type {
+  ConnectionTestResult,
   ConnectionEvent,
   DailyReviewSummary,
   LlmConnection,
@@ -131,6 +132,25 @@ function dailyReviewActionErrorMessage(error: unknown, fallback: string): string
 
 function commandPaletteActionErrorMessage(error: unknown, fallback: string): string {
   return generalizedErrorMessageChinese(error, fallback);
+}
+
+function commandPaletteConnectionTestFailureMessage(result: ConnectionTestResult): string {
+  const fallback = commandPaletteConnectionTestFailureFallback(result);
+  if (!result.errorMessage) return fallback;
+  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
+}
+
+function commandPaletteConnectionTestFailureFallback(result: ConnectionTestResult): string {
+  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
+  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
+  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
+    return '鉴权失败，请检查模型密钥、订阅账号登录或凭据配置后重试。';
+  }
+  if (result.errorClass === 'network') return '网络错误，请检查网络或代理后重试。';
+  if (result.errorClass === 'provider_unavailable' || (result.statusCode && result.statusCode >= 500)) {
+    return '模型服务返回错误，请稍后重试。';
+  }
+  return '连接测试失败，请稍后重试。';
 }
 
 function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModelChoice[] {
@@ -2866,7 +2886,7 @@ function AppShell() {
                     `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`,
                   );
                 } else {
-                  toastApi.error(`连接测试失败 · ${name}`, result.errorMessage ?? '未知错误');
+                  toastApi.error(`连接测试失败 · ${name}`, commandPaletteConnectionTestFailureMessage(result));
                 }
                 await refreshConnections();
               } catch (err) {
