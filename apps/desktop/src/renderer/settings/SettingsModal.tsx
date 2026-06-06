@@ -1556,6 +1556,7 @@ function AccountSettingsPage(props: {
   const [secretMap, setSecretMap] = useState<Record<string, AccountSecretProbeStatus>>({});
   const [secretProbeError, setSecretProbeError] = useState<string | null>(null);
   const [testingSlug, setTestingSlug] = useState<string | null>(null);
+  const testingSlugRef = useRef<string | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -1588,6 +1589,8 @@ function AccountSettingsPage(props: {
   }, [props.connections]);
 
   async function testConnection(slug: string) {
+    if (testingSlugRef.current !== null) return;
+    testingSlugRef.current = slug;
     setTestingSlug(slug);
     try {
       const result = await window.maka.connections.test(slug);
@@ -1601,10 +1604,16 @@ function AccountSettingsPage(props: {
       // to throw form, surface the generalized message anyway.
       toast.error('测试出错', settingsActionErrorMessage(error));
     } finally {
-      setTestingSlug(null);
       // Pull the freshest lastTestStatus/lastTestAt/lastTestMessage so the
       // row re-renders with the new derived status without a Settings reopen.
-      await props.onRefresh();
+      try {
+        await props.onRefresh();
+      } catch (error) {
+        toast.error('刷新模型连接状态失败', settingsActionErrorMessage(error));
+      } finally {
+        testingSlugRef.current = null;
+        setTestingSlug(null);
+      }
     }
   }
 

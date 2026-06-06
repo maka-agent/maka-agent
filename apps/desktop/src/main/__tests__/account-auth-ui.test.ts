@@ -207,6 +207,32 @@ describe('Account settings credential probe UI', () => {
     );
   });
 
+  it('gates account-page connection tests and handles post-test refresh failures', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = source.match(/function AccountSettingsPage[\s\S]*?function AccountConnectionRow/)?.[0] ?? '';
+
+    assert.match(
+      page,
+      /const testingSlugRef = useRef<string \| null>\(null\)/,
+      'Account page connection tests need a synchronous duplicate-click guard, not only React state',
+    );
+    assert.match(
+      page,
+      /async function testConnection\(slug: string\) \{[\s\S]*if \(testingSlugRef\.current !== null\) return;[\s\S]*testingSlugRef\.current = slug;[\s\S]*await window\.maka\.connections\.test\(slug\)/,
+      'Account page connection test must set the duplicate-click guard before awaiting IPC',
+    );
+    assert.match(
+      page,
+      /finally \{[\s\S]*try \{[\s\S]*await props\.onRefresh\(\);[\s\S]*\} catch \(error\) \{[\s\S]*toast\.error\('刷新模型连接状态失败', settingsActionErrorMessage\(error\)\)[\s\S]*\} finally \{[\s\S]*testingSlugRef\.current = null;[\s\S]*setTestingSlug\(null\);[\s\S]*\}/,
+      'Account page connection test must keep the button pending through status refresh and surface refresh failures',
+    );
+    assert.doesNotMatch(
+      page,
+      /finally \{[\s\S]*setTestingSlug\(null\);[\s\S]*await props\.onRefresh\(\);[\s\S]*\}/,
+      'Account page connection test must not re-enable the button before the status refresh finishes',
+    );
+  });
+
   it('normalizes legacy persisted connection-test messages before display', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
     const helper = source.match(/function accountLastTestMessageDisplay\(message: string \| undefined\): string \| undefined \{[\s\S]*?\n\}/)?.[0] ?? '';
