@@ -1345,6 +1345,8 @@ function ConnectionDetail(props: {
   const fetchingModelsRef = useRef(false);
   const settingDefaultRef = useRef(false);
   const deletingRef = useRef(false);
+  const connectionDetailMountedRef = useRef(false);
+  const connectionDetailLifecycleRef = useRef(0);
   const toast = useToast();
   const needsApiKey = defaults.authKind === 'api_key';
   const needsOAuth = defaults.authKind === 'oauth_token';
@@ -1365,15 +1367,37 @@ function ConnectionDetail(props: {
   const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
 
   useEffect(() => {
+    connectionDetailMountedRef.current = true;
+    connectionDetailLifecycleRef.current += 1;
+    return () => {
+      connectionDetailMountedRef.current = false;
+      connectionDetailLifecycleRef.current += 1;
+      busyRef.current = false;
+      testingRef.current = false;
+      fetchingModelsRef.current = false;
+      settingDefaultRef.current = false;
+      deletingRef.current = false;
+    };
+  }, [connection.slug]);
+
+  function isConnectionDetailCurrent(lifecycle: number): boolean {
+    return connectionDetailMountedRef.current && connectionDetailLifecycleRef.current === lifecycle;
+  }
+
+  useEffect(() => {
+    const lifecycle = connectionDetailLifecycleRef.current;
     if (defaults.authKind === 'none') {
-      setHasSecret(true);
+      if (isConnectionDetailCurrent(lifecycle)) setHasSecret(true);
       return;
     }
     setHasSecret('loading');
     void props.bridge
       .hasSecret(connection.slug)
-      .then(setHasSecret)
+      .then((next) => {
+        if (isConnectionDetailCurrent(lifecycle)) setHasSecret(next);
+      })
       .catch((error) => {
+        if (!isConnectionDetailCurrent(lifecycle)) return;
         setHasSecret('error');
         toast.error('读取模型凭据状态失败', providerPanelActionErrorMessage(error));
       });
@@ -1424,6 +1448,7 @@ function ConnectionDetail(props: {
 
   async function save() {
     if (busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    const lifecycle = connectionDetailLifecycleRef.current;
     busyRef.current = true;
     setBusy(true);
     let saved = false;
@@ -1434,11 +1459,14 @@ function ConnectionDetail(props: {
         ...(apiKey ? { apiKey } : {}),
       });
       saved = true;
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       const wroteNewKey = apiKey.length > 0;
       setApiKey('');
       const nextHasSecret = requiresCredential ? await props.bridge.hasSecret(connection.slug) : true;
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       setHasSecret(nextHasSecret);
       await props.onChanged();
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       // Auto-fetch live model list as soon as the secret is in place. Without
       // this, the user lands on a Settings · 模型 row whose `defaultModel`
       // dropdown only contains the static fallback list (e.g. Z.ai → just
@@ -1448,6 +1476,7 @@ function ConnectionDetail(props: {
         void refreshModels({ silent: true });
       }
     } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       if (saved && requiresCredential) {
         setHasSecret('error');
       }
@@ -1457,16 +1486,18 @@ function ConnectionDetail(props: {
       );
     } finally {
       busyRef.current = false;
-      setBusy(false);
+      if (isConnectionDetailCurrent(lifecycle)) setBusy(false);
     }
   }
 
   async function runTest() {
     if (testingRef.current || busyRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    const lifecycle = connectionDetailLifecycleRef.current;
     testingRef.current = true;
     setTesting(true);
     try {
       const result: ConnectionTestResult = await props.bridge.test(connection.slug, { model: defaultModel });
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       if (result.ok) {
         toast.success(
           `连接成功 · ${connection.name}`,
@@ -1479,17 +1510,19 @@ function ConnectionDetail(props: {
         );
       }
     } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       const message = providerPanelActionErrorMessage(error);
       toast.error(`连接测试出错 · ${connection.name}`, message);
     } finally {
       testingRef.current = false;
-      setTesting(false);
+      if (isConnectionDetailCurrent(lifecycle)) setTesting(false);
     }
   }
 
   async function refreshModels(opts: { silent?: boolean } = {}) {
     if (fetchingModelsRef.current) return;
     if (!opts.silent && (busyRef.current || testingRef.current || settingDefaultRef.current || deletingRef.current)) return;
+    const lifecycle = connectionDetailLifecycleRef.current;
     fetchingModelsRef.current = true;
     setFetchingModels(true);
     try {
@@ -1499,13 +1532,16 @@ function ConnectionDetail(props: {
       // verbatim instead of inferring from list length, so a provider that
       // legitimately returns 0 models still reads as 'fetched'.
       const result = await props.bridge.fetchModels(connection.slug);
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       setModels(result.models);
       setModelSource(result.source);
       await props.onChanged();
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       if (!opts.silent) {
         toast.success(`已拉取 ${result.models.length} 个模型 · ${connection.name}`);
       }
     } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       const message = providerPanelActionErrorMessage(error);
       // Leave the previously-known source / models intact (so the dropdown
       // doesn't suddenly empty out), but downgrade the source label back to
@@ -1518,7 +1554,7 @@ function ConnectionDetail(props: {
       );
     } finally {
       fetchingModelsRef.current = false;
-      setFetchingModels(false);
+      if (isConnectionDetailCurrent(lifecycle)) setFetchingModels(false);
     }
   }
 
@@ -1528,22 +1564,27 @@ function ConnectionDetail(props: {
       toast.error('无法设为默认', '这个模型连接已禁用，请重新登录或启用后再设为默认。');
       return;
     }
+    const lifecycle = connectionDetailLifecycleRef.current;
     settingDefaultRef.current = true;
     setSettingDefault(true);
     try {
       await props.bridge.setDefault(connection.slug);
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       await props.onChanged();
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       toast.success(`已设为默认 · ${connection.name}`);
     } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       toast.error('切换默认失败', providerPanelActionErrorMessage(error));
     } finally {
       settingDefaultRef.current = false;
-      setSettingDefault(false);
+      if (isConnectionDetailCurrent(lifecycle)) setSettingDefault(false);
     }
   }
 
   async function remove() {
     if (deletingRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current) return;
+    const lifecycle = connectionDetailLifecycleRef.current;
     deletingRef.current = true;
     setDeleting(true);
     const ok = await toast.confirm({
@@ -1553,6 +1594,7 @@ function ConnectionDetail(props: {
       cancelLabel: '取消',
       destructive: true,
     });
+    if (!isConnectionDetailCurrent(lifecycle)) return;
     if (!ok) {
       deletingRef.current = false;
       setDeleting(false);
@@ -1562,15 +1604,17 @@ function ConnectionDetail(props: {
     try {
       await props.bridge.delete(connection.slug);
       deleted = true;
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       await props.onDeleted();
     } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
       toast.error(
         deleted ? '刷新模型列表失败' : '删除模型连接失败',
         providerPanelActionErrorMessage(error),
       );
     } finally {
       deletingRef.current = false;
-      setDeleting(false);
+      if (isConnectionDetailCurrent(lifecycle)) setDeleting(false);
     }
   }
 

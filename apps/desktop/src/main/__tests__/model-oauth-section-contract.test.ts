@@ -604,7 +604,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /const hasUsableCredential = !requiresCredential \|\| hasSecret === true/);
     assert.match(
       detail,
-      /props\.bridge[\s\S]*\.hasSecret\(connection\.slug\)[\s\S]*\.then\(setHasSecret\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setHasSecret\('error'\);[\s\S]*toast\.error\('读取模型凭据状态失败', providerPanelActionErrorMessage\(error\)\)/,
+      /props\.bridge[\s\S]*\.hasSecret\(connection\.slug\)[\s\S]*\.then\(\(next\) => \{[\s\S]*if \(isConnectionDetailCurrent\(lifecycle\)\) setHasSecret\(next\);[\s\S]*\.catch\(\(error\) => \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*setHasSecret\('error'\);[\s\S]*toast\.error\('读取模型凭据状态失败', providerPanelActionErrorMessage\(error\)\)/,
       'ConnectionDetail must show a visible error and keep unknown credential state distinct when probing fails',
     );
     assert.doesNotMatch(
@@ -619,6 +619,52 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       detail,
       /void props\.bridge\.hasSecret\(connection\.slug\)\.then\(setHasSecret\);/,
       'ConnectionDetail must not leave credential-presence probe rejections unhandled',
+    );
+  });
+
+  it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+
+    assert.match(
+      detail,
+      /const connectionDetailMountedRef = useRef\(false\);[\s\S]*const connectionDetailLifecycleRef = useRef\(0\);/,
+      'ConnectionDetail must track mounted/lifecycle ownership',
+    );
+    assert.match(
+      detail,
+      /useEffect\(\(\) => \{[\s\S]*connectionDetailMountedRef\.current = true;[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*return \(\) => \{[\s\S]*connectionDetailMountedRef\.current = false;[\s\S]*connectionDetailLifecycleRef\.current \+= 1;[\s\S]*busyRef\.current = false;[\s\S]*testingRef\.current = false;[\s\S]*fetchingModelsRef\.current = false;[\s\S]*settingDefaultRef\.current = false;[\s\S]*deletingRef\.current = false;[\s\S]*\};[\s\S]*\}, \[connection\.slug\]\);/,
+      'ConnectionDetail cleanup must release every pending action owner on close or provider switch',
+    );
+    assert.match(
+      detail,
+      /function isConnectionDetailCurrent\(lifecycle: number\): boolean \{[\s\S]*return connectionDetailMountedRef\.current && connectionDetailLifecycleRef\.current === lifecycle;[\s\S]*\}/,
+      'ConnectionDetail must expose a single current-owner predicate',
+    );
+    assert.match(
+      detail,
+      /async function save\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*catch \(error\) \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.error/,
+      'ConnectionDetail save must not write stale state or toast after close',
+    );
+    assert.match(
+      detail,
+      /async function runTest\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.test\(connection\.slug,[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*catch \(error\) \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.error/,
+      'ConnectionDetail test must not toast after close',
+    );
+    assert.match(
+      detail,
+      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.fetchModels\(connection\.slug\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*catch \(error\) \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.error/,
+      'ConnectionDetail model refresh must not write stale model state or toast after close',
+    );
+    assert.match(
+      detail,
+      /async function setAsDefault\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.setDefault\(connection\.slug\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.success\(`已设为默认/,
+      'ConnectionDetail set-default must not toast after close',
+    );
+    assert.match(
+      detail,
+      /async function remove\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*const ok = await toast\.confirm[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.error/,
+      'ConnectionDetail delete must not continue or toast after close',
     );
   });
 
