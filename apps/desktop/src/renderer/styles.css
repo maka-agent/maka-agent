@@ -8782,6 +8782,19 @@ button:active {
   background: var(--foreground-5);
 }
 
+.maka-artifact-toolbar-button:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.maka-artifact-toolbar-button:disabled:hover {
+  background: var(--background);
+}
+
+.maka-artifact-toolbar-button[data-pending="true"] {
+  opacity: 0.78;
+}
+
 .maka-artifact-toolbar-destructive {
   margin-left: auto;
   color: var(--destructive-text);

@@ -109,4 +109,39 @@ describe('ArtifactPane async lifecycle contract', () => {
     assert.match(saveBlock, /catch \(error\) \{[\s\S]*toast\.error\('另存失败', artifactActionErrorMessage\(error\)\)/);
     assert.match(deleteBlock, /catch \(error\) \{[\s\S]*toast\.error\(`删除 \$\{name\} 失败`, artifactActionErrorMessage\(error\)\)/);
   });
+
+  it('gates artifact toolbar actions while async work is pending', async () => {
+    const src = await readFile(ARTIFACT_PANE_SOURCE, 'utf8');
+    const css = await readFile(join(process.cwd(), 'src', 'renderer', 'styles.css'), 'utf8');
+    const gateBlock = src.match(/async function runArtifactAction[\s\S]*?async function openInFinder/)?.[0] ?? '';
+    const toolbarBlock = src.match(/<div className="maka-artifact-toolbar"[\s\S]*?\n            <\/div>/)?.[0] ?? '';
+
+    assert.match(src, /const \[pendingArtifactAction, setPendingArtifactAction\] = useState<string \| null>\(null\)/);
+    assert.match(src, /const pendingArtifactActionRef = useRef<string \| null>\(null\)/);
+    assert.match(src, /const artifactActionBusy = pendingArtifactAction !== null/);
+    assert.match(
+      gateBlock,
+      /if \(pendingArtifactActionRef\.current !== null\) return;[\s\S]*pendingArtifactActionRef\.current = actionKey[\s\S]*setPendingArtifactAction\(actionKey\)[\s\S]*await action\(\)[\s\S]*pendingArtifactActionRef\.current = null[\s\S]*setPendingArtifactAction\(null\)/,
+      'Artifact actions must use a ref-backed pending gate so same-frame double clicks cannot run two IPC calls',
+    );
+    assert.match(
+      src,
+      /onShowInFolder=\{\(\) => void runArtifactAction\(`\$\{selected\.id\}:open`, \(\) => openInFinder\(selected\.id\)\)\}/,
+      'Unsupported-preview Finder action must share the same pending gate as the toolbar button',
+    );
+    for (const action of ['open', 'save', 'copy', 'delete']) {
+      assert.ok(
+        toolbarBlock.includes(`runArtifactAction(\`\${selected.id}:${action}\``),
+        `${action} action must run through the pending gate`,
+      );
+    }
+    assert.match(toolbarBlock, /disabled=\{artifactActionBusy\}/, 'toolbar buttons must be disabled while any artifact action is pending');
+    assert.match(toolbarBlock, /aria-busy=\{pendingArtifactAction === `\$\{selected\.id\}:open` \? 'true' : undefined\}/);
+    assert.match(toolbarBlock, /打开中…/);
+    assert.match(toolbarBlock, /另存中…/);
+    assert.match(toolbarBlock, /复制中…/);
+    assert.match(toolbarBlock, /删除中…/);
+    assert.match(css, /\.maka-artifact-toolbar-button:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: 0\.56;[\s\S]*\}/);
+    assert.match(css, /\.maka-artifact-toolbar-button\[data-pending="true"\] \{[\s\S]*opacity: 0\.78;[\s\S]*\}/);
+  });
 });

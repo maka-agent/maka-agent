@@ -68,8 +68,10 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
   const [listError, setListError] = useState<{ sessionId: string; message: string } | null>(null);
+  const [pendingArtifactAction, setPendingArtifactAction] = useState<string | null>(null);
   const artifactListRequestSeqRef = useRef(0);
   const recordsSessionIdRef = useRef<string | undefined>(undefined);
+  const pendingArtifactActionRef = useRef<string | null>(null);
 
   // ---- live data ---------------------------------------------------------
 
@@ -156,6 +158,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const listRef = useRef<HTMLUListElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const activeListError = listError && listError.sessionId === sessionId ? listError.message : null;
+  const artifactActionBusy = pendingArtifactAction !== null;
 
   // §9.1.3: "默认隐藏；当 session 内至少 1 个 live artifact 时显示". Returning
   // `null` keeps the chat surface flush with the right window edge until
@@ -166,6 +169,20 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }
 
   // ---- actions -----------------------------------------------------------
+
+  async function runArtifactAction(actionKey: string, action: () => Promise<void>) {
+    if (pendingArtifactActionRef.current !== null) return;
+    pendingArtifactActionRef.current = actionKey;
+    setPendingArtifactAction(actionKey);
+    try {
+      await action();
+    } finally {
+      if (pendingArtifactActionRef.current === actionKey) {
+        pendingArtifactActionRef.current = null;
+        setPendingArtifactAction(null);
+      }
+    }
+  }
 
   async function openInFinder(artifactId: string) {
     try {
@@ -397,7 +414,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               <ArtifactPreview
                 key={selected.id}
                 record={selected}
-                onShowInFolder={() => void openInFinder(selected.id)}
+                onShowInFolder={() => void runArtifactAction(`${selected.id}:open`, () => openInFinder(selected.id))}
               />
             ) : (
               <div className="maka-artifact-preview-empty">选择左侧生成文件查看预览。</div>
@@ -408,36 +425,48 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               <button
                 type="button"
                 className="maka-artifact-toolbar-button"
-                onClick={() => void openInFinder(selected.id)}
+                onClick={() => void runArtifactAction(`${selected.id}:open`, () => openInFinder(selected.id))}
+                disabled={artifactActionBusy}
+                data-pending={pendingArtifactAction === `${selected.id}:open` ? 'true' : undefined}
+                aria-busy={pendingArtifactAction === `${selected.id}:open` ? 'true' : undefined}
               >
                 <FolderOpen size={14} aria-hidden="true" />
-                <span>在 Finder 中打开</span>
+                <span>{pendingArtifactAction === `${selected.id}:open` ? '打开中…' : '在 Finder 中打开'}</span>
               </button>
               <button
                 type="button"
                 className="maka-artifact-toolbar-button"
-                onClick={() => void saveAs(selected.id)}
+                onClick={() => void runArtifactAction(`${selected.id}:save`, () => saveAs(selected.id))}
+                disabled={artifactActionBusy}
+                data-pending={pendingArtifactAction === `${selected.id}:save` ? 'true' : undefined}
+                aria-busy={pendingArtifactAction === `${selected.id}:save` ? 'true' : undefined}
               >
                 <Save size={14} aria-hidden="true" />
-                <span>另存为</span>
+                <span>{pendingArtifactAction === `${selected.id}:save` ? '另存中…' : '另存为'}</span>
               </button>
               {isTextKind(selected.kind) && (
                 <button
                   type="button"
                   className="maka-artifact-toolbar-button"
-                  onClick={() => void copyText(selected.id)}
+                  onClick={() => void runArtifactAction(`${selected.id}:copy`, () => copyText(selected.id))}
+                  disabled={artifactActionBusy}
+                  data-pending={pendingArtifactAction === `${selected.id}:copy` ? 'true' : undefined}
+                  aria-busy={pendingArtifactAction === `${selected.id}:copy` ? 'true' : undefined}
                 >
                   <Copy size={14} aria-hidden="true" />
-                  <span>复制文本</span>
+                  <span>{pendingArtifactAction === `${selected.id}:copy` ? '复制中…' : '复制文本'}</span>
                 </button>
               )}
               <button
                 type="button"
                 className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive"
-                onClick={() => void deleteArtifact(selected.id)}
+                onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
+                disabled={artifactActionBusy}
+                data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
+                aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
               >
                 <Trash2 size={14} aria-hidden="true" />
-                <span>删除</span>
+                <span>{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
               </button>
             </div>
           )}
