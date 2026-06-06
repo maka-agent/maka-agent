@@ -5099,12 +5099,9 @@ button:active {
   background: var(--background);
   /* PR-UI-LAYOUT-36: equalize horizontal padding (was asymmetric
    * 34 right / 20 left, content used to drift toward the left
-   * edge of the main pane). 26px both sides matches the the reference design
-   * settings interior spacing in screenshots 2/3/4. Bottom kept
-   * at 74px because the absolute-positioned "完成" CTA lives
-   * there. Top trimmed 24 → 22 so the header h2 sits a touch
-   * closer to the modal top border. */
-  padding: 22px 26px 74px 26px;
+   * edge of the main pane). 26px both sides matches the reference design
+   * settings interior spacing in screenshots 2/3/4. */
+  padding: 22px 26px 26px;
 }
 
 .settingsPageHeader {
@@ -5655,8 +5652,7 @@ button:active {
 
 /* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
    action buttons in bot settings follow the reference design — outlined
-   blue rounded pills, stacked vertically with a small gap. NOT primary
-   filled (which is reserved for the bottom-right 完成 CTA). */
+   blue rounded pills, stacked vertically with a small gap. */
 .settingsBotActionStack {
   display: flex;
   flex-direction: column;
@@ -7424,36 +7420,6 @@ button:active {
 .providerUnavailableNotice span {
   font-size: 12px;
   line-height: 1.4;
-}
-
-/* PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): was a
-   chunky 88x50 pill in a static "Solarpunk deep" green that did not
-   change with palette. Now a smaller, flatter action that follows
-   --accent via --brand-deep, with the hairline border the rest of the
-   Settings surface uses. */
-.settingsDoneButton {
-  position: absolute;
-  right: 24px;
-  bottom: 22px;
-  min-height: 32px;
-  padding: 0 16px;
-  border: 1px solid oklch(from var(--brand-deep) l c h / 0.40);
-  border-radius: 8px;
-  background: var(--brand-deep);
-  color: var(--background);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
-}
-
-.settingsDoneButton:hover {
-  background: var(--brand-deep-hover);
-}
-
-.settingsDoneButton:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.28);
 }
 
 .providerEditor header {

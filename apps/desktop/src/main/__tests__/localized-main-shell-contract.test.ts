@@ -334,6 +334,33 @@ describe('localized main shell contract', () => {
     );
   });
 
+  it('keeps Settings close affordance singular and avoids a duplicate bottom CTA', async () => {
+    const settings = await readFile(join(process.cwd(), 'src', 'renderer', 'settings', 'SettingsModal.tsx'), 'utf8');
+    const styles = await readFile(join(process.cwd(), 'src', 'renderer', 'styles.css'), 'utf8');
+    const surfaceBlock = settings.match(/function SettingsSurface[\s\S]*?function SettingsPage/)?.[0] ?? '';
+
+    assert.match(
+      surfaceBlock,
+      /className="settingsCloseButton"[\s\S]*aria-label="关闭设置"/,
+      'Settings keeps one fixed header close button as the modal close affordance',
+    );
+    assert.doesNotMatch(
+      surfaceBlock,
+      new RegExp('settingsDoneButton|>完成</button>'),
+      'Settings must not reintroduce the duplicate bottom-right 完成 button',
+    );
+    assert.doesNotMatch(
+      styles,
+      /\\.settingsDoneButton|bottom-right 完成 CTA/,
+      'Settings CSS must not keep stale styling or comments for the removed duplicate CTA',
+    );
+    assert.match(
+      styles,
+      /\.settingsMainPane \{[\s\S]*?padding:\s*22px 26px 26px;/,
+      'main pane should not reserve bottom space for a removed absolute-positioned CTA',
+    );
+  });
+
   it('keeps the resizable session-list width as integer pixels for readable splitter values', async () => {
     const main = await readFile(join(process.cwd(), 'src', 'renderer', 'main.tsx'), 'utf8');
     const resizeBlock = main.slice(main.indexOf('function startColumnResize'), main.indexOf('function onResizeHandleKeyDown'));

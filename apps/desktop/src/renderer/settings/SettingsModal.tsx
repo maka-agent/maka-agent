@@ -905,8 +905,6 @@ function SettingsSurface(props: {
             />
           )}
         </div>
-
-        <button className="settingsDoneButton" type="button" onClick={props.onClose}>完成</button>
       </section>
     </main>
   );
