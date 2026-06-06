@@ -4685,6 +4685,7 @@ type ClipboardCopyPhase = 'pending' | 'copied' | 'failed';
 function useClipboardCopyFeedback(resetDelay = 1400, options: { redact?: boolean } = {}) {
   const [copyState, setCopyState] = useState<{ key: string; phase: ClipboardCopyPhase } | null>(null);
   const pendingCopyRef = useRef<string | null>(null);
+  const copyMountedRef = useRef(true);
   const resetTimerRef = useRef<number | null>(null);
 
   function clearResetTimer() {
@@ -4693,11 +4694,16 @@ function useClipboardCopyFeedback(resetDelay = 1400, options: { redact?: boolean
     resetTimerRef.current = null;
   }
 
-  useEffect(() => clearResetTimer, []);
+  useEffect(() => () => {
+    copyMountedRef.current = false;
+    clearResetTimer();
+  }, []);
 
   function settle(key: string, phase: Exclude<ClipboardCopyPhase, 'pending'>) {
+    if (!copyMountedRef.current) return;
     setCopyState({ key, phase });
     resetTimerRef.current = window.setTimeout(() => {
+      if (!copyMountedRef.current) return;
       setCopyState((current) => current?.key === key ? null : current);
       resetTimerRef.current = null;
     }, resetDelay);
