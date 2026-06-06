@@ -356,26 +356,31 @@ function AppShell() {
     markdown: string;
     label: string;
     summary: DailyReviewSummary;
-  }) {
+  }, options: { shouldShowFeedback?: () => boolean } = {}) {
+    const shouldShowFeedback = options.shouldShowFeedback ?? (() => true);
     try {
       const result = await window.maka.dailyReview.saveMarkdownToFile({
         markdown: input.markdown,
         defaultName: dailyReviewExportDefaultName(input.label),
       });
       if (result.ok) {
-        toastApi.success(
-          `已保存${input.label}回顾`,
-          `${input.summary.totals.sessionCount} 个对话 · ${input.summary.totals.requestCount} 个请求`,
-        );
+        if (shouldShowFeedback()) {
+          toastApi.success(
+            `已保存${input.label}回顾`,
+            `${input.summary.totals.sessionCount} 个对话 · ${input.summary.totals.requestCount} 个请求`,
+          );
+        }
       } else if (result.reason === 'canceled') {
         // User dismissed the dialog — no toast.
       } else if (result.reason === 'invalid_input') {
-        toastApi.error('保存失败', '导出内容无效');
+        if (shouldShowFeedback()) toastApi.error('保存失败', '导出内容无效');
       } else {
-        toastApi.error('保存失败', '无法写入选择的位置');
+        if (shouldShowFeedback()) toastApi.error('保存失败', '无法写入选择的位置');
       }
     } catch (err) {
-      toastApi.error('保存失败', dailyReviewActionErrorMessage(err, '保存每日回顾失败，请稍后重试。'));
+      if (shouldShowFeedback()) {
+        toastApi.error('保存失败', dailyReviewActionErrorMessage(err, '保存每日回顾失败，请稍后重试。'));
+      }
     }
   }
   const activePermission = activeId ? permissionBySession[activeId] : undefined;
@@ -791,6 +796,10 @@ function AppShell() {
 
   function isSkillsSurfaceActive(): boolean {
     return navSelectionRef.current.section === 'skills';
+  }
+
+  function isDailyReviewSurfaceActive(): boolean {
+    return navSelectionRef.current.section === 'daily-review';
   }
 
   useEffect(() => {
@@ -2547,15 +2556,19 @@ function AppShell() {
             onCopyDailyReviewMarkdown={async ({ markdown, label, summary }) => {
               try {
                 await navigator.clipboard.writeText(markdown);
-                toastApi.success(
-                  `已复制${label}回顾`,
-                  `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
-                );
+                if (isDailyReviewSurfaceActive()) {
+                  toastApi.success(
+                    `已复制${label}回顾`,
+                    `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
+                  );
+                }
               } catch (error) {
-                toastApi.error('复制失败', dailyReviewActionErrorMessage(error, '剪贴板不可用或被系统拒绝'));
+                if (isDailyReviewSurfaceActive()) {
+                  toastApi.error('复制失败', dailyReviewActionErrorMessage(error, '剪贴板不可用或被系统拒绝'));
+                }
               }
             }}
-            onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input)}
+            onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
             dailyReviewBridge={dailyReviewBridge}
             rowActions={{
               onToggleFlag: (sessionId, next) => flagSession(sessionId, next),
@@ -2637,12 +2650,16 @@ function AppShell() {
                 onCopyDailyReviewMarkdown={async ({ markdown, label, summary }) => {
                   try {
                     await navigator.clipboard.writeText(markdown);
-                    toastApi.success(
-                      `已复制${label}回顾`,
-                      `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
-                    );
+                    if (isDailyReviewSurfaceActive()) {
+                      toastApi.success(
+                        `已复制${label}回顾`,
+                        `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
+                      );
+                    }
                   } catch (error) {
-                    toastApi.error('复制失败', dailyReviewActionErrorMessage(error, '剪贴板不可用或被系统拒绝'));
+                    if (isDailyReviewSurfaceActive()) {
+                      toastApi.error('复制失败', dailyReviewActionErrorMessage(error, '剪贴板不可用或被系统拒绝'));
+                    }
                   }
                 }}
                 onAppendDailyReviewMarkdown={({ markdown, label, summary }) => {
@@ -2652,7 +2669,7 @@ function AppShell() {
                     `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
                   );
                 }}
-                onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input)}
+                onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
                     ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }

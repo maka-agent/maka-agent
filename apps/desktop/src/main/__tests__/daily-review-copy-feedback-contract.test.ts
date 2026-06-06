@@ -18,8 +18,21 @@ describe('Daily Review copy feedback contract', () => {
     assert.doesNotMatch(ui, /navigator\.clipboard\.writeText\(md\)\.catch\(\(\) => \{\}\)/);
     assert.match(main, /onCopyDailyReviewMarkdown=\{async \(\{ markdown, label, summary \}\) => \{/);
     assert.match(main, /await navigator\.clipboard\.writeText\(markdown\)/);
-    assert.match(main, /toastApi\.success\(\s*`已复制\$\{label\}回顾`/);
-    assert.match(main, /toastApi\.error\('复制失败', dailyReviewActionErrorMessage\(error, '剪贴板不可用或被系统拒绝'\)\)/);
+    assert.match(
+      main,
+      /function isDailyReviewSurfaceActive\(\): boolean \{[\s\S]*return navSelectionRef\.current\.section === 'daily-review';[\s\S]*\}/,
+      'Daily Review action feedback must be owned by the active Daily Review surface',
+    );
+    assert.match(
+      main,
+      /if \(isDailyReviewSurfaceActive\(\)\) \{[\s\S]*toastApi\.success\(\s*`已复制\$\{label\}回顾`/,
+      'Daily Review copy success must not toast after leaving the Daily Review surface',
+    );
+    assert.match(
+      main,
+      /if \(isDailyReviewSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('复制失败', dailyReviewActionErrorMessage\(error, '剪贴板不可用或被系统拒绝'\)\)/,
+      'Daily Review copy failure must not toast after leaving the Daily Review surface',
+    );
   });
 
   it('appends Daily Review markdown to the composer instead of replacing the existing draft', async () => {
@@ -80,7 +93,11 @@ describe('Daily Review copy feedback contract', () => {
       /onSaveDailyReviewMarkdown=\{\(input\) => void saveDailyReviewMarkdown\(input\)\}/,
       'renderer must return the save Promise to the Daily Review pending gate',
     );
-    assert.match(main, /onSaveDailyReviewMarkdown=\{\(input\) => saveDailyReviewMarkdown\(input\)\}/);
+    assert.match(
+      main,
+      /onSaveDailyReviewMarkdown=\{\(input\) => saveDailyReviewMarkdown\(input, \{ shouldShowFeedback: isDailyReviewSurfaceActive \}\)\}/,
+      'Daily Review save feedback must be gated to the active Daily Review surface',
+    );
   });
 
   it('scrubs Daily Review load and action failures before rendering them', async () => {
@@ -88,6 +105,8 @@ describe('Daily Review copy feedback contract', () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
     const panelBlock = ui.match(/function DailyReviewPanel[\s\S]*?function dailyReviewPanelErrorMessage/)?.[0] ?? '';
     const helperBlock = main.match(/function dailyReviewActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const saveBlock = main.match(/async function saveDailyReviewMarkdown\([\s\S]*?const activePermission/)?.[0] ?? '';
+    const saveTodayBlock = main.match(/onSaveTodayDailyReviewToFile: async \(\) => \{[\s\S]*?onCopyEnvSummary/)?.[0] ?? '';
 
     assert.match(ui, /generalizedErrorMessageChinese/);
     assert.match(panelBlock, /setError\(dailyReviewPanelErrorMessage\(err\)\)/);
@@ -95,7 +114,17 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(ui, /function dailyReviewPanelErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '每日回顾暂时不可用，请稍后重试。'\)/);
 
     assert.match(helperBlock, /generalizedErrorMessageChinese\(error, fallback\)/);
-    assert.match(main, /toastApi\.error\('保存失败', dailyReviewActionErrorMessage\(err, '保存每日回顾失败，请稍后重试。'\)\)/);
+    assert.match(saveBlock, /const shouldShowFeedback = options\.shouldShowFeedback \?\? \(\(\) => true\)/);
+    assert.match(
+      saveBlock,
+      /if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.error\('保存失败', dailyReviewActionErrorMessage\(err, '保存每日回顾失败，请稍后重试。'\)\)/,
+      'Daily Review save failures must respect the caller feedback owner predicate',
+    );
+    assert.match(
+      saveTodayBlock,
+      /await saveDailyReviewMarkdown\(\{ markdown, label: '今天', summary \}\);/,
+      'Command Palette daily-review save remains a global command and should keep default visible feedback',
+    );
     assert.match(main, /dailyReviewActionErrorMessage\(err, '今日回顾暂时不可用，或剪贴板被系统拒绝。'\)/);
     assert.match(main, /dailyReviewActionErrorMessage\(err, '今日回顾暂时不可用，请稍后重试。'\)/);
     assert.doesNotMatch(main, /保存每日回顾失败'\)|剪贴板或数据不可用|加载今日回顾失败/);
