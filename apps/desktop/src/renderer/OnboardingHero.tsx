@@ -410,7 +410,9 @@ function ReadyEmptyHero(props: {
   const [draft, setDraft] = useState('');
   const [draftMode, setDraftMode] = useState<QuickChatMode | undefined>();
   const [dragActive, setDragActive] = useState(false);
+  const [pendingImportAction, setPendingImportAction] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingImportActionRef = useRef<string | null>(null);
   const copy = READY_HERO_COPY_BY_LOCALE[detectUiLocale()];
   const hiddenSuggestionIds = new Set(
     (props.onboardingMilestones ?? [])
@@ -464,42 +466,6 @@ function ReadyEmptyHero(props: {
     });
   }, [draft]);
 
-  const importTextFile = useCallback(async () => {
-    if (!props.onImportTextFile || props.quickChatPending) return;
-    const prompt = await props.onImportTextFile();
-    if (!prompt) return;
-    let nextDraft = prompt;
-    setDraft((current) => {
-      nextDraft = appendPromptContextDraft(current, prompt);
-      return nextDraft;
-    });
-    setDraftMode(undefined);
-    window.requestAnimationFrame(() => {
-      const input = inputRef.current;
-      if (!input) return;
-      input.focus();
-      input.setSelectionRange(nextDraft.length, nextDraft.length);
-    });
-  }, [props]);
-
-  const importFolderOutline = useCallback(async () => {
-    if (!props.onImportFolderOutline || props.quickChatPending) return;
-    const prompt = await props.onImportFolderOutline();
-    if (!prompt) return;
-    let nextDraft = prompt;
-    setDraft((current) => {
-      nextDraft = appendPromptContextDraft(current, prompt);
-      return nextDraft;
-    });
-    setDraftMode(undefined);
-    window.requestAnimationFrame(() => {
-      const input = inputRef.current;
-      if (!input) return;
-      input.focus();
-      input.setSelectionRange(nextDraft.length, nextDraft.length);
-    });
-  }, [props]);
-
   const appendImportedPrompt = useCallback((prompt: string) => {
     let nextDraft = prompt;
     setDraft((current) => {
@@ -515,9 +481,39 @@ function ReadyEmptyHero(props: {
     });
   }, []);
 
+  const runImportAction = useCallback(async (
+    actionKey: string,
+    action: () => Promise<string | undefined>,
+  ) => {
+    if (pendingImportActionRef.current !== null || props.quickChatPending) return;
+    pendingImportActionRef.current = actionKey;
+    setPendingImportAction(actionKey);
+    try {
+      const prompt = await action();
+      if (prompt) appendImportedPrompt(prompt);
+    } finally {
+      if (pendingImportActionRef.current === actionKey) {
+        pendingImportActionRef.current = null;
+        setPendingImportAction(null);
+      }
+    }
+  }, [appendImportedPrompt, props.quickChatPending]);
+
+  const importTextFile = useCallback(async () => {
+    if (!props.onImportTextFile || props.quickChatPending) return;
+    await runImportAction('file', props.onImportTextFile);
+  }, [props.onImportTextFile, props.quickChatPending, runImportAction]);
+
+  const importFolderOutline = useCallback(async () => {
+    if (!props.onImportFolderOutline || props.quickChatPending) return;
+    await runImportAction('folder', props.onImportFolderOutline);
+  }, [props.onImportFolderOutline, props.quickChatPending, runImportAction]);
+
+  const importActionBusy = pendingImportAction !== null;
+
   const canAcceptDroppedTextFiles = useCallback(() => (
-    Boolean(props.onImportDroppedTextFiles && !props.quickChatPending)
-  ), [props]);
+    Boolean(props.onImportDroppedTextFiles && !props.quickChatPending && !importActionBusy)
+  ), [importActionBusy, props.onImportDroppedTextFiles, props.quickChatPending]);
 
   const hasDraggedFiles = useCallback((event: DragEvent<HTMLElement>) => (
     Array.from(event.dataTransfer.types).includes('Files')
@@ -546,11 +542,8 @@ function ReadyEmptyHero(props: {
     if (!canAcceptDroppedTextFiles()) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length === 0) return;
-    void (async () => {
-      const prompt = await props.onImportDroppedTextFiles?.(files);
-      if (prompt) appendImportedPrompt(prompt);
-    })();
-  }, [appendImportedPrompt, canAcceptDroppedTextFiles, hasDraggedFiles, props]);
+    void runImportAction('drop', async () => props.onImportDroppedTextFiles?.(files));
+  }, [canAcceptDroppedTextFiles, hasDraggedFiles, props.onImportDroppedTextFiles, runImportAction]);
 
   useEffect(() => {
     if (!dragActive) return;
@@ -571,11 +564,8 @@ function ReadyEmptyHero(props: {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
-    void (async () => {
-      const prompt = await props.onImportDroppedTextFiles?.(files);
-      if (prompt) appendImportedPrompt(prompt);
-    })();
-  }, [appendImportedPrompt, canAcceptDroppedTextFiles, hasPastedFiles, props]);
+    void runImportAction('paste', async () => props.onImportDroppedTextFiles?.(files));
+  }, [canAcceptDroppedTextFiles, hasPastedFiles, props.onImportDroppedTextFiles, runImportAction]);
 
   return (
     <section className="maka-onboarding maka-onboarding-ready" aria-label={copy.ariaLabel}>
@@ -624,10 +614,12 @@ function ReadyEmptyHero(props: {
               type="button"
               className="maka-button maka-button-ghost"
               onClick={() => void importTextFile()}
-              disabled={props.quickChatPending}
+              disabled={props.quickChatPending || importActionBusy}
+              data-pending={pendingImportAction === 'file' ? 'true' : undefined}
+              aria-busy={pendingImportAction === 'file' ? 'true' : undefined}
             >
               <Paperclip size={14} strokeWidth={1.75} aria-hidden="true" />
-              <span>导入文件内容</span>
+              <span>{pendingImportAction === 'file' ? '导入中…' : '导入文件内容'}</span>
             </button>
           )}
           {props.onImportFolderOutline && (
@@ -635,10 +627,12 @@ function ReadyEmptyHero(props: {
               type="button"
               className="maka-button maka-button-ghost"
               onClick={() => void importFolderOutline()}
-              disabled={props.quickChatPending}
+              disabled={props.quickChatPending || importActionBusy}
+              data-pending={pendingImportAction === 'folder' ? 'true' : undefined}
+              aria-busy={pendingImportAction === 'folder' ? 'true' : undefined}
             >
               <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
-              <span>导入文件夹目录</span>
+              <span>{pendingImportAction === 'folder' ? '导入中…' : '导入文件夹目录'}</span>
             </button>
           )}
           <button

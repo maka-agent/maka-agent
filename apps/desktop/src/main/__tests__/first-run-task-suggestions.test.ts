@@ -81,6 +81,36 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.doesNotMatch(hero, /setMilestone\([^)]*suggestion\.prompt/);
   });
 
+  it('gates first-run import actions so file/folder/drop/paste cannot append concurrently', async () => {
+    const hero = await readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8');
+    const readyBlock = hero.match(/function ReadyEmptyHero[\s\S]*?interface SetupHeroProps/)?.[0] ?? '';
+    const gateBlock = readyBlock.match(/const runImportAction = useCallback[\s\S]*?const importTextFile/)?.[0] ?? '';
+
+    assert.match(readyBlock, /const \[pendingImportAction, setPendingImportAction\] = useState<string \| null>\(null\)/);
+    assert.match(readyBlock, /const pendingImportActionRef = useRef<string \| null>\(null\)/);
+    assert.match(readyBlock, /const importActionBusy = pendingImportAction !== null/);
+    assert.match(
+      gateBlock,
+      /if \(pendingImportActionRef\.current !== null \|\| props\.quickChatPending\) return;[\s\S]*pendingImportActionRef\.current = actionKey[\s\S]*setPendingImportAction\(actionKey\)[\s\S]*const prompt = await action\(\)[\s\S]*if \(prompt\) appendImportedPrompt\(prompt\)[\s\S]*pendingImportActionRef\.current = null[\s\S]*setPendingImportAction\(null\)/,
+      'first-run import actions must use a ref-backed pending gate and append only through one shared path',
+    );
+    assert.match(readyBlock, /runImportAction\('file', props\.onImportTextFile\)/);
+    assert.match(readyBlock, /runImportAction\('folder', props\.onImportFolderOutline\)/);
+    assert.match(readyBlock, /runImportAction\('drop', async \(\) => props\.onImportDroppedTextFiles\?\.\(files\)\)/);
+    assert.match(readyBlock, /runImportAction\('paste', async \(\) => props\.onImportDroppedTextFiles\?\.\(files\)\)/);
+    assert.match(readyBlock, /props\.onImportDroppedTextFiles && !props\.quickChatPending && !importActionBusy/);
+    assert.match(readyBlock, /disabled=\{props\.quickChatPending \|\| importActionBusy\}/);
+    assert.match(readyBlock, /aria-busy=\{pendingImportAction === 'file' \? 'true' : undefined\}/);
+    assert.match(readyBlock, /aria-busy=\{pendingImportAction === 'folder' \? 'true' : undefined\}/);
+    assert.match(readyBlock, /pendingImportAction === 'file' \? '导入中…' : '导入文件内容'/);
+    assert.match(readyBlock, /pendingImportAction === 'folder' \? '导入中…' : '导入文件夹目录'/);
+    assert.doesNotMatch(
+      readyBlock,
+      /void \(async \(\) => \{[\s\S]*props\.onImportDroppedTextFiles\?\.\(files\)[\s\S]*appendImportedPrompt\(prompt\)/,
+      'drop/paste import must not bypass the shared pending gate',
+    );
+  });
+
   it('surfaces project instruction creation in the first-run checklist', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
 
