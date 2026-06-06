@@ -803,6 +803,7 @@ function SettingsSurface(props: {
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const settingsUpdateTicketRef = useRef(0);
   const toast = useToast();
 
   async function reloadSettings() {
@@ -817,10 +818,12 @@ function SettingsSurface(props: {
   }
 
   async function updateSettings(patch: Parameters<typeof window.maka.settings.update>[0]) {
+    const ticket = settingsUpdateTicketRef.current + 1;
+    settingsUpdateTicketRef.current = ticket;
     const result = await window.maka.settings.update(patch);
     const next = result.settings;
-    setSettings(next);
-    if (patch.personalization?.displayName !== undefined) {
+    if (ticket === settingsUpdateTicketRef.current) {
+      setSettings(next);
       props.onUserLabelChange?.(next.personalization.displayName);
     }
     return result;
@@ -3856,13 +3859,18 @@ function OpenGatewaySettingsPage(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
-  const gateway = props.settings.openGateway;
+  const persistedGateway = props.settings.openGateway;
+  const [gatewayDraft, setGatewayDraft] = useState(persistedGateway);
   const [status, setStatus] = useState<OpenGatewayRuntimeStatus | null>(null);
   const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
-  const [tokenDraft, setTokenDraft] = useState(gateway.token);
+  const [tokenDraft, setTokenDraft] = useState(persistedGateway.token);
   const [eventSessionId, setEventSessionId] = useState('');
   const [saving, setSaving] = useState(false);
   const [copyingGatewayAction, setCopyingGatewayAction] = useState<string | null>(null);
+  const gatewayDraftRef = useRef(persistedGateway);
+  const persistedGatewayRef = useRef(persistedGateway);
+  const gatewayPendingSaveCountRef = useRef(0);
+  const gatewaySaveTicketRef = useRef(0);
   const copyingGatewayActionRef = useRef<string | null>(null);
   const toast = useToast();
 
@@ -3894,20 +3902,43 @@ function OpenGatewaySettingsPage(props: {
     };
   }, []);
 
+  function commitGatewayDraft(next: AppSettings['openGateway']) {
+    gatewayDraftRef.current = next;
+    setGatewayDraft(next);
+  }
+
   useEffect(() => {
-    setTokenDraft(gateway.token);
-  }, [gateway.token]);
+    persistedGatewayRef.current = persistedGateway;
+    if (gatewayPendingSaveCountRef.current === 0) {
+      commitGatewayDraft(persistedGateway);
+      setTokenDraft(persistedGateway.token);
+    }
+  }, [persistedGateway]);
 
   async function updateGateway(patch: Partial<AppSettings['openGateway']>): Promise<boolean> {
+    const nextDraft = { ...gatewayDraftRef.current, ...patch };
+    const ticket = gatewaySaveTicketRef.current + 1;
+    gatewaySaveTicketRef.current = ticket;
+    gatewayPendingSaveCountRef.current += 1;
+    commitGatewayDraft(nextDraft);
     setSaving(true);
     try {
-      await props.onUpdate({ openGateway: patch });
+      const result = await props.onUpdate({ openGateway: patch });
+      if (ticket === gatewaySaveTicketRef.current) {
+        commitGatewayDraft(result.settings.openGateway);
+        setTokenDraft(result.settings.openGateway.token);
+      }
       return true;
     } catch (error) {
+      if (ticket === gatewaySaveTicketRef.current) {
+        commitGatewayDraft(persistedGatewayRef.current);
+        setTokenDraft(persistedGatewayRef.current.token);
+      }
       toast.error('保存开放网关设置失败', settingsActionErrorMessage(error));
       return false;
     } finally {
-      setSaving(false);
+      gatewayPendingSaveCountRef.current = Math.max(0, gatewayPendingSaveCountRef.current - 1);
+      setSaving(gatewayPendingSaveCountRef.current > 0);
     }
   }
 
@@ -3941,24 +3972,24 @@ function OpenGatewaySettingsPage(props: {
   }
 
   async function copyBaseUrl() {
-    const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
+    const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gatewayDraft.host, gatewayDraft.port);
     await copyGatewayText('base-url', baseUrl, '已复制网关地址', baseUrl);
   }
 
-  const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
+  const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gatewayDraft.host, gatewayDraft.port);
   async function copyOverviewCurl() {
-    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
+    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gatewayDraft.token}`)}`;
     await copyGatewayText('overview-curl', command, '已复制总览 curl', '可在终端验证开放网关状态。');
   }
 
   async function copyOpenApiCurl() {
-    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/openapi.json`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
+    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/openapi.json`)} -H ${shellSingleQuote(`Authorization: Bearer ${gatewayDraft.token}`)}`;
     await copyGatewayText('openapi-curl', command, '已复制接口说明 curl', '可交给外部工具发现本机 API。');
   }
 
   async function copySessionStateCurl() {
     const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
-    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
+    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gatewayDraft.token}`)}`;
     await copyGatewayText('session-state-curl', command, '已复制单会话状态 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看单个会话状态。');
   }
 
@@ -3968,7 +3999,7 @@ function OpenGatewaySettingsPage(props: {
       'curl -N -sS',
       shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/events`),
       '-H',
-      shellSingleQuote(`Authorization: Bearer ${gateway.token}`),
+      shellSingleQuote(`Authorization: Bearer ${gatewayDraft.token}`),
       '-H',
       shellSingleQuote('Accept: text/event-stream'),
     ].join(' ');
@@ -3977,16 +4008,16 @@ function OpenGatewaySettingsPage(props: {
 
   async function copyRecentEventsCurl() {
     const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
-    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/events/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
+    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/events/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gatewayDraft.token}`)}`;
     await copyGatewayText('recent-events-curl', command, '已复制最近事件 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看最近事件摘要。');
   }
 
   async function copyRecentRequestsCurl() {
-    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/requests/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
+    const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/requests/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gatewayDraft.token}`)}`;
     await copyGatewayText('recent-requests-curl', command, '已复制最近请求 curl', '可在终端查看网关请求元数据。');
   }
 
-  const state = presentGatewayStatus(status, gateway);
+  const state = presentGatewayStatus(status, gatewayDraft);
   const isCopyingGatewayAction = (action: string) => copyingGatewayAction === action;
   const gatewayCopyDisabled = Boolean(copyingGatewayAction);
 
@@ -3994,8 +4025,8 @@ function OpenGatewaySettingsPage(props: {
     <div className="settingsStructuredPage">
       <div className="settingsUsageSummary" aria-label="开放网关状态">
         <MetricCard title="状态" value={state.label} detail={state.detail} />
-        <MetricCard title="监听地址" value={baseUrl} detail={gateway.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
-        <MetricCard title="访问凭据" value={gateway.token ? '已配置' : '等待 token'} detail="Bearer token 保护所有 /v1 API" />
+        <MetricCard title="监听地址" value={baseUrl} detail={gatewayDraft.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
+        <MetricCard title="访问凭据" value={gatewayDraft.token ? '已配置' : '等待 token'} detail="Bearer token 保护所有 /v1 API" />
         <MetricCard title="实时连接" value={String(status?.activeEventStreams ?? 0)} detail="SSE 客户端" />
         <MetricCard title="能力" value="19 个端点" detail="/health · openapi · state · sessions · events · requests" />
       </div>
@@ -4012,8 +4043,7 @@ function OpenGatewaySettingsPage(props: {
         </div>
         <Switch
           ariaLabel="开放本机 API 网关"
-          checked={gateway.enabled}
-          disabled={saving}
+          checked={gatewayDraft.enabled}
           onChange={(enabled) => void updateGateway({ enabled })}
         />
       </div>
@@ -4022,8 +4052,7 @@ function OpenGatewaySettingsPage(props: {
         <label>
           <span>监听地址</span>
           <select
-            value={gateway.host}
-            disabled={saving}
+            value={gatewayDraft.host}
             onChange={(event) => void updateGateway({ host: event.currentTarget.value as AppSettings['openGateway']['host'] })}
             aria-label="开放网关监听地址"
           >
@@ -4034,8 +4063,7 @@ function OpenGatewaySettingsPage(props: {
         <label>
           <span>端口</span>
           <input
-            value={String(gateway.port)}
-            disabled={saving}
+            value={String(gatewayDraft.port)}
             inputMode="numeric"
             onChange={(event) => void updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
             aria-label="开放网关端口"
@@ -4048,7 +4076,7 @@ function OpenGatewaySettingsPage(props: {
             onChange={setTokenDraft}
             disabled={saving}
             onBlur={() => {
-              if (tokenDraft !== gateway.token) void saveToken();
+              if (tokenDraft !== gatewayDraft.token) void saveToken();
             }}
             placeholder="生成或输入 token"
             ariaLabel="开放网关访问 token"
@@ -4066,7 +4094,7 @@ function OpenGatewaySettingsPage(props: {
         </label>
       </div>
 
-      {gateway.enabled && !gateway.token && (
+      {gatewayDraft.enabled && !gatewayDraft.token && (
         <div className="settingsNotice" data-tone="passive">
           网关已开启，等待生成访问 token。生成 token 后服务会自动启动。
         </div>
@@ -4081,28 +4109,28 @@ function OpenGatewaySettingsPage(props: {
         <button className="maka-button" type="button" disabled={saving} onClick={() => void generateToken()}>
           生成 token
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || saving} onClick={() => void saveToken('')}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || saving} onClick={() => void saveToken('')}>
           清空 token
         </button>
         <button className="maka-button secondary" type="button" disabled={gatewayCopyDisabled} onClick={() => void copyBaseUrl()}>
           {isCopyingGatewayAction('base-url') ? '复制中…' : '复制地址'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
           {isCopyingGatewayAction('overview-curl') ? '复制中…' : '复制总览 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()}>
           {isCopyingGatewayAction('openapi-curl') ? '复制中…' : '复制接口说明 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()}>
           {isCopyingGatewayAction('session-state-curl') ? '复制中…' : '复制单会话状态 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()}>
           {isCopyingGatewayAction('event-stream-curl') ? '复制中…' : '复制事件流 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()}>
           {isCopyingGatewayAction('recent-events-curl') ? '复制中…' : '复制最近事件 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()}>
+        <button className="maka-button secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()}>
           {isCopyingGatewayAction('recent-requests-curl') ? '复制中…' : '复制最近请求 curl'}
         </button>
       </div>

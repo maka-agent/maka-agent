@@ -17,6 +17,19 @@ function blockBetween(start: string, end: string): string {
 }
 
 describe('Settings network and gateway persistence contract', () => {
+  it('ignores stale settings save responses after newer field edits', () => {
+    assert.match(
+      settingsSource,
+      /const settingsUpdateTicketRef = useRef\(0\)/,
+      'Settings updates need a latest-response ticket so rapid field edits cannot be overwritten by an older save response',
+    );
+    assert.match(
+      settingsSource,
+      /async function updateSettings\(patch: Parameters<typeof window\.maka\.settings\.update>\[0\]\) \{[\s\S]*const ticket = settingsUpdateTicketRef\.current \+ 1;[\s\S]*settingsUpdateTicketRef\.current = ticket;[\s\S]*const result = await window\.maka\.settings\.update\(patch\);[\s\S]*if \(ticket === settingsUpdateTicketRef\.current\) \{[\s\S]*setSettings\(next\);[\s\S]*props\.onUserLabelChange\?\.\(next\.personalization\.displayName\);[\s\S]*\}/,
+      'Settings update responses should only refresh parent state when they belong to the latest save',
+    );
+  });
+
   it('surfaces network proxy save failures instead of returning raw rejected promises from field handlers', () => {
     const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
 
@@ -102,8 +115,38 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       gatewayBlock,
-      /async function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*await props\.onUpdate\(\{ openGateway: patch \}\);[\s\S]*return true;[\s\S]*catch \(error\) \{[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false;/,
+      /const \[gatewayDraft, setGatewayDraft\] = useState\(persistedGateway\)/,
+      'Open Gateway host/port controls must use a local draft so typing does not wait for IPC persistence',
+    );
+    assert.match(
+      gatewayBlock,
+      /const gatewayDraftRef = useRef\(persistedGateway\)/,
+      'Open Gateway draft updates must have a synchronous ref for rapid consecutive field changes',
+    );
+    assert.match(
+      gatewayBlock,
+      /function commitGatewayDraft\(next: AppSettings\['openGateway'\]\) \{[\s\S]*gatewayDraftRef\.current = next;[\s\S]*setGatewayDraft\(next\);[\s\S]*\}/,
+      'Open Gateway local draft must update the rendered value immediately',
+    );
+    assert.match(
+      gatewayBlock,
+      /async function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.gatewayDraftRef\.current, \.\.\.patch \};[\s\S]*commitGatewayDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ openGateway: patch \}\);[\s\S]*commitGatewayDraft\(result\.settings\.openGateway\);[\s\S]*catch \(error\) \{[\s\S]*commitGatewayDraft\(persistedGatewayRef\.current\);[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false;/,
       'Open Gateway settings updates must return a boolean and surface failures',
+    );
+    assert.match(
+      gatewayBlock,
+      /value=\{gatewayDraft\.host\}[\s\S]*onChange=\{\(event\) => void updateGateway\(\{ host: event\.currentTarget\.value as AppSettings\['openGateway'\]\['host'\] \}\)\}/,
+      'Open Gateway host select must render from the local draft while persisting in the background',
+    );
+    assert.match(
+      gatewayBlock,
+      /value=\{String\(gatewayDraft\.port\)\}[\s\S]*onChange=\{\(event\) => void updateGateway\(\{ port: Number\(event\.currentTarget\.value\) \|\| 3939 \}\)\}/,
+      'Open Gateway port input must render from the local draft while persisting in the background',
+    );
+    assert.doesNotMatch(
+      gatewayBlock,
+      /aria-label="开放网关端口"[\s\S]{0,180}disabled=\{saving\}/,
+      'Open Gateway port input must not lock after each digit while background save is pending',
     );
     assert.match(
       gatewayBlock,

@@ -84,7 +84,7 @@ describe('Open Gateway Settings endpoint contract', () => {
     assert.match(gatewayBlock, /copyGatewayText\('recent-requests-curl', command, '已复制最近请求 curl'/);
     assert.match(gatewayBlock, /const gatewayCopyDisabled = Boolean\(copyingGatewayAction\)/);
     assert.match(gatewayBlock, /disabled=\{gatewayCopyDisabled\}/);
-    assert.match(gatewayBlock, /disabled=\{!gateway\.token \|\| gatewayCopyDisabled\}/);
+    assert.match(gatewayBlock, /disabled=\{!gatewayDraft\.token \|\| gatewayCopyDisabled\}/);
     assert.match(gatewayBlock, /isCopyingGatewayAction\('base-url'\) \? '复制中…' : '复制地址'/);
     assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? '复制中…' : '复制最近请求 curl'/);
   });
