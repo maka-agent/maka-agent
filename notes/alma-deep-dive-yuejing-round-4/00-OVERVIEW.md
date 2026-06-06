@@ -13,6 +13,7 @@ rounds touched, starting with self-referential agent surfaces.
 |---|---|---|---|
 | 00 | `00-OVERVIEW.md` | This file (round-4 index) | **shipped** |
 | 01 | `01-rest-api-operator-agent.md` | Express server bound to 127.0.0.1 + dynamic port + self-describing `~/.config/alma/api-spec.md` + 30+ routes (settings/providers/threads/ChromeRelay/health) + `alma-operator` agent with Bash + Read only + WebSocket sync to live-update renderer | **shipped** |
+| 02 | `02-auto-compact.md` | 3 trigger sites (pre-request / prepareStep / manual REST) + 3-tier fallback (LLM summary → hard truncate → emergency slice) + user-message-counted `keepRecentMessages` + 32k output reserve floor + `<context_summary>` markup + anti-loop guard + ineffective-compaction detection + "DO NOT preserve transient errors" prompt design | **shipped** |
 
 ## Candidates for next notes
 
