@@ -2942,14 +2942,17 @@ function MemorySettingsPage(props: {
     return memoryPageMountedRef.current && memoryPageLifecycleRef.current === lifecycle;
   }
 
-  async function runMemoryWriteAction<T>(action: MemoryWriteAction, run: () => Promise<T>): Promise<T | undefined> {
+  async function runMemoryWriteAction<T>(
+    action: MemoryWriteAction,
+    run: (isCurrent: () => boolean) => Promise<T>,
+  ): Promise<T | undefined> {
     if (memoryWriteBusyRef.current) return undefined;
     const lifecycle = memoryPageLifecycleRef.current;
     memoryWriteBusyRef.current = true;
     setPendingMemoryWriteAction(action);
     setBusy(true);
     try {
-      return await run();
+      return await run(() => isMemoryPageCurrent(lifecycle));
     } catch (error) {
       if (!isMemoryPageCurrent(lifecycle)) return undefined;
       throw error;
@@ -3011,9 +3014,9 @@ function MemorySettingsPage(props: {
   }
 
   async function reloadDraftFromDisk() {
-    await runMemoryWriteAction('reload', async () => {
+    await runMemoryWriteAction('reload', async (isCurrent) => {
       const ok = await reload();
-      if (ok) toast.success('已重新载入 MEMORY.md', '未保存的草稿修改已丢弃。');
+      if (ok && isCurrent()) toast.success('已重新载入 MEMORY.md', '未保存的草稿修改已丢弃。');
     });
   }
 
@@ -3023,9 +3026,10 @@ function MemorySettingsPage(props: {
 
   async function setEnabled(enabled: boolean) {
     try {
-      await runMemoryWriteAction('enable', async () => {
+      await runMemoryWriteAction('enable', async (isCurrent) => {
         const next = await window.maka.memory.setEnabled(enabled);
         await props.onReloadSettings();
+        if (!isCurrent()) return;
         setState(next);
         setDraft(next.content);
       });
@@ -3036,9 +3040,10 @@ function MemorySettingsPage(props: {
 
   async function setAgentReadEnabled(agentReadEnabled: boolean) {
     try {
-      await runMemoryWriteAction('agent-read', async () => {
+      await runMemoryWriteAction('agent-read', async (isCurrent) => {
         const next = await window.maka.memory.setAgentReadEnabled(agentReadEnabled);
         await props.onReloadSettings();
+        if (!isCurrent()) return;
         setState(next);
         setDraft(next.content);
       });
@@ -3060,8 +3065,9 @@ function MemorySettingsPage(props: {
 
   async function save() {
     try {
-      await runMemoryWriteAction('save', async () => {
+      await runMemoryWriteAction('save', async (isCurrent) => {
         const next = await window.maka.memory.save(draft);
+        if (!isCurrent()) return;
         const redacted = next.content !== draft;
         setState(next);
         setDraft(next.content);
@@ -3085,8 +3091,9 @@ function MemorySettingsPage(props: {
 
   async function reset() {
     try {
-      await runMemoryWriteAction('reset', async () => {
+      await runMemoryWriteAction('reset', async (isCurrent) => {
         const next = await window.maka.memory.reset();
+        if (!isCurrent()) return;
         setState(next);
         setDraft(next.content);
         setLastSaveSummary(null);
@@ -3100,7 +3107,7 @@ function MemorySettingsPage(props: {
   async function restoreLatestBackup() {
     await runMemoryAction('backup:latest:restore', async () => {
       try {
-        await runMemoryWriteAction('restore', async () => {
+        await runMemoryWriteAction('restore', async (isCurrent) => {
           const backup = state?.latestBackup;
           if (!backup) {
             toast.error('没有可恢复备份', '保存或重置 MEMORY.md 后才会生成上一版备份。');
@@ -3115,7 +3122,9 @@ function MemorySettingsPage(props: {
             destructive: true,
           });
           if (!ok) return;
+          if (!isCurrent()) return;
           const result = await window.maka.memory.restoreLatestBackup();
+          if (!isCurrent()) return;
           setState(result.state);
           setDraft(result.state.content);
           setLastSaveSummary(null);
@@ -3134,7 +3143,7 @@ function MemorySettingsPage(props: {
   async function restoreBackupCandidate(backup: NonNullable<LocalMemoryState['latestBackup']>) {
     await runMemoryAction(`backup:${backup.kind}:restore`, async () => {
       try {
-        await runMemoryWriteAction('restore', async () => {
+        await runMemoryWriteAction('restore', async (isCurrent) => {
           const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)} · ${new Date(backup.updatedAt).toLocaleString()}`;
           const ok = await toast.confirm({
             title: '恢复这个 MEMORY.md 备份？',
@@ -3144,7 +3153,9 @@ function MemorySettingsPage(props: {
             destructive: true,
           });
           if (!ok) return;
+          if (!isCurrent()) return;
           const result = await window.maka.memory.restoreBackup(backup.kind);
+          if (!isCurrent()) return;
           setState(result.state);
           setDraft(result.state.content);
           setLastSaveSummary(null);
@@ -3224,13 +3235,15 @@ function MemorySettingsPage(props: {
   async function createWorkspaceInstructionFile(file: string) {
     await runMemoryAction(`instruction:${file}:create`, async () => {
       try {
-        await runMemoryWriteAction('instruction-create', async () => {
+        await runMemoryWriteAction('instruction-create', async (isCurrent) => {
           const result = await window.maka.workspaceInstructions.createFile(file);
+          if (!isCurrent()) return;
           if (!result.ok) {
             toast.error('创建项目指令失败', result.message);
             return;
           }
           const instructions = await window.maka.workspaceInstructions.getState();
+          if (!isCurrent()) return;
           setWorkspaceInstructionState(instructions);
           toast.success('已创建项目指令', file);
           await openWorkspaceInstructionFile(file);
@@ -3367,8 +3380,9 @@ function MemorySettingsPage(props: {
     }
 
     try {
-      await runMemoryWriteAction('entry-status', async () => {
+      await runMemoryWriteAction('entry-status', async (isCurrent) => {
         const next = await window.maka.memory.save(result.draft);
+        if (!isCurrent()) return;
         setState(next);
         setDraft(next.content);
         if (next.status === 'safe_mode') {
