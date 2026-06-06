@@ -1612,15 +1612,52 @@
   .maka-button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 
   .maka-button[data-variant="primary"] {
-    background: var(--accent);
+    /* PR-CHAT-PRIMARY-BUTTON-POLISH-0: replace the flat solid fill
+       with a subtle top-to-bottom gradient (accent → 3% darker).
+       The gradient is barely perceptible at rest but reads as a
+       "lit" button instead of a sticker, especially on macOS
+       where users are tuned to the OS' real button materials.
+       Plus a 1px inset top highlight + a tinted colored shadow
+       so the button feels deliberately raised. */
+    background:
+      linear-gradient(
+        180deg,
+        oklch(from var(--accent) calc(l + 0.02) c h) 0%,
+        var(--accent) 100%
+      );
     color: white;
     border-color: oklch(from var(--accent) calc(l - 0.05) c h);
+    box-shadow:
+      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.45),
+      0 1px 2px oklch(from var(--accent) l c h / 0.25);
   }
   .maka-button[data-variant="primary"]:hover {
-    background: oklch(from var(--accent) calc(l - 0.03) c h);
+    background:
+      linear-gradient(
+        180deg,
+        oklch(from var(--accent) calc(l + 0.01) c h) 0%,
+        oklch(from var(--accent) calc(l - 0.03) c h) 100%
+      );
+    /* Subtle lift on hover; pairs with the existing translateY(0.5px)
+       on :active so press still reads as "down". */
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.50),
+      0 4px 12px oklch(from var(--accent) l c h / 0.30);
+  }
+  .maka-button[data-variant="primary"]:active {
+    /* Override the shared :active translate so primary buttons feel
+       deeper-pressed than secondary ones — 1px down vs the
+       inherited 0.5px. */
+    transform: translateY(0.5px);
+    box-shadow:
+      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.40),
+      0 0 0 oklch(from var(--accent) l c h / 0);
   }
   .maka-button[data-variant="primary"]:focus-visible {
-    box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.28);
+    box-shadow:
+      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.45),
+      0 0 0 3px oklch(from var(--accent) l c h / 0.28);
   }
   .maka-button[data-variant="primary"][disabled],
   .maka-button[data-variant="primary"][aria-disabled="true"] {
