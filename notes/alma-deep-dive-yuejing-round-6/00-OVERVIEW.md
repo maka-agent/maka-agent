@@ -11,6 +11,7 @@ because the connection points are now well-mapped.
 |---|---|---|---|
 | 00 | `00-OVERVIEW.md` | This file (round-6 index) | **shipped** |
 | 01 | `01-title-generation.md` | Thread title auto-generation pipeline (first 4 messages × 500 chars + toolModel + 3-broadcast UX) | **shipped** |
+| 02 | `02-skill-extraction.md` | Auto-extract reusable skill from conversation: double-gate (cumulative ≥5 tool calls + delta-since-last-analysis) + condense-old/emphasize-recent asymmetric context (300 vs 3000 chars + plain vs bold) + JSON salvage regex + watermark-on-both-paths + existing-skills injection prevents duplicates + 'VERY selective' prompt design | **shipped** |
 
 ## Candidates for next notes
 
