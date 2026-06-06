@@ -1967,9 +1967,18 @@ export function SearchModal(props: {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const ticketRef = useRef(0);
+  const searchMountedRef = useRef(true);
   const keyboardSelectionHandledRef = useRef(false);
   const searchThread = props.deps?.searchThread;
   useModalA11y(dialogRef, props.onClose, inputRef);
+
+  useEffect(() => {
+    searchMountedRef.current = true;
+    return () => {
+      searchMountedRef.current = false;
+      ticketRef.current += 1;
+    };
+  }, []);
 
   // Debounced search: ~180ms after the user stops typing, send the
   // request. Empty query clears state without an IPC roundtrip.
@@ -1993,6 +2002,7 @@ export function SearchModal(props: {
           query: trimmed,
           limit: 10,
         });
+        if (!searchMountedRef.current) return;
         if (ticket !== ticketRef.current) return; // newer query in flight
         if (Array.isArray(response)) {
           setResults(response);
@@ -2004,6 +2014,7 @@ export function SearchModal(props: {
           setActiveResultIndex(-1);
         }
       } catch (err) {
+        if (!searchMountedRef.current) return;
         if (ticket !== ticketRef.current) return;
         // IPC layer should never throw, but defend anyway. Render as a
         // generic provider_error so the user sees a coherent state.
@@ -2014,7 +2025,7 @@ export function SearchModal(props: {
         });
         setActiveResultIndex(-1);
       } finally {
-        if (ticket === ticketRef.current) setPending(false);
+        if (searchMountedRef.current && ticket === ticketRef.current) setPending(false);
       }
     }, 180);
     return () => window.clearTimeout(handle);

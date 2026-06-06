@@ -287,6 +287,33 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /if \(ticket !== ticketRef\.current\) return; \/\/ newer query in flight/, 'Search responses must still be guarded by the latest ticket');
   });
 
+  it('closing the modal invalidates already-started search requests before they set state', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+
+    assert.match(searchModal, /const searchMountedRef = useRef\(true\)/, 'SearchModal must track whether the conditionally mounted dialog is still alive.');
+    assert.match(
+      searchModal,
+      /useEffect\(\(\) => \{\s*searchMountedRef\.current = true;\s*return \(\) => \{\s*searchMountedRef\.current = false;\s*ticketRef\.current \+= 1;\s*\};\s*\}, \[\]\)/,
+      'SearchModal unmount cleanup must invalidate in-flight searches, including requests that already passed the debounce timer.',
+    );
+    assert.match(
+      searchModal,
+      /const response = await searchThread\([\s\S]*?\);\s*if \(!searchMountedRef\.current\) return;\s*if \(ticket !== ticketRef\.current\) return;/,
+      'Resolved search responses must not set state after SearchModal has unmounted.',
+    );
+    assert.match(
+      searchModal,
+      /\} catch \(err\) \{\s*if \(!searchMountedRef\.current\) return;\s*if \(ticket !== ticketRef\.current\) return;/,
+      'Rejected search responses must not set error state after SearchModal has unmounted.',
+    );
+    assert.match(
+      searchModal,
+      /\} finally \{\s*if \(searchMountedRef\.current && ticket === ticketRef\.current\) setPending\(false\);/,
+      'Pending state must not be cleared by an unmounted SearchModal request callback.',
+    );
+  });
+
   it('search snippets highlight query matches without unsafe HTML rendering', async () => {
     const components = await readFile(COMPONENTS_PATH, 'utf8');
     const styles = await readFile(STYLES_PATH, 'utf8');
