@@ -5341,16 +5341,24 @@ function PermissionCenterPage() {
 function CapabilityRow(props: { capability: CapabilitySnapshot }) {
   const { capability } = props;
   const toast = useToast();
+  const [copyingOfficeCliInstall, setCopyingOfficeCliInstall] = useState(false);
+  const copyingOfficeCliInstallRef = useRef(false);
   const readinessCopy = CAPABILITY_READINESS_COPY[capability.readiness];
   const showOfficeCliInstallActions =
     capability.id === 'office_documents' && capability.runtimeProbe.state !== 'healthy';
 
   async function copyOfficeCliInstallCommand() {
+    if (copyingOfficeCliInstallRef.current) return;
+    copyingOfficeCliInstallRef.current = true;
+    setCopyingOfficeCliInstall(true);
     try {
       await navigator.clipboard.writeText(OFFICECLI_INSTALL_COMMAND);
       toast.success('已复制安装命令', '在终端执行后点击刷新重新探测。');
     } catch {
-      toast.error('复制失败', '剪贴板不可用。');
+      toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+    } finally {
+      copyingOfficeCliInstallRef.current = false;
+      setCopyingOfficeCliInstall(false);
     }
   }
 
@@ -5426,8 +5434,13 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
             <div className="settingsCapabilityGuidanceActions" aria-label="Office 文档安装辅助">
               <code>{OFFICECLI_INSTALL_COMMAND}</code>
               <div>
-                <button type="button" className="maka-button secondary" onClick={() => void copyOfficeCliInstallCommand()}>
-                  复制 macOS/Linux 安装命令
+                <button
+                  type="button"
+                  className="maka-button secondary"
+                  disabled={copyingOfficeCliInstall}
+                  onClick={() => void copyOfficeCliInstallCommand()}
+                >
+                  {copyingOfficeCliInstall ? '复制中…' : '复制 macOS/Linux 安装命令'}
                 </button>
                 <a href={OFFICECLI_RELEASES_URL} target="_blank" rel="noreferrer">
                   打开二进制下载页

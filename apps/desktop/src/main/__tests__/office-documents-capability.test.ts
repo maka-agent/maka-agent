@@ -50,6 +50,11 @@ describe('Office document capability contract', () => {
     assert.match(settings, /处理建议/);
     assert.match(settings, /OFFICECLI_INSTALL_COMMAND/);
     assert.match(settings, /复制 macOS\/Linux 安装命令/);
+    assert.match(settings, /copyingOfficeCliInstallRef\.current/, 'OfficeCLI install copy action must have a ref-backed double-click guard');
+    assert.match(settings, /if \(copyingOfficeCliInstallRef\.current\) return;/);
+    assert.match(settings, /disabled=\{copyingOfficeCliInstall\}/);
+    assert.match(settings, /copyingOfficeCliInstall \? '复制中…' : '复制 macOS\/Linux 安装命令'/);
+    assert.match(settings, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
     assert.match(settings, /iOfficeAI\/OfficeCLI\/releases/);
     assert.doesNotMatch(settings, /execFile\(|spawn\(|child_process/);
     assert.match(styles, /\.settingsCapabilityGuidance/);
