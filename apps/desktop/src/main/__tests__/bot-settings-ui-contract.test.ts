@@ -189,8 +189,25 @@ describe('Bot settings UI contract', () => {
 
     assert.match(settings, /function WeChatScanLoginModal\b/, 'WeChat direct scan login must render its own QR modal');
     assert.match(settings, /const fetchingQrRef = useRef\(false\)/, 'Direct WeChat scan-login refresh must keep a synchronous pending guard');
-    assert.match(settings, /if \(fetchingQrRef\.current\) return;[\s\S]*fetchingQrRef\.current = true;[\s\S]*setStatus\('fetching'\)/, 'Direct WeChat scan-login QR fetch must block rapid duplicate refreshes before React rerenders');
-    assert.match(settings, /finally \{[\s\S]*fetchingQrRef\.current = false;[\s\S]*\}/, 'Direct WeChat scan-login QR fetch must release its pending guard');
+    assert.match(settings, /const scanLoginMountedRef = useRef\(false\)/, 'Direct WeChat scan-login modal must track mounted ownership');
+    assert.match(settings, /const scanLoginFetchTicketRef = useRef\(0\)/, 'Direct WeChat scan-login modal must invalidate stale QR fetches across remounts');
+    assert.match(
+      settings,
+      /useEffect\(\(\) => \{[\s\S]*scanLoginMountedRef\.current = true;[\s\S]*void fetchQr\(\);[\s\S]*return \(\) => \{[\s\S]*scanLoginMountedRef\.current = false;[\s\S]*scanLoginFetchTicketRef\.current \+= 1;[\s\S]*fetchingQrRef\.current = false;/,
+      'Direct WeChat scan-login modal must release QR ownership when closed',
+    );
+    assert.match(settings, /if \(fetchingQrRef\.current\) return;[\s\S]*fetchingQrRef\.current = true;[\s\S]*const ticket = \+\+scanLoginFetchTicketRef\.current;[\s\S]*setStatus\('fetching'\)/, 'Direct WeChat scan-login QR fetch must block rapid duplicate refreshes before React rerenders');
+    assert.match(
+      settings,
+      /const isCurrentRequest = \(\) => scanLoginMountedRef\.current && scanLoginFetchTicketRef\.current === ticket;[\s\S]*const result = await window\.maka\.settings\.bots\.wechat\.fetchQrcode\(\);[\s\S]*if \(!isCurrentRequest\(\)\) return;[\s\S]*if \(!result\.ok\) \{/,
+      'Direct WeChat scan-login QR fetch must not write stale result state after close or remount',
+    );
+    assert.match(
+      settings,
+      /catch \(error\) \{[\s\S]*if \(isCurrentRequest\(\)\) \{[\s\S]*setStatus\('error'\);[\s\S]*setErrorMessage\(settingsActionErrorMessage\(error\)\);/,
+      'Direct WeChat scan-login thrown QR failures must not write stale error state after close or remount',
+    );
+    assert.match(settings, /finally \{[\s\S]*if \(!scanLoginMountedRef\.current \|\| scanLoginFetchTicketRef\.current === ticket\) \{[\s\S]*fetchingQrRef\.current = false;[\s\S]*\}/, 'Direct WeChat scan-login QR fetch must release only current pending ownership');
     assert.match(settings, /window\.maka\.settings\.bots\.wechat\.fetchQrcode\(\)/, 'Direct scan login must fetch an iLink QR code through main');
     assert.match(settings, /window\.maka\.settings\.bots\.wechat\.pollQrcodeStatus\(qr\.qrToken\)/, 'Direct scan login must poll iLink status');
     assert.match(settings, /setErrorMessage\(settingsActionErrorMessage\(result\.error\.message\)\)/, 'Direct scan login result failures must use the Settings error scrubber before rendering');

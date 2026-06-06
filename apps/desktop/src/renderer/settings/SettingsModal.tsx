@@ -410,15 +410,20 @@ function WeChatScanLoginModal(props: {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const fetchingQrRef = useRef(false);
+  const scanLoginMountedRef = useRef(false);
+  const scanLoginFetchTicketRef = useRef(0);
   useModalA11y(dialogRef, props.onClose);
 
   async function fetchQr() {
     if (fetchingQrRef.current) return;
     fetchingQrRef.current = true;
+    const ticket = ++scanLoginFetchTicketRef.current;
+    const isCurrentRequest = () => scanLoginMountedRef.current && scanLoginFetchTicketRef.current === ticket;
     setStatus('fetching');
     setErrorMessage(null);
     try {
       const result = await window.maka.settings.bots.wechat.fetchQrcode();
+      if (!isCurrentRequest()) return;
       if (!result.ok) {
         setStatus('error');
         setErrorMessage(settingsActionErrorMessage(result.error.message));
@@ -427,15 +432,25 @@ function WeChatScanLoginModal(props: {
       setQr(result.data);
       setStatus('waiting');
     } catch (error) {
-      setStatus('error');
-      setErrorMessage(settingsActionErrorMessage(error));
+      if (isCurrentRequest()) {
+        setStatus('error');
+        setErrorMessage(settingsActionErrorMessage(error));
+      }
     } finally {
-      fetchingQrRef.current = false;
+      if (!scanLoginMountedRef.current || scanLoginFetchTicketRef.current === ticket) {
+        fetchingQrRef.current = false;
+      }
     }
   }
 
   useEffect(() => {
+    scanLoginMountedRef.current = true;
     void fetchQr();
+    return () => {
+      scanLoginMountedRef.current = false;
+      scanLoginFetchTicketRef.current += 1;
+      fetchingQrRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
