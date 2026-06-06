@@ -2696,10 +2696,19 @@ function SessionRow(props: {
   const [editing, setEditing] = useState(false);
   const [actionsVisible, setActionsVisible] = useState(false);
   const [pendingAction, setPendingAction] = useState<SessionRowActionId | null>(null);
+  const rowMountedRef = useRef(true);
   const pendingActionRef = useRef<SessionRowActionId | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const actionBusy = pendingAction !== null;
   const actionTabIndex = actionsVisible ? 0 : -1;
+
+  useEffect(() => {
+    rowMountedRef.current = true;
+    return () => {
+      rowMountedRef.current = false;
+      pendingActionRef.current = null;
+    };
+  }, []);
 
   // Auto-focus + select-all when the row enters edit mode so the user can
   // overwrite the current name without an extra Cmd+A.
@@ -2727,7 +2736,7 @@ function SessionRow(props: {
     setPendingAction(actionId);
     void Promise.resolve().then(action).finally(() => {
       pendingActionRef.current = null;
-      setPendingAction(null);
+      if (rowMountedRef.current) setPendingAction(null);
     });
   }
 

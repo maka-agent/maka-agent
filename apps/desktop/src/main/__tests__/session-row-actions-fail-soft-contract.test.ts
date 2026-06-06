@@ -38,8 +38,19 @@ describe('session row actions fail soft', () => {
     assert.match(ui, /onToggleFlag\(sessionId: string, next: boolean\): void \| Promise<void>;/);
     assert.match(ui, /onDelete\(sessionId: string\): void \| Promise<void>;/);
     assert.match(sessionRow, /const \[pendingAction,\s*setPendingAction\] = useState<SessionRowActionId \| null>\(null\);/);
+    assert.match(sessionRow, /const rowMountedRef = useRef\(true\);/);
     assert.match(sessionRow, /const pendingActionRef = useRef<SessionRowActionId \| null>\(null\);/);
     assert.match(sessionRow, /if \(pendingActionRef\.current\) return;[\s\S]*pendingActionRef\.current = actionId;[\s\S]*Promise\.resolve\(\)\.then\(action\)\.finally/);
+    assert.match(
+      sessionRow,
+      /useEffect\(\(\) => \{\s*rowMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*rowMountedRef\.current = false;\s*pendingActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
+      'SessionRow must release pending ownership when archive/delete/filter changes unmount the row',
+    );
+    assert.match(
+      sessionRow,
+      /pendingActionRef\.current = null;[\s\S]*if \(rowMountedRef\.current\) setPendingAction\(null\);/,
+      'SessionRow action cleanup must not write pending state after the row unmounts',
+    );
     assert.match(sessionRow, /disabled=\{actionBusy\}/);
     assert.match(sessionRow, /aria-busy=\{pendingAction === 'flag' \? 'true' : undefined\}/);
     assert.match(sessionRow, /data-pending=\{pendingAction === 'archive' \? 'true' : undefined\}/);
