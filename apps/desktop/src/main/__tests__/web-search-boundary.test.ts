@@ -190,6 +190,53 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.match(page![0], /disabled=\{credentialActionBusy\}[\s\S]*pendingCredentialAction === 'clear' \? '清空中…' : '清空 key'/);
   });
 
+  it('Settings web-search async actions stop writing component state after unmount', async () => {
+    const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);
+
+    assert.ok(page, 'Web search settings page block must exist');
+    assert.match(
+      page![0],
+      /const webSearchMountedRef = useRef\(true\)/,
+      'Web search Settings needs a mounted ref because test/query/save promises can settle after the section unmounts',
+    );
+    assert.match(
+      page![0],
+      /useEffect\(\(\) => \{[\s\S]*webSearchMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*webSearchMountedRef\.current = false;[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*testingRef\.current = false;[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\)/,
+      'Unmount must mark the page inactive and release synchronous pending owners',
+    );
+    assert.match(
+      page![0],
+      /finally \{[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setPendingCredentialAction\(null\);[\s\S]*\}/,
+      'Credential save/clear completion must not set state after unmount',
+    );
+    assert.match(
+      page![0],
+      /if \(webSearchMountedRef\.current\) \{[\s\S]*setDraftKey\(''\);[\s\S]*\}/,
+      'Credential save/clear success must not clear local draft state after unmount',
+    );
+    assert.match(
+      page![0],
+      /finally \{[\s\S]*testingRef\.current = false;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setTesting\(false\);[\s\S]*\}/,
+      'Credential test completion must not set testing state after unmount',
+    );
+    assert.match(
+      page![0],
+      /if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*\}/,
+      'Live-query success must not set results after unmount',
+    );
+    assert.match(
+      page![0],
+      /if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryError\(settingsActionErrorMessage\(err\)\);[\s\S]*\}/,
+      'Live-query thrown errors must not set inline error state after unmount',
+    );
+    assert.match(
+      page![0],
+      /finally \{[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryRunning\(false\);[\s\S]*\}/,
+      'Live-query completion must not clear running state after unmount',
+    );
+  });
+
   it('Settings web-search thrown errors pass through the shared Settings scrubber', async () => {
     const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
     const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);

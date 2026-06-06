@@ -2382,10 +2382,21 @@ function WebSearchSettingsPage(props: {
   const [liveQueryRunning, setLiveQueryRunning] = useState(false);
   const [liveQueryResults, setLiveQueryResults] = useState<readonly { title: string; url: string; snippet: string; source: string }[] | null>(null);
   const [liveQueryError, setLiveQueryError] = useState<string | null>(null);
+  const webSearchMountedRef = useRef(true);
   const pendingCredentialActionRef = useRef<'save' | 'clear' | null>(null);
   const testingRef = useRef(false);
   const liveQueryRunningRef = useRef(false);
   const toast = useToast();
+
+  useEffect(() => {
+    webSearchMountedRef.current = true;
+    return () => {
+      webSearchMountedRef.current = false;
+      pendingCredentialActionRef.current = null;
+      testingRef.current = false;
+      liveQueryRunningRef.current = false;
+    };
+  }, []);
 
   async function runCredentialAction(action: 'save' | 'clear', run: () => Promise<void>) {
     if (pendingCredentialActionRef.current !== null || testingRef.current) return;
@@ -2395,7 +2406,9 @@ function WebSearchSettingsPage(props: {
       await run();
     } finally {
       pendingCredentialActionRef.current = null;
-      setPendingCredentialAction(null);
+      if (webSearchMountedRef.current) {
+        setPendingCredentialAction(null);
+      }
     }
   }
 
@@ -2436,7 +2449,9 @@ function WebSearchSettingsPage(props: {
     await runCredentialAction('save', async () => {
       const saved = await updateWebSearch({ providers: { tavily: { apiKey: draftKey } } });
       if (!saved) return;
-      setDraftKey('');
+      if (webSearchMountedRef.current) {
+        setDraftKey('');
+      }
       toast.success('已保存 Tavily API key', '可点击「测试」做一次真实请求验证。');
     });
   }
@@ -2445,7 +2460,9 @@ function WebSearchSettingsPage(props: {
     await runCredentialAction('clear', async () => {
       const saved = await updateWebSearch({ enabled: false, providers: { tavily: { apiKey: '' } } });
       if (!saved) return;
-      setDraftKey('');
+      if (webSearchMountedRef.current) {
+        setDraftKey('');
+      }
       toast.success('已清空 Tavily 凭据', '联网搜索已自动关闭。');
     });
   }
@@ -2473,7 +2490,9 @@ function WebSearchSettingsPage(props: {
       toast.error('Tavily 测试出错', settingsActionErrorMessage(err));
     } finally {
       testingRef.current = false;
-      setTesting(false);
+      if (webSearchMountedRef.current) {
+        setTesting(false);
+      }
     }
   }
 
@@ -2493,21 +2512,29 @@ function WebSearchSettingsPage(props: {
         limit: 5,
       });
       if (result.ok) {
-        setLiveQueryResults(result.results);
+        if (webSearchMountedRef.current) {
+          setLiveQueryResults(result.results);
+        }
         if (hasUsableKey) {
           void persistCredentialStatus('valid', queriedCredentialVersion);
         }
       } else {
-        setLiveQueryError(result.message);
+        if (webSearchMountedRef.current) {
+          setLiveQueryError(result.message);
+        }
         if (hasUsableKey) {
           void persistCredentialStatus(webSearchCredentialStatusFromResponse(result), queriedCredentialVersion);
         }
       }
     } catch (err) {
-      setLiveQueryError(settingsActionErrorMessage(err));
+      if (webSearchMountedRef.current) {
+        setLiveQueryError(settingsActionErrorMessage(err));
+      }
     } finally {
       liveQueryRunningRef.current = false;
-      setLiveQueryRunning(false);
+      if (webSearchMountedRef.current) {
+        setLiveQueryRunning(false);
+      }
     }
   }
 
