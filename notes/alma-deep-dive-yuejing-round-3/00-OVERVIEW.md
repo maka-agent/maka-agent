@@ -20,6 +20,7 @@ notes, plus surfaces neither round touched at all.
 | 01 | `01-skills-system.md` | SKILL.md discovery + Skill / SlashCommand tools + persistent enable/disable + extraction loop | **shipped** |
 | 02 | `02-output-safety-modes.md` | 3-mode classifier (exact/compact/passthrough) + 8 budget profiles + `[alma-output-safety: …]` marker + truncation cascade with recovery hints + outer shrink loop | **shipped** |
 | 03 | `03-mcp-tool-name-collisions.md` | `bf` prefix function + asymmetric sanitizers (yf server vs wf tool) + why `__` cannot collide with built-ins + cross-MCP-server collision risk + per-tool safety mode injection from MCP | **shipped** |
+| 04 | `04-permissions-runtime-risk.md` | `autoApproveToolRequests` is a flat skip (no risk gate) + 5 bypass channels (autoApprove / subagent / bot-source / bot-thread / cron) + 6th allow_always policy cache scoped per-thread + 7th interactive modal + Bash's AI pre-gate analyzer with safe/low/medium/high risk levels + headless ALMA_TOOL_APPROVAL env | **shipped** |
 
 ## Picking the next note
 
