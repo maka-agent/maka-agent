@@ -566,8 +566,10 @@ export function CommandPalette(props: {
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const commitPendingRef = useRef(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
+  const [committedCommandId, setCommittedCommandId] = useState<string | null>(null);
 
   useModalA11y(dialogRef, props.onClose);
 
@@ -617,11 +619,14 @@ export function CommandPalette(props: {
 
   function commit(cmd: Command | undefined) {
     if (!cmd) return;
+    if (commitPendingRef.current) return;
     // xuan `fd675604`: disabled commands are inert. We MUST NOT fire
     // their `run()` and MUST NOT close the palette — that would make
     // a status tile (blocked / loading / error / empty) look like a
     // user action.
     if (cmd.disabled) return;
+    commitPendingRef.current = true;
+    setCommittedCommandId(cmd.id);
     cmd.run();
     props.onClose();
   }
@@ -693,6 +698,7 @@ export function CommandPalette(props: {
                   const index = entry.index;
                   const cmd = entry.command;
                   const active = index === highlight;
+                  const commandCommitPending = committedCommandId === cmd.id;
                   return (
                     <button
                       key={cmd.id}
@@ -701,8 +707,10 @@ export function CommandPalette(props: {
                       role="option"
                       aria-selected={active}
                       aria-disabled={cmd.disabled ? true : undefined}
+                      aria-busy={commandCommitPending ? 'true' : undefined}
                       data-active={active}
                       data-disabled={cmd.disabled ? true : undefined}
+                      data-pending={commandCommitPending ? 'true' : undefined}
                       className="maka-palette-item"
                       onMouseEnter={() => setHighlight(index)}
                       onClick={() => commit(cmd)}
