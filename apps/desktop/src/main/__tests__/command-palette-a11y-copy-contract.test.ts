@@ -56,13 +56,15 @@ describe('Command palette accessibility and visible copy', () => {
 
     assert.match(helperBlock, /generalizedErrorMessageChinese\(error, fallback\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '导出当前对话失败，请稍后重试。'\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '连接测试暂时不可用，请稍后重试。'\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '默认模型暂时无法切换，请稍后重试。'\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '无法打开 MEMORY\.md，请稍后重试。'\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '无法打开项目指引，请稍后重试。'\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '剪贴板不可用或被系统拒绝'\)/);
     assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '网络代理测试暂时不可用，请稍后重试。'\)/);
     assert.doesNotMatch(
       commandPaletteBlock,
-      /err instanceof Error \? err\.message : (?:'导出当前对话失败'|'路径无效'|'剪贴板不可用'|'网络代理测试异常')/,
+      /(?:err|error) instanceof Error \? (?:err|error)\.message : (?:String\((?:err|error)\)|'导出当前对话失败'|'路径无效'|'剪贴板不可用'|'网络代理测试异常')/,
       'Command palette actions must not toast raw thrown Error.message',
     );
   });

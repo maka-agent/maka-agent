@@ -2869,8 +2869,11 @@ function AppShell() {
                   toastApi.error(`连接测试失败 · ${name}`, result.errorMessage ?? '未知错误');
                 }
                 await refreshConnections();
-              } catch (error) {
-                toastApi.error('测试出错', error instanceof Error ? error.message : String(error));
+              } catch (err) {
+                toastApi.error(
+                  '测试出错',
+                  commandPaletteActionErrorMessage(err, '连接测试暂时不可用，请稍后重试。'),
+                );
               }
             },
             onSetDefaultConnection: async (slug) => {
@@ -2879,8 +2882,11 @@ function AppShell() {
                 await refreshConnections();
                 const conn = connections.find((c) => c.slug === slug);
                 toastApi.success(`已设为默认 · ${conn?.name ?? slug}`);
-              } catch (error) {
-                toastApi.error('切换默认失败', error instanceof Error ? error.message : String(error));
+              } catch (err) {
+                toastApi.error(
+                  '切换默认失败',
+                  commandPaletteActionErrorMessage(err, '默认模型暂时无法切换，请稍后重试。'),
+                );
               }
             },
             onOpenWorkspace: async () => {
