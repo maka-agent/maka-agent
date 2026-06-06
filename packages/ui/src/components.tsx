@@ -5246,10 +5246,12 @@ export const Composer = forwardRef<
      * the only visible action — Send is hidden because the model is busy.
      */
     streaming?: boolean;
+    /** True while the current streaming session is processing a stop request. */
+    stopPending?: boolean;
     /** Runtime-only key used to keep unsent drafts isolated per session. */
     draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
-    onStop(): void;
+    onStop(): void | Promise<void>;
     onImportTextFile?(): void | Promise<void>;
     onImportFolderOutline?(): void | Promise<void>;
     onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
@@ -5421,6 +5423,7 @@ export const Composer = forwardRef<
     // happens to be focused outside a streaming turn.
     if (event.key === 'Escape' && props.streaming) {
       event.preventDefault();
+      if (props.stopPending) return;
       props.onStop();
       return;
     }
@@ -5594,8 +5597,19 @@ export const Composer = forwardRef<
               </button>
             )}
             {props.streaming ? (
-              <button className="maka-button" data-variant="primary" type="button" onClick={props.onStop}>
-                {buttonCopy.stopLabel}
+              <button
+                className="maka-button"
+                data-variant="primary"
+                type="button"
+                disabled={props.stopPending}
+                onClick={() => {
+                  if (props.stopPending) return;
+                  void props.onStop();
+                }}
+                aria-busy={props.stopPending ? 'true' : undefined}
+                data-pending={props.stopPending ? 'true' : undefined}
+              >
+                {props.stopPending ? '停止中…' : buttonCopy.stopLabel}
               </button>
             ) : (
               <button className="maka-button" data-variant="primary" type="submit" disabled={sendDisabled}>

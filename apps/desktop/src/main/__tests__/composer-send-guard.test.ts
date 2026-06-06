@@ -50,4 +50,22 @@ describe('composer send guard', () => {
       'successful sends must clear both the original draft key and the current key after a new-session send changes draftKey',
     );
   });
+
+  it('keeps streaming stop single-flight across the button and Esc key', async () => {
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const keydown = source.match(/function onTextareaKeyDown\(event: KeyboardEvent<HTMLTextAreaElement>\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(source, /stopPending\?: boolean;/, 'Composer must accept app-shell stop pending state');
+    assert.match(source, /onStop\(\): void \| Promise<void>;/, 'Composer onStop may be Promise-returning');
+    assert.match(
+      keydown,
+      /if \(event\.key === 'Escape' && props\.streaming\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?if \(props\.stopPending\) return;[\s\S]*?props\.onStop\(\);/,
+      'Esc must not re-send stop while a stop request is already pending',
+    );
+    assert.match(source, /disabled=\{props\.stopPending\}/);
+    assert.match(source, /if \(props\.stopPending\) return;[\s\S]*void props\.onStop\(\);/);
+    assert.match(source, /aria-busy=\{props\.stopPending \? 'true' : undefined\}/);
+    assert.match(source, /data-pending=\{props\.stopPending \? 'true' : undefined\}/);
+    assert.match(source, /\{props\.stopPending \? '停止中…' : buttonCopy\.stopLabel\}/);
+  });
 });

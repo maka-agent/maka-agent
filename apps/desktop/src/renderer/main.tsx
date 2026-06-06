@@ -212,6 +212,8 @@ function AppShell() {
   const [messageLoadErrorBySession, setMessageLoadErrorBySession] = useState<Record<string, string>>({});
   const [messageRetryPendingBySession, setMessageRetryPendingBySession] = useState<Record<string, boolean>>({});
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
+  const [stopPendingBySession, setStopPendingBySession] = useState<Record<string, boolean>>({});
+  const stopPendingRef = useRef<Set<string>>(new Set());
   // PR-UI-Cx fixup v2 (@kenji msg 3c01e901 Blocker 2): combined
   // per-session assistant streaming state. The `text` + `truncated`
   // pair lives in a SINGLE useState so the `text_delta` handler can
@@ -507,6 +509,24 @@ function AppShell() {
     if (!messageRetryPendingRef.current.has(sessionId)) return;
     messageRetryPendingRef.current.delete(sessionId);
     setMessageRetryPendingBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }
+
+  function addPendingStop(sessionId: string): boolean {
+    if (stopPendingRef.current.has(sessionId)) return false;
+    stopPendingRef.current.add(sessionId);
+    setStopPendingBySession((current) => ({ ...current, [sessionId]: true }));
+    return true;
+  }
+
+  function clearPendingStop(sessionId: string): void {
+    if (!stopPendingRef.current.has(sessionId)) return;
+    stopPendingRef.current.delete(sessionId);
+    setStopPendingBySession((current) => {
       if (!current[sessionId]) return current;
       const next = { ...current };
       delete next[sessionId];
@@ -1750,9 +1770,10 @@ function AppShell() {
   }
 
   async function stop() {
-    if (!activeId) return;
+    const sessionId = activeIdRef.current;
+    if (!sessionId || !addPendingStop(sessionId)) return;
     try {
-      await window.maka.sessions.stop(activeId, { source: 'stop_button' });
+      await window.maka.sessions.stop(sessionId, { source: 'stop_button' });
     } catch (error) {
       // The Composer wires this through both the Stop button onClick
       // and the Escape key. Both invoke `onStop` without awaiting, so
@@ -1761,6 +1782,8 @@ function AppShell() {
       // Surface it as a toast so the user knows the model wasn't
       // actually interrupted and can retry.
       toastApi.error('停止失败', cleanErrorMessage(error));
+    } finally {
+      clearPendingStop(sessionId);
     }
   }
 
@@ -2655,6 +2678,7 @@ function AppShell() {
                 streaming={activeStreaming.length > 0}
                 onSend={send}
                 onStop={stop}
+                stopPending={activeId ? stopPendingBySession[activeId] === true : false}
                 onImportTextFile={importTextFileIntoComposer}
                 onImportDroppedTextFiles={importDroppedTextFilesIntoComposer}
                 onImportFolderOutline={importFolderOutlineIntoComposer}

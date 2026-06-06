@@ -153,8 +153,15 @@ describe('permission response IPC boundary', () => {
     // Match `async function stop()` body up to its closing brace.
     const stop = renderer.match(/async function stop\(\)\s*\{[\s\S]*?\n  \}/);
     assert.ok(stop, 'stop() must exist in main.tsx');
+    assert.match(renderer, /const stopPendingRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(renderer, /function addPendingStop\(sessionId: string\): boolean \{[\s\S]*?stopPendingRef\.current\.has\(sessionId\)[\s\S]*?stopPendingRef\.current\.add\(sessionId\)/);
+    assert.match(renderer, /function clearPendingStop\(sessionId: string\): void \{[\s\S]*?stopPendingRef\.current\.delete\(sessionId\)/);
+    assert.match(stop[0], /const sessionId = activeIdRef\.current;/);
+    assert.match(stop[0], /if \(!sessionId \|\| !addPendingStop\(sessionId\)\) return;/);
     assert.match(stop[0], /try\s*\{[\s\S]*?await window\.maka\.sessions\.stop/);
+    assert.match(stop[0], /await window\.maka\.sessions\.stop\(sessionId, \{ source: 'stop_button' \}\);/);
     assert.match(stop[0], /catch \(error\)[\s\S]*?toastApi\.error\(['"]停止失败['"]/);
+    assert.match(stop[0], /finally \{[\s\S]*?clearPendingStop\(sessionId\);[\s\S]*?\}/);
     const respond = renderer.match(/async function respondToPermission\([\s\S]*?\n  \}/);
     assert.ok(respond, 'respondToPermission() must exist');
     assert.match(respond[0], /try\s*\{[\s\S]*?await window\.maka\.sessions\.respondToPermission/);
