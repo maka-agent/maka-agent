@@ -22,8 +22,8 @@
  * - Pure UI. No new IPC, no settings writes.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, Search, Sparkles, User } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, RefreshCcw, Search, Sparkles, User } from 'lucide-react';
 import { generalizedErrorMessageChinese, type AppSettings, type PlanReminder, type SettingsSection } from '@maka/core';
 import { useToast } from '@maka/ui';
 
@@ -54,51 +54,74 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
   const [planReminders, setPlanReminders] = useState<ReadonlyArray<PlanReminder> | null>(null);
   const [workspaceInstructionCount, setWorkspaceInstructionCount] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusRefreshPending, setStatusRefreshPending] = useState(false);
   const failureToastShownRef = useRef(false);
+  const statusRefreshPendingRef = useRef(false);
   const toast = useToast();
 
-  function surfaceProbeFailure(error: unknown) {
+  const surfaceProbeFailure = useCallback((error: unknown) => {
     const message = firstRunChecklistErrorMessage(error);
     setStatusError(message);
     if (!failureToastShownRef.current) {
       failureToastShownRef.current = true;
       toast.error('刷新首次使用清单失败', message);
     }
-  }
+  }, [toast]);
+
+  const refreshChecklistStatus = useCallback(async (isCancelled: () => boolean = () => false) => {
+    if (statusRefreshPendingRef.current) return;
+    statusRefreshPendingRef.current = true;
+    setStatusRefreshPending(true);
+    failureToastShownRef.current = false;
+    let hadFailure = false;
+    const handleProbeFailure = (error: unknown) => {
+      hadFailure = true;
+      surfaceProbeFailure(error);
+    };
+    try {
+      await Promise.all([
+        window.maka.settings.get().then((next) => {
+          if (!isCancelled()) {
+            setSettings(next);
+            setSettingsLoadFailed(false);
+          }
+        }).catch((error) => {
+          if (!isCancelled()) {
+            setSettingsLoadFailed(true);
+            handleProbeFailure(error);
+          }
+        }),
+        window.maka.plans.list().then((list) => {
+          if (!isCancelled()) setPlanReminders(list);
+        }).catch((error) => {
+          if (!isCancelled()) {
+            setPlanReminders(null);
+            handleProbeFailure(error);
+          }
+        }),
+        window.maka.workspaceInstructions.getState().then((state) => {
+          if (!isCancelled()) setWorkspaceInstructionCount(state.detectedCount);
+        }).catch((error) => {
+          if (!isCancelled()) {
+            setWorkspaceInstructionCount(null);
+            handleProbeFailure(error);
+          }
+        }),
+      ]);
+      if (!isCancelled() && !hadFailure) setStatusError(null);
+    } finally {
+      statusRefreshPendingRef.current = false;
+      if (!isCancelled()) setStatusRefreshPending(false);
+    }
+  }, [surfaceProbeFailure]);
 
   useEffect(() => {
     let cancelled = false;
-    void window.maka.settings.get().then((next) => {
-      if (!cancelled) {
-        setSettings(next);
-        setSettingsLoadFailed(false);
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setSettingsLoadFailed(true);
-        surfaceProbeFailure(error);
-      }
-    });
-    void window.maka.plans.list().then((list) => {
-      if (!cancelled) setPlanReminders(list);
-    }).catch((error) => {
-      if (!cancelled) {
-        setPlanReminders(null);
-        surfaceProbeFailure(error);
-      }
-    });
-    void window.maka.workspaceInstructions.getState().then((state) => {
-      if (!cancelled) setWorkspaceInstructionCount(state.detectedCount);
-    }).catch((error) => {
-      if (!cancelled) {
-        setWorkspaceInstructionCount(null);
-        surfaceProbeFailure(error);
-      }
-    });
+    void refreshChecklistStatus(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshChecklistStatus]);
 
   const items = useMemo<ReadonlyArray<ChecklistItem>>(() => {
     if (!settings) return [];
@@ -194,9 +217,24 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
 
   if (!settings && settingsLoadFailed) {
     return (
-      <aside className="maka-first-run-checklist" role="alert" aria-label="接下来可以探索暂时不可用">
+      <aside
+        className="maka-first-run-checklist"
+        role="alert"
+        aria-label="接下来可以探索暂时不可用"
+        aria-busy={statusRefreshPending ? 'true' : undefined}
+      >
         <div className="maka-first-run-checklist-error">
-          首次使用清单暂时没刷新成功。{statusError ?? '请稍后重试。'}
+          <span>首次使用清单暂时没刷新成功。{statusError ?? '请稍后重试。'}</span>
+          <button
+            type="button"
+            className="maka-first-run-checklist-error-action"
+            onClick={() => void refreshChecklistStatus()}
+            disabled={statusRefreshPending}
+            aria-busy={statusRefreshPending ? 'true' : undefined}
+          >
+            <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
+          </button>
         </div>
       </aside>
     );
@@ -219,7 +257,17 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
       </header>
       {statusError && (
         <div className="maka-first-run-checklist-error" role="alert">
-          部分状态暂时没刷新成功，已避免把未知状态计成未完成。{statusError}
+          <span>部分状态暂时没刷新成功，已避免把未知状态计成未完成。{statusError}</span>
+          <button
+            type="button"
+            className="maka-first-run-checklist-error-action"
+            onClick={() => void refreshChecklistStatus()}
+            disabled={statusRefreshPending}
+            aria-busy={statusRefreshPending ? 'true' : undefined}
+          >
+            <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
+          </button>
         </div>
       )}
       <ul className="maka-first-run-checklist-list">
