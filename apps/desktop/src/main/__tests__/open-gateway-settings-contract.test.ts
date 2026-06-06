@@ -61,6 +61,10 @@ describe('Open Gateway Settings endpoint contract', () => {
 
   it('surfaces clipboard failures for every Open Gateway copy action', () => {
     const helper = settingsSource.match(/async function copyGatewayText[\s\S]*?async function copyBaseUrl/)?.[0] ?? '';
+    assert.match(helper, /copyingGatewayActionRef\.current/);
+    assert.match(helper, /if \(copyingGatewayActionRef\.current\) return/);
+    assert.match(helper, /setCopyingGatewayAction\(action\)/);
+    assert.match(helper, /setCopyingGatewayAction\(null\)/);
     assert.match(helper, /try \{[\s\S]*navigator\.clipboard\.writeText\(text\)[\s\S]*toast\.success\(successTitle, successDetail\)/);
     assert.match(helper, /catch \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝'\)/);
     assert.match(helper, /剪贴板不可用或被系统拒绝/);
@@ -71,13 +75,18 @@ describe('Open Gateway Settings endpoint contract', () => {
     );
 
     const gatewayBlock = settingsSource.match(/function OpenGatewaySettingsPage[\s\S]*?function presentGatewayStatus/)?.[0] ?? '';
-    assert.match(gatewayBlock, /copyGatewayText\(baseUrl, '已复制网关地址'/);
-    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制总览 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制接口说明 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制单会话状态 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制事件流 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制最近事件 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\(command, '已复制最近请求 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('base-url', baseUrl, '已复制网关地址'/);
+    assert.match(gatewayBlock, /copyGatewayText\('overview-curl', command, '已复制总览 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('openapi-curl', command, '已复制接口说明 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('session-state-curl', command, '已复制单会话状态 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('event-stream-curl', command, '已复制事件流 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('recent-events-curl', command, '已复制最近事件 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('recent-requests-curl', command, '已复制最近请求 curl'/);
+    assert.match(gatewayBlock, /const gatewayCopyDisabled = Boolean\(copyingGatewayAction\)/);
+    assert.match(gatewayBlock, /disabled=\{gatewayCopyDisabled\}/);
+    assert.match(gatewayBlock, /disabled=\{!gateway\.token \|\| gatewayCopyDisabled\}/);
+    assert.match(gatewayBlock, /isCopyingGatewayAction\('base-url'\) \? '复制中…' : '复制地址'/);
+    assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? '复制中…' : '复制最近请求 curl'/);
   });
 
   it('surfaces Open Gateway runtime status load failures instead of showing normal false state', () => {

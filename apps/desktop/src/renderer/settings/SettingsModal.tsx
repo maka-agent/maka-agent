@@ -3815,6 +3815,8 @@ function OpenGatewaySettingsPage(props: {
   const [tokenDraft, setTokenDraft] = useState(gateway.token);
   const [eventSessionId, setEventSessionId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [copyingGatewayAction, setCopyingGatewayAction] = useState<string | null>(null);
+  const copyingGatewayActionRef = useRef<string | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -3876,35 +3878,41 @@ function OpenGatewaySettingsPage(props: {
     toast.success('网关 token 已生成', '本机 API 需要 Authorization Bearer token。');
   }
 
-  async function copyGatewayText(text: string, successTitle: string, successDetail: string) {
+  async function copyGatewayText(action: string, text: string, successTitle: string, successDetail: string) {
+    if (copyingGatewayActionRef.current) return;
+    copyingGatewayActionRef.current = action;
+    setCopyingGatewayAction(action);
     try {
       await navigator.clipboard.writeText(text);
       toast.success(successTitle, successDetail);
     } catch {
       toast.error('复制失败', '剪贴板不可用或被系统拒绝');
+    } finally {
+      copyingGatewayActionRef.current = null;
+      setCopyingGatewayAction(null);
     }
   }
 
   async function copyBaseUrl() {
     const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
-    await copyGatewayText(baseUrl, '已复制网关地址', baseUrl);
+    await copyGatewayText('base-url', baseUrl, '已复制网关地址', baseUrl);
   }
 
   const baseUrl = status?.baseUrl ?? gatewayBaseUrl(gateway.host, gateway.port);
   async function copyOverviewCurl() {
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await copyGatewayText(command, '已复制总览 curl', '可在终端验证开放网关状态。');
+    await copyGatewayText('overview-curl', command, '已复制总览 curl', '可在终端验证开放网关状态。');
   }
 
   async function copyOpenApiCurl() {
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/openapi.json`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await copyGatewayText(command, '已复制接口说明 curl', '可交给外部工具发现本机 API。');
+    await copyGatewayText('openapi-curl', command, '已复制接口说明 curl', '可交给外部工具发现本机 API。');
   }
 
   async function copySessionStateCurl() {
     const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/state`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await copyGatewayText(command, '已复制单会话状态 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看单个会话状态。');
+    await copyGatewayText('session-state-curl', command, '已复制单会话状态 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看单个会话状态。');
   }
 
   async function copyEventStreamCurl() {
@@ -3917,21 +3925,23 @@ function OpenGatewaySettingsPage(props: {
       '-H',
       shellSingleQuote('Accept: text/event-stream'),
     ].join(' ');
-    await copyGatewayText(command, '已复制事件流 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端观察当前会话事件。');
+    await copyGatewayText('event-stream-curl', command, '已复制事件流 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端观察当前会话事件。');
   }
 
   async function copyRecentEventsCurl() {
     const sessionId = eventSessionId.trim() ? encodeURIComponent(eventSessionId.trim()) : '<SESSION_ID>';
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/sessions/${sessionId}/events/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await copyGatewayText(command, '已复制最近事件 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看最近事件摘要。');
+    await copyGatewayText('recent-events-curl', command, '已复制最近事件 curl', sessionId === '<SESSION_ID>' ? '把 <SESSION_ID> 替换成目标会话 ID 后运行。' : '可在终端查看最近事件摘要。');
   }
 
   async function copyRecentRequestsCurl() {
     const command = `curl -sS ${shellSingleQuote(`${baseUrl}/v1/requests/recent`)} -H ${shellSingleQuote(`Authorization: Bearer ${gateway.token}`)}`;
-    await copyGatewayText(command, '已复制最近请求 curl', '可在终端查看网关请求元数据。');
+    await copyGatewayText('recent-requests-curl', command, '已复制最近请求 curl', '可在终端查看网关请求元数据。');
   }
 
   const state = presentGatewayStatus(status, gateway);
+  const isCopyingGatewayAction = (action: string) => copyingGatewayAction === action;
+  const gatewayCopyDisabled = Boolean(copyingGatewayAction);
 
   return (
     <div className="settingsStructuredPage">
@@ -4027,26 +4037,26 @@ function OpenGatewaySettingsPage(props: {
         <button className="maka-button secondary" type="button" disabled={!gateway.token || saving} onClick={() => void saveToken('')}>
           清空 token
         </button>
-        <button className="maka-button secondary" type="button" onClick={() => void copyBaseUrl()}>
-          复制地址
+        <button className="maka-button secondary" type="button" disabled={gatewayCopyDisabled} onClick={() => void copyBaseUrl()}>
+          {isCopyingGatewayAction('base-url') ? '复制中…' : '复制地址'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyOverviewCurl()}>
-          复制总览 curl
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
+          {isCopyingGatewayAction('overview-curl') ? '复制中…' : '复制总览 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyOpenApiCurl()}>
-          复制接口说明 curl
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()}>
+          {isCopyingGatewayAction('openapi-curl') ? '复制中…' : '复制接口说明 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copySessionStateCurl()}>
-          复制单会话状态 curl
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()}>
+          {isCopyingGatewayAction('session-state-curl') ? '复制中…' : '复制单会话状态 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyEventStreamCurl()}>
-          复制事件流 curl
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()}>
+          {isCopyingGatewayAction('event-stream-curl') ? '复制中…' : '复制事件流 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyRecentEventsCurl()}>
-          复制最近事件 curl
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()}>
+          {isCopyingGatewayAction('recent-events-curl') ? '复制中…' : '复制最近事件 curl'}
         </button>
-        <button className="maka-button secondary" type="button" disabled={!gateway.token} onClick={() => void copyRecentRequestsCurl()}>
-          复制最近请求 curl
+        <button className="maka-button secondary" type="button" disabled={!gateway.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()}>
+          {isCopyingGatewayAction('recent-requests-curl') ? '复制中…' : '复制最近请求 curl'}
         </button>
       </div>
 
