@@ -1266,6 +1266,7 @@ function PlanReminderPanel(props: {
   });
   const canCreate = validationMessage === null;
   const submitDisabled = !canCreate || submitPending;
+  const formInteractionDisabled = submitPending;
   const isEditing = editingId !== null;
 
   useEffect(() => {
@@ -1378,6 +1379,7 @@ function PlanReminderPanel(props: {
             maxLength={120}
             data-maka-plan-title-input="true"
             placeholder="例如：明天复盘项目进度"
+            disabled={formInteractionDisabled}
           />
         </label>
         <label className="maka-plan-field">
@@ -1391,6 +1393,7 @@ function PlanReminderPanel(props: {
             spellCheck={false}
             placeholder="2026-06-05 13:44"
             aria-label="提醒时间"
+            disabled={formInteractionDisabled}
           />
         </label>
         <div className="maka-plan-presets" aria-label="快速设置提醒时间">
@@ -1405,6 +1408,7 @@ function PlanReminderPanel(props: {
               type="button"
               className="maka-plan-preset"
               onClick={() => applyRunAtPreset(preset as 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday')}
+              disabled={formInteractionDisabled}
             >
               {label}
             </button>
@@ -1412,7 +1416,11 @@ function PlanReminderPanel(props: {
         </div>
         <label className="maka-plan-field">
           <span>重复</span>
-          <select value={recurrence} onChange={(event) => setRecurrence(event.currentTarget.value as PlanReminderRecurrence)}>
+          <select
+            value={recurrence}
+            onChange={(event) => setRecurrence(event.currentTarget.value as PlanReminderRecurrence)}
+            disabled={formInteractionDisabled}
+          >
             <option value="none">不重复</option>
             <option value="daily">每天</option>
             <option value="weekly">每周</option>
@@ -1428,6 +1436,7 @@ function PlanReminderPanel(props: {
               onChange={(event) => setCronExpression(event.currentTarget.value)}
               maxLength={80}
               placeholder="例如 0 9 * * 1-5"
+              disabled={formInteractionDisabled}
             />
           </label>
         )}
@@ -1437,6 +1446,7 @@ function PlanReminderPanel(props: {
             <select
               value={deliveryChannel}
               onChange={(event) => setDeliveryChannel(event.currentTarget.value as PlanReminderDeliveryTarget['channel'])}
+              disabled={formInteractionDisabled}
             >
               <option value="local">本地提醒</option>
               <option value="bot">机器人聊天</option>
@@ -1445,7 +1455,11 @@ function PlanReminderPanel(props: {
           {deliveryChannel === 'bot' && (
             <label className="maka-plan-field">
               <span>平台</span>
-              <select value={deliveryPlatform} onChange={(event) => setDeliveryPlatform(event.currentTarget.value as BotProvider)}>
+              <select
+                value={deliveryPlatform}
+                onChange={(event) => setDeliveryPlatform(event.currentTarget.value as BotProvider)}
+                disabled={formInteractionDisabled}
+              >
                 {BOT_DELIVERY_PROVIDERS.map((provider) => (
                   <option key={provider} value={provider}>{botDisplayLabel(provider)}</option>
                 ))}
@@ -1465,6 +1479,7 @@ function PlanReminderPanel(props: {
                 onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
                 maxLength={160}
                 placeholder="例如 Telegram chat_id"
+                disabled={formInteractionDisabled}
               />
             </label>
           </>
@@ -1477,6 +1492,7 @@ function PlanReminderPanel(props: {
             maxLength={1000}
             rows={3}
             placeholder="可选：补充需要提醒的上下文"
+            disabled={formInteractionDisabled}
           />
         </label>
         {validationMessage && (
@@ -1489,7 +1505,12 @@ function PlanReminderPanel(props: {
           <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
         </button>
         {isEditing && (
-          <button className="maka-button secondary maka-plan-submit" type="button" onClick={resetForm}>
+          <button
+            className="maka-button secondary maka-plan-submit"
+            type="button"
+            onClick={resetForm}
+            disabled={formInteractionDisabled}
+          >
             取消编辑
           </button>
         )}
@@ -1602,7 +1623,7 @@ function PlanReminderPanel(props: {
                   type="button"
                   className="maka-plan-action"
                   onClick={() => editReminder(reminder)}
-                  disabled={reminderActionPending || reminder.status === 'completed'}
+                  disabled={submitPending || reminderActionPending || reminder.status === 'completed'}
                   title="编辑提醒"
                 >
                   编辑
@@ -1611,7 +1632,7 @@ function PlanReminderPanel(props: {
                   type="button"
                   className="maka-plan-action"
                   onClick={() => duplicateReminder(reminder)}
-                  disabled={reminderActionPending}
+                  disabled={submitPending || reminderActionPending}
                   title="复制为新提醒"
                 >
                   复制

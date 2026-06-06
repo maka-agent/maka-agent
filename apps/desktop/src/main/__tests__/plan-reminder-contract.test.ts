@@ -106,6 +106,15 @@ describe('Plan reminder MVP contract', () => {
     const panelBlock = ui.match(/function PlanReminderPanel[\s\S]*?function comparePlanReminderForDisplay/)?.[0] ?? '';
     assert.match(panelBlock, /const \[submitPending, setSubmitPending\] = useState\(false\)/, 'plan form must gate duplicate async submits');
     assert.match(panelBlock, /const submitDisabled = !canCreate \|\| submitPending/, 'pending create/save must disable the submit button');
+    assert.match(panelBlock, /const formInteractionDisabled = submitPending/, 'pending create/save must also freeze the editable draft controls');
+    assert.match(panelBlock, /data-maka-plan-title-input="true"[\s\S]*disabled=\{formInteractionDisabled\}/, 'pending create/save must disable title edits');
+    assert.match(panelBlock, /aria-label="提醒时间"[\s\S]*disabled=\{formInteractionDisabled\}/, 'pending create/save must disable time edits');
+    assert.match(panelBlock, /className="maka-plan-preset"[\s\S]*disabled=\{formInteractionDisabled\}/, 'pending create/save must disable quick presets');
+    assert.match(panelBlock, /<select[\s\S]*value=\{recurrence\}[\s\S]*disabled=\{formInteractionDisabled\}/, 'pending create/save must disable recurrence changes');
+    assert.match(panelBlock, /placeholder="可选：补充需要提醒的上下文"[\s\S]*disabled=\{formInteractionDisabled\}/, 'pending create/save must disable note edits');
+    assert.match(panelBlock, /onClick=\{resetForm\}[\s\S]*disabled=\{formInteractionDisabled\}/, 'cancel edit must not clear the draft while create/save is pending');
+    assert.match(panelBlock, /onClick=\{\(\) => editReminder\(reminder\)\}[\s\S]*disabled=\{submitPending \|\| reminderActionPending \|\| reminder\.status === 'completed'\}/, 'row edit must not overwrite a pending create/save draft');
+    assert.match(panelBlock, /onClick=\{\(\) => duplicateReminder\(reminder\)\}[\s\S]*disabled=\{submitPending \|\| reminderActionPending\}/, 'row duplicate must not overwrite a pending create/save draft');
     assert.match(panelBlock, /const result = editingId[\s\S]*await props\.onUpdate\?\.\(editingId, input\)[\s\S]*await props\.onCreate\?\.\(/, 'plan form must await async create/save callbacks');
     assert.match(panelBlock, /if \(result !== false\) resetForm\(\)/, 'plan form must keep the user draft when the parent reports failure');
     assert.doesNotMatch(panelBlock, /props\.onCreate\?\([\s\S]*?\);\s*}\s*resetForm\(\)/, 'plan form must not clear fields immediately after firing create');
