@@ -3146,6 +3146,15 @@ button:active {
   gap: 6px;
 }
 
+.maka-error-copy-action[data-copy-state="pending"] {
+  cursor: progress;
+}
+
+.maka-error-copy-action[data-copy-state="failed"] {
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.35);
+}
+
 .maka-error-copy-status {
   color: var(--destructive-text);
 }

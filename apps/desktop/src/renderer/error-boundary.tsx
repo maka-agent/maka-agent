@@ -13,7 +13,7 @@ import { redactSecrets } from '@maka/ui';
 type State = {
   error: Error | null;
   errorInfo: ErrorInfo | null;
-  copyState: 'idle' | 'copied' | 'failed';
+  copyState: 'idle' | 'pending' | 'copied' | 'failed';
 };
 
 export function formatRendererErrorReport(error: Error, info?: ErrorInfo | null): string {
@@ -62,7 +62,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
 
   private handleCopyReport = async () => {
     const { error, errorInfo } = this.state;
-    if (!error) return;
+    if (!error || this.state.copyState === 'pending') return;
+    this.setState({ copyState: 'pending' });
     try {
       await navigator.clipboard.writeText(formatRendererErrorReport(error, errorInfo));
       this.setState({ copyState: 'copied' });
@@ -75,7 +76,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     const { error, errorInfo, copyState } = this.state;
     if (!error) return this.props.children;
     const safeStack = redactSecrets(`${error.name}: ${error.message}${error.stack ? `\n\n${error.stack}` : ''}`);
-    const copyLabel = copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制诊断信息';
+    const copyPending = copyState === 'pending';
+    const copyLabel = copyPending ? '复制中…' : copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制诊断信息';
     const CopyIcon = copyState === 'copied' ? Check : Clipboard;
 
     return (
@@ -99,7 +101,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               </pre>
             )}
             <div className="maka-error-actions">
-              <button type="button" className="maka-button" onClick={this.handleCopyReport}>
+              <button
+                type="button"
+                className="maka-button maka-error-copy-action"
+                data-copy-state={copyState}
+                disabled={copyPending}
+                aria-busy={copyPending ? 'true' : undefined}
+                onClick={this.handleCopyReport}
+              >
                 <CopyIcon size={14} strokeWidth={1.75} aria-hidden="true" />
                 <span>{copyLabel}</span>
               </button>
@@ -117,7 +126,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               </button>
             </div>
             {copyState === 'failed' && (
-              <p className="maka-error-copy-status">系统剪贴板不可用；可以手动选择上面的错误摘要。</p>
+              <p className="maka-error-copy-status">剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。</p>
             )}
           </div>
         </div>
