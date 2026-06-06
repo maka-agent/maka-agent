@@ -21,6 +21,7 @@ notes, plus surfaces neither round touched at all.
 | 02 | `02-output-safety-modes.md` | 3-mode classifier (exact/compact/passthrough) + 8 budget profiles + `[alma-output-safety: …]` marker + truncation cascade with recovery hints + outer shrink loop | **shipped** |
 | 03 | `03-mcp-tool-name-collisions.md` | `bf` prefix function + asymmetric sanitizers (yf server vs wf tool) + why `__` cannot collide with built-ins + cross-MCP-server collision risk + per-tool safety mode injection from MCP | **shipped** |
 | 04 | `04-permissions-runtime-risk.md` | `autoApproveToolRequests` is a flat skip (no risk gate) + 5 bypass channels (autoApprove / subagent / bot-source / bot-thread / cron) + 6th allow_always policy cache scoped per-thread + 7th interactive modal + Bash's AI pre-gate analyzer with safe/low/medium/high risk levels + headless ALMA_TOOL_APPROVAL env | **shipped** |
+| 05 | `05-readability-execution-context.md` | Mozilla Readability runs in PAGE CONTEXT via `webContents.executeJavaScript` across 4 call sites (WebSearch / WebFetch / BrowserRead / ChromeRelayRead) + asymmetric `document` vs `cloneNode(true)` use + pre-sweep selector strip + 2-tier fallback hierarchy + main-process turndown HTML→md + per-call 6000-char trim before safety-mode profile | **shipped** |
 
 ## Picking the next note
 
