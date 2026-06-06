@@ -16,6 +16,7 @@ Hummingbird context system.
 |---|---|---|---|
 | 00 | `00-OVERVIEW.md` | This file (round-5 index) | **shipped** |
 | 01 | `01-acp-bridge.md` | ACP provider integration via @mcpc-tech/acp-ai-provider + setSessionUpdateHandler wrapper + tool_call_update + permission delegation back to alma's lh ladder | **shipped** |
+| 02 | `02-sprint-harness.md` | Planner → Generator → Evaluator autonomous build loop + 4 DB tables (agent_missions/mission_sprints/sprint_contracts/sprint_evaluations) + filesystem artifact layout (spec.md + sprints.json + per-attempt evaluation-N.json) + adversarial evaluator prompt ('Empty evidence = automatic FAIL') + 4 writeBack modes (artifact/patch/summary/decision) + halt-on-first-fail outer loop + retry-with-feedback inner loop | **shipped** |
 
 ## Candidates for next notes
 
