@@ -25,7 +25,7 @@ describe('composer send guard', () => {
     const toolbar = source.match(/<div className="maka-composer-toolbar[\s\S]*?<\/div>\n        <\/div>/)?.[0] ?? '';
 
     assert.match(sendCurrent, /sendPendingRef\.current/, 'composer must use a ref guard for same-tick duplicate submits');
-    assert.match(sendCurrent, /if \(props\.disabled \|\| sendPendingRef\.current\) return;/);
+    assert.match(sendCurrent, /if \(props\.disabled \|\| sendPendingRef\.current \|\| pendingImportActionRef\.current\) return;/);
     assert.match(sendCurrent, /sendPendingRef\.current = true;[\s\S]*setSendPending\(true\);/);
     assert.match(sendCurrent, /finally \{[\s\S]*sendPendingRef\.current = false;[\s\S]*setSendPending\(false\);[\s\S]*\}/);
     assert.match(toolbar, /sendPending \? \(\s*copy\.sending\s*\)/, 'toolbar must surface the transient sending state');
@@ -35,7 +35,7 @@ describe('composer send guard', () => {
       /rememberComposerDraft\(draftStoreRef\.current, activeDraftKeyRef\.current, nextValue\);[\s\S]*setHasDraftText\(Boolean\(nextValue\.trim\(\)\)\);/,
       'draft text state must follow the actual textarea draft value',
     );
-    assert.match(source, /const sendDisabled = props\.disabled \|\| sendPending \|\| !hasDraftText;/);
+    assert.match(source, /const sendDisabled = props\.disabled \|\| sendPending \|\| importActionBusy \|\| !hasDraftText;/);
     assert.match(toolbar, /disabled=\{sendDisabled\}/, 'send button must be disabled while empty or submit is in flight');
     assert.match(source, /zh: \{ sendLabel: '发送', stopLabel: '停止' \}/, 'Chinese UI must not keep English Send/Stop button copy');
   });

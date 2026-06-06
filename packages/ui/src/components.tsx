@@ -5187,6 +5187,8 @@ export interface ComposerHistoryState {
   savedDraft: string;
 }
 
+type ComposerImportActionId = 'file' | 'folder' | 'drop' | 'paste';
+
 export function rememberComposerHistoryEntry(entries: string[], text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return entries;
@@ -5248,8 +5250,8 @@ export const Composer = forwardRef<
     draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
     onStop(): void;
-    onImportTextFile?(): void;
-    onImportFolderOutline?(): void;
+    onImportTextFile?(): void | Promise<void>;
+    onImportFolderOutline?(): void | Promise<void>;
     onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
   }
 >(function Composer(props, ref) {
@@ -5257,10 +5259,12 @@ export const Composer = forwardRef<
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [sendPending, setSendPending] = useState(false);
+  const [pendingImportAction, setPendingImportAction] = useState<ComposerImportActionId | null>(null);
   const [hasDraftText, setHasDraftText] = useState(false);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
   const sendPendingRef = useRef(false);
+  const pendingImportActionRef = useRef<ComposerImportActionId | null>(null);
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
@@ -5350,7 +5354,7 @@ export const Composer = forwardRef<
   );
 
   async function sendCurrent() {
-    if (props.disabled || sendPendingRef.current) return;
+    if (props.disabled || sendPendingRef.current || pendingImportActionRef.current) return;
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
@@ -5385,6 +5389,20 @@ export const Composer = forwardRef<
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void sendCurrent();
+  }
+
+  async function runImportAction(actionId: ComposerImportActionId, action: (() => void | Promise<void>) | undefined) {
+    if (!action || props.disabled || props.streaming || pendingImportActionRef.current) return;
+    pendingImportActionRef.current = actionId;
+    setPendingImportAction(actionId);
+    try {
+      await action();
+    } finally {
+      if (pendingImportActionRef.current === actionId) {
+        pendingImportActionRef.current = null;
+        setPendingImportAction(null);
+      }
+    }
   }
 
   function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -5441,7 +5459,7 @@ export const Composer = forwardRef<
   }
 
   function canAcceptDroppedTextFiles(): boolean {
-    return Boolean(props.onImportDroppedTextFiles && !props.disabled && !props.streaming);
+    return Boolean(props.onImportDroppedTextFiles && !props.disabled && !props.streaming && !pendingImportActionRef.current);
   }
 
   function hasDraggedFiles(event: DragEvent<HTMLFormElement>): boolean {
@@ -5471,7 +5489,7 @@ export const Composer = forwardRef<
     if (!canAcceptDroppedTextFiles()) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length === 0) return;
-    void props.onImportDroppedTextFiles?.(files);
+    void runImportAction('drop', () => props.onImportDroppedTextFiles?.(files));
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -5480,7 +5498,7 @@ export const Composer = forwardRef<
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
-    void props.onImportDroppedTextFiles?.(files);
+    void runImportAction('paste', () => props.onImportDroppedTextFiles?.(files));
   }
 
   useEffect(() => {
@@ -5497,7 +5515,8 @@ export const Composer = forwardRef<
   }, [dragActive]);
 
   if (props.hidden) return null;
-  const sendDisabled = props.disabled || sendPending || !hasDraftText;
+  const importActionBusy = pendingImportAction !== null;
+  const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
 
   return (
     <form
@@ -5534,6 +5553,8 @@ export const Composer = forwardRef<
               copy.awaitingPermission
             ) : sendPending ? (
               copy.sending
+            ) : importActionBusy ? (
+              '正在导入…'
             ) : props.streaming ? (
               <span className="maka-composer-streaming-hint">
                 <span className="maka-composer-streaming-dot" aria-hidden="true" />
@@ -5548,10 +5569,12 @@ export const Composer = forwardRef<
               <button
                 className="maka-composer-tool-button"
                 type="button"
-                disabled={props.disabled}
-                onClick={props.onImportTextFile}
-                aria-label="导入文件内容"
-                title="导入文件内容"
+                disabled={props.disabled || importActionBusy}
+                onClick={() => void runImportAction('file', props.onImportTextFile)}
+                aria-label={pendingImportAction === 'file' ? '正在导入文件内容' : '导入文件内容'}
+                aria-busy={pendingImportAction === 'file' ? 'true' : undefined}
+                data-pending={pendingImportAction === 'file' ? 'true' : undefined}
+                title={pendingImportAction === 'file' ? '正在导入文件内容' : '导入文件内容'}
               >
                 <Paperclip size={14} strokeWidth={1.75} aria-hidden="true" />
               </button>
@@ -5560,10 +5583,12 @@ export const Composer = forwardRef<
               <button
                 className="maka-composer-tool-button"
                 type="button"
-                disabled={props.disabled}
-                onClick={props.onImportFolderOutline}
-                aria-label="导入文件夹目录"
-                title="导入文件夹目录"
+                disabled={props.disabled || importActionBusy}
+                onClick={() => void runImportAction('folder', props.onImportFolderOutline)}
+                aria-label={pendingImportAction === 'folder' ? '正在导入文件夹目录' : '导入文件夹目录'}
+                aria-busy={pendingImportAction === 'folder' ? 'true' : undefined}
+                data-pending={pendingImportAction === 'folder' ? 'true' : undefined}
+                title={pendingImportAction === 'folder' ? '正在导入文件夹目录' : '导入文件夹目录'}
               >
                 <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
               </button>
