@@ -383,13 +383,18 @@ describe('permission response IPC boundary', () => {
     const sendBlock = renderer.match(
       /async function send\(text: string\): Promise<boolean> \{[\s\S]*?async function importTextFilePrompt/,
     )?.[0] ?? '';
-    const newSessionBranch = sendBlock.match(/if \(!activeId\) \{[\s\S]*?return true;/)?.[0] ?? '';
-    const existingSessionBranch = sendBlock.match(/const sessionId = activeId;[\s\S]*?return true;/)?.[0] ?? '';
+    const newSessionBranch = sendBlock.match(/if \(!initialSessionId\) \{[\s\S]*?return true;/)?.[0] ?? '';
+    const existingSessionBranch = sendBlock.match(/const sessionId = initialSessionId;[\s\S]*?return true;/)?.[0] ?? '';
     const refreshUntilTurn = renderer.match(
       /async function refreshMessagesUntilTurn\(sessionId: string, turnId: string\): Promise<void> \{[\s\S]*?\n  \}/,
     )?.[0] ?? '';
 
     assert.match(sendBlock, /const initialSessionId = activeIdRef\.current;/);
+    assert.doesNotMatch(
+      sendBlock,
+      /if \(!activeId\)|const sessionId = activeId;/,
+      'normal Composer send must branch from activeIdRef.current, not stale React state after clicking New Chat',
+    );
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,

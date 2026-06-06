@@ -1724,7 +1724,7 @@ function AppShell() {
     let optimisticTurnId: string | undefined;
     try {
       const turnId = crypto.randomUUID();
-      if (!activeId) {
+      if (!initialSessionId) {
         const session = await window.maka.sessions.create({
           permissionMode: 'ask',
           name: text.slice(0, 42) || '新建对话',
@@ -1740,7 +1740,7 @@ function AppShell() {
         await refreshSessions();
         return true;
       }
-      const sessionId = activeId;
+      const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
       showOptimisticUserMessage(sessionId, turnId, text);
