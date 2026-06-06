@@ -16,8 +16,10 @@ const ARTIFACT_PANE_SOURCE = join(process.cwd(), 'src', 'renderer', 'artifact-pa
 describe('ArtifactPane async lifecycle contract', () => {
   it('drops stale artifact list responses when the active session changes', async () => {
     const src = await readFile(ARTIFACT_PANE_SOURCE, 'utf8');
+    const css = await readFile(join(process.cwd(), 'src', 'renderer', 'styles.css'), 'utf8');
     const refreshBlock = src.match(/const refresh = useCallback\(async \(\) => \{[\s\S]*?\}, \[sessionId, toast\]\);/)?.[0] ?? '';
     const subscriptionEffect = src.match(/useEffect\(\(\) => \{[\s\S]*?window\.maka\.artifacts\.subscribeChanges[\s\S]*?\}, \[sessionId, refresh\]\);/)?.[0] ?? '';
+    const retryBlock = src.match(/async function retryArtifactListRefresh[\s\S]*?async function openInFinder/)?.[0] ?? '';
 
     assert.match(
       src,
@@ -64,6 +66,21 @@ describe('ArtifactPane async lifecycle contract', () => {
       /activeListError && \([\s\S]*className="maka-artifact-list-error"[\s\S]*role="alert"[\s\S]*生成文件列表载入失败[\s\S]*重试/,
       'current-session artifact list failures must render an inline retryable error instead of making the pane disappear',
     );
+    assert.match(src, /const \[pendingArtifactListRetry, setPendingArtifactListRetry\] = useState\(false\)/);
+    assert.match(src, /const pendingArtifactListRetryRef = useRef\(false\)/);
+    assert.match(
+      retryBlock,
+      /if \(pendingArtifactListRetryRef\.current\) return;[\s\S]*pendingArtifactListRetryRef\.current = true[\s\S]*setPendingArtifactListRetry\(true\)[\s\S]*await refresh\(\)[\s\S]*pendingArtifactListRetryRef\.current = false[\s\S]*setPendingArtifactListRetry\(false\)/,
+      'manual artifact-list retry must use a ref-backed pending gate so repeated clicks cannot fan out list IPC calls',
+    );
+    assert.match(src, /onClick=\{\(\) => void retryArtifactListRefresh\(\)\}/);
+    assert.match(src, /disabled=\{pendingArtifactListRetry\}/);
+    assert.match(src, /aria-busy=\{pendingArtifactListRetry \? 'true' : undefined\}/);
+    assert.match(src, /data-pending=\{pendingArtifactListRetry \? 'true' : undefined\}/);
+    assert.match(src, /pendingArtifactListRetry \? '重试中…' : '重试'/);
+    assert.match(css, /\.maka-artifact-error-retry:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: 0\.56;[\s\S]*\}/);
+    assert.match(css, /\.maka-artifact-error-retry\[data-pending="true"\] \{[\s\S]*opacity: 0\.78;[\s\S]*\}/);
+    assert.doesNotMatch(src, /className="maka-artifact-error-retry"[\s\S]*onClick=\{\(\) => void refresh\(\)\}/);
     assert.match(
       subscriptionEffect,
       /return \(\) => \{[\s\S]*artifactListRequestSeqRef\.current \+= 1;[\s\S]*unsubscribe\(\);[\s\S]*\};/,

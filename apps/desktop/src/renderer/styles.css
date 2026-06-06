@@ -8468,6 +8468,19 @@ button:active {
   background: var(--foreground-5);
 }
 
+.maka-artifact-error-retry:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.maka-artifact-error-retry:disabled:hover {
+  background: var(--background);
+}
+
+.maka-artifact-error-retry[data-pending="true"] {
+  opacity: 0.78;
+}
+
 .maka-artifact-error-retry:focus-visible {
   outline: none;
   border-color: oklch(from var(--accent) l c h / 0.42);

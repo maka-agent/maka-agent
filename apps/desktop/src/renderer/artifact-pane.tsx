@@ -68,9 +68,11 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
   const [listError, setListError] = useState<{ sessionId: string; message: string } | null>(null);
+  const [pendingArtifactListRetry, setPendingArtifactListRetry] = useState(false);
   const [pendingArtifactAction, setPendingArtifactAction] = useState<string | null>(null);
   const artifactListRequestSeqRef = useRef(0);
   const recordsSessionIdRef = useRef<string | undefined>(undefined);
+  const pendingArtifactListRetryRef = useRef(false);
   const pendingArtifactActionRef = useRef<string | null>(null);
 
   // ---- live data ---------------------------------------------------------
@@ -181,6 +183,18 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
         pendingArtifactActionRef.current = null;
         setPendingArtifactAction(null);
       }
+    }
+  }
+
+  async function retryArtifactListRefresh() {
+    if (pendingArtifactListRetryRef.current) return;
+    pendingArtifactListRetryRef.current = true;
+    setPendingArtifactListRetry(true);
+    try {
+      await refresh();
+    } finally {
+      pendingArtifactListRetryRef.current = false;
+      setPendingArtifactListRetry(false);
     }
   }
 
@@ -348,9 +362,16 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                 <strong>生成文件列表载入失败</strong>
                 <p>{activeListError}</p>
               </div>
-              <button className="maka-artifact-error-retry" type="button" onClick={() => void refresh()}>
+              <button
+                className="maka-artifact-error-retry"
+                type="button"
+                onClick={() => void retryArtifactListRefresh()}
+                disabled={pendingArtifactListRetry}
+                aria-busy={pendingArtifactListRetry ? 'true' : undefined}
+                data-pending={pendingArtifactListRetry ? 'true' : undefined}
+              >
                 <RefreshCcw size={13} strokeWidth={1.75} aria-hidden="true" />
-                <span>重试</span>
+                <span>{pendingArtifactListRetry ? '重试中…' : '重试'}</span>
               </button>
             </div>
           )}
