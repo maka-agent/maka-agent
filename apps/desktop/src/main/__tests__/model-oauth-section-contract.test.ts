@@ -755,6 +755,27 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(browserModal, /subscriptionResultMessage\(payload\.message, '无法开始登录，请稍后再试。'\)/, 'browser OAuth getAuthUrl failures must be localized');
     assert.match(browserModal, /subscriptionResultMessage\(opened\.message, '无法打开浏览器，请稍后重试。'\)/, 'browser OAuth openAuthUrl failures must be localized');
     assert.match(browserModal, /subscriptionResultMessage\(result\.message, '登录未完成，请重新打开浏览器授权。'\)/, 'browser OAuth completion failures must be localized');
+    assert.match(
+      browserModal,
+      /const \[pendingAction, setPendingAction\] = useState<BrowserSubscriptionPendingAction \| null>\(null\)/,
+      'browser OAuth modal needs a named pending action, not a bare boolean',
+    );
+    assert.match(
+      browserModal,
+      /const pendingActionRef = useRef<BrowserSubscriptionPendingAction \| null>\(null\)/,
+      'browser OAuth modal must gate one-shot auth actions synchronously through a ref',
+    );
+    assert.match(
+      browserModal,
+      /function beginPendingAction\(action: BrowserSubscriptionPendingAction\): boolean \{[\s\S]*if \(pendingActionRef\.current !== null\) return false;[\s\S]*pendingActionRef\.current = action;[\s\S]*setPendingAction\(action\);[\s\S]*return true;/,
+      'browser OAuth duplicate clicks must be rejected before React re-renders disabled buttons',
+    );
+    assert.match(browserModal, /if \(!beginPendingAction\('login'\)\) return;/, 'browser OAuth login must use the ref-backed action guard');
+    assert.match(browserModal, /if \(!beginPendingAction\('logout'\)\) return;/, 'browser OAuth logout must use the ref-backed action guard');
+    assert.match(browserModal, /const actionBusy = pendingAction !== null/, 'browser OAuth modal needs a shared busy flag derived from the named action');
+    assert.match(browserModal, /disabled=\{actionBusy\}/, 'browser OAuth action buttons must disable while another one-shot action is pending');
+    assert.match(browserModal, /pendingAction === 'login' \? '打开浏览器…' : `登录 \$\{display\.shortName\}`/, 'browser OAuth login start must expose specific pending copy');
+    assert.match(browserModal, /pendingAction === 'logout' \? '退出中…' : '退出登录'/, 'browser OAuth logout must expose local progress feedback');
     assert.match(claudeCard, /const refresh = async \(\) => \{[\s\S]*catch \(error\) \{[\s\S]*toast\.error\('刷新登录状态失败', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth state refresh must surface thrown failures');
     assert.match(claudeCard, /settingsErrorText" role="alert"\>\{pasteError\}/, 'Claude OAuth refresh failures must be visible in the modal body');
     assert.match(claudeCard, /catch \(error\) \{[\s\S]*toast\.error\('无法开始登录', message\);[\s\S]*setPasteError\(message\);/, 'Claude OAuth start must toast thrown failures');
