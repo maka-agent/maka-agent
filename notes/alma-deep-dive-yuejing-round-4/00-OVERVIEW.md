@@ -15,6 +15,7 @@ rounds touched, starting with self-referential agent surfaces.
 | 01 | `01-rest-api-operator-agent.md` | Express server bound to 127.0.0.1 + dynamic port + self-describing `~/.config/alma/api-spec.md` + 30+ routes (settings/providers/threads/ChromeRelay/health) + `alma-operator` agent with Bash + Read only + WebSocket sync to live-update renderer | **shipped** |
 | 02 | `02-auto-compact.md` | 3 trigger sites (pre-request / prepareStep / manual REST) + 3-tier fallback (LLM summary → hard truncate → emergency slice) + user-message-counted `keepRecentMessages` + 32k output reserve floor + `<context_summary>` markup + anti-loop guard + ineffective-compaction detection + "DO NOT preserve transient errors" prompt design | **shipped** |
 | 03 | `03-memory-recall.md` | Recall + OperateMemory tools (both in exact-preserve set) + autoRetrieve pre-turn pipeline + fact-shape query rewriting (Chinese → "User's X is Y" English) + aggressive 0.1 similarity threshold default + incognito mode short-circuit + linkedUserIds cross-platform identity + 3 separate model slots (chat / tool / embedding) | **shipped** |
+| 04 | `04-bot-integration-contract.md` | Prompt-as-contract + CLI-as-API strategy + 30+ `alma group/people/msg/dm/skill` commands + DUPLICATE MESSAGE PREVENTION runtime detector + ACTION OVER WORDS / PROMISE TRACKING / NO MEANINGLESS FILLER rules + identity firewall (bub assertion) + privacy firewall (persona shield) + self-protection autonomy + people profile graph with avatars + skill self-evolution loop | **shipped** |
 
 ## Candidates for next notes
 
