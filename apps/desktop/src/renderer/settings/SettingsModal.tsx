@@ -410,6 +410,8 @@ function WeChatScanLoginModal(props: {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const fetchingQrRef = useRef(false);
+  const scanLoginPollingRef = useRef(false);
+  const scanLoginConfirmingRef = useRef(false);
   const scanLoginMountedRef = useRef(false);
   const scanLoginFetchTicketRef = useRef(0);
   useModalA11y(dialogRef, props.onClose);
@@ -450,6 +452,8 @@ function WeChatScanLoginModal(props: {
       scanLoginMountedRef.current = false;
       scanLoginFetchTicketRef.current += 1;
       fetchingQrRef.current = false;
+      scanLoginPollingRef.current = false;
+      scanLoginConfirmingRef.current = false;
     };
   }, []);
 
@@ -457,30 +461,37 @@ function WeChatScanLoginModal(props: {
     if (status !== 'waiting' || !qr?.qrToken) return;
     let cancelled = false;
     const interval = window.setInterval(async () => {
-      if (cancelled) return;
+      if (cancelled || scanLoginPollingRef.current || scanLoginConfirmingRef.current) return;
+      scanLoginPollingRef.current = true;
       try {
         const result = await window.maka.settings.bots.wechat.pollQrcodeStatus(qr.qrToken);
-        if (cancelled) return;
+        if (cancelled || !scanLoginMountedRef.current) return;
         if (!result.ok) {
           setStatus('error');
           setErrorMessage(settingsActionErrorMessage(result.error.message));
           return;
         }
         if (result.data.status === 'confirmed') {
+          scanLoginConfirmingRef.current = true;
           setStatus('confirmed');
           await props.onConfirmed(result.data.credentials);
         } else if (result.data.status === 'expired') {
           setStatus('expired');
         }
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || !scanLoginMountedRef.current) return;
         setStatus('error');
         setErrorMessage(settingsActionErrorMessage(error));
+      } finally {
+        if (!scanLoginConfirmingRef.current) {
+          scanLoginPollingRef.current = false;
+        }
       }
     }, 2500);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      scanLoginPollingRef.current = false;
     };
   }, [status, qr?.qrToken]);
 
@@ -5135,6 +5146,7 @@ function BotChatSettingsPage(props: {
               });
               if (!saved) return;
               await props.onReload();
+              if (!botPageMountedRef.current) return;
               setScanLoginOpen(false);
               toast.success('微信已扫码登录', credentials.botId ? `Bot ID ${credentials.botId}` : '凭据已保存');
             }}
