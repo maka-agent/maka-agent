@@ -10798,6 +10798,10 @@ button:active {
 }
 
 .maka-first-run-checklist-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
   border-radius: 8px;
   background: oklch(from var(--warning, var(--info)) l c h / 0.08);
@@ -10805,6 +10809,34 @@ button:active {
   font-size: 12px;
   line-height: 1.45;
   padding: 8px 10px;
+}
+
+.maka-first-run-checklist-error-action {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--warning-text, var(--info-text));
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.maka-first-run-checklist-error-action:hover {
+  background: var(--foreground-5);
+}
+
+.maka-first-run-checklist-error-action:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.maka-first-run-checklist-error-action:disabled:hover {
+  background: var(--background);
 }
 
 .maka-first-run-checklist-list {

@@ -171,12 +171,23 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
   it('fails soft when first-run checklist status probes reject', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
     const styles = await readFile(join(process.cwd(), 'src/renderer/styles.css'), 'utf8');
-    const effectBlock = source.match(/useEffect\(\(\) => \{[\s\S]*?return \(\) => \{[\s\S]*?cancelled = true;[\s\S]*?\};[\s\S]*?\}, \[\]\);/)?.[0] ?? '';
+    const refreshBlock = source.match(/const refreshChecklistStatus = useCallback[\s\S]*?useEffect/)?.[0] ?? '';
+    const effectBlock = source.match(/useEffect\(\(\) => \{[\s\S]*?return \(\) => \{[\s\S]*?cancelled = true;[\s\S]*?\};[\s\S]*?\}, \[refreshChecklistStatus\]\);/)?.[0] ?? '';
 
-    assert.match(effectBlock, /window\.maka\.settings\.get\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setSettingsLoadFailed\(true\);[\s\S]*surfaceProbeFailure\(error\)/);
-    assert.match(effectBlock, /window\.maka\.plans\.list\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setPlanReminders\(null\);[\s\S]*surfaceProbeFailure\(error\)/);
-    assert.match(effectBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setWorkspaceInstructionCount\(null\);[\s\S]*surfaceProbeFailure\(error\)/);
-    assert.doesNotMatch(effectBlock, /catch[\s\S]*setSettings\(null\)|catch[\s\S]*setPlanReminders\(\[\]\)|catch[\s\S]*setWorkspaceInstructionCount\(0\)/);
+    assert.match(refreshBlock, /window\.maka\.settings\.get\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setSettingsLoadFailed\(true\);[\s\S]*handleProbeFailure\(error\)/);
+    assert.match(refreshBlock, /window\.maka\.plans\.list\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setPlanReminders\(null\);[\s\S]*handleProbeFailure\(error\)/);
+    assert.match(refreshBlock, /workspaceInstructions\.getState\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*setWorkspaceInstructionCount\(null\);[\s\S]*handleProbeFailure\(error\)/);
+    assert.doesNotMatch(refreshBlock, /catch[\s\S]*setSettings\(null\)|catch[\s\S]*setPlanReminders\(\[\]\)|catch[\s\S]*setWorkspaceInstructionCount\(0\)/);
+    assert.match(source, /const \[statusRefreshPending, setStatusRefreshPending\] = useState\(false\)/);
+    assert.match(source, /const statusRefreshPendingRef = useRef\(false\)/);
+    assert.match(refreshBlock, /let hadFailure = false;[\s\S]*const handleProbeFailure = \(error: unknown\) => \{[\s\S]*hadFailure = true;[\s\S]*surfaceProbeFailure\(error\)/);
+    assert.match(refreshBlock, /if \(statusRefreshPendingRef\.current\) return;[\s\S]*statusRefreshPendingRef\.current = true[\s\S]*setStatusRefreshPending\(true\)[\s\S]*await Promise\.all\(\[[\s\S]*statusRefreshPendingRef\.current = false[\s\S]*setStatusRefreshPending\(false\)/);
+    assert.match(refreshBlock, /if \(!isCancelled\(\) && !hadFailure\) setStatusError\(null\)/);
+    assert.match(effectBlock, /void refreshChecklistStatus\(\(\) => cancelled\)/);
+    assert.match(source, /onClick=\{\(\) => void refreshChecklistStatus\(\)\}/);
+    assert.match(source, /disabled=\{statusRefreshPending\}/);
+    assert.match(source, /aria-busy=\{statusRefreshPending \? 'true' : undefined\}/);
+    assert.match(source, /statusRefreshPending \? '刷新中…' : '重试'/);
     assert.match(source, /planReminders,\s*setPlanReminders\] = useState<ReadonlyArray<PlanReminder> \| null>\(null\)/);
     assert.match(source, /workspaceInstructionCount,\s*setWorkspaceInstructionCount\] = useState<number \| null>\(null\)/);
     assert.match(source, /trackCompletion:\s*planStatusKnown/);
@@ -184,6 +195,8 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(source, /部分状态暂时没刷新成功，已避免把未知状态计成未完成/);
     assert.match(source, /role="alert"/);
     assert.match(styles, /\.maka-first-run-checklist-error\s*\{/);
+    assert.match(styles, /\.maka-first-run-checklist-error-action\s*\{/);
+    assert.match(styles, /\.maka-first-run-checklist-error-action:disabled\s*\{/);
   });
 
   it('starts the shipped plan reminder form from the first-run checklist', async () => {
