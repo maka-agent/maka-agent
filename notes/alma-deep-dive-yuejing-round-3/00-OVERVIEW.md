@@ -19,6 +19,7 @@ notes, plus surfaces neither round touched at all.
 | 00 | `00-OVERVIEW.md` | This file (round-3 index) | **shipped** |
 | 01 | `01-skills-system.md` | SKILL.md discovery + Skill / SlashCommand tools + persistent enable/disable + extraction loop | **shipped** |
 | 02 | `02-output-safety-modes.md` | 3-mode classifier (exact/compact/passthrough) + 8 budget profiles + `[alma-output-safety: …]` marker + truncation cascade with recovery hints + outer shrink loop | **shipped** |
+| 03 | `03-mcp-tool-name-collisions.md` | `bf` prefix function + asymmetric sanitizers (yf server vs wf tool) + why `__` cannot collide with built-ins + cross-MCP-server collision risk + per-tool safety mode injection from MCP | **shipped** |
 
 ## Picking the next note
 
