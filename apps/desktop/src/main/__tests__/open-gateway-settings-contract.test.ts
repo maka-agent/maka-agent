@@ -64,9 +64,9 @@ describe('Open Gateway Settings endpoint contract', () => {
     assert.match(helper, /copyingGatewayActionRef\.current/);
     assert.match(helper, /if \(copyingGatewayActionRef\.current\) return/);
     assert.match(helper, /setCopyingGatewayAction\(action\)/);
-    assert.match(helper, /setCopyingGatewayAction\(null\)/);
-    assert.match(helper, /try \{[\s\S]*navigator\.clipboard\.writeText\(text\)[\s\S]*toast\.success\(successTitle, successDetail\)/);
-    assert.match(helper, /catch \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.match(helper, /if \(openGatewayMountedRef\.current\) \{[\s\S]*setCopyingGatewayAction\(null\)/);
+    assert.match(helper, /try \{[\s\S]*navigator\.clipboard\.writeText\(text\)[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.success\(successTitle, successDetail\)/);
+    assert.match(helper, /catch \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
     assert.match(helper, /剪贴板不可用或被系统拒绝。/);
     assert.doesNotMatch(
       helper,
@@ -87,6 +87,32 @@ describe('Open Gateway Settings endpoint contract', () => {
     assert.match(gatewayBlock, /disabled=\{!gatewayDraft\.token \|\| gatewayCopyDisabled\}/);
     assert.match(gatewayBlock, /isCopyingGatewayAction\('base-url'\) \? '复制中…' : '复制地址'/);
     assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? '复制中…' : '复制最近请求 curl'/);
+  });
+
+  it('does not write Open Gateway copy feedback after the Settings page unmounts', () => {
+    const gatewayBlock = settingsSource.match(/function OpenGatewaySettingsPage[\s\S]*?function presentGatewayStatus/)?.[0] ?? '';
+    const helper = settingsSource.match(/async function copyGatewayText[\s\S]*?async function copyBaseUrl/)?.[0] ?? '';
+
+    assert.match(
+      gatewayBlock,
+      /const openGatewayMountedRef = useRef\(false\);[\s\S]*openGatewayMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*openGatewayMountedRef\.current = false;[\s\S]*copyingGatewayActionRef\.current = null;/,
+      'Open Gateway Settings must release copy ownership when the page closes',
+    );
+    assert.match(
+      helper,
+      /await navigator\.clipboard\.writeText\(text\);[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.success\(successTitle, successDetail\);/,
+      'Open Gateway copy success toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      helper,
+      /catch \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);/,
+      'Open Gateway copy failure toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      helper,
+      /finally \{[\s\S]*copyingGatewayActionRef\.current = null;[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setCopyingGatewayAction\(null\);/,
+      'Open Gateway copy cleanup must release the ref but not write React state after unmount',
+    );
   });
 
   it('surfaces Open Gateway runtime status load failures instead of showing normal false state', () => {

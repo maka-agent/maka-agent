@@ -203,7 +203,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /async function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.gatewayDraftRef\.current, \.\.\.patch \};[\s\S]*commitGatewayDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ openGateway: patch \}\);[\s\S]*commitGatewayDraft\(result\.settings\.openGateway\);[\s\S]*catch \(error\) \{[\s\S]*commitGatewayDraft\(persistedGatewayRef\.current\);[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false;/,
+      /async function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.gatewayDraftRef\.current, \.\.\.patch \};[\s\S]*commitGatewayDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ openGateway: patch \}\);[\s\S]*if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(result\.settings\.openGateway\);[\s\S]*catch \(error\) \{[\s\S]*if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(persistedGatewayRef\.current\);[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false;/,
       'Open Gateway settings updates must return a boolean and surface failures',
     );
     assert.match(
@@ -223,18 +223,58 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved\) return;[\s\S]*toast\.success\(nextToken \? '网关 token 已保存' : '网关 token 已清空'\)/,
+      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(nextToken \? '网关 token 已保存' : '网关 token 已清空'\)/,
       'Saving or clearing the gateway token must not show success after a failed save',
     );
     assert.match(
       gatewayBlock,
-      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved\) return;[\s\S]*toast\.success\('网关 token 已生成'/,
+      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\('网关 token 已生成'/,
       'Generated gateway tokens must not show success after a failed save',
     );
     assert.doesNotMatch(
       gatewayBlock,
       /onChange=\{\([^)]*\) => updateGateway\(/,
       'Open Gateway field handlers must not leak a returned rejected promise',
+    );
+  });
+
+  it('drops late Open Gateway save and copy UI writes after Settings is closed', () => {
+    const gatewayBlock = blockBetween('function OpenGatewaySettingsPage', 'function presentGatewayStatus');
+
+    assert.match(
+      gatewayBlock,
+      /const openGatewayMountedRef = useRef\(false\);/,
+      'Open Gateway page must track mounted ownership for async save/copy actions',
+    );
+    assert.match(
+      gatewayBlock,
+      /useEffect\(\(\) => \{[\s\S]*openGatewayMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*openGatewayMountedRef\.current = false;[\s\S]*gatewaySaveTicketRef\.current \+= 1;[\s\S]*copyingGatewayActionRef\.current = null;/,
+      'Open Gateway cleanup must invalidate save tickets and release copy ownership when Settings closes',
+    );
+    assert.match(
+      gatewayBlock,
+      /if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(result\.settings\.openGateway\);[\s\S]*setTokenDraft\(result\.settings\.openGateway\.token\);/,
+      'Open Gateway save success must not write local draft state after unmount',
+    );
+    assert.match(
+      gatewayBlock,
+      /catch \(error\) \{[\s\S]*if \(openGatewayMountedRef\.current && ticket === gatewaySaveTicketRef\.current\) \{[\s\S]*commitGatewayDraft\(persistedGatewayRef\.current\);[\s\S]*toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\);/,
+      'Open Gateway save failure must not rollback draft state or toast after unmount',
+    );
+    assert.match(
+      gatewayBlock,
+      /finally \{[\s\S]*gatewayPendingSaveCountRef\.current = Math\.max\(0, gatewayPendingSaveCountRef\.current - 1\);[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*setSaving\(gatewayPendingSaveCountRef\.current > 0\);/,
+      'Open Gateway save cleanup must not write React pending state after unmount',
+    );
+    assert.match(
+      gatewayBlock,
+      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(nextToken \? '网关 token 已保存'/,
+      'Open Gateway token save success toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      gatewayBlock,
+      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\('网关 token 已生成'/,
+      'Open Gateway token generate success toast must only fire while the page is still mounted',
     );
   });
 

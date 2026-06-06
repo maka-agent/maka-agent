@@ -4120,7 +4120,17 @@ function OpenGatewaySettingsPage(props: {
   const gatewayPendingSaveCountRef = useRef(0);
   const gatewaySaveTicketRef = useRef(0);
   const copyingGatewayActionRef = useRef<string | null>(null);
+  const openGatewayMountedRef = useRef(false);
   const toast = useToast();
+
+  useEffect(() => {
+    openGatewayMountedRef.current = true;
+    return () => {
+      openGatewayMountedRef.current = false;
+      gatewaySaveTicketRef.current += 1;
+      copyingGatewayActionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -4172,27 +4182,29 @@ function OpenGatewaySettingsPage(props: {
     setSaving(true);
     try {
       const result = await props.onUpdate({ openGateway: patch });
-      if (ticket === gatewaySaveTicketRef.current) {
+      if (openGatewayMountedRef.current && ticket === gatewaySaveTicketRef.current) {
         commitGatewayDraft(result.settings.openGateway);
         setTokenDraft(result.settings.openGateway.token);
       }
-      return true;
+      return openGatewayMountedRef.current;
     } catch (error) {
-      if (ticket === gatewaySaveTicketRef.current) {
+      if (openGatewayMountedRef.current && ticket === gatewaySaveTicketRef.current) {
         commitGatewayDraft(persistedGatewayRef.current);
         setTokenDraft(persistedGatewayRef.current.token);
+        toast.error('保存开放网关设置失败', settingsActionErrorMessage(error));
       }
-      toast.error('保存开放网关设置失败', settingsActionErrorMessage(error));
       return false;
     } finally {
       gatewayPendingSaveCountRef.current = Math.max(0, gatewayPendingSaveCountRef.current - 1);
-      setSaving(gatewayPendingSaveCountRef.current > 0);
+      if (openGatewayMountedRef.current) {
+        setSaving(gatewayPendingSaveCountRef.current > 0);
+      }
     }
   }
 
   async function saveToken(nextToken = tokenDraft.trim()) {
     const saved = await updateGateway({ token: nextToken });
-    if (!saved) return;
+    if (!saved || !openGatewayMountedRef.current) return;
     toast.success(nextToken ? '网关 token 已保存' : '网关 token 已清空');
   }
 
@@ -4200,7 +4212,7 @@ function OpenGatewaySettingsPage(props: {
     const token = generateGatewayToken();
     setTokenDraft(token);
     const saved = await updateGateway({ token });
-    if (!saved) return;
+    if (!saved || !openGatewayMountedRef.current) return;
     toast.success('网关 token 已生成', '本机 API 需要 Authorization Bearer token。');
   }
 
@@ -4210,12 +4222,18 @@ function OpenGatewaySettingsPage(props: {
     setCopyingGatewayAction(action);
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(successTitle, successDetail);
+      if (openGatewayMountedRef.current) {
+        toast.success(successTitle, successDetail);
+      }
     } catch {
-      toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+      if (openGatewayMountedRef.current) {
+        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+      }
     } finally {
       copyingGatewayActionRef.current = null;
-      setCopyingGatewayAction(null);
+      if (openGatewayMountedRef.current) {
+        setCopyingGatewayAction(null);
+      }
     }
   }
 
