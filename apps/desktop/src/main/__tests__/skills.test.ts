@@ -407,7 +407,8 @@ name: Writer
     assert.match(createBlock, /try \{[\s\S]*window\.maka\.skills\.createStarter\(\)/);
     assert.match(createBlock, /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法创建示例技能', cleanErrorMessage\(error\)\)/);
     assert.match(folderBlock, /try \{[\s\S]*window\.maka\.app\.openPath\('skills'\)/);
-    assert.match(folderBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('skills'\)\}`, cleanErrorMessage\(error\)\)/);
+    assert.match(folderBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('skills'\)\}`, openPathActionErrorMessage\(error, 'skills'\)\)/);
+    assert.doesNotMatch(folderBlock, /cleanErrorMessage\(error\)/, 'Skills folder thrown openPath failures must not expose raw IPC/path details');
     assert.match(openBlock, /try \{[\s\S]*window\.maka\.skills\.open\(skillId, 'file'\)/);
     assert.match(openBlock, /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开 Skill', cleanErrorMessage\(error\)\)/);
   });

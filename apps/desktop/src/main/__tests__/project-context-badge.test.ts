@@ -100,8 +100,11 @@ describe('project context badge', () => {
     assert.match(palette, /id:\s*'diag:open-project-folder'/);
     assert.match(palette, /label:\s*'打开项目目录'/);
     assert.match(renderer, /onOpenProjectFolder:\s*\(\) => openProjectFolder\(\)/);
-    assert.match(openProjectBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('project'\)\}`, cleanErrorMessage\(error\)\)/);
-    assert.match(openWorkspaceBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, cleanErrorMessage\(error\)\)/);
+    assert.match(renderer, /function openPathActionErrorMessage\(error: unknown, key: 'workspace' \| 'project' \| 'skills'\): string \{[\s\S]*generalizedErrorMessageChinese\(error, `无法打开\$\{openPathActionLabel\(key\)\}，请稍后重试。`\)/);
+    assert.match(openProjectBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('project'\)\}`, openPathActionErrorMessage\(error, 'project'\)\)/);
+    assert.match(openWorkspaceBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, openPathActionErrorMessage\(error, 'workspace'\)\)/);
+    assert.doesNotMatch(openProjectBlock, /cleanErrorMessage\(error\)/);
+    assert.doesNotMatch(openWorkspaceBlock, /cleanErrorMessage\(error\)/);
     assert.doesNotMatch(palette, /openPath\('project'\)/);
   });
 });

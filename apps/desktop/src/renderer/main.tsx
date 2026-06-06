@@ -134,6 +134,10 @@ function commandPaletteActionErrorMessage(error: unknown, fallback: string): str
   return generalizedErrorMessageChinese(error, fallback);
 }
 
+function openPathActionErrorMessage(error: unknown, key: 'workspace' | 'project' | 'skills'): string {
+  return generalizedErrorMessageChinese(error, `无法打开${openPathActionLabel(key)}，请稍后重试。`);
+}
+
 function commandPaletteConnectionTestFailureMessage(result: ConnectionTestResult): string {
   const fallback = commandPaletteConnectionTestFailureFallback(result);
   if (!result.errorMessage) return fallback;
@@ -1671,7 +1675,7 @@ function AppShell() {
         toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathFailureCopy(result.reason));
       }
     } catch (error) {
-      toastApi.error(`无法打开${openPathActionLabel('skills')}`, cleanErrorMessage(error));
+      toastApi.error(`无法打开${openPathActionLabel('skills')}`, openPathActionErrorMessage(error, 'skills'));
     }
   }
 
@@ -1693,7 +1697,7 @@ function AppShell() {
         toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathFailureCopy(result.reason));
       }
     } catch (error) {
-      toastApi.error(`无法打开${openPathActionLabel('project')}`, cleanErrorMessage(error));
+      toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathActionErrorMessage(error, 'project'));
     }
   }
 
@@ -2916,7 +2920,7 @@ function AppShell() {
                   toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
                 }
               } catch (error) {
-                toastApi.error(`无法打开${openPathActionLabel('workspace')}`, cleanErrorMessage(error));
+                toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathActionErrorMessage(error, 'workspace'));
               }
             },
             onOpenProjectFolder: () => openProjectFolder(),
