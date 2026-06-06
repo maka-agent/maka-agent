@@ -4617,6 +4617,51 @@ function turnAbortMarkerLabel(abortSource: string | undefined) {
   }
 }
 
+type ClipboardCopyPhase = 'pending' | 'copied' | 'failed';
+
+function useClipboardCopyFeedback(resetDelay = 1400) {
+  const [copyState, setCopyState] = useState<{ key: string; phase: ClipboardCopyPhase } | null>(null);
+  const pendingCopyRef = useRef<string | null>(null);
+  const resetTimerRef = useRef<number | null>(null);
+
+  function clearResetTimer() {
+    if (resetTimerRef.current === null) return;
+    window.clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = null;
+  }
+
+  useEffect(() => clearResetTimer, []);
+
+  function settle(key: string, phase: Exclude<ClipboardCopyPhase, 'pending'>) {
+    setCopyState({ key, phase });
+    resetTimerRef.current = window.setTimeout(() => {
+      setCopyState((current) => current?.key === key ? null : current);
+      resetTimerRef.current = null;
+    }, resetDelay);
+  }
+
+  async function copy(key: string, text: string) {
+    if (text.length === 0 || pendingCopyRef.current) return;
+    pendingCopyRef.current = key;
+    clearResetTimer();
+    setCopyState({ key, phase: 'pending' });
+    try {
+      await navigator.clipboard.writeText(redactSecrets(text));
+      settle(key, 'copied');
+    } catch {
+      settle(key, 'failed');
+    } finally {
+      pendingCopyRef.current = null;
+    }
+  }
+
+  function phaseFor(key: string): ClipboardCopyPhase | null {
+    return copyState?.key === key ? copyState.phase : null;
+  }
+
+  return { copy, phaseFor, isPending: copyState?.phase === 'pending' };
+}
+
 function TurnFooterActions(props: {
   actions: ReadonlyArray<TurnFooterActionMeta>;
   onAction?: (actionId: TurnFooterActionMeta['id']) => void;
@@ -6076,13 +6121,7 @@ function ExploreAgentPreview(props: {
   result: Extract<ToolResultContent, { kind: 'explore_agent' }>;
 }) {
   const { result } = props;
-  const [reportCopied, setReportCopied] = useState(false);
-  const [processCopied, setProcessCopied] = useState(false);
-  const [summaryCopied, setSummaryCopied] = useState(false);
-  const [evidenceCopied, setEvidenceCopied] = useState(false);
-  const [candidateCopied, setCandidateCopied] = useState(false);
-  const [matchesCopied, setMatchesCopied] = useState(false);
-  const [continuationCopied, setContinuationCopied] = useState(false);
+  const copyFeedback = useClipboardCopyFeedback();
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const processLines = Array.isArray(result.recentEvents) && result.recentEvents.length > 0
@@ -6219,82 +6258,35 @@ function ExploreAgentPreview(props: {
     ].filter((line) => line.trim().length > 0).join('\n')
     : '';
 
-  async function copyReport() {
-    if (reportText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(reportText));
-      setReportCopied(true);
-      window.setTimeout(() => setReportCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
+  function copyButtonState(key: string, idleLabel: string, copiedAria: string) {
+    const phase = copyFeedback.phaseFor(key);
+    return {
+      phase,
+      disabled: copyFeedback.isPending,
+      label: phase === 'pending'
+        ? '复制中…'
+        : phase === 'copied'
+          ? '已复制'
+          : phase === 'failed'
+            ? '复制失败'
+            : idleLabel,
+      ariaLabel: phase === 'pending'
+        ? `${idleLabel}中`
+        : phase === 'copied'
+          ? copiedAria
+          : phase === 'failed'
+            ? `${idleLabel}失败`
+            : idleLabel,
+    };
   }
 
-  async function copySummary() {
-    if (summaryText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(summaryText));
-      setSummaryCopied(true);
-      window.setTimeout(() => setSummaryCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
-
-  async function copyProcess() {
-    if (processText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(processText));
-      setProcessCopied(true);
-      window.setTimeout(() => setProcessCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
-
-  async function copyEvidence() {
-    if (evidenceText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(evidenceText));
-      setEvidenceCopied(true);
-      window.setTimeout(() => setEvidenceCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
-
-  async function copyCandidates() {
-    if (candidateText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(candidateText));
-      setCandidateCopied(true);
-      window.setTimeout(() => setCandidateCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
-
-  async function copyMatches() {
-    if (matchesText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(matchesText));
-      setMatchesCopied(true);
-      window.setTimeout(() => setMatchesCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
-
-  async function copyContinuation() {
-    if (continuationText.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(continuationText));
-      setContinuationCopied(true);
-      window.setTimeout(() => setContinuationCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
+  const summaryCopy = copyButtonState('summary', '复制摘要', '已复制探索摘要');
+  const continuationCopy = copyButtonState('continuation', '复制续研提示', '已复制续研提示');
+  const processCopy = copyButtonState('process', '复制过程', '已复制探索过程');
+  const evidenceCopy = copyButtonState('evidence', '复制证据', '已复制证据锚点');
+  const reportCopy = copyButtonState('report', '复制报告', '已复制研究报告');
+  const candidateCopy = copyButtonState('candidate', '复制候选', '已复制候选文件');
+  const matchesCopy = copyButtonState('matches', '复制片段', '已复制命中片段');
 
   return (
     <div className="maka-overlay-preview maka-explore-agent-preview" data-kind="explore_agent" data-ok={result.ok ? 'true' : 'false'}>
@@ -6313,12 +6305,16 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copySummary()}
-              aria-label={summaryCopied ? '已复制探索摘要' : '复制探索摘要'}
-              data-copied={summaryCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('summary', summaryText)}
+              disabled={summaryCopy.disabled}
+              aria-label={summaryCopy.ariaLabel}
+              aria-busy={summaryCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={summaryCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={summaryCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={summaryCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {summaryCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{summaryCopied ? '已复制' : '复制摘要'}</span>
+              {summaryCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{summaryCopy.label}</span>
             </button>
           </div>
         )}
@@ -6328,13 +6324,17 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copyContinuation()}
-              aria-label={continuationCopied ? '已复制续研提示' : '复制续研提示'}
-              data-copied={continuationCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('continuation', continuationText)}
+              disabled={continuationCopy.disabled}
+              aria-label={continuationCopy.ariaLabel}
+              aria-busy={continuationCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={continuationCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={continuationCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={continuationCopy.phase === 'failed' ? 'true' : undefined}
               title="复制一段可继续只读探索的提示"
             >
-              {continuationCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{continuationCopied ? '已复制' : '复制续研提示'}</span>
+              {continuationCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{continuationCopy.label}</span>
             </button>
           </div>
         )}
@@ -6394,12 +6394,16 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copyProcess()}
-              aria-label={processCopied ? '已复制探索过程' : '复制探索过程'}
-              data-copied={processCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('process', processText)}
+              disabled={processCopy.disabled}
+              aria-label={processCopy.ariaLabel}
+              aria-busy={processCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={processCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={processCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={processCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {processCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{processCopied ? '已复制' : '复制过程'}</span>
+              {processCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{processCopy.label}</span>
             </button>
           </div>
           <ul>
@@ -6419,12 +6423,16 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copyEvidence()}
-              aria-label={evidenceCopied ? '已复制证据锚点' : '复制证据锚点'}
-              data-copied={evidenceCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('evidence', evidenceText)}
+              disabled={evidenceCopy.disabled}
+              aria-label={evidenceCopy.ariaLabel}
+              aria-busy={evidenceCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={evidenceCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={evidenceCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={evidenceCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {evidenceCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{evidenceCopied ? '已复制' : '复制证据'}</span>
+              {evidenceCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{evidenceCopy.label}</span>
             </button>
           </div>
           <ul>
@@ -6451,12 +6459,16 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copyReport()}
-              aria-label={reportCopied ? '已复制研究报告' : '复制研究报告'}
-              data-copied={reportCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('report', reportText)}
+              disabled={reportCopy.disabled}
+              aria-label={reportCopy.ariaLabel}
+              aria-busy={reportCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={reportCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={reportCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={reportCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {reportCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{reportCopied ? '已复制' : '复制报告'}</span>
+              {reportCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{reportCopy.label}</span>
             </button>
           </div>
           <ul>
@@ -6476,12 +6488,16 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copyCandidates()}
-              aria-label={candidateCopied ? '已复制候选文件' : '复制候选文件'}
-              data-copied={candidateCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('candidate', candidateText)}
+              disabled={candidateCopy.disabled}
+              aria-label={candidateCopy.ariaLabel}
+              aria-busy={candidateCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={candidateCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={candidateCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={candidateCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {candidateCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{candidateCopied ? '已复制' : '复制候选'}</span>
+              {candidateCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{candidateCopy.label}</span>
             </button>
           </div>
           <ul>
@@ -6505,12 +6521,16 @@ function ExploreAgentPreview(props: {
               type="button"
               className="maka-button maka-button-ghost maka-explore-agent-copy"
               data-size="sm"
-              onClick={() => void copyMatches()}
-              aria-label={matchesCopied ? '已复制命中片段' : '复制命中片段'}
-              data-copied={matchesCopied ? 'true' : 'false'}
+              onClick={() => void copyFeedback.copy('matches', matchesText)}
+              disabled={matchesCopy.disabled}
+              aria-label={matchesCopy.ariaLabel}
+              aria-busy={matchesCopy.phase === 'pending' ? 'true' : undefined}
+              data-pending={matchesCopy.phase === 'pending' ? 'true' : undefined}
+              data-copied={matchesCopy.phase === 'copied' ? 'true' : 'false'}
+              data-copy-error={matchesCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {matchesCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-              <span>{matchesCopied ? '已复制' : '复制片段'}</span>
+              {matchesCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              <span>{matchesCopy.label}</span>
             </button>
           </div>
           <ul>
@@ -6916,7 +6936,7 @@ function TerminalPreview(props: {
   stdout: string;
   stderr: string;
 }) {
-  const [handoffCopied, setHandoffCopied] = useState(false);
+  const copyFeedback = useClipboardCopyFeedback();
   const succeeded = props.exitCode === 0;
   const hasOutput = props.stdout.length > 0 || props.stderr.length > 0;
   // Redact + cap stdout/stderr independently. `npm test` against a misconfigured
@@ -6940,16 +6960,21 @@ function TerminalPreview(props: {
     '请在深度研究 / 只读探索里结合相关路径确认完整输出影响和下一步。',
   ].filter((line) => line.length > 0).join('\n\n');
 
-  async function copyHandoff() {
-    if (hiddenLines <= 0) return;
-    try {
-      await navigator.clipboard.writeText(redactSecrets(handoffText));
-      setHandoffCopied(true);
-      window.setTimeout(() => setHandoffCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
-  }
+  const handoffCopyPhase = copyFeedback.phaseFor('handoff');
+  const handoffCopyLabel = handoffCopyPhase === 'pending'
+    ? '复制中…'
+    : handoffCopyPhase === 'copied'
+      ? '已复制'
+      : handoffCopyPhase === 'failed'
+        ? '复制失败'
+        : '复制研读提示';
+  const handoffCopyAria = handoffCopyPhase === 'pending'
+    ? '复制终端研读提示中'
+    : handoffCopyPhase === 'copied'
+      ? '已复制终端研读提示'
+      : handoffCopyPhase === 'failed'
+        ? '复制终端研读提示失败'
+        : '复制终端研读提示';
 
   return (
     <div className="maka-overlay-preview maka-tool-terminal" data-kind="terminal">
@@ -6986,12 +7011,16 @@ function TerminalPreview(props: {
             type="button"
             className="maka-button maka-button-ghost maka-tool-terminal-copy"
             data-size="sm"
-            onClick={() => void copyHandoff()}
-            aria-label={handoffCopied ? '已复制终端研读提示' : '复制终端研读提示'}
-            data-copied={handoffCopied ? 'true' : 'false'}
+            onClick={() => void copyFeedback.copy('handoff', handoffText)}
+            disabled={handoffCopyPhase === 'pending'}
+            aria-label={handoffCopyAria}
+            aria-busy={handoffCopyPhase === 'pending' ? 'true' : undefined}
+            data-pending={handoffCopyPhase === 'pending' ? 'true' : undefined}
+            data-copied={handoffCopyPhase === 'copied' ? 'true' : 'false'}
+            data-copy-error={handoffCopyPhase === 'failed' ? 'true' : undefined}
           >
-            {handoffCopied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
-            <span>{handoffCopied ? '已复制' : '复制研读提示'}</span>
+            {handoffCopyPhase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+            <span>{handoffCopyLabel}</span>
           </button>
         </div>
       )}

@@ -3956,6 +3956,17 @@ button:active {
   flex: 0 0 auto;
 }
 
+.maka-tool-terminal-copy[data-pending="true"],
+.maka-explore-agent-copy[data-pending="true"] {
+  cursor: progress;
+}
+
+.maka-tool-terminal-copy[data-copy-error="true"],
+.maka-explore-agent-copy[data-copy-error="true"] {
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.35);
+}
+
 .maka-office-document-preview {
   display: grid;
   gap: 8px;

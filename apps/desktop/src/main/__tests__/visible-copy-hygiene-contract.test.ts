@@ -293,8 +293,28 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /navigator\.clipboard\.writeText\(redactSecrets\(handoffText\)\)/,
-      'The capped-output handoff copy path must apply the renderer redaction boundary before clipboard write.',
+      /copyFeedback\.copy\('handoff', handoffText\)/,
+      'The capped-output handoff copy path must use the shared guarded clipboard feedback path.',
+    );
+    assert.match(
+      src,
+      /function useClipboardCopyFeedback/,
+      'Clipboard copy actions should share one pending/failure feedback boundary instead of silently firing raw writes.',
+    );
+    assert.match(
+      src,
+      /navigator\.clipboard\.writeText\(redactSecrets\(text\)\)/,
+      'The shared clipboard feedback helper must apply the renderer redaction boundary before writing.',
+    );
+    assert.match(
+      src,
+      /handoffCopyPhase === 'pending'/,
+      'The capped-output handoff copy button should expose a pending state while the clipboard write is running.',
+    );
+    assert.match(
+      src,
+      /data-copy-error=\{handoffCopyPhase === 'failed'/,
+      'The capped-output handoff copy button should expose clipboard failures in-place instead of silently failing.',
     );
     assert.match(
       src,
@@ -322,6 +342,16 @@ describe('terminal truncation handoff contract', () => {
       src,
       /maka-tool-terminal-copy[\s\S]*flex:\s*0 0 auto;/,
       'The copy action should keep a stable size inside the truncation handoff row.',
+    );
+    assert.match(
+      src,
+      /maka-tool-terminal-copy\[data-copy-error="true"\]/,
+      'The terminal handoff copy button should have a visible failed state.',
+    );
+    assert.match(
+      src,
+      /maka-explore-agent-copy\[data-pending="true"\]/,
+      'Explore Agent copy buttons should have a visible pending state.',
     );
   });
 });
