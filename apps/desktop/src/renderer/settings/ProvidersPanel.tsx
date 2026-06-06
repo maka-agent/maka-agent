@@ -766,7 +766,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
   const [state, setState] = useState<SubscriptionSnapshot | null>(null);
   const [authRequestId, setAuthRequestId] = useState<string | null>(null);
   const [stateHint, setStateHint] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState(false);
+  const [pendingAction, setPendingAction] = useState<BrowserSubscriptionPendingAction | null>(null);
+  const pendingActionRef = useRef<BrowserSubscriptionPendingAction | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const display = subscriptionDisplay(props.serviceId);
 
@@ -796,8 +797,20 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authRequestId]);
 
+  function beginPendingAction(action: BrowserSubscriptionPendingAction): boolean {
+    if (pendingActionRef.current !== null) return false;
+    pendingActionRef.current = action;
+    setPendingAction(action);
+    return true;
+  }
+
+  function finishPendingAction() {
+    pendingActionRef.current = null;
+    setPendingAction(null);
+  }
+
   async function startLogin() {
-    setPendingAction(true);
+    if (!beginPendingAction('login')) return;
     setErrorMessage(null);
     try {
       const payload = await bridge.getAuthUrl();
@@ -836,21 +849,21 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
       toast.error('登录失败', message);
       setErrorMessage(message);
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
   async function logout() {
-    const ok = await toast.confirm({
-      title: `退出 ${display.name} 登录？`,
-      description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用这些 OAuth 模型。',
-      confirmLabel: '退出登录',
-      cancelLabel: '取消',
-      destructive: true,
-    });
-    if (!ok) return;
-    setPendingAction(true);
+    if (!beginPendingAction('logout')) return;
     try {
+      const ok = await toast.confirm({
+        title: `退出 ${display.name} 登录？`,
+        description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用这些 OAuth 模型。',
+        confirmLabel: '退出登录',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
       const result = await bridge.logout();
       if (result.ok) {
         toast.success('已退出登录', '本地凭据已清除。');
@@ -861,12 +874,13 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
     } catch (error) {
       toast.error('退出失败', subscriptionActionErrorMessage(error));
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
   const runtimeState = state?.runtimeState ?? 'loading';
   const isLoggedIn = runtimeState === 'authenticated' || runtimeState === 'refreshing';
+  const actionBusy = pendingAction !== null;
 
   return (
     <div className="providerConfigOverlay" role="presentation" onMouseDown={props.onClose}>
@@ -911,9 +925,9 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
                 className="maka-button"
                 data-variant="primary"
                 onClick={() => void startLogin()}
-                disabled={pendingAction}
+                disabled={actionBusy}
               >
-                {pendingAction ? '等待浏览器…' : `登录 ${display.shortName}`}
+                {pendingAction === 'login' ? '打开浏览器…' : `登录 ${display.shortName}`}
               </button>
             ) : (
               <button
@@ -921,9 +935,9 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
                 className="maka-button"
                 data-variant="ghost"
                 onClick={() => void logout()}
-                disabled={pendingAction}
+                disabled={actionBusy}
               >
-                退出登录
+                {pendingAction === 'logout' ? '退出中…' : '退出登录'}
               </button>
             )}
           </div>
@@ -932,6 +946,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
     </div>
   );
 }
+
+type BrowserSubscriptionPendingAction = 'login' | 'logout';
 
 interface SubscriptionSnapshot {
   runtimeState:
