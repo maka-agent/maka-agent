@@ -79,8 +79,20 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /aria-label="切换当前会话模型"/);
     assert.match(ui, /const \[pending,\s*setPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
+    assert.match(ui, /const pendingModelChangeRef = useRef<\{ sessionId: string; token: number \} \| null>\(null\);/);
+    assert.match(ui, /const pendingModelChangeTokenRef = useRef\(0\);/);
+    assert.match(
+      ui,
+      /useEffect\(\(\) => \{[\s\S]*pendingModelChangeRef\.current\?\.sessionId === props\.activeSession\.id[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*setPending\(false\);[\s\S]*\}, \[props\.activeSession\.id\]\);/,
+      'model switcher must release row-local pending state when the active session changes',
+    );
     assert.match(ui, /if \(pendingRef\.current\) return;/);
-    assert.match(ui, /Promise\.resolve\(\)[\s\S]*\.then\(\(\) => props\.onChange\?\.\(next\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*pendingRef\.current = false;[\s\S]*setPending\(false\);/);
+    assert.match(ui, /const sessionId = props\.activeSession\.id;[\s\S]*const token = pendingModelChangeTokenRef\.current \+ 1;[\s\S]*pendingModelChangeRef\.current = \{ sessionId, token \};/);
+    assert.match(
+      ui,
+      /Promise\.resolve\(\)[\s\S]*\.then\(\(\) => props\.onChange\?\.\(next\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*const owner = pendingModelChangeRef\.current;[\s\S]*owner\?\.sessionId === sessionId && owner\.token === token[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingRef\.current = false;[\s\S]*setPending\(false\);/,
+      'model switcher must only clear pending state for the matching session/token owner',
+    );
     assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);
     assert.match(ui, /data-pending=\{pending \? 'true' : undefined\}/);
     assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
