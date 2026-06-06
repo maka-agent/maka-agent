@@ -357,6 +357,34 @@ describe('terminal truncation handoff contract', () => {
 });
 
 describe('turn footer copy feedback contract', () => {
+  it('keeps shared clipboard feedback from updating state after unmount', async () => {
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const src = await readFile(componentsPath, 'utf8');
+    const hookBlock = src.match(/function useClipboardCopyFeedback[\s\S]*?function TurnFooterActions/)?.[0] ?? '';
+
+    assert.match(hookBlock, /const copyMountedRef = useRef\(true\)/, 'Shared copy feedback must track mounted state.');
+    assert.match(
+      hookBlock,
+      /useEffect\(\(\) => \(\) => \{\s*copyMountedRef\.current = false;\s*clearResetTimer\(\);\s*\}, \[\]\)/,
+      'Shared copy feedback must cancel timers and mark itself unmounted during cleanup.',
+    );
+    assert.match(
+      hookBlock,
+      /function settle\(key: string, phase: Exclude<ClipboardCopyPhase, 'pending'>\) \{\s*if \(!copyMountedRef\.current\) return;/,
+      'Clipboard Promise settlement must not call setState after the owner unmounts.',
+    );
+    assert.match(
+      hookBlock,
+      /window\.setTimeout\(\(\) => \{\s*if \(!copyMountedRef\.current\) return;/,
+      'Delayed feedback reset must not run setState after unmount.',
+    );
+    assert.doesNotMatch(
+      hookBlock,
+      /useEffect\(\(\) => clearResetTimer, \[\]\)/,
+      'Cleanup that only clears the current timer is insufficient because clipboard settlement can happen after unmount.',
+    );
+  });
+
   it('gates the inline footer copy action instead of silently firing raw clipboard writes', async () => {
     const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
     const src = await readFile(componentsPath, 'utf8');
