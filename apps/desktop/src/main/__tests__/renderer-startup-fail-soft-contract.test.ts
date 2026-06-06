@@ -10,7 +10,7 @@ describe('renderer startup fail-soft contract', () => {
     const refreshConnections = main.match(/async function refreshConnections\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshAppInfo = main.match(/async function refreshAppInfo\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshPlanReminders = main.match(/async function refreshPlanReminders\([\s\S]*?\n  \}/)?.[0] ?? '';
-    const refreshSkills = main.match(/async function refreshSkills\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const refreshSkills = main.match(/async function refreshSkills\([\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshMemoryActive = main.match(/async function refreshMemoryActive[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshShellSettings = main.match(/async function refreshShellSettings\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
@@ -64,7 +64,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshSkills,
-      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新技能失败', cleanErrorMessage\(error\)\)/,
+      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) toastApi\.error\('刷新技能失败', cleanErrorMessage\(error\)\)/,
       'skills refresh failures must be visible and must preserve the existing list',
     );
     assert.doesNotMatch(

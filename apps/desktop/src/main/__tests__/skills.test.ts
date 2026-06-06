@@ -304,7 +304,7 @@ name: Writer
     assert.match(ui, /'创建中…'/);
     assert.match(ui, /'刷新中…'/);
     assert.doesNotMatch(ui, /重启 Maka 后会出现在这里/);
-    assert.match(renderer, /async function refreshSkills\(\)/);
+    assert.match(renderer, /async function refreshSkills\(options: \{ shouldShowError\?: \(\) => boolean \} = \{\}\)/);
     assert.match(renderer, /async function createSkillTemplate\(\)/);
     assert.match(renderer, /onRefreshSkills=\{\(\) => refreshSkills\(\)\}/);
     assert.match(renderer, /onCreateSkillTemplate=\{\(\) => createSkillTemplate\(\)\}/);
@@ -362,6 +362,39 @@ name: Writer
     assert.doesNotMatch(renderer, /onOpenSkill=\{\(skillId\) => void openSkill\(skillId\)\}/, 'renderer must return the open promise to the UI pending gate');
   });
 
+  it('scopes Skills action feedback to the active Skills surface', async () => {
+    const repoRoot = process.cwd().endsWith('apps/desktop')
+      ? join(process.cwd(), '..', '..')
+      : process.cwd();
+    const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const refreshBlock = renderer.match(/async function refreshSkills\([\s\S]*?\n  \}/)?.[0] ?? '';
+    const createBlock = renderer.match(/async function createSkillTemplate\(\)[\s\S]*?async function openSkillsFolder/)?.[0] ?? '';
+    const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(
+      renderer,
+      /function isSkillsSurfaceActive\(\): boolean \{[\s\S]*return navSelectionRef\.current\.section === 'skills';[\s\S]*\}/,
+      'Skills feedback must be owned by the current Skills surface',
+    );
+    assert.match(
+      refreshBlock,
+      /if \(options\.shouldShowError\?\.\(\) \?\? true\) toastApi\.error\('刷新技能失败', cleanErrorMessage\(error\)\)/,
+      'startup/subscription Skills refresh failures must remain visible by default',
+    );
+    assert.match(
+      createBlock,
+      /await refreshSkills\(\{ shouldShowError: isSkillsSurfaceActive \}\)/,
+      'create must still refresh the Skills list while gating refresh failure feedback to the active Skills surface',
+    );
+    assert.match(createBlock, /if \(!isSkillsSurfaceActive\(\)\) return;/, 'create must not auto-open a starter Skill after the user leaves Skills');
+    assert.doesNotMatch(createBlock, /await refreshSkills\(\);\s*toastApi\.success/, 'create success feedback must not be unconditional after refresh');
+    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法创建示例技能'/);
+    assert.match(createBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开示例技能'/);
+    assert.match(openBlock, /if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开 Skill'/);
+    assert.doesNotMatch(openBlock, /if \(!result\.ok\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill structured failures must not toast unconditionally after leaving Skills');
+    assert.doesNotMatch(openBlock, /catch \(error\) \{\s*toastApi\.error\('无法打开 Skill'/, 'open Skill thrown failures must not toast unconditionally after leaving Skills');
+  });
+
   it('surfaces thrown Skills IPC failures as toasts', async () => {
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
@@ -372,11 +405,11 @@ name: Writer
     const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(createBlock, /try \{[\s\S]*window\.maka\.skills\.createStarter\(\)/);
-    assert.match(createBlock, /catch \(error\) \{[\s\S]*toastApi\.error\('无法创建示例技能', cleanErrorMessage\(error\)\)/);
+    assert.match(createBlock, /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法创建示例技能', cleanErrorMessage\(error\)\)/);
     assert.match(folderBlock, /try \{[\s\S]*window\.maka\.app\.openPath\('skills'\)/);
     assert.match(folderBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('skills'\)\}`, cleanErrorMessage\(error\)\)/);
     assert.match(openBlock, /try \{[\s\S]*window\.maka\.skills\.open\(skillId, 'file'\)/);
-    assert.match(openBlock, /catch \(error\) \{[\s\S]*toastApi\.error\('无法打开 Skill', cleanErrorMessage\(error\)\)/);
+    assert.match(openBlock, /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) toastApi\.error\('无法打开 Skill', cleanErrorMessage\(error\)\)/);
   });
 
   it('parses inline and list-style allowed-tools front matter', () => {

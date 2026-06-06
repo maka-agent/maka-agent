@@ -786,6 +786,10 @@ function AppShell() {
     return navSelectionRef.current.section === 'automations';
   }
 
+  function isSkillsSurfaceActive(): boolean {
+    return navSelectionRef.current.section === 'skills';
+  }
+
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
@@ -1563,12 +1567,12 @@ function AppShell() {
   // Open the workspace's skills/ directory in Finder via the IPC allowlist.
   // Earlier we silently dropped the structured failure result; surface it
   // so missing-skills-dir / open-failed don't look like the button did nothing.
-  async function refreshSkills() {
+  async function refreshSkills(options: { shouldShowError?: () => boolean } = {}) {
     try {
       const next = await window.maka.skills.list();
       setSkills(next);
     } catch (error) {
-      toastApi.error('刷新技能失败', cleanErrorMessage(error));
+      if (options.shouldShowError?.() ?? true) toastApi.error('刷新技能失败', cleanErrorMessage(error));
     }
   }
 
@@ -1585,17 +1589,18 @@ function AppShell() {
     try {
       const result = await window.maka.skills.createStarter();
       if (!result.ok) {
-        toastApi.error('无法创建示例技能', createSkillFailureCopy(result.reason));
+        if (isSkillsSurfaceActive()) toastApi.error('无法创建示例技能', createSkillFailureCopy(result.reason));
         return;
       }
-      await refreshSkills();
+      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
+      if (!isSkillsSurfaceActive()) return;
       toastApi.success('已创建示例技能', `${result.skill.id}/SKILL.md 已放到工作区 skills 目录。`);
       const openResult = await window.maka.skills.open(result.skill.id, 'file');
       if (!openResult.ok) {
-        toastApi.error('无法打开示例技能', openSkillFailureCopy(openResult.reason));
+        if (isSkillsSurfaceActive()) toastApi.error('无法打开示例技能', openSkillFailureCopy(openResult.reason));
       }
     } catch (error) {
-      toastApi.error('无法创建示例技能', cleanErrorMessage(error));
+      if (isSkillsSurfaceActive()) toastApi.error('无法创建示例技能', cleanErrorMessage(error));
     }
   }
 
@@ -1614,10 +1619,10 @@ function AppShell() {
     try {
       const result = await window.maka.skills.open(skillId, 'file');
       if (!result.ok) {
-        toastApi.error('无法打开 Skill', openSkillFailureCopy(result.reason));
+        if (isSkillsSurfaceActive()) toastApi.error('无法打开 Skill', openSkillFailureCopy(result.reason));
       }
     } catch (error) {
-      toastApi.error('无法打开 Skill', cleanErrorMessage(error));
+      if (isSkillsSurfaceActive()) toastApi.error('无法打开 Skill', cleanErrorMessage(error));
     }
   }
 
