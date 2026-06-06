@@ -131,10 +131,16 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(aboutBlock, /const \[copyingEnvSummary, setCopyingEnvSummary\] = useState\(false\)/);
     assert.match(aboutBlock, /const copyingEnvSummaryRef = useRef\(false\)/);
+    assert.match(aboutBlock, /const aboutPageMountedRef = useRef\(false\)/);
     assert.match(
       aboutBlock,
-      /async function copyEnvSummary\(\) \{[\s\S]*if \(copyingEnvSummaryRef\.current\) return;[\s\S]*copyingEnvSummaryRef\.current = true;[\s\S]*setCopyingEnvSummary\(true\);[\s\S]*await navigator\.clipboard\.writeText\(summary\);[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*setCopyingEnvSummary\(false\);/,
-      'About page environment copy should not allow repeated clipboard requests without pending feedback',
+      /useEffect\(\(\) => \{[\s\S]*aboutPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*aboutPageMountedRef\.current = false;[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
+      'About page copy actions must be invalidated when the page unmounts',
+    );
+    assert.match(
+      aboutBlock,
+      /async function copyEnvSummary\(\) \{[\s\S]*if \(copyingEnvSummaryRef\.current\) return;[\s\S]*copyingEnvSummaryRef\.current = true;[\s\S]*setCopyingEnvSummary\(true\);[\s\S]*await navigator\.clipboard\.writeText\(summary\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.success\('已复制环境信息', '可直接粘贴到问题报告'\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);[\s\S]*\}[\s\S]*finally \{[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*setCopyingEnvSummary\(false\);[\s\S]*\}/,
+      'About page environment copy should not allow repeated clipboard requests and must not update UI after unmount',
     );
     assert.match(aboutBlock, /disabled=\{copyingEnvSummary\}/);
     assert.match(aboutBlock, /copyingEnvSummary \? '复制中…' : '复制环境信息'/);

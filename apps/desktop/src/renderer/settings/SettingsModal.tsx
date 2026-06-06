@@ -1090,10 +1090,12 @@ function AboutSettingsPage() {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [copyingEnvSummary, setCopyingEnvSummary] = useState(false);
   const copyingEnvSummaryRef = useRef(false);
+  const aboutPageMountedRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
+    aboutPageMountedRef.current = true;
     window.maka.app
       .info()
       .then((next) => {
@@ -1107,9 +1109,11 @@ function AboutSettingsPage() {
         const message = settingsActionErrorMessage(error);
         setInfoError(message);
         toast.error('载入关于信息失败', message);
-      });
+    });
     return () => {
       cancelled = true;
+      aboutPageMountedRef.current = false;
+      copyingEnvSummaryRef.current = false;
     };
   }, [toast]);
 
@@ -1161,12 +1165,18 @@ function AboutSettingsPage() {
     ].join('\n');
     try {
       await navigator.clipboard.writeText(summary);
-      toast.success('已复制环境信息', '可直接粘贴到问题报告');
+      if (aboutPageMountedRef.current) {
+        toast.success('已复制环境信息', '可直接粘贴到问题报告');
+      }
     } catch {
-      toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+      if (aboutPageMountedRef.current) {
+        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+      }
     } finally {
       copyingEnvSummaryRef.current = false;
-      setCopyingEnvSummary(false);
+      if (aboutPageMountedRef.current) {
+        setCopyingEnvSummary(false);
+      }
     }
   }
 
