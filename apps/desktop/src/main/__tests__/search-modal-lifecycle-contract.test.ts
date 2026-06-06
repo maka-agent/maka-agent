@@ -220,8 +220,9 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /keyboardKey\(event, \['Home'\]\)[\s\S]*jumpActiveResult\(0,\s*\{ focusResult: true \}\)/, 'Home must jump focus to the first result');
     assert.match(searchModal, /keyboardKey\(event, \['End'\]\)[\s\S]*jumpActiveResult\(results\.length - 1,\s*\{ focusResult: true \}\)/, 'End must jump focus to the last result');
     assert.match(searchModal, /function selectKeyboardResult\(\) \{[\s\S]*results\[activeResultIndex >= 0 \? activeResultIndex : 0\]/, 'Enter/Return must fall back to opening the first result when no row is active');
-    assert.match(searchModal, /keyboardKey\(event, \['Enter', 'Return'\]\) && showResults[\s\S]*selectKeyboardResult\(\)/, 'Enter/Return must open a keyboard result from the input');
-    assert.match(searchModal, /onKeyUp=\{\(event\) => \{[\s\S]*keyboardKey\(event, \['Enter', 'Return'\]\) && showResults[\s\S]*selectKeyboardResult\(\)/, 'Search input must also handle Enter/Return on keyup for Electron search-field activation quirks');
+    assert.match(searchModal, /const keyboardSelectionHandledRef = useRef\(false\)/, 'SearchModal must keep Enter keydown and keyup from double-activating the same result');
+    assert.match(searchModal, /keyboardSelectionHandledRef\.current = true;[\s\S]*selectKeyboardResult\(\)/, 'Enter/Return keydown must mark the selection handled before opening the result');
+    assert.match(searchModal, /onKeyUp=\{\(event\) => \{[\s\S]*keyboardSelectionHandledRef\.current\)[\s\S]*keyboardSelectionHandledRef\.current = false;[\s\S]*return;[\s\S]*keyboardKey\(event, \['Enter', 'Return'\]\) && showResults[\s\S]*selectKeyboardResult\(\)/, 'Search input keyup fallback must stay for Electron search-field quirks but skip Enter already handled on keydown');
     assert.match(searchModal, /function handleResultKeyDown\(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult\)/, 'Focused search result rows must have their own keyboard handler');
     assert.match(searchModal, /keyboardKey\(event, \['Enter', 'Return', 'Space', ' '\]\)[\s\S]*selectResult\(result\)/, 'Focused search result rows must activate on Enter, Return, or Space');
     assert.match(searchModal, /tabIndex=\{-1\}/, 'Search result rows should be arrow-key focused, not extra tab stops');
