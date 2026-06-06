@@ -2975,7 +2975,7 @@ function MemorySettingsPage(props: {
         await navigator.clipboard.writeText(state.path);
         toast.success('已复制路径', state.path);
       } catch {
-        toast.error('复制失败', '剪贴板不可用。');
+        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
       }
     });
   }
@@ -2994,7 +2994,7 @@ function MemorySettingsPage(props: {
         await navigator.clipboard.writeText(reference);
         toast.success('已复制上一版引用', localMemoryBackupSummary(backup));
       } catch {
-        toast.error('复制失败', '剪贴板不可用。');
+        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
       }
     });
   }
@@ -3006,21 +3006,23 @@ function MemorySettingsPage(props: {
   }
 
   async function copyMemoryEntryReference(entry: LocalMemoryState['entries'][number]) {
-    const reference = [
-      `Memory entry: ${entry.title}`,
-      `ID: ${entry.id}`,
-      `Status: ${memoryEntryStatusLabel(entry.status)}`,
-      `Origin: ${memoryOriginLabel(entry.origin)}`,
-      entry.createdAt === undefined ? '' : `Created: ${new Date(entry.createdAt).toISOString()}`,
-      entry.updatedAt === undefined ? '' : `Updated: ${new Date(entry.updatedAt).toISOString()}`,
-      entry.tags.length > 0 ? `Tags: ${entry.tags.join(', ')}` : '',
-    ].filter(Boolean).join('\n');
-    try {
-      await navigator.clipboard.writeText(reference);
-      toast.success('已复制记忆引用', entry.id);
-    } catch {
-      toast.error('复制失败', '剪贴板不可用。');
-    }
+    await runMemoryAction(`entry:${entry.id}:copy`, async () => {
+      const reference = [
+        `Memory entry: ${entry.title}`,
+        `ID: ${entry.id}`,
+        `Status: ${memoryEntryStatusLabel(entry.status)}`,
+        `Origin: ${memoryOriginLabel(entry.origin)}`,
+        entry.createdAt === undefined ? '' : `Created: ${new Date(entry.createdAt).toISOString()}`,
+        entry.updatedAt === undefined ? '' : `Updated: ${new Date(entry.updatedAt).toISOString()}`,
+        entry.tags.length > 0 ? `Tags: ${entry.tags.join(', ')}` : '',
+      ].filter(Boolean).join('\n');
+      try {
+        await navigator.clipboard.writeText(reference);
+        toast.success('已复制记忆引用', entry.id);
+      } catch {
+        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+      }
+    });
   }
 
   function focusMemoryEntryInDraft(entry: LocalMemoryState['entries'][number]) {
@@ -3153,12 +3155,14 @@ function MemorySettingsPage(props: {
 
   async function copyLocalMemoryPromptPreview() {
     if (!localMemoryPromptPreview) return;
-    try {
-      await navigator.clipboard.writeText(localMemoryPromptPreview);
-      toast.success('已复制模型上下文预览', '使用同一条 prompt 预览和遮蔽路径。');
-    } catch {
-      toast.error('复制失败', '剪贴板不可用。');
-    }
+    await runMemoryAction('memory:prompt-preview:copy', async () => {
+      try {
+        await navigator.clipboard.writeText(localMemoryPromptPreview);
+        toast.success('已复制模型上下文预览', '使用同一条 prompt 预览和遮蔽路径。');
+      } catch {
+        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+      }
+    });
   }
 
   return (
@@ -3332,10 +3336,10 @@ function MemorySettingsPage(props: {
             <button
               type="button"
               className="settingsInlineTextButton"
-              disabled={!localMemoryPromptPreview}
+              disabled={!localMemoryPromptPreview || isMemoryActionPending('memory:prompt-preview:copy')}
               onClick={() => void copyLocalMemoryPromptPreview()}
             >
-              复制上下文
+              {isMemoryActionPending('memory:prompt-preview:copy') ? '复制中…' : '复制上下文'}
             </button>
           </div>
         </div>
@@ -3385,6 +3389,7 @@ function MemorySettingsPage(props: {
                 filtered={normalizedMemoryEntryQuery.length > 0}
                 draftDirty={memoryDraftDirty}
                 busy={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
+                pendingCopyIds={pendingMemoryActions}
                 onCopyReference={copyMemoryEntryReference}
                 onFocusDraft={focusMemoryEntryInDraft}
                 onStatusChange={updateMemoryEntryStatus}
@@ -3397,6 +3402,7 @@ function MemorySettingsPage(props: {
                   archived
                   draftDirty={memoryDraftDirty}
                   busy={memoryControlsDisabled || effective.status === 'incognito_blocked' || !effective.enabled}
+                  pendingCopyIds={pendingMemoryActions}
                   onCopyReference={copyMemoryEntryReference}
                   onFocusDraft={focusMemoryEntryInDraft}
                   onStatusChange={updateMemoryEntryStatus}
@@ -3521,6 +3527,7 @@ function MemoryEntryList(props: {
   archived?: boolean;
   draftDirty?: boolean;
   busy?: boolean;
+  pendingCopyIds?: ReadonlySet<string>;
   onCopyReference?(entry: LocalMemoryState['activeEntries'][number]): void | Promise<void>;
   onFocusDraft?(entry: LocalMemoryState['activeEntries'][number]): void | Promise<void>;
   onStatusChange?(entry: LocalMemoryState['activeEntries'][number], status: 'active' | 'archived'): void | Promise<void>;
@@ -3541,6 +3548,7 @@ function MemoryEntryList(props: {
       ) : (
         <div className="settingsMemoryEntryList">
           {props.entries.map((entry) => {
+            const copyPending = props.pendingCopyIds?.has(`entry:${entry.id}:copy`) ?? false;
             const statusActionLabel = props.draftDirty
               ? props.archived
                 ? '恢复到草稿'
@@ -3581,9 +3589,10 @@ function MemoryEntryList(props: {
                       <button
                         type="button"
                         className="settingsInlineTextButton"
+                        disabled={copyPending}
                         onClick={() => void props.onCopyReference?.(entry)}
                       >
-                        复制引用
+                        {copyPending ? '复制中…' : '复制引用'}
                       </button>
                     )}
                     {props.onFocusDraft && (
