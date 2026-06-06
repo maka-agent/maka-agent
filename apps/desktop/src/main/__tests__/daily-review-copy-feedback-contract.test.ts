@@ -37,10 +37,40 @@ describe('Daily Review copy feedback contract', () => {
 
     assert.match(ui, /onAppendDailyReviewMarkdown\?: \(input:/);
     assert.match(panelBlock, /props\.onAppendMarkdown\?\.\(\{\s*markdown:\s*md,\s*label:\s*dayLabel,\s*summary\s*\}\)/);
-    assert.match(panelBlock, />\s*粘到输入框\s*<\/button>/);
+    assert.match(panelBlock, /pendingDailyReviewAction === 'append' \? '追加中…' : '粘到输入框'/);
     assert.match(mainPaneBlock, /composerRef\.current\?\.appendText\(markdown\)/);
     assert.match(mainPaneBlock, /toastApi\.success\(\s*`已追加\$\{label\}回顾到输入框`/);
     assert.doesNotMatch(mainPaneBlock, /composerRef\.current\?\.setText\(markdown\)/);
+  });
+
+  it('gates Daily Review export actions while async work is pending', async () => {
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const panelBlock = ui.match(/function DailyReviewPanel[\s\S]*?function PlanReminderPanel/)?.[0] ?? '';
+    const gateBlock = panelBlock.match(/async function runDailyReviewAction[\s\S]*?const dailyReviewActionBusy/)?.[0] ?? '';
+
+    assert.match(panelBlock, /const \[pendingDailyReviewAction, setPendingDailyReviewAction\] = useState<string \| null>\(null\)/);
+    assert.match(panelBlock, /const pendingDailyReviewActionRef = useRef<string \| null>\(null\)/);
+    assert.match(panelBlock, /const dailyReviewActionBusy = pendingDailyReviewAction !== null/);
+    assert.match(
+      gateBlock,
+      /if \(pendingDailyReviewActionRef\.current !== null\) return;[\s\S]*pendingDailyReviewActionRef\.current = actionKey[\s\S]*setPendingDailyReviewAction\(actionKey\)[\s\S]*await action\(\)[\s\S]*pendingDailyReviewActionRef\.current = null[\s\S]*setPendingDailyReviewAction\(null\)/,
+      'Daily Review export actions must use a ref-backed pending gate so same-frame double clicks cannot run two exports',
+    );
+    assert.match(panelBlock, /runDailyReviewAction\('copy', async \(\) => \{/);
+    assert.match(panelBlock, /runDailyReviewAction\('append', async \(\) => \{/);
+    assert.match(panelBlock, /runDailyReviewAction\('save', async \(\) => \{/);
+    assert.match(panelBlock, /disabled=\{dailyReviewActionBusy\}/);
+    assert.match(panelBlock, /aria-busy=\{pendingDailyReviewAction === 'copy' \? 'true' : undefined\}/);
+    assert.match(panelBlock, /复制中…/);
+    assert.match(panelBlock, /追加中…/);
+    assert.match(panelBlock, /保存中…/);
+    assert.doesNotMatch(
+      main,
+      /onSaveDailyReviewMarkdown=\{\(input\) => void saveDailyReviewMarkdown\(input\)\}/,
+      'renderer must return the save Promise to the Daily Review pending gate',
+    );
+    assert.match(main, /onSaveDailyReviewMarkdown=\{\(input\) => saveDailyReviewMarkdown\(input\)\}/);
   });
 
   it('scrubs Daily Review load and action failures before rendering them', async () => {

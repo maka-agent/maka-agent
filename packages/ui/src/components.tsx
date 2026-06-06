@@ -895,6 +895,8 @@ function DailyReviewPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
+  const [pendingDailyReviewAction, setPendingDailyReviewAction] = useState<string | null>(null);
+  const pendingDailyReviewActionRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -938,6 +940,22 @@ function DailyReviewPanel(props: {
   const emptyActivityBody = range === 1
     ? '这一天没有发起对话，也没有调用模型。'
     : `${dayLabel}范围内没有发起对话，也没有调用模型。`;
+
+  async function runDailyReviewAction(actionKey: string, action: () => void | Promise<void>) {
+    if (pendingDailyReviewActionRef.current !== null) return;
+    pendingDailyReviewActionRef.current = actionKey;
+    setPendingDailyReviewAction(actionKey);
+    try {
+      await action();
+    } finally {
+      if (pendingDailyReviewActionRef.current === actionKey) {
+        pendingDailyReviewActionRef.current = null;
+        setPendingDailyReviewAction(null);
+      }
+    }
+  }
+
+  const dailyReviewActionBusy = pendingDailyReviewAction !== null;
 
   return (
     <div className="maka-daily-review-panel" data-loading={loading ? 'true' : undefined}>
@@ -984,42 +1002,51 @@ function DailyReviewPanel(props: {
             <button
               type="button"
               className="maka-button maka-button-ghost maka-daily-review-copy"
-              onClick={() => {
+              onClick={() => void runDailyReviewAction('copy', async () => {
                 const md = formatDailyReviewMarkdown(summary, dayLabel);
                 if (props.onCopyMarkdown) {
-                  void props.onCopyMarkdown({ markdown: md, label: dayLabel, summary });
+                  await props.onCopyMarkdown({ markdown: md, label: dayLabel, summary });
                   return;
                 }
-                void navigator.clipboard.writeText(md).catch(() => {});
-              }}
+                await navigator.clipboard.writeText(md).catch(() => {});
+              })}
+              disabled={dailyReviewActionBusy}
+              data-pending={pendingDailyReviewAction === 'copy' ? 'true' : undefined}
+              aria-busy={pendingDailyReviewAction === 'copy' ? 'true' : undefined}
               title="复制为 Markdown 摘要，方便分享 / 贴到笔记"
             >
-              复制
+              {pendingDailyReviewAction === 'copy' ? '复制中…' : '复制'}
             </button>
             {props.onAppendMarkdown && (
               <button
                 type="button"
                 className="maka-button maka-button-ghost maka-daily-review-append"
-                onClick={() => {
+                onClick={() => void runDailyReviewAction('append', async () => {
                   const md = formatDailyReviewMarkdown(summary, dayLabel);
-                  void props.onAppendMarkdown?.({ markdown: md, label: dayLabel, summary });
-                }}
+                  await props.onAppendMarkdown?.({ markdown: md, label: dayLabel, summary });
+                })}
+                disabled={dailyReviewActionBusy}
+                data-pending={pendingDailyReviewAction === 'append' ? 'true' : undefined}
+                aria-busy={pendingDailyReviewAction === 'append' ? 'true' : undefined}
                 title="追加到当前输入框草稿"
               >
-                粘到输入框
+                {pendingDailyReviewAction === 'append' ? '追加中…' : '粘到输入框'}
               </button>
             )}
             {props.onSaveMarkdown && (
               <button
                 type="button"
                 className="maka-button maka-button-ghost maka-daily-review-save"
-                onClick={() => {
+                onClick={() => void runDailyReviewAction('save', async () => {
                   const md = formatDailyReviewMarkdown(summary, dayLabel);
-                  void props.onSaveMarkdown?.({ markdown: md, label: dayLabel, summary });
-                }}
+                  await props.onSaveMarkdown?.({ markdown: md, label: dayLabel, summary });
+                })}
+                disabled={dailyReviewActionBusy}
+                data-pending={pendingDailyReviewAction === 'save' ? 'true' : undefined}
+                aria-busy={pendingDailyReviewAction === 'save' ? 'true' : undefined}
                 title="保存为 Markdown 文件"
               >
-                保存
+                {pendingDailyReviewAction === 'save' ? '保存中…' : '保存'}
               </button>
             )}
           </div>

@@ -2432,7 +2432,7 @@ function AppShell() {
                 toastApi.error('复制失败', dailyReviewActionErrorMessage(error, '剪贴板不可用或被系统拒绝'));
               }
             }}
-            onSaveDailyReviewMarkdown={(input) => void saveDailyReviewMarkdown(input)}
+            onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input)}
             dailyReviewBridge={dailyReviewBridge}
             rowActions={{
               onToggleFlag: (sessionId, next) => void flagSession(sessionId, next),
@@ -2528,7 +2528,7 @@ function AppShell() {
                     `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
                   );
                 }}
-                onSaveDailyReviewMarkdown={(input) => void saveDailyReviewMarkdown(input)}
+                onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input)}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
                     ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }
