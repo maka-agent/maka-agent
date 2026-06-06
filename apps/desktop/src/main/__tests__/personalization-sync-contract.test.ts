@@ -92,4 +92,39 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
       'Save button must expose pending state to the UI and accessibility tree',
     );
   });
+
+  it('PersonalizationSettingsPage drops late save UI writes after Settings is closed', async () => {
+    const page = await readPersonalizationPage();
+
+    assert.match(
+      page,
+      /const personalizationMountedRef = useRef\(false\)/,
+      'Personalization save must track page ownership separately from React pending state',
+    );
+    assert.match(
+      page,
+      /useEffect\(\(\) => \{[\s\S]*personalizationMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*personalizationMountedRef\.current = false;[\s\S]*savingRef\.current = false;/,
+      'Personalization cleanup must release the synchronous save owner when Settings closes',
+    );
+    assert.match(
+      page,
+      /if \(warnings\) \{[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*toast\.warning\('已保存并做安全清理'/,
+      'Personalization warning toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      page,
+      /else \{[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*toast\.success\('个性化已保存'\)/,
+      'Personalization success toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      page,
+      /catch \(error\) \{[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
+      'Personalization failure toast must only fire while the page is still mounted',
+    );
+    assert.match(
+      page,
+      /finally \{[\s\S]*savingRef\.current = false;[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*setSaving\(false\);/,
+      'Personalization save cleanup must not write React state after unmount',
+    );
+  });
 });

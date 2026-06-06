@@ -2015,6 +2015,15 @@ function PersonalizationSettingsPage(props: {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const personalizationMountedRef = useRef(false);
+
+  useEffect(() => {
+    personalizationMountedRef.current = true;
+    return () => {
+      personalizationMountedRef.current = false;
+      savingRef.current = false;
+    };
+  }, []);
 
   // PR-PERSONALIZATION-SYNC-0: sync form state when the persisted
   // personalization changes externally. Two real scenarios:
@@ -2054,15 +2063,23 @@ function PersonalizationSettingsPage(props: {
       // disclosed) per kenji's personalization-prompt-contract.
       const warnings = collectPersonalizationWarningCopy(result.warnings?.personalization ?? []);
       if (warnings) {
-        toast.warning('已保存并做安全清理', warnings);
+        if (personalizationMountedRef.current) {
+          toast.warning('已保存并做安全清理', warnings);
+        }
       } else {
-        toast.success('个性化已保存');
+        if (personalizationMountedRef.current) {
+          toast.success('个性化已保存');
+        }
       }
     } catch (error) {
-      toast.error('保存失败', settingsActionErrorMessage(error));
+      if (personalizationMountedRef.current) {
+        toast.error('保存失败', settingsActionErrorMessage(error));
+      }
     } finally {
       savingRef.current = false;
-      setSaving(false);
+      if (personalizationMountedRef.current) {
+        setSaving(false);
+      }
     }
   }
 
