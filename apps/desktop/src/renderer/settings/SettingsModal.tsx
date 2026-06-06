@@ -1855,10 +1855,12 @@ function DataSettingsPage() {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [pendingDataAction, setPendingDataAction] = useState<string | null>(null);
   const pendingDataActionRef = useRef<string | null>(null);
+  const dataPageMountedRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
+    dataPageMountedRef.current = true;
     void window.maka.app.info().then((next) => {
       if (!cancelled) {
         setInfo(next);
@@ -1873,6 +1875,8 @@ function DataSettingsPage() {
     });
     return () => {
       cancelled = true;
+      dataPageMountedRef.current = false;
+      pendingDataActionRef.current = null;
     };
   }, [toast]);
 
@@ -1884,7 +1888,9 @@ function DataSettingsPage() {
       await run();
     } finally {
       pendingDataActionRef.current = null;
-      setPendingDataAction(null);
+      if (dataPageMountedRef.current) {
+        setPendingDataAction(null);
+      }
     }
   }
 
@@ -1896,11 +1902,14 @@ function DataSettingsPage() {
     await runDataAction('workspace:open', async () => {
       try {
         const result = await window.maka.app.openPath('workspace');
+        if (!dataPageMountedRef.current) return;
         if (!result.ok) {
           toast.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
         }
       } catch (error) {
-        toast.error(`无法打开${openPathActionLabel('workspace')}`, settingsActionErrorMessage(error));
+        if (dataPageMountedRef.current) {
+          toast.error(`无法打开${openPathActionLabel('workspace')}`, settingsActionErrorMessage(error));
+        }
       }
     });
   }
@@ -1910,9 +1919,13 @@ function DataSettingsPage() {
     await runDataAction('workspace:path:copy', async () => {
       try {
         await navigator.clipboard.writeText(info.workspacePath);
-        toast.success('已复制工作区路径');
+        if (dataPageMountedRef.current) {
+          toast.success('已复制工作区路径');
+        }
       } catch {
-        toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+        if (dataPageMountedRef.current) {
+          toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
+        }
       }
     });
   }

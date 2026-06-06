@@ -76,10 +76,26 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(dataBlock, /const \[pendingDataAction, setPendingDataAction\] = useState<string \| null>\(null\)/);
     assert.match(dataBlock, /const pendingDataActionRef = useRef<string \| null>\(null\)/);
+    assert.match(dataBlock, /const dataPageMountedRef = useRef\(false\)/);
     assert.match(
       dataBlock,
-      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(pendingDataActionRef\.current\) return;[\s\S]*pendingDataActionRef\.current = action;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingDataActionRef\.current = null;[\s\S]*setPendingDataAction\(null\);/,
-      'Data page open/copy actions need a shared pending guard to prevent repeated shell/clipboard requests',
+      /useEffect\(\(\) => \{[\s\S]*dataPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*dataPageMountedRef\.current = false;[\s\S]*pendingDataActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
+      'Data page actions must be invalidated when the page unmounts',
+    );
+    assert.match(
+      dataBlock,
+      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(pendingDataActionRef\.current\) return;[\s\S]*pendingDataActionRef\.current = action;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingDataActionRef\.current = null;[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*setPendingDataAction\(null\);[\s\S]*\}/,
+      'Data page open/copy actions need a shared pending guard and must not clean UI state after unmount',
+    );
+    assert.match(
+      dataBlock,
+      /const result = await window\.maka\.app\.openPath\('workspace'\);[\s\S]*if \(!dataPageMountedRef\.current\) return;[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`/,
+      'Late workspace-open failures must not toast after Settings is closed',
+    );
+    assert.match(
+      dataBlock,
+      /await navigator\.clipboard\.writeText\(info\.workspacePath\);[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*toast\.success\('已复制工作区路径'\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/,
+      'Late workspace-path copy success/failure toasts must not fire after Settings is closed',
     );
     assert.match(dataBlock, /disabled=\{!info \|\| dataActionDisabled\}/);
     assert.match(dataBlock, /isDataActionPending\('workspace:open'\) \? '打开中…' : '打开工作区文件夹'/);
