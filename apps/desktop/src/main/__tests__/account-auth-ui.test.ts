@@ -218,18 +218,59 @@ describe('Account settings credential probe UI', () => {
     );
     assert.match(
       page,
-      /async function testConnection\(slug: string\) \{[\s\S]*if \(testingSlugRef\.current !== null\) return;[\s\S]*testingSlugRef\.current = slug;[\s\S]*await window\.maka\.connections\.test\(slug\)/,
+      /const accountPageMountedRef = useRef\(false\);[\s\S]*useEffect\(\(\) => \{[\s\S]*accountPageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*accountPageMountedRef\.current = false;[\s\S]*testingSlugRef\.current = null;/,
+      'Account page must release test ownership when Settings closes',
+    );
+    assert.match(
+      page,
+      /async function testConnection\(slug: string\) \{[\s\S]*if \(testingSlugRef\.current !== null\) return;[\s\S]*testingSlugRef\.current = slug;[\s\S]*await window\.maka\.connections\.test\(slug\)[\s\S]*if \(!accountPageMountedRef\.current \|\| testingSlugRef\.current !== slug\) return;/,
       'Account page connection test must set the duplicate-click guard before awaiting IPC',
     );
     assert.match(
       page,
-      /finally \{[\s\S]*try \{[\s\S]*await props\.onRefresh\(\);[\s\S]*\} catch \(error\) \{[\s\S]*toast\.error\('刷新模型连接状态失败', settingsActionErrorMessage\(error\)\)[\s\S]*\} finally \{[\s\S]*testingSlugRef\.current = null;[\s\S]*setTestingSlug\(null\);[\s\S]*\}/,
+      /finally \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*try \{[\s\S]*await props\.onRefresh\(\);[\s\S]*\} catch \(error\) \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*toast\.error\('刷新模型连接状态失败', settingsActionErrorMessage\(error\)\);[\s\S]*\} finally \{[\s\S]*testingSlugRef\.current = null;[\s\S]*if \(accountPageMountedRef\.current\) \{[\s\S]*setTestingSlug\(null\);/,
       'Account page connection test must keep the button pending through status refresh and surface refresh failures',
     );
     assert.doesNotMatch(
       page,
       /finally \{[\s\S]*setTestingSlug\(null\);[\s\S]*await props\.onRefresh\(\);[\s\S]*\}/,
       'Account page connection test must not re-enable the button before the status refresh finishes',
+    );
+  });
+
+  it('drops late account-page connection test feedback after Settings is closed', async () => {
+    const source = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = source.match(/function AccountSettingsPage[\s\S]*?function AccountConnectionRow/)?.[0] ?? '';
+
+    assert.match(
+      page,
+      /const accountPageMountedRef = useRef\(false\);/,
+      'Account page must track mounted ownership for connection tests',
+    );
+    assert.match(
+      page,
+      /return \(\) => \{[\s\S]*accountPageMountedRef\.current = false;[\s\S]*testingSlugRef\.current = null;/,
+      'Account page cleanup must release an in-flight connection test owner',
+    );
+    assert.match(
+      page,
+      /const result = await window\.maka\.connections\.test\(slug\);[\s\S]*if \(!accountPageMountedRef\.current \|\| testingSlugRef\.current !== slug\) return;[\s\S]*if \(result\.ok\) \{/,
+      'Connection test success/failure toasts must not fire after unmount',
+    );
+    assert.match(
+      page,
+      /catch \(error\) \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*toast\.error\('测试出错', settingsActionErrorMessage\(error\)\);/,
+      'Thrown connection-test errors must not toast after unmount',
+    );
+    assert.match(
+      page,
+      /finally \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*await props\.onRefresh\(\);/,
+      'Post-test status refresh must not run after the account page unmounts',
+    );
+    assert.match(
+      page,
+      /testingSlugRef\.current = null;[\s\S]*if \(accountPageMountedRef\.current\) \{[\s\S]*setTestingSlug\(null\);/,
+      'Connection-test cleanup must release the ref but not write React pending state after unmount',
     );
   });
 
