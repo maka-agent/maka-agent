@@ -208,6 +208,37 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(memoryPage, /isMemoryActionPending\('backup:latest:restore'\) \? '恢复中…' : '恢复上一版'/);
   });
 
+  it('gates local memory write actions with one synchronous busy owner', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const memoryPage = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
+
+    assert.match(memoryPage, /type MemoryWriteAction =[\s\S]*'save'[\s\S]*'reset'[\s\S]*'restore'[\s\S]*'entry-status'[\s\S]*'instruction-create'/);
+    assert.match(memoryPage, /const \[pendingMemoryWriteAction, setPendingMemoryWriteAction\] = useState<MemoryWriteAction \| null>\(null\)/);
+    assert.match(memoryPage, /const memoryWriteBusyRef = useRef\(false\)/);
+    assert.match(
+      memoryPage,
+      /async function runMemoryWriteAction<T>\(action: MemoryWriteAction, run: \(\) => Promise<T>\)[\s\S]*if \(memoryWriteBusyRef\.current\) return undefined;[\s\S]*memoryWriteBusyRef\.current = true;[\s\S]*setPendingMemoryWriteAction\(action\);[\s\S]*setBusy\(true\);/,
+      'local memory writes must set a synchronous busy guard before awaiting file/settings writes',
+    );
+    assert.match(
+      memoryPage,
+      /finally \{[\s\S]*memoryWriteBusyRef\.current = false;[\s\S]*setPendingMemoryWriteAction\(null\);[\s\S]*setBusy\(false\);[\s\S]*\}/,
+      'local memory write guard must always release after success or failure',
+    );
+    assert.match(memoryPage, /await runMemoryWriteAction\('reload'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('enable'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('agent-read'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('workspace-instructions'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('save'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('reset'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('restore'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('entry-status'/);
+    assert.match(memoryPage, /await runMemoryWriteAction\('instruction-create'/);
+    assert.match(memoryPage, /pendingMemoryWriteAction === 'save' \? '保存中…' : memoryDraftDirty \? '保存' : '已保存'/);
+    assert.match(memoryPage, /pendingMemoryWriteAction === 'reload' \? '载入中…' : '重新载入'/);
+    assert.match(memoryPage, /pendingMemoryWriteAction === 'reset' \? '重置中…' : '重置并备份'/);
+  });
+
   it('manual add stays draft-only and routes through the core helper', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const manualAddBlock = src.match(/function addManualMemoryDraftEntry\(\) \{[\s\S]*?\n  \}\n\n  async function updateMemoryEntryStatus/)?.[0] ?? '';
@@ -241,7 +272,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(updateBlock, /已在草稿中归档记忆/);
     assert.match(updateBlock, /已在草稿中恢复记忆/);
     assert.match(updateBlock, /确认文件内容后点击保存/);
-    assert.match(updateBlock, /return;\n    }\n\n    setBusy\(true\)/);
+    assert.match(updateBlock, /return;\n    }\n\n    try \{[\s\S]*await runMemoryWriteAction\('entry-status'/);
     assert.match(updateBlock, /window\.maka\.memory\.save\(result\.draft\)/);
     assert.match(src, /draftDirty=\{memoryDraftDirty\}/);
     assert.match(listBlock, /draftDirty\?: boolean/);
@@ -316,7 +347,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /有未保存修改/);
     assert.match(pageBlock, /草稿已保存/);
     assert.match(pageBlock, /disabled=\{memoryControlsDisabled \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
-    assert.match(pageBlock, /\{memoryDraftDirty \? '保存' : '已保存'\}/);
+    assert.match(pageBlock, /pendingMemoryWriteAction === 'save' \? '保存中…' : memoryDraftDirty \? '保存' : '已保存'/);
     assert.match(css, /\.settingsMemoryDirtyState\[data-dirty="true"\]/);
   });
 
@@ -357,7 +388,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /已重新载入 MEMORY\.md/);
     assert.match(pageBlock, /未保存的草稿修改已丢弃/);
     assert.match(pageBlock, /onClick=\{\(\) => void reloadDraftFromDisk\(\)\}/);
-    assert.match(pageBlock, />\s*重新载入\s*<\/button>/);
+    assert.match(pageBlock, /pendingMemoryWriteAction === 'reload' \? '载入中…' : '重新载入'/);
   });
 
   it('keeps MEMORY.md editing disabled until the initial disk state has loaded', async () => {

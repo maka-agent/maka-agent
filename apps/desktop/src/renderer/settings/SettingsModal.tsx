@@ -2711,6 +2711,17 @@ function MemorySettingsPage(props: {
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onReloadSettings(): Promise<void>;
 }) {
+  type MemoryWriteAction =
+    | 'reload'
+    | 'enable'
+    | 'agent-read'
+    | 'workspace-instructions'
+    | 'save'
+    | 'reset'
+    | 'restore'
+    | 'entry-status'
+    | 'instruction-create';
+
   const [state, setState] = useState<LocalMemoryState | null>(null);
   const [workspaceInstructionState, setWorkspaceInstructionState] = useState<Awaited<
     ReturnType<typeof window.maka.workspaceInstructions.getState>
@@ -2723,10 +2734,26 @@ function MemorySettingsPage(props: {
   const [lastSaveSummary, setLastSaveSummary] = useState<{ title: string; detail: string; savedAt: number } | null>(null);
   const [loadingMemory, setLoadingMemory] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [pendingMemoryWriteAction, setPendingMemoryWriteAction] = useState<MemoryWriteAction | null>(null);
   const [pendingMemoryActions, setPendingMemoryActions] = useState<Set<string>>(() => new Set());
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const memoryWriteBusyRef = useRef(false);
   const pendingMemoryActionKeysRef = useRef<Set<string>>(new Set());
   const toast = useToast();
+
+  async function runMemoryWriteAction<T>(action: MemoryWriteAction, run: () => Promise<T>): Promise<T | undefined> {
+    if (memoryWriteBusyRef.current) return undefined;
+    memoryWriteBusyRef.current = true;
+    setPendingMemoryWriteAction(action);
+    setBusy(true);
+    try {
+      return await run();
+    } finally {
+      memoryWriteBusyRef.current = false;
+      setPendingMemoryWriteAction(null);
+      setBusy(false);
+    }
+  }
 
   async function runMemoryAction<T>(key: string, action: () => Promise<T>): Promise<T | undefined> {
     if (pendingMemoryActionKeysRef.current.has(key)) return undefined;
@@ -2764,13 +2791,10 @@ function MemorySettingsPage(props: {
   }
 
   async function reloadDraftFromDisk() {
-    setBusy(true);
-    try {
+    await runMemoryWriteAction('reload', async () => {
       const ok = await reload();
       if (ok) toast.success('已重新载入 MEMORY.md', '未保存的草稿修改已丢弃。');
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   useEffect(() => {
@@ -2778,147 +2802,140 @@ function MemorySettingsPage(props: {
   }, []);
 
   async function setEnabled(enabled: boolean) {
-    setBusy(true);
     try {
-      const next = await window.maka.memory.setEnabled(enabled);
-      await props.onReloadSettings();
-      setState(next);
-      setDraft(next.content);
+      await runMemoryWriteAction('enable', async () => {
+        const next = await window.maka.memory.setEnabled(enabled);
+        await props.onReloadSettings();
+        setState(next);
+        setDraft(next.content);
+      });
     } catch (error) {
       toast.error('更新本地记忆开关失败', settingsActionErrorMessage(error));
-    } finally {
-      setBusy(false);
     }
   }
 
   async function setAgentReadEnabled(agentReadEnabled: boolean) {
-    setBusy(true);
     try {
-      const next = await window.maka.memory.setAgentReadEnabled(agentReadEnabled);
-      await props.onReloadSettings();
-      setState(next);
-      setDraft(next.content);
+      await runMemoryWriteAction('agent-read', async () => {
+        const next = await window.maka.memory.setAgentReadEnabled(agentReadEnabled);
+        await props.onReloadSettings();
+        setState(next);
+        setDraft(next.content);
+      });
     } catch (error) {
       toast.error('更新模型读取权限失败', settingsActionErrorMessage(error));
-    } finally {
-      setBusy(false);
     }
   }
 
   async function setWorkspaceInstructionsEnabled(enabled: boolean) {
-    setBusy(true);
     try {
-      await props.onUpdate({ workspaceInstructions: { enabled } });
-      await props.onReloadSettings();
+      await runMemoryWriteAction('workspace-instructions', async () => {
+        await props.onUpdate({ workspaceInstructions: { enabled } });
+        await props.onReloadSettings();
+      });
     } catch (error) {
       toast.error('更新项目指令开关失败', settingsActionErrorMessage(error));
-    } finally {
-      setBusy(false);
     }
   }
 
   async function save() {
-    setBusy(true);
     try {
-      const next = await window.maka.memory.save(draft);
-      const redacted = next.content !== draft;
-      setState(next);
-      setDraft(next.content);
-      if (next.status === 'safe_mode') {
-        setLastSaveSummary(null);
-        toast.error('保存被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
-      } else if (redacted) {
-        const detail = `写入前已替换疑似 token、API key 或密码；${formatLocalMemorySaveSummary(next)}`;
-        setLastSaveSummary({ title: '已保存并遮蔽敏感字段', detail, savedAt: Date.now() });
-        toast.success('已保存并遮蔽敏感字段', detail);
-      } else {
-        const detail = formatLocalMemorySaveSummary(next);
-        setLastSaveSummary({ title: '已保存 MEMORY.md', detail, savedAt: Date.now() });
-        toast.success('已保存 MEMORY.md', detail);
-      }
+      await runMemoryWriteAction('save', async () => {
+        const next = await window.maka.memory.save(draft);
+        const redacted = next.content !== draft;
+        setState(next);
+        setDraft(next.content);
+        if (next.status === 'safe_mode') {
+          setLastSaveSummary(null);
+          toast.error('保存被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
+        } else if (redacted) {
+          const detail = `写入前已替换疑似 token、API key 或密码；${formatLocalMemorySaveSummary(next)}`;
+          setLastSaveSummary({ title: '已保存并遮蔽敏感字段', detail, savedAt: Date.now() });
+          toast.success('已保存并遮蔽敏感字段', detail);
+        } else {
+          const detail = formatLocalMemorySaveSummary(next);
+          setLastSaveSummary({ title: '已保存 MEMORY.md', detail, savedAt: Date.now() });
+          toast.success('已保存 MEMORY.md', detail);
+        }
+      });
     } catch (error) {
       toast.error('保存 MEMORY.md 失败', settingsActionErrorMessage(error));
-    } finally {
-      setBusy(false);
     }
   }
 
   async function reset() {
-    setBusy(true);
     try {
-      const next = await window.maka.memory.reset();
-      setState(next);
-      setDraft(next.content);
-      setLastSaveSummary(null);
-      toast.success('已重置 MEMORY.md', '上一版已保存为备份文件。');
+      await runMemoryWriteAction('reset', async () => {
+        const next = await window.maka.memory.reset();
+        setState(next);
+        setDraft(next.content);
+        setLastSaveSummary(null);
+        toast.success('已重置 MEMORY.md', '上一版已保存为备份文件。');
+      });
     } catch (error) {
       toast.error('重置 MEMORY.md 失败', settingsActionErrorMessage(error));
-    } finally {
-      setBusy(false);
     }
   }
 
   async function restoreLatestBackup() {
     await runMemoryAction('backup:latest:restore', async () => {
-      const backup = state?.latestBackup;
-      if (!backup) {
-        toast.error('没有可恢复备份', '保存或重置 MEMORY.md 后才会生成上一版备份。');
-        return;
-      }
-      const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)} · ${new Date(backup.updatedAt).toLocaleString()}`;
-      const ok = await toast.confirm({
-        title: '恢复上一版 MEMORY.md？',
-        description: `会先备份当前 MEMORY.md，再用最近一次备份覆盖当前文件。将恢复：${backupLabel}`,
-        confirmLabel: '恢复',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
-      setBusy(true);
       try {
-        const result = await window.maka.memory.restoreLatestBackup();
-        setState(result.state);
-        setDraft(result.state.content);
-        setLastSaveSummary(null);
-        if (result.ok) {
-          toast.success('已恢复上一版 MEMORY.md', `${backupLabel}；恢复前的当前文件已保存为 restore.bak。`);
-        } else {
-          toast.error('恢复失败', result.message);
-        }
+        await runMemoryWriteAction('restore', async () => {
+          const backup = state?.latestBackup;
+          if (!backup) {
+            toast.error('没有可恢复备份', '保存或重置 MEMORY.md 后才会生成上一版备份。');
+            return;
+          }
+          const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)} · ${new Date(backup.updatedAt).toLocaleString()}`;
+          const ok = await toast.confirm({
+            title: '恢复上一版 MEMORY.md？',
+            description: `会先备份当前 MEMORY.md，再用最近一次备份覆盖当前文件。将恢复：${backupLabel}`,
+            confirmLabel: '恢复',
+            cancelLabel: '取消',
+            destructive: true,
+          });
+          if (!ok) return;
+          const result = await window.maka.memory.restoreLatestBackup();
+          setState(result.state);
+          setDraft(result.state.content);
+          setLastSaveSummary(null);
+          if (result.ok) {
+            toast.success('已恢复上一版 MEMORY.md', `${backupLabel}；恢复前的当前文件已保存为 restore.bak。`);
+          } else {
+            toast.error('恢复失败', result.message);
+          }
+        });
       } catch (error) {
         toast.error('恢复上一版失败', settingsActionErrorMessage(error));
-      } finally {
-        setBusy(false);
       }
     });
   }
 
   async function restoreBackupCandidate(backup: NonNullable<LocalMemoryState['latestBackup']>) {
     await runMemoryAction(`backup:${backup.kind}:restore`, async () => {
-      const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)} · ${new Date(backup.updatedAt).toLocaleString()}`;
-      const ok = await toast.confirm({
-        title: '恢复这个 MEMORY.md 备份？',
-        description: `会先备份当前 MEMORY.md，再用选中的备份覆盖当前文件。将恢复：${backupLabel}`,
-        confirmLabel: '恢复',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
-      setBusy(true);
       try {
-        const result = await window.maka.memory.restoreBackup(backup.kind);
-        setState(result.state);
-        setDraft(result.state.content);
-        setLastSaveSummary(null);
-        if (result.ok) {
-          toast.success('已恢复 MEMORY.md 备份候选', `${backupLabel}；恢复前的当前文件已保存为 restore.bak。`);
-        } else {
-          toast.error('恢复失败', result.message);
-        }
+        await runMemoryWriteAction('restore', async () => {
+          const backupLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)} · ${new Date(backup.updatedAt).toLocaleString()}`;
+          const ok = await toast.confirm({
+            title: '恢复这个 MEMORY.md 备份？',
+            description: `会先备份当前 MEMORY.md，再用选中的备份覆盖当前文件。将恢复：${backupLabel}`,
+            confirmLabel: '恢复',
+            cancelLabel: '取消',
+            destructive: true,
+          });
+          if (!ok) return;
+          const result = await window.maka.memory.restoreBackup(backup.kind);
+          setState(result.state);
+          setDraft(result.state.content);
+          setLastSaveSummary(null);
+          if (result.ok) {
+            toast.success('已恢复 MEMORY.md 备份候选', `${backupLabel}；恢复前的当前文件已保存为 restore.bak。`);
+          } else {
+            toast.error('恢复失败', result.message);
+          }
+        });
       } catch (error) {
         toast.error('恢复备份失败', settingsActionErrorMessage(error));
-      } finally {
-        setBusy(false);
       }
     });
   }
@@ -2986,21 +3003,20 @@ function MemorySettingsPage(props: {
 
   async function createWorkspaceInstructionFile(file: string) {
     await runMemoryAction(`instruction:${file}:create`, async () => {
-      setBusy(true);
       try {
-        const result = await window.maka.workspaceInstructions.createFile(file);
-        if (!result.ok) {
-          toast.error('创建项目指令失败', result.message);
-          return;
-        }
-        const instructions = await window.maka.workspaceInstructions.getState();
-        setWorkspaceInstructionState(instructions);
-        toast.success('已创建项目指令', file);
-        await openWorkspaceInstructionFile(file);
+        await runMemoryWriteAction('instruction-create', async () => {
+          const result = await window.maka.workspaceInstructions.createFile(file);
+          if (!result.ok) {
+            toast.error('创建项目指令失败', result.message);
+            return;
+          }
+          const instructions = await window.maka.workspaceInstructions.getState();
+          setWorkspaceInstructionState(instructions);
+          toast.success('已创建项目指令', file);
+          await openWorkspaceInstructionFile(file);
+        });
       } catch (error) {
         toast.error('创建项目指令失败', settingsActionErrorMessage(error));
-      } finally {
-        setBusy(false);
       }
     });
   }
@@ -3130,20 +3146,19 @@ function MemorySettingsPage(props: {
       return;
     }
 
-    setBusy(true);
     try {
-      const next = await window.maka.memory.save(result.draft);
-      setState(next);
-      setDraft(next.content);
-      if (next.status === 'safe_mode') {
-        toast.error('更新被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
-      } else {
-        toast.success(status === 'archived' ? '已归档记忆' : '已恢复记忆', entry.title);
-      }
+      await runMemoryWriteAction('entry-status', async () => {
+        const next = await window.maka.memory.save(result.draft);
+        setState(next);
+        setDraft(next.content);
+        if (next.status === 'safe_mode') {
+          toast.error('更新被拦截', 'MEMORY.md 内容过大，已进入安全模式。');
+        } else {
+          toast.success(status === 'archived' ? '已归档记忆' : '已恢复记忆', entry.title);
+        }
+      });
     } catch (error) {
       toast.error(status === 'archived' ? '归档记忆失败' : '恢复记忆失败', settingsActionErrorMessage(error));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -3526,7 +3541,7 @@ function MemorySettingsPage(props: {
 
       <div className="settingsActionRow">
         <button type="button" className="maka-button" disabled={memoryControlsDisabled || !effective.enabled || !memoryDraftDirty} onClick={() => void save()}>
-          {memoryDraftDirty ? '保存' : '已保存'}
+          {pendingMemoryWriteAction === 'save' ? '保存中…' : memoryDraftDirty ? '保存' : '已保存'}
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending('memory:file:open')} onClick={() => void openFile()}>
           {isMemoryActionPending('memory:file:open') ? '打开中…' : '打开 MEMORY.md'}
@@ -3535,7 +3550,7 @@ function MemorySettingsPage(props: {
           {isMemoryActionPending('memory:folder:open') ? '打开中…' : '打开所在目录'}
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled} onClick={() => void reloadDraftFromDisk()}>
-          重新载入
+          {pendingMemoryWriteAction === 'reload' ? '载入中…' : '重新载入'}
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled || !effective.latestBackup || isMemoryActionPending('backup:latest:open')} onClick={() => void openLatestBackup()}>
           {isMemoryActionPending('backup:latest:open') ? '打开中…' : '打开上一版'}
@@ -3547,7 +3562,7 @@ function MemorySettingsPage(props: {
           {effective.latestBackup && isMemoryActionPending(`backup:${effective.latestBackup.kind}:copy`) ? '复制中…' : '复制上一版引用'}
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled} onClick={() => void reset()}>
-          重置并备份
+          {pendingMemoryWriteAction === 'reset' ? '重置中…' : '重置并备份'}
         </button>
         <button type="button" className="maka-button maka-button-ghost" disabled={memoryControlsDisabled || !effective.enabled || !effective.latestBackup || isMemoryActionPending('backup:latest:restore')} onClick={() => void restoreLatestBackup()}>
           {isMemoryActionPending('backup:latest:restore') ? '恢复中…' : '恢复上一版'}
