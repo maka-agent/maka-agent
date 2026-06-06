@@ -1363,13 +1363,15 @@ function AppShell() {
       const next = await window.maka.sessions.setModel(sessionId, input);
       setSessions((prev) => prev.map((session) => (session.id === next.id ? next : session)));
       const connection = connections.find((entry) => entry.slug === next.llmConnectionSlug);
-      toastApi.success(
-        '已切换当前会话模型',
-        `${connection?.name ?? next.llmConnectionSlug} · ${next.model}`,
-      );
+      if (activeIdRef.current === sessionId) {
+        toastApi.success(
+          '已切换当前会话模型',
+          `${connection?.name ?? next.llmConnectionSlug} · ${next.model}`,
+        );
+      }
       await refreshSessions();
     } catch (error) {
-      toastApi.error('切换模型失败', cleanErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', cleanErrorMessage(error));
     } finally {
       pendingSessionModelChangesRef.current.delete(sessionId);
     }

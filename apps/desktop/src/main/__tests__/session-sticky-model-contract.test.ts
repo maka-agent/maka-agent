@@ -69,6 +69,16 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(renderer, /modelChoices=\{chatModelChoices\}/);
     assert.match(renderer, /const pendingSessionModelChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
     assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
+    assert.match(
+      renderer,
+      /const next = await window\.maka\.sessions\.setModel\(sessionId, input\);[\s\S]*setSessions\([\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.success\([\s\S]*已切换当前会话模型/,
+      'model switch success toast must only describe the current session when the original session is still active',
+    );
+    assert.match(
+      renderer,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', cleanErrorMessage\(error\)\);[\s\S]*\} finally/,
+      'model switch failure toast must not surface stale failures after the user switches sessions',
+    );
     assert.match(renderer, /onModelChange=\{\(input\) => setSessionModel\(input\)\}/);
     assert.doesNotMatch(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
     assert.match(renderer, /PROVIDER_DEFAULTS\[connection\.providerType\]/);
