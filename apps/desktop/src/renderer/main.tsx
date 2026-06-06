@@ -457,6 +457,7 @@ function AppShell() {
   const pendingTurnActionsRef = useRef<Set<string>>(new Set());
   const pendingTurnActionTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingSessionRowActionsRef = useRef<Set<string>>(new Set());
+  const pendingSessionModelChangesRef = useRef<Set<string>>(new Set());
   const pendingKeyOf = (sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']) =>
     `${sessionId}:${turnId}:${actionId}`;
   function addPendingTurnAction(key: string): boolean {
@@ -1334,9 +1335,12 @@ function AppShell() {
   }
 
   async function setSessionModel(input: { llmConnectionSlug: string; model: string }) {
-    if (!activeId) return;
+    const sessionId = activeIdRef.current;
+    if (!sessionId) return;
+    if (pendingSessionModelChangesRef.current.has(sessionId)) return;
+    pendingSessionModelChangesRef.current.add(sessionId);
     try {
-      const next = await window.maka.sessions.setModel(activeId, input);
+      const next = await window.maka.sessions.setModel(sessionId, input);
       setSessions((prev) => prev.map((session) => (session.id === next.id ? next : session)));
       const connection = connections.find((entry) => entry.slug === next.llmConnectionSlug);
       toastApi.success(
@@ -1346,6 +1350,8 @@ function AppShell() {
       await refreshSessions();
     } catch (error) {
       toastApi.error('切换模型失败', cleanErrorMessage(error));
+    } finally {
+      pendingSessionModelChangesRef.current.delete(sessionId);
     }
   }
 
@@ -2536,7 +2542,7 @@ function AppShell() {
                 activeProviderType={activeConnection?.providerType}
                 renderProviderMark={(type) => <ProviderLogo type={type} compact />}
                 modelChoices={chatModelChoices}
-                onModelChange={(input) => void setSessionModel(input)}
+                onModelChange={(input) => setSessionModel(input)}
                 userLabel={userLabel}
                 memoryActive={memoryActive}
                 onOpenMemorySettings={() => openSettingsSection('memory')}

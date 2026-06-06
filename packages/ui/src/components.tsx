@@ -3526,21 +3526,32 @@ function ChatModelSwitcher(props: {
   disabledReason?: string;
   onChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
 }) {
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const currentModel = props.activeModel ?? props.activeSession.model;
   const currentValue = modelChoiceValue(props.activeSession.llmConnectionSlug, currentModel);
-  const disabled = Boolean(props.disabledReason) || !props.onChange || props.choices.length === 0;
+  const disabled = pending || Boolean(props.disabledReason) || !props.onChange || props.choices.length === 0;
   const grouped = groupModelChoices(props.choices);
-  const title = props.disabledReason ?? '切换当前会话使用的模型。设置里的默认模型只影响新建会话；这里会更新当前会话。';
+  const title = pending
+    ? '正在切换当前会话模型…'
+    : props.disabledReason ?? '切换当前会话使用的模型。设置里的默认模型只影响新建会话；这里会更新当前会话。';
 
   return (
-    <label className="maka-model-switcher" title={title} data-disabled={disabled ? 'true' : undefined}>
-      <span className="maka-model-switcher-label">模型</span>
+    <label
+      className="maka-model-switcher"
+      title={title}
+      data-disabled={disabled ? 'true' : undefined}
+      data-pending={pending ? 'true' : undefined}
+      aria-busy={pending ? 'true' : undefined}
+    >
+      <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
       <select
         className="maka-model-switcher-select"
         aria-label="切换当前会话模型"
         value={currentValue}
         disabled={disabled}
         onChange={(event) => {
+          if (pendingRef.current) return;
           const next = parseModelChoiceValue(event.currentTarget.value);
           if (!next) return;
           if (
@@ -3549,7 +3560,14 @@ function ChatModelSwitcher(props: {
           ) {
             return;
           }
-          void props.onChange?.(next);
+          pendingRef.current = true;
+          setPending(true);
+          void Promise.resolve()
+            .then(() => props.onChange?.(next))
+            .finally(() => {
+              pendingRef.current = false;
+              setPending(false);
+            });
         }}
       >
         {!props.choices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue) && (

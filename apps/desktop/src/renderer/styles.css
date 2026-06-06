@@ -2761,6 +2761,11 @@ button:active {
   opacity: 0.56;
 }
 
+.maka-model-switcher[data-pending="true"] {
+  opacity: 0.78;
+  cursor: progress;
+}
+
 .maka-model-switcher-label {
   flex: 0 0 auto;
   font-size: 11px;
@@ -2785,6 +2790,10 @@ button:active {
 
 .maka-model-switcher-select:disabled {
   cursor: not-allowed;
+}
+
+.maka-model-switcher[data-pending="true"] .maka-model-switcher-select:disabled {
+  cursor: progress;
 }
 
 .maka-model-switcher-select:focus-visible {

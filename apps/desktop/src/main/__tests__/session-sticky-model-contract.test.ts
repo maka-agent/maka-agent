@@ -67,15 +67,25 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(preload, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(globalTypes, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(renderer, /modelChoices=\{chatModelChoices\}/);
-    assert.match(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
+    assert.match(renderer, /const pendingSessionModelChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
+    assert.match(renderer, /onModelChange=\{\(input\) => setSessionModel\(input\)\}/);
+    assert.doesNotMatch(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
     assert.match(renderer, /PROVIDER_DEFAULTS\[connection\.providerType\]/);
     assert.match(renderer, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(model\.trim\(\)\)/);
     assert.match(ui, /function ChatModelSwitcher/);
     assert.match(ui, /activeModel\?: string/);
     assert.match(ui, /const currentModel = props\.activeModel \?\? props\.activeSession\.model/);
     assert.match(ui, /aria-label="切换当前会话模型"/);
-    assert.match(ui, /props\.onChange\?\.\(next\)/);
+    assert.match(ui, /const \[pending,\s*setPending\] = useState\(false\);/);
+    assert.match(ui, /const pendingRef = useRef\(false\);/);
+    assert.match(ui, /if \(pendingRef\.current\) return;/);
+    assert.match(ui, /Promise\.resolve\(\)[\s\S]*\.then\(\(\) => props\.onChange\?\.\(next\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*pendingRef\.current = false;[\s\S]*setPending\(false\);/);
+    assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);
+    assert.match(ui, /data-pending=\{pending \? 'true' : undefined\}/);
+    assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
     assert.match(styles, /\.maka-model-switcher\s*\{/);
+    assert.match(styles, /\.maka-model-switcher\[data-pending="true"\]\s*\{[\s\S]*cursor: progress;[\s\S]*\}/);
     assert.match(styles, /\.maka-model-switcher-select:focus-visible\s*\{/);
   });
 
