@@ -2137,7 +2137,7 @@ function AppShell() {
           if (isNoRealConnectionEvent(event)) {
             showModelSetupToast(cleanEventMessage(event.message), noRealConnectionReasonFromEvent(event));
           } else {
-            toastApi.error('对话出错', event.message);
+            toastApi.error('对话出错', sessionEventErrorMessage(event));
           }
         }
         markInFlightToolsInterrupted(sessionId);
@@ -3269,6 +3269,10 @@ function noRealConnectionReasonFromError(error: unknown): string | undefined {
 
 function noRealConnectionReasonFromEvent(event: Extract<SessionEvent, { type: 'error' }>): string | undefined {
   return event.reason ?? event.message.match(NO_REAL_CONNECTION_REASON_RE)?.[1];
+}
+
+function sessionEventErrorMessage(event: Extract<SessionEvent, { type: 'error' }>): string {
+  return generalizedErrorMessageChinese(new Error(event.message), '对话运行失败，请稍后重试。');
 }
 
 function cleanErrorMessage(error: unknown): string {

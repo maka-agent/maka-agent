@@ -252,11 +252,23 @@ describe('permission response IPC boundary', () => {
     const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
     const renderer = await readFile(rendererPath, 'utf8');
     const errorBranch = renderer.match(/case 'error':[\s\S]*?case 'abort':/)?.[0] ?? '';
+    const helper = renderer.match(/function sessionEventErrorMessage\(event: Extract<SessionEvent, \{ type: 'error' \}>\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(
+      helper,
+      /generalizedErrorMessageChinese\(new Error\(event\.message\), '对话运行失败，请稍后重试。'\)/,
+      'active chat error toasts must classify/redact raw SessionEvent.error.message before visible feedback',
+    );
 
     assert.match(
       errorBranch,
-      /clearStreaming\(sessionId\);[\s\S]*setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*showModelSetupToast\(cleanEventMessage\(event\.message\), noRealConnectionReasonFromEvent\(event\)\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', event\.message\);[\s\S]*\}[\s\S]*\}[\s\S]*markInFlightToolsInterrupted\(sessionId\);[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId\);/,
+      /clearStreaming\(sessionId\);[\s\S]*setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*showModelSetupToast\(cleanEventMessage\(event\.message\), noRealConnectionReasonFromEvent\(event\)\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*markInFlightToolsInterrupted\(sessionId\);[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId\);/,
       'background session error events may update stored state, but must not show toasts or open Settings on the active chat surface',
+    );
+    assert.doesNotMatch(
+      errorBranch,
+      /toastApi\.error\('对话出错', event\.message\)/,
+      'SessionEvent.error.message may contain provider/raw transport detail and must not be toasted directly',
     );
   });
 
