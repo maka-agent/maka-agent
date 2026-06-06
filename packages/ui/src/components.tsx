@@ -5741,17 +5741,20 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
   // defensive UI-level mask before display *and* before clipboard copy so
   // the user can't accidentally paste a credential into a bug report.
   const errorText = formatUserVisibleToolText(redactSecrets(extractErrorText(props.result)));
-  const [copied, setCopied] = useState(false);
+  const copyFeedback = useClipboardCopyFeedback();
+  const copyPhase = copyFeedback.phaseFor('tool-error');
+  const copyPending = copyPhase === 'pending';
+  const copyLabel = copyPhase === 'pending'
+    ? '复制中…'
+    : copyPhase === 'copied'
+      ? '已复制'
+      : copyPhase === 'failed'
+        ? '复制失败'
+        : '复制';
 
   async function copy() {
     if (!errorText) return;
-    try {
-      await navigator.clipboard.writeText(errorText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable */
-    }
+    await copyFeedback.copy('tool-error', errorText);
   }
 
   return (
@@ -5770,11 +5773,15 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
           type="button"
           className="maka-button maka-tool-error-copy"
           data-size="sm"
-          aria-label={copied ? '已复制错误信息' : '复制错误信息'}
+          data-pending={copyPending ? 'true' : undefined}
+          data-copy-feedback={copyPhase ?? undefined}
+          aria-label={`${copyLabel}错误信息`}
+          aria-busy={copyPending ? 'true' : undefined}
+          disabled={copyPending}
           onClick={() => void copy()}
         >
-          {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-          <span>{copied ? '已复制' : '复制'}</span>
+          {copyPhase === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          <span>{copyLabel}</span>
         </button>
       )}
     </div>

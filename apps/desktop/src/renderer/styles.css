@@ -3967,6 +3967,20 @@ button:active {
   border-color: oklch(from var(--destructive) l c h / 0.35);
 }
 
+.maka-tool-error-copy[data-pending="true"] {
+  cursor: progress;
+}
+
+.maka-tool-error-copy[data-copy-feedback="copied"] {
+  color: var(--accent);
+  border-color: oklch(from var(--accent) l c h / 0.35);
+}
+
+.maka-tool-error-copy[data-copy-feedback="failed"] {
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.35);
+}
+
 .maka-office-document-preview {
   display: grid;
   gap: 8px;

@@ -407,3 +407,47 @@ describe('turn footer copy feedback contract', () => {
     );
   });
 });
+
+describe('tool error copy feedback contract', () => {
+  it('routes tool-error copy through the shared guarded feedback path', async () => {
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const src = await readFile(componentsPath, 'utf8');
+    const block = src.match(/function ToolErrorBanner[\s\S]*?export function OverlayHost/)?.[0] ?? '';
+
+    assert.match(block, /const copyFeedback = useClipboardCopyFeedback\(\)/, 'Tool-error copy should use the shared pending/failure copy feedback path.');
+    assert.match(block, /copyFeedback\.phaseFor\('tool-error'\)/, 'Tool-error copy should expose a scoped copy phase.');
+    assert.match(block, /await copyFeedback\.copy\('tool-error', errorText\)/, 'Tool-error copy should route clipboard writes through the guarded helper.');
+    assert.match(block, /复制中…/, 'Tool-error copy should show a pending label.');
+    assert.match(block, /已复制/, 'Tool-error copy should show success feedback.');
+    assert.match(block, /复制失败/, 'Tool-error copy should show failure feedback.');
+    assert.match(block, /data-copy-feedback=\{copyPhase \?\? undefined\}/, 'Tool-error copy should expose stable copy state for CSS and review.');
+    assert.match(block, /aria-busy=\{copyPending \? 'true' : undefined\}/, 'Tool-error copy should expose busy state to assistive tech.');
+    assert.match(block, /disabled=\{copyPending\}/, 'Tool-error copy should disable while pending.');
+    assert.doesNotMatch(
+      block,
+      /navigator\.clipboard\.writeText\(errorText\)|clipboard unavailable/,
+      'Tool-error copy failures should not be silent raw clipboard writes.',
+    );
+  });
+
+  it('styles tool-error copy pending and failure states', async () => {
+    const stylesPath = join(process.cwd(), 'src', 'renderer', 'styles.css');
+    const src = await readFile(stylesPath, 'utf8');
+
+    assert.match(
+      src,
+      /\.maka-tool-error-copy\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/,
+      'Tool-error pending copy should visibly indicate in-progress work.',
+    );
+    assert.match(
+      src,
+      /\.maka-tool-error-copy\[data-copy-feedback="copied"\]/,
+      'Tool-error copied state should have a stable CSS selector.',
+    );
+    assert.match(
+      src,
+      /\.maka-tool-error-copy\[data-copy-feedback="failed"\]/,
+      'Tool-error failed copy state should have a stable CSS selector.',
+    );
+  });
+});
