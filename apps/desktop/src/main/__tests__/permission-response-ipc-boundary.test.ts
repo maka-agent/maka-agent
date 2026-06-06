@@ -233,6 +233,18 @@ describe('permission response IPC boundary', () => {
     );
   });
 
+  it('scopes session event error feedback to the active chat surface', async () => {
+    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
+    const renderer = await readFile(rendererPath, 'utf8');
+    const errorBranch = renderer.match(/case 'error':[\s\S]*?case 'abort':/)?.[0] ?? '';
+
+    assert.match(
+      errorBranch,
+      /clearStreaming\(sessionId\);[\s\S]*setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*showModelSetupToast\(cleanEventMessage\(event\.message\), noRealConnectionReasonFromEvent\(event\)\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', event\.message\);[\s\S]*\}[\s\S]*\}[\s\S]*markInFlightToolsInterrupted\(sessionId\);[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId\);/,
+      'background session error events may update stored state, but must not show toasts or open Settings on the active chat surface',
+    );
+  });
+
   it('keeps newly created sessions selected across immediate refreshSessions() calls', async () => {
     const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
     const renderer = await readFile(rendererPath, 'utf8');

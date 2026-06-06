@@ -2045,10 +2045,12 @@ function AppShell() {
       case 'error':
         clearStreaming(sessionId);
         setPermissionBySession((current) => ({ ...current, [sessionId]: undefined }));
-        if (isNoRealConnectionEvent(event)) {
-          showModelSetupToast(cleanEventMessage(event.message), noRealConnectionReasonFromEvent(event));
-        } else {
-          toastApi.error('对话出错', event.message);
+        if (activeIdRef.current === sessionId) {
+          if (isNoRealConnectionEvent(event)) {
+            showModelSetupToast(cleanEventMessage(event.message), noRealConnectionReasonFromEvent(event));
+          } else {
+            toastApi.error('对话出错', event.message);
+          }
         }
         markInFlightToolsInterrupted(sessionId);
         void refreshSessions();
