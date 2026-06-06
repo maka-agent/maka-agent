@@ -4894,23 +4894,41 @@ function UsageSettingsPage(props: {
   onReload(range?: UsageRange): Promise<void>;
   onOpenSession?(sessionId: string): void;
 }) {
-  const usage = props.settings.usage;
+  const persistedUsage = props.settings.usage;
+  const [usageDraft, setUsageDraft] = useState(persistedUsage);
   const [refreshing, setRefreshing] = useState(false);
+  const usageDraftRef = useRef(persistedUsage);
+  const persistedUsageRef = useRef(persistedUsage);
+  const usagePendingSaveCountRef = useRef(0);
+  const usageSaveTicketRef = useRef(0);
   const stats = props.stats;
   const toast = useToast();
-  const normalizedModelFilter = usage.modelFilter.trim().toLowerCase();
-  const hasRequestFilters = usage.status !== 'all' || normalizedModelFilter.length > 0;
-  const showRequestDetails = usage.activeTab === 'requests' && usage.showDetails;
+
+  function commitUsageDraft(next: AppSettings['usage']) {
+    usageDraftRef.current = next;
+    setUsageDraft(next);
+  }
+
+  useEffect(() => {
+    persistedUsageRef.current = persistedUsage;
+    if (usagePendingSaveCountRef.current === 0) {
+      commitUsageDraft(persistedUsage);
+    }
+  }, [persistedUsage]);
+
+  const normalizedModelFilter = usageDraft.modelFilter.trim().toLowerCase();
+  const hasRequestFilters = usageDraft.status !== 'all' || normalizedModelFilter.length > 0;
+  const showRequestDetails = usageDraft.activeTab === 'requests' && usageDraft.showDetails;
   const filteredLogs = useMemo(() => {
     const logs = stats?.logs ?? [];
     return logs
-      .filter((log) => usage.status === 'all' || log.status === usage.status)
+      .filter((log) => usageDraft.status === 'all' || log.status === usageDraft.status)
       .filter((log) =>
         normalizedModelFilter.length === 0 ||
         log.model.toLowerCase().includes(normalizedModelFilter) ||
         (log.toolName ?? '').toLowerCase().includes(normalizedModelFilter)
       );
-  }, [stats, usage.status, normalizedModelFilter]);
+  }, [stats, usageDraft.status, normalizedModelFilter]);
 
   async function setRange(range: UsageRange) {
     const saved = await updateUsage({ range });
@@ -4919,19 +4937,32 @@ function UsageSettingsPage(props: {
   }
 
   async function updateUsage(patch: Partial<AppSettings['usage']>): Promise<boolean> {
+    const nextDraft = { ...usageDraftRef.current, ...patch };
+    const ticket = usageSaveTicketRef.current + 1;
+    usageSaveTicketRef.current = ticket;
+    usagePendingSaveCountRef.current += 1;
+    commitUsageDraft(nextDraft);
     try {
-      await props.onUpdate({ usage: patch });
+      const result = await props.onUpdate({ usage: patch });
+      if (ticket === usageSaveTicketRef.current) {
+        commitUsageDraft(result.settings.usage);
+      }
       return true;
     } catch (error) {
+      if (ticket === usageSaveTicketRef.current) {
+        commitUsageDraft(persistedUsageRef.current);
+      }
       toast.error('保存使用统计设置失败', settingsActionErrorMessage(error));
       return false;
+    } finally {
+      usagePendingSaveCountRef.current = Math.max(0, usagePendingSaveCountRef.current - 1);
     }
   }
 
   async function refresh() {
     setRefreshing(true);
     try {
-      await props.onReload(usage.range);
+      await props.onReload(usageDraft.range);
     } finally {
       setRefreshing(false);
     }
@@ -4945,7 +4976,7 @@ function UsageSettingsPage(props: {
     <div className="settingsUsagePage">
       <div className="settingsUsageToolbar">
         <Segmented
-          value={usage.range}
+          value={usageDraft.range}
           ariaLabel="使用统计时间范围"
           options={[
             ['24h', '24h'],
@@ -4966,7 +4997,7 @@ function UsageSettingsPage(props: {
       </div>
 
       <Segmented
-        value={usage.activeTab}
+        value={usageDraft.activeTab}
         ariaLabel="使用统计视图"
         options={[
           ['requests', '请求日志'],
@@ -4975,15 +5006,15 @@ function UsageSettingsPage(props: {
           ['tools', '工具统计'],
           ['pricing', '定价配置'],
         ]}
-        onChange={(activeTab) => void updateUsage({ activeTab: activeTab as typeof usage.activeTab })}
+        onChange={(activeTab) => void updateUsage({ activeTab: activeTab as typeof usageDraft.activeTab })}
       />
 
-      {usage.activeTab === 'requests' && (
+      {usageDraft.activeTab === 'requests' && (
         <div className="settingsUsageFilters">
-          {usage.showDetails && (
+          {usageDraft.showDetails && (
             <>
-              <input value={usage.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" aria-label="按模型或工具筛选请求记录" />
-              <select value={usage.status} onChange={(event) => void updateUsage({ status: event.currentTarget.value as typeof usage.status })} aria-label="请求状态筛选">
+              <input value={usageDraft.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" aria-label="按模型或工具筛选请求记录" />
+              <select value={usageDraft.status} onChange={(event) => void updateUsage({ status: event.currentTarget.value as typeof usageDraft.status })} aria-label="请求状态筛选">
                 <option value="all">全部状态</option>
                 <option value="success">成功</option>
                 <option value="error">错误</option>
@@ -4994,12 +5025,12 @@ function UsageSettingsPage(props: {
             <span>详情记录</span>
             <Switch
               ariaLabel="显示使用统计详情记录"
-              checked={usage.showDetails}
+              checked={usageDraft.showDetails}
               onChange={(showDetails) => void updateUsage({ showDetails })}
             />
           </label>
-          {usage.showDetails && <small>共 {filteredLogs.length} 条记录</small>}
-          {usage.showDetails && hasRequestFilters && (
+          {usageDraft.showDetails && <small>共 {filteredLogs.length} 条记录</small>}
+          {usageDraft.showDetails && hasRequestFilters && (
             <button type="button" className="maka-button maka-button-ghost" data-size="sm" onClick={clearRequestFilters}>
               清除筛选
             </button>
@@ -5007,7 +5038,7 @@ function UsageSettingsPage(props: {
         </div>
       )}
 
-      {usage.activeTab === 'requests' && !usage.showDetails ? (
+      {usageDraft.activeTab === 'requests' && !usageDraft.showDetails ? (
         <div className="settingsNotice">
           当前仅显示汇总指标。打开详情记录后，可以查看逐条模型请求和工具调用，按模型、工具或状态筛选，并用于排查费用与失败请求。
           <div className="settingsActionRow" style={{ marginTop: 8 }}>
@@ -5018,7 +5049,7 @@ function UsageSettingsPage(props: {
         </div>
       ) : (
         <UsageTable
-          activeTab={usage.activeTab}
+          activeTab={usageDraft.activeTab}
           stats={stats}
           logs={showRequestDetails ? filteredLogs : []}
           requestEmpty={hasRequestFilters ? '没有符合筛选条件的请求记录' : '暂无请求记录'}

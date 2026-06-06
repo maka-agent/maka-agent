@@ -17,18 +17,18 @@ describe('Settings usage dashboard contract', () => {
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
-    assert.match(usagePage![0], /usage\.activeTab === 'requests'/);
+    assert.match(usagePage![0], /usageDraft\.activeTab === 'requests'/);
     assert.match(usagePage![0], /settingsUsageFilters/);
     assert.match(usagePage![0], /清除筛选/);
     assert.match(usagePage![0], /status: 'all', modelFilter: ''/);
     assert.match(
       usagePage![0],
-      /\{usage\.activeTab === 'requests' && \([\s\S]*?<div className="settingsUsageFilters">/,
+      /\{usageDraft\.activeTab === 'requests' && \([\s\S]*?<div className="settingsUsageFilters">/,
       'Usage filters must live under the requests-only conditional block',
     );
     assert.match(
       usagePage![0],
-      /\{usage\.showDetails && \([\s\S]*?<input value=\{usage\.modelFilter\}/,
+      /\{usageDraft\.showDetails && \([\s\S]*?<input value=\{usageDraft\.modelFilter\}/,
       'model/status request filters must be hidden until detail records are enabled',
     );
     assert.match(usagePage![0], /按模型或工具筛选/);
@@ -48,8 +48,8 @@ describe('Settings usage dashboard contract', () => {
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
-    assert.match(usagePage![0], /const showRequestDetails = usage\.activeTab === 'requests' && usage\.showDetails/);
-    assert.match(usagePage![0], /usage\.activeTab === 'requests' && !usage\.showDetails/);
+    assert.match(usagePage![0], /const showRequestDetails = usageDraft\.activeTab === 'requests' && usageDraft\.showDetails/);
+    assert.match(usagePage![0], /usageDraft\.activeTab === 'requests' && !usageDraft\.showDetails/);
     assert.match(usagePage![0], /当前仅显示汇总指标/);
     assert.match(usagePage![0], /显示明细/);
     assert.match(usagePage![0], /showDetails: true/);
@@ -63,13 +63,40 @@ describe('Settings usage dashboard contract', () => {
     assert.ok(usagePage, 'Usage settings page block must exist');
     assert.match(
       usagePage![0],
-      /<Segmented[\s\S]*value=\{usage\.range\}[\s\S]*ariaLabel="使用统计时间范围"/,
+      /<Segmented[\s\S]*value=\{usageDraft\.range\}[\s\S]*ariaLabel="使用统计时间范围"/,
       'range segmented control must expose what the 24h/7天/30天/all group changes',
     );
     assert.match(
       usagePage![0],
-      /<Segmented[\s\S]*value=\{usage\.activeTab\}[\s\S]*ariaLabel="使用统计视图"/,
+      /<Segmented[\s\S]*value=\{usageDraft\.activeTab\}[\s\S]*ariaLabel="使用统计视图"/,
       'tab segmented control must expose what the request/provider/model/tools/pricing group changes',
+    );
+  });
+
+  it('keeps usage filters responsive through a local draft while saves run in the background', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
+
+    assert.ok(usagePage, 'Usage settings page block must exist');
+    assert.match(usagePage![0], /const persistedUsage = props\.settings\.usage/);
+    assert.match(usagePage![0], /const \[usageDraft, setUsageDraft\] = useState\(persistedUsage\)/);
+    assert.match(usagePage![0], /const usageDraftRef = useRef\(persistedUsage\)/);
+    assert.match(
+      usagePage![0],
+      /function commitUsageDraft\(next: AppSettings\['usage'\]\) \{[\s\S]*usageDraftRef\.current = next;[\s\S]*setUsageDraft\(next\);[\s\S]*\}/,
+      'Usage controls must update a local draft immediately instead of waiting for settings IPC',
+    );
+    assert.match(
+      usagePage![0],
+      /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.usageDraftRef\.current, \.\.\.patch \};[\s\S]*commitUsageDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ usage: patch \}\);[\s\S]*commitUsageDraft\(result\.settings\.usage\);[\s\S]*catch \(error\) \{[\s\S]*commitUsageDraft\(persistedUsageRef\.current\);/,
+      'Usage settings saves must use latest-response draft sync and roll back on failure',
+    );
+    assert.match(usagePage![0], /<input value=\{usageDraft\.modelFilter\}/);
+    assert.match(usagePage![0], /<select value=\{usageDraft\.status\}/);
+    assert.doesNotMatch(
+      usagePage![0],
+      /<input value=\{usage\.modelFilter\}/,
+      'Usage model filter must not bind directly to persisted settings while typing',
     );
   });
 
