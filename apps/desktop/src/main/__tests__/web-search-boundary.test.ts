@@ -126,7 +126,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(page, 'Web search settings page block must exist');
     assert.match(
       page![0],
-      /async function updateWebSearch\([\s\S]*?failureTitle = '保存联网搜索设置失败'[\s\S]*?await props\.onUpdate\(\{ webSearch: patch \}\);[\s\S]*?return true;[\s\S]*?catch \(error\) \{[\s\S]*?toast\.error\(failureTitle, settingsActionErrorMessage\(error\)\);[\s\S]*?return false;/,
+      /async function updateWebSearch\([\s\S]*?failureTitle = '保存联网搜索设置失败'[\s\S]*?await props\.onUpdate\(\{ webSearch: patch \}\);[\s\S]*?return true;[\s\S]*?catch \(error\) \{[\s\S]*?if \(webSearchMountedRef\.current\) \{[\s\S]*?toast\.error\(failureTitle, settingsActionErrorMessage\(error\)\);[\s\S]*?\}[\s\S]*?return false;/,
       'Web search settings updates must surface persistence failures',
     );
     assert.match(
@@ -136,17 +136,17 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /const saved = await updateWebSearch\(\{ providers: \{ tavily: \{ apiKey: draftKey \} \} \}\);[\s\S]*if \(!saved\) return;[\s\S]*toast\.success\('已保存 Tavily API key'/,
+      /const saved = await updateWebSearch\(\{ providers: \{ tavily: \{ apiKey: draftKey \} \} \}\);[\s\S]*if \(!saved\) return;[\s\S]*if \(!webSearchMountedRef\.current\) return;[\s\S]*toast\.success\('已保存 Tavily API key'/,
       'Saving a Tavily key must not show success after a failed settings save',
     );
     assert.match(
       page![0],
-      /const saved = await updateWebSearch\(\{ enabled: false, providers: \{ tavily: \{ apiKey: '' \} \} \}\);[\s\S]*if \(!saved\) return;[\s\S]*toast\.success\('已清空 Tavily 凭据'/,
+      /const saved = await updateWebSearch\(\{ enabled: false, providers: \{ tavily: \{ apiKey: '' \} \} \}\);[\s\S]*if \(!saved\) return;[\s\S]*if \(!webSearchMountedRef\.current\) return;[\s\S]*toast\.success\('已清空 Tavily 凭据'/,
       'Clearing a Tavily key must not show success after a failed settings save',
     );
     assert.match(
       page![0],
-      /if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*void persistCredentialStatus\('valid', queriedCredentialVersion\);[\s\S]*\} else \{/,
+      /if \(!webSearchMountedRef\.current\) return;[\s\S]*if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*void persistCredentialStatus\('valid', queriedCredentialVersion\);[\s\S]*\} else \{/,
       'Successful live query results must render even if credential-status persistence later fails',
     );
     assert.doesNotMatch(
@@ -212,8 +212,13 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /if \(webSearchMountedRef\.current\) \{[\s\S]*setDraftKey\(''\);[\s\S]*\}/,
-      'Credential save/clear success must not clear local draft state after unmount',
+      /if \(!webSearchMountedRef\.current\) return;[\s\S]*setDraftKey\(''\);/,
+      'Credential save/clear success must not clear local draft state or toast after unmount',
+    );
+    assert.match(
+      page![0],
+      /const result = await window\.maka\.webSearch\.test\([\s\S]*if \(!webSearchMountedRef\.current\) return;[\s\S]*if \(!usesDraftKey && hasUsableKey\) \{[\s\S]*void persistCredentialStatus/,
+      'Credential test must not toast or write credential status after unmount',
     );
     assert.match(
       page![0],
@@ -222,7 +227,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*\}/,
+      /const result = await window\.maka\.webSearch\.query\([\s\S]*if \(!webSearchMountedRef\.current\) return;[\s\S]*if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);/,
       'Live-query success must not set results after unmount',
     );
     assert.match(

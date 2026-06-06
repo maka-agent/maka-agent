@@ -2546,7 +2546,9 @@ function WebSearchSettingsPage(props: {
       await props.onUpdate({ webSearch: patch });
       return true;
     } catch (error) {
-      toast.error(failureTitle, settingsActionErrorMessage(error));
+      if (webSearchMountedRef.current) {
+        toast.error(failureTitle, settingsActionErrorMessage(error));
+      }
       return false;
     }
   }
@@ -2575,9 +2577,8 @@ function WebSearchSettingsPage(props: {
     await runCredentialAction('save', async () => {
       const saved = await updateWebSearch({ providers: { tavily: { apiKey: draftKey } } });
       if (!saved) return;
-      if (webSearchMountedRef.current) {
-        setDraftKey('');
-      }
+      if (!webSearchMountedRef.current) return;
+      setDraftKey('');
       toast.success('已保存 Tavily API key', '可点击「测试」做一次真实请求验证。');
     });
   }
@@ -2586,9 +2587,8 @@ function WebSearchSettingsPage(props: {
     await runCredentialAction('clear', async () => {
       const saved = await updateWebSearch({ enabled: false, providers: { tavily: { apiKey: '' } } });
       if (!saved) return;
-      if (webSearchMountedRef.current) {
-        setDraftKey('');
-      }
+      if (!webSearchMountedRef.current) return;
+      setDraftKey('');
       toast.success('已清空 Tavily 凭据', '联网搜索已自动关闭。');
     });
   }
@@ -2604,6 +2604,7 @@ function WebSearchSettingsPage(props: {
         provider: 'tavily',
         apiKey: usesDraftKey ? draftKey : undefined,
       });
+      if (!webSearchMountedRef.current) return;
       if (!usesDraftKey && hasUsableKey) {
         void persistCredentialStatus(webSearchCredentialStatusFromResponse(result), testedCredentialVersion);
       }
@@ -2613,7 +2614,9 @@ function WebSearchSettingsPage(props: {
         toast.error('Tavily 测试失败', result.message);
       }
     } catch (err) {
-      toast.error('Tavily 测试出错', settingsActionErrorMessage(err));
+      if (webSearchMountedRef.current) {
+        toast.error('Tavily 测试出错', settingsActionErrorMessage(err));
+      }
     } finally {
       testingRef.current = false;
       if (webSearchMountedRef.current) {
@@ -2637,17 +2640,14 @@ function WebSearchSettingsPage(props: {
         query: trimmed,
         limit: 5,
       });
+      if (!webSearchMountedRef.current) return;
       if (result.ok) {
-        if (webSearchMountedRef.current) {
-          setLiveQueryResults(result.results);
-        }
+        setLiveQueryResults(result.results);
         if (hasUsableKey) {
           void persistCredentialStatus('valid', queriedCredentialVersion);
         }
       } else {
-        if (webSearchMountedRef.current) {
-          setLiveQueryError(result.message);
-        }
+        setLiveQueryError(result.message);
         if (hasUsableKey) {
           void persistCredentialStatus(webSearchCredentialStatusFromResponse(result), queriedCredentialVersion);
         }
