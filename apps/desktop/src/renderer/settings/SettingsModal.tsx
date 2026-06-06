@@ -1060,6 +1060,8 @@ const PLATFORM_LABEL: Record<string, string> = {
 function AboutSettingsPage() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
+  const [copyingEnvSummary, setCopyingEnvSummary] = useState(false);
+  const copyingEnvSummaryRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -1109,6 +1111,9 @@ function AboutSettingsPage() {
 
   async function copyEnvSummary() {
     if (!info) return;
+    if (copyingEnvSummaryRef.current) return;
+    copyingEnvSummaryRef.current = true;
+    setCopyingEnvSummary(true);
     // Markdown block ready to paste into a problem report. Deliberately excludes
     // workspacePath since that can leak the OS username; user can still copy
     // it from the Data page if needed.
@@ -1131,6 +1136,9 @@ function AboutSettingsPage() {
       toast.success('已复制环境信息', '可直接粘贴到问题报告');
     } catch {
       toast.error('复制失败', '剪贴板不可用');
+    } finally {
+      copyingEnvSummaryRef.current = false;
+      setCopyingEnvSummary(false);
     }
   }
 
@@ -1187,8 +1195,8 @@ function AboutSettingsPage() {
       </SettingsRows>
 
       <div className="settingsActionRow">
-        <button type="button" className="maka-button" onClick={() => void copyEnvSummary()}>
-          复制环境信息
+        <button type="button" className="maka-button" disabled={copyingEnvSummary} onClick={() => void copyEnvSummary()}>
+          {copyingEnvSummary ? '复制中…' : '复制环境信息'}
         </button>
       </div>
       <p className="settingsHelpText">
@@ -1797,6 +1805,8 @@ function AccountAuthActionView(props: {
 function DataSettingsPage() {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof window.maka.app.info>> | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
+  const [pendingDataAction, setPendingDataAction] = useState<string | null>(null);
+  const pendingDataActionRef = useRef<string | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -1818,26 +1828,45 @@ function DataSettingsPage() {
     };
   }, [toast]);
 
+  async function runDataAction(action: string, run: () => Promise<void>) {
+    if (pendingDataActionRef.current) return;
+    pendingDataActionRef.current = action;
+    setPendingDataAction(action);
+    try {
+      await run();
+    } finally {
+      pendingDataActionRef.current = null;
+      setPendingDataAction(null);
+    }
+  }
+
+  const isDataActionPending = (action: string) => pendingDataAction === action;
+  const dataActionDisabled = Boolean(pendingDataAction);
+
   async function openWorkspace() {
     if (!info) return;
-    try {
-      const result = await window.maka.app.openPath('workspace');
-      if (!result.ok) {
-        toast.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+    await runDataAction('workspace:open', async () => {
+      try {
+        const result = await window.maka.app.openPath('workspace');
+        if (!result.ok) {
+          toast.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+        }
+      } catch (error) {
+        toast.error(`无法打开${openPathActionLabel('workspace')}`, settingsActionErrorMessage(error));
       }
-    } catch (error) {
-      toast.error(`无法打开${openPathActionLabel('workspace')}`, settingsActionErrorMessage(error));
-    }
+    });
   }
 
   async function copyPath() {
     if (!info) return;
-    try {
-      await navigator.clipboard.writeText(info.workspacePath);
-      toast.success('已复制工作区路径');
-    } catch {
-      toast.error('复制失败', '剪贴板不可用');
-    }
+    await runDataAction('workspace:path:copy', async () => {
+      try {
+        await navigator.clipboard.writeText(info.workspacePath);
+        toast.success('已复制工作区路径');
+      } catch {
+        toast.error('复制失败', '剪贴板不可用');
+      }
+    });
   }
 
   return (
@@ -1860,17 +1889,17 @@ function DataSettingsPage() {
           className="maka-button"
           data-variant="primary"
           onClick={() => void openWorkspace()}
-          disabled={!info}
+          disabled={!info || dataActionDisabled}
         >
-          打开工作区文件夹
+          {isDataActionPending('workspace:open') ? '打开中…' : '打开工作区文件夹'}
         </button>
         <button
           type="button"
           className="maka-button"
           onClick={() => void copyPath()}
-          disabled={!info}
+          disabled={!info || dataActionDisabled}
         >
-          复制路径
+          {isDataActionPending('workspace:path:copy') ? '复制中…' : '复制路径'}
         </button>
       </div>
       <div className="settingsNotice">

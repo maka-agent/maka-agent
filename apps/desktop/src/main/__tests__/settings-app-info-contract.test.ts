@@ -71,6 +71,21 @@ describe('Settings app-info loading contract', () => {
     assert.doesNotMatch(dataBlock, /API key/);
   });
 
+  it('gates Data page workspace actions while one action is pending', () => {
+    const dataBlock = blockBetween('function DataSettingsPage', 'function PersonalizationSettingsPage');
+
+    assert.match(dataBlock, /const \[pendingDataAction, setPendingDataAction\] = useState<string \| null>\(null\)/);
+    assert.match(dataBlock, /const pendingDataActionRef = useRef<string \| null>\(null\)/);
+    assert.match(
+      dataBlock,
+      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(pendingDataActionRef\.current\) return;[\s\S]*pendingDataActionRef\.current = action;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingDataActionRef\.current = null;[\s\S]*setPendingDataAction\(null\);/,
+      'Data page open/copy actions need a shared pending guard to prevent repeated shell/clipboard requests',
+    );
+    assert.match(dataBlock, /disabled=\{!info \|\| dataActionDisabled\}/);
+    assert.match(dataBlock, /isDataActionPending\('workspace:open'\) \? '打开中…' : '打开工作区文件夹'/);
+    assert.match(dataBlock, /isDataActionPending\('workspace:path:copy'\) \? '复制中…' : '复制路径'/);
+  });
+
   it('keeps About page privacy and storage copy Chinese-first and accessible', () => {
     const aboutBlock = blockBetween('function AboutSettingsPage', 'function SettingsSkeleton');
 
@@ -91,5 +106,19 @@ describe('Settings app-info loading contract', () => {
     assert.doesNotMatch(aboutBlock, /SQLite usage stats/);
     assert.doesNotMatch(aboutBlock, /provider credentials/);
     assert.doesNotMatch(aboutBlock, /bug report/);
+  });
+
+  it('gates About page environment copy while the clipboard request is pending', () => {
+    const aboutBlock = blockBetween('function AboutSettingsPage', 'function SettingsSkeleton');
+
+    assert.match(aboutBlock, /const \[copyingEnvSummary, setCopyingEnvSummary\] = useState\(false\)/);
+    assert.match(aboutBlock, /const copyingEnvSummaryRef = useRef\(false\)/);
+    assert.match(
+      aboutBlock,
+      /async function copyEnvSummary\(\) \{[\s\S]*if \(copyingEnvSummaryRef\.current\) return;[\s\S]*copyingEnvSummaryRef\.current = true;[\s\S]*setCopyingEnvSummary\(true\);[\s\S]*await navigator\.clipboard\.writeText\(summary\);[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*setCopyingEnvSummary\(false\);/,
+      'About page environment copy should not allow repeated clipboard requests without pending feedback',
+    );
+    assert.match(aboutBlock, /disabled=\{copyingEnvSummary\}/);
+    assert.match(aboutBlock, /copyingEnvSummary \? '复制中…' : '复制环境信息'/);
   });
 });
