@@ -28,6 +28,29 @@ describe('voice capture smoke Settings contract', () => {
     assert.doesNotMatch(src, /localStorage\.setItem\([^)]*voice/i, 'voice smoke must not persist audio state in localStorage');
   });
 
+  it('gates voice capture smoke with a synchronous pending owner', async () => {
+    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
+    assert.ok(voicePage, 'voice settings page source must be discoverable');
+    assert.match(
+      voicePage!,
+      /const captureSmokeBusyRef = useRef\(false\);/,
+      'voice capture smoke needs a ref gate so fast double-clicks cannot start duplicate microphone captures before React disables the button',
+    );
+    assert.match(
+      voicePage!,
+      /async function runCaptureSmoke\(\) \{\s*if \(captureSmokeBusyRef\.current\) return;[\s\S]*captureSmokeBusyRef\.current = true;[\s\S]*navigator\.mediaDevices\.getUserMedia/,
+      'voice capture smoke must take the synchronous lock before the first getUserMedia await',
+    );
+    assert.match(
+      voicePage!,
+      /finally \{[\s\S]*stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);[\s\S]*captureSmokeBusyRef\.current = false;[\s\S]*setIsBusy\(false\);[\s\S]*\}/,
+      'voice capture smoke must release the ref after stopping microphone tracks',
+    );
+    assert.match(voicePage!, /aria-busy=\{isBusy\}/, 'voice capture button must expose the pending state to assistive tech');
+    assert.match(voicePage!, /data-pending=\{isBusy \? 'true' : undefined\}/, 'voice capture button must expose a stable pending hook');
+  });
+
   it('uses user-facing copy and a named list for voice privacy boundaries', async () => {
     const src = await readFile(SETTINGS_MODAL, 'utf8');
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];

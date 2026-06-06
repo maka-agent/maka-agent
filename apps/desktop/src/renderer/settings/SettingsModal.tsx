@@ -1300,6 +1300,7 @@ function VoiceModelsSettingsPage() {
     message: '等待运行本机录音自检。',
   });
   const [isBusy, setIsBusy] = useState(false);
+  const captureSmokeBusyRef = useRef(false);
   const toast = useToast();
   const caps = defaultVoiceCaptureCaps();
 
@@ -1314,6 +1315,7 @@ function VoiceModelsSettingsPage() {
   }, []);
 
   async function runCaptureSmoke() {
+    if (captureSmokeBusyRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       setPermission('unsupported');
       setSmoke({ status: 'error', message: '当前运行环境不支持浏览器麦克风 API。' });
@@ -1325,6 +1327,7 @@ function VoiceModelsSettingsPage() {
       return;
     }
 
+    captureSmokeBusyRef.current = true;
     setIsBusy(true);
     setSmoke({ status: 'checking', message: '正在请求 macOS / 浏览器麦克风权限…' });
     let stream: MediaStream | null = null;
@@ -1378,6 +1381,7 @@ function VoiceModelsSettingsPage() {
       toast.error('语音自检失败', message);
     } finally {
       stream?.getTracks().forEach((track) => track.stop());
+      captureSmokeBusyRef.current = false;
       setIsBusy(false);
     }
   }
@@ -1426,7 +1430,14 @@ function VoiceModelsSettingsPage() {
       </dl>
 
       <div className="settingsActionRow">
-        <button className="maka-button" type="button" onClick={() => void runCaptureSmoke()} disabled={isBusy}>
+        <button
+          className="maka-button"
+          type="button"
+          onClick={() => void runCaptureSmoke()}
+          disabled={isBusy}
+          aria-busy={isBusy}
+          data-pending={isBusy ? 'true' : undefined}
+        >
           {isBusy ? '自检中…' : '运行录音自检'}
         </button>
       </div>
