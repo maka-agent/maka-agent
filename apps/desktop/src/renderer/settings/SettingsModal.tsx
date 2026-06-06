@@ -2843,7 +2843,7 @@ function WebSearchSettingsPage(props: {
         }
         if (safeRows && safeRows.length > 0) {
           return (
-            <ul className="settingsWebSearchResults">
+            <ul className="settingsWebSearchResults" aria-label="联网搜索真实查询结果">
               {safeRows.map((row, idx) => (
                 <li key={`${row.url}-${idx}`} className="settingsWebSearchResult">
                   <a href={row.url} target="_blank" rel="noreferrer">{row.title}</a>

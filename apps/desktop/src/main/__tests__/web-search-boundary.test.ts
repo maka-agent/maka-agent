@@ -325,6 +325,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(page, 'Web search settings page block must exist');
     assert.match(page![0], /真实查询验证/);
     assert.match(page![0], /不写入会话也不写入遥测/);
+    assert.match(page![0], /<ul className="settingsWebSearchResults" aria-label="联网搜索真实查询结果">/);
     assert.match(page![0], /本周 AI 产品发布动态/);
     assert.doesNotMatch(page![0], /Electron safeStorage|Tavily API key|保存 key|清空 key|等待保存 key|key 无效/);
     assert.doesNotMatch(page![0], />试一下</);
