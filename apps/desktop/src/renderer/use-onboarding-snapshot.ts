@@ -56,7 +56,7 @@ export interface UseOnboardingSnapshotDeps {
 export function useOnboardingSnapshotImpl(deps: UseOnboardingSnapshotDeps): UseOnboardingSnapshotResult {
   const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const pollerRef = useRef<ReturnType<typeof createOnboardingSnapshotPoller> | null>(null);
+  const pollerRef = useRef<OnboardingSnapshotPoller | null>(null);
 
   if (pollerRef.current === null) {
     pollerRef.current = createOnboardingSnapshotPoller(deps, {
@@ -72,11 +72,15 @@ export function useOnboardingSnapshotImpl(deps: UseOnboardingSnapshotDeps): UseO
 
   useEffect(() => {
     const poller = pollerRef.current!;
+    poller.activate();
     void poller.pull();
     const unsubscribe = deps.subscribeInvalidations(() => {
       void poller.pull();
     });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      poller.dispose();
+    };
   }, [deps]);
 
   const refresh = useCallback(() => {
@@ -88,31 +92,61 @@ export function useOnboardingSnapshotImpl(deps: UseOnboardingSnapshotDeps): UseO
 
 /**
  * React-less poller. Tracks an inflight ticket so older getSnapshot
- * responses can't overwrite newer state, and routes results to the
- * supplied callbacks. Extracted from `useOnboardingSnapshotImpl` so
- * the stale-response defense is testable without a DOM / React.
+ * responses can't overwrite newer state, and owns a lifecycle gate so
+ * pending IPC responses cannot write after the first-run surface
+ * unmounts. Extracted from `useOnboardingSnapshotImpl` so the stale
+ * response defense is testable without a DOM / React.
  */
 export interface OnboardingSnapshotPollerCallbacks {
   onSnapshot(snapshot: OnboardingSnapshot): void;
   onError(message: string): void;
 }
 
+export interface OnboardingSnapshotPoller {
+  /** React effect setup calls this so StrictMode cleanup replay can recover. */
+  activate(): void;
+  /** Fetch the latest snapshot unless disposed. */
+  pull(): Promise<void>;
+  /** Stop accepting callbacks. Pending IPC responses become no-ops. */
+  dispose(): void;
+}
+
 export function createOnboardingSnapshotPoller(
   deps: Pick<UseOnboardingSnapshotDeps, 'getSnapshot'>,
   callbacks: OnboardingSnapshotPollerCallbacks,
-) {
+): OnboardingSnapshotPoller {
   let inflightTicket = 0;
+  let active = true;
+
+  function emitSnapshot(snapshot: OnboardingSnapshot): void {
+    if (!active) return;
+    callbacks.onSnapshot(snapshot);
+  }
+
+  function emitError(message: string): void {
+    if (!active) return;
+    callbacks.onError(message);
+  }
+
   return {
+    activate(): void {
+      active = true;
+    },
     async pull(): Promise<void> {
+      if (!active) return;
       const ticket = ++inflightTicket;
       try {
         const next = await deps.getSnapshot();
-        if (ticket !== inflightTicket) return; // newer pull won
-        callbacks.onSnapshot(next);
+        if (!active || ticket !== inflightTicket) return; // newer pull won or unmounted
+        emitSnapshot(next);
       } catch (err) {
-        if (ticket !== inflightTicket) return;
-        callbacks.onError(onboardingSnapshotErrorMessage(err));
+        if (!active || ticket !== inflightTicket) return;
+        emitError(onboardingSnapshotErrorMessage(err));
       }
+    },
+    dispose(): void {
+      active = false;
+      inflightTicket += 1;
     },
   };
 }
