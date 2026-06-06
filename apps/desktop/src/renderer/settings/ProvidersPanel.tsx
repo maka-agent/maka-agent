@@ -1290,6 +1290,13 @@ function ConnectionDetail(props: {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [settingDefault, setSettingDefault] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const busyRef = useRef(false);
+  const testingRef = useRef(false);
+  const fetchingModelsRef = useRef(false);
+  const settingDefaultRef = useRef(false);
+  const deletingRef = useRef(false);
   const toast = useToast();
   const needsApiKey = defaults.authKind === 'api_key';
   const needsOAuth = defaults.authKind === 'oauth_token';
@@ -1307,6 +1314,7 @@ function ConnectionDetail(props: {
     apiKey.length > 0 ||
     draftBaseUrl !== savedBaseUrl ||
     defaultModel !== connection.defaultModel;
+  const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
 
   useEffect(() => {
     if (defaults.authKind === 'none') {
@@ -1367,6 +1375,8 @@ function ConnectionDetail(props: {
       : fallbackModels.map((id) => ({ id }));
 
   async function save() {
+    if (busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     let saved = false;
     try {
@@ -1398,11 +1408,14 @@ function ConnectionDetail(props: {
         providerPanelActionErrorMessage(error),
       );
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   async function runTest() {
+    if (testingRef.current || busyRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    testingRef.current = true;
     setTesting(true);
     try {
       const result: ConnectionTestResult = await props.bridge.test(connection.slug, { model: defaultModel });
@@ -1421,11 +1434,15 @@ function ConnectionDetail(props: {
       const message = providerPanelActionErrorMessage(error);
       toast.error(`连接测试出错 · ${connection.name}`, message);
     } finally {
+      testingRef.current = false;
       setTesting(false);
     }
   }
 
   async function refreshModels(opts: { silent?: boolean } = {}) {
+    if (fetchingModelsRef.current) return;
+    if (!opts.silent && (busyRef.current || testingRef.current || settingDefaultRef.current || deletingRef.current)) return;
+    fetchingModelsRef.current = true;
     setFetchingModels(true);
     try {
       // Backend (xuan `81ed044`) returns a `ModelDiscoveryResult` envelope —
@@ -1452,25 +1469,35 @@ function ConnectionDetail(props: {
         `${message} · 当前继续显示静态列表，请确认 ${credentialTroubleshootingCopy} 后重试。`,
       );
     } finally {
+      fetchingModelsRef.current = false;
       setFetchingModels(false);
     }
   }
 
   async function setAsDefault() {
+    if (settingDefaultRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || deletingRef.current) return;
     if (!connection.enabled) {
       toast.error('无法设为默认', '这个模型连接已禁用，请重新登录或启用后再设为默认。');
       return;
     }
+    settingDefaultRef.current = true;
+    setSettingDefault(true);
     try {
       await props.bridge.setDefault(connection.slug);
       await props.onChanged();
       toast.success(`已设为默认 · ${connection.name}`);
     } catch (error) {
       toast.error('切换默认失败', providerPanelActionErrorMessage(error));
+    } finally {
+      settingDefaultRef.current = false;
+      setSettingDefault(false);
     }
   }
 
   async function remove() {
+    if (deletingRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current) return;
+    deletingRef.current = true;
+    setDeleting(true);
     const ok = await toast.confirm({
       title: `删除供应商 ${connection.name}？`,
       description: '将从已启用模型连接中移除这个供应商配置；如需再次使用，需要重新添加凭据。',
@@ -1478,8 +1505,11 @@ function ConnectionDetail(props: {
       cancelLabel: '取消',
       destructive: true,
     });
-    if (!ok) return;
-    setBusy(true);
+    if (!ok) {
+      deletingRef.current = false;
+      setDeleting(false);
+      return;
+    }
     let deleted = false;
     try {
       await props.bridge.delete(connection.slug);
@@ -1491,7 +1521,8 @@ function ConnectionDetail(props: {
         providerPanelActionErrorMessage(error),
       );
     } finally {
-      setBusy(false);
+      deletingRef.current = false;
+      setDeleting(false);
     }
   }
 
@@ -1518,6 +1549,7 @@ function ConnectionDetail(props: {
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
           placeholder={defaults.baseUrl}
           readOnly={hasFixedOAuthBaseUrl}
+          disabled={detailActionBusy}
           aria-readonly={hasFixedOAuthBaseUrl ? 'true' : undefined}
           aria-label={hasFixedOAuthBaseUrl ? '模型连接 Base URL，OAuth 固定' : '模型连接 Base URL'}
         />
@@ -1534,6 +1566,7 @@ function ConnectionDetail(props: {
             onChange={setApiKey}
             placeholder={hasSecret === true ? '••••••••' : '粘贴 API key'}
             ariaLabel={`${display.name} API key`}
+            disabled={detailActionBusy}
           />
         </label>
       )}
@@ -1573,8 +1606,9 @@ function ConnectionDetail(props: {
         modelSource={modelSource}
         modelsFetchedAt={connection.modelsFetchedAt}
         fallbackCount={fallbackModels.length}
-        canRefresh={!fetchingModels && hasUsableCredential}
+        canRefresh={!detailActionBusy && hasUsableCredential}
         fetchingModels={fetchingModels}
+        disabled={detailActionBusy}
         onRefresh={() => void refreshModels()}
       />
       {defaults.signupUrl && (
@@ -1583,14 +1617,20 @@ function ConnectionDetail(props: {
         </a>
       )}
       <div className="providerActions">
-        <button className="maka-button" data-variant="primary" type="button" disabled={busy || !hasSaveChanges} onClick={save}>
+        <button className="maka-button" data-variant="primary" type="button" disabled={detailActionBusy || !hasSaveChanges} onClick={save}>
           {busy ? '保存中…' : '保存修改'}
         </button>
-        <button className="maka-button" type="button" disabled={testing || !hasUsableCredential} onClick={runTest}>
+        <button className="maka-button" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>
           {testing ? '测试中…' : '测试连接'}
         </button>
-        {!props.isDefault && connection.enabled && <button className="maka-button" type="button" onClick={setAsDefault}>设为默认</button>}
-        <button className="maka-button" data-variant="destructive" type="button" disabled={busy} onClick={remove}>删除</button>
+        {!props.isDefault && connection.enabled && (
+          <button className="maka-button" type="button" disabled={detailActionBusy} onClick={setAsDefault}>
+            {settingDefault ? '设置中…' : '设为默认'}
+          </button>
+        )}
+        <button className="maka-button" data-variant="destructive" type="button" disabled={detailActionBusy} onClick={remove}>
+          {deleting ? '删除中…' : '删除'}
+        </button>
       </div>
     </div>
   );
@@ -1672,6 +1712,7 @@ function ModelTable(props: {
   fallbackCount: number;
   canRefresh: boolean;
   fetchingModels: boolean;
+  disabled?: boolean;
   onRefresh(): void;
 }) {
   const [query, setQuery] = useState('');
@@ -1694,6 +1735,7 @@ function ModelTable(props: {
   // The pure `nextRadioId` helper is unit-tested in
   // `apps/desktop/src/main/__tests__/model-table-keyboard.test.ts`.
   function onListKeyDown(event: ReactKeyboardEvent<HTMLUListElement>) {
+    if (props.disabled) return;
     const list = listRef.current;
     if (!list) return;
     const radios = Array.from(list.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
@@ -1795,6 +1837,7 @@ function ModelTable(props: {
                   aria-checked={isDefault}
                   data-default={isDefault ? 'true' : undefined}
                   data-model-id={model.id}
+                  disabled={props.disabled}
                   // Only the active radio is in the tab order; arrow keys
                   // move focus inside the group. Standard ARIA radiogroup.
                   tabIndex={isDefault || (!props.defaultModel && filtered[0]?.id === model.id) ? 0 : -1}

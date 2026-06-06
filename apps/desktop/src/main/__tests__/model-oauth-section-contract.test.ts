@@ -109,6 +109,76 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
+      /const busyRef = useRef\(false\)[\s\S]*const testingRef = useRef\(false\)[\s\S]*const fetchingModelsRef = useRef\(false\)[\s\S]*const settingDefaultRef = useRef\(false\)[\s\S]*const deletingRef = useRef\(false\)/,
+      'ConnectionDetail actions must have synchronous duplicate-action guards, not only React state',
+    );
+    assert.match(
+      detail,
+      /async function save\(\) \{[\s\S]*if \(busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*props\.bridge\.update\(/,
+      'ConnectionDetail save must set its duplicate-submit guard before awaiting bridge.update()',
+    );
+    assert.match(
+      detail,
+      /async function runTest\(\) \{[\s\S]*if \(testingRef\.current \|\| busyRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\) return;[\s\S]*testingRef\.current = true;[\s\S]*props\.bridge\.test\(/,
+      'ConnectionDetail test must be gated synchronously before awaiting bridge.test()',
+    );
+    assert.match(
+      detail,
+      /async function refreshModels\(opts: \{ silent\?: boolean \} = \{\}\) \{[\s\S]*if \(fetchingModelsRef\.current\) return;[\s\S]*if \(!opts\.silent && \(busyRef\.current \|\| testingRef\.current \|\| settingDefaultRef\.current \|\| deletingRef\.current\)\) return;[\s\S]*fetchingModelsRef\.current = true;[\s\S]*props\.bridge\.fetchModels\(/,
+      'ConnectionDetail model refresh must be duplicate-gated while preserving the post-save silent refresh',
+    );
+    assert.match(
+      detail,
+      /async function setAsDefault\(\) \{[\s\S]*if \(settingDefaultRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| deletingRef\.current\) return;[\s\S]*settingDefaultRef\.current = true;[\s\S]*props\.bridge\.setDefault\(/,
+      'ConnectionDetail default-switch must be gated synchronously before awaiting bridge.setDefault()',
+    );
+    assert.match(
+      detail,
+      /async function remove\(\) \{[\s\S]*if \(deletingRef\.current \|\| busyRef\.current \|\| testingRef\.current \|\| fetchingModelsRef\.current \|\| settingDefaultRef\.current\) return;[\s\S]*deletingRef\.current = true;[\s\S]*props\.bridge\.delete\(/,
+      'ConnectionDetail delete must be gated synchronously before awaiting bridge.delete()',
+    );
+    assert.match(
+      detail,
+      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| settingDefault \|\| deleting/,
+      'ConnectionDetail must expose one visible busy state that freezes payload-affecting controls',
+    );
+    assert.match(
+      detail,
+      /disabled=\{detailActionBusy\}[\s\S]*aria-label=\{hasFixedOAuthBaseUrl \? '模型连接 Base URL，OAuth 固定' : '模型连接 Base URL'\}/,
+      'ConnectionDetail Base URL draft must freeze while any detail action is in flight',
+    );
+    assert.match(
+      detail,
+      /<PasswordInput[\s\S]*disabled=\{detailActionBusy\}/,
+      'ConnectionDetail API key draft must freeze while any detail action is in flight',
+    );
+    assert.match(
+      detail,
+      /<ModelTable[\s\S]*canRefresh=\{!detailActionBusy && hasUsableCredential\}[\s\S]*disabled=\{detailActionBusy\}/,
+      'ConnectionDetail model picker must freeze while any detail action is in flight',
+    );
+    assert.match(
+      detail,
+      /disabled=\{detailActionBusy \|\| !hasSaveChanges\} onClick=\{save\}[\s\S]*\{busy \? '保存中…' : '保存修改'\}/,
+      'ConnectionDetail save button must show visible pending feedback and disable all peer actions',
+    );
+    assert.match(
+      detail,
+      /disabled=\{detailActionBusy \|\| !hasUsableCredential\} onClick=\{runTest\}[\s\S]*\{testing \? '测试中…' : '测试连接'\}/,
+      'ConnectionDetail test button must show visible pending feedback and disable all peer actions',
+    );
+    assert.match(
+      detail,
+      /disabled=\{detailActionBusy\} onClick=\{setAsDefault\}[\s\S]*\{settingDefault \? '设置中…' : '设为默认'\}/,
+      'ConnectionDetail default button must show visible pending feedback and disable all peer actions',
+    );
+    assert.match(
+      detail,
+      /disabled=\{detailActionBusy\} onClick=\{remove\}[\s\S]*\{deleting \? '删除中…' : '删除'\}/,
+      'ConnectionDetail delete button must show visible pending feedback and disable all peer actions',
+    );
+    assert.match(
+      detail,
       /catch \(error\) \{[\s\S]*const message = providerPanelActionErrorMessage\(error\);[\s\S]*toast\.error\(`连接测试出错 · \$\{connection\.name\}`, message\)/,
       'ConnectionDetail test IPC failures must use the shared localized action-error helper',
     );
@@ -461,7 +531,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /!\s*props\.isDefault && connection\.enabled && <button className="maka-button" type="button" onClick=\{setAsDefault\}>设为默认<\/button>/,
+      /!\s*props\.isDefault && connection\.enabled && \([\s\S]*<button className="maka-button" type="button" disabled=\{detailActionBusy\} onClick=\{setAsDefault\}>[\s\S]*\{settingDefault \? '设置中…' : '设为默认'\}[\s\S]*<\/button>/,
       'disabled connections must not render the set-default action',
     );
   });
@@ -477,7 +547,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /disabled=\{busy \|\| !hasSaveChanges\}/,
+      /disabled=\{detailActionBusy \|\| !hasSaveChanges\}/,
       'Save must be disabled until the user changes a writable field',
     );
   });
@@ -493,13 +563,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /async function remove\(\) \{[\s\S]*setBusy\(true\);[\s\S]*let deleted = false;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*deleted \? '刷新模型列表失败' : '删除模型连接失败'/,
+      /async function remove\(\) \{[\s\S]*deletingRef\.current = true;[\s\S]*setDeleting\(true\);[\s\S]*let deleted = false;[\s\S]*await props\.bridge\.delete\(connection\.slug\);[\s\S]*deleted = true;[\s\S]*await props\.onDeleted\(\);[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*deleted \? '刷新模型列表失败' : '删除模型连接失败'/,
       'ConnectionDetail delete failures and post-delete refresh failures must be visible',
     );
     assert.match(
       detail,
-      /<button className="maka-button" data-variant="destructive" type="button" disabled=\{busy\} onClick=\{remove\}>删除<\/button>/,
-      'Delete should be disabled while provider detail actions are busy',
+      /<button className="maka-button" data-variant="destructive" type="button" disabled=\{detailActionBusy\} onClick=\{remove\}>[\s\S]*\{deleting \? '删除中…' : '删除'\}[\s\S]*<\/button>/,
+      'Delete should be disabled while provider detail actions are busy and show its own pending copy',
     );
   });
 
@@ -522,8 +592,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'credential-presence probe failures must not be downgraded to missing credentials',
     );
     assert.match(detail, /role="alert"[\s\S]*模型凭据状态暂时没刷新成功，已避免把未知状态显示成未登录或未配置/);
-    assert.match(detail, /canRefresh=\{!fetchingModels && hasUsableCredential\}/);
-    assert.match(detail, /disabled=\{testing \|\| !hasUsableCredential\}/);
+    assert.match(detail, /canRefresh=\{!detailActionBusy && hasUsableCredential\}/);
+    assert.match(detail, /disabled=\{detailActionBusy \|\| !hasUsableCredential\}/);
     assert.doesNotMatch(
       detail,
       /void props\.bridge\.hasSecret\(connection\.slug\)\.then\(setHasSecret\);/,
