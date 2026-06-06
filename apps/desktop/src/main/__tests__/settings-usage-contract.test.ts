@@ -88,7 +88,7 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       usagePage![0],
-      /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.usageDraftRef\.current, \.\.\.patch \};[\s\S]*commitUsageDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ usage: patch \}\);[\s\S]*commitUsageDraft\(result\.settings\.usage\);[\s\S]*catch \(error\) \{[\s\S]*commitUsageDraft\(persistedUsageRef\.current\);/,
+      /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.usageDraftRef\.current, \.\.\.patch \};[\s\S]*commitUsageDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ usage: patch \}\);[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(result\.settings\.usage\);[\s\S]*catch \(error\) \{[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(persistedUsageRef\.current\);/,
       'Usage settings saves must use latest-response draft sync and roll back on failure',
     );
     assert.match(usagePage![0], /<input value=\{usageDraft\.modelFilter\}/);
@@ -108,18 +108,54 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usagePage![0], /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean>/);
     assert.match(
       usagePage![0],
-      /try \{[\s\S]*await props\.onUpdate\(\{ usage: patch \}\)[\s\S]*return true[\s\S]*catch \(error\) \{[\s\S]*toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false/,
-      'Usage settings updates must toast thrown save failures and report failure to callers',
+      /try \{[\s\S]*await props\.onUpdate\(\{ usage: patch \}\)[\s\S]*return usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current;[\s\S]*catch \(error\) \{[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false/,
+      'Usage settings updates must toast the latest mounted save failure and report failure to callers',
     );
     assert.match(
       usagePage![0],
-      /const saved = await updateUsage\(\{ range \}\);[\s\S]*if \(!saved\) return;[\s\S]*await props\.onReload\(range\)/,
+      /const saved = await updateUsage\(\{ range \}\);[\s\S]*if \(!saved \|\| !usagePageMountedRef\.current\) return;[\s\S]*await props\.onReload\(range\)/,
       'Changing the usage range must not reload stats after the preference save fails',
     );
     assert.doesNotMatch(
       usagePage![0],
       /void props\.onUpdate\(\{ usage:/,
       'Usage filter controls must not fire-and-forget raw settings updates',
+    );
+  });
+
+  it('drops late usage preference and refresh UI writes after Settings is closed', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/)?.[0] ?? '';
+
+    assert.match(
+      usagePage,
+      /const usagePageMountedRef = useRef\(false\);/,
+      'Usage settings page must track mounted ownership for async preference and refresh work',
+    );
+    assert.match(
+      usagePage,
+      /useEffect\(\(\) => \{[\s\S]*usagePageMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*usagePageMountedRef\.current = false;[\s\S]*usageSaveTicketRef\.current \+= 1;[\s\S]*usageRefreshRunningRef\.current = false;/,
+      'Usage settings cleanup must invalidate saves and release manual refresh ownership',
+    );
+    assert.match(
+      usagePage,
+      /const result = await props\.onUpdate\(\{ usage: patch \}\);[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(result\.settings\.usage\);/,
+      'Usage save success must not sync draft state after unmount or after a newer request',
+    );
+    assert.match(
+      usagePage,
+      /catch \(error\) \{[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(persistedUsageRef\.current\);[\s\S]*toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\);/,
+      'Usage save failure must not rollback or toast after unmount or after a newer request',
+    );
+    assert.match(
+      usagePage,
+      /const saved = await updateUsage\(\{ range \}\);[\s\S]*if \(!saved \|\| !usagePageMountedRef\.current\) return;[\s\S]*await props\.onReload\(range\);/,
+      'Usage range changes must not trigger a stats reload after an unmounted or stale save',
+    );
+    assert.match(
+      usagePage,
+      /finally \{[\s\S]*usageRefreshRunningRef\.current = false;[\s\S]*if \(usagePageMountedRef\.current\) \{[\s\S]*setRefreshing\(false\);/,
+      'Manual usage refresh cleanup must not write React pending state after unmount',
     );
   });
 
