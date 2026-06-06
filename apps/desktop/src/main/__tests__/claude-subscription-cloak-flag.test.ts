@@ -64,6 +64,19 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     assert.match(src, /claude-cli\//, 'cloak module must build the Claude Code UA');
     assert.match(src, /X-Stainless-/, 'cloak module must build Stainless headers');
     assert.match(src, /You are Claude Code/, 'cloak module must inject the Claude Code system prefix');
+    // PR-CLAUDE-OAUTH-RUNTIME-VERSION-PIN-0: pin the Runtime-Version
+    // to the alma value so a future revert to process.version stays
+    // out — Anthropic's gateway may allowlist this string.
+    assert.match(
+      src,
+      /'X-Stainless-Runtime-Version':\s*'v22\.13\.0'/,
+      "cloak must hardcode X-Stainless-Runtime-Version to alma's pinned v22.13.0 (readable/main.js:16026)",
+    );
+    assert.doesNotMatch(
+      src,
+      /'X-Stainless-Runtime-Version':\s*process\.version/,
+      'cloak must NOT use dynamic process.version — gateway allowlist parity with alma',
+    );
   });
 
   it('getAuthorizationUrl clears prior pending so only one authRequestId is ever valid (PR-CLAUDE-OAUTH-SINGLE-PENDING-0)', async () => {

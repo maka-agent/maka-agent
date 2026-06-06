@@ -55,7 +55,16 @@ function getStainlessHeaders(timeoutMs: number): Record<string, string> {
     'X-Stainless-Lang': 'js',
     'X-Stainless-Package-Version': '0.74.0',
     'X-Stainless-Runtime': 'node',
-    'X-Stainless-Runtime-Version': process.version,
+    // PR-CLAUDE-OAUTH-RUNTIME-VERSION-PIN-0: hardcode v22.13.0
+    // instead of the dynamic process.version. Anthropic's OAuth
+    // gateway may consult an allowlist of known Claude Code
+    // runtime versions; alma's cloak (readable/main.js:16026) ships
+    // a hardcoded `v22.13.0` regardless of the actual Node it
+    // boots under. Mirror it exactly so a future Electron Node
+    // bump (e.g. v23.x) doesn't silently start failing the gateway
+    // check. Cross-ref notes/alma-deep-dive-yuejing-round-2/
+    // 09-cloak-request-full.md "Maka delta" section.
+    'X-Stainless-Runtime-Version': 'v22.13.0',
     'X-Stainless-Arch': arch,
     'X-Stainless-Os': platform,
     'X-Stainless-Timeout': String(Math.max(1, Math.ceil(timeoutMs / 1000))),
