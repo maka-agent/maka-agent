@@ -807,17 +807,43 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'Claude OAuth must model paste-code authorization as an in-progress login, not an authenticated account',
     );
     assert.match(
+      claudeCard,
+      /const \[pendingAction, setPendingAction\] = useState<ClaudeSubscriptionPendingAction \| null>\(null\)/,
+      'Claude OAuth needs a named pending action, not a bare boolean that cannot explain what is happening',
+    );
+    assert.match(
+      claudeCard,
+      /const pendingActionRef = useRef<ClaudeSubscriptionPendingAction \| null>\(null\)/,
+      'Claude OAuth must gate one-shot auth actions synchronously through a ref',
+    );
+    assert.match(
+      claudeCard,
+      /function beginPendingAction\(action: ClaudeSubscriptionPendingAction\): boolean \{[\s\S]*if \(pendingActionRef\.current !== null\) return false;[\s\S]*pendingActionRef\.current = action;[\s\S]*setPendingAction\(action\);[\s\S]*return true;/,
+      'Claude OAuth duplicate clicks must be rejected before React re-renders disabled buttons',
+    );
+    assert.match(claudeCard, /if \(!beginPendingAction\('login'\)\) return;/, 'starting login must use the ref-backed action guard');
+    assert.match(claudeCard, /if \(!beginPendingAction\('submit'\)\) return;/, 'submitting an authorization code must use the ref-backed action guard');
+    assert.match(claudeCard, /if \(!beginPendingAction\('cancel'\)\) return;/, 'canceling authorization must use the ref-backed action guard');
+    assert.match(claudeCard, /if \(!beginPendingAction\('logout'\)\) return;/, 'logging out must use the ref-backed action guard');
+    assert.match(claudeCard, /if \(!beginPendingAction\('quota'\)\) return;/, 'refreshing quota must use the ref-backed action guard');
+    assert.match(
       actionsBlock,
       /\{canStartClaudeLogin \|\| claudeLoginPending \? \(/,
       'authorizing must take the start/login branch instead of the authenticated refresh/logout branch',
     );
-    assert.match(actionsBlock, /disabled=\{pendingAction \|\| claudeLoginPending\}/);
+    assert.match(claudeCard, /const actionBusy = pendingAction !== null/);
+    assert.match(actionsBlock, /disabled=\{actionBusy \|\| claudeLoginPending\}/);
     assert.match(actionsBlock, /\? '登录中…'/, 'pending Claude OAuth should show a disabled login-in-progress action');
+    assert.match(actionsBlock, /pendingAction === 'login'[\s\S]*'打开浏览器…'/, 'login start must expose a specific pending label before the auth code panel appears');
+    assert.match(actionsBlock, /pendingAction === 'quota' \? '刷新中…' : '刷新配额'/, 'quota refresh must expose local progress feedback');
+    assert.match(actionsBlock, /pendingAction === 'logout' \? '退出中…' : '退出登录'/, 'logout must expose local progress feedback');
     assert.match(
       actionsBlock,
       /\{canStartClaudeLogin \|\| claudeLoginPending \? \([\s\S]*'登录中…'[\s\S]*\) : \([\s\S]*刷新配额[\s\S]*退出登录/,
       'refresh/logout actions must be behind the non-pending branch so they cannot clear pending authorization before paste submit',
     );
+    assert.match(claudeCard, /pendingAction === 'submit' \? '提交中…' : '提交授权码'/, 'authorization-code submit must expose local progress feedback');
+    assert.match(claudeCard, /pendingAction === 'cancel' \? '取消中…' : '取消'/, 'authorization cancel must expose local progress feedback');
   });
 
   it('preload exposes the three new subscription namespaces alongside claudeSubscription', async () => {

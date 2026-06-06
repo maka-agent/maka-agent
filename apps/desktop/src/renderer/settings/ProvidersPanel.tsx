@@ -1880,7 +1880,8 @@ function ClaudeSubscriptionCard() {
   const [experimentalEnabled, setExperimentalEnabled] = useState<boolean | null>(null);
   const [experimentalGateError, setExperimentalGateError] = useState<string | null>(null);
   const [state, setState] = useState<SubscriptionAccountState | null>(null);
-  const [pendingAction, setPendingAction] = useState(false);
+  const [pendingAction, setPendingAction] = useState<ClaudeSubscriptionPendingAction | null>(null);
+  const pendingActionRef = useRef<ClaudeSubscriptionPendingAction | null>(null);
   const [authRequestId, setAuthRequestId] = useState<string | null>(null);
   const [stateHint, setStateHint] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState('');
@@ -1972,8 +1973,20 @@ function ClaudeSubscriptionCard() {
     return null;
   }
 
+  function beginPendingAction(action: ClaudeSubscriptionPendingAction): boolean {
+    if (pendingActionRef.current !== null) return false;
+    pendingActionRef.current = action;
+    setPendingAction(action);
+    return true;
+  }
+
+  function finishPendingAction() {
+    pendingActionRef.current = null;
+    setPendingAction(null);
+  }
+
   async function startLogin() {
-    setPendingAction(true);
+    if (!beginPendingAction('login')) return;
     try {
       // kenji `027c93c0` + xuan `2e5be5a`: getAuthUrl now returns
       // a union — `AuthorizationUrlPayload` on success, or a
@@ -2007,13 +2020,13 @@ function ClaudeSubscriptionCard() {
       toast.error('无法开始登录', message);
       setPasteError(message);
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
   async function submitPaste() {
     if (!authRequestId) return;
-    setPendingAction(true);
+    if (!beginPendingAction('submit')) return;
     setPasteError(null);
     try {
       const result = await window.maka.claudeSubscription.completeAuthorization(
@@ -2034,13 +2047,13 @@ function ClaudeSubscriptionCard() {
       toast.error('授权码提交失败', message);
       setPasteError(message);
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
   async function cancelLogin() {
     if (!authRequestId) return;
-    setPendingAction(true);
+    if (!beginPendingAction('cancel')) return;
     try {
       await window.maka.claudeSubscription.cancelAuthorization(authRequestId);
       setAuthRequestId(null);
@@ -2051,21 +2064,21 @@ function ClaudeSubscriptionCard() {
     } catch (error) {
       toast.error('取消登录失败', subscriptionActionErrorMessage(error));
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
   async function logout() {
-    const ok = await toast.confirm({
-      title: '退出 Claude Code 登录？',
-      description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用 Claude OAuth 模型。',
-      confirmLabel: '退出登录',
-      cancelLabel: '取消',
-      destructive: true,
-    });
-    if (!ok) return;
-    setPendingAction(true);
+    if (!beginPendingAction('logout')) return;
     try {
+      const ok = await toast.confirm({
+        title: '退出 Claude Code 登录？',
+        description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用 Claude OAuth 模型。',
+        confirmLabel: '退出登录',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
       const result = await window.maka.claudeSubscription.logout();
       if (result.ok) {
         toast.success('已退出登录', '本地凭据已清除。');
@@ -2076,19 +2089,19 @@ function ClaudeSubscriptionCard() {
     } catch (error) {
       toast.error('退出失败', subscriptionActionErrorMessage(error));
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
   async function refreshQuota() {
-    setPendingAction(true);
+    if (!beginPendingAction('quota')) return;
     try {
       await window.maka.claudeSubscription.refreshQuota();
       await refresh();
     } catch (error) {
       toast.error('刷新配额失败', subscriptionActionErrorMessage(error));
     } finally {
-      setPendingAction(false);
+      finishPendingAction();
     }
   }
 
@@ -2099,6 +2112,7 @@ function ClaudeSubscriptionCard() {
     state?.runtimeState === 'refresh_failed' ||
     state?.runtimeState === 'storage_failed';
   const claudeLoginPending = authRequestId !== null || state?.runtimeState === 'authorizing';
+  const actionBusy = pendingAction !== null;
 
   return (
     <>
@@ -2150,9 +2164,11 @@ function ClaudeSubscriptionCard() {
             className="maka-button"
             data-variant="primary"
             onClick={() => void startLogin()}
-            disabled={pendingAction || claudeLoginPending}
+            disabled={actionBusy || claudeLoginPending}
           >
-            {claudeLoginPending
+            {pendingAction === 'login'
+              ? '打开浏览器…'
+              : claudeLoginPending
               ? '登录中…'
               : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
                 ? '重新登录'
@@ -2164,18 +2180,18 @@ function ClaudeSubscriptionCard() {
               type="button"
               className="maka-button"
               onClick={() => void refreshQuota()}
-              disabled={pendingAction}
+              disabled={actionBusy}
             >
-              刷新配额
+              {pendingAction === 'quota' ? '刷新中…' : '刷新配额'}
             </button>
             <button
               type="button"
               className="maka-button"
               data-variant="ghost"
               onClick={() => void logout()}
-              disabled={pendingAction}
+              disabled={actionBusy}
             >
-              退出登录
+              {pendingAction === 'logout' ? '退出中…' : '退出登录'}
             </button>
           </>
         )}
@@ -2206,18 +2222,18 @@ function ClaudeSubscriptionCard() {
               className="maka-button"
               data-variant="primary"
               onClick={() => void submitPaste()}
-              disabled={pendingAction || pasteValue.trim().length === 0}
+              disabled={actionBusy || pasteValue.trim().length === 0}
             >
-              提交授权码
+              {pendingAction === 'submit' ? '提交中…' : '提交授权码'}
             </button>
             <button
               type="button"
               className="maka-button"
               data-variant="ghost"
               onClick={() => void cancelLogin()}
-              disabled={pendingAction}
+              disabled={actionBusy}
             >
-              取消
+              {pendingAction === 'cancel' ? '取消中…' : '取消'}
             </button>
           </div>
         </div>
@@ -2226,6 +2242,8 @@ function ClaudeSubscriptionCard() {
     </>
   );
 }
+
+type ClaudeSubscriptionPendingAction = 'login' | 'submit' | 'cancel' | 'logout' | 'quota';
 
 interface SubscriptionStatePresentation {
   label: string;
