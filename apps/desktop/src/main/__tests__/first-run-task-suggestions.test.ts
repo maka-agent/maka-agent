@@ -111,6 +111,34 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     );
   });
 
+  it('gates first-run readiness refresh actions so repeated setup CTA clicks cannot race', async () => {
+    const hero = await readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8');
+    const rootBlock = hero.match(/export function OnboardingHero[\s\S]*?switch \(state\.kind\)/)?.[0] ?? '';
+    const setupBlock = hero.match(/interface SetupHeroProps[\s\S]*?function assertNever/)?.[0] ?? '';
+
+    assert.match(rootBlock, /const \[refreshConnectionsPending, setRefreshConnectionsPending\] = useState\(false\)/);
+    assert.match(rootBlock, /const refreshConnectionsPendingRef = useRef\(false\)/);
+    assert.match(
+      rootBlock,
+      /const runRefreshConnections = useCallback\(async \(\) => \{[\s\S]*if \(!props\.onRefreshConnections \|\| refreshConnectionsPendingRef\.current\) return;[\s\S]*refreshConnectionsPendingRef\.current = true[\s\S]*setRefreshConnectionsPending\(true\)[\s\S]*await props\.onRefreshConnections\(\)[\s\S]*refreshConnectionsPendingRef\.current = false[\s\S]*setRefreshConnectionsPending\(false\)/,
+      'readiness refresh must use a ref-backed pending gate',
+    );
+    assert.match(hero, /onRefreshConnections=\{props\.onRefreshConnections \? runRefreshConnections : undefined\}/);
+    assert.match(hero, /refreshConnectionsPending=\{refreshConnectionsPending\}/);
+    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经配好了？刷新检测'/);
+    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经填好了？刷新检测'/);
+    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经选好了？刷新检测'/);
+    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经修好了？刷新检测'/);
+    assert.match(setupBlock, /secondaryCta\?: \{ label: string; onClick: \(\) => void; disabled\?: boolean; busy\?: boolean \}/);
+    assert.match(setupBlock, /disabled=\{props\.secondaryCta\.disabled === true\}/);
+    assert.match(setupBlock, /aria-busy=\{props\.secondaryCta\.busy === true \? 'true' : undefined\}/);
+    assert.doesNotMatch(
+      hero,
+      /onClick:\s*\(\) => void props\.onRefreshConnections\?\.\(\)|onClick=\{\(\) => void props\.onRefreshConnections\?\.\(\)\}/,
+      'setup refresh CTAs must not bypass the shared pending gate',
+    );
+  });
+
   it('surfaces project instruction creation in the first-run checklist', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
 

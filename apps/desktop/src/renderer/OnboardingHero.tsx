@@ -126,12 +126,27 @@ export interface OnboardingHeroProps {
 
 export function OnboardingHero(props: OnboardingHeroProps) {
   const { state } = props;
+  const [refreshConnectionsPending, setRefreshConnectionsPending] = useState(false);
+  const refreshConnectionsPendingRef = useRef(false);
+  const runRefreshConnections = useCallback(async () => {
+    if (!props.onRefreshConnections || refreshConnectionsPendingRef.current) return;
+    refreshConnectionsPendingRef.current = true;
+    setRefreshConnectionsPending(true);
+    try {
+      await props.onRefreshConnections();
+    } finally {
+      refreshConnectionsPendingRef.current = false;
+      setRefreshConnectionsPending(false);
+    }
+  }, [props.onRefreshConnections]);
+
   switch (state.kind) {
     case 'needs_connection':
       return (
         <NeedsConnectionHero
           onOpenSettings={props.onOpenSettings}
-          onRefreshConnections={props.onRefreshConnections}
+          onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
+          refreshConnectionsPending={refreshConnectionsPending}
         />
       );
     case 'needs_default_connection':
@@ -142,7 +157,8 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           connectionSlug={state.connectionSlug}
           connections={props.connections}
           onOpenSettings={props.onOpenSettings}
-          onRefreshConnections={props.onRefreshConnections}
+          onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
+          refreshConnectionsPending={refreshConnectionsPending}
         />
       );
     case 'needs_default_model':
@@ -151,7 +167,8 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           connectionSlug={state.connectionSlug}
           connections={props.connections}
           onOpenSettings={props.onOpenSettings}
-          onRefreshConnections={props.onRefreshConnections}
+          onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
+          refreshConnectionsPending={refreshConnectionsPending}
         />
       );
     case 'ready_empty':
@@ -176,7 +193,8 @@ export function OnboardingHero(props: OnboardingHeroProps) {
         <BlockedHero
           reason={state.reason}
           onOpenSettings={props.onOpenSettings}
-          onRefreshConnections={props.onRefreshConnections}
+          onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
+          refreshConnectionsPending={refreshConnectionsPending}
         />
       );
     case 'ready_with_history':
@@ -207,7 +225,8 @@ function connectionLabel(
 
 function NeedsConnectionHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
-  onRefreshConnections?: () => Promise<void> | void;
+  onRefreshConnections?: () => void;
+  refreshConnectionsPending?: boolean;
 }) {
   return (
     <section className="maka-onboarding" aria-label="欢迎使用 Maka">
@@ -267,9 +286,11 @@ function NeedsConnectionHero(props: {
           <button
             type="button"
             className="maka-button maka-button-ghost"
-            onClick={() => void props.onRefreshConnections?.()}
+            onClick={props.onRefreshConnections}
+            disabled={props.refreshConnectionsPending === true}
+            aria-busy={props.refreshConnectionsPending === true ? 'true' : undefined}
           >
-            已经配好了？刷新检测
+            {props.refreshConnectionsPending === true ? '刷新中…' : '已经配好了？刷新检测'}
           </button>
         )}
       </footer>
@@ -299,7 +320,8 @@ function NeedsConnectionCredentialsHero(props: {
   connectionSlug: string;
   connections?: ReadonlyArray<LlmConnection>;
   onOpenSettings: (section?: SettingsSection) => void;
-  onRefreshConnections?: () => Promise<void> | void;
+  onRefreshConnections?: () => void;
+  refreshConnectionsPending?: boolean;
 }) {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
@@ -322,7 +344,12 @@ function NeedsConnectionCredentialsHero(props: {
       primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
       secondaryCta={
         props.onRefreshConnections
-          ? { label: '已经填好了？刷新检测', onClick: () => void props.onRefreshConnections?.() }
+          ? {
+            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经填好了？刷新检测',
+            onClick: props.onRefreshConnections,
+            disabled: props.refreshConnectionsPending === true,
+            busy: props.refreshConnectionsPending === true,
+          }
           : undefined
       }
     />
@@ -333,7 +360,8 @@ function NeedsDefaultModelHero(props: {
   connectionSlug: string;
   connections?: ReadonlyArray<LlmConnection>;
   onOpenSettings: (section?: SettingsSection) => void;
-  onRefreshConnections?: () => Promise<void> | void;
+  onRefreshConnections?: () => void;
+  refreshConnectionsPending?: boolean;
 }) {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
@@ -356,7 +384,12 @@ function NeedsDefaultModelHero(props: {
       primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
       secondaryCta={
         props.onRefreshConnections
-          ? { label: '已经选好了？刷新检测', onClick: () => void props.onRefreshConnections?.() }
+          ? {
+            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经选好了？刷新检测',
+            onClick: props.onRefreshConnections,
+            disabled: props.refreshConnectionsPending === true,
+            busy: props.refreshConnectionsPending === true,
+          }
           : undefined
       }
     />
@@ -366,7 +399,8 @@ function NeedsDefaultModelHero(props: {
 function BlockedHero(props: {
   reason: 'all_connections_unhealthy';
   onOpenSettings: (section?: SettingsSection) => void;
-  onRefreshConnections?: () => Promise<void> | void;
+  onRefreshConnections?: () => void;
+  refreshConnectionsPending?: boolean;
 }) {
   // The reason is destructured to satisfy exhaustive type-checking;
   // when PR-future extends the enum, this branch must update too.
@@ -385,7 +419,12 @@ function BlockedHero(props: {
       primaryCta={{ label: '打开设置 · 模型', onClick: () => props.onOpenSettings('models') }}
       secondaryCta={
         props.onRefreshConnections
-          ? { label: '已经修好了？刷新检测', onClick: () => void props.onRefreshConnections?.() }
+          ? {
+            label: props.refreshConnectionsPending === true ? '刷新中…' : '已经修好了？刷新检测',
+            onClick: props.onRefreshConnections,
+            disabled: props.refreshConnectionsPending === true,
+            busy: props.refreshConnectionsPending === true,
+          }
           : undefined
       }
       // PR-UI-LAYOUT-25: 'destructive' (vs the previous 'warning') so
@@ -711,7 +750,7 @@ interface SetupHeroProps {
    * snapshot. Hidden when not provided so existing call sites are
    * unchanged.
    */
-  secondaryCta?: { label: string; onClick: () => void };
+  secondaryCta?: { label: string; onClick: () => void; disabled?: boolean; busy?: boolean };
   /**
    * PR-UI-LAYOUT-25 (@yuejing 2026-05-22): extended from `'warning'`
    * only to also accept `'destructive'` so a blocked-state hero
@@ -752,6 +791,8 @@ function SetupHero(props: SetupHeroProps) {
             type="button"
             className="maka-button maka-button-ghost"
             onClick={props.secondaryCta.onClick}
+            disabled={props.secondaryCta.disabled === true}
+            aria-busy={props.secondaryCta.busy === true ? 'true' : undefined}
           >
             {props.secondaryCta.label}
           </button>
