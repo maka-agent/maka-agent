@@ -123,6 +123,58 @@ describe('Settings usage dashboard contract', () => {
     );
   });
 
+  it('drops stale usage stats reload responses', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settingsModal = src.match(/function SettingsSurface\([\s\S]*?function SettingsPage/)?.[0];
+
+    assert.ok(settingsModal, 'Settings surface block must exist');
+    assert.match(
+      settingsModal!,
+      /const usageReloadTicketRef = useRef\(0\);/,
+      'Usage stats reloads need a latest-response ticket so rapid range changes cannot show stale stats',
+    );
+    assert.match(
+      settingsModal!,
+      /async function reloadUsage\(range: UsageRange = settings\.usage\.range\) \{[\s\S]*const ticket = usageReloadTicketRef\.current \+ 1;[\s\S]*usageReloadTicketRef\.current = ticket;[\s\S]*const next = await window\.maka\.settings\.usageStats\(range\);[\s\S]*if \(ticket === usageReloadTicketRef\.current\) \{[\s\S]*setUsageStats\(next\);[\s\S]*\}/,
+      'Usage stats reloads must only apply the newest response',
+    );
+    assert.match(
+      settingsModal!,
+      /catch \(error\) \{[\s\S]*if \(ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入使用统计失败', settingsActionErrorMessage\(error\)\);[\s\S]*\}/,
+      'Stale usage reload failures must not toast over a newer range',
+    );
+  });
+
+  it('gates manual usage refresh and reads the latest draft range', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
+
+    assert.ok(usagePage, 'Usage settings page block must exist');
+    assert.match(
+      usagePage![0],
+      /const usageRefreshRunningRef = useRef\(false\);/,
+      'Manual usage refresh needs a ref gate so fast double-clicks cannot duplicate reloads before React disables the button',
+    );
+    assert.match(
+      usagePage![0],
+      /async function refresh\(\) \{\s*if \(usageRefreshRunningRef\.current\) return;[\s\S]*usageRefreshRunningRef\.current = true;[\s\S]*await props\.onReload\(usageDraftRef\.current\.range\)/,
+      'Manual usage refresh must lock synchronously and read the latest local draft range',
+    );
+    assert.match(
+      usagePage![0],
+      /finally \{[\s\S]*usageRefreshRunningRef\.current = false;[\s\S]*setRefreshing\(false\);[\s\S]*\}/,
+      'Manual usage refresh must release the ref gate after reload settles',
+    );
+    assert.doesNotMatch(
+      usagePage![0],
+      /props\.onReload\(usageDraft\.range\)/,
+      'Manual usage refresh must not read stale React state after a just-clicked range change',
+    );
+    assert.match(usagePage![0], /aria-busy=\{refreshing\}/, 'Usage refresh button must expose pending state to assistive tech');
+    assert.match(usagePage![0], /data-pending=\{refreshing \? 'true' : undefined\}/, 'Usage refresh button must expose a stable pending hook');
+    assert.match(usagePage![0], /onClick=\{\(\) => void refresh\(\)\}/, 'Usage refresh click handler must explicitly discard the async promise');
+  });
+
   it('does not render raw request status enums in the usage table', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const usageTable = src.match(/function UsageTable\([\s\S]*?function SimpleStatsTable/);

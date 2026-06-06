@@ -804,6 +804,7 @@ function SettingsSurface(props: {
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const settingsUpdateTicketRef = useRef(0);
+  const usageReloadTicketRef = useRef(0);
   const toast = useToast();
 
   async function reloadSettings() {
@@ -830,10 +831,17 @@ function SettingsSurface(props: {
   }
 
   async function reloadUsage(range: UsageRange = settings.usage.range) {
+    const ticket = usageReloadTicketRef.current + 1;
+    usageReloadTicketRef.current = ticket;
     try {
-      setUsageStats(await window.maka.settings.usageStats(range));
+      const next = await window.maka.settings.usageStats(range);
+      if (ticket === usageReloadTicketRef.current) {
+        setUsageStats(next);
+      }
     } catch (error) {
-      toast.error('载入使用统计失败', settingsActionErrorMessage(error));
+      if (ticket === usageReloadTicketRef.current) {
+        toast.error('载入使用统计失败', settingsActionErrorMessage(error));
+      }
     }
   }
 
@@ -5038,6 +5046,7 @@ function UsageSettingsPage(props: {
   const persistedUsageRef = useRef(persistedUsage);
   const usagePendingSaveCountRef = useRef(0);
   const usageSaveTicketRef = useRef(0);
+  const usageRefreshRunningRef = useRef(false);
   const stats = props.stats;
   const toast = useToast();
 
@@ -5097,10 +5106,13 @@ function UsageSettingsPage(props: {
   }
 
   async function refresh() {
+    if (usageRefreshRunningRef.current) return;
+    usageRefreshRunningRef.current = true;
     setRefreshing(true);
     try {
-      await props.onReload(usageDraft.range);
+      await props.onReload(usageDraftRef.current.range);
     } finally {
+      usageRefreshRunningRef.current = false;
       setRefreshing(false);
     }
   }
@@ -5123,7 +5135,16 @@ function UsageSettingsPage(props: {
           ]}
           onChange={(value) => void setRange(value as UsageRange)}
         />
-        <button className="maka-button" type="button" disabled={refreshing} onClick={refresh}>{refreshing ? '刷新中…' : '刷新'}</button>
+        <button
+          className="maka-button"
+          type="button"
+          disabled={refreshing}
+          aria-busy={refreshing}
+          data-pending={refreshing ? 'true' : undefined}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? '刷新中…' : '刷新'}
+        </button>
       </div>
 
       <div className="settingsUsageSummary">
