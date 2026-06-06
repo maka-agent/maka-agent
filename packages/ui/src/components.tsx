@@ -1965,6 +1965,7 @@ export function SearchModal(props: {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const ticketRef = useRef(0);
+  const keyboardSelectionHandledRef = useRef(false);
   const searchThread = props.deps?.searchThread;
   useModalA11y(dialogRef, props.onClose, inputRef);
 
@@ -2189,10 +2190,16 @@ export function SearchModal(props: {
               }
               if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
                 event.preventDefault();
+                keyboardSelectionHandledRef.current = true;
                 selectKeyboardResult();
               }
             }}
             onKeyUp={(event) => {
+              if (keyboardKey(event, ['Enter', 'Return']) && keyboardSelectionHandledRef.current) {
+                if (showResults) event.preventDefault();
+                keyboardSelectionHandledRef.current = false;
+                return;
+              }
               if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
                 event.preventDefault();
                 selectKeyboardResult();
