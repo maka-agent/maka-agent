@@ -12,6 +12,13 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('Plan reminder MVP contract', () => {
+  function rendererFunctionBlock(source: string, name: string): string {
+    const start = source.indexOf(`async function ${name}(`);
+    if (start === -1) return '';
+    const next = source.indexOf('\n  async function ', start + 1);
+    return source.slice(start, next === -1 ? source.length : next);
+  }
+
   it('exposes real plans IPC through main and preload', async () => {
     const [main, preload, globalTypes] = await Promise.all([
       readRepo('apps/desktop/src/main/main.ts'),
@@ -164,6 +171,49 @@ describe('Plan reminder MVP contract', () => {
     assert.doesNotMatch(renderer, /onTriggerPlanReminderNow=\{\(id\) => void triggerPlanReminderNow\(id\)\}/, 'renderer must return the trigger promise to the UI pending gate');
     assert.doesNotMatch(renderer, /onSnoozePlanReminder=\{\(id\) => void snoozePlanReminder\(id\)\}/, 'renderer must return the snooze promise to the UI pending gate');
     assert.doesNotMatch(renderer, /onDeletePlanReminder=\{\(id\) => void deletePlanReminder\(id\)\}/, 'renderer must return the delete promise to the UI pending gate');
+  });
+
+  it('scopes plan action toasts to the active Automations surface', async () => {
+    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+
+    assert.match(renderer, /const navSelectionRef = useRef<NavSelection>\(navSelection\)/);
+    assert.match(
+      renderer,
+      /function isAutomationsSurfaceActive\(\): boolean \{[\s\S]*return navSelectionRef\.current\.section === 'automations';[\s\S]*\}/,
+      'plan action feedback must be owned by the current Automations surface',
+    );
+    assert.match(
+      renderer,
+      /useEffect\(\(\) => \{[\s\S]*navSelectionRef\.current = navSelection;[\s\S]*\}, \[navSelection\]\)/,
+      'navSelectionRef must track module switches while async plan actions are in flight',
+    );
+    for (const fn of [
+      'createPlanReminder',
+      'updatePlanReminder',
+      'togglePlanReminder',
+      'triggerPlanReminderNow',
+      'snoozePlanReminder',
+      'clearPlanReminderRunHistory',
+      'deletePlanReminder',
+    ]) {
+      const block = rendererFunctionBlock(renderer, fn);
+      assert.match(block, /await refreshPlanReminders\(\{ shouldShowError: isAutomationsSurfaceActive \}\)/, `${fn} must still refresh plan data after mutation`);
+      assert.doesNotMatch(
+        block,
+        /await refreshPlanReminders\(\);\s*toastApi\.(success|error)/,
+        `${fn} must not show visible feedback unconditionally after the user leaves Automations`,
+      );
+      assert.doesNotMatch(
+        block,
+        /await refreshPlanReminders\(\)/,
+        `${fn} refresh error feedback must use the current Automations surface owner`,
+      );
+      assert.match(
+        block,
+        /if \(isAutomationsSurfaceActive\(\)\) toastApi\.(success|error)/,
+        `${fn} visible feedback must be gated to the active Automations surface`,
+      );
+    }
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {

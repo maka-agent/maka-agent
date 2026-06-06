@@ -208,6 +208,7 @@ function AppShell() {
   const sessionsRef = useRef<SessionSummary[]>([]);
   const [activeId, setActiveIdState] = useState<string | undefined>();
   const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
+  const navSelectionRef = useRef<NavSelection>(navSelection);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [messageLoadErrorBySession, setMessageLoadErrorBySession] = useState<Record<string, string>>({});
   const [messageRetryPendingBySession, setMessageRetryPendingBySession] = useState<Record<string, boolean>>({});
@@ -781,9 +782,17 @@ function AppShell() {
     setActiveIdState(next);
   }
 
+  function isAutomationsSurfaceActive(): boolean {
+    return navSelectionRef.current.section === 'automations';
+  }
+
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
+
+  useEffect(() => {
+    navSelectionRef.current = navSelection;
+  }, [navSelection]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -1431,23 +1440,23 @@ function AppShell() {
     }
   }
 
-  async function refreshPlanReminders() {
+  async function refreshPlanReminders(options: { shouldShowError?: () => boolean } = {}) {
     try {
       const next = await window.maka.plans.list();
       setPlanReminders(next);
     } catch (error) {
-      toastApi.error('刷新计划失败', cleanErrorMessage(error));
+      if (options.shouldShowError?.() ?? true) toastApi.error('刷新计划失败', cleanErrorMessage(error));
     }
   }
 
   async function createPlanReminder(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }) {
     try {
       await window.maka.plans.create(input);
-      await refreshPlanReminders();
-      toastApi.success('已创建计划提醒', input.title);
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success('已创建计划提醒', input.title);
       return true;
     } catch (error) {
-      toastApi.error('创建计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('创建计划失败', cleanErrorMessage(error));
       return false;
     }
   }
@@ -1455,11 +1464,11 @@ function AppShell() {
   async function updatePlanReminder(id: string, patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget; enabled?: boolean }) {
     try {
       await window.maka.plans.update(id, patch);
-      await refreshPlanReminders();
-      toastApi.success('已保存计划提醒', patch.title);
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success('已保存计划提醒', patch.title);
       return true;
     } catch (error) {
-      toastApi.error('保存计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('保存计划失败', cleanErrorMessage(error));
       return false;
     }
   }
@@ -1467,10 +1476,10 @@ function AppShell() {
   async function togglePlanReminder(id: string, enabled: boolean) {
     try {
       await window.maka.plans.setEnabled(id, enabled);
-      await refreshPlanReminders();
-      toastApi.success(enabled ? '已启用提醒' : '已暂停提醒');
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success(enabled ? '已启用提醒' : '已暂停提醒');
     } catch (error) {
-      toastApi.error('更新计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('更新计划失败', cleanErrorMessage(error));
     }
   }
 
@@ -1478,10 +1487,10 @@ function AppShell() {
     const reminder = planReminders.find((entry) => entry.id === id);
     try {
       await window.maka.plans.triggerNow(id);
-      await refreshPlanReminders();
-      toastApi.success('已触发计划提醒', reminder?.title);
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success('已触发计划提醒', reminder?.title);
     } catch (error) {
-      toastApi.error('触发计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('触发计划失败', cleanErrorMessage(error));
     }
   }
 
@@ -1489,10 +1498,10 @@ function AppShell() {
     const reminder = planReminders.find((entry) => entry.id === id);
     try {
       await window.maka.plans.snooze(id);
-      await refreshPlanReminders();
-      toastApi.success('已延后 10 分钟', reminder?.title);
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success('已延后 10 分钟', reminder?.title);
     } catch (error) {
-      toastApi.error('延后计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('延后计划失败', cleanErrorMessage(error));
     }
   }
 
@@ -1508,10 +1517,10 @@ function AppShell() {
     if (!ok) return;
     try {
       await window.maka.plans.clearRunHistory(id);
-      await refreshPlanReminders();
-      toastApi.success('已清空执行记录', reminder?.title);
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success('已清空执行记录', reminder?.title);
     } catch (error) {
-      toastApi.error('清空记录失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('清空记录失败', cleanErrorMessage(error));
     }
   }
 
@@ -1527,10 +1536,10 @@ function AppShell() {
     if (!ok) return;
     try {
       await window.maka.plans.delete(id);
-      await refreshPlanReminders();
-      toastApi.success('已删除计划提醒');
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (isAutomationsSurfaceActive()) toastApi.success('已删除计划提醒');
     } catch (error) {
-      toastApi.error('删除计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) toastApi.error('删除计划失败', cleanErrorMessage(error));
     }
   }
 
