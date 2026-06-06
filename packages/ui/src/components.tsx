@@ -3601,30 +3601,38 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
 });
 
 function MessageCopyButton(props: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
+  const copyFeedback = useClipboardCopyFeedback(1400, { redact: false });
+  const copyPhase = copyFeedback.phaseFor('message');
+  const copyPending = copyPhase === 'pending';
+  const copied = copyPhase === 'copied';
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(props.text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable — silently fail, button stays in default state */
-    }
+    await copyFeedback.copy('message', props.text);
   }
 
   const baseLabel = props.label ?? '复制消息';
+  const actionLabel = copyPhase === 'pending'
+    ? '复制中'
+    : copyPhase === 'copied'
+      ? '已复制'
+      : copyPhase === 'failed'
+        ? '复制失败'
+        : baseLabel;
   return (
     <button
       type="button"
       className="maka-message-copy"
-      onClick={copy}
-      aria-label={copied ? `已复制 · ${baseLabel}` : baseLabel}
+      onClick={() => void copy()}
+      aria-label={copyPhase ? `${actionLabel} · ${baseLabel}` : baseLabel}
+      aria-busy={copyPending ? 'true' : undefined}
+      disabled={copyPending}
       data-copied={copied}
+      data-copy-feedback={copyPhase ?? undefined}
+      data-pending={copyPending ? 'true' : undefined}
       data-labelled={props.label ? 'true' : undefined}
     >
       {copied ? <Check size={14} strokeWidth={2} aria-hidden="true" /> : <Copy size={14} strokeWidth={1.75} aria-hidden="true" />}
-      {props.label && <span>{copied ? '已复制' : props.label}</span>}
+      {props.label && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : props.label}</span>}
     </button>
   );
 }
@@ -3787,17 +3795,14 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
   // child, but downstream rehype plugins may have layered classes on it.
   const code = isElementWithClassName(children) ? children : null;
   const lang = code?.props.className?.match(/language-([A-Za-z0-9_+-]+)/)?.[1]?.toLowerCase();
-  const [copied, setCopied] = useState(false);
+  const copyFeedback = useClipboardCopyFeedback(1400, { redact: false });
+  const copyPhase = copyFeedback.phaseFor('code');
+  const copyPending = copyPhase === 'pending';
+  const copied = copyPhase === 'copied';
 
   async function copy() {
     const text = collectCodeText(code?.props.children);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      /* clipboard unavailable */
-    }
+    await copyFeedback.copy('code', text);
   }
 
   return (
@@ -3807,9 +3812,13 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
         <button
           type="button"
           className="maka-code-block-copy"
-          onClick={copy}
-          aria-label={copied ? 'Copied' : 'Copy code'}
+          onClick={() => void copy()}
+          aria-label={copyPhase === 'pending' ? '复制代码中' : copyPhase === 'copied' ? '已复制代码' : copyPhase === 'failed' ? '复制代码失败' : '复制代码'}
+          aria-busy={copyPending ? 'true' : undefined}
+          disabled={copyPending}
           data-copied={copied}
+          data-copy-feedback={copyPhase ?? undefined}
+          data-pending={copyPending ? 'true' : undefined}
         >
           {copied
             ? <Check size={12} strokeWidth={2} aria-hidden="true" />
@@ -4619,7 +4628,7 @@ function turnAbortMarkerLabel(abortSource: string | undefined) {
 
 type ClipboardCopyPhase = 'pending' | 'copied' | 'failed';
 
-function useClipboardCopyFeedback(resetDelay = 1400) {
+function useClipboardCopyFeedback(resetDelay = 1400, options: { redact?: boolean } = {}) {
   const [copyState, setCopyState] = useState<{ key: string; phase: ClipboardCopyPhase } | null>(null);
   const pendingCopyRef = useRef<string | null>(null);
   const resetTimerRef = useRef<number | null>(null);
@@ -4646,7 +4655,7 @@ function useClipboardCopyFeedback(resetDelay = 1400) {
     clearResetTimer();
     setCopyState({ key, phase: 'pending' });
     try {
-      await navigator.clipboard.writeText(redactSecrets(text));
+      await navigator.clipboard.writeText(options.redact === false ? text : redactSecrets(text));
       settle(key, 'copied');
     } catch {
       settle(key, 'failed');

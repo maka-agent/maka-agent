@@ -1146,6 +1146,13 @@
   .maka-code-block-copy[data-copied="true"] {
     color: var(--success-text);
   }
+  .maka-code-block-copy[data-pending="true"] {
+    cursor: progress;
+    opacity: 0.78;
+  }
+  .maka-code-block-copy[data-copy-feedback="failed"] {
+    color: var(--destructive);
+  }
   .maka-bubble-assistant pre {
     margin: 0;
     padding: 12px 14px;
@@ -1330,6 +1337,16 @@
     color: var(--success-text);
     border-color: oklch(from var(--success) l c h / 0.4);
     background: oklch(from var(--success) l c h / 0.08);
+    opacity: 1;
+  }
+  .maka-message-copy[data-pending="true"] {
+    cursor: progress;
+    opacity: 1;
+  }
+  .maka-message-copy[data-copy-feedback="failed"] {
+    color: var(--destructive);
+    border-color: oklch(from var(--destructive) l c h / 0.35);
+    background: oklch(from var(--destructive) l c h / 0.08);
     opacity: 1;
   }
   /* Streaming caret — external design reference uses the half-block glyph ▎ tinted with

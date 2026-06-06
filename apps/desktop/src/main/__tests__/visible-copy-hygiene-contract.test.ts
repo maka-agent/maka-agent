@@ -303,8 +303,8 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /navigator\.clipboard\.writeText\(redactSecrets\(text\)\)/,
-      'The shared clipboard feedback helper must apply the renderer redaction boundary before writing.',
+      /navigator\.clipboard\.writeText\(options\.redact === false \? text : redactSecrets\(text\)\)/,
+      'The shared clipboard feedback helper must redact by default and require an explicit raw-copy opt-out.',
     );
     assert.match(
       src,
@@ -449,5 +449,56 @@ describe('tool error copy feedback contract', () => {
       /\.maka-tool-error-copy\[data-copy-feedback="failed"\]/,
       'Tool-error failed copy state should have a stable CSS selector.',
     );
+  });
+});
+
+describe('chat markdown copy feedback contract', () => {
+  it('gates assistant message copy without redacting the raw message markdown', async () => {
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const src = await readFile(componentsPath, 'utf8');
+    const block = src.match(/function MessageCopyButton[\s\S]*?const MARKDOWN_REMARK_PLUGINS/)?.[0] ?? '';
+
+    assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Message copy should preserve raw assistant markdown.');
+    assert.match(block, /await copyFeedback\.copy\('message', props\.text\)/, 'Message copy should route through the guarded helper.');
+    assert.match(block, /复制中/, 'Message copy should expose pending feedback.');
+    assert.match(block, /复制失败/, 'Message copy should expose failure feedback.');
+    assert.match(block, /aria-busy=\{copyPending \? 'true' : undefined\}/, 'Message copy should expose busy state.');
+    assert.match(block, /disabled=\{copyPending\}/, 'Message copy should disable while pending.');
+    assert.match(block, /data-copy-feedback=\{copyPhase \?\? undefined\}/, 'Message copy should expose stable copy state.');
+    assert.doesNotMatch(
+      block,
+      /navigator\.clipboard\.writeText\(props\.text\)|silently fail/,
+      'Message copy should not use a silent raw clipboard write.',
+    );
+  });
+
+  it('gates code-block copy and keeps code-copy accessibility copy Chinese-first', async () => {
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const src = await readFile(componentsPath, 'utf8');
+    const block = src.match(/function CodeBlock[\s\S]*?function isElementWithClassName/)?.[0] ?? '';
+
+    assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Code copy should preserve raw code text.');
+    assert.match(block, /await copyFeedback\.copy\('code', text\)/, 'Code copy should route through the guarded helper.');
+    assert.match(block, /复制代码中/, 'Code copy should expose pending feedback.');
+    assert.match(block, /已复制代码/, 'Code copy should expose success feedback.');
+    assert.match(block, /复制代码失败/, 'Code copy should expose failure feedback.');
+    assert.match(block, /aria-busy=\{copyPending \? 'true' : undefined\}/, 'Code copy should expose busy state.');
+    assert.match(block, /disabled=\{copyPending\}/, 'Code copy should disable while pending.');
+    assert.match(block, /data-copy-feedback=\{copyPhase \?\? undefined\}/, 'Code copy should expose stable copy state.');
+    assert.doesNotMatch(
+      block,
+      /navigator\.clipboard\.writeText\(text\)|Copy code|Copied|clipboard unavailable/,
+      'Code copy should not regress to English/silent copy feedback.',
+    );
+  });
+
+  it('keeps message and code copy pending/failure states visible', async () => {
+    const stylesPath = join(process.cwd(), 'src', 'renderer', 'maka-tokens.css');
+    const src = await readFile(stylesPath, 'utf8');
+
+    assert.match(src, /\.maka-message-copy\[data-pending="true"\]/, 'Message copy needs a visible pending selector.');
+    assert.match(src, /\.maka-message-copy\[data-copy-feedback="failed"\]/, 'Message copy needs a visible failed selector.');
+    assert.match(src, /\.maka-code-block-copy\[data-pending="true"\]/, 'Code copy needs a visible pending selector.');
+    assert.match(src, /\.maka-code-block-copy\[data-copy-feedback="failed"\]/, 'Code copy needs a visible failed selector.');
   });
 });
