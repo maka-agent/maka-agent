@@ -1586,7 +1586,19 @@
     min-height: var(--h-composer-min);
     max-height: 240px;
   }
-  .maka-composer textarea::placeholder { color: var(--foreground-40); }
+  .maka-composer textarea::placeholder {
+    color: var(--foreground-40);
+    /* PR-CHAT-COMPOSER-PLACEHOLDER-0 (WAWQAQ 10min loop):
+       fade the placeholder slightly when the textarea is focused
+       and not yet typed in, so the focus state reads as "we're
+       listening" instead of "the placeholder is just sitting
+       there." The fade is small (1 → 0.55) — enough to register,
+       small enough not to feel like a glitch. */
+    transition: opacity 180ms var(--ease-out-strong, ease-out);
+  }
+  .maka-composer textarea:focus::placeholder {
+    opacity: 0.55;
+  }
   .maka-composer-toolbar {
     display: flex;
     align-items: center;
