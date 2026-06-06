@@ -63,9 +63,11 @@ describe('module main surface contract', () => {
     const ui = await readRepo('packages/ui/src/components.tsx');
     const sidebarListBlock = ui.match(/<section className="maka-session-list"[\s\S]*?<footer className="maka-session-panel-footer">/)?.[0] ?? '';
     const skillsModeBlock = ui.match(/if \(props\.mode === 'skills'\) \{[\s\S]*?^\s*\}/m)?.[0] ?? '';
+    const skillsModuleMain = ui.match(/function SkillsModuleMain\([\s\S]*?function DailyReviewPanel/)?.[0] ?? '';
 
-    assert.match(skillsModeBlock, /className="maka-main detailPane maka-module-main" aria-label="技能"/);
-    assert.match(skillsModeBlock, /<SkillLibraryPanel/);
+    assert.match(skillsModeBlock, /<SkillsModuleMain/);
+    assert.match(skillsModuleMain, /className="maka-main detailPane maka-module-main" aria-label="技能"/);
+    assert.match(skillsModuleMain, /<SkillLibraryPanel/);
     assert.doesNotMatch(sidebarListBlock, /<SkillLibraryPanel/);
     assert.match(sidebarListBlock, /title="技能库"[\s\S]*body="已在右侧内容栏打开。"/);
   });

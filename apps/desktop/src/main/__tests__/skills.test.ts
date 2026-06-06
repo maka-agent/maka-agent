@@ -322,19 +322,27 @@ name: Writer
     const ui = await readFile(join(repoRoot, 'packages/ui/src/components.tsx'), 'utf8');
     const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
     const chatView = ui.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
+    const skillsModuleMain = ui.match(/function SkillsModuleMain\([\s\S]*?function DailyReviewPanel/)?.[0] ?? '';
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function formatSkillLibraryDescription/)?.[0] ?? '';
     const emptyState = ui.match(/export interface EmptyStateProps[\s\S]*?function SidebarModuleHint/)?.[0] ?? '';
 
-    assert.match(chatView, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
-    assert.match(chatView, /const pendingSkillActionRef = useRef<string \| null>\(null\)/);
-    assert.match(chatView, /async function runSkillAction\(/);
-    assert.match(chatView, /if \(!action \|\| pendingSkillActionRef\.current !== null\) return;/, 'Skills actions must reject duplicate clicks immediately');
-    assert.match(chatView, /pendingSkillActionRef\.current = actionKey[\s\S]*setPendingSkillAction\(actionKey\)[\s\S]*await action\(\)/, 'Skills actions must show pending state while waiting for renderer IPC');
-    assert.match(chatView, /pendingSkillActionRef\.current = null[\s\S]*setPendingSkillAction\(null\)/, 'Skills actions must clear pending state after completion');
-    assert.match(chatView, /disabled=\{!props\.onRefreshSkills \|\| skillActionBusy\}/, 'top refresh button must be disabled while any Skills action is pending');
-    assert.match(chatView, /pendingSkillAction === 'refresh' \? '刷新中…' : '刷新'/);
-    assert.match(chatView, /onCreateSkillTemplate=\{props\.onCreateSkillTemplate \? \(\) => runSkillAction\('create', props\.onCreateSkillTemplate\) : undefined\}/);
-    assert.match(chatView, /onOpenSkill=\{props\.onOpenSkill \? \(skillId\) => runSkillAction\(`open:\$\{skillId\}`, \(\) => props\.onOpenSkill\?\.\(skillId\)\) : undefined\}/);
+    assert.match(chatView, /if \(props\.mode === 'skills'\) \{[\s\S]*<SkillsModuleMain/, 'Skills mode must mount its own main surface component');
+    assert.match(skillsModuleMain, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
+    assert.match(skillsModuleMain, /const skillActionMountedRef = useRef\(true\)/);
+    assert.match(skillsModuleMain, /const pendingSkillActionRef = useRef<string \| null>\(null\)/);
+    assert.match(
+      skillsModuleMain,
+      /useEffect\(\(\) => \{\s*skillActionMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*skillActionMountedRef\.current = false;\s*pendingSkillActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
+      'Skills actions must release pending ownership when the module unmounts',
+    );
+    assert.match(skillsModuleMain, /async function runSkillAction\(/);
+    assert.match(skillsModuleMain, /if \(!action \|\| pendingSkillActionRef\.current !== null\) return;/, 'Skills actions must reject duplicate clicks immediately');
+    assert.match(skillsModuleMain, /pendingSkillActionRef\.current = actionKey[\s\S]*setPendingSkillAction\(actionKey\)[\s\S]*await action\(\)/, 'Skills actions must show pending state while waiting for renderer IPC');
+    assert.match(skillsModuleMain, /pendingSkillActionRef\.current = null[\s\S]*if \(skillActionMountedRef\.current\) setPendingSkillAction\(null\)/, 'Skills actions must not clear pending UI state after unmount');
+    assert.match(skillsModuleMain, /disabled=\{!props\.onRefreshSkills \|\| skillActionBusy\}/, 'top refresh button must be disabled while any Skills action is pending');
+    assert.match(skillsModuleMain, /pendingSkillAction === 'refresh' \? '刷新中…' : '刷新'/);
+    assert.match(skillsModuleMain, /onCreateSkillTemplate=\{props\.onCreateSkillTemplate \? \(\) => runSkillAction\('create', props\.onCreateSkillTemplate\) : undefined\}/);
+    assert.match(skillsModuleMain, /onOpenSkill=\{props\.onOpenSkill \? \(skillId\) => runSkillAction\(`open:\$\{skillId\}`, \(\) => props\.onOpenSkill\?\.\(skillId\)\) : undefined\}/);
 
     assert.match(skillPanel, /actionBusy\?: boolean/);
     assert.match(skillPanel, /createPending\?: boolean/);

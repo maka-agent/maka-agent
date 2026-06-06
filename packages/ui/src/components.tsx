@@ -854,6 +854,72 @@ function formatSkillLibraryDescription(skill: SkillEntry): string | undefined {
   return '打开技能文件查看适用场景。';
 }
 
+function SkillsModuleMain(props: {
+  skills?: SkillEntry[];
+  onRefreshSkills?(): void | Promise<void>;
+  onCreateSkillTemplate?(): void | Promise<void>;
+  onOpenSkill?(skillId: string): void | Promise<void>;
+}) {
+  const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
+  const skillActionMountedRef = useRef(true);
+  const pendingSkillActionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    skillActionMountedRef.current = true;
+    return () => {
+      skillActionMountedRef.current = false;
+      pendingSkillActionRef.current = null;
+    };
+  }, []);
+
+  async function runSkillAction(
+    actionKey: string,
+    action: (() => void | Promise<void>) | undefined,
+  ) {
+    if (!action || pendingSkillActionRef.current !== null) return;
+    pendingSkillActionRef.current = actionKey;
+    setPendingSkillAction(actionKey);
+    try {
+      await action();
+    } finally {
+      if (pendingSkillActionRef.current === actionKey) {
+        pendingSkillActionRef.current = null;
+        if (skillActionMountedRef.current) setPendingSkillAction(null);
+      }
+    }
+  }
+
+  const skillActionBusy = pendingSkillAction !== null;
+  return (
+    <main className="maka-main detailPane maka-module-main" aria-label="技能">
+      <header className="maka-module-main-header">
+        <div>
+          <h2>技能</h2>
+          <p>管理工作区里的 Skill 指令文件。</p>
+        </div>
+        <button
+          className="maka-button maka-button-ghost"
+          type="button"
+          onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
+          disabled={!props.onRefreshSkills || skillActionBusy}
+        >
+          {pendingSkillAction === 'refresh' ? '刷新中…' : '刷新'}
+        </button>
+      </header>
+      <SkillLibraryPanel
+        skills={props.skills}
+        onRefreshSkills={props.onRefreshSkills ? () => runSkillAction('refresh', props.onRefreshSkills) : undefined}
+        onCreateSkillTemplate={props.onCreateSkillTemplate ? () => runSkillAction('create', props.onCreateSkillTemplate) : undefined}
+        onOpenSkill={props.onOpenSkill ? (skillId) => runSkillAction(`open:${skillId}`, () => props.onOpenSkill?.(skillId)) : undefined}
+        actionBusy={skillActionBusy}
+        refreshPending={pendingSkillAction === 'refresh'}
+        createPending={pendingSkillAction === 'create'}
+        openingSkillId={pendingSkillAction?.startsWith('open:') ? pendingSkillAction.slice('open:'.length) : null}
+      />
+    </main>
+  );
+}
+
 /**
  * PR-DAILY-REVIEW-MVP-0: bridge handed in by `main.tsx`. Keeps
  * `@maka/ui` out of `window.maka` — the renderer wires
@@ -3185,8 +3251,6 @@ export function ChatView(props: {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
-  const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
-  const pendingSkillActionRef = useRef<string | null>(null);
 
   // Reset to "pinned at bottom" whenever the active session changes. Without
   // this, switching from a long history to a fresh chat would keep the
@@ -3243,52 +3307,14 @@ export function ChatView(props: {
     setPinnedToBottom(true);
   }
 
-  async function runSkillAction(
-    actionKey: string,
-    action: (() => void | Promise<void>) | undefined,
-  ) {
-    if (!action || pendingSkillActionRef.current !== null) return;
-    pendingSkillActionRef.current = actionKey;
-    setPendingSkillAction(actionKey);
-    try {
-      await action();
-    } finally {
-      if (pendingSkillActionRef.current === actionKey) {
-        pendingSkillActionRef.current = null;
-        setPendingSkillAction(null);
-      }
-    }
-  }
-
   if (props.mode === 'skills') {
-    const skillActionBusy = pendingSkillAction !== null;
     return (
-      <main className="maka-main detailPane maka-module-main" aria-label="技能">
-        <header className="maka-module-main-header">
-          <div>
-            <h2>技能</h2>
-            <p>管理工作区里的 Skill 指令文件。</p>
-          </div>
-          <button
-            className="maka-button maka-button-ghost"
-            type="button"
-            onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
-            disabled={!props.onRefreshSkills || skillActionBusy}
-          >
-            {pendingSkillAction === 'refresh' ? '刷新中…' : '刷新'}
-          </button>
-        </header>
-        <SkillLibraryPanel
-          skills={props.skills}
-          onRefreshSkills={props.onRefreshSkills ? () => runSkillAction('refresh', props.onRefreshSkills) : undefined}
-          onCreateSkillTemplate={props.onCreateSkillTemplate ? () => runSkillAction('create', props.onCreateSkillTemplate) : undefined}
-          onOpenSkill={props.onOpenSkill ? (skillId) => runSkillAction(`open:${skillId}`, () => props.onOpenSkill?.(skillId)) : undefined}
-          actionBusy={skillActionBusy}
-          refreshPending={pendingSkillAction === 'refresh'}
-          createPending={pendingSkillAction === 'create'}
-          openingSkillId={pendingSkillAction?.startsWith('open:') ? pendingSkillAction.slice('open:'.length) : null}
-        />
-      </main>
+      <SkillsModuleMain
+        skills={props.skills}
+        onRefreshSkills={props.onRefreshSkills}
+        onCreateSkillTemplate={props.onCreateSkillTemplate}
+        onOpenSkill={props.onOpenSkill}
+      />
     );
   }
 
