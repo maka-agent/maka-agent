@@ -78,6 +78,8 @@ const ToastContext = createContext<ToastApi | null>(null);
 export function ToastProvider(props: { children: ReactNode }) {
   const [toasts, setToasts] = useState<InternalToast[]>([]);
   const [confirmState, setConfirmState] = useState<PendingConfirm | null>(null);
+  const activeConfirmRef = useRef<PendingConfirm | null>(null);
+  const confirmQueueRef = useRef<PendingConfirm[]>([]);
   const idSeed = useRef(0);
 
   const dismiss = useCallback((id: string) => {
@@ -106,19 +108,39 @@ export function ToastProvider(props: { children: ReactNode }) {
 
   const confirm = useCallback((input: ConfirmInput): Promise<boolean> => {
     return new Promise((resolve) => {
-      setConfirmState({ ...input, resolve });
+      const request: PendingConfirm = { ...input, resolve };
+      if (activeConfirmRef.current) {
+        confirmQueueRef.current.push(request);
+        return;
+      }
+      activeConfirmRef.current = request;
+      setConfirmState(request);
     });
   }, []);
 
   const resolveConfirm = useCallback(
     (result: boolean) => {
-      setConfirmState((current) => {
-        if (current) current.resolve(result);
-        return null;
-      });
+      const current = activeConfirmRef.current;
+      if (!current) return;
+      activeConfirmRef.current = null;
+      current.resolve(result);
+      const next = confirmQueueRef.current.shift() ?? null;
+      activeConfirmRef.current = next;
+      setConfirmState(next);
     },
     [],
   );
+
+  useEffect(() => {
+    return () => {
+      activeConfirmRef.current?.resolve(false);
+      activeConfirmRef.current = null;
+      for (const pending of confirmQueueRef.current) {
+        pending.resolve(false);
+      }
+      confirmQueueRef.current = [];
+    };
+  }, []);
 
   const api = useMemo<ToastApi>(
     () => ({
