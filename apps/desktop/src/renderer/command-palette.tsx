@@ -72,7 +72,7 @@ export function buildCommandList(args: {
   connections: LlmConnection[];
   defaultSlug: string | null;
   onSelectSession(id: string): void;
-  onNewChat(): void;
+  onNewChat(): Promise<void> | void;
   onStartDeepResearch?(): Promise<void> | void;
   onOpenSettings(): void;
   onOpenSettingsSection(section: SettingsSection): void;
@@ -180,7 +180,7 @@ export function buildCommandList(args: {
           group: '操作',
           Icon: Sparkles,
           keywords: ['deep', 'research', 'explore', 'readonly', '研究', '深度', '探索', '只读'],
-          run: () => void args.onStartDeepResearch!(),
+          run: () => args.onStartDeepResearch!(),
         }]
       : []),
     ...(args.onStartPlanReminder
@@ -317,7 +317,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: FolderOpen,
       keywords: ['workspace', 'folder', 'open', 'finder', '工作区', '文件夹', '目录'],
-      run: () => void args.onOpenWorkspace!(),
+      run: () => args.onOpenWorkspace!(),
     });
   }
   if (args.onOpenProjectFolder) {
@@ -329,7 +329,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: FolderOpen,
       keywords: ['project', 'folder', 'open', 'finder', '项目', '目录', '文件夹'],
-      run: () => void args.onOpenProjectFolder!(),
+      run: () => args.onOpenProjectFolder!(),
     });
   }
   if (args.onOpenSkillsFolder) {
@@ -341,7 +341,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: FolderOpen,
       keywords: ['skills', 'folder', 'open', 'finder', '技能', '文件夹'],
-      run: () => void args.onOpenSkillsFolder!(),
+      run: () => args.onOpenSkillsFolder!(),
     });
   }
   if (args.onExportActiveConversation && args.activeSessionId) {
@@ -353,7 +353,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: Download,
       keywords: ['export', 'markdown', 'copy', 'conversation', '导出', '对话', '剪贴板', 'md'],
-      run: () => void args.onExportActiveConversation!(),
+      run: () => args.onExportActiveConversation!(),
     });
   }
   if (args.onSaveActiveConversationToFile && args.activeSessionId) {
@@ -365,7 +365,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: Download,
       keywords: ['save', 'file', 'markdown', 'conversation', 'export', '保存', '文件', '对话', '导出', 'md'],
-      run: () => void args.onSaveActiveConversationToFile!(),
+      run: () => args.onSaveActiveConversationToFile!(),
     });
   }
   if (args.onCopyTodayDailyReview) {
@@ -377,7 +377,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: CalendarDays,
       keywords: ['daily', 'review', 'today', 'copy', 'markdown', '今日', '回顾', '复制', '剪贴板'],
-      run: () => void args.onCopyTodayDailyReview!(),
+      run: () => args.onCopyTodayDailyReview!(),
     });
   }
   if (args.onPasteTodayDailyReviewIntoComposer && args.activeSessionId) {
@@ -389,7 +389,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: CalendarDays,
       keywords: ['daily', 'review', 'paste', 'composer', '今日', '回顾', '粘贴', '输入框'],
-      run: () => void args.onPasteTodayDailyReviewIntoComposer!(),
+      run: () => args.onPasteTodayDailyReviewIntoComposer!(),
     });
   }
   if (args.onSaveTodayDailyReviewToFile) {
@@ -401,7 +401,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: CalendarDays,
       keywords: ['daily', 'review', 'save', 'file', 'export', 'markdown', '今日', '回顾', '保存', '文件', '导出'],
-      run: () => void args.onSaveTodayDailyReviewToFile!(),
+      run: () => args.onSaveTodayDailyReviewToFile!(),
     });
   }
   if (args.onCopyEnvSummary) {
@@ -413,7 +413,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: Database,
       keywords: ['env', 'environment', 'version', 'about', 'bug', 'report', '环境', '版本', '关于', '诊断', '汇报'],
-      run: () => void args.onCopyEnvSummary!(),
+      run: () => args.onCopyEnvSummary!(),
     });
   }
   if (args.onTestNetworkProxy) {
@@ -425,7 +425,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: Wifi,
       keywords: ['network', 'proxy', 'test', 'ping', '网络', '代理', '测试', '连接', '诊断'],
-      run: () => void args.onTestNetworkProxy!(),
+      run: () => args.onTestNetworkProxy!(),
     });
   }
   if (args.onOpenLocalMemoryFile) {
@@ -437,7 +437,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: FolderOpen,
       keywords: ['memory', 'md', 'open', '记忆', '本地', '编辑', 'edit'],
-      run: () => void args.onOpenLocalMemoryFile!(),
+      run: () => args.onOpenLocalMemoryFile!(),
     });
   }
   if (args.onOpenWorkspaceInstructionsFile) {
@@ -449,7 +449,7 @@ export function buildCommandList(args: {
       group: '诊断',
       Icon: FolderOpen,
       keywords: ['workspace', 'instructions', 'agents', 'claude', 'md', 'open', '项目', '指引', '本地'],
-      run: () => void args.onOpenWorkspaceInstructionsFile!(),
+      run: () => args.onOpenWorkspaceInstructionsFile!(),
     });
   }
   if (args.onSetPermissionMode && args.activeSessionId) {
@@ -469,7 +469,7 @@ export function buildCommandList(args: {
         group: '权限',
         Icon: ShieldCheck,
         keywords: [entry.id, 'permission', 'mode', '权限', '模式'],
-        run: () => void setMode(entry.id),
+        run: () => setMode(entry.id),
       });
     }
   }
@@ -484,7 +484,7 @@ export function buildCommandList(args: {
         group: '诊断',
         Icon: Plug,
         keywords: ['test', 'connection', 'verify', '测试', '连接', '验证', 'default', '默认'],
-        run: () => void args.onTestConnection!(defaultConnection.slug),
+        run: () => args.onTestConnection!(defaultConnection.slug),
       });
     }
   }
@@ -505,7 +505,7 @@ export function buildCommandList(args: {
           group: '连接',
           Icon: Wifi,
           keywords: ['default', 'connection', '默认', '连接', connection.name, connection.providerType],
-          run: () => void args.onSetDefaultConnection!(connection.slug),
+          run: () => args.onSetDefaultConnection!(connection.slug),
         });
       }
       if (args.onTestConnection && !isDefault) {
@@ -517,7 +517,7 @@ export function buildCommandList(args: {
           group: '连接',
           Icon: Plug,
           keywords: ['test', 'connection', '测试', '连接', connection.name, connection.providerType],
-          run: () => void args.onTestConnection!(connection.slug),
+          run: () => args.onTestConnection!(connection.slug),
         });
       }
     }
@@ -627,8 +627,13 @@ export function CommandPalette(props: {
     if (cmd.disabled) return;
     commitPendingRef.current = true;
     setCommittedCommandId(cmd.id);
-    cmd.run();
-    props.onClose();
+    void (async () => {
+      try {
+        await cmd.run();
+      } finally {
+        props.onClose();
+      }
+    })().catch(() => undefined);
   }
 
   function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {

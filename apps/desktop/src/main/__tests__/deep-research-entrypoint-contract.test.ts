@@ -13,7 +13,7 @@ describe('deep research command entrypoint contract', () => {
     assert.match(src, /id:\s*'action:new-deep-research'/);
     assert.match(src, /label:\s*'新建深度研究'/);
     assert.match(src, /hint:\s*'只读探索'/);
-    assert.match(src, /run:\s*\(\)\s*=>\s*void args\.onStartDeepResearch!\(\)/);
+    assert.match(src, /run:\s*\(\)\s*=>\s*args\.onStartDeepResearch!\(\)/);
   });
 
   it('main wires the command to the existing deep_research Quick Chat path', async () => {
@@ -21,8 +21,8 @@ describe('deep research command entrypoint contract', () => {
 
     assert.match(
       src,
-      /onStartDeepResearch:\s*\(\)\s*=>\s*void handleQuickChatSubmit\('',\s*'deep_research'\)/,
-      'deep research palette action must create the same explore-mode session as first-run Quick Chat',
+      /onStartDeepResearch:\s*async \(\)\s*=>\s*\{[\s\S]*await handleQuickChatSubmit\('',\s*'deep_research'\);[\s\S]*\}/,
+      'deep research palette action must create the same explore-mode session as first-run Quick Chat and return the pending promise to the palette',
     );
   });
 });
