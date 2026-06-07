@@ -3038,19 +3038,24 @@ function AppShell() {
               }
             },
             onPasteTodayDailyReviewIntoComposer: async () => {
+              const owner = captureComposerImportOwner();
+              if (!owner.sessionId) return;
               try {
                 const summary = await dailyReviewBridge.fetchDay(0, 1);
                 const markdown = formatDailyReviewMarkdown(summary, '今天');
+                if (!isComposerImportOwnerActive(owner)) return;
                 composerRef.current?.appendText(markdown);
                 toastApi.success(
                   '已追加今日回顾到输入框',
                   `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
                 );
               } catch (err) {
-                toastApi.error(
-                  '粘贴失败',
-                  dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，请稍后重试。'),
-                );
+                if (isComposerImportOwnerActive(owner)) {
+                  toastApi.error(
+                    '粘贴失败',
+                    dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，请稍后重试。'),
+                  );
+                }
               }
             },
             onSaveTodayDailyReviewToFile: async () => {
