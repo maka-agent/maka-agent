@@ -68,7 +68,14 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(globalTypes, /setModel\(sessionId: string, input: \{ llmConnectionSlug: string; model: string \}\): Promise<SessionSummary>/);
     assert.match(renderer, /modelChoices=\{chatModelChoices\}/);
     assert.match(renderer, /const pendingSessionModelChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(renderer, /const \[pendingSessionModelBySession, setPendingSessionModelBySession\] = useState<Record<string, boolean>>\(\{\}\);/);
     assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
+    assert.match(
+      renderer,
+      /pendingSessionModelChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingSessionModelBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/,
+      'app shell must expose per-session model pending state so switching away and back does not make a guarded request look idle',
+    );
+    assert.match(renderer, /delete next\[sessionId\];/);
     assert.match(
       renderer,
       /const next = await window\.maka\.sessions\.setModel\(sessionId, input\);[\s\S]*setSessions\([\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.success\([\s\S]*已切换当前会话模型/,
@@ -91,14 +98,19 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(renderer, /onModelChange=\{\(input\) => setSessionModel\(input\)\}/);
     assert.doesNotMatch(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
+    assert.match(renderer, /modelChangePending=\{activeId \? pendingSessionModelBySession\[activeId\] === true : false\}/);
     assert.match(renderer, /PROVIDER_DEFAULTS\[connection\.providerType\]/);
     assert.match(renderer, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(model\.trim\(\)\)/);
     assert.match(ui, /function ChatModelSwitcher/);
+    assert.match(ui, /modelChangePending\?: boolean/);
+    assert.match(ui, /pending=\{props\.modelChangePending\}/);
     assert.match(ui, /activeModel\?: string/);
     assert.match(ui, /const currentModel = props\.activeModel \?\? props\.activeSession\.model/);
     assert.match(ui, /aria-label="切换当前会话模型"/);
-    assert.match(ui, /const \[pending,\s*setPending\] = useState\(false\);/);
+    assert.match(ui, /pending\?: boolean/);
+    assert.match(ui, /const \[localPending,\s*setLocalPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
+    assert.match(ui, /const pending = props\.pending \|\| localPending;/);
     assert.match(ui, /const modelSwitcherMountedRef = useRef\(true\);/);
     assert.match(ui, /const pendingModelChangeRef = useRef<\{ sessionId: string; token: number \} \| null>\(null\);/);
     assert.match(ui, /const pendingModelChangeTokenRef = useRef\(0\);/);
@@ -109,14 +121,14 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(
       ui,
-      /useEffect\(\(\) => \{[\s\S]*pendingModelChangeRef\.current\?\.sessionId === props\.activeSession\.id[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*setPending\(false\);[\s\S]*\}, \[props\.activeSession\.id\]\);/,
+      /useEffect\(\(\) => \{[\s\S]*pendingModelChangeRef\.current\?\.sessionId === props\.activeSession\.id[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingModelChangeTokenRef\.current \+= 1;[\s\S]*pendingRef\.current = false;[\s\S]*setLocalPending\(false\);[\s\S]*\}, \[props\.activeSession\.id\]\);/,
       'model switcher must release row-local pending state when the active session changes',
     );
-    assert.match(ui, /if \(pendingRef\.current\) return;/);
+    assert.match(ui, /if \(pendingRef\.current \|\| props\.pending\) return;/);
     assert.match(ui, /const sessionId = props\.activeSession\.id;[\s\S]*const token = pendingModelChangeTokenRef\.current \+ 1;[\s\S]*pendingModelChangeRef\.current = \{ sessionId, token \};/);
     assert.match(
       ui,
-      /Promise\.resolve\(\)[\s\S]*\.then\(\(\) => props\.onChange\?\.\(next\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*const owner = pendingModelChangeRef\.current;[\s\S]*modelSwitcherMountedRef\.current && owner\?\.sessionId === sessionId && owner\.token === token[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingRef\.current = false;[\s\S]*setPending\(false\);/,
+      /Promise\.resolve\(\)[\s\S]*\.then\(\(\) => props\.onChange\?\.\(next\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*const owner = pendingModelChangeRef\.current;[\s\S]*modelSwitcherMountedRef\.current && owner\?\.sessionId === sessionId && owner\.token === token[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingRef\.current = false;[\s\S]*setLocalPending\(false\);/,
       'model switcher must only clear pending state for the matching session/token owner',
     );
     assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);

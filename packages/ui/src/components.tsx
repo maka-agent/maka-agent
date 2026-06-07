@@ -3153,6 +3153,7 @@ export function ChatView(props: {
    *  avoid bringing the full provider SVG library into @maka/ui. */
   renderProviderMark?(type: ProviderType): ReactNode;
   modelChoices?: ChatModelChoice[];
+  modelChangePending?: boolean;
   onModelChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
   /** Personalized user label shown on user messages. Falls back to "你". */
   userLabel?: string;
@@ -3460,6 +3461,7 @@ export function ChatView(props: {
           activeSession={props.activeSession}
           activeModel={props.activeModelLabel}
           choices={props.modelChoices ?? []}
+          pending={props.modelChangePending}
           disabledReason={modelSwitcherDisabledReason}
           onChange={props.onModelChange}
         />
@@ -3620,16 +3622,18 @@ function ChatModelSwitcher(props: {
   activeSession: SessionSummary;
   activeModel?: string;
   choices: ChatModelChoice[];
+  pending?: boolean;
   disabledReason?: string;
   onChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
 }) {
-  const [pending, setPending] = useState(false);
+  const [localPending, setLocalPending] = useState(false);
   const pendingRef = useRef(false);
   const modelSwitcherMountedRef = useRef(true);
   const pendingModelChangeRef = useRef<{ sessionId: string; token: number } | null>(null);
   const pendingModelChangeTokenRef = useRef(0);
   const currentModel = props.activeModel ?? props.activeSession.model;
   const currentValue = modelChoiceValue(props.activeSession.llmConnectionSlug, currentModel);
+  const pending = props.pending || localPending;
   const disabled = pending || Boolean(props.disabledReason) || !props.onChange || props.choices.length === 0;
   const grouped = groupModelChoices(props.choices);
   const title = pending
@@ -3651,7 +3655,7 @@ function ChatModelSwitcher(props: {
     pendingModelChangeRef.current = null;
     pendingModelChangeTokenRef.current += 1;
     pendingRef.current = false;
-    setPending(false);
+    setLocalPending(false);
   }, [props.activeSession.id]);
 
   return (
@@ -3669,7 +3673,7 @@ function ChatModelSwitcher(props: {
         value={currentValue}
         disabled={disabled}
         onChange={(event) => {
-          if (pendingRef.current) return;
+          if (pendingRef.current || props.pending) return;
           const next = parseModelChoiceValue(event.currentTarget.value);
           if (!next) return;
           if (
@@ -3683,7 +3687,7 @@ function ChatModelSwitcher(props: {
           pendingModelChangeTokenRef.current = token;
           pendingModelChangeRef.current = { sessionId, token };
           pendingRef.current = true;
-          setPending(true);
+          setLocalPending(true);
           void Promise.resolve()
             .then(() => props.onChange?.(next))
             .finally(() => {
@@ -3691,7 +3695,7 @@ function ChatModelSwitcher(props: {
               if (modelSwitcherMountedRef.current && owner?.sessionId === sessionId && owner.token === token) {
                 pendingModelChangeRef.current = null;
                 pendingRef.current = false;
-                setPending(false);
+                setLocalPending(false);
               }
             });
         }}
