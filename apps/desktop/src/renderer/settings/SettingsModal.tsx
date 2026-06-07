@@ -3852,7 +3852,7 @@ function MemoryEntryList(props: {
       {props.entries.length === 0 ? (
         <p className="settingsMemoryEntryEmpty">{props.filtered ? '无匹配条目。' : '暂无条目。'}</p>
       ) : (
-        <div className="settingsMemoryEntryList">
+        <div className="settingsMemoryEntryList" role="list" aria-label={`${props.title}列表`}>
           {props.entries.map((entry) => {
             const copyPending = props.pendingCopyIds?.has(`entry:${entry.id}:copy`) ?? false;
             const statusActionLabel = props.draftDirty
@@ -3866,7 +3866,7 @@ function MemoryEntryList(props: {
               ? `${statusActionLabel}，保存前不会写入 MEMORY.md`
               : undefined;
             return (
-              <article className="settingsMemoryEntryCard" key={entry.id}>
+              <article className="settingsMemoryEntryCard" role="listitem" key={entry.id}>
                 <strong>{entry.title}</strong>
                 <small className="settingsMemoryEntryMeta">
                   {memoryOriginLabel(entry.origin)}

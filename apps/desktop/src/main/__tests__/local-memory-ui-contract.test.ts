@@ -130,6 +130,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(src, /\.\.\.entry\.tags/);
     assert.match(src, /memoryOriginLabel\(entry\.origin\)/);
     assert.match(src, /无匹配条目/);
+    assert.match(src, /<div className="settingsMemoryEntryList" role="list" aria-label=\{`\$\{props\.title\}列表`\}>/);
+    assert.match(src, /<article className="settingsMemoryEntryCard" role="listitem" key=\{entry\.id\}>/);
   });
 
   it('keeps archived entries visually available without using hidden placeholder copy', async () => {
