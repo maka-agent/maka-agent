@@ -141,11 +141,14 @@ describe('permission mode transition guard copy', () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
     const chatShellBlock = ui.match(/const permissionModeDisabledReason[\s\S]*?<PermissionModeSwitcher/)?.[0] ?? '';
 
+    assert.match(chatShellBlock, /props\.permissionModePending/);
+    assert.match(chatShellBlock, /权限模式正在切换，完成后再继续操作。/);
     assert.match(chatShellBlock, /status === 'running'/);
     assert.match(chatShellBlock, /当前对话正在运行，等结束后再切换权限模式。/);
     assert.match(chatShellBlock, /status === 'waiting_for_user'/);
     assert.match(chatShellBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
     assert.match(ui, /disabledReason=\{permissionModeDisabledReason\}/);
+    assert.match(ui, /pending=\{props\.permissionModePending\}/);
   });
 
   it('supports standard radiogroup keyboard navigation on the mode switcher', async () => {
@@ -153,6 +156,12 @@ describe('permission mode transition guard copy', () => {
     const switcherBlock = ui.match(/function PermissionModeSwitcher[\s\S]*?function createAbsoluteTimeFormat/)?.[0] ?? '';
 
     assert.match(switcherBlock, /role="radiogroup"[\s\S]*aria-label="权限模式"/);
+    assert.match(switcherBlock, /pending\?: boolean/);
+    assert.match(switcherBlock, /if \(props\.pending \|\| props\.disabled \|\| !props\.onChange\) return;/);
+    assert.match(switcherBlock, /data-pending=\{props\.pending \? 'true' : undefined\}/);
+    assert.match(switcherBlock, /aria-busy=\{props\.pending \? 'true' : undefined\}/);
+    assert.match(switcherBlock, /disabled=\{props\.pending \|\| props\.disabled \|\| !props\.onChange\}/);
+    assert.match(switcherBlock, /!props\.pending && !props\.disabled && props\.onChange/);
     assert.match(switcherBlock, /onKeyDown=\{changeModeByKeyboard\}/);
     assert.match(switcherBlock, /case 'ArrowRight':[\s\S]*case 'ArrowDown':[\s\S]*currentIndex \+ 1/);
     assert.match(switcherBlock, /case 'ArrowLeft':[\s\S]*case 'ArrowUp':[\s\S]*currentIndex - 1/);
@@ -168,11 +177,13 @@ describe('permission mode transition guard copy', () => {
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
 
     assert.match(renderer, /const pendingPermissionModeChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
+    assert.match(renderer, /const \[pendingPermissionModeBySession, setPendingPermissionModeBySession\] = useState<Record<string, boolean>>\(\{\}\);/);
     assert.match(
       setPermissionModeBlock,
       /const sessionId = activeIdRef\.current;[\s\S]*if \(!sessionId\) return;[\s\S]*pendingPermissionModeChangesRef\.current\.has\(sessionId\)/,
       'Permission mode changes must capture the active session id and gate duplicate changes for that session',
     );
+    assert.match(setPermissionModeBlock, /pendingPermissionModeChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingPermissionModeBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/);
     assert.match(setPermissionModeBlock, /sessionsRef\.current\.find\(\(session\) => session\.id === sessionId\)/);
     assert.match(setPermissionModeBlock, /window\.maka\.sessions\.setPermissionMode\(sessionId, mode\)/);
     assert.match(
@@ -188,6 +199,10 @@ describe('permission mode transition guard copy', () => {
       'Permission mode failures must use shared Chinese error classification/redaction before reaching toast',
     );
     assert.match(setPermissionModeBlock, /finally \{[\s\S]*pendingPermissionModeChangesRef\.current\.delete\(sessionId\);[\s\S]*\}/);
+    assert.match(setPermissionModeBlock, /delete next\[sessionId\];/);
+    assert.match(renderer, /permissionModePending=\{activeId \? pendingPermissionModeBySession\[activeId\] === true : false\}/);
+    assert.match(renderer, /onPermissionModeChange=\{\(mode\) => setPermissionMode\(mode\)\}/);
+    assert.doesNotMatch(renderer, /onPermissionModeChange=\{\(mode\) => void setPermissionMode\(mode\)\}/);
     assert.doesNotMatch(
       setPermissionModeBlock,
       /error instanceof Error \? error\.message : String\(error\)/,

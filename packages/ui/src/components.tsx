@@ -3268,7 +3268,8 @@ export function ChatView(props: {
   onBranchBannerClick?: (parentSessionId: string) => void;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
-  onPermissionModeChange?(mode: PermissionMode): void;
+  permissionModePending?: boolean;
+  onPermissionModeChange?(mode: PermissionMode): void | Promise<void>;
 }) {
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
@@ -3399,13 +3400,15 @@ export function ChatView(props: {
   }
 
   const streaming = props.streamingText.length > 0;
-  const permissionModeDisabledReason = streaming
-    ? '当前对话正在流式输出，等结束后再切换权限模式。'
-    : props.activeSession?.status === 'running'
-      ? '当前对话正在运行，等结束后再切换权限模式。'
-      : props.activeSession?.status === 'waiting_for_user'
-        ? '当前有工具调用正在等待确认，处理后再切换权限模式。'
-        : undefined;
+  const permissionModeDisabledReason = props.permissionModePending
+    ? '权限模式正在切换，完成后再继续操作。'
+    : streaming
+      ? '当前对话正在流式输出，等结束后再切换权限模式。'
+      : props.activeSession?.status === 'running'
+        ? '当前对话正在运行，等结束后再切换权限模式。'
+        : props.activeSession?.status === 'waiting_for_user'
+          ? '当前有工具调用正在等待确认，处理后再切换权限模式。'
+          : undefined;
   const switcherDisabled = Boolean(permissionModeDisabledReason) || !props.activeSession || !props.onPermissionModeChange;
   const modelSwitcherDisabledReason = streaming
     ? '当前对话正在流式输出，等结束后再切换模型。'
@@ -3491,6 +3494,7 @@ export function ChatView(props: {
           mode={props.activeSession.permissionMode}
           disabled={switcherDisabled}
           disabledReason={permissionModeDisabledReason}
+          pending={props.permissionModePending}
           onChange={props.onPermissionModeChange}
         />
       </header>
@@ -4309,11 +4313,12 @@ function PermissionModeSwitcher(props: {
   mode: PermissionMode;
   disabled?: boolean;
   disabledReason?: string;
-  onChange?(mode: PermissionMode): void;
+  pending?: boolean;
+  onChange?(mode: PermissionMode): void | Promise<void>;
 }) {
   const active = PERMISSION_MODE_META[props.mode];
   const changeModeByKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (props.disabled || !props.onChange) return;
+    if (props.pending || props.disabled || !props.onChange) return;
     const currentIndex = PERMISSION_MODE_ORDER.indexOf(props.mode);
     if (currentIndex === -1) return;
     let nextIndex: number | null = null;
@@ -4352,7 +4357,9 @@ function PermissionModeSwitcher(props: {
       role="radiogroup"
       aria-label="权限模式"
       data-disabled={props.disabled || undefined}
-      title={props.disabledReason ?? active.hint}
+      data-pending={props.pending ? 'true' : undefined}
+      aria-busy={props.pending ? 'true' : undefined}
+      title={props.pending ? '权限模式正在切换，完成后再继续操作。' : props.disabledReason ?? active.hint}
       onKeyDown={changeModeByKeyboard}
     >
       {PERMISSION_MODE_ORDER.map((mode) => {
@@ -4364,13 +4371,13 @@ function PermissionModeSwitcher(props: {
             type="button"
             role="radio"
             aria-checked={isActive}
-            disabled={props.disabled || !props.onChange}
+            disabled={props.pending || props.disabled || !props.onChange}
             data-active={isActive}
             data-mode={mode}
             data-tone={meta.tone}
             className="maka-mode-switcher-option"
             onClick={() => {
-              if (!props.disabled && props.onChange && mode !== props.mode) {
+              if (!props.pending && !props.disabled && props.onChange && mode !== props.mode) {
                 props.onChange(mode);
               }
             }}

@@ -511,6 +511,7 @@ function AppShell() {
   const pendingTurnActionTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingSessionRowActionsRef = useRef<Set<string>>(new Set());
   const pendingPermissionModeChangesRef = useRef<Set<string>>(new Set());
+  const [pendingPermissionModeBySession, setPendingPermissionModeBySession] = useState<Record<string, boolean>>({});
   const pendingSessionModelChangesRef = useRef<Set<string>>(new Set());
   const pendingKeyOf = (sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']) =>
     `${sessionId}:${turnId}:${actionId}`;
@@ -978,6 +979,7 @@ function AppShell() {
       }
       pendingTurnActionTimersRef.current.clear();
       pendingTurnActionsRef.current.clear();
+      pendingPermissionModeChangesRef.current.clear();
       window.removeEventListener('keydown', onKeyDown);
     };
   }, []);
@@ -1421,6 +1423,7 @@ function AppShell() {
     const current = sessionsRef.current.find((session) => session.id === sessionId);
     if (!current || current.permissionMode === mode) return;
     pendingPermissionModeChangesRef.current.add(sessionId);
+    setPendingPermissionModeBySession((current) => ({ ...current, [sessionId]: true }));
     try {
       const next = await window.maka.sessions.setPermissionMode(sessionId, mode);
       // Patch the session in-place so the chat header reflects the new mode
@@ -1444,6 +1447,12 @@ function AppShell() {
       }
     } finally {
       pendingPermissionModeChangesRef.current.delete(sessionId);
+      setPendingPermissionModeBySession((current) => {
+        if (!current[sessionId]) return current;
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
     }
   }
 
@@ -2814,7 +2823,8 @@ function AppShell() {
                 }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
-                onPermissionModeChange={(mode) => void setPermissionMode(mode)}
+                permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
+                onPermissionModeChange={(mode) => setPermissionMode(mode)}
               />
               <Composer
                 ref={composerRef}
