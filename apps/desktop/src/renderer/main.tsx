@@ -588,6 +588,32 @@ function AppShell() {
     });
   }
 
+  function omitSessionKey<T>(current: Record<string, T>, sessionId: string): Record<string, T> {
+    if (!(sessionId in current)) return current;
+    const next = { ...current };
+    delete next[sessionId];
+    return next;
+  }
+
+  function clearSessionRendererState(sessionId: string): void {
+    messageRetryPendingRef.current.delete(sessionId);
+    stopPendingRef.current.delete(sessionId);
+    clearPendingTurnActionsForSession(sessionId);
+    pendingPermissionModeChangesRef.current.delete(sessionId);
+    pendingSessionModelChangesRef.current.delete(sessionId);
+    setMessageRetryPendingBySession((current) => omitSessionKey(current, sessionId));
+    setStopPendingBySession((current) => omitSessionKey(current, sessionId));
+    setPendingPermissionModeBySession((current) => omitSessionKey(current, sessionId));
+    setPendingSessionModelBySession((current) => omitSessionKey(current, sessionId));
+    setMessageLoadErrorBySession((current) => omitSessionKey(current, sessionId));
+    setStreamingBySession((current) => omitSessionKey(current, sessionId));
+    setThinkingBySession((current) => omitSessionKey(current, sessionId));
+    setThinkingTruncatedBySession((current) => omitSessionKey(current, sessionId));
+    setLiveToolsBySession((current) => omitSessionKey(current, sessionId));
+    setPermissionBySession((current) => omitSessionKey(current, sessionId));
+    setSessionEventHealthBySession((current) => omitSessionKey(current, sessionId));
+  }
+
   // PR109e: per-turn auxiliary view-model. Combines:
   //  - footer actions (PR109d) — status + lineage + pending
   //  - failed reason label (PR109e-d) — errorClass → Chinese via
@@ -917,32 +943,7 @@ function AppShell() {
         const deletedSessionId = event.sessionId;
         setActiveId(undefined);
         setMessages([]);
-        clearPendingMessageRetry(deletedSessionId);
-        setMessageLoadErrorBySession((current) => {
-          const next = { ...current };
-          delete next[deletedSessionId];
-          return next;
-        });
-        setStreamingBySession((current) => {
-          const next = { ...current };
-          delete next[deletedSessionId];
-          return next;
-        });
-        setLiveToolsBySession((current) => {
-          const next = { ...current };
-          delete next[deletedSessionId];
-          return next;
-        });
-        setPermissionBySession((current) => {
-          const next = { ...current };
-          delete next[deletedSessionId];
-          return next;
-        });
-        setSessionEventHealthBySession((current) => {
-          const next = { ...current };
-          delete next[deletedSessionId];
-          return next;
-        });
+        clearSessionRendererState(deletedSessionId);
       }
     });
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
@@ -1385,12 +1386,7 @@ function AppShell() {
         if (activeIdRef.current === sessionId) {
           setActiveId(undefined);
           setMessages([]);
-          clearPendingMessageRetry(sessionId);
-          setMessageLoadErrorBySession((current) => {
-            const next = { ...current };
-            delete next[sessionId];
-            return next;
-          });
+          clearSessionRendererState(sessionId);
         }
         await refreshSessions();
       } catch (error) {
@@ -1505,13 +1501,8 @@ function AppShell() {
         if (activeIdRef.current === sessionId) {
           setActiveId(undefined);
           setMessages([]);
-          clearPendingMessageRetry(sessionId);
         }
-        setMessageLoadErrorBySession((current) => {
-          const next = { ...current };
-          delete next[sessionId];
-          return next;
-        });
+        clearSessionRendererState(sessionId);
         await refreshSessions();
         toastApi.success(`已删除 ${name}`);
       } catch (error) {

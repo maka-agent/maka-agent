@@ -39,6 +39,47 @@ describe('session row actions fail soft', () => {
     assert.doesNotMatch(main, /onToggleFlag: \(sessionId, next\) => void flagSession\(sessionId, next\)/);
   });
 
+  it('cleans active session renderer state consistently after archive or delete', async () => {
+    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const cleanupBlock = main.slice(
+      main.indexOf('function clearSessionRendererState'),
+      main.indexOf('// PR109e: per-turn auxiliary view-model'),
+    );
+
+    assert.match(cleanupBlock, /messageRetryPendingRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /stopPendingRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /clearPendingTurnActionsForSession\(sessionId\);/);
+    assert.match(cleanupBlock, /pendingPermissionModeChangesRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /setMessageRetryPendingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setStopPendingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setPendingPermissionModeBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setPendingSessionModelBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setMessageLoadErrorBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setStreamingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setThinkingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setThinkingTruncatedBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setLiveToolsBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setPermissionBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(cleanupBlock, /setSessionEventHealthBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+
+    assert.match(
+      main,
+      /event\.reason === 'deleted'[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*clearSessionRendererState\(deletedSessionId\);/,
+      'session deleted events must use the same renderer cleanup as row actions',
+    );
+    assert.match(
+      main,
+      /async function archiveSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*clearSessionRendererState\(sessionId\);/,
+      'archiving the active session must clear streaming, permission, pending, and health state',
+    );
+    assert.match(
+      main,
+      /async function deleteSession\(sessionId: string\) \{[\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\);[\s\S]*setMessages\(\[\]\);[\s\S]*clearSessionRendererState\(sessionId\);/,
+      'deleting a session must clear renderer state even after the row unmounts',
+    );
+  });
+
   it('renders visible busy state while a sidebar row action is pending', async () => {
     const ui = await readFile(UI_COMPONENTS_PATH, 'utf8');
     const css = await readFile(STYLES_PATH, 'utf8');
