@@ -1448,7 +1448,7 @@ function AppShell() {
       }
       await refreshSessions();
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', cleanErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', sessionModelActionErrorMessage(error));
     } finally {
       pendingSessionModelChangesRef.current.delete(sessionId);
     }
@@ -3286,6 +3286,10 @@ function turnFooterActionErrorMessage(error: unknown): string {
 
 function sessionRowActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。');
+}
+
+function sessionModelActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '模型暂时无法切换，请稍后重试。');
 }
 
 function cleanErrorMessage(error: unknown): string {

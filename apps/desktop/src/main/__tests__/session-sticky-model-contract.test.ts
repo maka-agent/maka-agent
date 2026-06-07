@@ -76,8 +76,18 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', cleanErrorMessage\(error\)\);[\s\S]*\} finally/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', sessionModelActionErrorMessage\(error\)\);[\s\S]*\} finally/,
       'model switch failure toast must not surface stale failures after the user switches sessions',
+    );
+    assert.match(
+      renderer,
+      /function sessionModelActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)/,
+      'model switch failures must be generalized before visible toast feedback',
+    );
+    assert.doesNotMatch(
+      renderer,
+      /toastApi\.error\('切换模型失败', cleanErrorMessage\(error\)\)/,
+      'model switch failures must not echo raw cleaned Error.message in visible toast feedback',
     );
     assert.match(renderer, /onModelChange=\{\(input\) => setSessionModel\(input\)\}/);
     assert.doesNotMatch(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
