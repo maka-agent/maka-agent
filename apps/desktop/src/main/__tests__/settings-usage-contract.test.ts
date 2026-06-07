@@ -68,6 +68,16 @@ describe('Settings usage dashboard contract', () => {
     assert.ok(usagePage, 'Usage settings page block must exist');
     assert.match(
       usagePage![0],
+      /<div className="settingsUsageToolbar" role="group" aria-label="使用统计范围与刷新">/,
+      'Usage range selector and refresh action must expose a named control group',
+    );
+    assert.doesNotMatch(
+      usagePage![0],
+      /<div className="settingsUsageToolbar">\s*<Segmented[\s\S]*ariaLabel="使用统计时间范围"/,
+      'Usage toolbar must not regress to an anonymous range/refresh cluster',
+    );
+    assert.match(
+      usagePage![0],
       /<Segmented[\s\S]*value=\{usageDraft\.range\}[\s\S]*ariaLabel="使用统计时间范围"/,
       'range segmented control must expose what the 24h/7天/30天/all group changes',
     );
