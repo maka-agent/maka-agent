@@ -1876,7 +1876,7 @@ function AccountConnectionRow(props: {
         </p>
       )}
       {authActions.length > 0 && (
-        <div className="settingsConnectionActions" aria-label={`${props.connection.name} 账号操作`}>
+        <div className="settingsConnectionActions" role="group" aria-label={`${props.connection.name} 账号操作`}>
           {authActions.map((action) => (
             <AccountAuthActionView
               key={action.action}
