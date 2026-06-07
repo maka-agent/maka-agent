@@ -176,12 +176,19 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps Permission Center copy scoped to current product boundaries', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const permissionPage = settings.match(/function PermissionCenterPage\(\)[\s\S]*?function CapabilityRow/);
+    const capabilityRow = settings.match(/function CapabilityRow\(props: \{ capability: CapabilitySnapshot \}\)[\s\S]*?function OsPermissionRow/);
 
     assert.ok(permissionPage, 'Permission Center page block must exist');
+    assert.ok(capabilityRow, 'Permission Center capability row block must exist');
     assert.match(permissionPage![0], /只读取系统权限与功能能力的当前快照/, 'Permission Center must explain the current read-only snapshot boundary');
     assert.match(permissionPage![0], /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
     assert.match(permissionPage![0], /<ul className="settingsCapabilityList" aria-label="功能能力列表">/, 'Permission Center capability list must have an accessible name');
     assert.match(permissionPage![0], /<ul className="settingsOsPermissionList" aria-label="系统权限列表">/, 'Permission Center OS permission list must have an accessible name');
+    assert.match(capabilityRow![0], /<dl className="settingsCapabilityLayers" aria-label=\{`\$\{capability\.label\}能力状态明细`\}>/, 'Capability status definition lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}所需系统权限列表`\}>/, 'Capability required-permission lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}处理建议列表`\}>/, 'Capability guidance lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}审计记录列表`\}>/, 'Capability audit-event lists must expose row-scoped accessible names');
+    assert.doesNotMatch(capabilityRow![0], /<dl className="settingsCapabilityLayers">/, 'Capability status details must not regress to an anonymous definition list');
     assert.match(settings, /not_determined:\s*\{\s*label:\s*'等待授权'/, 'OS not_determined should read as an actionable waiting state');
     assert.match(settings, /not_configured:\s*\{\s*label:\s*'等待配置'/, 'capability not_configured should read as an actionable waiting state');
     assert.match(settings, /case\s+'missing':\s*return\s+'等待补齐配置'/, 'configuration missing should read as an actionable waiting state');
@@ -241,6 +248,7 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(healthPage![0], /健康信号会阻塞发送/, 'Health Center blocker copy should use localized product wording');
     assert.match(healthPage![0], /健康信号会阻塞能力/, 'Health Center capability blocker copy should use localized product wording');
     assert.match(healthPage![0], /aria-label=\{`\$\{copy\.label\}健康信号`\}/, 'Health Center section aria labels should not mix English "signals" into Chinese UI');
+    assert.match(healthPage![0], /<ul className="settingsHealthSignalList" aria-label=\{`\$\{copy\.label\}健康信号列表`\}>/, 'Health Center signal lists must expose product-scoped accessible names');
     assert.match(healthSignalRow![0], /来源：\{HEALTH_SOURCE_LABEL\[signal\.source\]\}/, 'Health Center row should present localized source labels');
     assert.match(healthSignalRow![0], /读取：<RelativeTime/, 'Health Center row should present localized checked-time labels');
     assert.match(

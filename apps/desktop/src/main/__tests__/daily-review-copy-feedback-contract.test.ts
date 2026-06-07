@@ -39,9 +39,17 @@ describe('Daily Review copy feedback contract', () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
     const handlerBlock = main.match(/onPasteTodayDailyReviewIntoComposer:\s*async \(\) => \{[\s\S]*?^\s*},/m)?.[0] ?? '';
 
+    assert.match(handlerBlock, /const owner = captureComposerImportOwner\(\)/);
+    assert.match(handlerBlock, /if \(!owner\.sessionId\) return/);
     assert.match(handlerBlock, /formatDailyReviewMarkdown\(summary,\s*['"]今天['"]\)/);
+    assert.match(handlerBlock, /if \(!isComposerImportOwnerActive\(owner\)\) return/);
     assert.match(handlerBlock, /composerRef\.current\?\.appendText\(markdown\)/);
     assert.match(handlerBlock, /toastApi\.success\(\s*['"]已追加今日回顾到输入框['"]/);
+    assert.match(
+      handlerBlock,
+      /if \(isComposerImportOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\(\s*['"]粘贴失败['"]/,
+      'Command Palette Daily Review paste must not show stale failure feedback after leaving the original chat composer',
+    );
     assert.doesNotMatch(handlerBlock, /composerRef\.current\?\.setText\(markdown\)/);
   });
 

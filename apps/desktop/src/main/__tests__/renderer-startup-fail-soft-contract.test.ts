@@ -16,10 +16,16 @@ describe('renderer startup fail-soft contract', () => {
 
     assert.match(mountEffect, /void refreshAppInfo\(\)/);
     assert.match(
+      main,
+      /function appInfoActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '项目路径暂时无法读取，请稍后重试。'\)/,
+      'app-info refresh failures should use generalized fallback copy instead of raw path/system details',
+    );
+    assert.match(
       refreshAppInfo,
-      /try \{[\s\S]*window\.maka\.app\.info\(\)[\s\S]*setAppInfo\(\{ projectPath: next\.projectPath, projectGit: next\.projectGit \}\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('读取项目路径失败', cleanErrorMessage\(error\)\)/,
+      /try \{[\s\S]*window\.maka\.app\.info\(\)[\s\S]*setAppInfo\(\{ projectPath: next\.projectPath, projectGit: next\.projectGit \}\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('读取项目路径失败', appInfoActionErrorMessage\(error\)\)/,
       'app-info refresh failures must be visible and preserve the last known project badge',
     );
+    assert.doesNotMatch(refreshAppInfo, /toastApi\.error\('读取项目路径失败', cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(
       refreshAppInfo,
       /setAppInfo\(null\)/,
@@ -38,10 +44,16 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(mountEffect, /void refreshShellSettings\(\)/);
     assert.match(
-      refreshShellSettings,
-      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*applyUiLocale\(uiLocale\)[\s\S]*applyTheme\(pref\)[\s\S]*applyDensity\(den\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('载入外观设置失败', cleanErrorMessage\(error\)\)/,
-      'startup shell settings load failures must surface visibly instead of silently applying default appearance values',
+      main,
+      /function shellSettingsActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '外观设置暂时无法载入，请稍后重试。'\)/,
+      'startup shell settings failures should use generalized fallback copy instead of raw storage/system details',
     );
+    assert.match(
+      refreshShellSettings,
+      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*applyUiLocale\(uiLocale\)[\s\S]*applyTheme\(pref\)[\s\S]*applyDensity\(den\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('载入外观设置失败', shellSettingsActionErrorMessage\(error\)\)/,
+      'startup shell settings load failures must surface visibly without exposing raw storage/system details',
+    );
+    assert.doesNotMatch(refreshShellSettings, /toastApi\.error\('载入外观设置失败', cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(
       refreshShellSettings,
       /catch \(error\) \{[\s\S]*applyUiLocale\('auto'\)|catch \(error\) \{[\s\S]*applyTheme\('auto'\)|catch \(error\) \{[\s\S]*applyDensity\('comfortable'\)|catch \(error\) \{[\s\S]*applyThemePalette\('default'\)/,
@@ -54,7 +66,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshPlanReminders,
-      /try \{[\s\S]*window\.maka\.plans\.list\(\)[\s\S]*setPlanReminders\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) toastApi\.error\('刷新计划失败', cleanErrorMessage\(error\)\)/,
+      /try \{[\s\S]*window\.maka\.plans\.list\(\)[\s\S]*setPlanReminders\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新计划失败', planActionErrorMessage\(error, '刷新计划提醒失败，请稍后重试。'\)\);[\s\S]*\}/,
       'plan reminder refresh failures must be visible and must preserve the existing list',
     );
     assert.doesNotMatch(
@@ -64,7 +76,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshSkills,
-      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) toastApi\.error\('刷新技能失败', cleanErrorMessage\(error\)\)/,
+      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新技能失败', skillsActionErrorMessage\(error, '刷新技能失败，请稍后重试。'\)\);[\s\S]*\}/,
       'skills refresh failures must be visible and must preserve the existing list',
     );
     assert.doesNotMatch(

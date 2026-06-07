@@ -1617,7 +1617,7 @@ function accountConnectionTestFailureFallback(result: ConnectionTestResult): str
   if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
     return '模型服务暂时不可用，请稍后重试。';
   }
-  if (result.errorClass === 'network') return '网络错误，请检查 Base URL 或代理设置后重试。';
+  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
   return '连接测试失败，请检查模型连接配置后重试。';
 }
 
@@ -1761,7 +1761,7 @@ function AccountSettingsPage(props: {
       {totalCount === 0 ? (
         <div className="settingsEmptyState">等待添加模型连接。可在 设置 · 模型 添加。</div>
       ) : (
-        <div className="settingsConnectionList" role="list">
+        <div className="settingsConnectionList" role="list" aria-label="模型连接列表">
           {props.connections.map((connection) => (
             <AccountConnectionRow
               key={connection.slug}
@@ -2701,7 +2701,7 @@ function WebSearchSettingsPage(props: {
           <strong>启用联网搜索</strong>
           <small>开关启用后，界面里显式触发的查询才会真的请求 Tavily。模型不会自动调用。</small>
         </div>
-        <div className="settingsWebSearchStatusCluster">
+        <div className="settingsWebSearchStatusCluster" role="group" aria-label="联网搜索凭据状态">
           <span className="settingsConnectionBadge" data-tone={statusCopy.tone}>
             {statusCopy.label}
           </span>
@@ -3582,36 +3582,42 @@ function MemorySettingsPage(props: {
       {effective.backups && effective.backups.length > 1 && (
         <div className="settingsMemoryBackupList" role="status">
           <strong>备份候选</strong>
-          <div>
-            {effective.backups.map((backup) => (
-              <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate">
-                <span>{localMemoryBackupKindLabel(backup.kind)} · {localMemoryBackupSummary(backup)} · <RelativeTime ts={backup.updatedAt} /></span>
-                <button
-                  type="button"
-                  className="settingsInlineTextButton"
-                  disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:open`)}
-                  onClick={() => void openBackupCandidate(backup)}
-                >
-                  {isMemoryActionPending(`backup:${backup.kind}:open`) ? '打开中…' : '打开'}
-                </button>
-                <button
-                  type="button"
-                  className="settingsInlineTextButton"
-                  disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:restore`)}
-                  onClick={() => void restoreBackupCandidate(backup)}
-                >
-                  {isMemoryActionPending(`backup:${backup.kind}:restore`) ? '恢复中…' : '恢复'}
-                </button>
-                <button
-                  type="button"
-                  className="settingsInlineTextButton"
-                  disabled={isMemoryActionPending(`backup:${backup.kind}:copy`)}
-                  onClick={() => void copyBackupReference(backup)}
-                >
-                  {isMemoryActionPending(`backup:${backup.kind}:copy`) ? '复制中…' : '复制引用'}
-                </button>
-              </span>
-            ))}
+          <div role="list" aria-label="本地记忆备份候选列表">
+            {effective.backups.map((backup) => {
+              const backupCandidateLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)}`;
+              return (
+                <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate" role="listitem">
+                  <span>{backupCandidateLabel} · <RelativeTime ts={backup.updatedAt} /></span>
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    aria-label={`打开备份候选 ${backupCandidateLabel}`}
+                    disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:open`)}
+                    onClick={() => void openBackupCandidate(backup)}
+                  >
+                    {isMemoryActionPending(`backup:${backup.kind}:open`) ? '打开中…' : '打开'}
+                  </button>
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    aria-label={`恢复备份候选 ${backupCandidateLabel}`}
+                    disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:restore`)}
+                    onClick={() => void restoreBackupCandidate(backup)}
+                  >
+                    {isMemoryActionPending(`backup:${backup.kind}:restore`) ? '恢复中…' : '恢复'}
+                  </button>
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    aria-label={`复制备份候选引用 ${backupCandidateLabel}`}
+                    disabled={isMemoryActionPending(`backup:${backup.kind}:copy`)}
+                    onClick={() => void copyBackupReference(backup)}
+                  >
+                    {isMemoryActionPending(`backup:${backup.kind}:copy`) ? '复制中…' : '复制引用'}
+                  </button>
+                </span>
+              );
+            })}
           </div>
           <small>上一版操作会使用最近的候选；这里只显示 metadata，不展示备份正文。</small>
         </div>
@@ -3852,7 +3858,7 @@ function MemoryEntryList(props: {
       {props.entries.length === 0 ? (
         <p className="settingsMemoryEntryEmpty">{props.filtered ? '无匹配条目。' : '暂无条目。'}</p>
       ) : (
-        <div className="settingsMemoryEntryList">
+        <div className="settingsMemoryEntryList" role="list" aria-label={`${props.title}列表`}>
           {props.entries.map((entry) => {
             const copyPending = props.pendingCopyIds?.has(`entry:${entry.id}:copy`) ?? false;
             const statusActionLabel = props.draftDirty
@@ -3866,7 +3872,7 @@ function MemoryEntryList(props: {
               ? `${statusActionLabel}，保存前不会写入 MEMORY.md`
               : undefined;
             return (
-              <article className="settingsMemoryEntryCard" key={entry.id}>
+              <article className="settingsMemoryEntryCard" role="listitem" key={entry.id}>
                 <strong>{entry.title}</strong>
                 <small className="settingsMemoryEntryMeta">
                   {memoryOriginLabel(entry.origin)}
@@ -4410,7 +4416,7 @@ function OpenGatewaySettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <div className="settingsUsageSummary" aria-label="开放网关状态">
+      <div className="settingsUsageSummary" role="group" aria-label="开放网关状态">
         <MetricCard title="状态" value={state.label} detail={state.detail} />
         <MetricCard title="监听地址" value={baseUrl} detail={gatewayDraft.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
         <MetricCard title="访问凭据" value={gatewayDraft.token ? '已配置' : '等待 token'} detail="Bearer token 保护所有 /v1 API" />
@@ -5075,7 +5081,7 @@ function BotChatSettingsPage(props: {
           </div>
         )}
 
-        <dl className="settingsBotStatusGrid">
+        <dl className="settingsBotStatusGrid" aria-label={`${BOT_LABELS[selected].label}运行状态`}>
           <div>
             <dt>运行状态</dt>
             <dd>{selectedStatus?.running ? '监听中' : '未监听'}</dd>
@@ -5460,7 +5466,7 @@ function UsageSettingsPage(props: {
         </button>
       </div>
 
-      <div className="settingsUsageSummary">
+      <div className="settingsUsageSummary" role="group" aria-label="使用统计汇总指标">
         <MetricCard title="总请求" value={String(stats?.summary.totalRequests ?? 0)} />
         <MetricCard title="总费用" value={`$${(stats?.summary.totalCostUsd ?? 0).toFixed(2)}`} detail="以模型供应商最终结算为准" />
         <MetricCard title="总 Token" value={String(stats?.summary.totalTokens ?? 0)} detail={`输入 ${stats?.summary.inputTokens ?? 0} / 输出 ${stats?.summary.outputTokens ?? 0}`} />
@@ -5863,7 +5869,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
         <span className="pill" data-tone={readinessCopy.tone}>{readinessCopy.label}</span>
       </div>
       <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
-      <dl className="settingsCapabilityLayers">
+      <dl className="settingsCapabilityLayers" aria-label={`${capability.label}能力状态明细`}>
         <div>
           <dt>功能开关</dt>
           <dd data-tone={featureTone(capability.feature.state)}>
@@ -5901,7 +5907,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
       {capability.osPermissions.length > 0 && (
         <div className="settingsCapabilityOsPermissions">
           <span>所需系统权限</span>
-          <ul>
+          <ul aria-label={`${capability.label}所需系统权限列表`}>
             {capability.osPermissions.map((req) => (
               <li key={req.id}>
                 <span>{OS_PERMISSION_COPY[req.id]?.label ?? req.id}</span>
@@ -5916,7 +5922,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
       {capability.guidance.length > 0 && (
         <div className="settingsCapabilityGuidance">
           <span>处理建议</span>
-          <ul>
+          <ul aria-label={`${capability.label}处理建议列表`}>
             {capability.guidance.map((item, index) => (
               <li key={`${capability.id}-guidance-${index}`}>{item}</li>
             ))}
@@ -5952,7 +5958,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
         {capability.auditEvents.length === 0 ? (
           <small>暂无审计记录。</small>
         ) : (
-          <ul>
+          <ul aria-label={`${capability.label}审计记录列表`}>
             {capability.auditEvents.slice(-3).map((event, index) => (
               <li key={`${capability.id}-audit-${index}`}>{event}</li>
             ))}
@@ -6223,7 +6229,7 @@ function HealthCenterPage() {
               <h4>{copy.label}</h4>
               <small>{copy.description}</small>
             </header>
-            <ul className="settingsHealthSignalList">
+            <ul className="settingsHealthSignalList" aria-label={`${copy.label}健康信号列表`}>
               {signals.map((signal) => (
                 <HealthSignalRow key={signal.id} signal={signal} />
               ))}

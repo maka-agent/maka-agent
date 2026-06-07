@@ -41,6 +41,22 @@ describe('Bot settings UI contract', () => {
     assert.match(styles, /\.settingsBotStatusPill\b/, 'Hero current-state pill styling must be present');
   });
 
+  it('names the selected platform runtime status grid', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const detailBlock = settings.match(/<section className="settingsBotDetail">[\s\S]*?<\/section>/)?.[0] ?? '';
+
+    assert.match(
+      detailBlock,
+      /<dl className="settingsBotStatusGrid" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}运行状态`\}>/,
+      'The selected bot platform status grid must expose a platform-specific accessible name',
+    );
+    assert.doesNotMatch(
+      detailBlock,
+      /<dl className="settingsBotStatusGrid">/,
+      'Bot runtime status details must not regress to an anonymous definition list',
+    );
+  });
+
   it('keeps runtime channel onboarding as test-then-enable-then-restart', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const styles = await readRepo('apps/desktop/src/renderer/styles.css');

@@ -283,9 +283,21 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
 
   it('Settings credential badge uses waiting-state copy instead of raw missing configuration copy', async () => {
     const settings = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const page = settings.match(/function WebSearchSettingsPage[\s\S]*?function webSearchQueryDisabledReason/);
     const helper = settings.match(/function presentWebSearchCredentialStatus[\s\S]*?function MemorySettingsPage/);
 
+    assert.ok(page, 'Web search settings page block must exist');
     assert.ok(helper, 'Web search settings must centralize credential status presentation');
+    assert.match(
+      page![0],
+      /<div className="settingsWebSearchStatusCluster" role="group" aria-label="联网搜索凭据状态">/,
+      'Web search credential status badge/source cluster must expose an accessible group name',
+    );
+    assert.doesNotMatch(
+      page![0],
+      /<div className="settingsWebSearchStatusCluster">/,
+      'Web search credential status cluster must not regress to an anonymous group beside the enable switch',
+    );
     assert.match(helper![0], /等待保存密钥/);
     assert.match(helper![0], /等待配置/);
     assert.match(helper![0], /来源：环境变量/);

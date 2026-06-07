@@ -76,7 +76,7 @@ function connectionTestFailureFallback(result: ConnectionTestResult, troubleshoo
   if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
     return '模型服务暂时不可用，请稍后重试。';
   }
-  if (result.errorClass === 'network') return '网络错误，请检查 Base URL 或代理设置后重试。';
+  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
   return `检查 ${troubleshootingCopy} 后重试。`;
 }
 
@@ -501,7 +501,7 @@ function providerDisabledTitle(type: ProviderType): string {
   if (isWiredOAuthProvider(type)) {
     return '请在 OAuth 分类完成账号登录；登录成功后会自动出现在已启用模型。';
   }
-  return '该账号登录暂未接入聊天发送；当前请使用同一家厂商的 API key。';
+  return '该账号登录暂未接入聊天发送；当前请使用同一家厂商的模型密钥。';
 }
 
 function providerDisabledAriaLabel(type: ProviderType, name: string): string {
@@ -1226,12 +1226,12 @@ function AddProviderForm(props: {
     setError(null);
     const slugError = validateSlug(slug);
     if (slugError) return setError(slugError);
-    if (props.existingSlugs.includes(slug)) return setError('Slug 已存在');
-    if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写 Base URL');
+    if (props.existingSlugs.includes(slug)) return setError('连接标识已存在');
+    if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写服务地址');
     if (isExperimental) {
       return setError(isWiredOAuth
         ? '请到 OAuth 分类完成账号登录；登录成功后会自动创建模型连接。'
-        : '该账号登录暂未接入聊天发送；请先使用同一家厂商的 API key。');
+        : '该账号登录暂未接入聊天发送；请先使用同一家厂商的模型密钥。');
     }
     busyRef.current = true;
     setBusy(true);
@@ -1268,25 +1268,25 @@ function AddProviderForm(props: {
           <strong>{isWiredOAuth ? '使用 OAuth 分类登录' : '账号登录暂未接入'}</strong>
           <span>{isWiredOAuth
             ? '不要在这里手动添加；请回到 OAuth 分类完成登录，Maka 会自动创建并刷新模型连接。'
-            : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的 API key。'}</span>
+            : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的模型密钥。'}</span>
         </div>
       )}
       <label>
-        <span>Slug</span>
-        <input value={slug} onChange={(event) => setSlug(event.currentTarget.value)} placeholder="my-provider" disabled={isExperimental || busy} aria-label="模型供应商 Slug" />
+        <span>连接标识</span>
+        <input value={slug} onChange={(event) => setSlug(event.currentTarget.value)} placeholder="my-provider" disabled={isExperimental || busy} aria-label="模型供应商连接标识" />
       </label>
       <label>
         <span>显示名称</span>
         <input value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder={display.name} disabled={isExperimental || busy} aria-label="模型供应商显示名称" />
       </label>
       <label>
-        <span>Base URL {requiresBaseUrl ? '(required)' : ''}</span>
+        <span>服务地址 {requiresBaseUrl ? '（必填）' : ''}</span>
         <input
           value={baseUrl}
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
           placeholder={defaults.baseUrl || 'https://…'}
           disabled={isExperimental || busy}
-          aria-label="模型供应商 Base URL"
+          aria-label="模型供应商服务地址"
         />
       </label>
       <label>
@@ -1356,7 +1356,7 @@ function ConnectionDetail(props: {
   const hasUsableCredential = !requiresCredential || hasSecret === true;
   const credentialTroubleshootingCopy = needsOAuth
     ? 'OAuth 登录 / 代理设置'
-    : 'API key / Base URL / 代理设置';
+    : '模型密钥 / 服务地址 / 代理设置';
   const fallbackModels = defaults.fallbackModels;
   const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
   const draftBaseUrl = hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl;
@@ -1631,11 +1631,11 @@ function ConnectionDetail(props: {
         </span>
       </header>
       <label>
-        <span>Slug</span>
-        <input value={connection.slug} disabled aria-label="模型连接 Slug" />
+        <span>连接标识</span>
+        <input value={connection.slug} disabled aria-label="模型连接标识" />
       </label>
       <label>
-        <span>Base URL {hasFixedOAuthBaseUrl ? '（OAuth 固定）' : ''}</span>
+        <span>服务地址 {hasFixedOAuthBaseUrl ? '（OAuth 固定）' : ''}</span>
         <input
           value={hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl}
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
@@ -1643,21 +1643,21 @@ function ConnectionDetail(props: {
           readOnly={hasFixedOAuthBaseUrl}
           disabled={detailActionBusy}
           aria-readonly={hasFixedOAuthBaseUrl ? 'true' : undefined}
-          aria-label={hasFixedOAuthBaseUrl ? '模型连接 Base URL，OAuth 固定' : '模型连接 Base URL'}
+          aria-label={hasFixedOAuthBaseUrl ? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'}
         />
       </label>
       {needsApiKey && (
         <label>
           <span>
-            API key {hasSecret === true ? '（已设置，粘贴新值可替换）' : ''}
+            模型密钥 {hasSecret === true ? '（已设置，粘贴新值可替换）' : ''}
             {hasSecret === 'loading' ? '（正在读取状态）' : ''}
             {hasSecret === 'error' ? '（凭据状态未知）' : ''}
           </span>
           <PasswordInput
             value={apiKey}
             onChange={setApiKey}
-            placeholder={hasSecret === true ? '••••••••' : '粘贴 API key'}
-            ariaLabel={`${display.name} API key`}
+            placeholder={hasSecret === true ? '••••••••' : '粘贴模型密钥'}
+            ariaLabel={`${display.name} 模型密钥`}
             disabled={detailActionBusy}
           />
         </label>
@@ -1705,7 +1705,7 @@ function ConnectionDetail(props: {
       />
       {defaults.signupUrl && (
         <a className="providerExternalLink" href={defaults.signupUrl} target="_blank" rel="noreferrer">
-          获取 API key
+          获取模型密钥
         </a>
       )}
       <div className="providerActions">
@@ -1792,7 +1792,7 @@ function modelListsEqual(left: ModelInfo[], right: ModelInfo[]): boolean {
  *   - Empty state distinguishes "fetched 0" from "haven't fetched yet"
  *   - Refresh button anchored to the header
  *
- * Replaces the dropdown + "从 API 刷新" pair the editor used to ship
+ * Replaces the dropdown + "刷新模型列表" pair the editor used to ship
  * with. The picker is now a workspace, not a form field.
  */
 function ModelTable(props: {
@@ -1819,8 +1819,8 @@ function ModelTable(props: {
     props.modelSource === 'fetched'
       ? props.modelChoices.length > 0
         ? `实时拉取的 ${props.modelChoices.length} 个模型${formatFetchedAtSuffix(props.modelsFetchedAt)}`
-        : '已成功调用供应商接口，但返回 0 个模型 — 该供应商可能未对当前 API key 开放任何模型。'
-      : `静态备用列表（${props.fallbackCount} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`;
+        : '已成功调用供应商接口，但返回 0 个模型 — 该供应商可能未对当前模型密钥开放任何模型。'
+      : `静态备用列表（${props.fallbackCount} 项）。点「刷新模型列表」拉取该供应商的真实模型清单。`;
 
   // ARIA radiogroup keyboard pattern: arrow keys move focus AND select.
   // Space/Enter on a focused radio just trigger the native button click.
@@ -1874,7 +1874,7 @@ function ModelTable(props: {
           disabled={!props.canRefresh}
           onClick={props.onRefresh}
         >
-          {props.fetchingModels ? '拉取中…' : '从 API 刷新'}
+          {props.fetchingModels ? '拉取中…' : '刷新模型列表'}
         </button>
       </header>
 
@@ -1906,7 +1906,7 @@ function ModelTable(props: {
         <div className="modelTableEmpty">
           {props.modelSource === 'fetched'
             ? '拉取返回 0 个模型。请检查账号方案或重新拉取。'
-            : '尚无模型。点「从 API 刷新」拉取或先配置 API key。'}
+            : '尚无模型。点「刷新模型列表」拉取或先配置模型密钥。'}
         </div>
       ) : filtered.length === 0 ? (
         <div className="modelTableEmpty">没有匹配 “{query}” 的模型。</div>
@@ -1921,7 +1921,7 @@ function ModelTable(props: {
           {filtered.map((model) => {
             const isDefault = model.id === props.defaultModel;
             return (
-              <li key={model.id}>
+              <li key={model.id} role="none">
                 <button
                   type="button"
                   className="modelTableRow"
@@ -1979,17 +1979,17 @@ function formatContextWindow(tokens: number): string {
 export function providerDisplay(type: ProviderType): { name: string; description: string; badge?: string } {
   switch (type) {
     case 'anthropic':
-      return { name: 'Anthropic', description: 'Claude API key，适合生产级 Agent。', badge: 'API' };
+      return { name: 'Anthropic', description: 'Claude 模型密钥，适合生产级代理工作流。', badge: 'API' };
     case 'kimi-coding-plan':
       return { name: 'Kimi Coding Plan', description: 'Kimi for Coding，兼容 Anthropic 协议。', badge: 'Coding' };
     case 'openai':
-      return { name: 'OpenAI', description: 'GPT / Responses API 模型，使用 API key 接入。', badge: 'API' };
+      return { name: 'OpenAI', description: 'GPT / Responses 模型，使用模型密钥接入。', badge: 'API' };
     case 'google':
-      return { name: 'Google Gemini', description: 'Google AI Studio API key 接入。', badge: 'API' };
+      return { name: 'Google Gemini', description: 'Google AI Studio 模型密钥接入。', badge: 'API' };
     case 'deepseek':
       return { name: 'DeepSeek', description: 'DeepSeek Chat / Reasoner 系列模型。', badge: 'API' };
     case 'moonshot':
-      return { name: 'Moonshot', description: 'Moonshot Kimi API key 接入。', badge: 'API' };
+      return { name: 'Moonshot', description: 'Moonshot Kimi 模型密钥接入。', badge: 'API' };
     case 'zai-coding-plan':
       return { name: 'Z.AI Coding Plan', description: 'GLM Coding Plan，OpenAI 兼容协议。', badge: 'Coding' };
     case 'ollama':

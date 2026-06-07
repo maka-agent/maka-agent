@@ -10,11 +10,21 @@ describe('session row actions fail soft', () => {
   it('surfaces sidebar session action failures instead of leaving fire-and-forget rejections', async () => {
     const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
 
-    assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\(flagged \? '标记会话失败' : '取消标记失败', cleanErrorMessage\(error\)\)/);
-    assert.match(main, /async function archiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\('归档会话失败', cleanErrorMessage\(error\)\)/);
-    assert.match(main, /async function unarchiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.unarchive\(sessionId\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\('恢复会话失败', cleanErrorMessage\(error\)\)/);
-    assert.match(main, /async function renameSession\(sessionId: string, name: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'rename'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.rename\(sessionId, name\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\('重命名会话失败', cleanErrorMessage\(error\)\)/);
-    assert.match(main, /async function deleteSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'delete'[\s\S]*toastApi\.confirm\([\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.success\(`已删除 \$\{name\}`\)[\s\S]*toastApi\.error\('删除会话失败', cleanErrorMessage\(error\)\)/);
+    assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\(flagged \? '标记会话失败' : '取消标记失败', sessionRowActionErrorMessage\(error\)\)/);
+    assert.match(main, /async function archiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.archive\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\('归档会话失败', sessionRowActionErrorMessage\(error\)\)/);
+    assert.match(main, /async function unarchiveSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'archive'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.unarchive\(sessionId\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\('恢复会话失败', sessionRowActionErrorMessage\(error\)\)/);
+    assert.match(main, /async function renameSession\(sessionId: string, name: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'rename'[\s\S]*try \{[\s\S]*window\.maka\.sessions\.rename\(sessionId, name\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.error\('重命名会话失败', sessionRowActionErrorMessage\(error\)\)/);
+    assert.match(main, /async function deleteSession\(sessionId: string\) \{[\s\S]*runSessionRowAction\(sessionId, 'delete'[\s\S]*toastApi\.confirm\([\s\S]*window\.maka\.sessions\.remove\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setActiveId\(undefined\)[\s\S]*setMessages\(\[\]\)[\s\S]*refreshSessions\(\)[\s\S]*toastApi\.success\(`已删除 \$\{name\}`\)[\s\S]*toastApi\.error\('删除会话失败', sessionRowActionErrorMessage\(error\)\)/);
+    assert.match(
+      main,
+      /function sessionRowActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)/,
+      'sidebar row action failures must be generalized before visible toast feedback',
+    );
+    assert.doesNotMatch(
+      main,
+      /toastApi\.error\((?:flagged \? '标记会话失败' : '取消标记失败'|'归档会话失败'|'恢复会话失败'|'重命名会话失败'|'删除会话失败'), cleanErrorMessage\(error\)\)/,
+      'sidebar row action failures must not echo raw cleaned Error.message in visible toast feedback',
+    );
   });
 
   it('gates duplicate sidebar row actions before IPC or confirm dialogs can double-fire', async () => {

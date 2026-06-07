@@ -162,8 +162,13 @@ describe('permission response IPC boundary', () => {
     assert.match(stop[0], /await window\.maka\.sessions\.stop\(sessionId, \{ source: 'stop_button' \}\);/);
     assert.match(
       stop[0],
-      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.error\(['"]停止失败['"]/,
+      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.error\('停止失败', sessionControlActionErrorMessage\(error\)\);/,
       'stop failure feedback must not leak onto a different active session',
+    );
+    assert.doesNotMatch(
+      stop[0],
+      /toastApi\.error\('停止失败', cleanErrorMessage\(error\)\)/,
+      'stop failure feedback must not expose raw IPC/provider/storage details',
     );
     assert.match(stop[0], /finally \{[\s\S]*?clearPendingStop\(sessionId\);[\s\S]*?\}/);
     const respond = renderer.match(/async function respondToPermission\([\s\S]*?\n  \}/);
@@ -178,8 +183,18 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       respond[0],
-      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.error\(['"]响应失败['"]/,
+      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.error\('响应失败', sessionControlActionErrorMessage\(error\)\);/,
       'permission response failure feedback must not leak onto a different active session',
+    );
+    assert.doesNotMatch(
+      respond[0],
+      /toastApi\.error\('响应失败', cleanErrorMessage\(error\)\)/,
+      'permission response failure feedback must not expose raw IPC/provider/storage details',
+    );
+    assert.match(
+      renderer,
+      /function sessionControlActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)/,
+      'session control visible failures must use a generalized Chinese fallback',
     );
   });
 
@@ -289,10 +304,16 @@ describe('permission response IPC boundary', () => {
     );
     assert.ok(refreshSessions, 'refreshSessions() must exist');
     assert.match(
+      renderer,
+      /function sessionListActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '刷新会话列表失败，请稍后重试。'\)/,
+      'session list refresh failures should use generalized fallback copy instead of raw backend/path details',
+    );
+    assert.match(
       refreshSessions[0],
-      /try \{[\s\S]*window\.maka\.sessions\.list\(\)[\s\S]*sessionsRef\.current = next[\s\S]*setSessions\(next\)[\s\S]*return next[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新会话列表失败', cleanErrorMessage\(error\)\)[\s\S]*return sessionsRef\.current/,
+      /try \{[\s\S]*window\.maka\.sessions\.list\(\)[\s\S]*sessionsRef\.current = next[\s\S]*setSessions\(next\)[\s\S]*return next[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新会话列表失败', sessionListActionErrorMessage\(error\)\)[\s\S]*return sessionsRef\.current/,
       'refreshSessions() is called fire-and-forget and must catch list failures without dropping the current list',
     );
+    assert.doesNotMatch(refreshSessions[0], /toastApi\.error\('刷新会话列表失败', cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(
       refreshSessions[0],
       /setActiveId\(/,
@@ -328,6 +349,11 @@ describe('permission response IPC boundary', () => {
       /async function handleQuickChatSubmit\(prompt: string, mode\?: QuickChatMode\): Promise<boolean> \{[\s\S]*?\n  \}/,
     );
     assert.ok(quickChatHandler, 'handleQuickChatSubmit() must exist');
+    assert.match(
+      renderer,
+      /function quickChatActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '对话暂时无法开始，请稍后重试。'\)/,
+      'quick chat thrown failures should use a generalized fallback instead of raw backend/path details',
+    );
     assert.match(
       renderer,
       /const quickChatPendingRef = useRef\(false\)/,
@@ -370,6 +396,8 @@ describe('permission response IPC boundary', () => {
       /toastApi\.error\('开始对话失败', result\.message\);[\s\S]*?return false;/,
       'send failures must return false so the first-run composer keeps the user draft',
     );
+    assert.match(quickChatHandler[0], /toastApi\.error\('开始对话失败', quickChatActionErrorMessage\(error\)\);[\s\S]*?return false;/);
+    assert.doesNotMatch(quickChatHandler[0], /toastApi\.error\('开始对话失败', cleanErrorMessage\(error\)\)/);
     assert.match(
       quickChatHandler[0],
       /quickChatPendingRef\.current = false;[\s\S]*?setQuickChatPending\(false\)/,
@@ -383,13 +411,18 @@ describe('permission response IPC boundary', () => {
     const sendBlock = renderer.match(
       /async function send\(text: string\): Promise<boolean> \{[\s\S]*?async function importTextFilePrompt/,
     )?.[0] ?? '';
-    const newSessionBranch = sendBlock.match(/if \(!activeId\) \{[\s\S]*?return true;/)?.[0] ?? '';
-    const existingSessionBranch = sendBlock.match(/const sessionId = activeId;[\s\S]*?return true;/)?.[0] ?? '';
+    const newSessionBranch = sendBlock.match(/if \(!initialSessionId\) \{[\s\S]*?return true;/)?.[0] ?? '';
+    const existingSessionBranch = sendBlock.match(/const sessionId = initialSessionId;[\s\S]*?return true;/)?.[0] ?? '';
     const refreshUntilTurn = renderer.match(
       /async function refreshMessagesUntilTurn\(sessionId: string, turnId: string\): Promise<void> \{[\s\S]*?\n  \}/,
     )?.[0] ?? '';
 
     assert.match(sendBlock, /const initialSessionId = activeIdRef\.current;/);
+    assert.doesNotMatch(
+      sendBlock,
+      /if \(!activeId\)|const sessionId = activeId;/,
+      'normal Composer send must branch from activeIdRef.current, not stale React state after clicking New Chat',
+    );
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,
@@ -413,7 +446,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       sendBlock,
-      /catch \(error\) \{[\s\S]*removeOptimisticUserMessage\(optimisticSessionId, optimisticTurnId\)[\s\S]*toastApi\.error\('发送失败'/,
+      /catch \(error\) \{[\s\S]*removeOptimisticUserMessage\(optimisticSessionId, optimisticTurnId\)[\s\S]*toastApi\.error\('发送失败', sendActionErrorMessage\(error\)\)/,
       'send readiness failures must remove the optimistic user turn instead of leaving a fake message behind',
     );
     assert.match(
@@ -423,8 +456,18 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       sendBlock,
-      /if \(!sendStillOwnsCurrentSurface\) return false;[\s\S]*if \(isNoRealConnectionError\(error\)\) \{[\s\S]*showModelSetupToast[\s\S]*\} else \{[\s\S]*toastApi\.error\('发送失败'/,
+      /if \(!sendStillOwnsCurrentSurface\) return false;[\s\S]*if \(isNoRealConnectionError\(error\)\) \{[\s\S]*showModelSetupToast[\s\S]*\} else \{[\s\S]*toastApi\.error\('发送失败', sendActionErrorMessage\(error\)\)/,
       'both model-setup feedback and generic send-failure toast must be guarded by the active-session owner check',
+    );
+    assert.doesNotMatch(
+      sendBlock,
+      /toastApi\.error\('发送失败', cleanErrorMessage\(error\)\)/,
+      'generic send failure feedback must not expose raw IPC/provider/storage details',
+    );
+    assert.match(
+      renderer,
+      /function sendActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '消息暂时无法发送，请稍后重试。'\)/,
+      'generic send visible failures must use a generalized Chinese fallback',
     );
     assert.match(
       refreshUntilTurn,

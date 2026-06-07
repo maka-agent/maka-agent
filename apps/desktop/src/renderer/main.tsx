@@ -138,6 +138,14 @@ function openPathActionErrorMessage(error: unknown, key: 'workspace' | 'project'
   return generalizedErrorMessageChinese(error, `无法打开${openPathActionLabel(key)}，请稍后重试。`);
 }
 
+function appInfoActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。');
+}
+
+function shellSettingsActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。');
+}
+
 function commandPaletteConnectionTestFailureMessage(result: ConnectionTestResult): string {
   const fallback = commandPaletteConnectionTestFailureFallback(result);
   if (!result.errorMessage) return fallback;
@@ -733,7 +741,7 @@ function AppShell() {
       }
     } catch (error) {
       clearPendingTurnAction(key);
-      if (activeIdRef.current === sessionId) toastApi.error('操作失败', cleanErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('操作失败', turnFooterActionErrorMessage(error));
     }
   }
 
@@ -1008,7 +1016,7 @@ function AppShell() {
       })
       .catch((error) => {
         if (!disposed && activeIdRef.current === activeId) {
-          const message = cleanErrorMessage(error);
+          const message = messageLoadActionErrorMessage(error, '对话内容暂时无法读取，请稍后重试。');
           setMessageLoadErrorBySession((current) => ({ ...current, [activeId]: message }));
           toastApi.error('读取对话失败', message);
         }
@@ -1099,7 +1107,7 @@ function AppShell() {
       setSessions(next);
       return next;
     } catch (error) {
-      toastApi.error('刷新会话列表失败', cleanErrorMessage(error));
+      toastApi.error('刷新会话列表失败', sessionListActionErrorMessage(error));
       return sessionsRef.current;
     }
   }
@@ -1125,7 +1133,7 @@ function AppShell() {
       applyDensity(den);
       applyThemePalette(palette);
     } catch (error) {
-      toastApi.error('载入外观设置失败', cleanErrorMessage(error));
+      toastApi.error('载入外观设置失败', shellSettingsActionErrorMessage(error));
     }
   }
 
@@ -1354,7 +1362,7 @@ function AppShell() {
         await window.maka.sessions.setFlagged(sessionId, flagged);
         await refreshSessions();
       } catch (error) {
-        toastApi.error(flagged ? '标记会话失败' : '取消标记失败', cleanErrorMessage(error));
+        toastApi.error(flagged ? '标记会话失败' : '取消标记失败', sessionRowActionErrorMessage(error));
       }
     });
   }
@@ -1374,7 +1382,7 @@ function AppShell() {
         }
         await refreshSessions();
       } catch (error) {
-        toastApi.error('归档会话失败', cleanErrorMessage(error));
+        toastApi.error('归档会话失败', sessionRowActionErrorMessage(error));
       }
     });
   }
@@ -1384,7 +1392,7 @@ function AppShell() {
         await window.maka.sessions.unarchive(sessionId);
         await refreshSessions();
       } catch (error) {
-        toastApi.error('恢复会话失败', cleanErrorMessage(error));
+        toastApi.error('恢复会话失败', sessionRowActionErrorMessage(error));
       }
     });
   }
@@ -1394,7 +1402,7 @@ function AppShell() {
         await window.maka.sessions.rename(sessionId, name);
         await refreshSessions();
       } catch (error) {
-        toastApi.error('重命名会话失败', cleanErrorMessage(error));
+        toastApi.error('重命名会话失败', sessionRowActionErrorMessage(error));
       }
     });
   }
@@ -1448,7 +1456,7 @@ function AppShell() {
       }
       await refreshSessions();
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', cleanErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', sessionModelActionErrorMessage(error));
     } finally {
       pendingSessionModelChangesRef.current.delete(sessionId);
     }
@@ -1481,7 +1489,7 @@ function AppShell() {
         await refreshSessions();
         toastApi.success(`已删除 ${name}`);
       } catch (error) {
-        toastApi.error('删除会话失败', cleanErrorMessage(error));
+        toastApi.error('删除会话失败', sessionRowActionErrorMessage(error));
       }
     });
   }
@@ -1504,7 +1512,7 @@ function AppShell() {
       const next = await window.maka.app.info();
       setAppInfo({ projectPath: next.projectPath, projectGit: next.projectGit });
     } catch (error) {
-      toastApi.error('读取项目路径失败', cleanErrorMessage(error));
+      toastApi.error('读取项目路径失败', appInfoActionErrorMessage(error));
     }
   }
 
@@ -1513,7 +1521,9 @@ function AppShell() {
       const next = await window.maka.plans.list();
       setPlanReminders(next);
     } catch (error) {
-      if (options.shouldShowError?.() ?? true) toastApi.error('刷新计划失败', cleanErrorMessage(error));
+      if (options.shouldShowError?.() ?? true) {
+        toastApi.error('刷新计划失败', planActionErrorMessage(error, '刷新计划提醒失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1524,7 +1534,9 @@ function AppShell() {
       if (isAutomationsSurfaceActive()) toastApi.success('已创建计划提醒', input.title);
       return true;
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('创建计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('创建计划失败', planActionErrorMessage(error, '创建计划提醒失败，请稍后重试。'));
+      }
       return false;
     }
   }
@@ -1536,7 +1548,9 @@ function AppShell() {
       if (isAutomationsSurfaceActive()) toastApi.success('已保存计划提醒', patch.title);
       return true;
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('保存计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('保存计划失败', planActionErrorMessage(error, '保存计划提醒失败，请稍后重试。'));
+      }
       return false;
     }
   }
@@ -1547,7 +1561,9 @@ function AppShell() {
       await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
       if (isAutomationsSurfaceActive()) toastApi.success(enabled ? '已启用提醒' : '已暂停提醒');
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('更新计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('更新计划失败', planActionErrorMessage(error, '更新计划提醒失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1558,7 +1574,9 @@ function AppShell() {
       await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
       if (isAutomationsSurfaceActive()) toastApi.success('已触发计划提醒', reminder?.title);
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('触发计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('触发计划失败', planActionErrorMessage(error, '触发计划提醒失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1569,7 +1587,9 @@ function AppShell() {
       await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
       if (isAutomationsSurfaceActive()) toastApi.success('已延后 10 分钟', reminder?.title);
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('延后计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('延后计划失败', planActionErrorMessage(error, '延后计划提醒失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1588,7 +1608,9 @@ function AppShell() {
       await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
       if (isAutomationsSurfaceActive()) toastApi.success('已清空执行记录', reminder?.title);
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('清空记录失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('清空记录失败', planActionErrorMessage(error, '清空计划记录失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1607,7 +1629,9 @@ function AppShell() {
       await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
       if (isAutomationsSurfaceActive()) toastApi.success('已删除计划提醒');
     } catch (error) {
-      if (isAutomationsSurfaceActive()) toastApi.error('删除计划失败', cleanErrorMessage(error));
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error('删除计划失败', planActionErrorMessage(error, '删除计划提醒失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1636,7 +1660,9 @@ function AppShell() {
       const next = await window.maka.skills.list();
       setSkills(next);
     } catch (error) {
-      if (options.shouldShowError?.() ?? true) toastApi.error('刷新技能失败', cleanErrorMessage(error));
+      if (options.shouldShowError?.() ?? true) {
+        toastApi.error('刷新技能失败', skillsActionErrorMessage(error, '刷新技能失败，请稍后重试。'));
+      }
     }
   }
 
@@ -1664,7 +1690,9 @@ function AppShell() {
         if (isSkillsSurfaceActive()) toastApi.error('无法打开示例技能', openSkillFailureCopy(openResult.reason));
       }
     } catch (error) {
-      if (isSkillsSurfaceActive()) toastApi.error('无法创建示例技能', cleanErrorMessage(error));
+      if (isSkillsSurfaceActive()) {
+        toastApi.error('无法创建示例技能', skillsActionErrorMessage(error, '无法创建示例技能，请稍后重试。'));
+      }
     }
   }
 
@@ -1686,7 +1714,9 @@ function AppShell() {
         if (isSkillsSurfaceActive()) toastApi.error('无法打开 Skill', openSkillFailureCopy(result.reason));
       }
     } catch (error) {
-      if (isSkillsSurfaceActive()) toastApi.error('无法打开 Skill', cleanErrorMessage(error));
+      if (isSkillsSurfaceActive()) {
+        toastApi.error('无法打开 Skill', skillsActionErrorMessage(error, '无法打开 Skill，请稍后重试。'));
+      }
     }
   }
 
@@ -1724,7 +1754,7 @@ function AppShell() {
     let optimisticTurnId: string | undefined;
     try {
       const turnId = crypto.randomUUID();
-      if (!activeId) {
+      if (!initialSessionId) {
         const session = await window.maka.sessions.create({
           permissionMode: 'ask',
           name: text.slice(0, 42) || '新建对话',
@@ -1740,7 +1770,7 @@ function AppShell() {
         await refreshSessions();
         return true;
       }
-      const sessionId = activeId;
+      const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
       showOptimisticUserMessage(sessionId, turnId, text);
@@ -1759,7 +1789,7 @@ function AppShell() {
       if (isNoRealConnectionError(error)) {
         showModelSetupToast(cleanErrorMessage(error), noRealConnectionReasonFromError(error));
       } else {
-        toastApi.error('发送失败', cleanErrorMessage(error));
+        toastApi.error('发送失败', sendActionErrorMessage(error));
       }
       return false;
     }
@@ -1832,7 +1862,7 @@ function AppShell() {
       if (shouldShowFeedback()) toastApi.success('已导入文件内容', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
       return result.prompt;
     } catch (error) {
-      if (shouldShowFeedback()) toastApi.error('导入文件失败', cleanErrorMessage(error));
+      if (shouldShowFeedback()) toastApi.error('导入文件失败', composerImportActionErrorMessage(error));
       return undefined;
     }
   }
@@ -1876,7 +1906,7 @@ function AppShell() {
       // UnhandledPromiseRejection and the user would see nothing.
       // Surface it as a toast so the user knows the model wasn't
       // actually interrupted and can retry.
-      if (activeIdRef.current === sessionId) toastApi.error('停止失败', cleanErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('停止失败', sessionControlActionErrorMessage(error));
     } finally {
       clearPendingStop(sessionId);
     }
@@ -1891,7 +1921,7 @@ function AppShell() {
       // Same fire-and-forget call site as stop() — wrap so a failed
       // permission response (main process busy / session dropped)
       // surfaces instead of dying as UnhandledPromiseRejection.
-      if (activeIdRef.current === sessionId) toastApi.error('响应失败', cleanErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('响应失败', sessionControlActionErrorMessage(error));
     }
   }
 
@@ -1909,7 +1939,7 @@ function AppShell() {
       }
     } catch (error) {
       if (activeIdRef.current === sessionId) {
-        const message = cleanErrorMessage(error);
+        const message = messageLoadActionErrorMessage(error, '对话内容暂时无法刷新，请稍后重试。');
         setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
         toastApi.error('刷新对话失败', message);
       }
@@ -2295,7 +2325,7 @@ function AppShell() {
         return false;
       }
     } catch (error) {
-      toastApi.error('开始对话失败', cleanErrorMessage(error));
+      toastApi.error('开始对话失败', quickChatActionErrorMessage(error));
       return false;
     } finally {
       quickChatPendingRef.current = false;
@@ -2308,7 +2338,7 @@ function AppShell() {
       await window.maka.onboarding.setMilestone(FIRST_RUN_TASK_SUGGESTION_MILESTONES[id], 'skipped');
       onboarding.refresh();
     } catch (error) {
-      toastApi.error('隐藏建议失败', cleanErrorMessage(error));
+      toastApi.error('隐藏建议失败', firstRunSuggestionActionErrorMessage(error, '任务建议暂时无法隐藏，请稍后重试。'));
     }
   }
 
@@ -2319,7 +2349,7 @@ function AppShell() {
       }
       onboarding.refresh();
     } catch (error) {
-      toastApi.error('恢复建议失败', cleanErrorMessage(error));
+      toastApi.error('恢复建议失败', firstRunSuggestionActionErrorMessage(error, '任务建议暂时无法恢复，请稍后重试。'));
     }
   }
 
@@ -3038,19 +3068,24 @@ function AppShell() {
               }
             },
             onPasteTodayDailyReviewIntoComposer: async () => {
+              const owner = captureComposerImportOwner();
+              if (!owner.sessionId) return;
               try {
                 const summary = await dailyReviewBridge.fetchDay(0, 1);
                 const markdown = formatDailyReviewMarkdown(summary, '今天');
+                if (!isComposerImportOwnerActive(owner)) return;
                 composerRef.current?.appendText(markdown);
                 toastApi.success(
                   '已追加今日回顾到输入框',
                   `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
                 );
               } catch (err) {
-                toastApi.error(
-                  '粘贴失败',
-                  dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，请稍后重试。'),
-                );
+                if (isComposerImportOwnerActive(owner)) {
+                  toastApi.error(
+                    '粘贴失败',
+                    dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，请稍后重试。'),
+                  );
+                }
               }
             },
             onSaveTodayDailyReviewToFile: async () => {
@@ -3273,6 +3308,54 @@ function noRealConnectionReasonFromEvent(event: Extract<SessionEvent, { type: 'e
 
 function sessionEventErrorMessage(event: Extract<SessionEvent, { type: 'error' }>): string {
   return generalizedErrorMessageChinese(new Error(event.message), '对话运行失败，请稍后重试。');
+}
+
+function turnFooterActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。');
+}
+
+function sessionRowActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。');
+}
+
+function sessionListActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。');
+}
+
+function sessionModelActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '模型暂时无法切换，请稍后重试。');
+}
+
+function sessionControlActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。');
+}
+
+function messageLoadActionErrorMessage(error: unknown, fallback: string): string {
+  return generalizedErrorMessageChinese(error, fallback);
+}
+
+function sendActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '消息暂时无法发送，请稍后重试。');
+}
+
+function composerImportActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '导入文件内容失败，请稍后重试。');
+}
+
+function quickChatActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '对话暂时无法开始，请稍后重试。');
+}
+
+function firstRunSuggestionActionErrorMessage(error: unknown, fallback: string): string {
+  return generalizedErrorMessageChinese(error, fallback);
+}
+
+function skillsActionErrorMessage(error: unknown, fallback: string): string {
+  return generalizedErrorMessageChinese(error, fallback);
+}
+
+function planActionErrorMessage(error: unknown, fallback: string): string {
+  return generalizedErrorMessageChinese(error, fallback);
 }
 
 function cleanErrorMessage(error: unknown): string {

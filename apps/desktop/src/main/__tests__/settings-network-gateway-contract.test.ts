@@ -193,6 +193,16 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
+      /<div className="settingsUsageSummary" role="group" aria-label="开放网关状态">/,
+      'Open Gateway runtime metric cards must expose an accessible group name',
+    );
+    assert.doesNotMatch(
+      gatewayBlock,
+      /<div className="settingsUsageSummary" aria-label="开放网关状态">/,
+      'Open Gateway runtime metrics must not regress to an anonymous status summary',
+    );
+    assert.match(
+      gatewayBlock,
       /const gatewayDraftRef = useRef\(persistedGateway\)/,
       'Open Gateway draft updates must have a synchronous ref for rapid consecutive field changes',
     );

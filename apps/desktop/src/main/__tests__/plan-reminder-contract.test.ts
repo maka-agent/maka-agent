@@ -187,6 +187,11 @@ describe('Plan reminder MVP contract', () => {
       /useEffect\(\(\) => \{[\s\S]*navSelectionRef\.current = navSelection;[\s\S]*\}, \[navSelection\]\)/,
       'navSelectionRef must track module switches while async plan actions are in flight',
     );
+    assert.match(
+      renderer,
+      /function planActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*generalizedErrorMessageChinese\(error, fallback\)/,
+      'plan visible failures must use generalized Chinese fallback copy',
+    );
     for (const fn of [
       'createPlanReminder',
       'updatePlanReminder',
@@ -210,10 +215,23 @@ describe('Plan reminder MVP contract', () => {
       );
       assert.match(
         block,
-        /if \(isAutomationsSurfaceActive\(\)\) toastApi\.(success|error)/,
+        /if \(isAutomationsSurfaceActive\(\)\) (?:toastApi\.(success|error)|\{[\s\S]*toastApi\.(success|error))/,
         `${fn} visible feedback must be gated to the active Automations surface`,
       );
     }
+    assert.match(renderer, /toastApi\.error\('刷新计划失败', planActionErrorMessage\(error, '刷新计划提醒失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('创建计划失败', planActionErrorMessage\(error, '创建计划提醒失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('保存计划失败', planActionErrorMessage\(error, '保存计划提醒失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('更新计划失败', planActionErrorMessage\(error, '更新计划提醒失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('触发计划失败', planActionErrorMessage\(error, '触发计划提醒失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('延后计划失败', planActionErrorMessage\(error, '延后计划提醒失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('清空记录失败', planActionErrorMessage\(error, '清空计划记录失败，请稍后重试。'\)\)/);
+    assert.match(renderer, /toastApi\.error\('删除计划失败', planActionErrorMessage\(error, '删除计划提醒失败，请稍后重试。'\)\)/);
+    assert.doesNotMatch(
+      renderer,
+      /toastApi\.error\('(刷新计划失败|创建计划失败|保存计划失败|更新计划失败|触发计划失败|延后计划失败|清空记录失败|删除计划失败)', cleanErrorMessage\(error\)\)/,
+      'plan visible failures must not expose raw IPC/provider/storage details',
+    );
   });
 
   it('scheduler records trigger outcomes and emits due events', async () => {
