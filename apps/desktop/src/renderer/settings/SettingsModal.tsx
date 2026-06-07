@@ -5442,7 +5442,7 @@ function UsageSettingsPage(props: {
 
   return (
     <div className="settingsUsagePage">
-      <div className="settingsUsageToolbar">
+      <div className="settingsUsageToolbar" role="group" aria-label="使用统计范围与刷新">
         <Segmented
           value={usageDraft.range}
           ariaLabel="使用统计时间范围"
