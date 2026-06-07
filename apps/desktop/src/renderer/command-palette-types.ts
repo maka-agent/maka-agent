@@ -30,5 +30,5 @@ export interface Command {
    * disabled.
    */
   disabled?: boolean;
-  run(): void;
+  run(): void | Promise<void>;
 }

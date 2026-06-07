@@ -34,16 +34,29 @@ describe('Command palette accessibility and visible copy', () => {
 
   it('gates command execution so Enter/click cannot run the same palette action twice', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const mainSrc = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const commandTypes = await readRepo('apps/desktop/src/renderer/command-palette-types.ts');
     const commandPaletteBlock = src.match(/export function CommandPalette[\s\S]*?function onInputKeyDown/)?.[0] ?? '';
     const commitBlock = src.match(/function commit\(cmd: Command \| undefined\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const rowBlock = src.match(/const commandCommitPending = committedCommandId === cmd\.id;[\s\S]*?onClick=\{\(\) => commit\(cmd\)\}/)?.[0] ?? '';
 
+    assert.match(commandTypes, /run\(\): void \| Promise<void>/, 'command actions may be async and must be awaited by commit()');
     assert.match(commandPaletteBlock, /const commitPendingRef = useRef\(false\)/);
     assert.match(commandPaletteBlock, /const \[committedCommandId, setCommittedCommandId\] = useState<string \| null>\(null\)/);
     assert.match(
       commitBlock,
-      /if \(!cmd\) return;[\s\S]*if \(commitPendingRef\.current\) return;[\s\S]*if \(cmd\.disabled\) return;[\s\S]*commitPendingRef\.current = true;[\s\S]*setCommittedCommandId\(cmd\.id\);[\s\S]*cmd\.run\(\);[\s\S]*props\.onClose\(\);/,
-      'CommandPalette commit() must synchronously drop duplicate activations while preserving disabled-tile inertness',
+      /if \(!cmd\) return;[\s\S]*if \(commitPendingRef\.current\) return;[\s\S]*if \(cmd\.disabled\) return;[\s\S]*commitPendingRef\.current = true;[\s\S]*setCommittedCommandId\(cmd\.id\);[\s\S]*await cmd\.run\(\);[\s\S]*finally \{[\s\S]*props\.onClose\(\);[\s\S]*\}[\s\S]*\.catch\(\(\) => undefined\)/,
+      'CommandPalette commit() must synchronously drop duplicate activations, await async actions, and close from finally',
+    );
+    assert.doesNotMatch(
+      src,
+      /run: \(\) => void args\./,
+      'buildCommandList must return host callback promises instead of voiding them before commit() can await',
+    );
+    assert.doesNotMatch(
+      mainSrc,
+      /on(NewChat|StartDeepResearch|SetPermissionMode):\s*\([^)]*\)\s*=>\s*void /,
+      'renderer must pass command palette async owner actions through instead of voiding their promises at the prop boundary',
     );
     assert.match(rowBlock, /aria-busy=\{commandCommitPending \? 'true' : undefined\}/);
     assert.match(rowBlock, /data-pending=\{commandCommitPending \? 'true' : undefined\}/);
