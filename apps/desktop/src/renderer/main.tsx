@@ -1854,7 +1854,7 @@ function AppShell() {
       if (shouldShowFeedback()) toastApi.success('已导入文件内容', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
       return result.prompt;
     } catch (error) {
-      if (shouldShowFeedback()) toastApi.error('导入文件失败', cleanErrorMessage(error));
+      if (shouldShowFeedback()) toastApi.error('导入文件失败', composerImportActionErrorMessage(error));
       return undefined;
     }
   }
@@ -3320,6 +3320,10 @@ function sessionControlActionErrorMessage(error: unknown): string {
 
 function sendActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '消息暂时无法发送，请稍后重试。');
+}
+
+function composerImportActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '导入文件内容失败，请稍后重试。');
 }
 
 function skillsActionErrorMessage(error: unknown, fallback: string): string {
