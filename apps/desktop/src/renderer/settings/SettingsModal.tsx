@@ -2065,6 +2065,7 @@ function PersonalizationSettingsPage(props: {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const personalizationMountedRef = useRef(false);
+  const personalizationSaveHelpId = useId();
 
   useEffect(() => {
     personalizationMountedRef.current = true;
@@ -2199,12 +2200,13 @@ function PersonalizationSettingsPage(props: {
           data-variant="primary"
           disabled={saving}
           aria-busy={saving}
+          aria-describedby={personalizationSaveHelpId}
           data-pending={saving ? 'true' : undefined}
           onClick={() => void save()}
         >
           {saving ? '保存中…' : '保存'}
         </button>
-        <p className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
+        <p id={personalizationSaveHelpId} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
       </div>
     </div>
   );

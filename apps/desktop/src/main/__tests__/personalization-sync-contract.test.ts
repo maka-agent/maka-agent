@@ -93,6 +93,26 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     );
   });
 
+  it('PersonalizationSettingsPage describes the save action with its persistence boundary copy', async () => {
+    const page = await readPersonalizationPage();
+
+    assert.match(
+      page,
+      /const personalizationSaveHelpId = useId\(\)/,
+      'Personalization save help copy must have a stable React-generated id',
+    );
+    assert.match(
+      page,
+      /aria-describedby=\{personalizationSaveHelpId\}/,
+      'Personalization save button must reference the visible persistence boundary help text',
+    );
+    assert.match(
+      page,
+      /<p id=\{personalizationSaveHelpId\} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。<\/p>/,
+      'Personalization save help text must remain visible and programmatically associated',
+    );
+  });
+
   it('PersonalizationSettingsPage drops late save UI writes after Settings is closed', async () => {
     const page = await readPersonalizationPage();
 
