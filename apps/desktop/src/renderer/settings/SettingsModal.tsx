@@ -916,7 +916,7 @@ function SettingsSurface(props: {
               settings,
             });
             return (
-              <div key={group} className="settingsNavGroup">
+              <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
                 <div className="settingsNavGroupLabel">{group}</div>
                 {summary && (
                   <div className="settingsNavGroupSummary" data-tone={summary.tone ?? 'neutral'}>

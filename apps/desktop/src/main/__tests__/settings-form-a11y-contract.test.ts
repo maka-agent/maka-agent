@@ -103,4 +103,21 @@ describe('Settings form accessibility labels', () => {
       assert.ok(providers.includes(`aria-label="${label}"`), `ProvidersPanel must label ${label}`);
     }
   });
+
+  it('keeps Settings sidebar navigation groups named', async () => {
+    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settingsSurface = settings.match(/function SettingsSurface\([\s\S]*?function SettingsPage/)?.[0] ?? '';
+
+    assert.match(settingsSurface, /<nav aria-label="设置分组">/);
+    assert.match(
+      settingsSurface,
+      /<div key=\{group\} className="settingsNavGroup" role="group" aria-label=\{group\}>/,
+      'Settings sidebar groups must expose the visible group title to assistive tech',
+    );
+    assert.doesNotMatch(
+      settingsSurface,
+      /<div key=\{group\} className="settingsNavGroup">\s*<div className="settingsNavGroupLabel">\{group\}<\/div>/,
+      'Settings sidebar navigation groups must not regress to anonymous visual-only labels',
+    );
+  });
 });
