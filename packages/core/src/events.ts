@@ -239,8 +239,26 @@ export type ToolResultContent =
         rootWorkNodeId?: string;
       };
       summary: string;
-      protocol?: unknown;
-      display?: unknown;
+      projection?: {
+        templateId?: string;
+        version?: number;
+        templateHash?: string;
+        idempotencyStatus?: string;
+        workflowRunId?: string;
+        schedulerRunId?: string;
+        rootWorkNodeId?: string;
+        state?: string;
+        schedulerState?: string;
+        rootState?: string;
+      };
+      nodes?: ReadonlyArray<{
+        id?: string;
+        templateId?: string;
+        title?: string;
+        state?: string;
+        runner?: string;
+        worker?: string;
+      }>;
       stdoutTail?: string;
       stderrTail?: string;
       error?: {

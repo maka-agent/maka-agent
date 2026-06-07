@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -54,6 +54,16 @@ describe('RiveWorkflow tool and CLI bridge', () => {
     }), [
       'work', 'retry', 'work_1', '--command-id', 'retry-1', '--worker', 'worker-a', '--workspace-mode', 'worktree',
     ]);
+    assert.deepEqual(buildRiveCommand({
+      action: 'scheduler_resume',
+      schedulerRunId: 'sched_1',
+      commandId: 'resume-1',
+      runner: 'opencode',
+      workers: ['worker-a'],
+      failed: true,
+    }), [
+      'scheduler', 'resume', '--command-id', 'resume-1', '--run', 'sched_1', '--worker', 'worker-a', '--failed',
+    ]);
   });
 
   it('runs a fake Rive CLI and returns projection ids, not stdout success', async () => {
@@ -75,6 +85,9 @@ describe('RiveWorkflow tool and CLI bridge', () => {
       assert.equal(result.ids.rootWorkNodeId, 'work_root_fake');
       assert.equal(result.state, 'completed');
       assert.equal(result.summary, 'Workflow run wfrun_fake root work_root_fake state completed');
+      assert.equal('protocol' in result, false);
+      assert.equal('display' in result, false);
+      assert.equal(result.projection?.workflowRunId, 'wfrun_fake');
       assert.equal(result.stderrTail?.includes('super-secret'), false);
       assert.equal(emitted.join('').includes('super-secret'), false);
       assert.equal(result.command.includes('workflow'), true);
@@ -119,6 +132,32 @@ describe('RiveWorkflow tool and CLI bridge', () => {
       assert.equal(aborted.error?.reason, 'aborted');
     });
   });
+
+  it('kills and reaps a Rive child that ignores SIGTERM on abort', async () => {
+    await withFakeRive('ignore-term', async (riveBin, cwd) => {
+      const pidFile = join(cwd, 'pid');
+      const controller = new AbortController();
+      const promise = runRiveCli({
+        action: 'workflow_status',
+        workflowRunId: 'wfrun_ignore_term',
+      }, {
+        cwd,
+        riveBin,
+        env: { ...process.env, PID_FILE: pidFile },
+        abortSignal: controller.signal,
+      });
+      await waitForFile(pidFile);
+      const pid = Number((await readFile(pidFile, 'utf8')).trim());
+      controller.abort();
+      await assert.rejects(promise, (error) => {
+        assert.equal(error instanceof RiveCliError, true);
+        assert.equal((error as RiveCliError).reason, 'aborted');
+        return true;
+      });
+      assert.throws(() => process.kill(pid, 0));
+    });
+  });
+
 
   it('surfaces bad JSON and Rive error envelopes as structured tool failures', async () => {
     await withFakeRive('bad-json', async (riveBin, cwd) => {
@@ -180,6 +219,28 @@ describe('RiveWorkflow tool and CLI bridge', () => {
       );
     });
   });
+
+  it('has a bounded UI preview and error text for rive_workflow results', async () => {
+    const root = await repoRoot();
+    const [components, events] = await Promise.all([
+      readFile(join(root, 'packages/ui/src/components.tsx'), 'utf8'),
+      readFile(join(root, 'packages/core/src/events.ts'), 'utf8'),
+    ]);
+    assert.match(events, /kind: 'rive_workflow'/);
+    assert.match(events, /projection\?:/);
+    assert.match(events, /nodes\?: ReadonlyArray/);
+    assert.doesNotMatch(events, /protocol\?: unknown/);
+    assert.doesNotMatch(events, /display\?: unknown/);
+    assert.match(components, /case 'rive_workflow'/);
+    assert.match(components, /function RiveWorkflowPreview/);
+    assert.match(components, /content\.kind === 'rive_workflow'/);
+    const previewBlock = components.match(/function RiveWorkflowPreview[\s\S]*?function formatRiveWorkflowNode/)?.[0] ?? '';
+    assert.match(previewBlock, /workflow_run/);
+    assert.match(previewBlock, /scheduler_run/);
+    assert.match(previewBlock, /root_work/);
+    assert.match(previewBlock, /stdout_tail/);
+    assert.match(previewBlock, /stderr_tail/);
+  });
 });
 
 async function runTool(
@@ -200,7 +261,7 @@ async function runTool(
 }
 
 async function withFakeRive(
-  mode: 'success' | 'sleep' | 'bad-json' | 'failed-envelope' | 'failed-secret',
+  mode: 'success' | 'sleep' | 'ignore-term' | 'bad-json' | 'failed-envelope' | 'failed-secret',
   fn: (riveBin: string, cwd: string) => Promise<void>,
 ): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), 'maka-rive-tool-'));
@@ -215,6 +276,16 @@ async function withFakeRive(
 }
 
 function fakeRiveScript(mode: string): string {
+  if (mode === 'ignore-term') {
+    return [
+      '#!/bin/sh',
+      'trap "" TERM',
+      'echo $$ > "$PID_FILE"',
+      'sleep 20',
+      'echo \'{"protocol":{"state":"completed"},"display":{"summary":"late"}}\'',
+      '',
+    ].join('\n');
+  }
   if (mode === 'sleep') {
     return [
       '#!/bin/sh',
@@ -255,4 +326,34 @@ function fakeRiveScript(mode: string): string {
     'JSON',
     '',
   ].join('\n');
+}
+
+async function waitForFile(path: string): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 1000) {
+    try {
+      await readFile(path, 'utf8');
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+async function repoRoot(): Promise<string> {
+  let current = process.cwd();
+  for (let i = 0; i < 6; i += 1) {
+    try {
+      const packageJson = JSON.parse(await readFile(join(current, 'package.json'), 'utf8')) as { name?: string };
+      if (packageJson.name === 'maka') return current;
+    } catch {
+      // keep walking
+    }
+    const parent = join(current, '..');
+    const [currentStat, parentStat] = await Promise.all([stat(current), stat(parent)]);
+    if (currentStat.dev === parentStat.dev && currentStat.ino === parentStat.ino) break;
+    current = parent;
+  }
+  throw new Error('Could not locate Maka repo root');
 }

@@ -66,8 +66,8 @@ export interface RiveWorkflowToolResult {
     rootWorkNodeId?: string;
   };
   summary: string;
-  protocol?: unknown;
-  display?: unknown;
+  projection?: RiveWorkflowProjection;
+  nodes?: RiveWorkflowNodeSummary[];
   stdoutTail?: string;
   stderrTail?: string;
   error?: {
@@ -76,6 +76,28 @@ export interface RiveWorkflowToolResult {
     code?: string;
     suggestedAction?: string;
   };
+}
+
+interface RiveWorkflowProjection {
+  templateId?: string;
+  version?: number;
+  templateHash?: string;
+  idempotencyStatus?: string;
+  workflowRunId?: string;
+  schedulerRunId?: string;
+  rootWorkNodeId?: string;
+  state?: string;
+  schedulerState?: string;
+  rootState?: string;
+}
+
+interface RiveWorkflowNodeSummary {
+  id?: string;
+  templateId?: string;
+  title?: string;
+  state?: string;
+  runner?: string;
+  worker?: string;
 }
 
 export function buildRiveWorkflowTool(deps: {
@@ -133,16 +155,17 @@ function successResult(
 ): RiveWorkflowToolResult {
   const protocol = readEnvelopeField(envelope, 'protocol');
   const display = readEnvelopeField(envelope, 'display');
+  const projection = extractProjection(protocol);
   return {
     kind: 'rive_workflow',
     ok: true,
     action,
     command: redactCommand(command),
-    state: extractState(protocol),
-    ids: extractIds(protocol),
+    state: projection.state,
+    ids: extractIds(projection),
     summary: extractSummary(display, protocol, 'Rive command completed.'),
-    protocol,
-    display,
+    projection,
+    nodes: extractNodeSummaries(protocol),
     stdoutTail,
     stderrTail,
   };
@@ -156,7 +179,7 @@ function failureResult(
   error?: RiveCliError,
 ): RiveWorkflowToolResult {
   const protocol = error?.envelope ? readEnvelopeField(error.envelope, 'protocol') : undefined;
-  const display = error?.envelope ? readEnvelopeField(error.envelope, 'display') : undefined;
+  const projection = extractProjection(protocol);
   const errorEnvelope = error?.envelope && typeof error.envelope === 'object'
     ? (error.envelope as { error?: { code?: unknown; action?: unknown } }).error
     : undefined;
@@ -165,11 +188,11 @@ function failureResult(
     ok: false,
     action,
     command: redactCommand(command),
-    state: extractState(protocol),
-    ids: extractIds(protocol),
+    state: projection.state,
+    ids: extractIds(projection),
     summary: message,
-    protocol,
-    display,
+    projection,
+    nodes: extractNodeSummaries(protocol),
     stdoutTail: error?.stdoutTail ? redactRiveText(error.stdoutTail) : undefined,
     stderrTail: error?.stderrTail ? redactRiveText(error.stderrTail) : undefined,
     error: {
@@ -181,16 +204,11 @@ function failureResult(
   };
 }
 
-function extractIds(protocol: unknown): RiveWorkflowToolResult['ids'] {
-  if (!protocol || typeof protocol !== 'object') return {};
-  const obj = protocol as Record<string, unknown>;
-  const scheduler = obj.scheduler && typeof obj.scheduler === 'object' ? obj.scheduler as Record<string, unknown> : undefined;
+function extractIds(projection: RiveWorkflowProjection): RiveWorkflowToolResult['ids'] {
   return {
-    ...(typeof obj.workflow_run_id === 'string' ? { workflowRunId: obj.workflow_run_id } : {}),
-    ...(typeof obj.scheduler_run_id === 'string' ? { schedulerRunId: obj.scheduler_run_id } : {}),
-    ...(typeof scheduler?.scheduler_run_id === 'string' ? { schedulerRunId: scheduler.scheduler_run_id } : {}),
-    ...(typeof obj.root_work_node_id === 'string' ? { rootWorkNodeId: obj.root_work_node_id } : {}),
-    ...(typeof scheduler?.root_work_node_id === 'string' ? { rootWorkNodeId: scheduler.root_work_node_id } : {}),
+    ...(projection.workflowRunId ? { workflowRunId: projection.workflowRunId } : {}),
+    ...(projection.schedulerRunId ? { schedulerRunId: projection.schedulerRunId } : {}),
+    ...(projection.rootWorkNodeId ? { rootWorkNodeId: projection.rootWorkNodeId } : {}),
   };
 }
 
@@ -201,6 +219,63 @@ function extractState(protocol: unknown): string | undefined {
   const scheduler = obj.scheduler && typeof obj.scheduler === 'object' ? obj.scheduler as Record<string, unknown> : undefined;
   if (typeof scheduler?.state === 'string') return scheduler.state;
   return undefined;
+}
+
+function extractProjection(protocol: unknown): RiveWorkflowProjection {
+  if (!protocol || typeof protocol !== 'object') return {};
+  const obj = protocol as Record<string, unknown>;
+  const scheduler = obj.scheduler && typeof obj.scheduler === 'object' ? obj.scheduler as Record<string, unknown> : undefined;
+  const rootWork = obj.root_work && typeof obj.root_work === 'object' ? obj.root_work as Record<string, unknown> : undefined;
+  const rootProjection = obj.root_projection && typeof obj.root_projection === 'object' ? obj.root_projection as Record<string, unknown> : undefined;
+  const projection: RiveWorkflowProjection = {
+    ...(typeof obj.template_id === 'string' ? { templateId: obj.template_id } : {}),
+    ...(typeof obj.version === 'number' ? { version: obj.version } : {}),
+    ...(typeof obj.template_hash === 'string' ? { templateHash: obj.template_hash } : {}),
+    ...(typeof obj.idempotency_status === 'string' ? { idempotencyStatus: obj.idempotency_status } : {}),
+    ...(typeof obj.workflow_run_id === 'string' ? { workflowRunId: obj.workflow_run_id } : {}),
+    ...(typeof obj.scheduler_run_id === 'string' ? { schedulerRunId: obj.scheduler_run_id } : {}),
+    ...(typeof scheduler?.scheduler_run_id === 'string' ? { schedulerRunId: scheduler.scheduler_run_id } : {}),
+    ...(typeof obj.root_work_node_id === 'string' ? { rootWorkNodeId: obj.root_work_node_id } : {}),
+    ...(typeof scheduler?.root_work_node_id === 'string' ? { rootWorkNodeId: scheduler.root_work_node_id } : {}),
+    ...(typeof obj.state === 'string' ? { state: obj.state } : {}),
+    ...(typeof scheduler?.state === 'string' ? { schedulerState: scheduler.state } : {}),
+    ...(typeof rootWork?.state === 'string' ? { rootState: rootWork.state } : {}),
+    ...(typeof rootProjection?.state === 'string' ? { rootState: rootProjection.state } : {}),
+  };
+  if (!projection.state) {
+    projection.state = projection.schedulerState ?? projection.rootState ?? extractState(protocol);
+  }
+  return projection;
+}
+
+function extractNodeSummaries(protocol: unknown): RiveWorkflowNodeSummary[] | undefined {
+  if (!protocol || typeof protocol !== 'object') return undefined;
+  const obj = protocol as Record<string, unknown>;
+  const rawNodes = Array.isArray(obj.nodes)
+    ? obj.nodes
+    : Array.isArray(obj.workflow_run_nodes)
+      ? obj.workflow_run_nodes
+      : Array.isArray(obj.node_mapping)
+        ? obj.node_mapping
+        : [];
+  const nodes = rawNodes
+    .slice(0, 20)
+    .map((node): RiveWorkflowNodeSummary => {
+      if (!node || typeof node !== 'object') return {};
+      const value = node as Record<string, unknown>;
+      return {
+        ...(typeof value.work_node_id === 'string' ? { id: value.work_node_id } : {}),
+        ...(typeof value.id === 'string' ? { id: value.id } : {}),
+        ...(typeof value.node_template_id === 'string' ? { templateId: value.node_template_id } : {}),
+        ...(typeof value.template_id === 'string' ? { templateId: value.template_id } : {}),
+        ...(typeof value.title === 'string' ? { title: value.title } : {}),
+        ...(typeof value.state === 'string' ? { state: value.state } : {}),
+        ...(typeof value.runner === 'string' ? { runner: value.runner } : {}),
+        ...(typeof value.worker === 'string' ? { worker: value.worker } : {}),
+      };
+    })
+    .filter((node) => Object.keys(node).length > 0);
+  return nodes.length > 0 ? nodes : undefined;
 }
 
 function extractSummary(display: unknown, protocol: unknown, fallback: string): string {

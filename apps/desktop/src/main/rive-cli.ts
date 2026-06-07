@@ -122,7 +122,7 @@ export function buildRiveCommand(input: RiveCliToolArgs): string[] {
       if (!input.schedulerRunId && !input.rootWorkNodeId) {
         throw new RiveCliError('invalid_arguments', 'scheduler_resume requires schedulerRunId or rootWorkNodeId');
       }
-      appendSchedulerOptions(args, input, { requireWorkers: false });
+      appendSchedulerOptions(args, input, { requireWorkers: false, omitRunner: true });
       if (input.failed) args.push('--failed');
       return args;
     }
@@ -201,16 +201,19 @@ function spawnRive(
 ): Promise<RiveCliRunResult> {
   return new Promise((resolve, reject) => {
     const [bin, ...args] = command;
+    const detached = process.platform !== 'win32';
     const child = spawn(bin, args, {
       cwd: options.cwd,
       env: options.env,
       shell: false,
+      detached,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
     let settled = false;
-    let timedOut = false;
+    let termination: { reason: string; message: string } | null = null;
+    let killTimer: NodeJS.Timeout | null = null;
 
     const fail = (error: Error) => {
       if (settled) return;
@@ -218,23 +221,24 @@ function spawnRive(
       cleanup();
       reject(error);
     };
+    const requestTerminate = (reason: string, message: string) => {
+      if (settled || termination) return;
+      termination = { reason, message };
+      killRiveChild(child, 'SIGTERM', detached);
+      killTimer = setTimeout(() => {
+        if (!settled) killRiveChild(child, 'SIGKILL', detached);
+      }, 2_000);
+      killTimer.unref();
+    };
     const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => {
-        if (!settled) child.kill('SIGKILL');
-      }, 2_000).unref();
+      requestTerminate('timeout', `Rive command timed out after ${options.timeoutMs}ms`);
     }, options.timeoutMs);
     const onAbort = () => {
-      child.kill('SIGTERM');
-      fail(new RiveCliError('aborted', 'Rive command was aborted', {
-        command,
-        stdoutTail: redactRiveText(tail(stdout)),
-        stderrTail: redactRiveText(tail(stderr)),
-      }));
+      requestTerminate('aborted', 'Rive command was aborted');
     };
     const cleanup = () => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       options.abortSignal?.removeEventListener('abort', onAbort);
     };
     options.abortSignal?.addEventListener('abort', onAbort, { once: true });
@@ -244,8 +248,7 @@ function spawnRive(
       try {
         stdout = appendCapture(stdout, text);
       } catch (error) {
-        fail(error instanceof Error ? error : new Error(String(error)));
-        child.kill('SIGTERM');
+        requestTerminate('output_too_large', error instanceof Error ? error.message : String(error));
         return;
       }
       options.emitOutput?.('stdout', redactRiveText(text));
@@ -255,8 +258,7 @@ function spawnRive(
       try {
         stderr = appendCapture(stderr, text);
       } catch (error) {
-        fail(error instanceof Error ? error : new Error(String(error)));
-        child.kill('SIGTERM');
+        requestTerminate('output_too_large', error instanceof Error ? error.message : String(error));
         return;
       }
       options.emitOutput?.('stderr', redactRiveText(text));
@@ -277,8 +279,8 @@ function spawnRive(
       const stderrTail = tail(stderr);
       const redactedStdoutTail = redactRiveText(stdoutTail);
       const redactedStderrTail = redactRiveText(stderrTail);
-      if (timedOut) {
-        reject(new RiveCliError('timeout', `Rive command timed out after ${options.timeoutMs}ms`, {
+      if (termination) {
+        reject(new RiveCliError(termination.reason, termination.message, {
           command,
           stdoutTail: redactedStdoutTail,
           stderrTail: redactedStderrTail,
@@ -315,6 +317,22 @@ function spawnRive(
       });
     });
   });
+}
+
+function killRiveChild(child: ReturnType<typeof spawn>, signal: NodeJS.Signals, detached: boolean): void {
+  try {
+    if (detached && typeof child.pid === 'number') {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // The process group may already be gone; fall through to direct child kill.
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Best effort termination. The close/error event is still authoritative.
+  }
 }
 
 function appendCapture(current: string, chunk: string): string {
