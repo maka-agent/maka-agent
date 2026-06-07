@@ -134,6 +134,11 @@ describe('Settings usage dashboard contract', () => {
       /<tr>\{props\.headers\.map\(\(header\) => <th key=\{header\} scope="col">\{header\}<\/th>\)\}<\/tr>/,
       'Usage stats table column headers must expose column scope',
     );
+    assert.match(
+      simpleStatsTable,
+      /cellIndex === 0 \? \(\s*<th key=\{cellIndex\} scope="row">\{cell\}<\/th>\s*\) : \(\s*<td key=\{cellIndex\}>\{cell\}<\/td>\s*\)/,
+      'Usage stats table rows must expose the first data cell as a scoped row header',
+    );
     assert.doesNotMatch(
       simpleStatsTable,
       /<table className="settingsStatsTable">\s*<thead>/,
@@ -143,6 +148,11 @@ describe('Settings usage dashboard contract', () => {
       simpleStatsTable,
       /<th key=\{header\}>\{header\}<\/th>/,
       'Usage stats table headers must not regress to unscoped header cells',
+    );
+    assert.doesNotMatch(
+      simpleStatsTable,
+      /row\.map\(\(cell, cellIndex\) => <td key=\{cellIndex\}>\{cell\}<\/td>\)/,
+      'Usage stats table rows must not regress to body-only data cells',
     );
   });
 

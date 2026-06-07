@@ -5595,7 +5595,15 @@ function SimpleStatsTable(props: { ariaLabel: string; headers: string[]; rows: A
         {props.rows.length === 0 ? (
           <tr><td colSpan={props.headers.length}>{props.empty ?? '暂无请求记录'}</td></tr>
         ) : props.rows.map((row, rowIndex) => (
-          <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+          <tr key={rowIndex}>
+            {row.map((cell, cellIndex) => (
+              cellIndex === 0 ? (
+                <th key={cellIndex} scope="row">{cell}</th>
+              ) : (
+                <td key={cellIndex}>{cell}</td>
+              )
+            ))}
+          </tr>
         ))}
       </tbody>
     </table>
