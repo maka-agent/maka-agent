@@ -65,7 +65,7 @@ describe('Bot settings UI contract', () => {
     const testAndConnectBlock = settings.match(/async function testAndConnect\(\)[\s\S]*?\n\s*async function restartBotProvider/)?.[0] ?? '';
     const restartProviderBlock = settings.match(/async function restartBotProvider\(provider: BotProvider\)[\s\S]*?\n\s*async function restartChannel/)?.[0] ?? '';
     const restartChannelBlock = settings.match(/async function restartChannel\(\)[\s\S]*?\n\s*async function refreshBotStatuses/)?.[0] ?? '';
-    const actionRowBlock = settings.match(/<div className="settingsBotActionStack">[\s\S]*?<\/div>/)?.[0] ?? '';
+    const actionRowBlock = settings.match(/<div className="settingsBotActionStack"[\s\S]*?<\/div>/)?.[0] ?? '';
     const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}机器人`\}[\s\S]*?\/>/)?.[0] ?? '';
 
     assert.match(settings, /type BotPendingActionName = 'test' \| 'connect' \| 'restart' \| 'disconnect'/, 'Bot async actions must use a closed pending-action enum');
@@ -95,6 +95,16 @@ describe('Bot settings UI contract', () => {
     assert.match(restartChannelBlock, /if \(!beginBotAction\(provider, 'restart'\)\) return;[\s\S]*await restartBotProvider\(provider\)[\s\S]*finishBotAction\(provider, 'restart'\)/, 'Manual restart must use the shared provider-scoped pending owner');
     assert.doesNotMatch(`${testChannelBlock}\n${testAndConnectBlock}\n${restartProviderBlock}\n${restartChannelBlock}`, /error instanceof Error \? error\.message : String\(error\)/, 'Bot test/restart actions must not toast raw Error.message');
     assert.match(actionRowBlock, /support === 'runtime' && !selectedStatus\?\.running/, 'Runtime channels that are not listening must use the combined onboarding path');
+    assert.match(
+      actionRowBlock,
+      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}机器人操作`\}>/,
+      'Selected bot platform actions must expose a platform-specific accessible group name',
+    );
+    assert.doesNotMatch(
+      actionRowBlock,
+      /<div className="settingsBotActionStack">\s*<button/,
+      'Bot platform action buttons must not regress to an anonymous button stack',
+    );
     assert.match(actionRowBlock, /测试并连接/, 'Runtime onboarding CTA must keep the user-facing combined action label');
     assert.match(actionRowBlock, /selectedBotActionPending === 'connect' \? '连接中…' : '测试并连接'/, 'Runtime onboarding CTA must expose a visible connect pending state');
     // PR-BOT-RESTART-RACE-0 added `|| restarting` so the button

@@ -5159,7 +5159,7 @@ function BotChatSettingsPage(props: {
             }}
           />
         )}
-        <div className="settingsBotActionStack">
+        <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[selected].label}机器人操作`}>
           {selected === 'wechat' ? (
             <>
               <button
