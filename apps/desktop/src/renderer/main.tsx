@@ -513,6 +513,7 @@ function AppShell() {
   const pendingPermissionModeChangesRef = useRef<Set<string>>(new Set());
   const [pendingPermissionModeBySession, setPendingPermissionModeBySession] = useState<Record<string, boolean>>({});
   const pendingSessionModelChangesRef = useRef<Set<string>>(new Set());
+  const [pendingSessionModelBySession, setPendingSessionModelBySession] = useState<Record<string, boolean>>({});
   const pendingKeyOf = (sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']) =>
     `${sessionId}:${turnId}:${actionId}`;
   function addPendingTurnAction(key: string): boolean {
@@ -980,6 +981,7 @@ function AppShell() {
       pendingTurnActionTimersRef.current.clear();
       pendingTurnActionsRef.current.clear();
       pendingPermissionModeChangesRef.current.clear();
+      pendingSessionModelChangesRef.current.clear();
       window.removeEventListener('keydown', onKeyDown);
     };
   }, []);
@@ -1461,6 +1463,7 @@ function AppShell() {
     if (!sessionId) return;
     if (pendingSessionModelChangesRef.current.has(sessionId)) return;
     pendingSessionModelChangesRef.current.add(sessionId);
+    setPendingSessionModelBySession((current) => ({ ...current, [sessionId]: true }));
     try {
       const next = await window.maka.sessions.setModel(sessionId, input);
       setSessions((prev) => prev.map((session) => (session.id === next.id ? next : session)));
@@ -1476,6 +1479,12 @@ function AppShell() {
       if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', sessionModelActionErrorMessage(error));
     } finally {
       pendingSessionModelChangesRef.current.delete(sessionId);
+      setPendingSessionModelBySession((current) => {
+        if (!current[sessionId]) return current;
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
     }
   }
 
@@ -2716,6 +2725,7 @@ function AppShell() {
                 activeProviderType={activeConnection?.providerType}
                 renderProviderMark={(type) => <ProviderLogo type={type} compact />}
                 modelChoices={chatModelChoices}
+                modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
                 onModelChange={(input) => setSessionModel(input)}
                 userLabel={userLabel}
                 memoryActive={memoryActive}
