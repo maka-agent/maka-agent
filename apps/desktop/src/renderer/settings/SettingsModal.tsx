@@ -5487,7 +5487,7 @@ function UsageSettingsPage(props: {
       />
 
       {usageDraft.activeTab === 'requests' && (
-        <div className="settingsUsageFilters">
+        <div className="settingsUsageFilters" role="group" aria-label="请求记录筛选">
           {usageDraft.showDetails && (
             <>
               <input value={usageDraft.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" aria-label="按模型或工具筛选请求记录" />

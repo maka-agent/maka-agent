@@ -23,8 +23,13 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usagePage![0], /status: 'all', modelFilter: ''/);
     assert.match(
       usagePage![0],
-      /\{usageDraft\.activeTab === 'requests' && \([\s\S]*?<div className="settingsUsageFilters">/,
+      /\{usageDraft\.activeTab === 'requests' && \([\s\S]*?<div className="settingsUsageFilters" role="group" aria-label="请求记录筛选">/,
       'Usage filters must live under the requests-only conditional block',
+    );
+    assert.doesNotMatch(
+      usagePage![0],
+      /<div className="settingsUsageFilters">\s*\{usageDraft\.showDetails/,
+      'Usage request filters must not regress to an anonymous control cluster',
     );
     assert.match(
       usagePage![0],
