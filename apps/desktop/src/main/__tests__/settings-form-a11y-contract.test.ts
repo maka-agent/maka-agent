@@ -93,11 +93,11 @@ describe('Settings form accessibility labels', () => {
     }
 
     for (const label of [
-      '模型供应商 Slug',
+      '模型供应商连接标识',
       '模型供应商显示名称',
-      '模型供应商 Base URL',
+      '模型供应商服务地址',
       '模型供应商默认模型',
-      '模型连接 Slug',
+      '模型连接标识',
       '搜索模型',
     ]) {
       assert.ok(providers.includes(`aria-label="${label}"`), `ProvidersPanel must label ${label}`);

@@ -165,8 +165,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /disabled=\{detailActionBusy\}[\s\S]*aria-label=\{hasFixedOAuthBaseUrl \? '模型连接 Base URL，OAuth 固定' : '模型连接 Base URL'\}/,
-      'ConnectionDetail Base URL draft must freeze while any detail action is in flight',
+      /disabled=\{detailActionBusy\}[\s\S]*aria-label=\{hasFixedOAuthBaseUrl \? '模型连接服务地址，OAuth 固定' : '模型连接服务地址'\}/,
+      'ConnectionDetail service-address draft must freeze while any detail action is in flight',
     );
     assert.match(
       detail,
@@ -235,7 +235,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
-      /disabled=\{isExperimental \|\| busy\} aria-label="模型供应商 Slug"/,
+      /disabled=\{isExperimental \|\| busy\} aria-label="模型供应商连接标识"/,
       'AddProviderForm fields must freeze while a create request is in flight so visible draft cannot drift from the submitted payload',
     );
     assert.match(
@@ -390,6 +390,41 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       /OpenAI-compatible|endpoint/,
       'model provider settings visible copy must not mix English technical fallback such as OpenAI-compatible endpoint',
     );
+  });
+
+  it('keeps model provider form copy Chinese-first', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const addForm = src.match(/function AddProviderForm[\s\S]*?function ConnectionDetail/)?.[0] ?? '';
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function connectionDetailSnapshot/)?.[0] ?? '';
+    const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
+
+    assert.match(addForm, /<span>连接标识<\/span>/);
+    assert.match(addForm, /aria-label="模型供应商连接标识"/);
+    assert.match(addForm, /<span>服务地址 \{requiresBaseUrl \? '（必填）' : ''\}<\/span>/);
+    assert.match(addForm, /aria-label="模型供应商服务地址"/);
+    assert.match(addForm, /连接标识已存在/);
+    assert.match(addForm, /这个供应商需要填写服务地址/);
+
+    assert.match(detail, /<span>连接标识<\/span>/);
+    assert.match(detail, /aria-label="模型连接标识"/);
+    assert.match(detail, /<span>服务地址 \{hasFixedOAuthBaseUrl \? '（OAuth 固定）' : ''\}<\/span>/);
+    assert.match(detail, /模型密钥 \{hasSecret === true \? '（已设置，粘贴新值可替换）' : ''\}/);
+    assert.match(detail, /placeholder=\{hasSecret === true \? '••••••••' : '粘贴模型密钥'\}/);
+    assert.match(detail, /ariaLabel=\{`\$\{display\.name\} 模型密钥`\}/);
+    assert.match(detail, /获取模型密钥/);
+    assert.match(detail, /模型密钥 \/ 服务地址 \/ 代理设置/);
+
+    assert.match(modelTable, /刷新模型列表/);
+    assert.match(modelTable, /先配置模型密钥/);
+    assert.match(modelTable, /该供应商的真实模型清单/);
+    assert.match(src, /网络错误，请检查服务地址或代理设置后重试。/);
+    assert.match(src, /Claude 模型密钥，适合生产级代理工作流。/);
+    assert.match(src, /GPT \/ Responses 模型，使用模型密钥接入。/);
+
+    for (const block of [addForm, detail, modelTable]) {
+      assert.doesNotMatch(block, />Slug</);
+      assert.doesNotMatch(block, /Base URL|\(required\)|API key|从 API 刷新|粘贴 API key|获取 API key|该 provider 的真实模型清单/);
+    }
   });
 
   it('exposes exactly four equal OAuth cards: claude, codex, antigravity, cursor', async () => {

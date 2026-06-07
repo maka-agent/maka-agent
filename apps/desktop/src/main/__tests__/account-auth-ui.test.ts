@@ -190,7 +190,8 @@ describe('Account settings credential probe UI', () => {
     );
     assert.match(fallback, /statusCode === 429[\s\S]*触发速率限制/);
     assert.match(fallback, /errorClass === 'auth'[\s\S]*鉴权失败/);
-    assert.match(fallback, /errorClass === 'network'[\s\S]*网络错误/);
+    assert.match(fallback, /errorClass === 'network'[\s\S]*网络错误，请检查服务地址或代理设置后重试/);
+    assert.doesNotMatch(fallback, /Base URL/);
     assert.match(
       page,
       /toast\.error\('连接测试失败', accountConnectionTestFailureMessage\(result\)\)/,

@@ -1617,7 +1617,7 @@ function accountConnectionTestFailureFallback(result: ConnectionTestResult): str
   if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
     return '模型服务暂时不可用，请稍后重试。';
   }
-  if (result.errorClass === 'network') return '网络错误，请检查 Base URL 或代理设置后重试。';
+  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
   return '连接测试失败，请检查模型连接配置后重试。';
 }
 
