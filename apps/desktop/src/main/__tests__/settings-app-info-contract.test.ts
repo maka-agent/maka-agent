@@ -129,6 +129,17 @@ describe('Settings app-info loading contract', () => {
     assert.match(aboutBlock, /每个会话都会在本机保留消息、工具调用、权限决策与模式变更记录/);
     assert.match(aboutBlock, /会话记录、设置文件、SQLite 使用统计和系统安全存储加密的模型密钥/);
     assert.match(aboutBlock, /可直接粘贴到问题报告/);
+    assert.match(aboutBlock, /const envSummaryHelpId = useId\(\)/);
+    assert.match(
+      aboutBlock,
+      /<button type="button" className="maka-button" disabled=\{copyingEnvSummary\} aria-describedby=\{envSummaryHelpId\}/,
+      'About page copy button must be programmatically described by the privacy note',
+    );
+    assert.match(
+      aboutBlock,
+      /<p id=\{envSummaryHelpId\} className="settingsHelpText">[\s\S]*复制内容不包含工作区路径/,
+      'About page copy privacy note must be the target of the button description',
+    );
     assert.doesNotMatch(aboutBlock, /settings、credentials、skills/);
     assert.doesNotMatch(aboutBlock, /provider API key/);
     assert.doesNotMatch(aboutBlock, /safeStorage/);

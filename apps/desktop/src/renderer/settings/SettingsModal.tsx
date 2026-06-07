@@ -1118,6 +1118,7 @@ function AboutSettingsPage() {
   const copyingEnvSummaryRef = useRef(false);
   const aboutPageMountedRef = useRef(false);
   const toast = useToast();
+  const envSummaryHelpId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -1259,11 +1260,11 @@ function AboutSettingsPage() {
       </SettingsRows>
 
       <div className="settingsActionRow">
-        <button type="button" className="maka-button" disabled={copyingEnvSummary} onClick={() => void copyEnvSummary()}>
+        <button type="button" className="maka-button" disabled={copyingEnvSummary} aria-describedby={envSummaryHelpId} onClick={() => void copyEnvSummary()}>
           {copyingEnvSummary ? '复制中…' : '复制环境信息'}
         </button>
       </div>
-      <p className="settingsHelpText">
+      <p id={envSummaryHelpId} className="settingsHelpText">
         如果遇到问题，复制以上信息会同时带上版本号与平台细节，方便定位。复制内容不包含工作区路径（避免泄露用户名）。
       </p>
     </div>
