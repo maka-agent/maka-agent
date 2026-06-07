@@ -4416,7 +4416,7 @@ function OpenGatewaySettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <div className="settingsUsageSummary" aria-label="开放网关状态">
+      <div className="settingsUsageSummary" role="group" aria-label="开放网关状态">
         <MetricCard title="状态" value={state.label} detail={state.detail} />
         <MetricCard title="监听地址" value={baseUrl} detail={gatewayDraft.host === '0.0.0.0' ? '局域网可访问' : '仅本机'} />
         <MetricCard title="访问凭据" value={gatewayDraft.token ? '已配置' : '等待 token'} detail="Bearer token 保护所有 /v1 API" />
