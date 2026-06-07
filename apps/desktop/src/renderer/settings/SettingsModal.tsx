@@ -1761,7 +1761,7 @@ function AccountSettingsPage(props: {
       {totalCount === 0 ? (
         <div className="settingsEmptyState">等待添加模型连接。可在 设置 · 模型 添加。</div>
       ) : (
-        <div className="settingsConnectionList" role="list">
+        <div className="settingsConnectionList" role="list" aria-label="模型连接列表">
           {props.connections.map((connection) => (
             <AccountConnectionRow
               key={connection.slug}
