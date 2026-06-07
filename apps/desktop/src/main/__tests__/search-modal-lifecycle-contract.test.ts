@@ -45,7 +45,7 @@ const STYLES_PATH = join(process.cwd(), 'src', 'renderer', 'styles.css');
 const COMMAND_PALETTE_CONTENT_PATH = join(process.cwd(), 'src', 'renderer', 'command-palette-content-search.ts');
 
 describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', () => {
-  it('SearchModal signature takes only onClose — NO `open` prop (conditional-mount contract)', async () => {
+  it('SearchModal signature has close and navigation callbacks — NO `open` prop (conditional-mount contract)', async () => {
     // The fragile `<SearchModal open={x} ...>` API is gone. The
     // parent owns lifecycle via `{open && <SearchModal .../>}`,
     // so SearchModal never has to do an early-return-before-JSX.
@@ -61,8 +61,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       propBlock,
-      /onClose\s*\(\s*\)\s*:\s*void/,
-      'SearchModal must take `onClose(): void` (the only prop)',
+      /onClose\(options\?: SearchModalCloseOptions\): void/,
+      'SearchModal must take a close callback with optional focus-restore control',
     );
   });
 
@@ -119,7 +119,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     const components = await readFile(COMPONENTS_PATH, 'utf8');
     const main = await readFile(MAIN_TSX_PATH, 'utf8');
     const sidebarModules = components.match(/<nav className="maka-sidebar-modules"[\s\S]*?<\/nav>/)?.[0] ?? '';
-    const closeSearchModal = main.match(/function closeSearchModal\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const closeSearchModal = main.match(/function closeSearchModal\(options\?: \{ restoreFocus\?: boolean \}\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
       sidebarModules,
@@ -130,6 +130,11 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       closeSearchModal,
       /setSearchModalOpen\(false\);[\s\S]*requestAnimationFrame/,
       'Search close handler must defer focus restoration until after React unmounts the modal',
+    );
+    assert.match(
+      closeSearchModal,
+      /if \(options\?\.restoreFocus === false\) return;/,
+      'Search close handler must allow result navigation to keep focus with the destination chat content',
     );
     assert.match(
       closeSearchModal,
@@ -168,6 +173,11 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       'SearchModal must pass the matched turnId through to the renderer shell',
     );
     assert.match(
+      components,
+      /props\.onClose\(\{ restoreFocus: false \}\)/,
+      'Search result activation must not restore focus to the Search trigger after navigating to the matched chat turn',
+    );
+    assert.match(
       contentSearch,
       /onSelectSession\(hit\.sessionId,\s*hit\.turnId\)/,
       'Command Palette content-search hits must pass the matched turnId through too',
@@ -199,8 +209,18 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       components,
+      /targetEl\.setAttribute\('tabindex', '-1'\);[\s\S]*targetEl\.focus\(\{ preventScroll: true \}\);/,
+      'ChatView must move keyboard focus to the matched turn after search navigation',
+    );
+    assert.match(
+      components,
       /data-search-highlight=\{props\.searchHighlighted\s*\?\s*'true'\s*:\s*undefined\}/,
       'ChatView must visually mark the matched search turn',
+    );
+    assert.match(
+      components,
+      /tabIndex=\{props\.searchHighlighted \? -1 : undefined\}/,
+      'Highlighted search turns must be programmatically focusable while the search target is active',
     );
   });
 

@@ -2035,8 +2035,12 @@ function searchModalThrownErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '搜索服务需要刷新，请重试。');
 }
 
+export interface SearchModalCloseOptions {
+  restoreFocus?: boolean;
+}
+
 export function SearchModal(props: {
-  onClose(): void;
+  onClose(options?: SearchModalCloseOptions): void;
   /**
    * Navigate to a session (optionally scrolling to a specific turn).
    * Provided by the application shell so the modal stays portable —
@@ -2153,7 +2157,7 @@ export function SearchModal(props: {
     if (!props.onNavigateToSession) return;
     if (result.target?.kind !== 'thread') return;
     props.onNavigateToSession(result.target.sessionId, result.target.turnId);
-    props.onClose();
+    props.onClose({ restoreFocus: false });
   }
 
   function selectKeyboardResult() {
@@ -2255,7 +2259,7 @@ export function SearchModal(props: {
     <div
       className="maka-modal-backdrop maka-search-modal-backdrop"
       role="presentation"
-      onClick={props.onClose}
+      onClick={() => props.onClose()}
     >
       <div
         ref={dialogRef}
@@ -2270,7 +2274,7 @@ export function SearchModal(props: {
           <button
             type="button"
             className="maka-search-modal-close"
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
             aria-label="关闭搜索"
           >
             ×
@@ -3308,10 +3312,13 @@ export function ChatView(props: {
       if (!root) return;
       const el = root.querySelector(`[data-turn-id="${CSS.escape(target.turnId)}"]`);
       if (!el || !('scrollIntoView' in el)) return;
-      (el as HTMLElement).scrollIntoView({
+      const targetEl = el as HTMLElement;
+      targetEl.setAttribute('tabindex', '-1');
+      targetEl.scrollIntoView({
         behavior: props.scrollBehavior ?? 'smooth',
         block: 'center',
       });
+      targetEl.focus({ preventScroll: true });
       setPinnedToBottom(false);
       setHighlightedTurnId(target.turnId);
     });
@@ -4604,6 +4611,7 @@ function TurnView(props: {
       className="maka-turn"
       data-turn-id={turn.turnId}
       data-search-highlight={props.searchHighlighted ? 'true' : undefined}
+      tabIndex={props.searchHighlighted ? -1 : undefined}
     >
       {forwardBadges.length > 0 && (
         <div className="maka-turn-lineage-row" aria-label="本轮回答的来源">
