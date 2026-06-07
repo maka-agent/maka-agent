@@ -34,7 +34,8 @@ describe('session open routing contract', () => {
   it('opens branched sessions only while the source session is still active', async () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
     const handlerBlock = main.match(/async function handleTurnFooterAction[\s\S]*?const chatSessionStatusBadge/)?.[0] ?? '';
-    const branchBlock = handlerBlock.match(/else if \(actionId === 'branch'\) \{[\s\S]*?clearPendingTurnAction\(key\);[\s\S]*?\}/)?.[0] ?? '';
+    const branchBlock = handlerBlock.match(/else if \(actionId === 'branch'\) \{[\s\S]*?await refreshSessions\(\);[\s\S]*?\n      \}/)?.[0] ?? '';
+    const catchBlock = handlerBlock.match(/catch \(error\) \{([\s\S]*?)\n    \} finally/)?.[1] ?? '';
 
     assert.match(handlerBlock, /const sessionId = activeIdRef\.current;/);
     assert.match(
@@ -62,8 +63,18 @@ describe('session open routing contract', () => {
     );
     assert.match(
       handlerBlock,
-      /catch \(error\) \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('操作失败', turnFooterActionErrorMessage\(error\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('操作失败', turnFooterActionErrorMessage\(error\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
       'turn footer failures must not toast after the user leaves the source session',
+    );
+    assert.doesNotMatch(
+      handlerBlock,
+      /else if \(actionId === 'branch'\) \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}[\s\S]*catch \(error\)/,
+      'pending turn actions must not be cleared only by the branch success path',
+    );
+    assert.doesNotMatch(
+      catchBlock,
+      /clearPendingTurnAction\(key\);/,
+      'pending turn actions must not be cleared only by the error path',
     );
     assert.match(
       main,
