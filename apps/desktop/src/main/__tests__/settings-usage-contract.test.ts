@@ -129,10 +129,20 @@ describe('Settings usage dashboard contract', () => {
       /<table className="settingsStatsTable" aria-label=\{props\.ariaLabel\}>/,
       'Usage stats table must expose its caller-provided name',
     );
+    assert.match(
+      simpleStatsTable,
+      /<tr>\{props\.headers\.map\(\(header\) => <th key=\{header\} scope="col">\{header\}<\/th>\)\}<\/tr>/,
+      'Usage stats table column headers must expose column scope',
+    );
     assert.doesNotMatch(
       simpleStatsTable,
       /<table className="settingsStatsTable">\s*<thead>/,
       'Usage stats tables must not regress to anonymous tables',
+    );
+    assert.doesNotMatch(
+      simpleStatsTable,
+      /<th key=\{header\}>\{header\}<\/th>/,
+      'Usage stats table headers must not regress to unscoped header cells',
     );
   });
 

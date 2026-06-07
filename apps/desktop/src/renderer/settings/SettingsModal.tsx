@@ -5589,7 +5589,7 @@ function SimpleStatsTable(props: { ariaLabel: string; headers: string[]; rows: A
   return (
     <table className="settingsStatsTable" aria-label={props.ariaLabel}>
       <thead>
-        <tr>{props.headers.map((header) => <th key={header}>{header}</th>)}</tr>
+        <tr>{props.headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr>
       </thead>
       <tbody>
         {props.rows.length === 0 ? (
