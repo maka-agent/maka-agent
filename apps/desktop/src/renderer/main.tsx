@@ -2907,8 +2907,10 @@ function AppShell() {
             onSelectSession: (sessionId) => {
               openSessionInChat(sessionId);
             },
-            onNewChat: () => void createSession(),
-            onStartDeepResearch: () => void handleQuickChatSubmit('', 'deep_research'),
+            onNewChat: () => createSession(),
+            onStartDeepResearch: async () => {
+              await handleQuickChatSubmit('', 'deep_research');
+            },
             onStartPlanReminder: openPlanReminderForm,
             onOpenSettings: openSettings,
             onOpenSettingsSection: (section) => openSettingsSection(section),
@@ -3059,7 +3061,7 @@ function AppShell() {
                 );
               }
             },
-            onSetPermissionMode: (mode) => void setPermissionMode(mode),
+            onSetPermissionMode: (mode) => setPermissionMode(mode),
             activePermissionMode: activeSessionForView?.permissionMode,
             onCopyTodayDailyReview: async () => {
               try {
