@@ -150,6 +150,10 @@ function connectionsActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。');
 }
 
+function memoryActiveActionErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。');
+}
+
 function commandPaletteConnectionTestFailureMessage(result: ConnectionTestResult): string {
   const fallback = commandPaletteConnectionTestFailureFallback(result);
   if (!result.errorMessage) return fallback;
@@ -1675,7 +1679,7 @@ function AppShell() {
       const next = await window.maka.memory.getState();
       setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
     } catch (error) {
-      toastApi.error(failureTitle, cleanErrorMessage(error));
+      toastApi.error(failureTitle, memoryActiveActionErrorMessage(error));
     }
   }
 

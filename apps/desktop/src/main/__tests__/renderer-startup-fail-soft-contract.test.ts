@@ -33,10 +33,16 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(mountEffect, /void refreshMemoryActive\('载入本地记忆状态失败'\)/);
     assert.match(
-      refreshMemoryActive,
-      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(failureTitle, cleanErrorMessage\(error\)\)/,
-      'memory-active refresh failures must be visible and preserve the last known header pill state',
+      main,
+      /function memoryActiveActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '本地记忆状态暂时无法刷新，请稍后重试。'\)/,
+      'memory-active refresh failures should use generalized fallback copy instead of raw storage details',
     );
+    assert.match(
+      refreshMemoryActive,
+      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(failureTitle, memoryActiveActionErrorMessage\(error\)\)/,
+      'memory-active refresh failures must be visible without exposing raw storage details and preserve the last known header pill state',
+    );
+    assert.doesNotMatch(refreshMemoryActive, /toastApi\.error\(failureTitle, cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(
       main,
       /catch\(\(\) => setMemoryActive\(false\)\)|catch \(error\) \{[\s\S]*setMemoryActive\(false\)/,
