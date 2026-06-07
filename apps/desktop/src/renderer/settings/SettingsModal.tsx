@@ -3582,36 +3582,42 @@ function MemorySettingsPage(props: {
       {effective.backups && effective.backups.length > 1 && (
         <div className="settingsMemoryBackupList" role="status">
           <strong>备份候选</strong>
-          <div>
-            {effective.backups.map((backup) => (
-              <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate">
-                <span>{localMemoryBackupKindLabel(backup.kind)} · {localMemoryBackupSummary(backup)} · <RelativeTime ts={backup.updatedAt} /></span>
-                <button
-                  type="button"
-                  className="settingsInlineTextButton"
-                  disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:open`)}
-                  onClick={() => void openBackupCandidate(backup)}
-                >
-                  {isMemoryActionPending(`backup:${backup.kind}:open`) ? '打开中…' : '打开'}
-                </button>
-                <button
-                  type="button"
-                  className="settingsInlineTextButton"
-                  disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:restore`)}
-                  onClick={() => void restoreBackupCandidate(backup)}
-                >
-                  {isMemoryActionPending(`backup:${backup.kind}:restore`) ? '恢复中…' : '恢复'}
-                </button>
-                <button
-                  type="button"
-                  className="settingsInlineTextButton"
-                  disabled={isMemoryActionPending(`backup:${backup.kind}:copy`)}
-                  onClick={() => void copyBackupReference(backup)}
-                >
-                  {isMemoryActionPending(`backup:${backup.kind}:copy`) ? '复制中…' : '复制引用'}
-                </button>
-              </span>
-            ))}
+          <div role="list" aria-label="本地记忆备份候选列表">
+            {effective.backups.map((backup) => {
+              const backupCandidateLabel = `${localMemoryBackupKindLabel(backup.kind)} · ${localMemoryBackupSummary(backup)}`;
+              return (
+                <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate" role="listitem">
+                  <span>{backupCandidateLabel} · <RelativeTime ts={backup.updatedAt} /></span>
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    aria-label={`打开备份候选 ${backupCandidateLabel}`}
+                    disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:open`)}
+                    onClick={() => void openBackupCandidate(backup)}
+                  >
+                    {isMemoryActionPending(`backup:${backup.kind}:open`) ? '打开中…' : '打开'}
+                  </button>
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    aria-label={`恢复备份候选 ${backupCandidateLabel}`}
+                    disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:restore`)}
+                    onClick={() => void restoreBackupCandidate(backup)}
+                  >
+                    {isMemoryActionPending(`backup:${backup.kind}:restore`) ? '恢复中…' : '恢复'}
+                  </button>
+                  <button
+                    type="button"
+                    className="settingsInlineTextButton"
+                    aria-label={`复制备份候选引用 ${backupCandidateLabel}`}
+                    disabled={isMemoryActionPending(`backup:${backup.kind}:copy`)}
+                    onClick={() => void copyBackupReference(backup)}
+                  >
+                    {isMemoryActionPending(`backup:${backup.kind}:copy`) ? '复制中…' : '复制引用'}
+                  </button>
+                </span>
+              );
+            })}
           </div>
           <small>上一版操作会使用最近的候选；这里只显示 metadata，不展示备份正文。</small>
         </div>

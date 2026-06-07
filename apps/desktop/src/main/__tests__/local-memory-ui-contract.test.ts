@@ -628,6 +628,12 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /effective\.backups\.map\(\(backup\) =>/);
     assert.match(pageBlock, /localMemoryBackupKindLabel\(backup\.kind\)/);
     assert.match(pageBlock, /localMemoryBackupSummary\(backup\)/);
+    assert.match(pageBlock, /const backupCandidateLabel = `\$\{localMemoryBackupKindLabel\(backup\.kind\)\} · \$\{localMemoryBackupSummary\(backup\)\}`/);
+    assert.match(pageBlock, /<div role="list" aria-label="本地记忆备份候选列表">/);
+    assert.match(pageBlock, /className="settingsMemoryBackupCandidate" role="listitem"/);
+    assert.match(pageBlock, /aria-label=\{`打开备份候选 \$\{backupCandidateLabel\}`\}/);
+    assert.match(pageBlock, /aria-label=\{`恢复备份候选 \$\{backupCandidateLabel\}`\}/);
+    assert.match(pageBlock, /aria-label=\{`复制备份候选引用 \$\{backupCandidateLabel\}`\}/);
     assert.match(pageBlock, /<RelativeTime ts=\{backup\.updatedAt\}/);
     assert.match(pageBlock, /copyBackupReference\(backup\)/);
     assert.match(pageBlock, /复制引用/);
