@@ -73,6 +73,23 @@ describe('Settings usage dashboard contract', () => {
     );
   });
 
+  it('names the usage summary metrics group', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
+
+    assert.ok(usagePage, 'Usage settings page block must exist');
+    assert.match(
+      usagePage![0],
+      /<div className="settingsUsageSummary" role="group" aria-label="使用统计汇总指标">/,
+      'Usage summary metric cards must expose a named group before the tabbed detail tables',
+    );
+    assert.doesNotMatch(
+      usagePage![0],
+      /<div className="settingsUsageSummary">\s*<MetricCard/,
+      'Usage summary metrics must not regress to an anonymous card cluster',
+    );
+  });
+
   it('keeps usage filters responsive through a local draft while saves run in the background', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);

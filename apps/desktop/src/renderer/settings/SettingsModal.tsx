@@ -5466,7 +5466,7 @@ function UsageSettingsPage(props: {
         </button>
       </div>
 
-      <div className="settingsUsageSummary">
+      <div className="settingsUsageSummary" role="group" aria-label="使用统计汇总指标">
         <MetricCard title="总请求" value={String(stats?.summary.totalRequests ?? 0)} />
         <MetricCard title="总费用" value={`$${(stats?.summary.totalCostUsd ?? 0).toFixed(2)}`} detail="以模型供应商最终结算为准" />
         <MetricCard title="总 Token" value={String(stats?.summary.totalTokens ?? 0)} detail={`输入 ${stats?.summary.inputTokens ?? 0} / 输出 ${stats?.summary.outputTokens ?? 0}`} />
