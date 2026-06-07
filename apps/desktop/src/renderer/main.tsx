@@ -774,11 +774,11 @@ function AppShell() {
           toastApi.success('已创建分支', `新会话 ${newSession.name}`);
         }
         await refreshSessions();
-        clearPendingTurnAction(key);
       }
     } catch (error) {
-      clearPendingTurnAction(key);
       if (activeIdRef.current === sessionId) toastApi.error('操作失败', turnFooterActionErrorMessage(error));
+    } finally {
+      clearPendingTurnAction(key);
     }
   }
 
