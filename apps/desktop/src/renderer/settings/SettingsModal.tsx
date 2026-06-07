@@ -538,7 +538,7 @@ function WeChatScanLoginModal(props: {
             扫码确认后会保存个人微信机器人凭据；Maka 不保存二维码轮询的中间状态。
           </p>
         </div>
-        <div className="settingsBotScanLoginActions">
+        <div className="settingsBotScanLoginActions" role="group" aria-label="微信扫码登录操作">
           {(status === 'expired' || status === 'error') && (
             <button className="settingsBotAction" type="button" onClick={() => void fetchQr()}>
               刷新二维码

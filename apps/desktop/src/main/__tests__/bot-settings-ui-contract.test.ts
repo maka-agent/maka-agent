@@ -265,6 +265,8 @@ describe('Bot settings UI contract', () => {
     );
     assert.match(settings, /window\.maka\.settings\.bots\.wechat\.fetchQrcode\(\)/, 'Direct scan login must fetch an iLink QR code through main');
     assert.match(settings, /window\.maka\.settings\.bots\.wechat\.pollQrcodeStatus\(qr\.qrToken\)/, 'Direct scan login must poll iLink status');
+    assert.match(settings, /<div className="settingsBotScanLoginActions" role="group" aria-label="微信扫码登录操作">/, 'Direct scan-login modal actions must expose a shared group name');
+    assert.doesNotMatch(settings, /<div className="settingsBotScanLoginActions">\s*\{\(status === 'expired' \|\| status === 'error'\)/, 'Direct scan-login modal actions must not regress to an anonymous button cluster');
     assert.match(settings, /setErrorMessage\(settingsActionErrorMessage\(result\.error\.message\)\)/, 'Direct scan login result failures must use the Settings error scrubber before rendering');
     assert.doesNotMatch(settings, /setErrorMessage\(result\.error\.message\)/, 'Direct scan login must not render raw Result error messages');
     assert.doesNotMatch(settings, /setErrorMessage\(error instanceof Error \? error\.message : String\(error\)\)/, 'Direct scan login thrown failures must not render raw Error.message');
