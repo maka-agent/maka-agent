@@ -226,6 +226,47 @@ export type ToolResultContent =
       notes: string[];
       reason?: 'invalid_objective' | 'invalid_root' | 'no_readable_roots' | 'aborted';
       message?: string;
+    }
+  | {
+      kind: 'rive_workflow';
+      ok: boolean;
+      action: string;
+      command: string[];
+      state?: string;
+      ids: {
+        workflowRunId?: string;
+        schedulerRunId?: string;
+        rootWorkNodeId?: string;
+      };
+      summary: string;
+      projection?: {
+        templateId?: string;
+        version?: number;
+        templateHash?: string;
+        idempotencyStatus?: string;
+        workflowRunId?: string;
+        schedulerRunId?: string;
+        rootWorkNodeId?: string;
+        state?: string;
+        schedulerState?: string;
+        rootState?: string;
+      };
+      nodes?: ReadonlyArray<{
+        id?: string;
+        templateId?: string;
+        title?: string;
+        state?: string;
+        runner?: string;
+        worker?: string;
+      }>;
+      stdoutTail?: string;
+      stderrTail?: string;
+      error?: {
+        reason: string;
+        message: string;
+        code?: string;
+        suggestedAction?: string;
+      };
     };
 
 export interface PermissionRequestEvent extends BaseEvent {

@@ -71,6 +71,7 @@ import {
 } from '@maka/core';
 import { queryTavily, TAVILY_TEST_QUERY, TAVILY_TEST_LIMIT } from './web-search/tavily.js';
 import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
+import { buildRiveWorkflowTool } from './rive-workflow-tool.js';
 import { resolveTavilyApiKey } from './web-search/credentials.js';
 import { runThreadSearch } from './search/thread-search.js';
 import {
@@ -490,6 +491,7 @@ const builtinTools = [
     settingsStore,
     getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
   }),
+  buildRiveWorkflowTool(),
 ];
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
