@@ -1112,6 +1112,7 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
   if (content.kind === 'explore_agent' && content.ok === false) {
     return content.reason === 'aborted' ? 'aborted' : 'error';
   }
+  if (content.kind === 'rive_workflow' && content.ok === false) return 'error';
   if (content.kind === 'web_search_error') return 'error';
   if (content.kind === 'office_document' && content.ok === false) return 'error';
   return 'success';
