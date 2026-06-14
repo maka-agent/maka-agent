@@ -35,6 +35,7 @@ import type {
   InvocationResultStatus,
 } from './invocation-context.js';
 import { createDefaultInvocationProviders } from './invocation-context.js';
+import type { FlowInput } from './agent-flow.js';
 
 // ============================================================================
 // RuntimeGate — narrow preflight seam
@@ -84,7 +85,7 @@ export function runtimeGateFromCallback(
  * node's public surface.
  */
 export interface AgentFlowLike {
-  run(ctx: InvocationContext, request: InvocationRequest): AsyncIterable<RuntimeEvent>;
+  run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent>;
 }
 
 // ============================================================================
@@ -184,16 +185,19 @@ export class RuntimeRunner {
 
     // 4. Emit the initial user RuntimeEvent before any flow event.
     events.push(buildUserEvent(ctx, request));
+    const flowInput = buildFlowInput(request);
 
     // 5. Dispatch to the flow and collect canonical events. The first
     //    terminal event ends the result; events emitted after it are not
     //    collected. A thrown error or a non-completed terminal status maps
     //    the result to 'failed'.
     let failure: InvocationFailure | undefined;
+    let terminalSeen = false;
     try {
-      for await (const ev of this.flow.run(ctx, request)) {
+      for await (const ev of this.flow.run(ctx, flowInput)) {
         events.push(ev);
         if (isTerminalRuntimeEvent(ev)) {
+          terminalSeen = true;
           failure = failureFromTerminalEvent(ev);
           break;
         }
@@ -202,6 +206,12 @@ export class RuntimeRunner {
       failure = {
         class: error instanceof Error && error.name ? error.name : 'error',
         ...(error instanceof Error && error.message ? { message: error.message } : {}),
+      };
+    }
+    if (!failure && !terminalSeen) {
+      failure = {
+        class: 'missing_terminal_event',
+        message: 'flow exhausted without a terminal RuntimeEvent',
       };
     }
 
@@ -258,7 +268,22 @@ function buildUserEvent(ctx: InvocationContext, request: InvocationRequest): Run
     partial: false,
     role: 'user',
     author: 'user',
-    content: { kind: 'text', text: request.text },
+    content: {
+      kind: 'text',
+      text: request.text,
+      ...(request.attachments !== undefined && request.attachments.length > 0
+        ? { attachments: request.attachments }
+        : {}),
+    },
+  };
+}
+
+function buildFlowInput(request: InvocationRequest): FlowInput {
+  return {
+    text: request.text,
+    context: request.context ?? [],
+    ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+    ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
   };
 }
 

@@ -15,7 +15,9 @@
  * minted inside a flow stay 1:1 with the invocation that produced them.
  */
 
+import type { AttachmentRef } from '@maka/core/events';
 import type { RuntimeEvent, RuntimeEventStatus } from '@maka/core/runtime-event';
+import type { StoredMessage } from '@maka/core/session';
 
 // ============================================================================
 // InvocationSource
@@ -67,6 +69,14 @@ export interface InvocationRequest {
   sessionId: string;
   turnId: string;
   text: string;
+  /** Optional attachments bound to this user turn. */
+  attachments?: AttachmentRef[];
+  /**
+   * Prior conversation history resolved by the caller/gate. RuntimeRunner
+   * passes this to AgentFlow as `context`, defaulting to [] so flows never
+   * receive an undefined model-history input.
+   */
+  context?: StoredMessage[];
   source: InvocationSource;
   /** Optional branch/agent lane; forwarded onto every emitted event. */
   branch?: string;

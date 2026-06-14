@@ -20,20 +20,20 @@
  *   - `run(ctx, input)`: drive the wrapped backend and emit `RuntimeEvent`s.
  *   - `mapSessionEventToRuntimeEvent`: a documented, testable placeholder
  *     mapping from the existing `SessionEvent` union onto `RuntimeEvent`.
+ *   - coalesce duplicate terminal backend facts (e.g. `abort` followed by
+ *     trailing `complete(user_stop)`) so the AgentFlow contract stays at
+ *     exactly one terminal RuntimeEvent.
  *   - control surface (`stop` / `respondToPermission` / `dispose`): delegate
  *     to the wrapped backend so current control semantics are preserved.
  *
  * What this adapter deliberately does NOT do:
  *   - rewrite or fork `AiSdkBackend.send()`;
- *   - coalesce the backend's `abort` + trailing `complete` into one event
- *     (the adapter is faithful to the source stream; coalescing is a
- *     runner/projection concern);
  *   - own model-history projection (Phase 7) or tool-event actions (Phase 5).
  */
 
 import type { CompleteEvent, SessionEvent } from '@maka/core/events';
 import type { PermissionDecision } from '@maka/core/backend-types';
-import type { RuntimeEvent, RuntimeEventStatus } from '@maka/core/runtime-event';
+import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
 
 import type { AgentBackend } from './ai-sdk-backend.js';
 import {
@@ -428,6 +428,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
     }
 
     const memory = createSessionEventMapMemory();
+    let terminalEmitted = false;
     try {
       for await (const sessionEvent of this.backend.send({
         turnId: ctx.turnId,
@@ -435,7 +436,14 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
         context: input.context,
       })) {
-        yield mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+        const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+        if (isTerminalRuntimeEvent(runtimeEvent)) {
+          if (terminalEmitted) continue;
+          terminalEmitted = true;
+          yield runtimeEvent;
+          break;
+        }
+        yield runtimeEvent;
       }
     } finally {
       if (abortSignal && onAbort) {

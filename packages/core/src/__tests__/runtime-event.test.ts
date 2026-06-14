@@ -89,6 +89,28 @@ describe('RuntimeEvent content variants', () => {
     expect(content.text).toBe('hello');
   });
 
+  test('text content can carry attachment refs without changing its kind', () => {
+    const content: RuntimeEventContent = {
+      kind: 'text',
+      text: 'see attached',
+      attachments: [
+        {
+          kind: 'image',
+          name: 'chart.png',
+          mimeType: 'image/png',
+          bytes: 123,
+          ref: {
+            kind: 'session_file',
+            sessionId: 'sess-1',
+            relativePath: 'attachments/chart.png',
+          },
+        },
+      ],
+    };
+    if (content.kind !== 'text') throw new Error('unreachable');
+    expect(content.attachments?.[0]?.name).toBe('chart.png');
+  });
+
   test('thinking content may carry a replay signature', () => {
     const content: RuntimeEventContent = {
       kind: 'thinking',

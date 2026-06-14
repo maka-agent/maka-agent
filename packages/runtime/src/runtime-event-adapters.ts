@@ -104,7 +104,13 @@ export function storedMessageToRuntimeEvent(
         partial: false,
         role: 'user',
         author: 'user',
-        content: { kind: 'text', text: message.text },
+        content: {
+          kind: 'text',
+          text: message.text,
+          ...(message.attachments !== undefined && message.attachments.length > 0
+            ? { attachments: message.attachments }
+            : {}),
+        },
         refs: { storedMessageId: message.id },
       };
 
@@ -231,6 +237,7 @@ export function runtimeEventToStoredMessageDraft(
   event: RuntimeEvent,
   options: RuntimeEventToDraftOptions = {},
 ): StoredMessage | null {
+  if (event.partial) return null;
   const newId = options.newId ?? (() => createRuntimeEventId('msg'));
   const content = event.content;
   if (!content) return null;
@@ -242,6 +249,9 @@ export function runtimeEventToStoredMessageDraft(
       turnId: event.turnId,
       ts: event.ts,
       text: content.text,
+      ...(content.attachments !== undefined && content.attachments.length > 0
+        ? { attachments: content.attachments }
+        : {}),
     };
     return draft;
   }

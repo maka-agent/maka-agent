@@ -12,6 +12,7 @@
 
 import { describe, test } from 'node:test';
 import { expect } from '../test-helpers.js';
+import type { AttachmentRef } from '@maka/core/events';
 import type {
   UserMessage,
   AssistantMessage,
@@ -41,6 +42,14 @@ import {
 
 const ts = 1_700_000_000_000;
 const turnId = 't1';
+
+const attachment: AttachmentRef = {
+  kind: 'pdf',
+  name: 'brief.pdf',
+  mimeType: 'application/pdf',
+  bytes: 2048,
+  ref: { kind: 'session_file', sessionId: 'sess-1', relativePath: 'attachments/brief.pdf' },
+};
 
 const user = (id: string, text: string): UserMessage => ({
   type: 'user',
@@ -166,6 +175,20 @@ describe('storedMessageToRuntimeEvent', () => {
     expect(e.ts).toBe(ts + 1);
   });
 
+  test('user message with attachments preserves attachment refs in text content', () => {
+    const e = storedMessageToRuntimeEvent(
+      { ...user('u-attach', 'see attached'), attachments: [attachment] },
+      ctx,
+    );
+    expect(e).not.toBeNull();
+    if (!e) return;
+    expect(e.content).toEqual({
+      kind: 'text',
+      text: 'see attached',
+      attachments: [attachment],
+    });
+  });
+
   test('assistant message (text only) → role model, text content; thinking dropped', () => {
     const e = storedMessageToRuntimeEvent(assistant('a1', 'hi'), ctx);
     if (!e) throw new Error('expected event');
@@ -266,6 +289,19 @@ describe('storedMessageToRuntimeEvents', () => {
     expect(out[0]?.content).toEqual({ kind: 'text', text: 'hello' });
   });
 
+  test('user message with attachments → single attachment-preserving event', () => {
+    const out = storedMessageToRuntimeEvents(
+      { ...user('u-attach', 'see attached'), attachments: [attachment] },
+      ctx,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.content).toEqual({
+      kind: 'text',
+      text: 'see attached',
+      attachments: [attachment],
+    });
+  });
+
   test('tool_call → empty array', () => {
     expect(storedMessageToRuntimeEvents(toolCall('tc', 'Read'), ctx)).toEqual([]);
   });
@@ -303,6 +339,19 @@ describe('runtimeEventToStoredMessageDraft', () => {
     expect(draft.ts).toBe(event.ts);
   });
 
+  test('user text event with attachments → UserMessage with attachments', () => {
+    const event = ev({
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'see attached', attachments: [attachment] },
+      refs: { storedMessageId: 'u-attach' },
+    });
+    const draft = runtimeEventToStoredMessageDraft(event);
+    expect(draft).not.toBeNull();
+    if (!draft || draft.type !== 'user') return;
+    expect(draft.attachments).toEqual([attachment]);
+  });
+
   test('model text event with modelId → AssistantMessage', () => {
     const event = ev({
       role: 'model',
@@ -327,6 +376,24 @@ describe('runtimeEventToStoredMessageDraft', () => {
       content: { kind: 'text', text: 'answer' },
     });
     expect(runtimeEventToStoredMessageDraft(event)).toBeNull();
+  });
+
+  test('partial user and model text events → null', () => {
+    const partialUser = ev({
+      partial: true,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'typing...' },
+    });
+    const partialModel = ev({
+      partial: true,
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: 'streaming...' },
+    });
+
+    expect(runtimeEventToStoredMessageDraft(partialUser)).toBeNull();
+    expect(runtimeEventToStoredMessageDraft(partialModel, { modelId: 'gpt-4o' })).toBeNull();
   });
 
   test('thinking event → null', () => {
