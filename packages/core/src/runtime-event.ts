@@ -1,0 +1,312 @@
+/**
+ * Canonical Runtime v2 event contract.
+ *
+ * This is the single internal runtime fact model. It is NOT a UI event
+ * (see ./events.ts `SessionEvent`) and NOT a trace row (RunTrace) or
+ * telemetry record. StoredMessage JSONL, renderer SessionEvent,
+ * AgentRunStore, RunTrace, and TelemetryRepo are all projections that
+ * should be written from — or explicitly linked to — these events.
+ *
+ * Source: docs/runtime-v2-architecture-evolution.md §Canonical RuntimeEvent
+ *
+ * Phase 1 scope: types + small pure helpers only. No storage, runner,
+ * projection, or ledger logic lives here. Those arrive in later nodes.
+ */
+
+import type { PermissionRequest, PermissionResponse } from './permission.js';
+
+// ============================================================================
+// Role / Author / Status
+// ============================================================================
+
+/**
+ * Conversation role the event plays in model history. Maps 1:1 with the
+ * roles providers expect in a message history (user / model / tool /
+ * system). Role is about *what lane* the content belongs to.
+ */
+export const RUNTIME_EVENT_ROLES = ['user', 'model', 'tool', 'system'] as const;
+export type RuntimeEventRole = typeof RUNTIME_EVENT_ROLES[number];
+
+export function isRuntimeEventRole(value: unknown): value is RuntimeEventRole {
+  return typeof value === 'string' && (RUNTIME_EVENT_ROLES as readonly string[]).includes(value);
+}
+
+/**
+ * Who authored the event inside the runtime. `agent` covers the model +
+ * flow orchestration; `tool` covers tool execution; `system` covers the
+ * runner, gate, and recovery. Author is about *which subsystem* produced
+ * the fact, which is orthogonal to the model-history `role`.
+ *
+ * Not every (author, role) combination is meaningful, but the runtime —
+ * not this type module — owns the policy that constrains them.
+ */
+export const RUNTIME_EVENT_AUTHORS = ['user', 'agent', 'tool', 'system'] as const;
+export type RuntimeEventAuthor = typeof RUNTIME_EVENT_AUTHORS[number];
+
+export function isRuntimeEventAuthor(value: unknown): value is RuntimeEventAuthor {
+  return typeof value === 'string' && (RUNTIME_EVENT_AUTHORS as readonly string[]).includes(value);
+}
+
+/**
+ * Lifecycle status an event asserts about its invocation/turn. Omitted on
+ * ordinary in-flight content events. Terminal values (completed / failed /
+ * aborted / cancelled) mark the last event of an invocation; `streaming`
+ * marks a non-terminal partial event that still carries lifecycle intent
+ * (e.g. a flow heartbeat) without being a content delta.
+ */
+export const RUNTIME_EVENT_STATUSES = [
+  'streaming',
+  'completed',
+  'failed',
+  'aborted',
+  'cancelled',
+] as const;
+export type RuntimeEventStatus = typeof RUNTIME_EVENT_STATUSES[number];
+
+export const TERMINAL_RUNTIME_EVENT_STATUSES: readonly RuntimeEventStatus[] = [
+  'completed',
+  'failed',
+  'aborted',
+  'cancelled',
+];
+
+export function isRuntimeEventStatus(value: unknown): value is RuntimeEventStatus {
+  return typeof value === 'string' && (RUNTIME_EVENT_STATUSES as readonly string[]).includes(value);
+}
+
+export function isTerminalRuntimeEventStatus(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    (TERMINAL_RUNTIME_EVENT_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+// ============================================================================
+// Content (model-facing payload)
+// ============================================================================
+
+export interface RuntimeEventTextContent {
+  kind: 'text';
+  text: string;
+}
+
+export interface RuntimeEventThinkingContent {
+  kind: 'thinking';
+  text: string;
+  /** Anthropic signed thinking — MUST be re-sent on replay when present. */
+  signature?: string;
+}
+
+export interface RuntimeEventFunctionCallContent {
+  kind: 'function_call';
+  /** Matches the tool-call id the provider issued and the matching response. */
+  id: string;
+  name: string;
+  args: unknown;
+}
+
+export interface RuntimeEventFunctionResponseContent {
+  kind: 'function_response';
+  /** Matches RuntimeEventFunctionCallContent.id. */
+  id: string;
+  name: string;
+  result: unknown;
+  isError?: boolean;
+}
+
+export interface RuntimeEventErrorContent {
+  kind: 'error';
+  code?: string;
+  /** Stable machine-readable reason for routing; mirrors ErrorEvent.reason. */
+  reason?: string;
+  message: string;
+  /** Adapter MUST scrub secrets before populating this field. */
+  details?: string[] | Record<string, unknown>;
+}
+
+/**
+ * Content union for user/model text, model thinking, function call,
+ * function response, and error payloads. Discriminated by `kind` to
+ * match the existing ToolResultContent convention.
+ */
+export type RuntimeEventContent =
+  | RuntimeEventTextContent
+  | RuntimeEventThinkingContent
+  | RuntimeEventFunctionCallContent
+  | RuntimeEventFunctionResponseContent
+  | RuntimeEventErrorContent;
+
+export const RUNTIME_EVENT_CONTENT_KINDS = [
+  'text',
+  'thinking',
+  'function_call',
+  'function_response',
+  'error',
+] as const;
+export type RuntimeEventContentKind = typeof RUNTIME_EVENT_CONTENT_KINDS[number];
+
+// ============================================================================
+// Actions (control / side-effect intent)
+// ============================================================================
+
+/**
+ * Token usage carried as a runtime action rather than a content payload.
+ * Mirrors TokenUsageEvent / TokenUsageMessage so projections can map 1:1.
+ */
+export interface RuntimeEventTokenUsage {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheCreation?: number;
+  costUsd?: number;
+  contextRemaining?: number;
+}
+
+/**
+ * Permission decision attached to an event. This is the same shape as
+ * `PermissionResponse` (aliased as `PermissionDecision` in
+ * ./backend-types.ts); the runtime records the decision as an action so
+ * allow/deny is a first-class runtime fact, not just a UI echo.
+ */
+export type RuntimeEventPermissionDecision = PermissionResponse;
+
+/**
+ * Control and side-effect intent carried alongside content. An event may
+ * carry content, actions, both, or (rarely) neither — but a terminal
+ * event without `actions.endInvocation` MUST assert a terminal `status`.
+ */
+export interface RuntimeEventActions {
+  /** Patch applied to invocation-scoped runtime state. */
+  stateDelta?: Record<string, unknown>;
+  /** Artifact key → primitive delta (size/bytes/version counters, etc.). */
+  artifactDelta?: Record<string, string | number | boolean>;
+  /** A permission prompt raised for a tool call. */
+  permissionRequest?: PermissionRequest;
+  /** A resolved permission decision (allow/deny) for a prior request. */
+  permissionDecision?: RuntimeEventPermissionDecision;
+  /** Hand off the invocation to another agent (multi-agent transfer). */
+  transferToAgent?: string;
+  /** Marks the event that closes the invocation. */
+  endInvocation?: boolean;
+  /** Token accounting for the model call this event summarizes. */
+  tokenUsage?: RuntimeEventTokenUsage;
+}
+
+// ============================================================================
+// Refs (links to projections / ledgers)
+// ============================================================================
+
+/**
+ * Links back to the projection/ledger rows written from (or correlated
+ * with) this event. Refs are diagnostics/audit pointers; a missing ref
+ * never changes runtime behavior. `toolCallId` doubles as the matching
+ * key for function_call ↔ function_response when provider ids differ.
+ */
+export interface RuntimeEventRefs {
+  storedMessageId?: string;
+  traceEventId?: string;
+  toolCallId?: string;
+  providerEventId?: string;
+  artifactId?: string;
+}
+
+// ============================================================================
+// RuntimeEvent
+// ============================================================================
+
+/**
+ * The canonical runtime fact.
+ *
+ * Identity hierarchy: `sessionId` ⊃ `invocationId` ⊃ `runId` ⊃ `turnId`.
+ * `invocationId` is the durable spine id; `runId`/`turnId` name the
+ * specific execution attempt and user turn within it. `ts` is Unix ms.
+ *
+ * `partial: true` marks a transient chunk (streaming text, progress) that
+ * is superseded by a later non-partial event. Projections decide whether
+ * to persist partials; model history MUST exclude them.
+ */
+export interface RuntimeEvent {
+  /** Event uuid — used for dedup on reconnect/replay. */
+  id: string;
+  /** Durable invocation spine id; groups every run/turn of one request. */
+  invocationId: string;
+  /** Specific run/attempt within the invocation (maps to AgentRunHeader.runId). */
+  runId: string;
+  sessionId: string;
+  /** Groups all events from one agent turn (maps to StoredMessage.turnId). */
+  turnId: string;
+  /** Unix ms timestamp. */
+  ts: number;
+
+  /** Optional branch/agent lane for future multi-agent trees. */
+  branch?: string;
+  /** True for transient streaming chunks superseded by a later event. */
+  partial: boolean;
+
+  role: RuntimeEventRole;
+  author: RuntimeEventAuthor;
+  /** Lifecycle assertion; omitted on ordinary in-flight content events. */
+  status?: RuntimeEventStatus;
+
+  content?: RuntimeEventContent;
+  actions?: RuntimeEventActions;
+  refs?: RuntimeEventRefs;
+}
+
+// ============================================================================
+// Pure helpers
+// ============================================================================
+
+/**
+ * True if the event marks the end of its invocation — either by asserting
+ * a terminal `status` or by carrying `actions.endInvocation === true`.
+ * A single terminal event SHOULD carry exactly one of these signals.
+ */
+export function isTerminalRuntimeEvent(event: RuntimeEvent): boolean {
+  if (event.status !== undefined && isTerminalRuntimeEventStatus(event.status)) return true;
+  return event.actions?.endInvocation === true;
+}
+
+/** True for transient streaming/progress chunks that a later event supersedes. */
+export function isPartialRuntimeEvent(event: RuntimeEvent): boolean {
+  return event.partial === true;
+}
+
+/**
+ * True if the event carries content whose kind is eligible for model
+ * history projection: text, thinking, function_call, or function_response.
+ * Error-only content and pure action/refs events are NOT model-visible.
+ *
+ * This is a content-kind check only. Callers still apply `partial`
+ * filtering (partial chunks are never replayed into the next model call).
+ */
+export function runtimeEventHasModelVisibleContent(event: RuntimeEvent): boolean {
+  const content = event.content;
+  if (!content) return false;
+  switch (content.kind) {
+    case 'text':
+      return content.text.length > 0;
+    case 'thinking':
+    case 'function_call':
+    case 'function_response':
+      return true;
+    case 'error':
+      return false;
+  }
+}
+
+let __runtimeEventSeq = 0;
+
+/**
+ * Best-effort unique id for runtime events. Monotonic within a process so
+ * two ids never collide even when generated in the same millisecond.
+ *
+ * Runtime/runner layers MAY replace this with a stronger uuid source; it
+ * exists here only so early adopters and tests have a default. Tests that
+ * need deterministic ids SHOULD pass literal strings rather than rely on
+ * this helper's exact output.
+ */
+export function createRuntimeEventId(prefix = 'rt-event'): string {
+  __runtimeEventSeq += 1;
+  return `${prefix}_${Date.now().toString(36)}_${__runtimeEventSeq.toString(36)}`;
+}

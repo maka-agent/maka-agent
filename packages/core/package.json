@@ -8,6 +8,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./runtime-event": "./dist/runtime-event.js",
     "./events": "./dist/events.js",
     "./session": "./dist/session.js",
     "./agent-run": "./dist/agent-run.js",

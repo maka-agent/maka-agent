@@ -1,0 +1,433 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+
+import type { BackendKind } from '@maka/core/session';
+import type { SessionEvent } from '@maka/core/events';
+import type { PermissionDecision } from '@maka/core/backend-types';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
+import {
+  isTerminalRuntimeEvent,
+  isPartialRuntimeEvent,
+} from '@maka/core/runtime-event';
+
+import {
+  AiSdkFlow,
+  mapCompleteStopReason,
+  mapSessionEventToRuntimeEvent,
+  createSessionEventMapMemory,
+} from '../ai-sdk-flow.js';
+import {
+  flowSupportsControl,
+} from '../agent-flow.js';
+import type { AgentBackend } from '../ai-sdk-backend.js';
+
+// ============================================================================
+// Fake backend — scripted SessionEvent stream + recorded control calls
+// ============================================================================
+
+interface ScriptedBackendCtor {
+  kind?: BackendKind;
+  sessionId?: string;
+  events: SessionEvent[];
+  /** Optional gate: send() awaits this after yielding each event. */
+  gate?: () => Promise<void>;
+}
+
+class ScriptedBackend implements AgentBackend {
+  readonly kind: BackendKind;
+  readonly sessionId: string;
+  readonly stopCalls: Array<'user_stop' | 'redirect'> = [];
+  readonly permissionCalls: PermissionDecision[] = [];
+  disposeCalls = 0;
+  sendCalls = 0;
+  private readonly events: SessionEvent[];
+  private readonly gate?: () => Promise<void>;
+
+  constructor(c: ScriptedBackendCtor) {
+    this.kind = c.kind ?? 'ai-sdk';
+    this.sessionId = c.sessionId ?? 'session-1';
+    this.events = c.events;
+    this.gate = c.gate;
+  }
+
+  async *send(): AsyncIterable<SessionEvent> {
+    this.sendCalls += 1;
+    for (const e of this.events) {
+      yield e;
+      if (this.gate) await this.gate();
+    }
+  }
+
+  async stop(reason: 'user_stop' | 'redirect'): Promise<void> {
+    this.stopCalls.push(reason);
+  }
+
+  async respondToPermission(decision: PermissionDecision): Promise<void> {
+    this.permissionCalls.push(decision);
+  }
+
+  async dispose(): Promise<void> {
+    this.disposeCalls += 1;
+  }
+}
+
+// ============================================================================
+// Event builders
+// ============================================================================
+
+let __seq = 0;
+type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never;
+function ev(e: DistributiveOmit<SessionEvent, 'id' | 'turnId' | 'ts'> & Partial<Pick<SessionEvent, 'ts'>>): SessionEvent {
+  __seq += 1;
+  return { id: `evt-${__seq}`, turnId: 'turn-1', ts: e.ts ?? __seq, ...e } as SessionEvent;
+}
+
+const ctx = {
+  sessionId: 'session-1',
+  invocationId: 'inv-1',
+  runId: 'run-1',
+  turnId: 'turn-1',
+  newId: () => 'rt-id',
+  now: () => 1000,
+};
+
+function collect(stream: AsyncIterable<RuntimeEvent>): Promise<RuntimeEvent[]> {
+  const out: RuntimeEvent[] = [];
+  return (async () => {
+    for await (const e of stream) out.push(e);
+    return out;
+  })();
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+describe('AiSdkFlow seam', () => {
+  test('implements AgentFlow + AgentFlowControl and reflects the wrapped backend', () => {
+    const backend = new ScriptedBackend({ events: [] });
+    const flow = new AiSdkFlow({ backend });
+
+    assert.equal(flow.kind, 'ai-sdk');
+    assert.equal(flow.sessionId, 'session-1');
+    assert.equal(typeof flow.run, 'function');
+    assert.equal(flowSupportsControl(flow), true);
+    assert.equal(flow.backendRef, backend);
+    // Structural: an AiSdkFlow is assignable to the AgentFlow contract.
+    const _asFlow: import('../agent-flow.js').AgentFlow = flow;
+    void _asFlow;
+  });
+
+  test('maps a normal turn preserving event order and terminal guarantee', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'text_delta', messageId: 'm1', text: 'Hel' }),
+        ev({ type: 'text_delta', messageId: 'm1', text: 'lo' }),
+        ev({ type: 'text_complete', messageId: 'm1', text: 'Hello' }),
+        ev({ type: 'token_usage', input: 10, output: 5 }),
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+
+    const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
+
+    assert.equal(out.length, 5);
+    // Order preserved.
+    assert.deepEqual(
+      out.map((e) => e.content?.kind ?? null),
+      ['text', 'text', 'text', null, null],
+    );
+    // Deltas are partial; complete is not.
+    assert.equal(isPartialRuntimeEvent(out[0]), true);
+    assert.equal(isPartialRuntimeEvent(out[2]), false);
+    // Identity spine propagated.
+    assert.equal(out[0].invocationId, 'inv-1');
+    assert.equal(out[0].runId, 'run-1');
+    assert.equal(out[0].sessionId, 'session-1');
+    assert.equal(out[0].turnId, 'turn-1');
+    // id reused from source for 1:1 dedup linkage.
+    assert.equal(out[0].id, 'evt-1');
+    // Token usage carried as an action.
+    assert.deepEqual(out[3].actions?.tokenUsage, { input: 10, output: 5 });
+    // Stream closes with a terminal event.
+    assert.equal(isTerminalRuntimeEvent(out[out.length - 1]), true);
+    assert.equal(out[out.length - 1].status, 'completed');
+    assert.equal(out[out.length - 1].actions?.endInvocation, true);
+    // send was invoked exactly once with the turn id.
+    assert.equal(backend.sendCalls, 1);
+  });
+
+  test('maps thinking deltas/signature onto model thinking content', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'thinking_delta', messageId: 'm1', text: 'hm' }),
+        ev({ type: 'thinking_complete', messageId: 'm1', text: 'hmm', signature: 'sig' }),
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
+
+    assert.equal(isPartialRuntimeEvent(out[0]), true);
+    assert.equal(out[1].content?.kind, 'thinking');
+    assert.equal((out[1].content as { signature?: string }).signature, 'sig');
+    assert.equal(isPartialRuntimeEvent(out[1]), false);
+  });
+
+  test('preserves toolName linkage between tool_start and tool_result', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'tool_start', toolUseId: 'tu-1', toolName: 'read', args: { path: '/a' } }),
+        ev({
+          type: 'tool_result',
+          toolUseId: 'tu-1',
+          isError: false,
+          content: { kind: 'text', text: 'body' },
+          durationMs: 42,
+        }),
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    const out = await collect(flow.run(ctx, { text: 'read it', context: [] }));
+
+    // tool_start -> function_call
+    const call = out[0];
+    assert.equal(call.role, 'model');
+    assert.equal(call.author, 'agent');
+    assert.equal(call.content?.kind, 'function_call');
+    const fnCall = call.content as { id: string; name: string; args: unknown };
+    assert.equal(fnCall.name, 'read');
+    assert.equal(fnCall.id, 'tu-1');
+    assert.equal(call.refs?.toolCallId, 'tu-1');
+
+    // tool_result -> function_response with the remembered name
+    const result = out[1];
+    assert.equal(result.role, 'tool');
+    assert.equal(result.author, 'tool');
+    assert.equal(result.content?.kind, 'function_response');
+    const fnResp = result.content as { id: string; name: string; result: unknown; isError?: boolean };
+    assert.equal(fnResp.name, 'read', 'tool_result recovers toolName from the prior tool_start');
+    assert.equal(fnResp.isError, undefined);
+    assert.equal(result.refs?.toolCallId, 'tu-1');
+    assert.deepEqual(result.actions?.stateDelta, { durationMs: 42 });
+  });
+
+  test('maps permission request/decision as first-class runtime actions', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({
+          type: 'permission_request',
+          requestId: 'req-1',
+          toolUseId: 'tu-2',
+          toolName: 'bash',
+          category: 'shell_unsafe',
+          reason: 'shell_dangerous',
+          args: { cmd: 'rm -rf /' },
+          hint: 'destructive',
+        }),
+        ev({
+          type: 'permission_decision_ack',
+          requestId: 'req-1',
+          toolUseId: 'tu-2',
+          decision: 'deny',
+          rememberForTurn: true,
+        }),
+        ev({ type: 'complete', stopReason: 'permission_handoff' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    const out = await collect(flow.run(ctx, { text: 'do it', context: [] }));
+
+    const req = out[0];
+    assert.equal(req.author, 'system');
+    assert.equal(req.actions?.permissionRequest?.requestId, 'req-1');
+    assert.equal(req.actions?.permissionRequest?.toolName, 'bash');
+    assert.equal(req.actions?.permissionRequest?.hint, 'destructive');
+
+    const ack = out[1];
+    assert.equal(ack.author, 'user', 'permission decision is authored by the user');
+    assert.deepEqual(ack.actions?.permissionDecision, {
+      requestId: 'req-1',
+      decision: 'deny',
+      rememberForTurn: true,
+    });
+
+    // permission_handoff stopReason maps to completed (run streamed to a halt).
+    assert.equal(out[2].status, 'completed');
+  });
+
+  test('maps the error path preserving error content + terminal failed', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'error', recoverable: false, code: 'AUTH', reason: 'auth_failed', message: 'no token' }),
+        ev({ type: 'complete', stopReason: 'error' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
+
+    const err = out[0];
+    assert.equal(err.content?.kind, 'error');
+    const errContent = err.content as { code?: string; reason?: string; message: string };
+    assert.equal(errContent.message, 'no token');
+    assert.equal(errContent.code, 'AUTH');
+    assert.equal(errContent.reason, 'auth_failed');
+    // error event itself is non-terminal; the trailing complete carries failed.
+    assert.equal(isTerminalRuntimeEvent(err), false);
+
+    assert.equal(out[1].status, 'failed');
+    assert.equal(isTerminalRuntimeEvent(out[1]), true);
+  });
+
+  test('maps the abort path preserving order (faithful, no coalescing)', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'text_delta', messageId: 'm1', text: 'par' }),
+        ev({ type: 'abort', reason: 'user_stop' }),
+        ev({ type: 'complete', stopReason: 'user_stop' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
+
+    // The adapter is faithful to the backend stream: both abort and the
+    // trailing complete are emitted (coalescing is a projection concern).
+    assert.equal(out.length, 3);
+    assert.equal(out[1].status, 'aborted');
+    assert.equal(out[1].actions?.endInvocation, true);
+    assert.equal(isTerminalRuntimeEvent(out[1]), true);
+    // Stream closes with the trailing terminal complete.
+    assert.equal(isTerminalRuntimeEvent(out[2]), true);
+    assert.equal(out[2].status, 'aborted');
+  });
+
+  test('delegates stop / respondToPermission / dispose to the wrapped backend', async () => {
+    const backend = new ScriptedBackend({ events: [] });
+    const flow = new AiSdkFlow({ backend });
+
+    await flow.stop('redirect');
+    await flow.respondToPermission({ requestId: 'r', decision: 'allow' });
+    await flow.dispose();
+
+    assert.deepEqual(backend.stopCalls, ['redirect']);
+    assert.deepEqual(backend.permissionCalls, [{ requestId: 'r', decision: 'allow' }]);
+    assert.equal(backend.disposeCalls, 1);
+  });
+
+  test('throws on session id mismatch between ctx and backend', async () => {
+    const backend = new ScriptedBackend({ sessionId: 'session-1', events: [] });
+    const flow = new AiSdkFlow({ backend });
+
+    await assert.rejects(
+      collect(
+        flow.run(
+          { ...ctx, sessionId: 'other' },
+          { text: 'hi', context: [] },
+        ),
+      ),
+      /AiSdkFlow session mismatch/,
+    );
+  });
+
+  test('bridges FlowInput.abortSignal onto backend.stop("user_stop")', async () => {
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'text_delta', messageId: 'm1', text: 'x' }),
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+      ],
+      gate: () => gate,
+    });
+    // stop releases the gate so send() can advance to the terminal event.
+    const realStop = backend.stop.bind(backend);
+    backend.stop = async (reason) => {
+      await realStop(reason);
+      releaseGate();
+    };
+
+    const flow = new AiSdkFlow({ backend });
+    const ctrl = new AbortController();
+    const runPromise = collect(
+      flow.run(ctx, { text: 'hi', context: [], abortSignal: ctrl.signal }),
+    );
+
+    // Let the generator yield the first event and park on the gate.
+    await new Promise((r) => setTimeout(r, 0));
+    ctrl.abort();
+    const out = await runPromise;
+
+    assert.deepEqual(backend.stopCalls, ['user_stop']);
+    assert.equal(out.length, 2);
+    assert.equal(isTerminalRuntimeEvent(out[out.length - 1]), true);
+  });
+});
+
+// ============================================================================
+// Pure mapping unit tests
+// ============================================================================
+
+describe('mapSessionEventToRuntimeEvent (pure)', () => {
+  test('mapCompleteStopReason covers all stop reasons', () => {
+    assert.equal(mapCompleteStopReason('end_turn'), 'completed');
+    assert.equal(mapCompleteStopReason('max_tokens'), 'completed');
+    assert.equal(mapCompleteStopReason('plan_handoff'), 'completed');
+    assert.equal(mapCompleteStopReason('permission_handoff'), 'completed');
+    assert.equal(mapCompleteStopReason('user_stop'), 'aborted');
+    assert.equal(mapCompleteStopReason('error'), 'failed');
+  });
+
+  test('tool_output_delta and tool_progress map to partial tool-role heartbeats', () => {
+    const mem = createSessionEventMapMemory();
+    const a = mapSessionEventToRuntimeEvent(
+      ev({ type: 'tool_output_delta', sessionId: 'session-1', toolCallId: 'tu-1', toolUseId: 'tu-1', seq: 1, stream: 'stdout', chunk: 'c', redacted: false, createdAt: 1 }),
+      ctx,
+      mem,
+    );
+    assert.equal(a.partial, true);
+    assert.equal(a.role, 'tool');
+    assert.equal(a.author, 'tool');
+    assert.equal(a.refs?.toolCallId, 'tu-1');
+
+    const b = mapSessionEventToRuntimeEvent(
+      ev({ type: 'tool_progress', toolUseId: 'tu-1', chunk: 'c' }),
+      ctx,
+      mem,
+    );
+    assert.equal(b.partial, true);
+    assert.equal(b.role, 'tool');
+  });
+
+  test('plan_submitted maps to an agent-authored state delta', () => {
+    const a = mapSessionEventToRuntimeEvent(
+      ev({ type: 'plan_submitted', planId: 'p1', title: 'T', markdownPath: '/p.md' }),
+      ctx,
+    );
+    assert.equal(a.role, 'system');
+    assert.equal(a.author, 'agent');
+    assert.deepEqual(a.actions?.stateDelta, { planId: 'p1', title: 'T', markdownPath: '/p.md' });
+  });
+
+  test('tool_result without a prior tool_start still maps (name falls back to empty)', () => {
+    const a = mapSessionEventToRuntimeEvent(
+      ev({ type: 'tool_result', toolUseId: 'orphan', isError: true, content: { kind: 'text', text: 'boom' } }),
+      ctx,
+    );
+    const fnResp = a.content as { name: string; isError?: boolean };
+    assert.equal(fnResp.name, '');
+    assert.equal(fnResp.isError, true);
+  });
+
+  test('branch is propagated when present on the context', () => {
+    const a = mapSessionEventToRuntimeEvent(
+      ev({ type: 'complete', stopReason: 'end_turn' }),
+      { ...ctx, branch: 'agent-b' },
+    );
+    assert.equal(a.branch, 'agent-b');
+  });
+});

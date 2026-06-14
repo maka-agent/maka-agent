@@ -1,0 +1,315 @@
+import { describe, test } from 'node:test';
+import { expect } from '../test-helpers.js';
+import {
+  RuntimeRunner,
+  runtimeGateFromCallback,
+  type AgentFlowLike,
+  type RuntimeGate,
+} from '../runtime-runner.js';
+import type {
+  InvocationContext,
+  InvocationProviders,
+  InvocationRequest,
+} from '../invocation-context.js';
+import type {
+  RuntimeEvent,
+  RuntimeEventStatus,
+} from '@maka/core/runtime-event';
+
+// ============================================================================
+// Test fakes / helpers
+// ============================================================================
+
+/** Deterministic providers so event ids and timestamps are predictable. */
+function makeProviders(): InvocationProviders & { count: () => number } {
+  let n = 0;
+  return {
+    newId: () => `id-${(n += 1)}`,
+    now: () => 1000 + n,
+    count: () => n,
+  };
+}
+
+function makeRequest(overrides: Partial<InvocationRequest> = {}): InvocationRequest {
+  return {
+    sessionId: 'sess-1',
+    turnId: 'turn-1',
+    text: 'hi',
+    source: 'test',
+    ...overrides,
+  };
+}
+
+/**
+ * Fake flow that runs a script to produce its events. The script receives
+ * the InvocationContext so events can line up with the invocation spine.
+ */
+class ScriptFlow implements AgentFlowLike {
+  readonly seen: InvocationContext[] = [];
+  constructor(
+    private readonly script: (ctx: InvocationContext) =>
+      RuntimeEvent[] | Promise<RuntimeEvent[]>,
+  ) {}
+
+  async *run(ctx: InvocationContext): AsyncIterable<RuntimeEvent> {
+    this.seen.push(ctx);
+    for (const ev of await this.script(ctx)) {
+      yield ev;
+    }
+  }
+}
+
+/** Flow that throws on first iteration. */
+class ThrowingFlow implements AgentFlowLike {
+  ran = false;
+  constructor(private readonly error: unknown) {}
+  async *run(): AsyncIterable<RuntimeEvent> {
+    this.ran = true;
+    throw this.error;
+  }
+}
+
+function flowTextEvent(ctx: InvocationContext, text: string): RuntimeEvent {
+  return {
+    id: ctx.newId(),
+    invocationId: ctx.invocationId,
+    runId: ctx.runId,
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    ts: ctx.now(),
+    ...(ctx.branch ? { branch: ctx.branch } : {}),
+    partial: false,
+    role: 'model',
+    author: 'agent',
+    content: { kind: 'text', text },
+  };
+}
+
+function flowTerminalEvent(
+  ctx: InvocationContext,
+  status: RuntimeEventStatus,
+): RuntimeEvent {
+  return {
+    id: ctx.newId(),
+    invocationId: ctx.invocationId,
+    runId: ctx.runId,
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    ts: ctx.now(),
+    ...(ctx.branch ? { branch: ctx.branch } : {}),
+    partial: false,
+    role: 'model',
+    author: 'agent',
+    status,
+    actions: { endInvocation: true },
+  };
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+describe('RuntimeRunner', () => {
+  test('preflight failure returns no flow events and does not call the flow', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow(() => [flowTextEvent({} as never, 'should-not-happen')]);
+    const gate: RuntimeGate = {
+      preflight: async () => ({ ok: false, reason: 'session_blocked' }),
+    };
+    const runner = new RuntimeRunner({ flow, gate, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.events).toEqual([]);
+    expect(flow.seen).toEqual([]);
+    expect(result.failure?.class).toBe('preflight');
+    expect(result.failure?.message).toBe('session_blocked');
+    expect(result.startedAt <= result.finishedAt).toBe(true);
+  });
+
+  test('initial user RuntimeEvent is emitted before any flow event', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTextEvent(ctx, 'hello')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest({ text: 'ping' }));
+
+    expect(result.status).toBe('completed');
+    expect(result.events).toHaveLength(2);
+
+    const userEvent = result.events[0]!;
+    expect(userEvent.role).toBe('user');
+    expect(userEvent.author).toBe('user');
+    expect(userEvent.partial).toBe(false);
+    expect(userEvent.content).toEqual({ kind: 'text', text: 'ping' });
+    expect(userEvent.sessionId).toBe('sess-1');
+    expect(userEvent.turnId).toBe('turn-1');
+
+    // The flow event follows the user event and is on a different lane.
+    expect(result.events[1]!.role).toBe('model');
+    expect(result.events[1]!.author).toBe('agent');
+  });
+
+  test('a terminal event ends the result and stops collecting flow events', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, 'partial'),
+      flowTerminalEvent(ctx, 'completed'),
+      // These should never be collected once the terminal event is seen.
+      flowTextEvent(ctx, 'after-terminal-1'),
+      flowTerminalEvent(ctx, 'failed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('completed');
+    // user + partial text + terminal = 3; nothing after the terminal event.
+    expect(result.events).toHaveLength(3);
+    const terminal = result.events.at(-1)!;
+    expect(terminal.status).toBe('completed');
+    expect(terminal.actions?.endInvocation).toBe(true);
+    expect(
+      result.events.some(
+        (ev) => ev.content?.kind === 'text' && ev.content.text === 'after-terminal-1',
+      ),
+    ).toBe(false);
+  });
+
+  test('a flow that throws maps to a failed result (user event retained)', async () => {
+    const providers = makeProviders();
+    const flow = new ThrowingFlow(new Error('boom'));
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('Error');
+    expect(result.failure?.message).toBe('boom');
+    expect(flow.ran).toBe(true);
+    // The user event was collected before the flow threw.
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]!.author).toBe('user');
+  });
+
+  test('a flow emitting an aborted terminal event maps to a failed result', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTerminalEvent(ctx, 'aborted')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('aborted');
+    expect(result.failure?.terminalStatus).toBe('aborted');
+  });
+
+  test('a flow emitting a failed terminal event surfaces error content as failure message', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      {
+        ...flowTerminalEvent(ctx, 'failed'),
+        content: { kind: 'error', message: 'provider 500' },
+      },
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('failed');
+    expect(result.failure?.message).toBe('provider 500');
+    expect(result.failure?.terminalStatus).toBe('failed');
+  });
+
+  test('omitting the gate means preflight always passes', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, 'ok'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('completed');
+    expect(result.events).toHaveLength(3);
+  });
+
+  test('runtimeGateFromCallback adapts a sync callback', async () => {
+    const providers = makeProviders();
+    let flowCalled = false;
+    const flow: AgentFlowLike = {
+      async *run(): AsyncIterable<RuntimeEvent> {
+        flowCalled = true;
+      },
+    };
+    const gate = runtimeGateFromCallback(() => ({ ok: false, reason: 'nope' }));
+    const runner = new RuntimeRunner({ flow, gate, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('preflight');
+    expect(flowCalled).toBe(false);
+  });
+
+  test('already-aborted signal before dispatch yields a failed result without flow dispatch', async () => {
+    const providers = makeProviders();
+    const ac = new AbortController();
+    ac.abort();
+    const flow = new ScriptFlow((ctx) => [flowTextEvent(ctx, 'nope')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest({ abortSignal: ac.signal }));
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('aborted');
+    expect(result.events).toEqual([]);
+    expect(flow.seen).toEqual([]);
+  });
+
+  test('emitted events carry the invocation identity hierarchy', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, 'a'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(
+      makeRequest({ sessionId: 'sess-7', turnId: 'turn-7', branch: 'b1' }),
+    );
+
+    expect(result.invocationId).toBeDefined();
+    expect(result.runId).toBeDefined();
+    expect(result.invocationId !== result.runId).toBe(true);
+    for (const ev of result.events) {
+      expect(ev.invocationId).toBe(result.invocationId);
+      expect(ev.runId).toBe(result.runId);
+      expect(ev.sessionId).toBe('sess-7');
+      expect(ev.turnId).toBe('turn-7');
+      expect(ev.branch).toBe('b1');
+    }
+  });
+
+  test('flow receives a context wired to the injected providers and request', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTextEvent(ctx, 'x')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    await runner.run(makeRequest({ source: 'gateway', text: 'hello' }));
+
+    expect(flow.seen).toHaveLength(1);
+    const ctx = flow.seen[0]!;
+    expect(ctx.source).toBe('gateway');
+    expect(ctx.request.text).toBe('hello');
+    expect(ctx.sessionId).toBe('sess-1');
+    expect(ctx.turnId).toBe('turn-1');
+    expect(typeof ctx.newId()).toBe('string');
+    expect(typeof ctx.now()).toBe('number');
+    // Providers are shared, so a fresh id from ctx is unique against runId.
+    expect(ctx.newId() !== ctx.runId).toBe(true);
+  });
+});

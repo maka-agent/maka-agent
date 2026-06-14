@@ -37,6 +37,42 @@ export {
   TOOL_OUTPUT_STREAMS,
 } from './events.js';
 
+// runtime-event.ts — canonical Runtime v2 event contract.
+// Subpath `@maka/core/runtime-event` is the canonical import; these barrel
+// re-exports are for convenience.
+export type {
+  RuntimeEvent,
+  RuntimeEventRole,
+  RuntimeEventAuthor,
+  RuntimeEventStatus,
+  RuntimeEventTextContent,
+  RuntimeEventThinkingContent,
+  RuntimeEventFunctionCallContent,
+  RuntimeEventFunctionResponseContent,
+  RuntimeEventErrorContent,
+  RuntimeEventContent,
+  RuntimeEventContentKind,
+  RuntimeEventTokenUsage,
+  RuntimeEventPermissionDecision,
+  RuntimeEventActions,
+  RuntimeEventRefs,
+} from './runtime-event.js';
+export {
+  RUNTIME_EVENT_ROLES,
+  RUNTIME_EVENT_AUTHORS,
+  RUNTIME_EVENT_STATUSES,
+  TERMINAL_RUNTIME_EVENT_STATUSES,
+  RUNTIME_EVENT_CONTENT_KINDS,
+  isRuntimeEventRole,
+  isRuntimeEventAuthor,
+  isRuntimeEventStatus,
+  isTerminalRuntimeEventStatus,
+  isTerminalRuntimeEvent,
+  isPartialRuntimeEvent,
+  runtimeEventHasModelVisibleContent,
+  createRuntimeEventId,
+} from './runtime-event.js';
+
 // session.ts
 export type {
   SessionHeader,

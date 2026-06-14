@@ -123,3 +123,84 @@ export type {
   WechatBridgeQrCodeResult,
   SendCapable,
 } from './bots/index.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Runtime v2 seam (Phase 1–4 increments).
+//
+// Subpath imports (e.g. `@maka/runtime/runtime-runner`) remain canonical;
+// the barrel re-exports below are for convenience. NOTE: `InvocationContext`
+// is exported here from `./invocation-context.js` (the canonical runner
+// spine). `./agent-flow.js` declares a structurally wider
+// `InvocationContext` for its own seam; it is intentionally NOT re-exported
+// from the barrel to avoid a name clash. The runner's context is assignable
+// to the flow's context, so callers that construct the runner context can
+// pass it to an `AgentFlow.run()`. See
+// `docs/runtime-v2-implementation-notes.md` for the reconciliation plan.
+// ───────────────────────────────────────────────────────────────────────────
+
+// invocation-context.ts — runner spine types + providers.
+export type {
+  InvocationContext,
+  InvocationRequest,
+  InvocationSource,
+  InvocationLineage,
+  InvocationProviders,
+  InvocationResult,
+  InvocationResultStatus,
+  InvocationFailure,
+} from './invocation-context.js';
+export {
+  INVOCATION_SOURCES,
+  isInvocationSource,
+  createDefaultInvocationProviders,
+} from './invocation-context.js';
+
+// runtime-runner.ts — RuntimeRunner shell + gate.
+export { RuntimeRunner, runtimeGateFromCallback } from './runtime-runner.js';
+export type {
+  RuntimeGate,
+  RuntimeGateDecision,
+  AgentFlowLike,
+  RuntimeRunnerDeps,
+} from './runtime-runner.js';
+
+// runtime-event-adapters.ts — legacy StoredMessage ↔ RuntimeEvent bridge.
+export {
+  storedMessageToRuntimeEvent,
+  storedMessageToRuntimeEvents,
+  runtimeEventToStoredMessageDraft,
+  createRuntimeEventId,
+} from './runtime-event-adapters.js';
+export type {
+  StoredMessageEventContext,
+  RuntimeEventToDraftOptions,
+} from './runtime-event-adapters.js';
+
+// model-history.ts — policy-driven model-history projection.
+export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
+export type {
+  ModelHistoryEntry,
+  BuildModelHistoryOptions,
+} from './model-history.js';
+
+// agent-flow.ts — formal Flow seam (InvocationContext intentionally omitted;
+// see note above).
+export type {
+  AgentFlow,
+  AgentFlowControl,
+  FlowInput,
+} from './agent-flow.js';
+export { flowSupportsControl } from './agent-flow.js';
+
+// ai-sdk-flow.ts — default AgentFlow implementation over AiSdkBackend.
+export {
+  AiSdkFlow,
+  mapSessionEventToRuntimeEvent,
+  mapCompleteStopReason,
+  createSessionEventMapMemory,
+} from './ai-sdk-flow.js';
+export type {
+  AiSdkFlowInput,
+  CompleteStopReason,
+  SessionEventMapMemory,
+} from './ai-sdk-flow.js';

@@ -1,0 +1,161 @@
+/**
+ * AgentFlow — the runtime v2 model/tool loop seam.
+ *
+ * Source: docs/runtime-v2-architecture-evolution.md §Target Architecture,
+ * §Proposed Module Shape (flows/agent-flow.ts), and Phase 4 deliverables.
+ *
+ * Layering (from the architecture doc):
+ *
+ *   RuntimeRunner
+ *     -> InvocationContext
+ *     -> AgentFlow          ← this module defines the interface
+ *         -> AiSdkFlow      ← default long-term implementation (./ai-sdk-flow.ts)
+ *             -> AI SDK streamText
+ *             -> ToolRuntime
+ *     -> RuntimeEvent ledger
+ *     -> projections
+ *
+ * A Flow owns the model/tool loop for one invocation. It consumes an
+ * InvocationContext + a FlowInput (the user turn) and emits the canonical
+ * `RuntimeEvent` stream. The current stepping engine lives inside
+ * `AiSdkBackend.send()`; `AiSdkFlow` wraps that backend and normalizes its
+ * renderer-facing `SessionEvent` stream into canonical `RuntimeEvent`s
+ * without rewriting the stepping logic. That keeps the AI SDK as Maka's
+ * first-class long-term flow engine (Phase 4 design intent).
+ *
+ * Phase 4 scope (this node): interface + adapter/wrapper + mapping helpers
+ * + tests. It does NOT migrate SessionManager onto the runner, does NOT
+ * rewrite `AiSdkBackend.send()`, and does NOT change current renderer
+ * behavior. The seam exists so future work can move from
+ * `SessionManager -> AgentRun -> AiSdkBackend` to
+ * `RuntimeRunner -> AiSdkFlow` without a flag day.
+ */
+
+import type { AttachmentRef } from '@maka/core/events';
+import type { StoredMessage } from '@maka/core/session';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
+
+// ============================================================================
+// InvocationContext — identity + runtime services handed to a Flow
+// ============================================================================
+
+/**
+ * Durable invocation spine identity plus the runtime services a Flow needs.
+ *
+ * Identity hierarchy mirrors `RuntimeEvent`:
+ *   `sessionId` ⊃ `invocationId` ⊃ `runId` ⊃ `turnId`.
+ *
+ * `invocationId` is the durable spine id; `runId` names the specific
+ * execution attempt; `turnId` groups all events from one user turn (and
+ * matches `StoredMessage.turnId` / `BackendSendInput.turnId`).
+ *
+ * Today `SessionManager -> AgentRun -> AiSdkBackend` carries only
+ * `sessionId` + `turnId`; `invocationId`/`runId` are introduced here as the
+ * forward-compatible spine. Adapters that still talk to the legacy backend
+ * path pass `invocationId`/`runId` through for projection linkage even
+ * though the backend itself does not consume them yet.
+ */
+export interface InvocationContext {
+  sessionId: string;
+  invocationId: string;
+  runId: string;
+  turnId: string;
+  /** Optional branch/agent lane for future multi-agent trees. */
+  branch?: string;
+  /** id generator; default `crypto.randomUUID()`. */
+  newId?: () => string;
+  /** Clock; default `Date.now()`. */
+  now?: () => number;
+}
+
+// ============================================================================
+// FlowInput — the user turn handed to a Flow
+// ============================================================================
+
+/**
+ * The user turn input a Flow runs on. This is the flow-level analogue of
+ * `BackendSendInput`, expressed without binding to a specific backend.
+ *
+ * `context` is the prior conversation history (`StoredMessage[]`) the flow
+ * projects into model history. Today the AI SDK path forwards this straight
+ * to `AiSdkBackend.send()`; in the target architecture it flows through a
+ * `ModelHistoryProjector` (Phase 7), but that projection is owned upstream
+ * of the flow, not inside it.
+ */
+export interface FlowInput {
+  /** User turn text. */
+  text: string;
+  /** Optional attachments bound to the user message. */
+  attachments?: AttachmentRef[];
+  /**
+   * Prior conversation history for model-history projection. The flow does
+   * not own the inclusion policy; it receives whatever the runner/gate
+   * resolved.
+   */
+  context: StoredMessage[];
+  /** Abort signal propagated to the underlying engine. */
+  abortSignal?: AbortSignal;
+}
+
+// ============================================================================
+// AgentFlow — the model/tool loop seam
+// ============================================================================
+
+/**
+ * Owns the model/tool loop for one invocation.
+ *
+ * `run()` returns an async iterable of canonical `RuntimeEvent`s. The flow
+ * is responsible for:
+ *   - building provider messages from the input/history,
+ *   - driving the model/tool stepping engine,
+ *   - delegating tool execution to `ToolRuntime`,
+ *   - mapping every model/tool/permission/usage/error/finish fact to a
+ *     `RuntimeEvent`.
+ *
+ * A flow MUST emit exactly one terminal event (`isTerminalRuntimeEvent`)
+ * per invocation, whether the turn completed, errored, aborted, or was
+ * cancelled. Non-terminal partial chunks carry `partial: true`.
+ *
+ * Control surface (`stop` / `respondToPermission` / `dispose`) is optional
+ * on the interface because not every flow implementation owns a steppable
+ * engine. `AiSdkFlow` exposes these and delegates them to the wrapped
+ * backend so the current control semantics are preserved.
+ */
+export interface AgentFlow {
+  /** Stable label for telemetry/diagnostics, e.g. `'ai-sdk'`. */
+  readonly kind: string;
+  /** Session this flow is bound to. */
+  readonly sessionId: string;
+  /** Run the model/tool loop, emitting canonical runtime facts. */
+  run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent>;
+}
+
+// ============================================================================
+// AgentFlowControl — optional lifecycle/steering surface
+// ============================================================================
+
+/**
+ * Optional steering surface for flows that wrap a steppable engine. Mirrors
+ * the existing `AgentBackend` control methods so callers (SessionManager
+ * today, RuntimeRunner tomorrow) can stop a turn, answer a permission
+ * prompt, or tear the flow down without depending on a concrete class.
+ *
+ * `AiSdkFlow` implements this; pure/projection-only flows may omit it.
+ */
+export interface AgentFlowControl {
+  stop(reason: 'user_stop' | 'redirect'): Promise<void>;
+  respondToPermission(decision: import('@maka/core/backend-types').PermissionDecision): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+/**
+ * Type guard for the optional control surface. Callers that have an
+ * `AgentFlow` and need steering can narrow with this helper.
+ */
+export function flowSupportsControl(flow: AgentFlow): flow is AgentFlow & AgentFlowControl {
+  return (
+    typeof (flow as AgentFlow & Partial<AgentFlowControl>).stop === 'function' &&
+    typeof (flow as AgentFlow & Partial<AgentFlowControl>).respondToPermission === 'function' &&
+    typeof (flow as AgentFlow & Partial<AgentFlowControl>).dispose === 'function'
+  );
+}

@@ -25,7 +25,13 @@
     "./network/proxy-test": "./dist/network/proxy-test.js",
     "./network/proxy-parser": "./dist/network/proxy-parser.js",
     "./telemetry": "./dist/telemetry/index.js",
-    "./bots": "./dist/bots/index.js"
+    "./bots": "./dist/bots/index.js",
+    "./runtime-event-adapters": "./dist/runtime-event-adapters.js",
+    "./model-history": "./dist/model-history.js",
+    "./invocation-context": "./dist/invocation-context.js",
+    "./runtime-runner": "./dist/runtime-runner.js",
+    "./agent-flow": "./dist/agent-flow.js",
+    "./ai-sdk-flow": "./dist/ai-sdk-flow.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

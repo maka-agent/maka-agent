@@ -1,0 +1,333 @@
+import { describe, test } from 'node:test';
+import { expect } from '../test-helpers.js';
+import {
+  RUNTIME_EVENT_AUTHORS,
+  RUNTIME_EVENT_CONTENT_KINDS,
+  RUNTIME_EVENT_ROLES,
+  RUNTIME_EVENT_STATUSES,
+  TERMINAL_RUNTIME_EVENT_STATUSES,
+  createRuntimeEventId,
+  isRuntimeEventAuthor,
+  isRuntimeEventRole,
+  isRuntimeEventStatus,
+  isTerminalRuntimeEvent,
+  isTerminalRuntimeEventStatus,
+  isPartialRuntimeEvent,
+  runtimeEventHasModelVisibleContent,
+  type RuntimeEvent,
+  type RuntimeEventActions,
+  type RuntimeEventContent,
+} from '../runtime-event.js';
+
+/** Minimal valid RuntimeEvent; callers spread overrides on top. */
+function baseEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
+  return {
+    id: 'evt-1',
+    invocationId: 'inv-1',
+    runId: 'run-1',
+    sessionId: 'sess-1',
+    turnId: 'turn-1',
+    ts: 100,
+    partial: false,
+    role: 'model',
+    author: 'agent',
+    ...overrides,
+  };
+}
+
+describe('RuntimeEvent role / author / status enums', () => {
+  test('locks the role enum and guard', () => {
+    expect(RUNTIME_EVENT_ROLES).toEqual(['user', 'model', 'tool', 'system']);
+    expect(isRuntimeEventRole('model')).toBe(true);
+    expect(isRuntimeEventRole('assistant')).toBe(false);
+    expect(isRuntimeEventRole(123)).toBe(false);
+  });
+
+  test('locks the author enum (agent ≠ model) and guard', () => {
+    expect(RUNTIME_EVENT_AUTHORS).toEqual(['user', 'agent', 'tool', 'system']);
+    expect(isRuntimeEventAuthor('agent')).toBe(true);
+    expect(isRuntimeEventAuthor('model')).toBe(false);
+    expect(isRuntimeEventAuthor(null)).toBe(false);
+  });
+
+  test('locks the status enum, terminal subset, and guards', () => {
+    expect(RUNTIME_EVENT_STATUSES).toEqual([
+      'streaming',
+      'completed',
+      'failed',
+      'aborted',
+      'cancelled',
+    ]);
+    expect(TERMINAL_RUNTIME_EVENT_STATUSES).toEqual([
+      'completed',
+      'failed',
+      'aborted',
+      'cancelled',
+    ]);
+    expect(isRuntimeEventStatus('streaming')).toBe(true);
+    expect(isRuntimeEventStatus('idle')).toBe(false);
+    expect(isTerminalRuntimeEventStatus('completed')).toBe(true);
+    expect(isTerminalRuntimeEventStatus('streaming')).toBe(false);
+    expect(isTerminalRuntimeEventStatus('nope')).toBe(false);
+  });
+
+  test('content kind list matches the discriminated union', () => {
+    expect(RUNTIME_EVENT_CONTENT_KINDS).toEqual([
+      'text',
+      'thinking',
+      'function_call',
+      'function_response',
+      'error',
+    ]);
+  });
+});
+
+describe('RuntimeEvent content variants', () => {
+  test('text content carries a string body', () => {
+    const content: RuntimeEventContent = { kind: 'text', text: 'hello' };
+    if (content.kind !== 'text') throw new Error('unreachable');
+    expect(content.text).toBe('hello');
+  });
+
+  test('thinking content may carry a replay signature', () => {
+    const content: RuntimeEventContent = {
+      kind: 'thinking',
+      text: 'reasoning',
+      signature: 'sig',
+    };
+    if (content.kind !== 'thinking') throw new Error('unreachable');
+    expect(content.signature).toBe('sig');
+  });
+
+  test('function_call and function_response share an id', () => {
+    const call: RuntimeEventContent = {
+      kind: 'function_call',
+      id: 'tc-1',
+      name: 'Read',
+      args: { path: '/x' },
+    };
+    const response: RuntimeEventContent = {
+      kind: 'function_response',
+      id: 'tc-1',
+      name: 'Read',
+      result: 'ok',
+      isError: false,
+    };
+    if (call.kind !== 'function_call' || response.kind !== 'function_response') {
+      throw new Error('unreachable');
+    }
+    expect(call.id).toBe(response.id);
+    expect(response.isError).toBe(false);
+  });
+
+  test('error content keeps the existing ErrorEvent shape', () => {
+    const content: RuntimeEventContent = {
+      kind: 'error',
+      reason: 'provider_5xx',
+      message: 'upstream failed',
+    };
+    if (content.kind !== 'error') throw new Error('unreachable');
+    expect(content.message).toBe('upstream failed');
+  });
+});
+
+describe('RuntimeEvent actions', () => {
+  test('a terminal action can carry endInvocation + tokenUsage', () => {
+    const actions: RuntimeEventActions = {
+      endInvocation: true,
+      tokenUsage: { input: 10, output: 5, costUsd: 0.001 },
+    };
+    expect(actions.endInvocation).toBe(true);
+    expect(actions.tokenUsage?.input).toBe(10);
+  });
+
+  test('permission request/decision are first-class actions', () => {
+    const actions: RuntimeEventActions = {
+      permissionRequest: {
+        requestId: 'pr-1',
+        toolUseId: 'tc-1',
+        toolName: 'Bash',
+        category: 'shell_unsafe',
+        reason: 'shell_dangerous',
+        args: { command: 'rm foo' },
+      },
+      permissionDecision: { requestId: 'pr-1', decision: 'deny' },
+    };
+    expect(actions.permissionRequest?.category).toBe('shell_unsafe');
+    expect(actions.permissionDecision?.decision).toBe('deny');
+  });
+
+  test('state/artifact deltas accept primitive values', () => {
+    const actions: RuntimeEventActions = {
+      stateDelta: { retries: 1 },
+      artifactDelta: { 'out.md': 2048 },
+    };
+    expect(actions.stateDelta?.retries).toBe(1);
+    expect(actions.artifactDelta?.['out.md']).toBe(2048);
+  });
+});
+
+describe('isTerminalRuntimeEvent', () => {
+  test('a content event with no status is not terminal', () => {
+    expect(isTerminalRuntimeEvent(baseEvent({ content: { kind: 'text', text: 'hi' } }))).toBe(false);
+  });
+
+  test('a terminal status makes the event terminal', () => {
+    for (const status of TERMINAL_RUNTIME_EVENT_STATUSES) {
+      expect(isTerminalRuntimeEvent(baseEvent({ status }))).toBe(true);
+    }
+  });
+
+  test('streaming status is NOT terminal', () => {
+    expect(isTerminalRuntimeEvent(baseEvent({ status: 'streaming' }))).toBe(false);
+  });
+
+  test('actions.endInvocation === true is terminal even without status', () => {
+    expect(
+      isTerminalRuntimeEvent(baseEvent({ actions: { endInvocation: true } })),
+    ).toBe(true);
+  });
+
+  test('actions.endInvocation === false is NOT terminal', () => {
+    expect(
+      isTerminalRuntimeEvent(baseEvent({ actions: { endInvocation: false } })),
+    ).toBe(false);
+  });
+});
+
+describe('isPartialRuntimeEvent', () => {
+  test('reflects the partial flag exactly', () => {
+    expect(isPartialRuntimeEvent(baseEvent({ partial: true }))).toBe(true);
+    expect(isPartialRuntimeEvent(baseEvent({ partial: false }))).toBe(false);
+  });
+});
+
+describe('runtimeEventHasModelVisibleContent', () => {
+  test('text content is model-visible when non-empty', () => {
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({ role: 'user', content: { kind: 'text', text: 'hi' } }),
+      ),
+    ).toBe(true);
+  });
+
+  test('empty text content is NOT model-visible', () => {
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({ content: { kind: 'text', text: '' } }),
+      ),
+    ).toBe(false);
+  });
+
+  test('thinking, function_call, and function_response are model-visible', () => {
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({ content: { kind: 'thinking', text: 'r' } }),
+      ),
+    ).toBe(true);
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({ content: { kind: 'function_call', id: '1', name: 'Read', args: {} } }),
+      ),
+    ).toBe(true);
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({
+          content: { kind: 'function_response', id: '1', name: 'Read', result: 'ok' },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test('a tool error returned to the model (function_response isError) is still visible', () => {
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({
+          content: {
+            kind: 'function_response',
+            id: '1',
+            name: 'Bash',
+            result: 'boom',
+            isError: true,
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test('error-only content is NOT model-visible', () => {
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({ content: { kind: 'error', message: 'upstream failed' } }),
+      ),
+    ).toBe(false);
+  });
+
+  test('pure action / refs events are NOT model-visible', () => {
+    expect(
+      runtimeEventHasModelVisibleContent(
+        baseEvent({ actions: { tokenUsage: { input: 1, output: 1 } } }),
+      ),
+    ).toBe(false);
+    expect(
+      runtimeEventHasModelVisibleContent(baseEvent({ refs: { toolCallId: 'tc-1' } })),
+    ).toBe(false);
+  });
+});
+
+describe('createRuntimeEventId', () => {
+  test('honors the prefix and returns a string', () => {
+    const id = createRuntimeEventId('turn');
+    expect(typeof id).toBe('string');
+    expect(id.startsWith('turn_')).toBe(true);
+  });
+
+  test('uses the default prefix when none is given', () => {
+    expect(createRuntimeEventId().startsWith('rt-event_')).toBe(true);
+  });
+
+  test('never collides within a process', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 500; i += 1) ids.add(createRuntimeEventId());
+    expect(ids.size).toBe(500);
+  });
+});
+
+describe('RuntimeEvent shape compile-time contract', () => {
+  test('a full user event satisfies the type', () => {
+    const event: RuntimeEvent = {
+      id: 'evt-u1',
+      invocationId: 'inv-1',
+      runId: 'run-1',
+      sessionId: 'sess-1',
+      turnId: 'turn-1',
+      ts: 1,
+      partial: false,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'hello' },
+    };
+    expect(event.role).toBe('user');
+    expect(isTerminalRuntimeEvent(event)).toBe(false);
+  });
+
+  test('a terminal agent event with branch + refs satisfies the type', () => {
+    const event: RuntimeEvent = {
+      id: 'evt-t1',
+      invocationId: 'inv-1',
+      runId: 'run-1',
+      sessionId: 'sess-1',
+      turnId: 'turn-1',
+      ts: 99,
+      branch: 'main',
+      partial: false,
+      role: 'model',
+      author: 'agent',
+      status: 'completed',
+      actions: { endInvocation: true, tokenUsage: { input: 1, output: 2 } },
+      refs: { storedMessageId: 'm1', toolCallId: 'tc-1' },
+    };
+    expect(isTerminalRuntimeEvent(event)).toBe(true);
+    expect(event.branch).toBe('main');
+  });
+});
