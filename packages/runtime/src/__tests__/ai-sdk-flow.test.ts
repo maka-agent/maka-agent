@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import type { BackendKind } from '@maka/core/session';
 import type { SessionEvent } from '@maka/core/events';
-import type { PermissionDecision } from '@maka/core/backend-types';
+import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   isTerminalRuntimeEvent,
@@ -20,6 +20,7 @@ import {
   flowSupportsControl,
 } from '../agent-flow.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
+import { RuntimeRunner } from '../runtime-runner.js';
 
 // ============================================================================
 // Fake backend — scripted SessionEvent stream + recorded control calls
@@ -38,6 +39,7 @@ class ScriptedBackend implements AgentBackend {
   readonly sessionId: string;
   readonly stopCalls: Array<'user_stop' | 'redirect'> = [];
   readonly permissionCalls: PermissionDecision[] = [];
+  readonly sendInputs: BackendSendInput[] = [];
   disposeCalls = 0;
   sendCalls = 0;
   private readonly events: SessionEvent[];
@@ -50,8 +52,9 @@ class ScriptedBackend implements AgentBackend {
     this.gate = c.gate;
   }
 
-  async *send(): AsyncIterable<SessionEvent> {
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.sendCalls += 1;
+    this.sendInputs.push(input);
     for (const e of this.events) {
       yield e;
       if (this.gate) await this.gate();
@@ -156,6 +159,55 @@ describe('AiSdkFlow seam', () => {
     assert.equal(out[out.length - 1].actions?.endInvocation, true);
     // send was invoked exactly once with the turn id.
     assert.equal(backend.sendCalls, 1);
+  });
+
+  test('RuntimeRunner dispatches AiSdkFlow with defined context and preserved attachments', async () => {
+    const attachment = {
+      kind: 'image' as const,
+      name: 'chart.png',
+      mimeType: 'image/png',
+      bytes: 123,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'attachments/chart.png' },
+    };
+    const history = [
+      {
+        type: 'user' as const,
+        id: 'u-prev',
+        turnId: 'turn-prev',
+        ts: 1,
+        text: 'previous',
+      },
+    ];
+    const backend = new ScriptedBackend({
+      events: [ev({ type: 'complete', stopReason: 'end_turn' })],
+    });
+    const flow = new AiSdkFlow({ backend });
+    let idSeq = 0;
+    const runner = new RuntimeRunner({
+      flow,
+      providers: {
+        newId: () => `rt-${(idSeq += 1)}`,
+        now: () => 1000,
+      },
+    });
+
+    const result = await runner.run({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      text: 'hi',
+      attachments: [attachment],
+      context: history,
+      source: 'test',
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(backend.sendInputs.length, 1);
+    assert.deepEqual(backend.sendInputs[0], {
+      turnId: 'turn-1',
+      text: 'hi',
+      attachments: [attachment],
+      context: history,
+    });
   });
 
   test('maps thinking deltas/signature onto model thinking content', async () => {
@@ -281,7 +333,7 @@ describe('AiSdkFlow seam', () => {
     assert.equal(isTerminalRuntimeEvent(out[1]), true);
   });
 
-  test('maps the abort path preserving order (faithful, no coalescing)', async () => {
+  test('maps the abort path to exactly one terminal event', async () => {
     const backend = new ScriptedBackend({
       events: [
         ev({ type: 'text_delta', messageId: 'm1', text: 'par' }),
@@ -292,15 +344,59 @@ describe('AiSdkFlow seam', () => {
     const flow = new AiSdkFlow({ backend });
     const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
 
-    // The adapter is faithful to the backend stream: both abort and the
-    // trailing complete are emitted (coalescing is a projection concern).
-    assert.equal(out.length, 3);
+    // AgentFlow guarantees exactly one terminal event, so the trailing
+    // complete(user_stop) from the legacy backend is coalesced away.
+    assert.equal(out.length, 2);
     assert.equal(out[1].status, 'aborted');
     assert.equal(out[1].actions?.endInvocation, true);
     assert.equal(isTerminalRuntimeEvent(out[1]), true);
-    // Stream closes with the trailing terminal complete.
-    assert.equal(isTerminalRuntimeEvent(out[2]), true);
-    assert.equal(out[2].status, 'aborted');
+    assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
+  });
+
+  test('stops yielding after the first terminal event', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'abort', reason: 'user_stop' }),
+        ev({ type: 'text_delta', messageId: 'm1', text: 'after-terminal' }),
+        ev({ type: 'complete', stopReason: 'user_stop' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
+
+    assert.equal(out.length, 1);
+    assert.equal(out[0]?.status, 'aborted');
+    assert.equal(isTerminalRuntimeEvent(out[0]), true);
+  });
+
+  test('RuntimeRunner consumes AiSdkFlow abort as one coherent failed outcome', async () => {
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'text_delta', messageId: 'm1', text: 'par' }),
+        ev({ type: 'abort', reason: 'user_stop' }),
+        ev({ type: 'complete', stopReason: 'user_stop' }),
+      ],
+    });
+    const flow = new AiSdkFlow({ backend });
+    let idSeq = 0;
+    const runner = new RuntimeRunner({
+      flow,
+      providers: {
+        newId: () => `id-${(idSeq += 1)}`,
+        now: () => 1000,
+      },
+    });
+
+    const result = await runner.run({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      text: 'hi',
+      source: 'test',
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.equal(result.failure?.class, 'aborted');
+    assert.equal(result.events.filter(isTerminalRuntimeEvent).length, 1);
   });
 
   test('delegates stop / respondToPermission / dispose to the wrapped backend', async () => {

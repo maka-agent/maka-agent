@@ -13,6 +13,7 @@
  * projection, or ledger logic lives here. Those arrive in later nodes.
  */
 
+import type { AttachmentRef } from './events.js';
 import type { PermissionRequest, PermissionResponse } from './permission.js';
 
 // ============================================================================
@@ -88,6 +89,13 @@ export function isTerminalRuntimeEventStatus(value: unknown): boolean {
 export interface RuntimeEventTextContent {
   kind: 'text';
   text: string;
+  /**
+   * Optional user-bound attachments carried with the text turn. Adapters
+   * MUST preserve these when converting legacy UserMessage rows so
+   * RuntimeEvent history does not silently degrade multimodal/file turns
+   * into plain text.
+   */
+  attachments?: AttachmentRef[];
 }
 
 export interface RuntimeEventThinkingContent {

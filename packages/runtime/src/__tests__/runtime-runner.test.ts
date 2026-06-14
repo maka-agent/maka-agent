@@ -6,6 +6,7 @@ import {
   type AgentFlowLike,
   type RuntimeGate,
 } from '../runtime-runner.js';
+import type { AttachmentRef } from '@maka/core/events';
 import type {
   InvocationContext,
   InvocationProviders,
@@ -39,6 +40,14 @@ function makeRequest(overrides: Partial<InvocationRequest> = {}): InvocationRequ
     ...overrides,
   };
 }
+
+const attachment: AttachmentRef = {
+  kind: 'image',
+  name: 'chart.png',
+  mimeType: 'image/png',
+  bytes: 123,
+  ref: { kind: 'session_file', sessionId: 'sess-1', relativePath: 'attachments/chart.png' },
+};
 
 /**
  * Fake flow that runs a script to produce its events. The script receives
@@ -130,13 +139,16 @@ describe('RuntimeRunner', () => {
 
   test('initial user RuntimeEvent is emitted before any flow event', async () => {
     const providers = makeProviders();
-    const flow = new ScriptFlow((ctx) => [flowTextEvent(ctx, 'hello')]);
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, 'hello'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
     const runner = new RuntimeRunner({ flow, providers });
 
     const result = await runner.run(makeRequest({ text: 'ping' }));
 
     expect(result.status).toBe('completed');
-    expect(result.events).toHaveLength(2);
+    expect(result.events).toHaveLength(3);
 
     const userEvent = result.events[0]!;
     expect(userEvent.role).toBe('user');
@@ -148,6 +160,20 @@ describe('RuntimeRunner', () => {
 
     // The flow event follows the user event and is on a different lane.
     expect(result.events[1]!.role).toBe('model');
+    expect(result.events[1]!.author).toBe('agent');
+  });
+
+  test('a flow that exhausts without a terminal event maps to a failed result', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTextEvent(ctx, 'hello')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('missing_terminal_event');
+    expect(result.events).toHaveLength(2);
+    expect(result.events[0]!.author).toBe('user');
     expect(result.events[1]!.author).toBe('agent');
   });
 
@@ -311,5 +337,58 @@ describe('RuntimeRunner', () => {
     expect(typeof ctx.now()).toBe('number');
     // Providers are shared, so a fresh id from ctx is unique against runId.
     expect(ctx.newId() !== ctx.runId).toBe(true);
+  });
+
+  test('flow receives normalized FlowInput with context default and attachments preserved', async () => {
+    const providers = makeProviders();
+    const context = [
+      {
+        type: 'user' as const,
+        id: 'u-prev',
+        turnId: 'prev-turn',
+        ts: 1,
+        text: 'previous',
+      },
+    ];
+    let seenInput: Parameters<AgentFlowLike['run']>[1] | undefined;
+    const flow: AgentFlowLike = {
+      async *run(ctx, input) {
+        seenInput = input;
+        yield flowTerminalEvent(ctx, 'completed');
+      },
+    };
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(
+      makeRequest({ text: 'with file', context, attachments: [attachment] }),
+    );
+
+    expect(result.status).toBe('completed');
+    expect(seenInput).toEqual({
+      text: 'with file',
+      context,
+      attachments: [attachment],
+    });
+    expect(result.events[0]!.content).toEqual({
+      kind: 'text',
+      text: 'with file',
+      attachments: [attachment],
+    });
+  });
+
+  test('flow input context defaults to an empty array', async () => {
+    const providers = makeProviders();
+    let seenInput: Parameters<AgentFlowLike['run']>[1] | undefined;
+    const flow: AgentFlowLike = {
+      async *run(ctx, input) {
+        seenInput = input;
+        yield flowTerminalEvent(ctx, 'completed');
+      },
+    };
+    const runner = new RuntimeRunner({ flow, providers });
+
+    await runner.run(makeRequest());
+
+    expect(seenInput?.context).toEqual([]);
   });
 });
