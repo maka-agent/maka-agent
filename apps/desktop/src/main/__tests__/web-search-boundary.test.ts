@@ -360,7 +360,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
 
   it('WebSearch agent errors render as repair-oriented cards, not raw JSON', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
-    const runtime = await readFile(join(REPO_ROOT, 'packages/runtime/src/ai-sdk-backend.ts'), 'utf8');
+    const runtime = await readFile(join(REPO_ROOT, 'packages/runtime/src/tool-runtime.ts'), 'utf8');
     const agentTool = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/web-search/agent-tool.ts'), 'utf8');
     const coreEvents = await readFile(join(REPO_ROOT, 'packages/core/src/events.ts'), 'utf8');
     const overlay = ui.match(/function OverlayPreview[\s\S]*?if \(content\.kind === 'json'\)/);

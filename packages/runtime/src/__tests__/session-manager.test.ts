@@ -23,6 +23,7 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
+import type { InvocationResult } from '../invocation-context.js';
 
 describe('SessionManager permission mode updates', () => {
   test('updates header, rebuilds active backend, and writes an audit note', async () => {
@@ -205,6 +206,50 @@ describe('SessionManager permission mode updates', () => {
     expect(store.disposeCount).toBe(0);
     await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'again' }));
     expect(built).toEqual(['Before']);
+  });
+
+  test('sendMessage is driven through RuntimeRunner while preserving the SessionEvent stream', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const observed: InvocationResult[] = [];
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_500),
+      runtimeSource: 'test',
+      runtimeInvocationObserver: (result) => {
+        observed.push(result);
+      },
+    });
+    const session = await manager.createSession(makeInput());
+
+    const sessionEvents = await collectSessionEvents(
+      manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }),
+    );
+
+    expect(sessionEvents.map((event) => event.type)).toEqual(['text_delta', 'complete']);
+    expect(sessionEvents.map((event) => event.id)).toEqual(['turn-1-delta', 'turn-1-complete']);
+    expect(observed.length).toBe(1);
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const result = observed[0]!;
+    expect(result.runId).toBe(run.runId);
+    expect(result.sessionId).toBe(session.id);
+    expect(result.turnId).toBe('turn-1');
+    expect(result.status).toBe('completed');
+    expect(result.events.map((event) => event.runId)).toEqual([run.runId, run.runId, run.runId]);
+    expect(result.events.map((event) => event.sessionId)).toEqual([session.id, session.id, session.id]);
+    expect(result.events.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    expect(result.events.map((event) => event.role)).toEqual(['user', 'model', 'system']);
+    expect(result.events.map((event) => event.id)).toEqual(['id-3', 'turn-1-delta', 'turn-1-complete']);
+    expect(result.events[0]?.content).toEqual({ kind: 'text', text: 'hello' });
+    expect(result.events[1]?.content).toEqual({ kind: 'text', text: 'ok' });
+    expect(result.events[2]?.status).toBe('completed');
   });
 
   test('rejects backend configuration updates while a turn is actively streaming', async () => {
@@ -1166,6 +1211,14 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _event of iterable) {
     // consume
   }
+}
+
+async function collectSessionEvents(iterable: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
+  const events: SessionEvent[] = [];
+  for await (const event of iterable) {
+    events.push(event);
+  }
+  return events;
 }
 
 async function expectRejects(promise: Promise<unknown>, pattern: RegExp): Promise<void> {

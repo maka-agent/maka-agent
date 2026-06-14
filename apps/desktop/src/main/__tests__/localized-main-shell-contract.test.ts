@@ -423,7 +423,7 @@ describe('localized main shell contract', () => {
 
   it('surfaces permission denial in Chinese instead of raw English backend text', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
-    const aiSdk = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'runtime', 'src', 'ai-sdk-backend.ts'), 'utf8');
+    const toolRuntime = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'runtime', 'src', 'tool-runtime.ts'), 'utf8');
     const piAgent = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'runtime', 'src', 'pi-agent-backend.ts'), 'utf8');
 
     assert.match(components, /formatUserVisibleToolText\(text: string\)[\s\S]*User denied permission[\s\S]*用户已拒绝权限请求/);
@@ -433,8 +433,8 @@ describe('localized main shell contract', () => {
     assert.match(components, /item\.result && !permissionDenied/);
     assert.match(components, /formatUserVisibleToolText\(redactSecrets\(extractErrorText\(props\.result\)\)\)/);
     assert.match(components, /capLines\(formatUserVisibleToolText\(redactSecrets\(content\.text\)\)\)/);
-    assert.match(aiSdk, /const reason = '用户已拒绝权限请求';/);
+    assert.match(toolRuntime, /const reason = '用户已拒绝权限请求';/);
     assert.match(piAgent, /text: '用户已拒绝权限请求'/);
-    assert.doesNotMatch(`${aiSdk}\n${piAgent}`, /User denied permission/);
+    assert.doesNotMatch(`${toolRuntime}\n${piAgent}`, /User denied permission/);
   });
 });

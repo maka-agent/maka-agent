@@ -52,6 +52,15 @@ import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import { AgentRun, type AgentRunActiveSession, type AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
+import {
+  createSessionEventMapMemory,
+  mapSessionEventToRuntimeEvent,
+} from './ai-sdk-flow.js';
+import type {
+  InvocationResult,
+  InvocationSource,
+} from './invocation-context.js';
+import { RuntimeRunner } from './runtime-runner.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
@@ -119,6 +128,8 @@ export interface SessionManagerDeps {
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
+  runtimeSource?: InvocationSource;
+  runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
 }
 
 interface ActiveSession extends AgentRunActiveSession {
@@ -313,12 +324,11 @@ export class SessionManager {
    * (desktop main) is expected to forward the events to the renderer over
    * the IPC bridge.
    *
-   * Phase 1 vertical (§9):
-   *   1. Append UserMessage to JSONL + flush.
-   *   2. Lock connection (set connectionLocked=true) if not already.
-   *   3. Lookup or build the AgentBackend for this session.
-   *   4. backend.send(input) → forward events.
-   *   5. Update lastMessageAt + hasUnread when complete.
+   * Runtime v2 bridge:
+   *   1. Create one AgentRun, which remains the persistence/ledger owner.
+   *   2. Run that AgentRun through RuntimeRunner for canonical RuntimeEvents.
+   *   3. Forward the original SessionEvents to callers unchanged.
+   *   4. Drain the AgentRun stream fully so stop/abort cleanup semantics stay intact.
    */
   async *sendMessage(
     sessionId: string,
@@ -344,7 +354,70 @@ export class SessionManager {
           this.appendTurnState(targetSessionId, turnId, status, lineage, options),
       },
     });
-    yield* run.execute();
+
+    const sessionEvents = new AsyncEventQueue<SessionEvent>();
+    const abortController = new AbortController();
+    let agentRunIterator: AsyncIterator<SessionEvent> | undefined;
+    let flowDone = false;
+    const runner = new RuntimeRunner({
+      providers: { newId: this.deps.newId, now: this.deps.now },
+      stopOnTerminal: false,
+      flow: {
+        run: async function* (ctx, request) {
+          const memory = createSessionEventMapMemory();
+          agentRunIterator = run.execute()[Symbol.asyncIterator]();
+          try {
+            while (!request.abortSignal?.aborted) {
+              const next = await agentRunIterator.next();
+              if (next.done) break;
+              if (request.abortSignal?.aborted) break;
+              await sessionEvents.push(next.value);
+              yield mapSessionEventToRuntimeEvent(next.value, ctx, memory);
+            }
+          } catch (error) {
+            if (!isAsyncEventQueueClosed(error)) {
+              sessionEvents.fail(error);
+            }
+            throw error;
+          } finally {
+            flowDone = true;
+            if (request.abortSignal?.aborted) {
+              await agentRunIterator.return?.().catch(() => undefined);
+            }
+            sessionEvents.close();
+          }
+        },
+      },
+    });
+    const runnerResult = runner.run({
+      sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      text: input.text,
+      source: this.deps.runtimeSource ?? 'desktop',
+      lineage: run.lineage,
+      abortSignal: abortController.signal,
+    }).then(async (result) => {
+      await this.deps.runtimeInvocationObserver?.(result);
+      return result;
+    }, (error) => {
+      sessionEvents.fail(error);
+      throw error;
+    });
+
+    try {
+      for await (const event of sessionEvents) {
+        yield event;
+      }
+      await runnerResult;
+    } finally {
+      if (!flowDone) {
+        abortController.abort();
+        sessionEvents.close();
+        await agentRunIterator?.return?.().catch(() => undefined);
+      }
+      await runnerResult.catch(() => undefined);
+    }
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
@@ -810,6 +883,90 @@ function normalizeStopSessionSource(source: StopSessionInput['source'] | undefin
   switch (source) {
     case 'stop_button': return 'renderer.stop_button';
     case undefined: return undefined;
+  }
+}
+
+class AsyncEventQueueClosed extends Error {
+  constructor() {
+    super('Async event queue closed');
+    this.name = 'AsyncEventQueueClosed';
+  }
+}
+
+function isAsyncEventQueueClosed(error: unknown): boolean {
+  return error instanceof AsyncEventQueueClosed;
+}
+
+interface AsyncEventQueueEntry<T> {
+  value: T;
+  delivered: () => void;
+  rejected: (error: unknown) => void;
+}
+
+class AsyncEventQueue<T> implements AsyncIterable<T> {
+  private readonly values: Array<AsyncEventQueueEntry<T>> = [];
+  private readonly waiters: Array<{
+    resolve: (entry: AsyncEventQueueEntry<T> | undefined) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private closed = false;
+  private failure: unknown;
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return this.consume()[Symbol.asyncIterator]();
+  }
+
+  push(value: T): Promise<void> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.closed) return Promise.reject(new AsyncEventQueueClosed());
+    return new Promise<void>((resolve, reject) => {
+      const entry = { value, delivered: resolve, rejected: reject };
+      const waiter = this.waiters.shift();
+      if (waiter) {
+        waiter.resolve(entry);
+        return;
+      }
+      this.values.push(entry);
+    });
+  }
+
+  fail(error: unknown): void {
+    if (this.failure) return;
+    this.failure = error;
+    for (const value of this.values.splice(0)) value.rejected(error);
+    for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    const closed = new AsyncEventQueueClosed();
+    for (const value of this.values.splice(0)) value.rejected(closed);
+    for (const waiter of this.waiters.splice(0)) waiter.resolve(undefined);
+  }
+
+  private async *consume(): AsyncIterable<T> {
+    while (true) {
+      const entry = await this.nextEntry();
+      if (!entry) return;
+      try {
+        yield entry.value;
+      } finally {
+        entry.delivered();
+      }
+    }
+  }
+
+  private nextEntry(): Promise<AsyncEventQueueEntry<T> | undefined> {
+    if (this.values.length > 0) {
+      const next = this.values.shift()!;
+      return Promise.resolve(next);
+    }
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.closed) return Promise.resolve(undefined);
+    return new Promise<AsyncEventQueueEntry<T> | undefined>((resolve, reject) => {
+      this.waiters.push({ resolve, reject });
+    });
   }
 }
 

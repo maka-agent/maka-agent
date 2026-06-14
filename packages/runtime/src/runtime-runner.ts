@@ -4,10 +4,10 @@
  * Source: docs/runtime-v2-architecture-evolution.md §Target Architecture and
  * Phase 2 (RuntimeRunner Shell).
  *
- * This is an internal seam, not the production hot path. It is intentionally
- * decoupled from SessionManager / SessionStore so it can be exercised in
- * tests with fake services, and so SessionManager.sendMessage can delegate to
- * it incrementally in a later phase without a big-bang rewrite.
+ * RuntimeRunner is the invocation shell. It remains decoupled from
+ * SessionManager / SessionStore so it can be exercised with fake services,
+ * while still being able to wrap production AgentRun streams during the
+ * Runtime v2 migration.
  *
  * Responsibilities (per the node spec):
  *   1. Run an injectable preflight gate.
@@ -17,8 +17,9 @@
  *   5. Return a structured result with the collected events and a terminal
  *      status.
  *
- * Out-of-scope (deliberately): SessionStore writes, projection driving,
- * AgentRunStore ledger writes, and replacing SessionManager.sendMessage.
+ * Out-of-scope (deliberately): direct SessionStore writes, projection
+ * driving, and AgentRunStore ledger writes. Those remain owned by AgentRun
+ * while SessionManager delegates invocation execution through this shell.
  */
 
 import {
@@ -98,6 +99,12 @@ export interface RuntimeRunnerDeps {
   gate?: RuntimeGate;
   /** Injectable id/time providers. Defaults to crypto.randomUUID / Date.now. */
   providers?: InvocationProviders;
+  /**
+   * Whether to stop collecting at the first terminal RuntimeEvent. Defaults
+   * to true for standalone runner callers; production bridges can set false
+   * to keep draining cleanup/trailing events from wrapped streams.
+   */
+  stopOnTerminal?: boolean;
 }
 
 // ============================================================================
@@ -108,24 +115,27 @@ export class RuntimeRunner {
   private readonly flow: AgentFlowLike;
   private readonly gate: RuntimeGate | undefined;
   private readonly providers: InvocationProviders;
+  private readonly stopOnTerminal: boolean;
 
   constructor(deps: RuntimeRunnerDeps) {
     this.flow = deps.flow;
     this.gate = deps.gate;
     this.providers = deps.providers ?? createDefaultInvocationProviders();
+    this.stopOnTerminal = deps.stopOnTerminal ?? true;
   }
 
   /**
    * Run one invocation end-to-end and return a structured result.
    *
    * Event order is guaranteed: the initial user RuntimeEvent is always
-   * collected before any flow event. Collection stops at the first terminal
-   * RuntimeEvent; a terminal event is what ends the result.
+   * collected before any flow event. By default collection stops at the first
+   * terminal RuntimeEvent; callers that wrap streams with cleanup/trailing
+   * events can opt into full draining through RuntimeRunnerDeps.
    */
   async run(request: InvocationRequest): Promise<InvocationResult> {
     const startedAt = this.providers.now();
-    const invocationId = this.providers.newId();
-    const runId = this.providers.newId();
+    const invocationId = request.invocationId ?? this.providers.newId();
+    const runId = request.runId ?? this.providers.newId();
 
     // 1. Preflight (injectable gate). On failure we admit no invocation: no
     //    context, no user event, no flow dispatch.
@@ -187,10 +197,11 @@ export class RuntimeRunner {
     events.push(buildUserEvent(ctx, request));
     const flowInput = buildFlowInput(request);
 
-    // 5. Dispatch to the flow and collect canonical events. The first
-    //    terminal event ends the result; events emitted after it are not
-    //    collected. A thrown error or a non-completed terminal status maps
-    //    the result to 'failed'.
+    // 5. Dispatch to the flow and collect canonical events. By default the
+    //    first terminal event ends collection; when stopOnTerminal is false,
+    //    keep draining while remembering any non-completed terminal status.
+    //    A thrown error or a non-completed terminal status maps the result
+    //    to 'failed'.
     let failure: InvocationFailure | undefined;
     let terminalSeen = false;
     try {
@@ -198,8 +209,10 @@ export class RuntimeRunner {
         events.push(ev);
         if (isTerminalRuntimeEvent(ev)) {
           terminalSeen = true;
-          failure = failureFromTerminalEvent(ev);
-          break;
+          failure ??= failureFromTerminalEvent(ev);
+          if (this.stopOnTerminal) {
+            break;
+          }
         }
       }
     } catch (error) {

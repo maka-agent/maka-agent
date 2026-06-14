@@ -177,7 +177,39 @@ describe('RuntimeRunner', () => {
     expect(result.events[1]!.author).toBe('agent');
   });
 
-  test('a terminal event ends the result and stops collecting flow events', async () => {
+  test('caller-provided invocationId and runId are used across result, user event, and flow', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTextEvent(ctx, 'flow-uses-caller-ids'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(
+      makeRequest({
+        invocationId: 'inv-production-1',
+        runId: 'run-production-1',
+      }),
+    );
+
+    expect(result.invocationId).toBe('inv-production-1');
+    expect(result.runId).toBe('run-production-1');
+    expect(flow.seen).toHaveLength(1);
+    expect(flow.seen[0]!.invocationId).toBe('inv-production-1');
+    expect(flow.seen[0]!.runId).toBe('run-production-1');
+
+    const userEvent = result.events[0]!;
+    expect(userEvent.author).toBe('user');
+    expect(userEvent.invocationId).toBe('inv-production-1');
+    expect(userEvent.runId).toBe('run-production-1');
+
+    for (const ev of result.events) {
+      expect(ev.invocationId).toBe('inv-production-1');
+      expect(ev.runId).toBe('run-production-1');
+    }
+  });
+
+  test('default behavior stops collecting at the first terminal flow event', async () => {
     const providers = makeProviders();
     const flow = new ScriptFlow((ctx) => [
       flowTextEvent(ctx, 'partial'),
@@ -201,6 +233,34 @@ describe('RuntimeRunner', () => {
         (ev) => ev.content?.kind === 'text' && ev.content.text === 'after-terminal-1',
       ),
     ).toBe(false);
+  });
+
+  test('stopOnTerminal false keeps draining and fails on any non-completed terminal event', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTerminalEvent(ctx, 'completed'),
+      flowTextEvent(ctx, 'cleanup-after-completed'),
+      flowTerminalEvent(ctx, 'aborted'),
+      flowTextEvent(ctx, 'cleanup-after-aborted'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers, stopOnTerminal: false });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('aborted');
+    expect(result.failure?.terminalStatus).toBe('aborted');
+    expect(result.events).toHaveLength(5);
+    expect(
+      result.events.some(
+        (ev) => ev.content?.kind === 'text' && ev.content.text === 'cleanup-after-completed',
+      ),
+    ).toBe(true);
+    expect(
+      result.events.some(
+        (ev) => ev.content?.kind === 'text' && ev.content.text === 'cleanup-after-aborted',
+      ),
+    ).toBe(true);
   });
 
   test('a flow that throws maps to a failed result (user event retained)', async () => {
