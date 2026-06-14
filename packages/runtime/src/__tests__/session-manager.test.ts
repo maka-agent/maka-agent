@@ -537,6 +537,214 @@ describe('SessionManager permission mode updates', () => {
     expect(activeTurn?.status).toBe('completed');
   });
 
+  test('startup recovery uses AgentRun ledger to fail stale running model-started runs', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_810) });
+    const session = await manager.createSession(makeInput({ status: 'running' }));
+    await seedRunningTurn(store, session.id, 'turn-1');
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'run_started', ts: 11 }),
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'model_stream_started', ts: 12 }),
+    ]);
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([session.id]);
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('failed');
+    expect(turn?.errorClass).toBe('app_restarted');
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.failureClass).toBe('app_restarted');
+    const events = await runStore.readEvents(session.id, 'run-1');
+    expect(events.map((event) => event.type)).toContain('run_failed');
+  });
+
+  test('startup recovery fails stale tool tails while preserving partial output retention', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_820) });
+    const session = await manager.createSession(makeInput({ status: 'running' }));
+    await seedRunningTurn(store, session.id, 'turn-1');
+    await store.appendMessage(session.id, {
+      type: 'assistant',
+      id: 'partial-assistant',
+      turnId: 'turn-1',
+      ts: 13,
+      text: 'partial output',
+      modelId: 'fake-model',
+    });
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'run_started', ts: 11 }),
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'tool_started', ts: 12 }),
+    ]);
+
+    await manager.recoverInterruptedSessions();
+
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('failed');
+    expect(turn?.errorClass).toBe('app_restarted');
+    expect(turn?.partialOutputRetained).toBe(true);
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+  });
+
+  test('startup recovery does not leave stale permission waits stuck', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_830) });
+    const session = await manager.createSession(makeInput({ status: 'waiting_for_user' }));
+    await seedRunningTurn(store, session.id, 'turn-1');
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'waiting_permission',
+    }), [
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'permission_requested', ts: 12 }),
+    ]);
+
+    await manager.recoverInterruptedSessions();
+
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('failed');
+    expect(turn?.errorClass).toBe('app_restarted');
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.failureClass).toBe('app_restarted');
+  });
+
+  test('startup recovery repairs stale completed model tails without leaving running runs', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_840) });
+    const session = await manager.createSession(makeInput({ status: 'running' }));
+    await seedRunningTurn(store, session.id, 'turn-1');
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'model_stream_started', ts: 11 }),
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'model_stream_completed', ts: 12 }),
+    ]);
+
+    await manager.recoverInterruptedSessions();
+
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status === 'running' || run?.status === 'waiting_permission').toBe(false);
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status === 'running').toBe(false);
+  });
+
+  test('startup recovery tolerates corrupt AgentRun events and records a conservative failed state', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_850) });
+    const session = await manager.createSession(makeInput({ status: 'running' }));
+    await seedRunningTurn(store, session.id, 'turn-1');
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'run_started', ts: 11 }),
+      makeRunEvent({
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        type: 'event_corrupt',
+        ts: 12,
+        message: 'Invalid AgentRun event JSONL line',
+      }),
+    ]);
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([session.id]);
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('failed');
+    expect(run?.failureClass).toBe('app_restarted');
+    const events = await runStore.readEvents(session.id, 'run-1');
+    expect(events.map((event) => event.type)).toContain('event_corrupt');
+    expect(events.map((event) => event.type)).toContain('run_failed');
+  });
+
+  test('startup recovery keeps terminal AgentRun ledger entries idempotent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_860) });
+    const completed = await manager.createSession(makeInput({ status: 'active' }));
+    const failed = await manager.createSession(makeInput({ status: 'active' }));
+    const cancelled = await manager.createSession(makeInput({ status: 'active' }));
+    await seedRun(runStore, makeRunHeader({
+      sessionId: completed.id,
+      runId: 'completed-run',
+      turnId: 'completed-turn',
+      status: 'completed',
+      completedAt: 20,
+    }), [
+      makeRunEvent({ sessionId: completed.id, runId: 'completed-run', turnId: 'completed-turn', type: 'run_completed', ts: 20 }),
+    ]);
+    await seedRun(runStore, makeRunHeader({
+      sessionId: failed.id,
+      runId: 'failed-run',
+      turnId: 'failed-turn',
+      status: 'failed',
+      failureClass: 'tool_failed',
+      completedAt: 21,
+    }), [
+      makeRunEvent({ sessionId: failed.id, runId: 'failed-run', turnId: 'failed-turn', type: 'run_failed', ts: 21, data: { failureClass: 'tool_failed' } }),
+    ]);
+    await seedRun(runStore, makeRunHeader({
+      sessionId: cancelled.id,
+      runId: 'cancelled-run',
+      turnId: 'cancelled-turn',
+      status: 'cancelled',
+      completedAt: 22,
+    }), [
+      makeRunEvent({ sessionId: cancelled.id, runId: 'cancelled-run', turnId: 'cancelled-turn', type: 'run_cancelled', ts: 22 }),
+    ]);
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([]);
+    expect((await runStore.readRun(completed.id, 'completed-run')).status).toBe('completed');
+    expect((await runStore.readEvents(completed.id, 'completed-run')).map((event) => event.type)).toEqual(['run_completed']);
+    expect((await runStore.readRun(failed.id, 'failed-run')).failureClass).toBe('tool_failed');
+    expect((await runStore.readEvents(failed.id, 'failed-run')).map((event) => event.type)).toEqual(['run_failed']);
+    expect((await runStore.readRun(cancelled.id, 'cancelled-run')).status).toBe('cancelled');
+    expect((await runStore.readEvents(cancelled.id, 'cancelled-run')).map((event) => event.type)).toEqual(['run_cancelled']);
+  });
+
   test('startup recovery does not leave persisted running sessions stuck when message read fails', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -895,6 +1103,53 @@ function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionIn
     labels: [],
     ...overrides,
   };
+}
+
+function makeRunHeader(overrides: Partial<AgentRunHeader> = {}): AgentRunHeader {
+  return {
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    status: 'running',
+    backendKind: 'fake',
+    llmConnectionSlug: 'fake',
+    modelId: 'fake-model',
+    cwd: '/tmp/cwd',
+    permissionMode: 'ask',
+    createdAt: 10,
+    updatedAt: 10,
+    ...overrides,
+  };
+}
+
+function makeRunEvent(overrides: Partial<AgentRunEvent> = {}): AgentRunEvent {
+  return {
+    type: 'run_started',
+    id: `${overrides.runId ?? 'run-1'}-${overrides.type ?? 'run_started'}-${overrides.ts ?? 10}`,
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 10,
+    ...overrides,
+  };
+}
+
+async function seedRun(
+  runStore: AgentRunStore,
+  header: AgentRunHeader,
+  events: AgentRunEvent[],
+): Promise<void> {
+  await runStore.createRun(header);
+  for (const event of events) {
+    await runStore.appendEvent(header.sessionId, header.runId, event);
+  }
+}
+
+async function seedRunningTurn(store: MemorySessionStore, sessionId: string, turnId: string): Promise<void> {
+  await store.appendMessages(sessionId, [
+    { type: 'user', id: `${turnId}-user`, turnId, ts: 9, text: 'interrupted turn' },
+    { type: 'turn_state', id: `${turnId}-state`, turnId, ts: 10, status: 'running', partialOutputRetained: false },
+  ]);
 }
 
 function nextId(): () => string {

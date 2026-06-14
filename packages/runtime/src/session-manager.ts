@@ -51,6 +51,7 @@ import type { AgentRunStore } from '@maka/core';
 import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import { AgentRun, type AgentRunActiveSession, type AgentRunLineage } from './agent-run.js';
+import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
@@ -161,16 +162,36 @@ export class SessionManager {
     const recovered: string[] = [];
     for (const session of interrupted) {
       if (this.active.has(session.id)) continue;
-      let messages: StoredMessage[];
+      let messages: StoredMessage[] = [];
+      let messagesReadable = true;
       try {
         messages = await this.deps.store.readMessages(session.id);
       } catch {
+        messagesReadable = false;
+      }
+
+      if (this.deps.runStore) {
+        const runRecovery = await this.recoverAgentRunsFromLedger(session.id, messages).catch(() => undefined);
+        if (runRecovery?.hasLedger) {
+          if (runRecovery.recovered) {
+            await this.updateStatus(session.id, 'active').catch(() => {});
+            recovered.push(session.id);
+          } else if (!messagesReadable && (session.status === 'running' || session.status === 'waiting_for_user')) {
+            await this.updateStatus(session.id, 'active').catch(() => {});
+            recovered.push(session.id);
+          }
+          continue;
+        }
+      }
+
+      if (!messagesReadable) {
         if (session.status === 'running' || session.status === 'waiting_for_user') {
           await this.updateStatus(session.id, 'active').catch(() => {});
           recovered.push(session.id);
         }
         continue;
       }
+
       const recoveries = interruptedTurnRecoveries(messages);
       if (recoveries.length === 0) continue;
       for (const recovery of recoveries) {
@@ -556,6 +577,71 @@ export class SessionManager {
       .find((message): message is UserMessage => message.type === 'user' && message.turnId === turnId);
     if (!user) throw new Error(`Turn ${turnId} has no user message`);
     return user;
+  }
+
+  private async recoverAgentRunsFromLedger(
+    sessionId: string,
+    messages: readonly StoredMessage[],
+  ): Promise<{ hasLedger: boolean; recovered: boolean }> {
+    if (!this.deps.runStore) return { hasLedger: false, recovered: false };
+    const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    if (runs.length === 0) return { hasLedger: false, recovered: false };
+
+    let recovered = false;
+    for (const run of runs) {
+      const events = await this.deps.runStore.readEvents(sessionId, run.runId);
+      const decision = classifyAgentRunRecovery(run, events, messages);
+      if (!decision) continue;
+      await this.applyAgentRunRecovery(sessionId, decision);
+      recovered = true;
+    }
+    return { hasLedger: true, recovered };
+  }
+
+  private async applyAgentRunRecovery(
+    sessionId: string,
+    decision: AgentRunRecoveryDecision,
+  ): Promise<void> {
+    const ts = this.deps.now();
+    if (decision.status === 'completed') {
+      await this.deps.runStore?.updateRun(sessionId, decision.runId, {
+        status: 'completed',
+        completedAt: ts,
+        updatedAt: ts,
+      });
+      await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
+        type: 'run_completed',
+        id: this.deps.newId(),
+        runId: decision.runId,
+        sessionId,
+        turnId: decision.turnId,
+        ts,
+        data: { recovered: true, ...decision.diagnostic },
+      });
+      await this.appendTurnState(sessionId, decision.turnId, 'completed', decision.lineage, { ts }).catch(() => {});
+      return;
+    }
+
+    const failureClass = decision.failureClass ?? 'app_restarted';
+    await this.deps.runStore?.updateRun(sessionId, decision.runId, {
+      status: 'failed',
+      completedAt: ts,
+      updatedAt: ts,
+      failureClass,
+    });
+    await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
+      type: 'run_failed',
+      id: this.deps.newId(),
+      runId: decision.runId,
+      sessionId,
+      turnId: decision.turnId,
+      ts,
+      data: { recovered: true, failureClass, ...decision.diagnostic },
+    });
+    await this.appendTurnState(sessionId, decision.turnId, 'failed', decision.lineage, {
+      ts,
+      errorClass: failureClass,
+    }).catch(() => {});
   }
 }
 
