@@ -562,6 +562,64 @@ describe('OpenGatewayService', () => {
     assert.ok(statusChanges.includes(0), 'closing an SSE stream should publish activeEventStreams=0');
   });
 
+  test('rejects excess SSE streams before establishing event-stream headers', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const controllers: AbortController[] = [];
+    try {
+      for (let index = 0; index < 3; index += 1) {
+        const opened = await openEventStream(status.baseUrl, 'same-session');
+        controllers.push(opened.controller);
+        assert.equal(opened.response.status, 200);
+      }
+      assert.equal(service.getStatus().activeEventStreams, 3);
+
+      const perSessionRejected = await fetchJson(`${status.baseUrl}/v1/sessions/same-session/events`, 'dev-token');
+      assert.equal(perSessionRejected.status, 429);
+      assert.equal(perSessionRejected.body.error, 'too_many_event_streams');
+      assert.doesNotMatch(perSessionRejected.headers.get('content-type') ?? '', /^text\/event-stream/);
+      assert.equal(service.getStatus().activeEventStreams, 3);
+
+      for (let index = 0; index < 7; index += 1) {
+        const opened = await openEventStream(status.baseUrl, `other-${index}`);
+        controllers.push(opened.controller);
+        assert.equal(opened.response.status, 200);
+      }
+      assert.equal(service.getStatus().activeEventStreams, 10);
+
+      const globalRejected = await fetchJson(`${status.baseUrl}/v1/sessions/global-overflow/events`, 'dev-token');
+      assert.equal(globalRejected.status, 429);
+      assert.equal(globalRejected.body.error, 'too_many_event_streams');
+      assert.doesNotMatch(globalRejected.headers.get('content-type') ?? '', /^text\/event-stream/);
+      assert.equal(service.getStatus().activeEventStreams, 10);
+    } finally {
+      for (const controller of controllers) controller.abort();
+      await waitFor(() => service.getStatus().activeEventStreams === 0);
+    }
+  });
+
+  test('stop closes active SSE clients and clears stream counts', async () => {
+    const service = makeService();
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const first = await openEventStream(status.baseUrl, 's1');
+    const second = await openEventStream(status.baseUrl, 's2');
+    assert.equal(service.getStatus().activeEventStreams, 2);
+
+    await service.stop();
+    await Promise.all([
+      readUntilClosed(first.response.body!.getReader()),
+      readUntilClosed(second.response.body!.getReader()),
+    ]);
+
+    assert.equal(service.getStatus().activeEventStreams, 0);
+  });
+
   test('replays recent SSE events after Last-Event-ID cursor', async () => {
     const service = makeService();
     activeServices.push(service);
@@ -949,6 +1007,18 @@ async function fetchJson(
     headers: response.headers,
     body: await response.json(),
   };
+}
+
+async function openEventStream(
+  baseUrl: string,
+  sessionId: string,
+): Promise<{ controller: AbortController; response: Response }> {
+  const controller = new AbortController();
+  const response = await fetch(`${baseUrl}/v1/sessions/${sessionId}/events`, {
+    headers: { Authorization: 'Bearer dev-token' },
+    signal: controller.signal,
+  });
+  return { controller, response };
 }
 
 function session(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {

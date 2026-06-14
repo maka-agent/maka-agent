@@ -894,7 +894,19 @@ const runtime = new SessionManager({
 const botConversationSessions = new Map<string, string>();
 const botConversationQueues = new Map<string, Promise<void>>();
 const botRecentSourceEventKeys = new Map<string, number>();
+const botConversationRateBuckets = new Map<string, BotConversationRateBucket>();
 const BOT_RECENT_SOURCE_EVENT_LIMIT = 1_000;
+const BOT_RECENT_SOURCE_EVENT_TTL_MS = 60 * 60 * 1_000;
+const BOT_CONVERSATION_SESSION_LIMIT = 500;
+const BOT_CONVERSATION_RATE_BURST = 8;
+const BOT_CONVERSATION_RATE_REFILL_MS = 5_000;
+const BOT_CONVERSATION_RATE_BUCKET_TTL_MS = 60 * 60 * 1_000;
+const BOT_CONVERSATION_RATE_BUCKET_LIMIT = 1_000;
+
+interface BotConversationRateBucket {
+  tokens: number;
+  updatedAt: number;
+}
 
 // PR110b: onboarding service composes existing stores + runtime to
 // derive `OnboardingState` and manage `OnboardingMilestone[]`.
@@ -2808,14 +2820,69 @@ async function handleBotIncomingMessage(message: BotIncomingMessage): Promise<vo
 function rememberBotSourceEvent(message: BotIncomingMessage): boolean {
   const key = botSourceEventKey(message);
   if (!key) return false;
+  const now = Date.now();
+  pruneExpiredBotSourceEvents(now);
   if (botRecentSourceEventKeys.has(key)) return true;
-  botRecentSourceEventKeys.set(key, Date.now());
+  botRecentSourceEventKeys.set(key, now);
   while (botRecentSourceEventKeys.size > BOT_RECENT_SOURCE_EVENT_LIMIT) {
     const oldest = botRecentSourceEventKeys.keys().next().value;
     if (!oldest) break;
     botRecentSourceEventKeys.delete(oldest);
   }
   return false;
+}
+
+function pruneExpiredBotSourceEvents(now: number): void {
+  for (const [key, seenAt] of botRecentSourceEventKeys) {
+    if (now - seenAt <= BOT_RECENT_SOURCE_EVENT_TTL_MS) break;
+    botRecentSourceEventKeys.delete(key);
+  }
+}
+
+function consumeBotConversationToken(conversationKey: string, now = Date.now()): boolean {
+  pruneExpiredBotConversationRateBuckets(now);
+  const bucket = botConversationRateBuckets.get(conversationKey) ?? {
+    tokens: BOT_CONVERSATION_RATE_BURST,
+    updatedAt: now,
+  };
+  const elapsed = Math.max(0, now - bucket.updatedAt);
+  const refilled = Math.floor(elapsed / BOT_CONVERSATION_RATE_REFILL_MS);
+  if (refilled > 0) {
+    bucket.tokens = Math.min(BOT_CONVERSATION_RATE_BURST, bucket.tokens + refilled);
+    bucket.updatedAt += refilled * BOT_CONVERSATION_RATE_REFILL_MS;
+  }
+  if (bucket.tokens <= 0) {
+    botConversationRateBuckets.set(conversationKey, bucket);
+    return false;
+  }
+  bucket.tokens -= 1;
+  botConversationRateBuckets.set(conversationKey, bucket);
+  while (botConversationRateBuckets.size > BOT_CONVERSATION_RATE_BUCKET_LIMIT) {
+    const oldest = botConversationRateBuckets.keys().next().value;
+    if (!oldest) break;
+    botConversationRateBuckets.delete(oldest);
+  }
+  return true;
+}
+
+function pruneExpiredBotConversationRateBuckets(now: number): void {
+  for (const [key, bucket] of botConversationRateBuckets) {
+    if (now - bucket.updatedAt > BOT_CONVERSATION_RATE_BUCKET_TTL_MS) {
+      botConversationRateBuckets.delete(key);
+    }
+  }
+}
+
+async function sendTransientBotNotice(message: BotIncomingMessage, text: string, ttlMs: number): Promise<void> {
+  await botRegistry.sendMessage(
+    message.platform,
+    message.chatId,
+    text,
+    {
+      ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
+      ephemeralTtlMs: ttlMs,
+    },
+  ).catch(() => null);
 }
 
 async function processBotIncomingMessage(
@@ -2852,6 +2919,7 @@ async function processBotIncomingMessage(
   // member would otherwise be able to wipe everyone else's context.
   if (isPlaintextResetCommand({ text, isGroup: message.isGroup })) {
     const had = botConversationSessions.delete(conversationKey);
+    botConversationRateBuckets.delete(conversationKey);
     const replyOptions = {
       ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
       ephemeralTtlMs: SYSTEM_NOTICE_TTL_MS,
@@ -2865,6 +2933,22 @@ async function processBotIncomingMessage(
   let sessionId = botConversationSessions.get(conversationKey);
   try {
     if (!sessionId) {
+      if (botConversationSessions.size >= BOT_CONVERSATION_SESSION_LIMIT) {
+        await sendTransientBotNotice(
+          message,
+          'Maka 当前机器人会话数量已达上限，请重置或清理旧会话后再试。',
+          SYSTEM_NOTICE_TTL_MS,
+        );
+        return;
+      }
+      if (!consumeBotConversationToken(conversationKey)) {
+        await sendTransientBotNotice(
+          message,
+          'Maka 收到的机器人消息过于频繁，请稍后再试。',
+          SYSTEM_NOTICE_TTL_MS,
+        );
+        return;
+      }
       const ready = await getReadyConnection(await connectionStore.getDefault(), undefined);
       const summary = await runtime.createSession({
         cwd: process.cwd(),
@@ -2881,7 +2965,17 @@ async function processBotIncomingMessage(
       botConversationSessions.set(conversationKey, sessionId);
       emitSessionsChanged('created', sessionId);
     } else {
+      const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
+      if (!permissionModeOk) return;
       await ensureSessionCanSend(sessionId);
+      if (!consumeBotConversationToken(conversationKey)) {
+        await sendTransientBotNotice(
+          message,
+          'Maka 收到的机器人消息过于频繁，请稍后再试。',
+          SYSTEM_NOTICE_TTL_MS,
+        );
+        return;
+      }
     }
 
     const turnId = randomUUID();
@@ -2957,6 +3051,27 @@ async function processBotIncomingMessage(
       `Maka 暂时无法处理这条消息：${detail}`,
       replyOptions,
     ).catch(() => null);
+  }
+}
+
+async function ensureBotSessionExploreMode(
+  sessionId: string,
+  message: BotIncomingMessage,
+  noticeTtlMs: number,
+): Promise<boolean> {
+  const header = await store.readHeader(sessionId);
+  if (header.permissionMode === 'explore') return true;
+  try {
+    await runtime.updateSession(sessionId, { permissionMode: 'explore' });
+    emitSessionsChanged('updated', sessionId);
+    return true;
+  } catch {
+    await sendTransientBotNotice(
+      message,
+      'Maka 已拒绝这条机器人消息：绑定会话当前不是只读探索模式，请先在桌面端切回 explore 后再试。',
+      noticeTtlMs,
+    );
+    return false;
   }
 }
 

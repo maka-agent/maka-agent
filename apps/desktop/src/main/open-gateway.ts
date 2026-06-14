@@ -511,6 +511,14 @@ export class OpenGatewayService {
     req: IncomingMessage,
     res: ServerResponse,
   ): void {
+    if (
+      this.countEventClients() >= OPEN_GATEWAY_EVENT_STREAM_TOTAL_LIMIT ||
+      (this.eventClients.get(sessionId)?.size ?? 0) >= OPEN_GATEWAY_EVENT_STREAM_PER_SESSION_LIMIT
+    ) {
+      writeJson(res, 429, { ok: false, error: 'too_many_event_streams' });
+      return;
+    }
+
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -519,14 +527,26 @@ export class OpenGatewayService {
     res.write('retry: 1000\n');
     res.write(`: session ${sessionId} connected\n\n`);
 
-    const client: GatewayEventClient = {
+    let client: GatewayEventClient;
+    const resetIdleTimer = () => {
+      clearTimeout(client.idleTimeout);
+      client.idleTimeout = setTimeout(() => {
+        this.removeEventClient(sessionId, client);
+      }, OPEN_GATEWAY_EVENT_IDLE_TIMEOUT_MS);
+    };
+    client = {
       response: res,
       heartbeat: setInterval(() => {
         res.write(`: heartbeat ${this.now()}\n\n`);
       }, OPEN_GATEWAY_EVENT_HEARTBEAT_MS),
       write(chunk) {
         res.write(chunk);
+        resetIdleTimer();
       },
+      idleTimeout: setTimeout(() => {
+        this.removeEventClient(sessionId, client);
+      }, OPEN_GATEWAY_EVENT_IDLE_TIMEOUT_MS),
+      closed: false,
     };
     const clients = this.eventClients.get(sessionId) ?? new Set<GatewayEventClient>();
     clients.add(client);
@@ -538,7 +558,10 @@ export class OpenGatewayService {
   }
 
   private removeEventClient(sessionId: string, client: GatewayEventClient): void {
+    if (client.closed) return;
+    client.closed = true;
     clearInterval(client.heartbeat);
+    clearTimeout(client.idleTimeout);
     const clients = this.eventClients.get(sessionId);
     if (clients) {
       clients.delete(client);
@@ -664,6 +687,9 @@ const OPEN_GATEWAY_MAX_BODY_BYTES = 16 * 1024;
 const OPEN_GATEWAY_MESSAGE_PAGE_DEFAULT_LIMIT = 100;
 const OPEN_GATEWAY_MESSAGE_PAGE_MAX_LIMIT = 200;
 const OPEN_GATEWAY_EVENT_HEARTBEAT_MS = 15_000;
+const OPEN_GATEWAY_EVENT_IDLE_TIMEOUT_MS = 5 * 60 * 1_000;
+const OPEN_GATEWAY_EVENT_STREAM_TOTAL_LIMIT = 10;
+const OPEN_GATEWAY_EVENT_STREAM_PER_SESSION_LIMIT = 3;
 const OPEN_GATEWAY_EVENT_REPLAY_LIMIT = 100;
 const OPEN_GATEWAY_EVENT_RECENT_LIMIT = 50;
 const OPEN_GATEWAY_REPLAY_CURSOR_LIMIT = 256;
@@ -700,6 +726,8 @@ function capGatewayPath(value: string): string {
 interface GatewayEventClient {
   response: ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
+  idleTimeout: ReturnType<typeof setTimeout>;
+  closed: boolean;
   write(chunk: string): void;
 }
 
