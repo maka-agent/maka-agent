@@ -1,9 +1,24 @@
 import { safeStorage } from 'electron';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { BotProvider } from '@maka/core';
 
-type StoredCredentialKind = 'apiKey' | 'oauthToken';
-export type CredentialKind = 'api_key' | 'oauth_token';
+type StoredCredentialKind =
+  | 'apiKey'
+  | 'oauthToken'
+  | 'botToken'
+  | 'botAppSecret'
+  | 'proxyPassword'
+  | 'gatewayToken'
+  | 'tavilyApiKey';
+export type CredentialKind =
+  | 'api_key'
+  | 'oauth_token'
+  | 'bot_token'
+  | 'app_secret'
+  | 'proxy_password'
+  | 'gateway_token'
+  | 'tavily_api_key';
 
 interface CredentialFile {
   values: Record<string, string>;
@@ -13,6 +28,21 @@ export interface CredentialStore {
   getSecret(slug: string, kind: CredentialKind): Promise<string | null>;
   setSecret(slug: string, kind: CredentialKind, value: string): Promise<void>;
   deleteSecret(slug: string, kind?: CredentialKind): Promise<void>;
+  getBotToken(provider: BotProvider): Promise<string | null>;
+  setBotToken(provider: BotProvider, token: string): Promise<void>;
+  deleteBotToken(provider: BotProvider): Promise<void>;
+  getBotAppSecret(provider: BotProvider): Promise<string | null>;
+  setBotAppSecret(provider: BotProvider, secret: string): Promise<void>;
+  deleteBotAppSecret(provider: BotProvider): Promise<void>;
+  getProxyPassword(): Promise<string | null>;
+  setProxyPassword(password: string): Promise<void>;
+  deleteProxyPassword(): Promise<void>;
+  getGatewayToken(): Promise<string | null>;
+  setGatewayToken(token: string): Promise<void>;
+  deleteGatewayToken(): Promise<void>;
+  getTavilyApiKey(): Promise<string | null>;
+  setTavilyApiKey(key: string): Promise<void>;
+  deleteTavilyApiKey(): Promise<void>;
   getApiKey(slug: string): Promise<string | null>;
   getOAuthToken(slug: string): Promise<string | null>;
   setApiKey(slug: string, apiKey: string): Promise<void>;
@@ -49,6 +79,66 @@ class SafeStorageCredentialStore implements CredentialStore {
     });
   }
 
+  getBotToken(provider: BotProvider): Promise<string | null> {
+    return this.get(botSecretSlug(provider), 'botToken');
+  }
+
+  setBotToken(provider: BotProvider, token: string): Promise<void> {
+    return this.set(botSecretSlug(provider), 'botToken', token);
+  }
+
+  deleteBotToken(provider: BotProvider): Promise<void> {
+    return this.deleteSecret(botSecretSlug(provider), 'bot_token');
+  }
+
+  getBotAppSecret(provider: BotProvider): Promise<string | null> {
+    return this.get(botSecretSlug(provider), 'botAppSecret');
+  }
+
+  setBotAppSecret(provider: BotProvider, secret: string): Promise<void> {
+    return this.set(botSecretSlug(provider), 'botAppSecret', secret);
+  }
+
+  deleteBotAppSecret(provider: BotProvider): Promise<void> {
+    return this.deleteSecret(botSecretSlug(provider), 'app_secret');
+  }
+
+  getProxyPassword(): Promise<string | null> {
+    return this.get(GLOBAL_PROXY_SECRET_SLUG, 'proxyPassword');
+  }
+
+  setProxyPassword(password: string): Promise<void> {
+    return this.set(GLOBAL_PROXY_SECRET_SLUG, 'proxyPassword', password);
+  }
+
+  deleteProxyPassword(): Promise<void> {
+    return this.deleteSecret(GLOBAL_PROXY_SECRET_SLUG, 'proxy_password');
+  }
+
+  getGatewayToken(): Promise<string | null> {
+    return this.get(GLOBAL_GATEWAY_SECRET_SLUG, 'gatewayToken');
+  }
+
+  setGatewayToken(token: string): Promise<void> {
+    return this.set(GLOBAL_GATEWAY_SECRET_SLUG, 'gatewayToken', token);
+  }
+
+  deleteGatewayToken(): Promise<void> {
+    return this.deleteSecret(GLOBAL_GATEWAY_SECRET_SLUG, 'gateway_token');
+  }
+
+  getTavilyApiKey(): Promise<string | null> {
+    return this.get(GLOBAL_TAVILY_SECRET_SLUG, 'tavilyApiKey');
+  }
+
+  setTavilyApiKey(key: string): Promise<void> {
+    return this.set(GLOBAL_TAVILY_SECRET_SLUG, 'tavilyApiKey', key);
+  }
+
+  deleteTavilyApiKey(): Promise<void> {
+    return this.deleteSecret(GLOBAL_TAVILY_SECRET_SLUG, 'tavily_api_key');
+  }
+
   getApiKey(slug: string): Promise<string | null> {
     return this.get(slug, 'apiKey');
   }
@@ -68,8 +158,9 @@ class SafeStorageCredentialStore implements CredentialStore {
   async delete(slug: string): Promise<void> {
     await this.withQueue(async () => {
       const file = await this.readUnlocked();
-      delete file.values[this.key(slug, 'apiKey')];
-      delete file.values[this.key(slug, 'oauthToken')];
+      for (const kind of STORED_CREDENTIAL_KINDS) {
+        delete file.values[this.key(slug, kind)];
+      }
       await this.write(file);
     });
   }
@@ -118,6 +209,40 @@ class SafeStorageCredentialStore implements CredentialStore {
   }
 }
 
+const STORED_CREDENTIAL_KINDS = [
+  'apiKey',
+  'oauthToken',
+  'botToken',
+  'botAppSecret',
+  'proxyPassword',
+  'gatewayToken',
+  'tavilyApiKey',
+] as const satisfies readonly StoredCredentialKind[];
+
+const BOT_SECRET_SLUG_PREFIX = 'settings:bot';
+const GLOBAL_PROXY_SECRET_SLUG = 'settings:network-proxy';
+const GLOBAL_GATEWAY_SECRET_SLUG = 'settings:open-gateway';
+const GLOBAL_TAVILY_SECRET_SLUG = 'settings:web-search:tavily';
+
+function botSecretSlug(provider: BotProvider): string {
+  return `${BOT_SECRET_SLUG_PREFIX}:${provider}`;
+}
+
 function toStoredKind(kind: CredentialKind): StoredCredentialKind {
-  return kind === 'api_key' ? 'apiKey' : 'oauthToken';
+  switch (kind) {
+    case 'api_key':
+      return 'apiKey';
+    case 'oauth_token':
+      return 'oauthToken';
+    case 'bot_token':
+      return 'botToken';
+    case 'app_secret':
+      return 'botAppSecret';
+    case 'proxy_password':
+      return 'proxyPassword';
+    case 'gateway_token':
+      return 'gatewayToken';
+    case 'tavily_api_key':
+      return 'tavilyApiKey';
+  }
 }
