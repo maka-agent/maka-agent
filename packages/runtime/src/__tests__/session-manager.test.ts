@@ -290,6 +290,305 @@ describe('SessionManager permission mode updates', () => {
     expect(await runStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
   });
 
+  test('getMessages prefers RuntimeEvent-projected messages when legacy rows are present', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    const seeded = await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'runtime question',
+      assistantText: 'runtime answer',
+      legacyIdPrefix: 'legacy',
+    });
+
+    const messages = await manager.getMessages(session.id);
+
+    expect(messages).toEqual(seeded.projectedMessages);
+    expect(JSON.stringify(messages.map((message) => message.id)) === JSON.stringify(seeded.legacyMessages.map((message) => message.id))).toBe(false);
+  });
+
+  test('getMessages falls back to legacy when projection is missing a legacy semantic row', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    const legacyMessages: StoredMessage[] = [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'legacy answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ];
+    await store.appendMessages(session.id, legacyMessages);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-complete', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 103, role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true } }),
+    ]);
+
+    expect(await manager.getMessages(session.id)).toEqual(legacyMessages);
+  });
+
+  test('getMessages falls back to legacy when a terminal run has no runtime ledger', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    const legacyMessages: StoredMessage[] = [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'legacy only' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 102, status: 'completed', partialOutputRetained: false },
+    ];
+    await store.appendMessages(session.id, legacyMessages);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      completedAt: 102,
+    }));
+
+    expect(await manager.getMessages(session.id)).toEqual(legacyMessages);
+  });
+
+  test('listTurns derives from the RuntimeEvent-primary message view', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'runtime question',
+      assistantText: 'runtime answer',
+      legacyIdPrefix: 'legacy',
+    });
+    store.failListTurnsFor.add(session.id);
+
+    const turns = await manager.listTurns(session.id);
+
+    expect(turns).toEqual([
+      {
+        turnId: 'turn-1',
+        status: 'completed',
+        partialOutputRetained: true,
+      },
+    ]);
+  });
+
+  test('mixed legacy-only system notes force legacy fallback instead of disappearing', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    const seeded = await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'question',
+      assistantText: 'answer',
+      legacyIdPrefix: 'legacy',
+    });
+    const legacyNote: StoredMessage = {
+      type: 'system_note',
+      id: 'legacy-note',
+      ts: 104,
+      kind: 'mode_change',
+      data: { from: 'ask', to: 'execute' },
+    };
+    await store.appendMessage(session.id, legacyNote);
+
+    const messages = await manager.getMessages(session.id);
+
+    expect(messages).toEqual([...seeded.legacyMessages, legacyNote]);
+  });
+
+  test('retry finds aborted source turns and user messages through the RuntimeEvent-primary view', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(6_760) });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'source-run',
+      turnId: 'source',
+      status: 'cancelled',
+      createdAt: 100,
+      updatedAt: 102,
+      completedAt: 102,
+    }), [
+      runtimeEvent({ id: 'source-user', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'runtime retry text' } }),
+      runtimeEvent({ id: 'source-abort', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 102, role: 'system', author: 'system', status: 'aborted', actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } } }),
+    ]);
+    store.failNextReadMessagesFor.set(session.id, 1);
+
+    await drain(manager.retryTurn(session.id, { sourceTurnId: 'source', turnId: 'retry-1' }));
+
+    const retryUser = (await store.readMessages(session.id))
+      .find((message) => message.type === 'user' && message.turnId === 'retry-1');
+    expect(retryUser?.type === 'user' ? retryUser.text : undefined).toBe('runtime retry text');
+  });
+
+  test('regenerate finds completed source turns through the RuntimeEvent-primary view', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(6_770) });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'source',
+      runId: 'source-run',
+      userText: 'runtime regenerate text',
+      assistantText: 'runtime answer',
+      legacyIdPrefix: 'legacy',
+    });
+    store.failNextReadMessagesFor.set(session.id, 1);
+
+    await drain(manager.regenerateTurn(session.id, { sourceTurnId: 'source', turnId: 'regen-1' }));
+
+    const messages = await store.readMessages(session.id);
+    const regenUser = messages.find((message) => message.type === 'user' && message.turnId === 'regen-1');
+    expect(regenUser?.type === 'user' ? regenUser.text : undefined).toBe('runtime regenerate text');
+    const regenState = deriveTurnRecords(messages).find((turn) => turn.turnId === 'regen-1');
+    expect(regenState?.regeneratedFromTurnId).toBe('source');
+  });
+
+  test('branchFromTurn copies through the RuntimeEvent-primary message boundary', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'source',
+      runId: 'source-run',
+      userText: 'runtime branch context',
+      assistantText: 'runtime branch answer',
+      legacyIdPrefix: 'legacy',
+    });
+    store.failNextReadMessagesFor.set(session.id, 1);
+
+    const child = await manager.branchFromTurn(session.id, { sourceTurnId: 'source', name: 'Child' });
+
+    const childMessages = await store.readMessages(child.id);
+    expect(childMessages[0]).toMatchObject({ type: 'user', turnId: 'source', text: 'runtime branch context' });
+    expect(childMessages[1]).toMatchObject({ type: 'assistant', turnId: 'source', text: 'runtime branch answer' });
+    expect(childMessages[2]).toMatchObject({ type: 'system_note', kind: 'session_start' });
+    expect(childMessages.some((message) => message.type === 'turn_state')).toBe(false);
+  });
+
+  test('multi-run RuntimeEvent projection preserves retry regenerate and branch lineage on turns', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'root',
+      runId: 'root-run',
+      userText: 'root question',
+      assistantText: 'root answer',
+      legacyIdPrefix: 'root-legacy',
+    });
+    await seedRuntimeReadTurnWithHeader({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'retry',
+      runId: 'retry-run',
+      userText: 'retry question',
+      assistantText: 'retry answer',
+      legacyIdPrefix: 'retry-legacy',
+      header: { parentTurnId: 'root', retriedFromTurnId: 'root' },
+      tsBase: 200,
+    });
+    await seedRuntimeReadTurnWithHeader({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'regen',
+      runId: 'regen-run',
+      userText: 'regen question',
+      assistantText: 'regen answer',
+      legacyIdPrefix: 'regen-legacy',
+      header: { parentTurnId: 'root', regeneratedFromTurnId: 'root' },
+      tsBase: 300,
+    });
+    await seedRuntimeReadTurnWithHeader({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'branch',
+      runId: 'branch-run',
+      userText: 'branch question',
+      assistantText: 'branch answer',
+      legacyIdPrefix: 'branch-legacy',
+      header: { parentSessionId: 'parent-session', branchOfTurnId: 'root' },
+      tsBase: 400,
+    });
+    store.failNextReadMessagesFor.set(session.id, 1);
+
+    const turns = await manager.listTurns(session.id);
+
+    expect(turns.find((turn) => turn.turnId === 'retry')).toMatchObject({
+      status: 'completed',
+      parentTurnId: 'root',
+      retriedFromTurnId: 'root',
+    });
+    expect(turns.find((turn) => turn.turnId === 'regen')).toMatchObject({
+      status: 'completed',
+      parentTurnId: 'root',
+      regeneratedFromTurnId: 'root',
+    });
+    expect(turns.find((turn) => turn.turnId === 'branch')).toMatchObject({
+      status: 'completed',
+      parentSessionId: 'parent-session',
+      branchOfTurnId: 'root',
+    });
+  });
+
+  test('getMessages keeps legacy SessionStore behavior when no runStore is provided', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_760) });
+    const session = await manager.createSession(makeInput());
+    const legacyMessages: StoredMessage[] = [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'legacy only' },
+    ];
+    await store.appendMessages(session.id, legacyMessages);
+
+    expect(await manager.getMessages(session.id)).toEqual(legacyMessages);
+  });
+
   test('next turn receives complete prior RuntimeEvent context alongside legacy context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1112,6 +1411,8 @@ class MemorySessionStore implements SessionStore {
   private headers = new Map<string, SessionHeader>();
   private messages = new Map<string, StoredMessage[]>();
   readonly failReadMessagesFor = new Set<string>();
+  readonly failNextReadMessagesFor = new Map<string, number>();
+  readonly failListTurnsFor = new Set<string>();
   disposeCount = 0;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
@@ -1154,11 +1455,18 @@ class MemorySessionStore implements SessionStore {
   }
 
   async readMessages(sessionId: string): Promise<StoredMessage[]> {
+    const remainingFailures = this.failNextReadMessagesFor.get(sessionId) ?? 0;
+    if (remainingFailures > 0) {
+      if (remainingFailures === 1) this.failNextReadMessagesFor.delete(sessionId);
+      else this.failNextReadMessagesFor.set(sessionId, remainingFailures - 1);
+      throw new Error(`Cannot read messages for ${sessionId}`);
+    }
     if (this.failReadMessagesFor.has(sessionId)) throw new Error(`Cannot read messages for ${sessionId}`);
     return [...(this.messages.get(sessionId) ?? [])];
   }
 
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
+    if (this.failListTurnsFor.has(sessionId)) throw new Error(`Cannot list turns for ${sessionId}`);
     return deriveTurnRecords(await this.readMessages(sessionId));
   }
 
@@ -1306,6 +1614,158 @@ function makeRunEvent(overrides: Partial<AgentRunEvent> = {}): AgentRunEvent {
   };
 }
 
+function makeManagerForReadCutover(store: MemorySessionStore, runStore: AgentRunStore): SessionManager {
+  const backends = new BackendRegistry();
+  backends.register('fake', (ctx) => new TestBackend(ctx));
+  return new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(6_755) });
+}
+
+async function seedRuntimeReadTurn(input: {
+  store: MemorySessionStore;
+  runStore: AgentRunStore;
+  sessionId: string;
+  turnId: string;
+  runId: string;
+  userText: string;
+  assistantText: string;
+  legacyIdPrefix: string;
+}): Promise<{ legacyMessages: StoredMessage[]; projectedMessages: StoredMessage[] }> {
+  const header = makeRunHeader({
+    sessionId: input.sessionId,
+    runId: input.runId,
+    turnId: input.turnId,
+    status: 'completed',
+    createdAt: 100,
+    updatedAt: 103,
+    completedAt: 103,
+  });
+  const events = [
+    runtimeEvent({
+      id: `${input.runId}-user-event`,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+      ts: 101,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: input.userText },
+      refs: { storedMessageId: `${input.runId}-projected-user` },
+    }),
+    runtimeEvent({
+      id: `${input.runId}-assistant-event`,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+      ts: 102,
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: input.assistantText },
+      refs: { storedMessageId: `${input.runId}-projected-assistant` },
+    }),
+    runtimeEvent({
+      id: `${input.runId}-complete-event`,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+      ts: 103,
+      role: 'system',
+      author: 'system',
+      status: 'completed',
+      actions: { endInvocation: true },
+    }),
+  ];
+  const legacyMessages: StoredMessage[] = [
+    { type: 'user', id: `${input.legacyIdPrefix}-user`, turnId: input.turnId, ts: 101, text: input.userText },
+    { type: 'assistant', id: `${input.legacyIdPrefix}-assistant`, turnId: input.turnId, ts: 102, text: input.assistantText, modelId: 'fake-model' },
+    { type: 'turn_state', id: `${input.legacyIdPrefix}-state`, turnId: input.turnId, ts: 103, status: 'completed', partialOutputRetained: true },
+  ];
+  const projectedMessages: StoredMessage[] = [
+    { type: 'user', id: `${input.runId}-projected-user`, turnId: input.turnId, ts: 101, text: input.userText },
+    { type: 'assistant', id: `${input.runId}-projected-assistant`, turnId: input.turnId, ts: 102, text: input.assistantText, modelId: 'fake-model' },
+    { type: 'turn_state', id: `${input.runId}-complete-event`, turnId: input.turnId, ts: 103, status: 'completed', partialOutputRetained: true },
+  ];
+  await input.store.appendMessages(input.sessionId, legacyMessages);
+  await seedRuntimeRun(input.runStore, header, events);
+  return { legacyMessages, projectedMessages };
+}
+
+async function seedRuntimeReadTurnWithHeader(input: {
+  store: MemorySessionStore;
+  runStore: AgentRunStore;
+  sessionId: string;
+  turnId: string;
+  runId: string;
+  userText: string;
+  assistantText: string;
+  legacyIdPrefix: string;
+  header: Partial<AgentRunHeader>;
+  tsBase: number;
+}): Promise<void> {
+  const header = makeRunHeader({
+    sessionId: input.sessionId,
+    runId: input.runId,
+    turnId: input.turnId,
+    status: 'completed',
+    createdAt: input.tsBase,
+    updatedAt: input.tsBase + 3,
+    completedAt: input.tsBase + 3,
+    ...input.header,
+  });
+  const events = [
+    runtimeEvent({
+      id: `${input.runId}-user-event`,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+      ts: input.tsBase + 1,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: input.userText },
+      refs: { storedMessageId: `${input.runId}-projected-user` },
+    }),
+    runtimeEvent({
+      id: `${input.runId}-assistant-event`,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+      ts: input.tsBase + 2,
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: input.assistantText },
+      refs: { storedMessageId: `${input.runId}-projected-assistant` },
+    }),
+    runtimeEvent({
+      id: `${input.runId}-complete-event`,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+      ts: input.tsBase + 3,
+      role: 'system',
+      author: 'system',
+      status: 'completed',
+      actions: { endInvocation: true },
+    }),
+  ];
+  await input.store.appendMessages(input.sessionId, [
+    { type: 'user', id: `${input.legacyIdPrefix}-user`, turnId: input.turnId, ts: input.tsBase + 1, text: input.userText },
+    { type: 'assistant', id: `${input.legacyIdPrefix}-assistant`, turnId: input.turnId, ts: input.tsBase + 2, text: input.assistantText, modelId: 'fake-model' },
+    {
+      type: 'turn_state',
+      id: `${input.legacyIdPrefix}-state`,
+      turnId: input.turnId,
+      ts: input.tsBase + 3,
+      status: 'completed',
+      ...(input.header.parentTurnId ? { parentTurnId: input.header.parentTurnId } : {}),
+      ...(input.header.retriedFromTurnId ? { retriedFromTurnId: input.header.retriedFromTurnId } : {}),
+      ...(input.header.regeneratedFromTurnId ? { regeneratedFromTurnId: input.header.regeneratedFromTurnId } : {}),
+      ...(input.header.branchOfTurnId ? { branchOfTurnId: input.header.branchOfTurnId } : {}),
+      ...(input.header.parentSessionId ? { parentSessionId: input.header.parentSessionId } : {}),
+      partialOutputRetained: true,
+    },
+  ]);
+  await seedRuntimeRun(input.runStore, header, events);
+}
+
 async function seedRun(
   runStore: AgentRunStore,
   header: AgentRunHeader,
@@ -1315,6 +1775,32 @@ async function seedRun(
   for (const event of events) {
     await runStore.appendEvent(header.sessionId, header.runId, event);
   }
+}
+
+async function seedRuntimeRun(
+  runStore: AgentRunStore,
+  header: AgentRunHeader,
+  events: RuntimeEvent[],
+): Promise<void> {
+  await runStore.createRun(header);
+  for (const event of events) {
+    await runStore.appendRuntimeEvent(header.sessionId, header.runId, event);
+  }
+}
+
+function runtimeEvent(overrides: Partial<RuntimeEvent>): RuntimeEvent {
+  return {
+    id: 'rt-event',
+    invocationId: 'inv-1',
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 100,
+    partial: false,
+    role: 'system',
+    author: 'system',
+    ...overrides,
+  };
 }
 
 async function seedRunningTurn(store: MemorySessionStore, sessionId: string, turnId: string): Promise<void> {

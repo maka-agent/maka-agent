@@ -45,8 +45,13 @@ import type {
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
-import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
-import type { AgentRunStore } from '@maka/core';
+import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords, isDeepResearchSession, isTerminalRuntimeEvent } from '@maka/core';
+import type { AgentRunHeader, AgentRunStore, RuntimeEvent } from '@maka/core';
+import {
+  compareRuntimeReadModelMessages,
+  projectRuntimeEventsToStoredMessages,
+  type RuntimeEventReadModelDiagnostic,
+} from './runtime-event-read-model.js';
 
 import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
@@ -138,6 +143,15 @@ interface ActiveSession extends AgentRunActiveSession {
   turnToRunId: Map<string, string>;
 }
 
+type SessionReadSource = 'runtime_events' | 'legacy_session_store';
+
+interface SessionReadView {
+  source: SessionReadSource;
+  messages: StoredMessage[];
+  turns: TurnRecord[];
+  diagnostics: RuntimeEventReadModelDiagnostic[];
+}
+
 export class SessionManager {
   private readonly active = new Map<string, ActiveSession>();
 
@@ -157,11 +171,11 @@ export class SessionManager {
   }
 
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
-    return this.deps.store.readMessages(sessionId);
+    return (await this.readSessionView(sessionId)).messages;
   }
 
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
-    return this.deps.store.listTurns(sessionId);
+    return (await this.readSessionView(sessionId)).turns;
   }
 
   async recoverInterruptedSessions(): Promise<string[]> {
@@ -486,7 +500,7 @@ export class SessionManager {
     input: BranchFromTurnInput,
   ): Promise<SessionSummary> {
     const header = await this.deps.store.readHeader(sessionId);
-    const messages = await this.deps.store.readMessages(sessionId);
+    const { messages } = await this.readSessionView(sessionId);
     const copied = copyMessagesThroughTurnBoundary(messages, input.sourceTurnId);
     if (copied.length === 0) throw new Error(`Cannot branch from unknown turn ${input.sourceTurnId}`);
     const next = await this.deps.store.create({
@@ -639,7 +653,7 @@ export class SessionManager {
     allowed: readonly TurnRecord['status'][],
     action: string,
   ): Promise<TurnRecord> {
-    const turn = (await this.deps.store.listTurns(sessionId)).find((candidate) => candidate.turnId === turnId);
+    const turn = (await this.readSessionView(sessionId)).turns.find((candidate) => candidate.turnId === turnId);
     if (!turn) throw new Error(`Cannot ${action}: unknown turn ${turnId}`);
     if (!allowed.includes(turn.status)) {
       throw new Error(`Cannot ${action}: turn ${turnId} is ${turn.status}`);
@@ -648,10 +662,107 @@ export class SessionManager {
   }
 
   private async requireUserMessageForTurn(sessionId: string, turnId: string): Promise<UserMessage> {
-    const user = (await this.deps.store.readMessages(sessionId))
+    const user = (await this.readSessionView(sessionId)).messages
       .find((message): message is UserMessage => message.type === 'user' && message.turnId === turnId);
     if (!user) throw new Error(`Turn ${turnId} has no user message`);
     return user;
+  }
+
+  private async readSessionView(sessionId: string): Promise<SessionReadView> {
+    const legacy = await this.readLegacyMessages(sessionId);
+    const fallback = (diagnostics: RuntimeEventReadModelDiagnostic[] = []): SessionReadView => {
+      if (!legacy.readable) throw legacy.error;
+      return {
+        source: 'legacy_session_store',
+        messages: legacy.messages,
+        turns: deriveTurnRecords(legacy.messages),
+        diagnostics,
+      };
+    };
+
+    if (runtimeReadSourceForcedLegacy()) {
+      return fallback([readDiagnostic('unsupported_event', 'RuntimeEvent read projection disabled by MAKA_RUNTIME_READ_SOURCE')]);
+    }
+    if (!this.deps.runStore) {
+      return fallback();
+    }
+
+    let runs: AgentRunHeader[];
+    try {
+      runs = await this.deps.runStore.listSessionRuns(sessionId);
+    } catch {
+      return fallback([readDiagnostic('unsupported_event', 'AgentRunStore.listSessionRuns failed')]);
+    }
+    if (runs.length === 0) {
+      return fallback();
+    }
+
+    const events: RuntimeEvent[] = [];
+    const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];
+    for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+      const run = runs[runIndex]!;
+      if (!isTerminalRunStatus(run.status)) {
+        return fallback([readDiagnostic('incomplete_event', 'RuntimeEvent read projection is not used for active runs', run)]);
+      }
+
+      let runEvents: RuntimeEvent[];
+      try {
+        runEvents = await this.deps.runStore.readRuntimeEvents(sessionId, run.runId);
+      } catch {
+        return fallback([readDiagnostic('unsupported_event', 'AgentRunStore.readRuntimeEvents failed', { runId: run.runId })]);
+      }
+
+      if (runEvents.length === 0) {
+        return fallback([readDiagnostic('incomplete_event', 'terminal run has no readable RuntimeEvent ledger', { runId: run.runId })]);
+      }
+      if (!runEvents.some(isTerminalRuntimeEvent)) {
+        return fallback([readDiagnostic('incomplete_event', 'terminal run has no terminal RuntimeEvent', { runId: run.runId })]);
+      }
+
+      for (let eventIndex = 0; eventIndex < runEvents.length; eventIndex += 1) {
+        ordered.push({ event: runEvents[eventIndex]!, runIndex, eventIndex });
+      }
+    }
+
+    ordered.sort((a, b) =>
+      a.event.ts - b.event.ts ||
+      a.runIndex - b.runIndex ||
+      a.eventIndex - b.eventIndex ||
+      a.event.id.localeCompare(b.event.id)
+    );
+    for (const item of ordered) events.push(item.event);
+
+    const projected = projectRuntimeEventsToStoredMessages(events, { runHeaders: runs });
+    if (hasHardProjectionDiagnostic(projected.diagnostics)) {
+      return fallback(projected.diagnostics);
+    }
+
+    const diagnostics = [...projected.diagnostics];
+    if (legacy.readable) {
+      const compatibility = compareRuntimeReadModelMessages(projected.messages, legacy.messages);
+      diagnostics.push(...compatibility.diagnostics);
+      if (hasHardCompatibilityDiagnostic(compatibility.diagnostics)) {
+        return fallback(diagnostics);
+      }
+    }
+
+    return {
+      source: 'runtime_events',
+      messages: projected.messages,
+      turns: deriveTurnRecords(projected.messages),
+      diagnostics,
+    };
+  }
+
+  private async readLegacyMessages(sessionId: string): Promise<
+    | { readable: true; messages: StoredMessage[] }
+    | { readable: false; error: unknown }
+  > {
+    try {
+      return { readable: true, messages: await this.deps.store.readMessages(sessionId) };
+    } catch (error) {
+      return { readable: false, error };
+    }
   }
 
   private async recoverAgentRunsFromLedger(
@@ -871,6 +982,42 @@ function copyMessagesThroughTurnBoundary(messages: readonly StoredMessage[], tur
   return messages
     .slice(0, lastIndex + 1)
     .filter((message) => message.type !== 'turn_state');
+}
+
+function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function hasHardProjectionDiagnostic(diagnostics: readonly RuntimeEventReadModelDiagnostic[]): boolean {
+  return diagnostics.some((diagnostic) =>
+    diagnostic.code === 'incomplete_event' ||
+    diagnostic.code === 'unsupported_event' ||
+    diagnostic.code === 'tool_use_id_mismatch'
+  );
+}
+
+function hasHardCompatibilityDiagnostic(diagnostics: readonly RuntimeEventReadModelDiagnostic[]): boolean {
+  // A projected view missing a legacy semantic row means RuntimeEvents cannot
+  // yet render the public session faithfully. Extra projected rows are allowed:
+  // for compatible runtime-ledger sessions they represent RuntimeEvents being
+  // fresher than stale legacy rows, while diagnostics keep that mismatch visible.
+  return diagnostics.some((diagnostic) => diagnostic.code === 'missing_legacy_message');
+}
+
+function readDiagnostic(
+  code: RuntimeEventReadModelDiagnostic['code'],
+  message: string,
+  detail?: unknown,
+): RuntimeEventReadModelDiagnostic {
+  return {
+    code,
+    message,
+    ...(detail !== undefined ? { detail } : {}),
+  };
+}
+
+function runtimeReadSourceForcedLegacy(): boolean {
+  return process.env.MAKA_RUNTIME_READ_SOURCE === 'legacy';
 }
 
 function blockedReasonFromErrorReason(reason: string | undefined): SessionBlockedReason {
