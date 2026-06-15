@@ -369,6 +369,32 @@ describe('AiSdkFlow seam', () => {
     assert.equal(isTerminalRuntimeEvent(out[0]), true);
   });
 
+  test('can keep draining backend events after a terminal while coalescing duplicate terminals', async () => {
+    const seen: SessionEvent[] = [];
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'abort', reason: 'user_stop' }),
+        ev({ type: 'text_delta', messageId: 'm1', text: 'cleanup-after-terminal' }),
+        ev({ type: 'complete', stopReason: 'user_stop' }),
+      ],
+    });
+    const flow = new AiSdkFlow({
+      backend,
+      drainAfterTerminal: true,
+      onSessionEvent: (sessionEvent) => {
+        seen.push(sessionEvent);
+      },
+    });
+    const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
+
+    assert.deepEqual(seen.map((event) => event.type), ['abort', 'text_delta', 'complete']);
+    assert.deepEqual(
+      out.map((event) => event.content?.kind ?? event.status ?? null),
+      ['aborted', 'text'],
+    );
+    assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
+  });
+
   test('RuntimeRunner consumes AiSdkFlow abort as one coherent failed outcome', async () => {
     const backend = new ScriptedBackend({
       events: [
