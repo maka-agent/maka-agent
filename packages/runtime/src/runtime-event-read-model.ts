@@ -54,6 +54,13 @@ interface ProjectionState {
     toolName: string;
     hint?: string;
   }>;
+  thinkingByTurn: Map<string, PendingThinking>;
+}
+
+interface PendingThinking {
+  event: RuntimeEvent;
+  text: string;
+  signature?: string;
 }
 
 export function projectRuntimeEventsToStoredMessages(
@@ -65,6 +72,7 @@ export function projectRuntimeEventsToStoredMessages(
     diagnostics: [],
     toolNameByUseId: new Map(),
     permissionRequestById: new Map(),
+    thinkingByTurn: new Map(),
   };
   const messages: StoredMessage[] = [];
 
@@ -88,7 +96,7 @@ export function projectRuntimeEventsToStoredMessages(
           projected = projectFunctionResponse(event, state, messages) || projected;
           break;
         case 'thinking':
-          diagnostic(state, event, 'unsupported_event', 'thinking content has no legacy read-model row');
+          projected = projectThinking(event, state, messages) || projected;
           break;
         case 'error':
           if (!isTerminalRuntimeEvent(event)) {
@@ -129,6 +137,10 @@ export function projectRuntimeEventsToStoredMessages(
     if (!projected) {
       diagnostic(state, event, 'unsupported_event', 'RuntimeEvent shape is not supported by the legacy read-model projection');
     }
+  }
+
+  for (const pending of state.thinkingByTurn.values()) {
+    diagnostic(state, pending.event, 'unsupported_event', 'thinking content has no same-turn assistant text row');
   }
 
   return { messages, diagnostics: state.diagnostics };
@@ -201,11 +213,28 @@ function projectText(
       text: event.content.text,
       modelId: header.modelId,
     });
+    attachPendingThinking(event, state, messages);
     return true;
   }
 
   diagnostic(state, event, 'unsupported_event', `text content with role ${event.role} is not projected`);
   return false;
+}
+
+function projectThinking(
+  event: RuntimeEvent,
+  state: ProjectionState,
+  messages: StoredMessage[],
+): boolean {
+  if (event.content?.kind !== 'thinking') return false;
+  const pending: PendingThinking = {
+    event,
+    text: event.content.text,
+    ...(event.content.signature !== undefined ? { signature: event.content.signature } : {}),
+  };
+  if (attachThinkingToAssistant(event, pending, messages)) return true;
+  state.thinkingByTurn.set(thinkingKey(event), pending);
+  return true;
 }
 
 function projectFunctionCall(
@@ -348,6 +377,7 @@ function projectTerminalTurnState(
     diagnostic(state, event, 'incomplete_event', 'terminal RuntimeEvent status cannot be mapped to a legacy TurnStatus');
     return false;
   }
+  const abortSource = status === 'aborted' ? abortSourceFromRuntime(event, header) : undefined;
   const partialOutputRetained = messages.some((message) =>
     message.turnId === event.turnId &&
     ((message.type === 'assistant' && message.text.trim().length > 0) || message.type === 'tool_result')
@@ -364,16 +394,65 @@ function projectTerminalTurnState(
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(status === 'aborted' ? { abortedAt: event.ts } : {}),
+    ...(abortSource ? { abortSource } : {}),
     ...(status === 'failed' ? { errorClass: header.failureClass ?? 'unknown' } : {}),
     partialOutputRetained,
   });
   if (status === 'failed' && !header.failureClass) {
     diagnostic(state, event, 'incomplete_event', 'failed terminal event did not carry an exact AgentRunHeader.failureClass');
   }
-  if (status === 'aborted') {
+  if (status === 'aborted' && !abortSource) {
     diagnostic(state, event, 'incomplete_event', 'abortSource is not present in RuntimeEvent or AgentRunHeader metadata');
   }
   return true;
+}
+
+function attachPendingThinking(
+  event: RuntimeEvent,
+  state: ProjectionState,
+  messages: StoredMessage[],
+): void {
+  const key = thinkingKey(event);
+  const pending = state.thinkingByTurn.get(key);
+  if (!pending) return;
+  if (attachThinkingToAssistant(event, pending, messages)) {
+    state.thinkingByTurn.delete(key);
+  }
+}
+
+function attachThinkingToAssistant(
+  event: RuntimeEvent,
+  pending: PendingThinking,
+  messages: StoredMessage[],
+): boolean {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.type !== 'assistant' || message.turnId !== event.turnId) continue;
+    message.thinking = {
+      text: pending.text,
+      ...(pending.signature !== undefined ? { signature: pending.signature } : {}),
+    };
+    return true;
+  }
+  return false;
+}
+
+function thinkingKey(event: RuntimeEvent): string {
+  return `${event.runId}:${event.turnId}`;
+}
+
+function abortSourceFromRuntime(event: RuntimeEvent, header: AgentRunHeader): string | undefined {
+  return stringStateDelta(event, 'abortSource')
+    ?? stringStateDelta(event, 'source')
+    ?? stringRecordValue(event.refs, 'abortSource')
+    ?? stringRecordValue(event.refs, 'source')
+    ?? stringRecordValue(header as unknown as Record<string, unknown>, 'abortSource');
+}
+
+function stringRecordValue(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const result = (value as Record<string, unknown>)[key];
+  return typeof result === 'string' && result.length > 0 ? result : undefined;
 }
 
 function stableMessageId(

@@ -113,7 +113,7 @@ describe('AgentRunStore', () => {
     });
   });
 
-  it('skips corrupt runtime event lines and ignores a partial corrupt tail', async () => {
+  it('rejects durable corrupt runtime event lines instead of shortening the canonical ledger', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());
       const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
@@ -122,11 +122,28 @@ describe('AgentRunStore', () => {
         JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) +
           '\n{"id":"corrupt"\n' +
           JSON.stringify(makeRuntimeEvent({ id: 'runtime-2' })) +
+          '\n',
+      );
+
+      await assert.rejects(
+        () => store.readRuntimeEvents('session-1', 'run-1'),
+        /Invalid RuntimeEvent JSONL line 2 for run run-1/,
+      );
+    });
+  });
+
+  it('ignores an unterminated partial runtime event tail', async () => {
+    await withStore(async (store, root) => {
+      await store.createRun(makeHeader());
+      const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      await writeFile(
+        runtimeEventsPath,
+        JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) +
           '\n{"id":"partial"',
       );
 
       const events = await store.readRuntimeEvents('session-1', 'run-1');
-      assert.deepEqual(events.map((event) => event.id), ['runtime-1', 'runtime-2']);
+      assert.deepEqual(events.map((event) => event.id), ['runtime-1']);
     });
   });
 });

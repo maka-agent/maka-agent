@@ -140,8 +140,10 @@ class FileAgentRunStore implements AgentRunStore {
     for (const entry of lines) {
       try {
         events.push(JSON.parse(entry.line) as RuntimeEvent);
-      } catch {
+      } catch (error) {
         if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+        const message = error instanceof Error ? error.message : 'Invalid JSON';
+        throw new Error(`Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${runId}: ${message}`);
       }
     }
     return events;

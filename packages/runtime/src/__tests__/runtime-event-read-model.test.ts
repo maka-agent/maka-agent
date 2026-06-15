@@ -313,6 +313,39 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['partial_skipped']);
   });
 
+  test('model thinking attaches to same-turn assistant text without breaking compatibility', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-thinking',
+        ts: ts + 5,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
+      }),
+      ev({
+        id: 'evt-assistant',
+        ts: ts + 6,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'visible answer' },
+        refs: { storedMessageId: 'legacy-assistant' },
+      }),
+    ], { runHeaders: [header] });
+    const legacy: StoredMessage[] = [{
+      type: 'assistant',
+      id: 'legacy-assistant',
+      turnId,
+      ts: ts + 6,
+      text: 'visible answer',
+      modelId: 'claude-sonnet-4-5',
+      thinking: { text: 'private reasoning', signature: 'sig-1' },
+    }];
+
+    expect(out.messages).toEqual(legacy);
+    expect(out.diagnostics).toEqual([]);
+    expect(compareRuntimeReadModelMessages(out.messages, legacy).compatible).toBe(true);
+  });
+
   test('unsupported and incomplete events are diagnostic-only', () => {
     const out = projectRuntimeEventsToStoredMessages([
       ev({
@@ -345,11 +378,10 @@ describe('projectRuntimeEventsToStoredMessages', () => {
 
     expect(out.messages).toEqual([]);
     expect(out.diagnostics.map((diag) => diag.code)).toEqual([
-      'unsupported_event',
-      'unsupported_event',
       'incomplete_event',
       'unsupported_event',
       'incomplete_event',
+      'unsupported_event',
       'unsupported_event',
     ]);
   });
@@ -377,6 +409,52 @@ describe('projectRuntimeEventsToStoredMessages', () => {
       partialOutputRetained: false,
     }]);
     expect(out.diagnostics).toEqual([]);
+  });
+
+  test('aborted terminal RuntimeEvent preserves abort source from runtime state', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-aborted',
+        ts: ts + 9,
+        status: 'aborted',
+        actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } },
+      }),
+    ], {
+      runHeaders: [{ ...header, status: 'cancelled' }],
+    });
+
+    expect(out.messages).toEqual([{
+      type: 'turn_state',
+      id: 'evt-aborted',
+      turnId,
+      ts: ts + 9,
+      status: 'aborted',
+      parentTurnId: 'parent-turn',
+      abortedAt: ts + 9,
+      abortSource: 'renderer.stop_button',
+      partialOutputRetained: false,
+    }]);
+    expect(out.diagnostics).toEqual([]);
+  });
+
+  test('aborted terminal RuntimeEvent keeps an explicit diagnostic when abort source is unavailable', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-aborted',
+        ts: ts + 9,
+        status: 'aborted',
+        actions: { endInvocation: true },
+      }),
+    ], {
+      runHeaders: [{ ...header, status: 'cancelled' }],
+    });
+
+    expect(out.messages[0]).toMatchObject({
+      type: 'turn_state',
+      status: 'aborted',
+      abortedAt: ts + 9,
+    });
+    expect(out.diagnostics.map((diag) => diag.code)).toEqual(['incomplete_event']);
   });
 });
 
