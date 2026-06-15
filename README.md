@@ -111,7 +111,6 @@ npm run check:release
 | `OPENAI_API_KEY` | 首次启动时可用来 bootstrap OpenAI 连接。 |
 | `TAVILY_API_KEY` / `MAKA_TAVILY_API_KEY` | 联网搜索的 Tavily 凭据来源。 |
 | `MAKA_RIVE_BIN` / `RIVE_BIN` | 指定 Rive workflow 使用的 `rive` CLI。 |
-| `MAKA_RUNTIME_READ_SOURCE=legacy` | 调试 runtime read model 时强制回退旧 session-store 读取路径。 |
 | `MAKA_VISUAL_SMOKE_FIXTURE` | 启用确定性视觉 fixture，仅限 dev/test build。 |
 
 ## 项目结构

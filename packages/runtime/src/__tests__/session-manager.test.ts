@@ -26,7 +26,7 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { RuntimeKernelLike } from '../runtime-kernel.js';
-import { RuntimeReadModel, RuntimeReadModelError } from '../runtime-read-model.js';
+import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
 import type { InvocationResult } from '../invocation-context.js';
 
@@ -419,11 +419,58 @@ describe('SessionManager permission mode updates', () => {
     await expectRejects(manager.getMessages(session.id), /RuntimeEvent ledger is missing/);
   });
 
-  test('active RuntimeEvent ledger produces an explicit read-model error', async () => {
+  test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const manager = makeManagerForReadCutover(store, runStore);
     const session = await manager.createSession(makeInput());
+    const completed = await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'completed question',
+      assistantText: 'completed answer',
+      legacyIdPrefix: 'legacy',
+    });
+    const activeMessages: StoredMessage[] = [
+      { type: 'user', id: 'active-user', turnId: 'turn-2', ts: 201, text: 'active question' },
+      { type: 'assistant', id: 'active-assistant', turnId: 'turn-2', ts: 202, text: 'partial active answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'active-state', turnId: 'turn-2', ts: 203, status: 'running', partialOutputRetained: true },
+    ];
+    await store.appendMessages(session.id, activeMessages);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-2',
+      turnId: 'turn-2',
+      status: 'running',
+      createdAt: 200,
+      updatedAt: 203,
+    }));
+
+    const messages = await manager.getMessages(session.id);
+    expect(messages).toEqual([...completed.projectedMessages, ...activeMessages]);
+    expect(await manager.listTurns(session.id)).toEqual([
+      { turnId: 'turn-1', status: 'completed', partialOutputRetained: true },
+      { turnId: 'turn-2', status: 'running', partialOutputRetained: true },
+    ]);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.diagnostics.some((diagnostic) =>
+      diagnostic.code === 'incomplete_event' &&
+      diagnostic.message.includes('in-flight projection cache')
+    )).toBe(true);
+  });
+
+  test('active RuntimeEvent ledger without a projection cache produces an explicit read-model error', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const session = await store.create(makeInput());
     await runStore.createRun(makeRunHeader({
       sessionId: session.id,
       runId: 'run-1',
@@ -431,15 +478,10 @@ describe('SessionManager permission mode updates', () => {
       status: 'running',
     }));
 
-    try {
-      await manager.getMessages(session.id);
-    } catch (error) {
-      expect(error instanceof RuntimeReadModelError).toBe(true);
-      if (!(error instanceof RuntimeReadModelError)) throw error;
-      expect(error.diagnostics.map((diagnostic) => diagnostic.code)).toContain('incomplete_event');
-      return;
-    }
-    throw new Error('Expected active ledger read to fail');
+    await expectRejects(
+      new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id),
+      /RuntimeEvent ledger is incomplete for an active run/,
+    );
   });
 
   test('getMessages rejects when runtime ledger read fails', async () => {
@@ -1220,6 +1262,35 @@ describe('SessionManager permission mode updates', () => {
     expect(events.map((event) => event.type)).toContain('run_cancelled');
   });
 
+  test('stopSession keeps aborted state even if the backend emits a late error', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const gate = makeGate();
+    backends.register('fake', (ctx) => new LateErrorBackend(ctx, gate));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_720) });
+    const session = await manager.createSession(makeInput());
+
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await iterator.next();
+    await manager.stopSession(session.id, { source: 'stop_button' });
+
+    gate.release();
+    await iterator.next();
+    await iterator.next();
+
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('aborted');
+    expect(turn?.abortSource).toBe('renderer.stop_button');
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('cancelled');
+    expect(run?.failureClass).toBeUndefined();
+    const events = (await runStore.readEvents(session.id, run!.runId)).map((event) => event.type);
+    expect(events).toContain('run_cancelled');
+    expect(events.includes('run_failed')).toBe(false);
+  });
+
   test('durable run ledger records lifecycle trace events and redacts obvious secrets', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1870,6 +1941,29 @@ class TestBackend implements AgentBackend {
   async stop(): Promise<void> {}
   async respondToPermission(_decision: PermissionDecision): Promise<void> {}
 
+  async dispose(): Promise<void> {
+    if (this.ctx.store instanceof MemorySessionStore) {
+      this.ctx.store.disposeCount += 1;
+    }
+  }
+}
+
+class LateErrorBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: BackendFactoryContext, private readonly gate: Gate) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'ok' };
+    await this.gate.promise;
+    yield { type: 'error', id: `${input.turnId}-error`, turnId: input.turnId, ts: 2, recoverable: false, reason: 'late_error', message: 'late backend error' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
   async dispose(): Promise<void> {
     if (this.ctx.store instanceof MemorySessionStore) {
       this.ctx.store.disposeCount += 1;
