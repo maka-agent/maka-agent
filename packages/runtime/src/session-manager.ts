@@ -399,6 +399,7 @@ export class SessionManager {
       lineage: run.lineage,
       abortSignal: abortController.signal,
     }).then(async (result) => {
+      await run.recordRuntimeEvents(result.events);
       await this.deps.runtimeInvocationObserver?.(result);
       return result;
     }, (error) => {
