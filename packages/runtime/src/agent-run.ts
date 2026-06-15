@@ -55,6 +55,11 @@ export interface AgentRunInput {
   hooks: AgentRunHooks;
 }
 
+export interface AgentRunBeginResult {
+  backend: AgentBackend;
+  backendInput: BackendSendInput;
+}
+
 export class AgentRun {
   readonly runId: string;
   readonly sessionId: string;
@@ -69,6 +74,11 @@ export class AgentRun {
   private runStoreAvailable = true;
   private failureClass: string | undefined;
   private failureMessage: string | undefined;
+  private lastTs = 0;
+  private sawCompletion = false;
+  private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
+  private turnFailed = false;
+  private finalized = false;
 
   constructor(private readonly input: AgentRunInput) {
     this.runId = input.newId();
@@ -97,6 +107,21 @@ export class AgentRun {
   }
 
   async *execute(): AsyncIterable<SessionEvent> {
+    try {
+      const begin = await this.begin();
+      for await (const ev of begin.backend.send(begin.backendInput)) {
+        await this.recordSessionEvent(ev);
+        yield ev;
+      }
+    } catch (error) {
+      await this.recordFailure(error);
+      throw error;
+    } finally {
+      await this.finalize();
+    }
+  }
+
+  async begin(): Promise<AgentRunBeginResult> {
     await this.createRunRecord();
 
     const userMsg: UserMessage = {
@@ -110,95 +135,99 @@ export class AgentRun {
     await this.input.store.appendMessage(this.sessionId, userMsg);
     await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage);
 
-    let lastTs = this.input.now();
-    let sawCompletion = false;
-    let finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
-    let turnFailed = false;
+    this.lastTs = this.input.now();
 
-    try {
-      if (!this.header.connectionLocked) {
-        this.header = await this.input.hooks.updateHeader(this.sessionId, { connectionLocked: true });
-      }
+    if (!this.header.connectionLocked) {
+      this.header = await this.input.hooks.updateHeader(this.sessionId, { connectionLocked: true });
+    }
 
-      this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
-      this.input.hooks.registerRun(this.active, this);
-      await this.markRunStarted(lastTs);
+    this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
+    this.input.hooks.registerRun(this.active, this);
+    await this.markRunStarted(this.lastTs);
 
-      await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, lastTs);
+    await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, this.lastTs);
 
-      const backendInput: BackendSendInput = {
+    return {
+      backend: this.active.backend,
+      backendInput: {
         turnId: this.turnId,
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
         context: await this.input.store.readMessages(this.sessionId),
-      };
-      for await (const ev of this.active.backend.send(backendInput)) {
-        lastTs = ev.ts;
-        const transition = statusFromEvent(ev);
-        if (transition && !this.stopped) {
-          await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts);
-          this.recordStatusFromTransition(ev, transition, ev.ts);
-        }
-        if ((ev.type === 'complete' || ev.type === 'abort') && !turnFailed) {
-          sawCompletion = true;
-          finalStatus = this.stopped
-            ? { status: 'aborted' }
-            : (transition ?? { status: 'active' });
-          const turnStatus = turnStatusFromEvent(ev);
-          if (turnStatus && !this.stopped) {
-            await this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
-              ts: ev.ts,
-              errorClass: turnStatus.errorClass,
-            });
-          }
-        }
-        if (ev.type === 'error') {
-          turnFailed = true;
-          finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
-          await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
-            ts: ev.ts,
-            errorClass: ev.reason ?? ev.code ?? 'unknown',
-          });
-          this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
-        }
-        yield ev;
-      }
-    } catch (error) {
-      finalStatus = { status: 'blocked', blockedReason: 'unknown' };
-      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
-        errorClass: error instanceof Error ? error.name : 'unknown',
-      }).catch(() => {});
-      this.markRunFailed(error instanceof Error ? error.name : 'unknown', errorMessage(error), this.input.now());
-      throw error;
-    } finally {
-      if (this.active) {
-        this.input.hooks.unregisterRun(this.active, this);
-        if (this.stopped) finalStatus = { status: 'aborted' };
-      }
-      const nextStatus = this.active && this.active.activeRuns.size > 0
-        ? { status: 'running' as const }
-        : (finalStatus ?? { status: 'active' as const });
-      try {
-        await this.input.hooks.updateHeader(this.sessionId, {
-          lastUsedAt: lastTs,
-          lastMessageAt: lastTs,
-          hasUnread: true,
-          ...statusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
-        });
-      } catch {
-        // The user-visible turn already completed; preserve existing behavior.
-      }
-      if (sawCompletion) {
-        await this.input.store.appendMessage(this.sessionId, {
-          type: 'system_note',
-          id: this.input.newId(),
-          turnId: this.turnId,
-          ts: lastTs,
-          kind: 'session_resume',
-        } satisfies SystemNoteMessage).catch(() => {});
-      }
-      await this.finishRun(finalStatus, lastTs);
+      },
+    };
+  }
+
+  async recordSessionEvent(ev: SessionEvent): Promise<void> {
+    this.lastTs = ev.ts;
+    const transition = statusFromEvent(ev);
+    if (transition && !this.stopped) {
+      await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts);
+      this.recordStatusFromTransition(ev, transition, ev.ts);
     }
+    if ((ev.type === 'complete' || ev.type === 'abort') && !this.turnFailed) {
+      this.sawCompletion = true;
+      this.finalStatus = this.stopped
+        ? { status: 'aborted' }
+        : (transition ?? { status: 'active' });
+      const turnStatus = turnStatusFromEvent(ev);
+      if (turnStatus && !this.stopped) {
+        await this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
+          ts: ev.ts,
+          errorClass: turnStatus.errorClass,
+        });
+      }
+    }
+    if (ev.type === 'error') {
+      this.turnFailed = true;
+      this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
+      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
+        ts: ev.ts,
+        errorClass: ev.reason ?? ev.code ?? 'unknown',
+      });
+      this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
+    }
+  }
+
+  async recordFailure(error: unknown): Promise<void> {
+    this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
+    await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
+      errorClass: error instanceof Error ? error.name : 'unknown',
+    }).catch(() => {});
+    this.markRunFailed(error instanceof Error ? error.name : 'unknown', errorMessage(error), this.input.now());
+  }
+
+  async finalize(): Promise<void> {
+    if (this.finalized) return;
+    this.finalized = true;
+    const lastTs = this.lastTs || this.input.now();
+    if (this.active) {
+      this.input.hooks.unregisterRun(this.active, this);
+      if (this.stopped) this.finalStatus = { status: 'aborted' };
+    }
+    const nextStatus = this.active && this.active.activeRuns.size > 0
+      ? { status: 'running' as const }
+      : (this.finalStatus ?? { status: 'active' as const });
+    try {
+      await this.input.hooks.updateHeader(this.sessionId, {
+        lastUsedAt: lastTs,
+        lastMessageAt: lastTs,
+        hasUnread: true,
+        ...statusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
+      });
+    } catch {
+      // The user-visible turn already completed; preserve existing behavior.
+    }
+    if (this.sawCompletion) {
+      await this.input.store.appendMessage(this.sessionId, {
+        type: 'system_note',
+        id: this.input.newId(),
+        turnId: this.turnId,
+        ts: lastTs,
+        kind: 'session_resume',
+      } satisfies SystemNoteMessage).catch(() => {});
+    }
+    await this.finishRun(this.finalStatus, lastTs);
   }
 
   private async createRunRecord(): Promise<void> {
