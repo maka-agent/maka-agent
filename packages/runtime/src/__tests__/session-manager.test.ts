@@ -7,6 +7,7 @@ import type {
   AgentRunEvent,
   AgentRunHeader,
   AgentRunStore,
+  RuntimeEvent,
   SessionEvent,
   SessionHeader,
   SessionListFilter,
@@ -251,6 +252,42 @@ describe('SessionManager permission mode updates', () => {
     expect(result.events[0]?.content).toEqual({ kind: 'text', text: 'hello' });
     expect(result.events[1]?.content).toEqual({ kind: 'text', text: 'ok' });
     expect(result.events[2]?.status).toBe('completed');
+
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta', 'turn-1-complete']);
+    expect(runtimeEvents.map((event) => event.runId)).toEqual([run.runId, run.runId, run.runId]);
+    expect(runtimeEvents.map((event) => event.sessionId)).toEqual([session.id, session.id, session.id]);
+    expect(runtimeEvents.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    expect(runtimeEvents.map((event) => event.role)).toEqual(['user', 'model', 'system']);
+    expect(runtimeEvents[0]?.content).toEqual({ kind: 'text', text: 'hello' });
+    expect(runtimeEvents[1]?.content).toEqual({ kind: 'text', text: 'ok' });
+    expect(runtimeEvents[2]?.status).toBe('completed');
+  });
+
+  test('runtime event ledger write failure does not fail sendMessage', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppends: true });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_750),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    const sessionEvents = await collectSessionEvents(
+      manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }),
+    );
+
+    expect(sessionEvents.map((event) => event.type)).toEqual(['text_delta', 'complete']);
+    expect(sessionEvents.map((event) => event.id)).toEqual(['turn-1-delta', 'turn-1-complete']);
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    expect(await runStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
   });
 
   test('sendMessage production source uses AiSdkFlow instead of an inline mapper flow', async () => {
@@ -1101,6 +1138,9 @@ class MemorySessionStore implements SessionStore {
 class MemoryAgentRunStore implements AgentRunStore {
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
+  private runtimeEvents = new Map<string, RuntimeEvent[]>();
+
+  constructor(private readonly options: { failRuntimeEventAppends?: boolean } = {}) {}
 
   async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), { ...header });
@@ -1134,6 +1174,16 @@ class MemoryAgentRunStore implements AgentRunStore {
 
   async readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
     return (this.events.get(key(sessionId, runId)) ?? []).map(copyEvent);
+  }
+
+  async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    if (this.options.failRuntimeEventAppends) throw new Error('runtime event append failed');
+    const eventKey = key(sessionId, runId);
+    this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
+  }
+
+  async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+    return (this.runtimeEvents.get(key(sessionId, runId)) ?? []).map(copyRuntimeEvent);
   }
 }
 
@@ -1253,4 +1303,8 @@ function copyEvent(event: AgentRunEvent): AgentRunEvent {
     ...event,
     ...(event.data ? { data: { ...event.data } } : {}),
   };
+}
+
+function copyRuntimeEvent(event: RuntimeEvent): RuntimeEvent {
+  return JSON.parse(JSON.stringify(event)) as RuntimeEvent;
 }

@@ -1,4 +1,4 @@
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore } from '@maka/core';
+import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent } from '@maka/core';
 import { redactSecrets } from '@maka/core/redaction';
 import type {
   SessionBlockedReason,
@@ -186,6 +186,15 @@ export class AgentRun {
         errorClass: ev.reason ?? ev.code ?? 'unknown',
       });
       this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
+    }
+  }
+
+  async recordRuntimeEvents(events: readonly RuntimeEvent[]): Promise<void> {
+    if (!this.input.runStore || !this.runStoreAvailable || events.length === 0) return;
+    for (const event of events) {
+      await this.enqueueRunStore('append runtime event', async () => {
+        await this.input.runStore?.appendRuntimeEvent(this.sessionId, this.runId, event);
+      });
     }
   }
 

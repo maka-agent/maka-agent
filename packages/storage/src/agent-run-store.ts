@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore } from '@maka/core';
+import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent } from '@maka/core';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -111,6 +111,42 @@ class FileAgentRunStore implements AgentRunStore {
     return events;
   }
 
+  async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(runId, 'Invalid run id');
+    await this.withQueue(sessionId, runId, async () => {
+      await mkdir(this.runDir(sessionId, runId), { recursive: true });
+      await appendFile(this.runtimeEventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
+    });
+  }
+
+  async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(runId, 'Invalid run id');
+    let text: string;
+    try {
+      text = await readFile(this.runtimeEventsPath(sessionId, runId), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const rawLines = text.split('\n');
+    const endsWithNewline = text.endsWith('\n');
+    const lines = rawLines
+      .map((line, index) => ({ line, lineNumber: index + 1 }))
+      .filter((entry) => entry.line.trim().length > 0);
+    const lastLineNumber = lines.at(-1)?.lineNumber;
+    const events: RuntimeEvent[] = [];
+    for (const entry of lines) {
+      try {
+        events.push(JSON.parse(entry.line) as RuntimeEvent);
+      } catch {
+        if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+      }
+    }
+    return events;
+  }
+
   private async readRunUnlocked(sessionId: string, runId: string): Promise<AgentRunHeader> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
@@ -133,6 +169,10 @@ class FileAgentRunStore implements AgentRunStore {
 
   private eventsPath(sessionId: string, runId: string): string {
     return join(this.runDir(sessionId, runId), 'events.jsonl');
+  }
+
+  private runtimeEventsPath(sessionId: string, runId: string): string {
+    return join(this.runDir(sessionId, runId), 'runtime-events.jsonl');
   }
 
   private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
