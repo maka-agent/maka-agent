@@ -60,6 +60,7 @@ export class RuntimeReadModel {
 
   async getSessionView(sessionId: string): Promise<RuntimeReadModelSessionView> {
     const diagnostics: RuntimeEventReadModelDiagnostic[] = [];
+    const inFlightTurnIds = new Set<string>();
     let runs: AgentRunHeader[];
     try {
       runs = await this.deps.runStore.listSessionRuns(sessionId);
@@ -80,13 +81,23 @@ export class RuntimeReadModel {
     for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
       const run = runs[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
-        throw new RuntimeReadModelError('RuntimeEvent ledger is incomplete for an active run', [
-          readModelDiagnostic('incomplete_event', 'active run has no stable RuntimeEvent read projection', {
-            runId: run.runId,
-            turnId: run.turnId,
-            status: run.status,
-          }),
-        ]);
+        const diagnostic = readModelDiagnostic('incomplete_event', 'active run is using the in-flight projection cache', {
+          runId: run.runId,
+          turnId: run.turnId,
+          status: run.status,
+        });
+        diagnostics.push(diagnostic);
+        inFlightTurnIds.add(run.turnId);
+        if (!this.deps.projectionCache) {
+          throw new RuntimeReadModelError('RuntimeEvent ledger is incomplete for an active run', [
+            readModelDiagnostic('incomplete_event', 'active run has no stable RuntimeEvent read projection', {
+              runId: run.runId,
+              turnId: run.turnId,
+              status: run.status,
+            }),
+          ]);
+        }
+        continue;
       }
 
       let runEvents: RuntimeEvent[];
@@ -139,6 +150,7 @@ export class RuntimeReadModel {
       events: ordered.map((item) => item.event),
       diagnostics,
       terminalFacts,
+      inFlightTurnIds,
     });
   }
 
@@ -147,6 +159,7 @@ export class RuntimeReadModel {
     events: RuntimeEvent[];
     diagnostics: RuntimeEventReadModelDiagnostic[];
     terminalFacts?: RuntimeEventTerminalFact[];
+    inFlightTurnIds?: ReadonlySet<string>;
   }): Promise<RuntimeReadModelSessionView> {
     const projected = projectRuntimeEventsToStoredMessages(input.events, { runHeaders: input.runs });
     const diagnostics = [...input.diagnostics, ...projected.diagnostics];
@@ -154,13 +167,32 @@ export class RuntimeReadModel {
       throw new RuntimeReadModelError('RuntimeEvent read projection is incomplete', diagnostics);
     }
 
-    const cacheDiagnostics = await this.compareProjectionCache(input.runs[0]?.sessionId, projected.messages);
-    diagnostics.push(...cacheDiagnostics);
+    const sessionId = input.runs[0]?.sessionId;
+    let cachedMessages: StoredMessage[] | undefined;
+    if (sessionId && this.deps.projectionCache) {
+      try {
+        cachedMessages = await this.deps.projectionCache.readMessages(sessionId);
+      } catch (error) {
+        const diagnostic = readModelDiagnostic('unsupported_event', 'SessionProjectionCache.readMessages failed', {
+          error: errorMessage(error),
+        });
+        diagnostics.push(diagnostic);
+        if (input.inFlightTurnIds && input.inFlightTurnIds.size > 0) {
+          throw new RuntimeReadModelError('RuntimeEvent active projection cache read failed', diagnostics);
+        }
+      }
+    }
+
+    const messages = input.inFlightTurnIds && input.inFlightTurnIds.size > 0
+      ? mergeInFlightProjectionCache(projected.messages, cachedMessages ?? [], input.inFlightTurnIds)
+      : projected.messages;
+
+    diagnostics.push(...this.compareProjectionCache(messages, cachedMessages));
 
     return {
       source: 'runtime_events',
-      messages: projected.messages,
-      turns: deriveTurnRecords(projected.messages),
+      messages,
+      turns: deriveTurnRecords(messages),
       events: input.events,
       runs: input.runs,
       diagnostics,
@@ -169,21 +201,35 @@ export class RuntimeReadModel {
     };
   }
 
-  private async compareProjectionCache(
-    sessionId: string | undefined,
+  private compareProjectionCache(
     messages: readonly StoredMessage[],
-  ): Promise<RuntimeEventReadModelDiagnostic[]> {
-    if (!sessionId || !this.deps.projectionCache) return [];
-    let cached: StoredMessage[];
-    try {
-      cached = await this.deps.projectionCache.readMessages(sessionId);
-    } catch (error) {
-      return [readModelDiagnostic('unsupported_event', 'SessionProjectionCache.readMessages failed', {
-        error: errorMessage(error),
-      })];
-    }
+    cached: readonly StoredMessage[] | undefined,
+  ): RuntimeEventReadModelDiagnostic[] {
+    if (!cached) return [];
     return compareRuntimeReadModelMessages(messages, cached).diagnostics;
   }
+}
+
+function mergeInFlightProjectionCache(
+  runtimeMessages: readonly StoredMessage[],
+  cachedMessages: readonly StoredMessage[],
+  inFlightTurnIds: ReadonlySet<string>,
+): StoredMessage[] {
+  const merged = runtimeMessages.map((message, index) => ({ message, index }));
+  const seenIds = new Set(runtimeMessages.map((message) => message.id));
+  for (const cached of cachedMessages) {
+    const turnId = messageTurnId(cached);
+    if (!turnId || !inFlightTurnIds.has(turnId) || seenIds.has(cached.id)) continue;
+    seenIds.add(cached.id);
+    merged.push({ message: cached, index: merged.length });
+  }
+  return merged
+    .sort((a, b) => a.message.ts - b.message.ts || a.index - b.index)
+    .map((entry) => entry.message);
+}
+
+function messageTurnId(message: StoredMessage): string | undefined {
+  return 'turnId' in message && typeof message.turnId === 'string' ? message.turnId : undefined;
 }
 
 function hasHardProjectionDiagnostic(diagnostics: readonly RuntimeEventReadModelDiagnostic[]): boolean {

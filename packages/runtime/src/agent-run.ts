@@ -196,6 +196,10 @@ export class AgentRun {
       }
     }
     if (ev.type === 'error') {
+      if (this.stopped) {
+        this.finalStatus = { status: 'aborted' };
+        return;
+      }
       this.turnFailed = true;
       this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
       await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
@@ -216,6 +220,10 @@ export class AgentRun {
   }
 
   async recordFailure(error: unknown): Promise<void> {
+    if (this.stopped) {
+      this.finalStatus = { status: 'aborted' };
+      return;
+    }
     this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
     await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
       errorClass: error instanceof Error ? error.name : 'unknown',
