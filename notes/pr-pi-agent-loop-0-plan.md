@@ -11,12 +11,12 @@ must not surface as user-visible copy.
 
 Reference app source:
 
-- `/Users/jakevin/.Trash/alma-re/docs/01-agent-loop.md`
-- `/Users/jakevin/.Trash/alma-re/docs/20-acp.md`
-- `/Users/jakevin/.Trash/alma-re/docs/31-llm-calls.md`
-- `/Users/jakevin/.Trash/alma-re/docs/39-streaming-deep.md`
-- `/Users/jakevin/.Trash/alma-re/docs/44-agents-deep.md`
-- `/Users/jakevin/.Trash/alma-re/readable/main.js:20597-21460`
+- `/Users/jakevin/.Trash/reference-source/docs/01-agent-loop.md`
+- `/Users/jakevin/.Trash/reference-source/docs/20-acp.md`
+- `/Users/jakevin/.Trash/reference-source/docs/31-llm-calls.md`
+- `/Users/jakevin/.Trash/reference-source/docs/39-streaming-deep.md`
+- `/Users/jakevin/.Trash/reference-source/docs/44-agents-deep.md`
+- `/Users/jakevin/.Trash/reference-source/readable/main.js:20597-21460`
 
 Maka source:
 

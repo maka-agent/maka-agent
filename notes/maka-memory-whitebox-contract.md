@@ -5,7 +5,7 @@ once xuan's transparent-file MVP landed at `c06e13f`. Aligned to:
 - `packages/core/src/local-memory.ts` (xuan)
 - `apps/desktop/src/main/local-memory-service.ts` (xuan)
 - Settings → 记忆 UI (xuan)
-- Hermes deep-dive note `notes/hermes-deep-dive-2026-05-29.md` §3.5
+- external reference deep-dive note `notes/external reference-deep-dive-2026-05-29.md` §3.5
 - PilotDeck deep-dive note `notes/pilotdeck-deep-dive-2026-05-29.md` §2.2
 - kenji `19b0996f` boundary: local transparent file MUST NOT become
   implicit durable memory; agent-read default-off.
@@ -174,8 +174,8 @@ settled.
 
 ### Provider abstraction
 
-Hermes ships `plugins/memory/{honcho,mem0,supermemory}`. PilotDeck
-has `EdgeClawMemoryProvider`. Alma is built-in `MemoryService` +
+external reference ships `plugins/memory/{honcho,mem0,supermemory}`. PilotDeck
+has `EdgeClawMemoryProvider`. Reference app is built-in `MemoryService` +
 sqlite-vec. **Three-way convergence is NOT present** — kenji's
 finding `7749c411` #3. Defer abstraction until a real external
 backend lands (a paying user wants Honcho or a vector store).
@@ -187,7 +187,7 @@ If we adopt:
 
 ### Vector search
 
-Embedding generation is a separate provider lane (alma's
+Embedding generation is a separate provider lane (reference app's
 `__local__` / OpenAI / aihubmix / openrouter / Google selector).
 Independent of the memory storage backend. Defer.
 
@@ -246,7 +246,7 @@ contract tests:
 - Settings UI: `apps/desktop/src/renderer/settings/` (find the
   memory section).
 - Test: `packages/core/src/__tests__/local-memory.test.ts`.
-- Hermes inspiration: `notes/hermes-deep-dive-2026-05-29.md` §3.5
+- external reference inspiration: `notes/external reference-deep-dive-2026-05-29.md` §3.5
   (warns against plugin abstraction without external demand).
 - PilotDeck inspiration: `notes/pilotdeck-deep-dive-2026-05-29.md`
   §2.2 (white-box memory) and §3.2 (extension proposal).
