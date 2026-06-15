@@ -5,8 +5,9 @@ import type { UserMessageInput } from '@maka/core/runtime-inputs';
 export interface AgentRunRecoveryDecision {
   runId: string;
   turnId: string;
-  status: 'failed' | 'completed';
+  status: 'failed' | 'completed' | 'cancelled';
   failureClass?: string;
+  abortSource?: string;
   diagnostic?: Record<string, unknown>;
   lineage: Partial<Pick<
     UserMessageInput,

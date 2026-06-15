@@ -104,6 +104,207 @@ describe('AiSdkBackend model history', () => {
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
   });
+
+  test('preserves RuntimeEvent tool calls and results as structured AI SDK parts', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
+        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'legacy user' }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'legacy assistant' }),
+        runtimeEvent({
+          id: 'rt-call',
+          turnId: 'turn-prev',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result',
+          turnId: 'turn-prev',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'contents', isError: false },
+        }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      {
+        role: 'assistant',
+        content: [{
+          type: 'tool-call',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          input: { path: 'package.json' },
+          providerExecuted: undefined,
+          providerOptions: undefined,
+        }],
+      },
+      {
+        role: 'tool',
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          output: { type: 'text', value: 'contents' },
+          providerOptions: undefined,
+        }],
+      },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('falls back to legacy context when RuntimeEvent tool results are unmatched', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
+        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
+        runtimeEvent({
+          id: 'rt-unmatched-result',
+          turnId: 'turn-prev',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'missing-call', name: 'Read', result: 'contents', isError: false },
+        }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('falls back to legacy context when RuntimeEvent replay has unsupported content', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
+        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
+        runtimeEvent({
+          id: 'rt-error',
+          turnId: 'turn-prev',
+          role: 'system',
+          author: 'system',
+          content: { kind: 'error', reason: 'tool_failed', message: 'Tool failed' },
+        }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('falls back to legacy context instead of leaking unsupported thinking text', async () => {
+    const model = completionModel();
+    const openAiConnection = { ...connection(), providerType: 'openai' as const };
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: openAiConnection,
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
+        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'legacy user' }),
+        runtimeEvent({
+          id: 'rt-thinking',
+          turnId: 'turn-prev',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'private chain of thought', signature: 'sig-1' },
+        }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'legacy assistant' }),
+      ],
+    }));
+
+    const promptJson = JSON.stringify(compactPrompt(model));
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+    assert.equal(promptJson.includes('private chain of thought'), false);
+  });
 });
 
 describe('AiSdkBackend error surfaces', () => {
@@ -1423,6 +1624,31 @@ function runtimeTextEvent(input: {
     role: input.role,
     author: input.author,
     content: { kind: 'text', text: input.text },
+  };
+}
+
+function runtimeEvent(input: {
+  id: string;
+  turnId: string;
+  role: RuntimeEvent['role'];
+  author: RuntimeEvent['author'];
+  content?: RuntimeEvent['content'];
+  status?: RuntimeEvent['status'];
+  actions?: RuntimeEvent['actions'];
+}): RuntimeEvent {
+  return {
+    id: input.id,
+    invocationId: 'inv-1',
+    runId: 'run-prev',
+    sessionId: 'session-1',
+    turnId: input.turnId,
+    ts: 1,
+    partial: false,
+    role: input.role,
+    author: input.author,
+    ...(input.content ? { content: input.content } : {}),
+    ...(input.status ? { status: input.status } : {}),
+    ...(input.actions ? { actions: input.actions } : {}),
   };
 }
 

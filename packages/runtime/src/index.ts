@@ -180,6 +180,7 @@ export type {
 export {
   projectRuntimeEventsToStoredMessages,
   compareRuntimeReadModelMessages,
+  classifyRuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
 export type {
   ProjectRuntimeEventsToStoredMessagesOptions,
@@ -187,7 +188,23 @@ export type {
   RuntimeEventReadModelDiagnosticCode,
   RuntimeEventReadModelProjection,
   RuntimeReadModelCompatibilityResult,
+  RuntimeEventTerminalFact,
+  RuntimeEventTerminalFactResult,
 } from './runtime-event-read-model.js';
+
+// agent-run-inspect.ts — internal AgentRun/RuntimeEvent source-health view.
+export {
+  inspectAgentRunReadModel,
+  inspectSessionRunReadModels,
+} from './agent-run-inspect.js';
+export type {
+  AgentRunInspectDiagnostic,
+  AgentRunInspectDiagnosticCode,
+  AgentRunInspectModel,
+  AgentRunInspectProjectionSummary,
+  AgentRunInspectSourceHealth,
+  InspectAgentRunOptions,
+} from './agent-run-inspect.js';
 
 // model-history.ts — policy-driven model-history projection.
 export { buildModelHistoryFromRuntimeEvents } from './model-history.js';

@@ -57,6 +57,7 @@ import type {
 } from '@maka/core/backend-types';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type { JSONValue, ModelMessage } from 'ai';
 import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
@@ -81,8 +82,11 @@ import {
 import type { ToolArtifactRecorder } from './tool-artifacts.js';
 import { RunTrace, type RunTraceRecorder } from './run-trace.js';
 import {
-  buildTextModelMessagesFromRuntimeEvents,
+  buildRuntimeEventModelReplayPlan,
   formatTextWithAttachmentRefs,
+  type RuntimeEventModelReplayItem,
+  type RuntimeEventModelReplayPlan,
+  type RuntimeEventReplayFallbackGate,
 } from './model-history.js';
 
 export {
@@ -95,6 +99,12 @@ export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { normalizeAiSdkUsage } from './model-adapter.js';
 export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from './model-adapter.js';
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';
+
+type AiSdkToolResultOutput =
+  | { type: 'text'; value: string }
+  | { type: 'json'; value: JSONValue }
+  | { type: 'error-text'; value: string }
+  | { type: 'error-json'; value: JSONValue };
 
 // ============================================================================
 // AgentBackend interface
@@ -303,16 +313,8 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build messages from context, preferring durable RuntimeEvents when usable. ---
-    const runtimeMessages = input.runtimeContext
-      ? buildTextModelMessagesFromRuntimeEvents(
-        input.runtimeContext.filter((event) => event.turnId !== input.turnId),
-      )
-      : [];
-    const messages = runtimeMessages.length > 0
-      ? runtimeMessages
-      : this.materializePriorMessages(
-        input.context.filter((message) => message.turnId !== input.turnId),
-      );
+    const priorReplay = this.buildPriorMessages(input);
+    const messages = priorReplay.messages;
     messages.push({
       role: 'user',
       content: this.buildUserContent(input.text, input.attachments),
@@ -579,11 +581,114 @@ export class AiSdkBackend implements AgentBackend {
    *  V0.1: text-only round-tripping. Tool calls / results within stored
    *  history are deliberately NOT replayed — ai-sdk's streamText starts
    *  fresh each turn and the tool state isn't part of the prompt. */
-  private materializePriorMessages(stored: readonly StoredMessage[]): Array<{
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-  }> {
-    const out: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+  private buildPriorMessages(input: BackendSendInput): {
+    messages: ModelMessage[];
+    gate: RuntimeEventReplayFallbackGate | 'legacy_stored_messages';
+    diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
+  } {
+    const legacyMessages = this.materializePriorMessages(
+      input.context.filter((message) => message.turnId !== input.turnId),
+    );
+    if (!input.runtimeContext) {
+      return { messages: legacyMessages, gate: 'legacy_stored_messages', diagnostics: [] };
+    }
+
+    const plan = buildRuntimeEventModelReplayPlan(
+      input.runtimeContext.filter((event) => event.turnId !== input.turnId),
+    );
+    if (plan.items.length === 0) {
+      return { messages: legacyMessages, gate: 'legacy_stored_messages', diagnostics: plan.diagnostics };
+    }
+
+    if (hasBlockingReplayDiagnostics(plan)) {
+      return {
+        messages: legacyMessages,
+        gate: 'runtime_replay_unsupported_semantics',
+        diagnostics: plan.diagnostics,
+      };
+    }
+
+    if (!plan.hasProviderNativeSemantics) {
+      return {
+        messages: plan.textMessages,
+        gate: 'runtime_replay_text_only',
+        diagnostics: plan.diagnostics,
+      };
+    }
+
+    if (!this.canReplayProviderNative(plan)) {
+      return {
+        messages: legacyMessages,
+        gate: 'runtime_replay_unsupported_semantics',
+        diagnostics: plan.diagnostics,
+      };
+    }
+
+    return {
+      messages: this.materializeRuntimeReplayPlan(plan),
+      gate: 'runtime_replay_provider_native',
+      diagnostics: plan.diagnostics,
+    };
+  }
+
+  private canReplayProviderNative(plan: RuntimeEventModelReplayPlan): boolean {
+    const support = this.modelAdapter.runtimeEventReplaySupport();
+    for (const item of plan.items) {
+      if (item.kind === 'tool_call' && !support.toolCalls) return false;
+      if (item.kind === 'tool_result' && !support.toolResults) return false;
+      if (item.kind === 'thinking' && (!support.signedThinking || !item.signature)) return false;
+    }
+    return true;
+  }
+
+  private materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): ModelMessage[] {
+    const out: ModelMessage[] = [];
+    for (const item of plan.items) {
+      out.push(this.materializeRuntimeReplayItem(item));
+    }
+    return out;
+  }
+
+  private materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): ModelMessage {
+    switch (item.kind) {
+      case 'text':
+        return { role: item.role, content: item.content };
+      case 'thinking':
+        return {
+          role: 'assistant',
+          content: [{
+            type: 'reasoning',
+            text: item.text,
+            providerOptions: {
+              anthropic: { signature: item.signature },
+            },
+          }],
+        };
+      case 'tool_call':
+        return {
+          role: 'assistant',
+          content: [{
+            type: 'tool-call',
+            toolCallId: item.toolCallId,
+            toolName: item.toolName,
+            input: item.input,
+          }],
+        };
+      case 'tool_result':
+        return {
+          role: 'tool',
+          content: [{
+            type: 'tool-result',
+            toolCallId: item.toolCallId,
+            toolName: item.toolName,
+            output: toolResultOutput(item.output, item.isError),
+          }],
+        };
+    }
+  }
+
+  private materializePriorMessages(stored: readonly StoredMessage[]): ModelMessage[] {
+    const out: ModelMessage[] = [];
     for (const m of stored) {
       if (m.type === 'user') out.push({ role: 'user', content: m.text });
       else if (m.type === 'assistant') out.push({ role: 'assistant', content: m.text });
@@ -661,4 +766,39 @@ function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, nev
       throw new Error(`模型请求了不可用或格式错误的工具${requested}：${error || 'tool call could not be parsed'}`);
     },
   };
+}
+
+function toolResultOutput(value: unknown, isError: boolean): AiSdkToolResultOutput {
+  if (isError) {
+    return typeof value === 'string'
+      ? { type: 'error-text', value }
+      : { type: 'error-json', value: jsonValue(value) };
+  }
+  return typeof value === 'string'
+    ? { type: 'text', value }
+    : { type: 'json', value: jsonValue(value) };
+}
+
+function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolean {
+  return plan.diagnostics.some((diagnostic) =>
+    diagnostic.code === 'unsupported_role' ||
+    diagnostic.code === 'unsupported_content' ||
+    diagnostic.code === 'unsigned_thinking' ||
+    diagnostic.code === 'unmatched_tool_result' ||
+    diagnostic.code === 'tool_id_mismatch'
+  );
+}
+
+function jsonValue(value: unknown): JSONValue {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'boolean'
+    || Array.isArray(value)
+    || typeof value === 'object'
+  ) {
+    return value as JSONValue;
+  }
+  return String(value);
 }

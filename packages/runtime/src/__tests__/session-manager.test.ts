@@ -771,6 +771,43 @@ describe('SessionManager permission mode updates', () => {
     expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
   });
 
+  test('next turn falls back to legacy when RuntimeEvents do not cover legacy model-visible context', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_850),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
+    await store.appendMessage(session.id, {
+      type: 'assistant',
+      id: 'legacy-extra-assistant',
+      turnId: 'legacy-extra',
+      ts: 6_899,
+      text: 'legacy-only context',
+      modelId: 'fake-model',
+    });
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backendInstances[0]?.sendInputs[1];
+    if (!secondInput) throw new Error('second backend input was not recorded');
+    expect(secondInput.runtimeContext).toBeUndefined();
+    expect(secondInput.context.some((message) => message.type === 'assistant' && message.id === 'legacy-extra-assistant')).toBe(true);
+  });
+
   test('next turn remains legacy-only when prior RuntimeEvent ledger is unusable', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failRuntimeEventAppends: true });
@@ -1173,6 +1210,212 @@ describe('SessionManager permission mode updates', () => {
     expect(run?.failureClass).toBe('app_restarted');
     const events = await runStore.readEvents(session.id, 'run-1');
     expect(events.map((event) => event.type)).toContain('run_failed');
+  });
+
+  test('startup recovery uses a completed RuntimeEvent terminal fact before incomplete AgentRun events', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_815) });
+    const session = await manager.createSession(makeInput({ status: 'running' }));
+    await seedRunningTurn(store, session.id, 'turn-1');
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'run_started', ts: 11 }),
+      makeRunEvent({ sessionId: session.id, runId: 'run-1', turnId: 'turn-1', type: 'model_stream_started', ts: 12 }),
+    ]);
+    await runStore.appendRuntimeEvent(session.id, 'run-1', runtimeEvent({
+      id: 'rt-completed',
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      ts: 13,
+      role: 'system',
+      author: 'system',
+      status: 'completed',
+      actions: { endInvocation: true },
+    }));
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([session.id]);
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('completed');
+    const storedTurnStates = (await store.readMessages(session.id)).filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1'
+    );
+    expect(storedTurnStates.map((message) => message.type === 'turn_state' ? message.status : '')).toEqual([
+      'running',
+      'completed',
+    ]);
+    const [run] = await runStore.listSessionRuns(session.id);
+    expect(run?.status).toBe('completed');
+    const events = await runStore.readEvents(session.id, 'run-1');
+    expect(events.map((event) => event.type)).toEqual(['run_started', 'model_stream_started', 'run_completed']);
+    const recoveredEvent = events.find((event) => event.type === 'run_completed');
+    expect(recoveredEvent?.data?.recoveryReason).toBe('runtime_event_terminal_fact');
+  });
+
+  test('startup recovery maps failed aborted and cancelled RuntimeEvent terminal facts consistently', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_817) });
+    const failed = await manager.createSession(makeInput({ status: 'running' }));
+    const aborted = await manager.createSession(makeInput({ status: 'running' }));
+    const cancelled = await manager.createSession(makeInput({ status: 'running' }));
+
+    await seedRunningTurn(store, failed.id, 'failed-turn');
+    await seedRunningTurn(store, aborted.id, 'aborted-turn');
+    await seedRunningTurn(store, cancelled.id, 'cancelled-turn');
+    await seedRun(runStore, makeRunHeader({ sessionId: failed.id, runId: 'failed-run', turnId: 'failed-turn', status: 'running' }), [
+      makeRunEvent({ sessionId: failed.id, runId: 'failed-run', turnId: 'failed-turn', type: 'run_started', ts: 11 }),
+    ]);
+    await seedRun(runStore, makeRunHeader({ sessionId: aborted.id, runId: 'aborted-run', turnId: 'aborted-turn', status: 'running' }), [
+      makeRunEvent({ sessionId: aborted.id, runId: 'aborted-run', turnId: 'aborted-turn', type: 'run_started', ts: 21 }),
+    ]);
+    await seedRun(runStore, makeRunHeader({ sessionId: cancelled.id, runId: 'cancelled-run', turnId: 'cancelled-turn', status: 'running' }), [
+      makeRunEvent({ sessionId: cancelled.id, runId: 'cancelled-run', turnId: 'cancelled-turn', type: 'run_started', ts: 31 }),
+    ]);
+    await runStore.appendRuntimeEvent(failed.id, 'failed-run', runtimeEvent({
+      id: 'rt-failed',
+      sessionId: failed.id,
+      runId: 'failed-run',
+      turnId: 'failed-turn',
+      ts: 12,
+      role: 'system',
+      author: 'system',
+      status: 'failed',
+      content: { kind: 'error', reason: 'tool_failed', message: 'Tool failed' },
+      actions: { endInvocation: true },
+    }));
+    await runStore.appendRuntimeEvent(aborted.id, 'aborted-run', runtimeEvent({
+      id: 'rt-aborted',
+      sessionId: aborted.id,
+      runId: 'aborted-run',
+      turnId: 'aborted-turn',
+      ts: 22,
+      role: 'system',
+      author: 'system',
+      status: 'aborted',
+      actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } },
+    }));
+    await runStore.appendRuntimeEvent(cancelled.id, 'cancelled-run', runtimeEvent({
+      id: 'rt-cancelled',
+      sessionId: cancelled.id,
+      runId: 'cancelled-run',
+      turnId: 'cancelled-turn',
+      ts: 32,
+      role: 'system',
+      author: 'system',
+      status: 'cancelled',
+      actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } },
+    }));
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([failed.id, aborted.id, cancelled.id]);
+    expect((await runStore.readRun(failed.id, 'failed-run')).status).toBe('failed');
+    expect((await runStore.readRun(failed.id, 'failed-run')).failureClass).toBe('tool_failed');
+    expect((await store.listTurns(failed.id))[0]?.status).toBe('failed');
+    expect((await store.listTurns(failed.id))[0]?.errorClass).toBe('tool_failed');
+    expect((await runStore.readRun(aborted.id, 'aborted-run')).status).toBe('cancelled');
+    expect((await store.listTurns(aborted.id))[0]?.status).toBe('aborted');
+    expect((await store.listTurns(aborted.id))[0]?.abortSource).toBe('renderer.stop_button');
+    expect((await runStore.readRun(cancelled.id, 'cancelled-run')).status).toBe('cancelled');
+    expect((await store.listTurns(cancelled.id))[0]?.status).toBe('aborted');
+    expect((await store.listTurns(cancelled.id))[0]?.abortSource).toBe('renderer.stop_button');
+    expect((await runStore.readEvents(failed.id, 'failed-run')).map((event) => event.type)).toContain('run_failed');
+    expect((await runStore.readEvents(aborted.id, 'aborted-run')).map((event) => event.type)).toContain('run_cancelled');
+    expect((await runStore.readEvents(cancelled.id, 'cancelled-run')).map((event) => event.type)).toContain('run_cancelled');
+  });
+
+  test('startup recovery falls back when RuntimeEvents are unreadable or terminal facts are incomplete', async () => {
+    const unreadableStore = new MemorySessionStore();
+    const unreadableRunStore = new MemoryAgentRunStore({ failRuntimeEventReads: true });
+    const incompleteStore = new MemorySessionStore();
+    const incompleteRunStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const unreadableManager = new SessionManager({
+      store: unreadableStore,
+      runStore: unreadableRunStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_818),
+    });
+    const incompleteManager = new SessionManager({
+      store: incompleteStore,
+      runStore: incompleteRunStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_819),
+    });
+    const unreadable = await unreadableManager.createSession(makeInput({ status: 'running' }));
+    const incomplete = await incompleteManager.createSession(makeInput({ status: 'running' }));
+
+    await seedRunningTurn(unreadableStore, unreadable.id, 'turn-1');
+    await unreadableStore.appendMessage(unreadable.id, {
+      type: 'assistant',
+      id: 'assistant-1',
+      turnId: 'turn-1',
+      ts: 13,
+      text: 'done',
+      modelId: 'fake-model',
+    });
+    await seedRun(unreadableRunStore, makeRunHeader({
+      sessionId: unreadable.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: unreadable.id, runId: 'run-1', turnId: 'turn-1', type: 'model_stream_completed', ts: 12 }),
+    ]);
+
+    await seedRunningTurn(incompleteStore, incomplete.id, 'turn-1');
+    await incompleteStore.appendMessage(incomplete.id, {
+      type: 'assistant',
+      id: 'assistant-1',
+      turnId: 'turn-1',
+      ts: 13,
+      text: 'done',
+      modelId: 'fake-model',
+    });
+    await seedRun(incompleteRunStore, makeRunHeader({
+      sessionId: incomplete.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }), [
+      makeRunEvent({ sessionId: incomplete.id, runId: 'run-1', turnId: 'turn-1', type: 'model_stream_completed', ts: 12 }),
+    ]);
+    await incompleteRunStore.appendRuntimeEvent(incomplete.id, 'run-1', runtimeEvent({
+      id: 'rt-incomplete-failed',
+      sessionId: incomplete.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      ts: 14,
+      role: 'system',
+      author: 'system',
+      status: 'failed',
+      actions: { endInvocation: true },
+    }));
+
+    await unreadableManager.recoverInterruptedSessions();
+    await incompleteManager.recoverInterruptedSessions();
+
+    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('completed');
+    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('completed');
+    expect((await incompleteRunStore.readRun(incomplete.id, 'run-1')).status).toBe('completed');
+    expect((await incompleteStore.listTurns(incomplete.id))[0]?.status).toBe('completed');
+    expect((await incompleteRunStore.readEvents(incomplete.id, 'run-1')).find((event) => event.type === 'run_completed')?.data?.recoveryReason).toBe('stale_completed_run');
   });
 
   test('startup recovery fails stale tool tails while preserving partial output retention', async () => {

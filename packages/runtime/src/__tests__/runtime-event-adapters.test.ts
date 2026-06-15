@@ -35,6 +35,7 @@ import {
 } from '../runtime-event-adapters.js';
 import {
   buildModelHistoryFromRuntimeEvents,
+  buildRuntimeEventModelReplayPlan,
   buildTextModelMessagesFromRuntimeEvents,
   type ModelHistoryEntry,
 } from '../model-history.js';
@@ -833,6 +834,105 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       },
       { role: 'assistant', content: 'final answer' },
     ]);
+  });
+
+  test('runtime replay plan preserves structured tool calls and results', () => {
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'read package' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-1',
+          name: 'Read',
+          result: { ok: true, text: 'contents' },
+          isError: false,
+        },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.hasProviderNativeSemantics).toBe(true);
+    expect(plan.semanticKinds).toEqual(['text', 'tool_call', 'tool_result']);
+    expect(plan.items).toEqual([
+      { kind: 'text', role: 'user', content: 'read package', eventId: events[0]?.id, ts: events[0]?.ts },
+      {
+        kind: 'tool_call',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        input: { path: 'package.json' },
+        eventId: events[1]?.id,
+        ts: events[1]?.ts,
+      },
+      {
+        kind: 'tool_result',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        output: { ok: true, text: 'contents' },
+        isError: false,
+        eventId: events[2]?.id,
+        ts: events[2]?.ts,
+      },
+    ]);
+  });
+
+  test('runtime replay plan carries thinking separately and text replay never leaks it', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
+      }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'public answer' } }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.items.map((item) => item.kind)).toEqual(['thinking', 'text']);
+    expect(plan.textMessages).toEqual([{ role: 'assistant', content: 'public answer' }]);
+    expect(buildTextModelMessagesFromRuntimeEvents(events)).toEqual([
+      { role: 'assistant', content: 'public answer' },
+    ]);
+  });
+
+  test('runtime replay plan diagnoses unsigned thinking without flattening it into text', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'private reasoning' },
+      }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('unsigned_thinking');
+    expect(plan.textMessages).toEqual([{ role: 'assistant', content: 'answer' }]);
+  });
+
+  test('terminal RuntimeEvents are diagnostic-only for replay semantics', () => {
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'q' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.items).toHaveLength(1);
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('terminal_fact_diagnostic_only');
   });
 });
 
