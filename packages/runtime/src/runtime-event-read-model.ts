@@ -9,6 +9,7 @@ import type {
 import {
   isPartialRuntimeEvent,
   isTerminalRuntimeEvent,
+  isTerminalRuntimeEventStatus,
 } from '@maka/core';
 
 export type RuntimeEventReadModelDiagnosticCode =
@@ -41,6 +42,22 @@ export interface ProjectRuntimeEventsToStoredMessagesOptions {
 
 export interface RuntimeReadModelCompatibilityResult {
   compatible: boolean;
+  diagnostics: RuntimeEventReadModelDiagnostic[];
+}
+
+export interface RuntimeEventTerminalFact {
+  runId: string;
+  turnId: string;
+  runStatus: 'completed' | 'failed' | 'cancelled';
+  turnStatus: 'completed' | 'failed' | 'aborted';
+  terminalEvent: RuntimeEvent;
+  failureClass?: string;
+  abortSource?: string;
+  diagnostics: RuntimeEventReadModelDiagnostic[];
+}
+
+export interface RuntimeEventTerminalFactResult {
+  fact?: RuntimeEventTerminalFact;
   diagnostics: RuntimeEventReadModelDiagnostic[];
 }
 
@@ -177,6 +194,114 @@ export function compareRuntimeReadModelMessages(
   }
 
   return { compatible: diagnostics.length === 0, diagnostics };
+}
+
+export function classifyRuntimeEventTerminalFact(
+  header: AgentRunHeader,
+  events: readonly RuntimeEvent[],
+): RuntimeEventTerminalFactResult {
+  const diagnostics: RuntimeEventReadModelDiagnostic[] = [];
+  if (events.length === 0) {
+    diagnostics.push(readModelDiagnostic(
+      'incomplete_event',
+      'runtime ledger has no readable RuntimeEvents',
+      { runId: header.runId, turnId: header.turnId },
+    ));
+    return { diagnostics };
+  }
+
+  const terminalSignals = events.filter((event) =>
+    !isPartialRuntimeEvent(event) &&
+    event.sessionId === header.sessionId &&
+    event.runId === header.runId &&
+    event.turnId === header.turnId &&
+    isTerminalRuntimeEvent(event)
+  );
+
+  if (terminalSignals.length === 0) {
+    diagnostics.push(readModelDiagnostic(
+      'incomplete_event',
+      'runtime ledger has no matching terminal RuntimeEvent',
+      { runId: header.runId, turnId: header.turnId },
+    ));
+    return { diagnostics };
+  }
+  if (terminalSignals.length > 1) {
+    diagnostics.push(readModelDiagnostic(
+      'incomplete_event',
+      'runtime ledger has multiple matching terminal RuntimeEvents',
+      {
+        runId: header.runId,
+        turnId: header.turnId,
+        eventIds: terminalSignals.map((event) => event.id),
+      },
+    ));
+    return { diagnostics };
+  }
+
+  const terminalEvent = terminalSignals[0]!;
+  if (!isTerminalRuntimeEventStatus(terminalEvent.status)) {
+    diagnostics.push(readModelDiagnostic(
+      'incomplete_event',
+      'terminal RuntimeEvent requires a terminal status for recovery',
+      terminalEvent,
+    ));
+    return { diagnostics };
+  }
+
+  if (terminalEvent.status === 'completed') {
+    const fact: RuntimeEventTerminalFact = {
+      runId: header.runId,
+      turnId: header.turnId,
+      runStatus: 'completed',
+      turnStatus: 'completed',
+      terminalEvent,
+      diagnostics,
+    };
+    return { fact, diagnostics };
+  }
+
+  if (terminalEvent.status === 'failed') {
+    const failureClass = failureClassFromRuntimeEvent(terminalEvent, header);
+    if (!failureClass) {
+      diagnostics.push(readModelDiagnostic(
+        'incomplete_event',
+        'failed terminal RuntimeEvent requires a stable failure class',
+        terminalEvent,
+      ));
+      return { diagnostics };
+    }
+    const fact: RuntimeEventTerminalFact = {
+      runId: header.runId,
+      turnId: header.turnId,
+      runStatus: 'failed',
+      turnStatus: 'failed',
+      terminalEvent,
+      failureClass,
+      diagnostics,
+    };
+    return { fact, diagnostics };
+  }
+
+  const abortSource = abortSourceFromRuntime(terminalEvent, header);
+  if (!abortSource) {
+    diagnostics.push(readModelDiagnostic(
+      'incomplete_event',
+      'aborted terminal RuntimeEvent requires an abort source',
+      terminalEvent,
+    ));
+    return { diagnostics };
+  }
+  const fact: RuntimeEventTerminalFact = {
+    runId: header.runId,
+    turnId: header.turnId,
+    runStatus: 'cancelled',
+    turnStatus: 'aborted',
+    terminalEvent,
+    abortSource,
+    diagnostics,
+  };
+  return { fact, diagnostics };
 }
 
 function projectText(
@@ -449,10 +574,24 @@ function abortSourceFromRuntime(event: RuntimeEvent, header: AgentRunHeader): st
     ?? stringRecordValue(header as unknown as Record<string, unknown>, 'abortSource');
 }
 
+function failureClassFromRuntimeEvent(event: RuntimeEvent, header: AgentRunHeader): string | undefined {
+  if (header.failureClass) return header.failureClass;
+  return stringStateDelta(event, 'failureClass')
+    ?? stringStateDelta(event, 'errorClass')
+    ?? stringStateDelta(event, 'reason')
+    ?? stringStateDelta(event, 'code')
+    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined)
+    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined);
+}
+
 function stringRecordValue(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const result = (value as Record<string, unknown>)[key];
   return typeof result === 'string' && result.length > 0 ? result : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function stableMessageId(
@@ -542,6 +681,40 @@ function diagnostic(
     message,
     ...(detail !== undefined ? { detail } : {}),
   });
+}
+
+function readModelDiagnostic(
+  code: RuntimeEventReadModelDiagnosticCode,
+  message: string,
+  detail: RuntimeEvent | { runId: string; turnId: string; [key: string]: unknown },
+): RuntimeEventReadModelDiagnostic {
+  if (isRuntimeEventDiagnosticDetail(detail)) {
+    return {
+      code,
+      eventId: detail.id,
+      runId: detail.runId,
+      turnId: detail.turnId,
+      message,
+    };
+  }
+  return {
+    code,
+    runId: detail.runId,
+    turnId: detail.turnId,
+    message,
+    detail,
+  };
+}
+
+function isRuntimeEventDiagnosticDetail(
+  detail: RuntimeEvent | { runId: string; turnId: string; [key: string]: unknown },
+): detail is RuntimeEvent {
+  return (
+    typeof (detail as RuntimeEvent).id === 'string' &&
+    typeof (detail as RuntimeEvent).sessionId === 'string' &&
+    typeof detail.runId === 'string' &&
+    typeof detail.turnId === 'string'
+  );
 }
 
 function countSemanticMessages(messages: readonly StoredMessage[]): Map<string, number> {

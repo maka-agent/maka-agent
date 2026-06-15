@@ -7,6 +7,7 @@ import type {
 } from '@maka/core/events';
 import { PROVIDER_DEFAULTS, type LlmConnection } from '@maka/core/llm-connections';
 import { generalizedErrorMessage } from '@maka/core/redaction';
+import type { ModelMessage } from 'ai';
 
 import type { AsyncEventQueue } from './async-queue.js';
 import { classifyError, errorReasonFromClass } from './tool-runtime.js';
@@ -47,7 +48,7 @@ export interface ModelAdapterInput {
 
 export interface ModelAdapterStreamInput {
   model: unknown;
-  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+  messages: ModelMessage[];
   tools: Record<string, unknown>;
   activeTools: string[];
   system?: string;
@@ -67,6 +68,15 @@ export interface ModelAdapterStreamCallbacks {
 
 export class ModelAdapter {
   constructor(private readonly input: ModelAdapterInput) {}
+
+  runtimeEventReplaySupport(): ModelAdapterRuntimeEventReplaySupport {
+    const protocol = PROVIDER_DEFAULTS[this.input.connection.providerType].protocol;
+    return {
+      toolCalls: true,
+      toolResults: true,
+      signedThinking: protocol === 'anthropic',
+    };
+  }
 
   resolveModel(): unknown {
     if (PROVIDER_DEFAULTS[this.input.connection.providerType].authKind !== 'none' && !this.input.apiKey) {
@@ -183,6 +193,12 @@ export class ModelAdapter {
       default:               return 'end_turn';
     }
   }
+}
+
+export interface ModelAdapterRuntimeEventReplaySupport {
+  toolCalls: boolean;
+  toolResults: boolean;
+  signedThinking: boolean;
 }
 
 export interface AiSdkStreamChunk {

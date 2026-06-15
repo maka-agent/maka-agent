@@ -35,6 +35,7 @@
 
 import {
   isPartialRuntimeEvent,
+  isTerminalRuntimeEvent,
   runtimeEventHasModelVisibleContent,
   type RuntimeEvent,
   type RuntimeEventTextContent,
@@ -62,6 +63,76 @@ export interface ModelHistoryEntry {
 export interface TextModelMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+}
+
+export type RuntimeEventReplayFallbackGate =
+  | 'runtime_replay_text_only'
+  | 'runtime_replay_provider_native'
+  | 'runtime_replay_unsupported_semantics';
+
+export type RuntimeEventReplayDiagnosticCode =
+  | 'partial_skipped'
+  | 'unsupported_role'
+  | 'unsupported_content'
+  | 'system_runtime_fact_diagnostic_only'
+  | 'terminal_fact_diagnostic_only'
+  | 'unsigned_thinking'
+  | 'unmatched_tool_result'
+  | 'tool_id_mismatch';
+
+export interface RuntimeEventReplayDiagnostic {
+  code: RuntimeEventReplayDiagnosticCode;
+  message: string;
+  eventId?: string;
+  turnId?: string;
+  detail?: Record<string, unknown>;
+}
+
+export type RuntimeEventReplaySemanticKind =
+  | 'text'
+  | 'thinking'
+  | 'tool_call'
+  | 'tool_result';
+
+export type RuntimeEventModelReplayItem =
+  | {
+      kind: 'text';
+      role: 'user' | 'assistant' | 'system';
+      content: string;
+      eventId: string;
+      ts: number;
+    }
+  | {
+      kind: 'thinking';
+      text: string;
+      signature?: string;
+      eventId: string;
+      ts: number;
+    }
+  | {
+      kind: 'tool_call';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      eventId: string;
+      ts: number;
+    }
+  | {
+      kind: 'tool_result';
+      toolCallId: string;
+      toolName: string;
+      output: unknown;
+      isError: boolean;
+      eventId: string;
+      ts: number;
+    };
+
+export interface RuntimeEventModelReplayPlan {
+  items: RuntimeEventModelReplayItem[];
+  textMessages: TextModelMessage[];
+  semanticKinds: RuntimeEventReplaySemanticKind[];
+  diagnostics: RuntimeEventReplayDiagnostic[];
+  hasProviderNativeSemantics: boolean;
 }
 
 // ============================================================================
@@ -152,6 +223,181 @@ export interface RuntimeEventTextMessageOptions {
   includeSystemEvents?: boolean;
 }
 
+export interface BuildRuntimeEventModelReplayPlanOptions {
+  includeSystemEvents?: boolean;
+}
+
+export function buildRuntimeEventModelReplayPlan(
+  events: readonly RuntimeEvent[],
+  options: BuildRuntimeEventModelReplayPlanOptions = {},
+): RuntimeEventModelReplayPlan {
+  const includeSystemEvents = options.includeSystemEvents ?? false;
+  const items: RuntimeEventModelReplayItem[] = [];
+  const diagnostics: RuntimeEventReplayDiagnostic[] = [];
+  const callsById = new Map<string, { name: string; eventId: string }>();
+  const semanticKinds = new Set<RuntimeEventReplaySemanticKind>();
+
+  for (const event of events) {
+    if (isPartialRuntimeEvent(event)) {
+      diagnostics.push(diagnostic(event, 'partial_skipped', 'partial RuntimeEvent skipped for model replay'));
+      continue;
+    }
+
+    if (isTerminalRuntimeEvent(event)) {
+      diagnostics.push(diagnostic(
+        event,
+        'terminal_fact_diagnostic_only',
+        'terminal RuntimeEvent status is diagnostic-only for model replay',
+        { status: event.status },
+      ));
+    }
+
+    if (!event.content) {
+      if (event.actions && !isTerminalRuntimeEvent(event)) {
+        diagnostics.push(diagnostic(
+          event,
+          'system_runtime_fact_diagnostic_only',
+          'RuntimeEvent actions are diagnostic-only for model replay',
+          { actionKeys: Object.keys(event.actions) },
+        ));
+      }
+      continue;
+    }
+
+    if (!runtimeEventHasModelVisibleContent(event)) {
+      diagnostics.push(diagnostic(
+        event,
+        'unsupported_content',
+        'RuntimeEvent content kind is not model-replayable',
+        { kind: event.content.kind },
+      ));
+      continue;
+    }
+
+    if (event.role === 'system' && !includeSystemEvents) {
+      diagnostics.push(diagnostic(
+        event,
+        'system_runtime_fact_diagnostic_only',
+        'system RuntimeEvent content is diagnostic-only unless system replay is enabled',
+      ));
+      continue;
+    }
+
+    switch (event.content.kind) {
+      case 'text': {
+        const role = modelTextRole(event.role);
+        if (!role) {
+          diagnostics.push(diagnostic(event, 'unsupported_role', 'text RuntimeEvent role is not model-replayable', {
+            role: event.role,
+          }));
+          continue;
+        }
+        semanticKinds.add('text');
+        items.push({
+          kind: 'text',
+          role,
+          content: formatTextWithAttachmentRefs(event.content),
+          eventId: event.id,
+          ts: event.ts,
+        });
+        break;
+      }
+      case 'thinking': {
+        if (event.role !== 'model') {
+          diagnostics.push(diagnostic(event, 'unsupported_role', 'thinking RuntimeEvent must use model role', {
+            role: event.role,
+          }));
+          continue;
+        }
+        if (!event.content.signature) {
+          diagnostics.push(diagnostic(event, 'unsigned_thinking', 'thinking RuntimeEvent has no replay signature'));
+        }
+        semanticKinds.add('thinking');
+        items.push({
+          kind: 'thinking',
+          text: event.content.text,
+          ...(event.content.signature ? { signature: event.content.signature } : {}),
+          eventId: event.id,
+          ts: event.ts,
+        });
+        break;
+      }
+      case 'function_call': {
+        if (event.role !== 'model') {
+          diagnostics.push(diagnostic(event, 'unsupported_role', 'function_call RuntimeEvent must use model role', {
+            role: event.role,
+          }));
+          continue;
+        }
+        semanticKinds.add('tool_call');
+        callsById.set(event.content.id, { name: event.content.name, eventId: event.id });
+        items.push({
+          kind: 'tool_call',
+          toolCallId: event.content.id,
+          toolName: event.content.name,
+          input: event.content.args,
+          eventId: event.id,
+          ts: event.ts,
+        });
+        break;
+      }
+      case 'function_response': {
+        if (event.role !== 'tool') {
+          diagnostics.push(diagnostic(event, 'unsupported_role', 'function_response RuntimeEvent must use tool role', {
+            role: event.role,
+          }));
+          continue;
+        }
+        const call = callsById.get(event.content.id);
+        if (!call) {
+          diagnostics.push(diagnostic(event, 'unmatched_tool_result', 'function_response has no prior matching function_call', {
+            toolCallId: event.content.id,
+          }));
+        } else if (call.name !== event.content.name) {
+          diagnostics.push(diagnostic(event, 'tool_id_mismatch', 'function_response name differs from matching function_call', {
+            toolCallId: event.content.id,
+            callName: call.name,
+            resultName: event.content.name,
+            callEventId: call.eventId,
+          }));
+        }
+        semanticKinds.add('tool_result');
+        items.push({
+          kind: 'tool_result',
+          toolCallId: event.content.id,
+          toolName: event.content.name,
+          output: event.content.result,
+          isError: event.content.isError === true,
+          eventId: event.id,
+          ts: event.ts,
+        });
+        break;
+      }
+      default:
+        diagnostics.push(diagnostic(
+          event,
+          'unsupported_content',
+          'RuntimeEvent content kind is not model-replayable',
+          { kind: (event.content as RuntimeEventContent).kind },
+        ));
+        break;
+    }
+  }
+
+  const textMessages = items
+    .filter((item): item is Extract<RuntimeEventModelReplayItem, { kind: 'text' }> => item.kind === 'text')
+    .map((item) => ({ role: item.role, content: item.content }));
+  return {
+    items,
+    textMessages,
+    semanticKinds: [...semanticKinds],
+    diagnostics,
+    hasProviderNativeSemantics: semanticKinds.has('thinking')
+      || semanticKinds.has('tool_call')
+      || semanticKinds.has('tool_result'),
+  };
+}
+
 /**
  * Convert projected RuntimeEvent history into the current AI SDK text-only
  * message shape. Tool/function and thinking entries are intentionally skipped.
@@ -184,6 +430,34 @@ export function buildTextModelMessagesFromRuntimeEvents(
     });
   }
   return out;
+}
+
+function modelTextRole(role: RuntimeEventRole): TextModelMessage['role'] | undefined {
+  switch (role) {
+    case 'user':
+      return 'user';
+    case 'model':
+      return 'assistant';
+    case 'system':
+      return 'system';
+    default:
+      return undefined;
+  }
+}
+
+function diagnostic(
+  event: RuntimeEvent,
+  code: RuntimeEventReplayDiagnosticCode,
+  message: string,
+  detail?: Record<string, unknown>,
+): RuntimeEventReplayDiagnostic {
+  return {
+    code,
+    message,
+    eventId: event.id,
+    turnId: event.turnId,
+    ...(detail ? { detail } : {}),
+  };
 }
 
 export function formatTextWithAttachmentRefs(

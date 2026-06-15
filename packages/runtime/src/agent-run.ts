@@ -16,7 +16,7 @@ import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import {
-  buildTextModelMessagesFromRuntimeEvents,
+  buildRuntimeEventModelReplayPlan,
   type TextModelMessage,
 } from './model-history.js';
 
@@ -300,7 +300,8 @@ export class AgentRun {
       }
       if (runtimeContext.length === 0) return undefined;
 
-      const runtimeMessages = buildTextModelMessagesFromRuntimeEvents(runtimeContext);
+      const runtimeReplayPlan = buildRuntimeEventModelReplayPlan(runtimeContext);
+      const runtimeMessages = runtimeReplayPlan.textMessages;
       if (runtimeMessages.length === 0) return undefined;
 
       const legacyPriorMessages = materializeLegacyTextMessages(
