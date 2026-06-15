@@ -373,6 +373,21 @@ export function mapSessionEventToRuntimeEvent(
 export interface AiSdkFlowInput {
   /** The wrapped stepping engine. Production: AiSdkBackend. Tests: any AgentBackend. */
   backend: AgentBackend;
+  /**
+   * Optional production projection hook. Called for every raw backend
+   * SessionEvent after it has been mapped to a RuntimeEvent and before the
+   * RuntimeEvent is yielded/coalesced.
+   */
+  onSessionEvent?: (sessionEvent: SessionEvent, runtimeEvent: RuntimeEvent) => Promise<void> | void;
+  /** Called if the wrapped backend stream throws. */
+  onError?: (error: unknown) => Promise<void> | void;
+  /** Called after backend streaming finishes, errors, or is abandoned. */
+  onFinally?: () => Promise<void> | void;
+  /**
+   * Keep consuming backend events after the first terminal RuntimeEvent.
+   * Duplicate terminal RuntimeEvents are still coalesced from flow output.
+   */
+  drainAfterTerminal?: boolean;
 }
 
 /**
@@ -392,11 +407,19 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
   readonly kind: string;
   readonly sessionId: string;
   private readonly backend: AgentBackend;
+  private readonly onSessionEvent: AiSdkFlowInput['onSessionEvent'];
+  private readonly onError: AiSdkFlowInput['onError'];
+  private readonly onFinally: AiSdkFlowInput['onFinally'];
+  private readonly drainAfterTerminal: boolean;
 
   constructor(input: AiSdkFlowInput) {
     this.backend = input.backend;
     this.sessionId = input.backend.sessionId;
     this.kind = input.backend.kind;
+    this.onSessionEvent = input.onSessionEvent;
+    this.onError = input.onError;
+    this.onFinally = input.onFinally;
+    this.drainAfterTerminal = input.drainAfterTerminal ?? false;
   }
 
   /** The wrapped backend (exposed for runners that need the raw control surface). */
@@ -437,18 +460,24 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         context: input.context,
       })) {
         const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+        await this.onSessionEvent?.(sessionEvent, runtimeEvent);
         if (isTerminalRuntimeEvent(runtimeEvent)) {
           if (terminalEmitted) continue;
           terminalEmitted = true;
           yield runtimeEvent;
-          break;
+          if (!this.drainAfterTerminal) break;
+          continue;
         }
         yield runtimeEvent;
       }
+    } catch (error) {
+      await this.onError?.(error);
+      throw error;
     } finally {
       if (abortSignal && onAbort) {
         abortSignal.removeEventListener('abort', onAbort);
       }
+      await this.onFinally?.();
     }
   }
 

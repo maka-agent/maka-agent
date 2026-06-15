@@ -50,12 +50,9 @@ import type { AgentRunStore } from '@maka/core';
 
 import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
-import { AgentRun, type AgentRunActiveSession, type AgentRunLineage } from './agent-run.js';
+import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
-import {
-  createSessionEventMapMemory,
-  mapSessionEventToRuntimeEvent,
-} from './ai-sdk-flow.js';
+import { AiSdkFlow } from './ai-sdk-flow.js';
 import type {
   InvocationResult,
   InvocationSource,
@@ -326,9 +323,10 @@ export class SessionManager {
    *
    * Runtime v2 bridge:
    *   1. Create one AgentRun, which remains the persistence/ledger owner.
-   *   2. Run that AgentRun through RuntimeRunner for canonical RuntimeEvents.
-   *   3. Forward the original SessionEvents to callers unchanged.
-   *   4. Drain the AgentRun stream fully so stop/abort cleanup semantics stay intact.
+   *   2. Begin it to resolve the production backend and model context.
+   *   3. Run AiSdkFlow through RuntimeRunner for canonical RuntimeEvents.
+   *   4. Forward the original SessionEvents to callers unchanged.
+   *   5. Drain the backend stream fully so stop/abort cleanup semantics stay intact.
    */
   async *sendMessage(
     sessionId: string,
@@ -357,43 +355,46 @@ export class SessionManager {
 
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
-    let agentRunIterator: AsyncIterator<SessionEvent> | undefined;
     let flowDone = false;
+    let begin: AgentRunBeginResult;
+    try {
+      begin = await run.begin();
+    } catch (error) {
+      await run.recordFailure(error);
+      await run.finalize();
+      throw error;
+    }
+    const aiSdkFlow = new AiSdkFlow({
+      backend: begin.backend,
+      drainAfterTerminal: true,
+      onSessionEvent: async (sessionEvent) => {
+        await run.recordSessionEvent(sessionEvent);
+        await sessionEvents.push(sessionEvent);
+      },
+      onError: async (error) => {
+        if (!isAsyncEventQueueClosed(error)) {
+          await run.recordFailure(error);
+          sessionEvents.fail(error);
+        }
+      },
+      onFinally: async () => {
+        flowDone = true;
+        await run.finalize();
+        sessionEvents.close();
+      },
+    });
     const runner = new RuntimeRunner({
+      flow: aiSdkFlow,
       providers: { newId: this.deps.newId, now: this.deps.now },
       stopOnTerminal: false,
-      flow: {
-        run: async function* (ctx, request) {
-          const memory = createSessionEventMapMemory();
-          agentRunIterator = run.execute()[Symbol.asyncIterator]();
-          try {
-            while (!request.abortSignal?.aborted) {
-              const next = await agentRunIterator.next();
-              if (next.done) break;
-              if (request.abortSignal?.aborted) break;
-              await sessionEvents.push(next.value);
-              yield mapSessionEventToRuntimeEvent(next.value, ctx, memory);
-            }
-          } catch (error) {
-            if (!isAsyncEventQueueClosed(error)) {
-              sessionEvents.fail(error);
-            }
-            throw error;
-          } finally {
-            flowDone = true;
-            if (request.abortSignal?.aborted) {
-              await agentRunIterator.return?.().catch(() => undefined);
-            }
-            sessionEvents.close();
-          }
-        },
-      },
     });
     const runnerResult = runner.run({
       sessionId,
       runId: run.runId,
       turnId: run.turnId,
       text: input.text,
+      ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+      context: begin.backendInput.context,
       source: this.deps.runtimeSource ?? 'desktop',
       lineage: run.lineage,
       abortSignal: abortController.signal,
@@ -414,7 +415,6 @@ export class SessionManager {
       if (!flowDone) {
         abortController.abort();
         sessionEvents.close();
-        await agentRunIterator?.return?.().catch(() => undefined);
       }
       await runnerResult.catch(() => undefined);
     }

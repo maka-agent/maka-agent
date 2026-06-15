@@ -1,4 +1,5 @@
 import { describe, test } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords } from '@maka/core';
 import type {
   CreateSessionInput,
@@ -246,10 +247,22 @@ describe('SessionManager permission mode updates', () => {
     expect(result.events.map((event) => event.sessionId)).toEqual([session.id, session.id, session.id]);
     expect(result.events.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
     expect(result.events.map((event) => event.role)).toEqual(['user', 'model', 'system']);
-    expect(result.events.map((event) => event.id)).toEqual(['id-3', 'turn-1-delta', 'turn-1-complete']);
+    expect(result.events.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta', 'turn-1-complete']);
     expect(result.events[0]?.content).toEqual({ kind: 'text', text: 'hello' });
     expect(result.events[1]?.content).toEqual({ kind: 'text', text: 'ok' });
     expect(result.events[2]?.status).toBe('completed');
+  });
+
+  test('sendMessage production source uses AiSdkFlow instead of an inline mapper flow', async () => {
+    const source = await readFile(new URL('../../src/session-manager.ts', import.meta.url), 'utf8');
+    const sendMessageSource = source.slice(
+      source.indexOf('async *sendMessage'),
+      source.indexOf('async stopSession'),
+    );
+
+    expect(sendMessageSource.includes('new AiSdkFlow')).toBe(true);
+    expect(sendMessageSource.includes('mapSessionEventToRuntimeEvent')).toBe(false);
+    expect(sendMessageSource.includes('createSessionEventMapMemory')).toBe(false);
   });
 
   test('rejects backend configuration updates while a turn is actively streaming', async () => {
