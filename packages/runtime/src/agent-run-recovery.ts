@@ -1,5 +1,4 @@
 import type { AgentRunEvent, AgentRunHeader } from '@maka/core';
-import type { StoredMessage } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
 
 export interface AgentRunRecoveryDecision {
@@ -18,32 +17,15 @@ export interface AgentRunRecoveryDecision {
 export function classifyAgentRunRecovery(
   header: AgentRunHeader,
   events: readonly AgentRunEvent[],
-  sessionMessages: readonly StoredMessage[],
 ): AgentRunRecoveryDecision | undefined {
   if (isTerminalRunStatus(header.status)) return undefined;
 
   const lastEvent = lastNonCorruptEvent(events);
   const hasCorruptEvent = events.some((event) => event.type === 'event_corrupt');
   const lastEventType = lastEvent?.type;
-  const lastTurnState = latestTurnState(sessionMessages, header.turnId);
-  const hasAssistantOutput = sessionMessages.some((message) =>
-    message.type === 'assistant' && message.turnId === header.turnId && message.text.trim().length > 0,
-  );
-  const hasToolOutput = sessionMessages.some((message) =>
-    message.type === 'tool_result' && message.turnId === header.turnId,
-  );
 
   if (lastEventType === 'model_stream_completed' && !hasTerminalRunEvent(events)) {
-    if (hasAssistantOutput || lastTurnState?.status === 'completed') {
-      return {
-        runId: header.runId,
-        turnId: header.turnId,
-        status: 'completed',
-        diagnostic: diagnostic('stale_completed_run', lastEventType, hasCorruptEvent),
-        lineage: headerLineage(header),
-      };
-    }
-    return failedDecision(header, 'app_restarted', diagnostic('model_stream_completed_without_projection', lastEventType, hasCorruptEvent));
+    return failedDecision(header, 'app_restarted', diagnostic('model_stream_completed_without_runtime_terminal', lastEventType, hasCorruptEvent));
   }
 
   if (
@@ -58,7 +40,7 @@ export function classifyAgentRunRecovery(
     return failedDecision(
       header,
       'app_restarted',
-      diagnostic('tool_interrupted', lastEventType, hasCorruptEvent, { partialOutputRetained: hasToolOutput }),
+      diagnostic('tool_interrupted', lastEventType, hasCorruptEvent),
     );
   }
 
@@ -110,17 +92,6 @@ function lastNonCorruptEvent(events: readonly AgentRunEvent[]): AgentRunEvent | 
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (event && event.type !== 'event_corrupt') return event;
-  }
-  return undefined;
-}
-
-function latestTurnState(
-  messages: readonly StoredMessage[],
-  turnId: string,
-): Extract<StoredMessage, { type: 'turn_state' }> | undefined {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.type === 'turn_state' && message.turnId === turnId) return message;
   }
   return undefined;
 }

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAgentRunStore } from '../agent-run-store.js';
+import { createAgentRunStore, createRuntimeEventStore } from '../agent-run-store.js';
 import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
 
 describe('AgentRunStore', () => {
@@ -87,16 +87,16 @@ describe('AgentRunStore', () => {
   });
 
   it('appends and reads runtime events from a separate per-run ledger', async () => {
-    await withStore(async (store, root) => {
-      await store.createRun(makeHeader());
-      await store.appendEvent('session-1', 'run-1', makeEvent({ id: 'operational-event' }));
-      await store.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-1', role: 'user' }));
-      await store.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-2', role: 'model' }));
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      await runStore.appendEvent('session-1', 'run-1', makeEvent({ id: 'operational-event' }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-1', role: 'user' }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-2', role: 'model' }));
 
-      const runtimeEvents = await store.readRuntimeEvents('session-1', 'run-1');
+      const runtimeEvents = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
       assert.deepEqual(runtimeEvents.map((event) => event.id), ['runtime-1', 'runtime-2']);
       assert.deepEqual(runtimeEvents.map((event) => event.role), ['user', 'model']);
-      assert.deepEqual((await store.readEvents('session-1', 'run-1')).map((event) => event.id), ['operational-event']);
+      assert.deepEqual((await runStore.readEvents('session-1', 'run-1')).map((event) => event.id), ['operational-event']);
 
       const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
       const operationalEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
@@ -106,16 +106,16 @@ describe('AgentRunStore', () => {
   });
 
   it('returns an empty runtime event list when the runtime ledger is missing', async () => {
-    await withStore(async (store) => {
-      await store.createRun(makeHeader());
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
 
-      assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), []);
+      assert.deepEqual(await runtimeEventStore.readRuntimeEvents('session-1', 'run-1'), []);
     });
   });
 
   it('rejects durable corrupt runtime event lines instead of shortening the canonical ledger', async () => {
-    await withStore(async (store, root) => {
-      await store.createRun(makeHeader());
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
       const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
       await writeFile(
         runtimeEventsPath,
@@ -126,15 +126,15 @@ describe('AgentRunStore', () => {
       );
 
       await assert.rejects(
-        () => store.readRuntimeEvents('session-1', 'run-1'),
+        () => runtimeEventStore.readRuntimeEvents('session-1', 'run-1'),
         /Invalid RuntimeEvent JSONL line 2 for run run-1/,
       );
     });
   });
 
   it('ignores an unterminated partial runtime event tail', async () => {
-    await withStore(async (store, root) => {
-      await store.createRun(makeHeader());
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
       const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
       await writeFile(
         runtimeEventsPath,
@@ -142,8 +142,21 @@ describe('AgentRunStore', () => {
           '\n{"id":"partial"',
       );
 
-      const events = await store.readRuntimeEvents('session-1', 'run-1');
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
       assert.deepEqual(events.map((event) => event.id), ['runtime-1']);
+    });
+  });
+
+  it('reads session runtime events through RuntimeEventStore in stable chronology', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ runId: 'run-2', turnId: 'turn-2' }));
+      await runStore.createRun(makeHeader({ runId: 'run-1', turnId: 'turn-1' }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-2', makeRuntimeEvent({ id: 'runtime-2', runId: 'run-2', turnId: 'turn-2', ts: 20 }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-1', runId: 'run-1', turnId: 'turn-1', ts: 10 }));
+
+      const events = await runtimeEventStore.readSessionRuntimeEvents('session-1');
+
+      assert.deepEqual(events.map((event) => event.id), ['runtime-1', 'runtime-2']);
     });
   });
 });
@@ -152,6 +165,21 @@ async function withStore(fn: (store: ReturnType<typeof createAgentRunStore>, roo
   const root = await mkdtemp(join(tmpdir(), 'maka-agent-run-store-'));
   try {
     await fn(createAgentRunStore(root), root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function withStores(
+  fn: (
+    runStore: ReturnType<typeof createAgentRunStore>,
+    runtimeEventStore: ReturnType<typeof createRuntimeEventStore>,
+    root: string,
+  ) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'maka-agent-run-store-'));
+  try {
+    await fn(createAgentRunStore(root), createRuntimeEventStore(root), root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

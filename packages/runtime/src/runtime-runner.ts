@@ -18,8 +18,9 @@
  *      status.
  *
  * Out-of-scope (deliberately): direct SessionStore writes, projection
- * driving, and AgentRunStore ledger writes. Those remain owned by AgentRun
- * while SessionManager delegates invocation execution through this shell.
+ * driving, operational AgentRunStore writes, and RuntimeEventStore ledger
+ * writes. Those remain owned by the runtime orchestration around AgentRun while
+ * SessionManager delegates invocation execution through this shell.
  */
 
 import {

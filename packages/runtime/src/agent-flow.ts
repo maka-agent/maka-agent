@@ -95,7 +95,8 @@ export interface FlowInput {
   context: StoredMessage[];
   /**
    * Optional prior RuntimeEvent ledger for model-history projection. Flows
-   * forward this to backends that can prefer it over legacy context.
+   * forward this to backends that can prefer it over the StoredMessage-shaped
+   * compatibility projection.
    */
   runtimeContext?: RuntimeEvent[];
   /** Abort signal propagated to the underlying engine. */

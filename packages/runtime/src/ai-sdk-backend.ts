@@ -312,7 +312,7 @@ export class AiSdkBackend implements AgentBackend {
       };
     }
 
-    // --- Build messages from context, preferring durable RuntimeEvents when usable. ---
+    // --- Build messages from RuntimeEvent history and its compatibility projection. ---
     const priorReplay = this.buildPriorMessages(input);
     const messages = priorReplay.messages;
     messages.push({
@@ -577,32 +577,32 @@ export class AiSdkBackend implements AgentBackend {
     return this.modelAdapter.makeErrorEvent(turnId, err);
   }
 
-  /** Materialize stored messages into ai-sdk's message format.
-   *  V0.1: text-only round-tripping. Tool calls / results within stored
-   *  history are deliberately NOT replayed — ai-sdk's streamText starts
-   *  fresh each turn and the tool state isn't part of the prompt. */
+  /** Materialize RuntimeEvent-derived projections into ai-sdk's message format.
+   *  V0.1: text-only round-tripping. Tool calls / results within projected
+   *  history are deliberately NOT replayed unless RuntimeEvent native replay
+   *  is available for the provider. */
   private buildPriorMessages(input: BackendSendInput): {
     messages: ModelMessage[];
-    gate: RuntimeEventReplayFallbackGate | 'legacy_stored_messages';
+    gate: RuntimeEventReplayFallbackGate | 'stored_message_projection';
     diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
   } {
-    const legacyMessages = this.materializePriorMessages(
+    const projectedMessages = this.materializePriorMessages(
       input.context.filter((message) => message.turnId !== input.turnId),
     );
     if (!input.runtimeContext) {
-      return { messages: legacyMessages, gate: 'legacy_stored_messages', diagnostics: [] };
+      return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: [] };
     }
 
     const plan = buildRuntimeEventModelReplayPlan(
       input.runtimeContext.filter((event) => event.turnId !== input.turnId),
     );
     if (plan.items.length === 0) {
-      return { messages: legacyMessages, gate: 'legacy_stored_messages', diagnostics: plan.diagnostics };
+      return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: plan.diagnostics };
     }
 
     if (hasBlockingReplayDiagnostics(plan)) {
       return {
-        messages: legacyMessages,
+        messages: projectedMessages,
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
       };
@@ -618,7 +618,7 @@ export class AiSdkBackend implements AgentBackend {
 
     if (!this.canReplayProviderNative(plan)) {
       return {
-        messages: legacyMessages,
+        messages: projectedMessages,
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
       };

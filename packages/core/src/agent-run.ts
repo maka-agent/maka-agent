@@ -1,5 +1,4 @@
 import type { PermissionMode } from './permission.js';
-import type { RuntimeEvent } from './runtime-event.js';
 import type { BackendKind } from './session.js';
 
 export const AGENT_RUN_STATUSES = [
@@ -83,6 +82,4 @@ export interface AgentRunStore {
   listSessionRuns(sessionId: string): Promise<AgentRunHeader[]>;
   appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void>;
   readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
-  appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void>;
-  readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
 }

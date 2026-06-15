@@ -1,4 +1,4 @@
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, StoredMessage } from '@maka/core';
+import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore, StoredMessage } from '@maka/core';
 import {
   classifyRuntimeEventTerminalFact,
   projectRuntimeEventsToStoredMessages,
@@ -61,12 +61,13 @@ export interface InspectAgentRunOptions {
 
 export async function inspectAgentRunReadModel(
   runStore: AgentRunStore,
+  runtimeEventStore: RuntimeEventStore,
   options: InspectAgentRunOptions,
 ): Promise<AgentRunInspectModel> {
   const header = options.header ?? await runStore.readRun(options.sessionId, options.runId);
   const diagnostics: AgentRunInspectDiagnostic[] = [];
   const events = await readOperationalEvents(runStore, header, diagnostics);
-  const runtimeRead = await readRuntimeEvents(runStore, header, diagnostics);
+  const runtimeRead = await readRuntimeEvents(runtimeEventStore, header, diagnostics);
   const runtimeEvents = runtimeRead.events;
 
   const operationalTerminalEvent = latestOperationalTerminalEvent(events);
@@ -141,12 +142,13 @@ export async function inspectAgentRunReadModel(
 
 export async function inspectSessionRunReadModels(
   runStore: AgentRunStore,
+  runtimeEventStore: RuntimeEventStore,
   sessionId: string,
 ): Promise<AgentRunInspectModel[]> {
   const headers = await runStore.listSessionRuns(sessionId);
   const models: AgentRunInspectModel[] = [];
   for (const header of headers) {
-    models.push(await inspectAgentRunReadModel(runStore, { sessionId, runId: header.runId, header }));
+    models.push(await inspectAgentRunReadModel(runStore, runtimeEventStore, { sessionId, runId: header.runId, header }));
   }
   return models;
 }
@@ -181,12 +183,12 @@ async function readOperationalEvents(
 }
 
 async function readRuntimeEvents(
-  runStore: AgentRunStore,
+  runtimeEventStore: RuntimeEventStore,
   header: AgentRunHeader,
   diagnostics: AgentRunInspectDiagnostic[],
 ): Promise<{ state: AgentRunInspectSourceHealth['runtimeLedger']; events: RuntimeEvent[] }> {
   try {
-    const events = await runStore.readRuntimeEvents(header.sessionId, header.runId);
+    const events = await runtimeEventStore.readRuntimeEvents(header.sessionId, header.runId);
     if (events.length === 0) {
       diagnostics.push(inspectDiagnostic(
         header,
@@ -200,7 +202,7 @@ async function readRuntimeEvents(
     diagnostics.push(inspectDiagnostic(
       header,
       'runtime_ledger_read_failed',
-      'AgentRunStore.readRuntimeEvents failed',
+      'RuntimeEventStore.readRuntimeEvents failed',
       errorMessage(error),
     ));
     return { state: 'read_failed', events: [] };

@@ -73,6 +73,11 @@ export {
   createRuntimeEventId,
 } from './runtime-event.js';
 
+// runtime-event-store.ts
+export type {
+  RuntimeEventStore,
+} from './runtime-event-store.js';
+
 // session.ts
 export type {
   SessionHeader,

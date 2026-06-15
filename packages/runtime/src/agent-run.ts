@@ -1,4 +1,5 @@
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent } from '@maka/core';
+import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import { isTerminalRuntimeEvent } from '@maka/core';
 import { redactSecrets } from '@maka/core/redaction';
 import type {
   SessionBlockedReason,
@@ -15,10 +16,8 @@ import type { BackendSendInput } from '@maka/core/backend-types';
 import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
-import {
-  buildRuntimeEventModelReplayPlan,
-  type TextModelMessage,
-} from './model-history.js';
+import { buildRuntimeEventModelReplayPlan } from './model-history.js';
+import { projectRuntimeEventsToStoredMessages } from './runtime-event-read-model.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -54,6 +53,7 @@ export interface AgentRunInput {
   userInput: UserMessageInput;
   store: SessionStore;
   runStore?: AgentRunStore;
+  runtimeEventStore?: RuntimeEventStore;
   newId: () => string;
   now: () => number;
   hooks: AgentRunHooks;
@@ -62,6 +62,11 @@ export interface AgentRunInput {
 export interface AgentRunBeginResult {
   backend: AgentBackend;
   backendInput: BackendSendInput;
+}
+
+interface PriorRuntimeContext {
+  events: RuntimeEvent[];
+  runs: AgentRunHeader[];
 }
 
 export class AgentRun {
@@ -75,7 +80,9 @@ export class AgentRun {
   private stopped = false;
   private abortSource: string | undefined;
   private traceQueue: Promise<void> = Promise.resolve();
+  private runtimeEventQueue: Promise<void> = Promise.resolve();
   private runStoreAvailable = true;
+  private runtimeEventStoreAvailable = true;
   private failureClass: string | undefined;
   private failureMessage: string | undefined;
   private lastTs = 0;
@@ -151,8 +158,10 @@ export class AgentRun {
 
     await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, this.lastTs);
 
-    const legacyContext = await this.input.store.readMessages(this.sessionId);
-    const runtimeContext = await this.buildRuntimeContextIfComplete(legacyContext);
+    const priorRuntimeContext = await this.buildPriorRuntimeContext();
+    const projectionContext = priorRuntimeContext
+      ? projectRuntimeEventsToStoredMessages(priorRuntimeContext.events, { runHeaders: priorRuntimeContext.runs }).messages
+      : [];
 
     return {
       backend: this.active.backend,
@@ -160,8 +169,8 @@ export class AgentRun {
         turnId: this.turnId,
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
-        context: legacyContext,
-        ...(runtimeContext !== undefined ? { runtimeContext } : {}),
+        context: projectionContext,
+        ...(priorRuntimeContext ? { runtimeContext: priorRuntimeContext.events } : {}),
       },
     };
   }
@@ -198,10 +207,10 @@ export class AgentRun {
   }
 
   async recordRuntimeEvents(events: readonly RuntimeEvent[]): Promise<void> {
-    if (!this.input.runStore || !this.runStoreAvailable || events.length === 0) return;
+    if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable || events.length === 0) return;
     for (const event of events) {
-      await this.enqueueRunStore('append runtime event', async () => {
-        await this.input.runStore?.appendRuntimeEvent(this.sessionId, this.runId, event);
+      await this.enqueueRuntimeEventStore('append runtime event', async () => {
+        await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, event);
       });
     }
   }
@@ -284,34 +293,44 @@ export class AgentRun {
     }
   }
 
-  private async buildRuntimeContextIfComplete(
-    legacyContext: readonly StoredMessage[],
-  ): Promise<RuntimeEvent[] | undefined> {
-    if (!this.input.runStore || !this.runStoreAvailable) return undefined;
-    try {
-      const runtimeContext: RuntimeEvent[] = [];
-      const runs = await this.input.runStore.listSessionRuns(this.sessionId);
-      for (const run of runs) {
-        if (run.runId === this.runId || run.turnId === this.turnId) continue;
-        const events = await this.input.runStore.readRuntimeEvents(this.sessionId, run.runId);
-        runtimeContext.push(
-          ...events.filter((event) => event.runId !== this.runId && event.turnId !== this.turnId),
-        );
+  private async buildPriorRuntimeContext(): Promise<PriorRuntimeContext | undefined> {
+    if (
+      !this.input.runStore ||
+      !this.input.runtimeEventStore ||
+      !this.runStoreAvailable ||
+      !this.runtimeEventStoreAvailable
+    ) return undefined;
+    const runs = await this.input.runStore.listSessionRuns(this.sessionId);
+    const priorRuns = runs.filter((run) => run.runId !== this.runId && run.turnId !== this.turnId);
+    if (priorRuns.length === 0) return undefined;
+
+    const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];
+    for (let runIndex = 0; runIndex < priorRuns.length; runIndex += 1) {
+      const run = priorRuns[runIndex]!;
+      if (!isTerminalRunStatus(run.status)) {
+        continue;
       }
-      if (runtimeContext.length === 0) return undefined;
-
-      const runtimeReplayPlan = buildRuntimeEventModelReplayPlan(runtimeContext);
-      const runtimeMessages = runtimeReplayPlan.textMessages;
-      if (runtimeMessages.length === 0) return undefined;
-
-      const legacyPriorMessages = materializeLegacyTextMessages(
-        legacyContext.filter((message) => message.turnId !== this.turnId),
-      );
-      if (!runtimeMessagesCoverLegacy(runtimeMessages, legacyPriorMessages)) return undefined;
-      return runtimeContext;
-    } catch {
-      return undefined;
+      const events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+      if (events.length === 0) {
+        throw new Error(`Cannot build model context: RuntimeEvent ledger is missing for prior run ${run.runId}`);
+      }
+      if (!events.some(isTerminalRuntimeEvent)) {
+        throw new Error(`Cannot build model context: RuntimeEvent ledger has no terminal fact for prior run ${run.runId}`);
+      }
+      for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+        const event = events[eventIndex]!;
+        if (event.runId === this.runId || event.turnId === this.turnId) continue;
+        ordered.push({ event, runIndex, eventIndex });
+      }
     }
+
+    ordered.sort((a, b) => a.runIndex - b.runIndex || a.eventIndex - b.eventIndex);
+    const events = ordered.map((item) => item.event);
+    if (events.length === 0) return undefined;
+
+    const runtimeReplayPlan = buildRuntimeEventModelReplayPlan(events);
+    if (runtimeReplayPlan.items.length === 0) return undefined;
+    return { events, runs: priorRuns };
   }
 
   private async markRunStarted(ts: number): Promise<void> {
@@ -465,6 +484,16 @@ export class AgentRun {
     return next;
   }
 
+  private enqueueRuntimeEventStore(label: string, operation: () => Promise<void>): Promise<void> {
+    if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) return Promise.resolve();
+    const next = this.runtimeEventQueue.then(operation, operation).catch(async (error) => {
+      this.runtimeEventStoreAvailable = false;
+      await this.enqueueTraceWriteFailure(error, label);
+    });
+    this.runtimeEventQueue = next.catch(() => {});
+    return next;
+  }
+
   private async enqueueTraceWriteFailure(error: unknown, label = 'agent run store write'): Promise<void> {
     const message = errorMessage(error);
     try {
@@ -498,34 +527,6 @@ function traceToRunEvent(event: RunTraceEvent, runId: string): AgentRunEvent {
     message: redactTraceString(event.message),
     data: sanitizeTraceData(event.data),
   };
-}
-
-function materializeLegacyTextMessages(stored: readonly StoredMessage[]): TextModelMessage[] {
-  const out: TextModelMessage[] = [];
-  for (const message of stored) {
-    if (message.type === 'user') {
-      out.push({ role: 'user', content: message.text });
-    } else if (message.type === 'assistant') {
-      out.push({ role: 'assistant', content: message.text });
-    }
-  }
-  return out;
-}
-
-function runtimeMessagesCoverLegacy(
-  runtimeMessages: readonly TextModelMessage[],
-  legacyMessages: readonly TextModelMessage[],
-): boolean {
-  if (runtimeMessages.length !== legacyMessages.length) return false;
-  return legacyMessages.every((legacyMessage, index) => {
-    const runtimeMessage = runtimeMessages[index];
-    if (!runtimeMessage || runtimeMessage.role !== legacyMessage.role) return false;
-    if (runtimeMessage.content === legacyMessage.content) return true;
-    return (
-      runtimeMessage.role === 'user' &&
-      runtimeMessage.content.startsWith(`${legacyMessage.content}\n\n[attachment: `)
-    );
-  });
 }
 
 function sanitizeTraceData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -569,6 +570,10 @@ function statusPatch(
     blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
     statusUpdatedAt: ts,
   };
+}
+
+function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 function statusFromEvent(event: SessionEvent): { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined {

@@ -4,8 +4,9 @@
  * This is the single internal runtime fact model. It is NOT a UI event
  * (see ./events.ts `SessionEvent`) and NOT a trace row (RunTrace) or
  * telemetry record. StoredMessage JSONL, renderer SessionEvent,
- * AgentRunStore, RunTrace, and TelemetryRepo are all projections that
- * should be written from — or explicitly linked to — these events.
+ * AgentRunStore operational rows, RunTrace, and TelemetryRepo are all
+ * projections that should be written from -- or explicitly linked to -- these
+ * events.
  *
  * Source: docs/runtime-v2-architecture-evolution.md §Canonical RuntimeEvent
  *

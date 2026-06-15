@@ -191,6 +191,20 @@ export type {
   RuntimeEventTerminalFact,
   RuntimeEventTerminalFactResult,
 } from './runtime-event-read-model.js';
+export {
+  RuntimeReadModel,
+  RuntimeReadModelError,
+} from './runtime-read-model.js';
+export type {
+  RuntimeReadModelDeps,
+  RuntimeReadModelProjectionCache,
+  RuntimeReadModelSessionView,
+} from './runtime-read-model.js';
+export { RuntimeKernel } from './runtime-kernel.js';
+export type {
+  RuntimeKernelDeps,
+  RuntimeKernelLike,
+} from './runtime-kernel.js';
 
 // agent-run-inspect.ts — internal AgentRun/RuntimeEvent source-health view.
 export {

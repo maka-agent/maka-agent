@@ -45,26 +45,23 @@ import type {
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
-import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords, isDeepResearchSession, isTerminalRuntimeEvent } from '@maka/core';
-import type { AgentRunHeader, AgentRunStore, RuntimeEvent } from '@maka/core';
+import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
+import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
-  compareRuntimeReadModelMessages,
-  projectRuntimeEventsToStoredMessages,
-  type RuntimeEventReadModelDiagnostic,
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
+import { RuntimeReadModel, type RuntimeReadModelSessionView } from './runtime-read-model.js';
 import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run-inspect.js';
 
 import type { AgentBackend } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
-import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
+import type { AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
-import { AiSdkFlow } from './ai-sdk-flow.js';
 import type {
   InvocationResult,
   InvocationSource,
 } from './invocation-context.js';
-import { RuntimeRunner } from './runtime-runner.js';
+import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
@@ -74,10 +71,8 @@ export interface StopSessionInput {
 // SessionStore contract (matches the storage package surface)
 // ============================================================================
 
-// SessionStore remains the compatibility ledger and projection cache for UI,
-// branch/retry, and legacy recovery. RuntimeEvent-complete runs should make new
-// semantic decisions from the AgentRun/RuntimeEvent read model first, then fall
-// back to these StoredMessage rows only when compatibility requires it.
+// StoredMessage rows remain a projection/cache surface for existing public
+// shapes. RuntimeEventStore is the semantic conversation ledger.
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
@@ -133,35 +128,21 @@ export class BackendRegistry {
 export interface SessionManagerDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
+  runtimeEventStore?: RuntimeEventStore;
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
-}
-
-interface ActiveSession extends AgentRunActiveSession {
-  sessionId: string;
-  backend: AgentBackend;
-  /** Tracks the latest header we've read (used to short-circuit some reads). */
-  cachedHeader: SessionHeader;
-  activeRuns: Map<string, AgentRun>;
-  turnToRunId: Map<string, string>;
-}
-
-type SessionReadSource = 'runtime_events' | 'legacy_session_store';
-
-interface SessionReadView {
-  source: SessionReadSource;
-  messages: StoredMessage[];
-  turns: TurnRecord[];
-  diagnostics: RuntimeEventReadModelDiagnostic[];
+  runtimeKernel?: RuntimeKernelLike;
 }
 
 export class SessionManager {
-  private readonly active = new Map<string, ActiveSession>();
+  private readonly runtimeKernel: RuntimeKernelLike;
 
-  constructor(private readonly deps: SessionManagerDeps) {}
+  constructor(private readonly deps: SessionManagerDeps) {
+    this.runtimeKernel = deps.runtimeKernel ?? new RuntimeKernel(deps);
+  }
 
   // --------------------------------------------------------------------------
   // Session lifecycle
@@ -177,11 +158,11 @@ export class SessionManager {
   }
 
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
-    return (await this.readSessionView(sessionId)).messages;
+    return (await this.readModel().getSessionView(sessionId)).messages;
   }
 
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
-    return (await this.readSessionView(sessionId)).turns;
+    return (await this.readModel().getSessionView(sessionId)).turns;
   }
 
   async recoverInterruptedSessions(): Promise<string[]> {
@@ -189,7 +170,7 @@ export class SessionManager {
       .filter((session) => session.status !== 'archived');
     const recovered: string[] = [];
     for (const session of interrupted) {
-      if (this.active.has(session.id)) continue;
+      if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
       let messages: StoredMessage[] = [];
       let messagesReadable = true;
       try {
@@ -199,7 +180,7 @@ export class SessionManager {
       }
 
       if (this.deps.runStore) {
-        const runRecovery = await this.recoverAgentRunsFromLedger(session.id, messages).catch(() => undefined);
+        const runRecovery = await this.recoverAgentRunsFromLedger(session.id).catch(() => undefined);
         if (runRecovery?.hasLedger) {
           if (runRecovery.recovered) {
             await this.updateStatus(session.id, 'active').catch(() => {});
@@ -239,29 +220,26 @@ export class SessionManager {
     sessionId: string,
     patch: Partial<SessionHeader>,
   ): Promise<SessionSummary> {
-    const active = this.active.get(sessionId);
     const backendConfigChanged = changesBackendConfig(patch);
-    if (active && backendConfigChanged && active.activeRuns.size > 0) {
+    if (backendConfigChanged && this.runtimeKernel.hasActiveRuns(sessionId)) {
       throw new Error('Cannot change backend configuration while a turn is running');
     }
 
     const next = await this.deps.store.updateHeader(sessionId, patch);
-    if (active) {
-      active.cachedHeader = next;
-      if (backendConfigChanged) {
-        // AgentBackend instances snapshot backend/model config at construction
-        // time. If a stale session is rebound to a real default connection, the
-        // next turn must build a fresh backend instead of reusing FakeBackend or
-        // an AiSdkBackend pointed at a deleted connection.
-        await this.disposeBackend(sessionId);
-      }
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
+    if (backendConfigChanged) {
+      // AgentBackend instances snapshot backend/model config at construction
+      // time. If a stale session is rebound to a real default connection, the
+      // next turn must build a fresh backend instead of reusing FakeBackend or
+      // an AiSdkBackend pointed at a deleted connection.
+      await this.runtimeKernel.disposeBackend(sessionId);
     }
     return headerToSummary(next);
   }
 
   async archive(sessionId: string): Promise<void> {
     await this.deps.store.archive(sessionId);
-    await this.disposeBackend(sessionId);
+    await this.runtimeKernel.disposeBackend(sessionId);
   }
 
   async unarchive(sessionId: string): Promise<void> {
@@ -274,21 +252,20 @@ export class SessionManager {
     blockedReason?: SessionBlockedReason,
   ): Promise<SessionSummary> {
     const next = await this.deps.store.updateHeader(sessionId, statusPatch(status, this.deps.now(), blockedReason));
-    const active = this.active.get(sessionId);
-    if (active) active.cachedHeader = next;
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
     return headerToSummary(next);
   }
 
   async setFlagged(sessionId: string, isFlagged: boolean): Promise<void> {
     await this.deps.store.setFlagged(sessionId, isFlagged);
-    const active = this.active.get(sessionId);
-    if (active) active.cachedHeader = { ...active.cachedHeader, isFlagged };
+    const header = await this.deps.store.readHeader(sessionId).catch(() => undefined);
+    if (header) this.runtimeKernel.updateCachedHeader(sessionId, header);
   }
 
   async renameSession(sessionId: string, name: string): Promise<void> {
     await this.deps.store.rename(sessionId, name);
-    const active = this.active.get(sessionId);
-    if (active) active.cachedHeader = { ...active.cachedHeader, name };
+    const header = await this.deps.store.readHeader(sessionId).catch(() => undefined);
+    if (header) this.runtimeKernel.updateCachedHeader(sessionId, header);
   }
 
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
@@ -296,8 +273,7 @@ export class SessionManager {
     const leavingDeepResearch = isDeepResearchSession(previous.labels) && mode !== 'explore';
     if (previous.permissionMode === mode && !leavingDeepResearch) return headerToSummary(previous);
 
-    const active = this.active.get(sessionId);
-    if (active && active.activeRuns.size > 0) {
+    if (this.runtimeKernel.hasActiveRuns(sessionId)) {
       throw new Error('当前对话正在运行，等结束后再切换权限模式。');
     }
     if (previous.status === 'waiting_for_user') {
@@ -318,17 +294,15 @@ export class SessionManager {
       data: { from: previous.permissionMode, to: mode },
     } satisfies SystemNoteMessage);
 
-    if (active) {
-      active.cachedHeader = next;
-      // AiSdkBackend snapshots the header at construction time. Rebuild the
-      // backend before the next turn so PermissionEngine receives the new mode.
-      await this.disposeBackend(sessionId);
-    }
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
+    // AiSdkBackend snapshots the header at construction time. Rebuild the
+    // backend before the next turn so PermissionEngine receives the new mode.
+    await this.runtimeKernel.disposeBackend(sessionId);
     return headerToSummary(next);
   }
 
   async remove(sessionId: string): Promise<void> {
-    await this.disposeBackend(sessionId);
+    await this.runtimeKernel.disposeBackend(sessionId);
     await this.deps.store.remove(sessionId);
   }
 
@@ -341,134 +315,18 @@ export class SessionManager {
    * (desktop main) is expected to forward the events to the renderer over
    * the IPC bridge.
    *
-   * Runtime v2 bridge:
-   *   1. Create one AgentRun, which remains the persistence/ledger owner.
-   *   2. Begin it to resolve the production backend and model context.
-   *   3. Run AiSdkFlow through RuntimeRunner for canonical RuntimeEvents.
-   *   4. Forward the original SessionEvents to callers unchanged.
-   *   5. Drain the backend stream fully so stop/abort cleanup semantics stay intact.
+   * Runtime v2 bridge: SessionManager remains the public facade; RuntimeKernel
+   * owns AgentRun/AiSdkFlow/RuntimeRunner orchestration and ledger recording.
    */
   async *sendMessage(
     sessionId: string,
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
-    const header = await this.deps.store.readHeader(sessionId);
-    const run = new AgentRun({
-      sessionId,
-      header,
-      userInput: input,
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
-        updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
-        updateStatus: (targetSessionId, status, blockedReason, ts) =>
-          this.updateStatus(targetSessionId, status, blockedReason, ts),
-        appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
-          this.appendTurnState(targetSessionId, turnId, status, lineage, options),
-      },
-    });
-
-    const sessionEvents = new AsyncEventQueue<SessionEvent>();
-    const abortController = new AbortController();
-    let flowDone = false;
-    let begin: AgentRunBeginResult;
-    try {
-      begin = await run.begin();
-    } catch (error) {
-      await run.recordFailure(error);
-      await run.finalize();
-      throw error;
-    }
-    const aiSdkFlow = new AiSdkFlow({
-      backend: begin.backend,
-      drainAfterTerminal: true,
-      onSessionEvent: async (sessionEvent) => {
-        await run.recordSessionEvent(sessionEvent);
-        await sessionEvents.push(sessionEvent);
-      },
-      onError: async (error) => {
-        if (!isAsyncEventQueueClosed(error)) {
-          await run.recordFailure(error);
-          sessionEvents.fail(error);
-        }
-      },
-      onFinally: async () => {
-        flowDone = true;
-        await run.finalize();
-        sessionEvents.close();
-      },
-    });
-    const runner = new RuntimeRunner({
-      flow: aiSdkFlow,
-      providers: { newId: this.deps.newId, now: this.deps.now },
-      stopOnTerminal: false,
-    });
-    const runnerResult = runner.run({
-      sessionId,
-      runId: run.runId,
-      turnId: run.turnId,
-      text: input.text,
-      ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
-      context: begin.backendInput.context,
-      ...(begin.backendInput.runtimeContext !== undefined ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
-      source: this.deps.runtimeSource ?? 'desktop',
-      lineage: run.lineage,
-      abortSignal: abortController.signal,
-    }).then(async (result) => {
-      await run.recordRuntimeEvents(result.events);
-      await this.deps.runtimeInvocationObserver?.(result);
-      return result;
-    }, (error) => {
-      sessionEvents.fail(error);
-      throw error;
-    });
-
-    try {
-      for await (const event of sessionEvents) {
-        yield event;
-      }
-      await runnerResult;
-    } finally {
-      if (!flowDone) {
-        abortController.abort();
-        sessionEvents.close();
-      }
-      await runnerResult.catch(() => undefined);
-    }
+    yield* this.runtimeKernel.startTurn(sessionId, input);
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
-    const abortSource = normalizeStopSessionSource(input.source);
-    await active.backend.stop('user_stop');
-    const activeRuns = [...active.activeRuns.values()];
-    for (const run of activeRuns) {
-      run.stop(input.source);
-    }
-    await this.updateStatus(sessionId, 'aborted');
-    for (const run of activeRuns) {
-      await this.appendTurnState(
-        sessionId,
-        run.turnId,
-        'aborted',
-        run.lineage,
-        { ts: this.deps.now(), abortSource },
-      ).catch(() => {});
-    }
-    // Append the abort SystemNote synchronously (matches §9 Step 6 step 4).
-    await this.deps.store.appendMessage(sessionId, {
-      type: 'system_note',
-      id: this.deps.newId(),
-      ts: this.deps.now(),
-      kind: 'abort',
-      ...(abortSource ? { data: { source: abortSource } } : {}),
-    } satisfies SystemNoteMessage);
+    await this.runtimeKernel.stopSession(sessionId, input);
   }
 
   async *retryTurn(
@@ -506,7 +364,8 @@ export class SessionManager {
     input: BranchFromTurnInput,
   ): Promise<SessionSummary> {
     const header = await this.deps.store.readHeader(sessionId);
-    const { messages } = await this.readSessionView(sessionId);
+    const sourceView = await this.readModel().getSessionView(sessionId);
+    const { messages } = sourceView;
     const copied = copyMessagesThroughTurnBoundary(messages, input.sourceTurnId);
     if (copied.length === 0) throw new Error(`Cannot branch from unknown turn ${input.sourceTurnId}`);
     const next = await this.deps.store.create({
@@ -521,6 +380,7 @@ export class SessionManager {
       branchOfTurnId: input.sourceTurnId,
       status: 'active',
     });
+    await this.cloneBranchRuntimeLedger(next.id, sourceView, copied);
     await this.deps.store.appendMessages(next.id, copied);
     await this.deps.store.appendMessage(next.id, {
       type: 'system_note',
@@ -536,69 +396,12 @@ export class SessionManager {
     sessionId: string,
     response: PermissionResponse,
   ): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
-    await active.backend.respondToPermission(response);
+    await this.runtimeKernel.respondToPermission(sessionId, response);
   }
 
   // --------------------------------------------------------------------------
   // Internal helpers
   // --------------------------------------------------------------------------
-
-  private async ensureActive(
-    sessionId: string,
-    header: SessionHeader,
-  ): Promise<ActiveSession> {
-    const existing = this.active.get(sessionId);
-    if (existing) {
-      existing.cachedHeader = header;
-      return existing;
-    }
-    const backend = await this.deps.backends.build(header.backend, {
-      sessionId,
-      workspaceRoot: header.workspaceRoot,
-      header,
-      store: this.deps.store,
-      recordRunTrace: (event) => {
-        const active = this.active.get(sessionId);
-        const runId = active?.turnToRunId.get(event.turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        run?.recordRunTrace(event);
-      },
-    });
-    const entry: ActiveSession = {
-      sessionId,
-      backend,
-      cachedHeader: header,
-      activeRuns: new Map(),
-      turnToRunId: new Map(),
-    };
-    this.active.set(sessionId, entry);
-    return entry;
-  }
-
-  private registerRun(active: AgentRunActiveSession, run: AgentRun): void {
-    active.activeRuns.set(run.runId, run);
-    active.turnToRunId.set(run.turnId, run.runId);
-  }
-
-  private unregisterRun(active: AgentRunActiveSession, run: AgentRun): void {
-    active.activeRuns.delete(run.runId);
-    if (active.turnToRunId.get(run.turnId) === run.runId) {
-      active.turnToRunId.delete(run.turnId);
-    }
-  }
-
-  private async disposeBackend(sessionId: string): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
-    this.active.delete(sessionId);
-    try {
-      await active.backend.dispose();
-    } catch {
-      // best-effort
-    }
-  }
 
   private async updateStatus(
     sessionId: string,
@@ -614,8 +417,7 @@ export class SessionManager {
     patch: Partial<SessionHeader>,
   ): Promise<SessionHeader> {
     const next = await this.deps.store.updateHeader(sessionId, patch);
-    const active = this.active.get(sessionId);
-    if (active) active.cachedHeader = next;
+    this.runtimeKernel.updateCachedHeader(sessionId, next);
     return next;
   }
 
@@ -659,7 +461,7 @@ export class SessionManager {
     allowed: readonly TurnRecord['status'][],
     action: string,
   ): Promise<TurnRecord> {
-    const turn = (await this.readSessionView(sessionId)).turns.find((candidate) => candidate.turnId === turnId);
+    const turn = (await this.readModel().getSessionView(sessionId)).turns.find((candidate) => candidate.turnId === turnId);
     if (!turn) throw new Error(`Cannot ${action}: unknown turn ${turnId}`);
     if (!allowed.includes(turn.status)) {
       throw new Error(`Cannot ${action}: turn ${turnId} is ${turn.status}`);
@@ -668,131 +470,82 @@ export class SessionManager {
   }
 
   private async requireUserMessageForTurn(sessionId: string, turnId: string): Promise<UserMessage> {
-    const user = (await this.readSessionView(sessionId)).messages
+    const user = (await this.readModel().getSessionView(sessionId)).messages
       .find((message): message is UserMessage => message.type === 'user' && message.turnId === turnId);
     if (!user) throw new Error(`Turn ${turnId} has no user message`);
     return user;
   }
 
-  private async readSessionView(sessionId: string): Promise<SessionReadView> {
-    const legacy = await this.readLegacyMessages(sessionId);
-    const fallback = (diagnostics: RuntimeEventReadModelDiagnostic[] = []): SessionReadView => {
-      if (!legacy.readable) throw legacy.error;
-      return {
-        source: 'legacy_session_store',
-        messages: legacy.messages,
-        turns: deriveTurnRecords(legacy.messages),
-        diagnostics,
-      };
-    };
-
-    if (runtimeReadSourceForcedLegacy()) {
-      return fallback([readDiagnostic('unsupported_event', 'RuntimeEvent read projection disabled by MAKA_RUNTIME_READ_SOURCE')]);
+  private readModel(): RuntimeReadModel {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('RuntimeReadModel requires AgentRunStore and RuntimeEventStore');
     }
-    if (!this.deps.runStore) {
-      return fallback();
-    }
-
-    let runs: AgentRunHeader[];
-    try {
-      runs = await this.deps.runStore.listSessionRuns(sessionId);
-    } catch {
-      return fallback([readDiagnostic('unsupported_event', 'AgentRunStore.listSessionRuns failed')]);
-    }
-    if (runs.length === 0) {
-      return fallback();
-    }
-
-    const events: RuntimeEvent[] = [];
-    const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];
-    for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
-      const run = runs[runIndex]!;
-      if (!isTerminalRunStatus(run.status)) {
-        return fallback([readDiagnostic('incomplete_event', 'RuntimeEvent read projection is not used for active runs', run)]);
-      }
-
-      let runEvents: RuntimeEvent[];
-      try {
-        runEvents = await this.deps.runStore.readRuntimeEvents(sessionId, run.runId);
-      } catch (error) {
-        return fallback([
-          readDiagnostic('unsupported_event', 'AgentRunStore.readRuntimeEvents failed', {
-            runId: run.runId,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-        ]);
-      }
-
-      if (runEvents.length === 0) {
-        return fallback([readDiagnostic('incomplete_event', 'terminal run has no readable RuntimeEvent ledger', { runId: run.runId })]);
-      }
-      if (!runEvents.some(isTerminalRuntimeEvent)) {
-        return fallback([readDiagnostic('incomplete_event', 'terminal run has no terminal RuntimeEvent', { runId: run.runId })]);
-      }
-
-      for (let eventIndex = 0; eventIndex < runEvents.length; eventIndex += 1) {
-        ordered.push({ event: runEvents[eventIndex]!, runIndex, eventIndex });
-      }
-    }
-
-    // RuntimeEvent-primary reads use session chronology across terminal runs,
-    // with stable run/ledger/id tie-breakers. This matches legacy message
-    // reads better than concatenating each run ledger in creation order when
-    // overlapping runs complete out of order.
-    ordered.sort((a, b) =>
-      a.event.ts - b.event.ts ||
-      a.runIndex - b.runIndex ||
-      a.eventIndex - b.eventIndex ||
-      a.event.id.localeCompare(b.event.id)
-    );
-    for (const item of ordered) events.push(item.event);
-
-    const projected = projectRuntimeEventsToStoredMessages(events, { runHeaders: runs });
-    if (hasHardProjectionDiagnostic(projected.diagnostics)) {
-      return fallback(projected.diagnostics);
-    }
-
-    const diagnostics = [...projected.diagnostics];
-    if (legacy.readable) {
-      const compatibility = compareRuntimeReadModelMessages(projected.messages, legacy.messages);
-      diagnostics.push(...compatibility.diagnostics);
-      if (hasHardCompatibilityDiagnostic(compatibility.diagnostics)) {
-        return fallback(diagnostics);
-      }
-    }
-
-    return {
-      source: 'runtime_events',
-      messages: projected.messages,
-      turns: deriveTurnRecords(projected.messages),
-      diagnostics,
-    };
+    return new RuntimeReadModel({
+      runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
+      projectionCache: this.deps.store,
+    });
   }
 
-  private async readLegacyMessages(sessionId: string): Promise<
-    | { readable: true; messages: StoredMessage[] }
-    | { readable: false; error: unknown }
-  > {
-    try {
-      return { readable: true, messages: await this.deps.store.readMessages(sessionId) };
-    } catch (error) {
-      return { readable: false, error };
+  private async cloneBranchRuntimeLedger(
+    childSessionId: string,
+    sourceView: RuntimeReadModelSessionView,
+    copiedMessages: readonly StoredMessage[],
+  ): Promise<void> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) return;
+    const copiedTurnIds = new Set<string>();
+    for (const message of copiedMessages) {
+      if ('turnId' in message && typeof message.turnId === 'string') copiedTurnIds.add(message.turnId);
+    }
+    if (copiedTurnIds.size === 0) return;
+
+    for (const sourceRun of sourceView.runs) {
+      if (!copiedTurnIds.has(sourceRun.turnId)) continue;
+      const sourceEvents = sourceView.events.filter((event) =>
+        event.runId === sourceRun.runId &&
+        copiedTurnIds.has(event.turnId)
+      );
+      if (sourceEvents.length === 0) continue;
+
+      const runId = this.deps.newId();
+      const invocationIds = new Map<string, string>();
+      await this.deps.runStore.createRun({
+        ...sourceRun,
+        sessionId: childSessionId,
+        runId,
+      });
+
+      for (const event of sourceEvents) {
+        await this.deps.runtimeEventStore.appendRuntimeEvent(
+          childSessionId,
+          runId,
+          cloneRuntimeEventForBranch(event, {
+            sessionId: childSessionId,
+            runId,
+            eventId: this.deps.newId(),
+            invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
+          }),
+        );
+      }
     }
   }
 
   private async recoverAgentRunsFromLedger(
     sessionId: string,
-    messages: readonly StoredMessage[],
   ): Promise<{ hasLedger: boolean; recovered: boolean }> {
-    if (!this.deps.runStore) return { hasLedger: false, recovered: false };
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) return { hasLedger: false, recovered: false };
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
     if (runs.length === 0) return { hasLedger: false, recovered: false };
 
     let recovered = false;
     for (const run of runs) {
-      const inspected = await inspectAgentRunReadModel(this.deps.runStore, { sessionId, runId: run.runId, header: run });
+      const inspected = await inspectAgentRunReadModel(
+        this.deps.runStore,
+        this.deps.runtimeEventStore,
+        { sessionId, runId: run.runId, header: run },
+      );
       const runtimeDecision = this.classifyRuntimeEventRecovery(inspected);
-      const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events, messages);
+      const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events);
       if (!decision) continue;
       await this.applyAgentRunRecovery(sessionId, decision, inspected.events);
       recovered = true;
@@ -995,40 +748,29 @@ function turnStateLineage(
   };
 }
 
-function statusFromEvent(event: SessionEvent): { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined {
-  switch (event.type) {
-    case 'permission_request':
-      return { status: 'waiting_for_user', blockedReason: 'permission_required' };
-    case 'permission_decision_ack':
-      return event.decision === 'allow' ? { status: 'running' } : { status: 'aborted' };
-    case 'error':
-      return { status: 'blocked', blockedReason: blockedReasonFromErrorReason(event.reason) };
-    case 'abort':
-      return { status: 'aborted' };
-    case 'complete':
-      if (event.stopReason === 'permission_handoff') return { status: 'waiting_for_user', blockedReason: 'permission_required' };
-      if (event.stopReason === 'user_stop') return { status: 'aborted' };
-      if (event.stopReason === 'error') return { status: 'blocked', blockedReason: 'unknown' };
-      return { status: 'active' };
-    default:
-      return undefined;
-  }
+function cloneRuntimeEventForBranch(
+  event: RuntimeEvent,
+  ids: { sessionId: string; runId: string; eventId: string; invocationId: string },
+): RuntimeEvent {
+  return {
+    ...event,
+    id: ids.eventId,
+    invocationId: ids.invocationId,
+    sessionId: ids.sessionId,
+    runId: ids.runId,
+  };
 }
 
-function turnStatusFromEvent(event: SessionEvent): { status: TurnRecord['status']; errorClass?: string } | undefined {
-  switch (event.type) {
-    case 'abort':
-      return { status: 'aborted' };
-    case 'error':
-      return { status: 'failed', errorClass: event.reason ?? event.code ?? 'unknown' };
-    case 'complete':
-      if (event.stopReason === 'user_stop') return { status: 'aborted' };
-      if (event.stopReason === 'error') return { status: 'failed', errorClass: 'unknown' };
-      if (event.stopReason === 'permission_handoff') return { status: 'running' };
-      return { status: 'completed' };
-    default:
-      return undefined;
-  }
+function remapInvocationId(
+  mapping: Map<string, string>,
+  sourceInvocationId: string,
+  newId: () => string,
+): string {
+  const existing = mapping.get(sourceInvocationId);
+  if (existing) return existing;
+  const next = newId();
+  mapping.set(sourceInvocationId, next);
+  return next;
 }
 
 function copyMessagesThroughTurnBoundary(messages: readonly StoredMessage[], turnId: string): StoredMessage[] {
@@ -1098,137 +840,6 @@ function runtimeTerminalFactToRecoveryDecision(
       ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     },
   };
-}
-
-function hasHardProjectionDiagnostic(diagnostics: readonly RuntimeEventReadModelDiagnostic[]): boolean {
-  return diagnostics.some((diagnostic) =>
-    diagnostic.code === 'incomplete_event' ||
-    diagnostic.code === 'unsupported_event' ||
-    diagnostic.code === 'tool_use_id_mismatch'
-  );
-}
-
-function hasHardCompatibilityDiagnostic(diagnostics: readonly RuntimeEventReadModelDiagnostic[]): boolean {
-  // A projected view missing a legacy semantic row means RuntimeEvents cannot
-  // yet render the public session faithfully. Extra projected rows are allowed:
-  // for compatible runtime-ledger sessions they represent RuntimeEvents being
-  // fresher than stale legacy rows, while diagnostics keep that mismatch visible.
-  return diagnostics.some((diagnostic) => diagnostic.code === 'missing_legacy_message');
-}
-
-function readDiagnostic(
-  code: RuntimeEventReadModelDiagnostic['code'],
-  message: string,
-  detail?: unknown,
-): RuntimeEventReadModelDiagnostic {
-  return {
-    code,
-    message,
-    ...(detail !== undefined ? { detail } : {}),
-  };
-}
-
-function runtimeReadSourceForcedLegacy(): boolean {
-  return process.env.MAKA_RUNTIME_READ_SOURCE === 'legacy';
-}
-
-function blockedReasonFromErrorReason(reason: string | undefined): SessionBlockedReason {
-  if (!reason) return 'unknown';
-  if (reason === 'permission_required') return 'permission_required';
-  if (reason === 'tool_failed') return 'tool_failed';
-  if (reason === 'auth' || reason.includes('api_key') || reason.includes('connection')) return 'NO_REAL_CONNECTION';
-  return 'unknown';
-}
-
-function normalizeStopSessionSource(source: StopSessionInput['source'] | undefined): string | undefined {
-  switch (source) {
-    case 'stop_button': return 'renderer.stop_button';
-    case undefined: return undefined;
-  }
-}
-
-class AsyncEventQueueClosed extends Error {
-  constructor() {
-    super('Async event queue closed');
-    this.name = 'AsyncEventQueueClosed';
-  }
-}
-
-function isAsyncEventQueueClosed(error: unknown): boolean {
-  return error instanceof AsyncEventQueueClosed;
-}
-
-interface AsyncEventQueueEntry<T> {
-  value: T;
-  delivered: () => void;
-  rejected: (error: unknown) => void;
-}
-
-class AsyncEventQueue<T> implements AsyncIterable<T> {
-  private readonly values: Array<AsyncEventQueueEntry<T>> = [];
-  private readonly waiters: Array<{
-    resolve: (entry: AsyncEventQueueEntry<T> | undefined) => void;
-    reject: (error: unknown) => void;
-  }> = [];
-  private closed = false;
-  private failure: unknown;
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    return this.consume()[Symbol.asyncIterator]();
-  }
-
-  push(value: T): Promise<void> {
-    if (this.failure) return Promise.reject(this.failure);
-    if (this.closed) return Promise.reject(new AsyncEventQueueClosed());
-    return new Promise<void>((resolve, reject) => {
-      const entry = { value, delivered: resolve, rejected: reject };
-      const waiter = this.waiters.shift();
-      if (waiter) {
-        waiter.resolve(entry);
-        return;
-      }
-      this.values.push(entry);
-    });
-  }
-
-  fail(error: unknown): void {
-    if (this.failure) return;
-    this.failure = error;
-    for (const value of this.values.splice(0)) value.rejected(error);
-    for (const waiter of this.waiters.splice(0)) waiter.reject(error);
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    const closed = new AsyncEventQueueClosed();
-    for (const value of this.values.splice(0)) value.rejected(closed);
-    for (const waiter of this.waiters.splice(0)) waiter.resolve(undefined);
-  }
-
-  private async *consume(): AsyncIterable<T> {
-    while (true) {
-      const entry = await this.nextEntry();
-      if (!entry) return;
-      try {
-        yield entry.value;
-      } finally {
-        entry.delivered();
-      }
-    }
-  }
-
-  private nextEntry(): Promise<AsyncEventQueueEntry<T> | undefined> {
-    if (this.values.length > 0) {
-      const next = this.values.shift()!;
-      return Promise.resolve(next);
-    }
-    if (this.failure) return Promise.reject(this.failure);
-    if (this.closed) return Promise.resolve(undefined);
-    return new Promise<AsyncEventQueueEntry<T> | undefined>((resolve, reject) => {
-      this.waiters.push({ resolve, reject });
-    });
-  }
 }
 
 // Re-export the suppressed-unused types so this file is the canonical home

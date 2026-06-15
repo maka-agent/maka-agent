@@ -538,7 +538,7 @@ describe('compareRuntimeReadModelMessages', () => {
 });
 
 describe('SessionManager read behavior', () => {
-  test('getMessages still returns legacy stored messages from the SessionStore', async () => {
+  test('getMessages requires RuntimeReadModel stores instead of reading SessionStore messages directly', async () => {
     const messages: StoredMessage[] = equivalentLegacyMessages();
     const store = new ReadOnlyStore(messages);
     const manager = new SessionManager({
@@ -548,10 +548,8 @@ describe('SessionManager read behavior', () => {
       now: () => ts,
     });
 
-    const out = await manager.getMessages(sessionId);
-
-    expect(out).toEqual(messages);
-    expect(store.readMessagesCalls).toBe(1);
+    await expectRejects(manager.getMessages(sessionId), /RuntimeReadModel requires AgentRunStore and RuntimeEventStore/);
+    expect(store.readMessagesCalls).toBe(0);
   });
 });
 
@@ -598,6 +596,16 @@ class ReadOnlyStore implements SessionStore {
   async setFlagged(_sessionId: string, _isFlagged: boolean): Promise<void> {}
   async rename(_sessionId: string, _name: string): Promise<void> {}
   async remove(_sessionId: string): Promise<void> {}
+}
+
+async function expectRejects(promise: Promise<unknown>, pattern: RegExp): Promise<void> {
+  try {
+    await promise;
+  } catch (error) {
+    expect(error instanceof Error ? error.message : String(error)).toMatch(pattern);
+    return;
+  }
+  throw new Error(`Expected promise to reject with ${pattern}`);
 }
 
 function makeHeader(id: string): SessionHeader {

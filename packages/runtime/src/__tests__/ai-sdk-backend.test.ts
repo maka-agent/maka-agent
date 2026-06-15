@@ -41,8 +41,8 @@ describe('AiSdkBackend model history', () => {
       turnId: 'turn-current',
       text: 'current user',
       context: [
-        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
-        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
       ],
       runtimeContext: [
         runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
@@ -58,7 +58,7 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
-  test('falls back to StoredMessage context when RuntimeEvent projection is empty', async () => {
+  test('uses StoredMessage projection when RuntimeEvent replay is empty', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -78,8 +78,8 @@ describe('AiSdkBackend model history', () => {
       turnId: 'turn-current',
       text: 'current user',
       context: [
-        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
-        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
       ],
       runtimeContext: [
         {
@@ -99,8 +99,8 @@ describe('AiSdkBackend model history', () => {
     }));
 
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
   });
@@ -125,12 +125,12 @@ describe('AiSdkBackend model history', () => {
       turnId: 'turn-current',
       text: 'current user',
       context: [
-        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
-        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
       ],
       runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'legacy user' }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'legacy assistant' }),
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'projection user' }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'projection assistant' }),
         runtimeEvent({
           id: 'rt-call',
           turnId: 'turn-prev',
@@ -149,8 +149,8 @@ describe('AiSdkBackend model history', () => {
     }));
 
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       {
         role: 'assistant',
         content: [{
@@ -176,7 +176,7 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
-  test('falls back to legacy context when RuntimeEvent tool results are unmatched', async () => {
+  test('uses StoredMessage projection when RuntimeEvent tool results are unmatched', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -196,8 +196,8 @@ describe('AiSdkBackend model history', () => {
       turnId: 'turn-current',
       text: 'current user',
       context: [
-        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
-        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
       ],
       runtimeContext: [
         runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
@@ -212,13 +212,13 @@ describe('AiSdkBackend model history', () => {
     }));
 
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
   });
 
-  test('falls back to legacy context when RuntimeEvent replay has unsupported content', async () => {
+  test('uses StoredMessage projection when RuntimeEvent replay has unsupported content', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -238,8 +238,8 @@ describe('AiSdkBackend model history', () => {
       turnId: 'turn-current',
       text: 'current user',
       context: [
-        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
-        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
       ],
       runtimeContext: [
         runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
@@ -254,13 +254,13 @@ describe('AiSdkBackend model history', () => {
     }));
 
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
   });
 
-  test('falls back to legacy context instead of leaking unsupported thinking text', async () => {
+  test('uses StoredMessage projection instead of leaking unsupported thinking text', async () => {
     const model = completionModel();
     const openAiConnection = { ...connection(), providerType: 'openai' as const };
     const backend = new AiSdkBackend({
@@ -281,11 +281,11 @@ describe('AiSdkBackend model history', () => {
       turnId: 'turn-current',
       text: 'current user',
       context: [
-        { type: 'user', id: 'legacy-u', turnId: 'turn-prev', ts: 1, text: 'legacy user' },
-        { type: 'assistant', id: 'legacy-a', turnId: 'turn-prev', ts: 2, text: 'legacy assistant', modelId: 'm' },
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
       ],
       runtimeContext: [
-        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'legacy user' }),
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'projection user' }),
         runtimeEvent({
           id: 'rt-thinking',
           turnId: 'turn-prev',
@@ -293,14 +293,14 @@ describe('AiSdkBackend model history', () => {
           author: 'agent',
           content: { kind: 'thinking', text: 'private chain of thought', signature: 'sig-1' },
         }),
-        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'legacy assistant' }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'projection assistant' }),
       ],
     }));
 
     const promptJson = JSON.stringify(compactPrompt(model));
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'legacy user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'legacy assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
     assert.equal(promptJson.includes('private chain of thought'), false);

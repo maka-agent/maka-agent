@@ -8,6 +8,7 @@ import type {
   AgentRunHeader,
   AgentRunStore,
   RuntimeEvent,
+  RuntimeEventStore,
   SessionEvent,
   SessionHeader,
   SessionListFilter,
@@ -24,6 +25,8 @@ import {
   type BackendFactoryContext,
   type SessionStore,
 } from '../session-manager.js';
+import type { RuntimeKernelLike } from '../runtime-kernel.js';
+import { RuntimeReadModel, RuntimeReadModelError } from '../runtime-read-model.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
 import type { InvocationResult } from '../invocation-context.js';
 
@@ -86,7 +89,7 @@ describe('SessionManager permission mode updates', () => {
     const secondGate = makeGate();
     const gates = [firstGate, secondGate];
     backends.register('fake', (ctx) => new TestBackend(ctx, gates.shift()));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(4_000) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(4_000) });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     const first = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' })[Symbol.asyncIterator]();
@@ -210,15 +213,42 @@ describe('SessionManager permission mode updates', () => {
     expect(built).toEqual(['Before']);
   });
 
-  test('sendMessage is driven through RuntimeRunner while preserving the SessionEvent stream', async () => {
+  test('sendMessage delegates through RuntimeKernel while preserving the SessionEvent stream', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    const runtimeKernel = new DelegatingRuntimeKernel([
+      { type: 'text_delta', id: 'delegated-delta', turnId: 'turn-1', ts: 1, messageId: 'm-1', text: 'hello' },
+      { type: 'complete', id: 'delegated-complete', turnId: 'turn-1', ts: 2, stopReason: 'end_turn' },
+    ]);
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_250),
+      runtimeKernel,
+    });
+    const session = await manager.createSession(makeInput());
+
+    const sessionEvents = await collectSessionEvents(
+      manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }),
+    );
+
+    expect(runtimeKernel.starts).toEqual([{ sessionId: session.id, input: { turnId: 'turn-1', text: 'hello' } }]);
+    expect(sessionEvents.map((event) => event.id)).toEqual(['delegated-delta', 'delegated-complete']);
+    expect(sessionEvents.map((event) => event.type)).toEqual(['text_delta', 'complete']);
+  });
+
+  test('RuntimeKernel drives RuntimeRunner while preserving the SessionEvent stream', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
+    const runtimeEventStore = new MemoryRuntimeEventStore();
     const backends = new BackendRegistry();
     const observed: InvocationResult[] = [];
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
       store,
       runStore,
+      runtimeEventStore,
       backends,
       newId: nextId(),
       now: nextNow(6_500),
@@ -253,7 +283,7 @@ describe('SessionManager permission mode updates', () => {
     expect(result.events[1]?.content).toEqual({ kind: 'text', text: 'ok' });
     expect(result.events[2]?.status).toBe('completed');
 
-    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const runtimeEvents = await runtimeEventStore.readRuntimeEvents(session.id, run.runId);
     expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta', 'turn-1-complete']);
     expect(runtimeEvents.map((event) => event.runId)).toEqual([run.runId, run.runId, run.runId]);
     expect(runtimeEvents.map((event) => event.sessionId)).toEqual([session.id, session.id, session.id]);
@@ -266,12 +296,14 @@ describe('SessionManager permission mode updates', () => {
 
   test('runtime event ledger write failure does not fail sendMessage', async () => {
     const store = new MemorySessionStore();
-    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppends: true });
+    const runStore = new MemoryAgentRunStore();
+    const runtimeEventStore = new MemoryRuntimeEventStore({ failRuntimeEventAppends: true });
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
       store,
       runStore,
+      runtimeEventStore,
       backends,
       newId: nextId(),
       now: nextNow(6_750),
@@ -287,7 +319,7 @@ describe('SessionManager permission mode updates', () => {
     expect(sessionEvents.map((event) => event.id)).toEqual(['turn-1-delta', 'turn-1-complete']);
     const [run] = await runStore.listSessionRuns(session.id);
     if (!run) throw new Error('AgentRunStore run was not created');
-    expect(await runStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
+    expect(await runtimeEventStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
   });
 
   test('getMessages prefers RuntimeEvent-projected messages when legacy rows are present', async () => {
@@ -312,7 +344,31 @@ describe('SessionManager permission mode updates', () => {
     expect(JSON.stringify(messages.map((message) => message.id)) === JSON.stringify(seeded.legacyMessages.map((message) => message.id))).toBe(false);
   });
 
-  test('getMessages falls back to legacy when projection is missing a legacy semantic row', async () => {
+  test('RuntimeReadModel projects messages turns replay and terminal facts without SessionStore messages', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const session = await store.create(makeInput());
+    const seeded = await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'runtime question',
+      assistantText: 'runtime answer',
+      legacyIdPrefix: 'cache',
+    });
+    store.failReadMessagesFor.add(session.id);
+
+    const view = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id);
+
+    expect(view.messages).toEqual(seeded.projectedMessages);
+    expect(view.turns).toEqual([{ turnId: 'turn-1', status: 'completed', partialOutputRetained: true }]);
+    expect(view.terminalFacts.map((fact) => fact.runStatus)).toEqual(['completed']);
+    expect(view.replayPlan.textMessages.map((message) => message.content)).toEqual(['runtime question', 'runtime answer']);
+  });
+
+  test('projection/cache mismatch does not override RuntimeEvent read output', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const manager = makeManagerForReadCutover(store, runStore);
@@ -336,10 +392,13 @@ describe('SessionManager permission mode updates', () => {
       runtimeEvent({ id: 'rt-complete', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 103, role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true } }),
     ]);
 
-    expect(await manager.getMessages(session.id)).toEqual(legacyMessages);
+    expect(await manager.getMessages(session.id)).toEqual([
+      { type: 'user', id: 'rt-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'turn_state', id: 'rt-complete', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: false },
+    ]);
   });
 
-  test('getMessages falls back to legacy when a terminal run has no runtime ledger', async () => {
+  test('getMessages rejects when a terminal run has no runtime ledger', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const manager = makeManagerForReadCutover(store, runStore);
@@ -357,10 +416,33 @@ describe('SessionManager permission mode updates', () => {
       completedAt: 102,
     }));
 
-    expect(await manager.getMessages(session.id)).toEqual(legacyMessages);
+    await expectRejects(manager.getMessages(session.id), /RuntimeEvent ledger is missing/);
   });
 
-  test('getMessages falls back to legacy when runtime ledger read fails', async () => {
+  test('active RuntimeEvent ledger produces an explicit read-model error', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+    }));
+
+    try {
+      await manager.getMessages(session.id);
+    } catch (error) {
+      expect(error instanceof RuntimeReadModelError).toBe(true);
+      if (!(error instanceof RuntimeReadModelError)) throw error;
+      expect(error.diagnostics.map((diagnostic) => diagnostic.code)).toContain('incomplete_event');
+      return;
+    }
+    throw new Error('Expected active ledger read to fail');
+  });
+
+  test('getMessages rejects when runtime ledger read fails', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failRuntimeEventReads: true });
     const manager = makeManagerForReadCutover(store, runStore);
@@ -376,10 +458,10 @@ describe('SessionManager permission mode updates', () => {
       legacyIdPrefix: 'legacy',
     });
 
-    expect(await manager.getMessages(session.id)).toEqual(seeded.legacyMessages);
+    await expectRejects(manager.getMessages(session.id), /RuntimeEvent ledger read failed/);
   });
 
-  test('MAKA_RUNTIME_READ_SOURCE=legacy forces legacy reads even when RuntimeEvents are complete', async () => {
+  test('MAKA_RUNTIME_READ_SOURCE does not force legacy reads when RuntimeEvents are complete', async () => {
     const previous = process.env.MAKA_RUNTIME_READ_SOURCE;
     process.env.MAKA_RUNTIME_READ_SOURCE = 'legacy';
     try {
@@ -398,7 +480,7 @@ describe('SessionManager permission mode updates', () => {
         legacyIdPrefix: 'legacy',
       });
 
-      expect(await manager.getMessages(session.id)).toEqual(seeded.legacyMessages);
+      expect(await manager.getMessages(session.id)).toEqual(seeded.projectedMessages);
     } finally {
       if (previous === undefined) delete process.env.MAKA_RUNTIME_READ_SOURCE;
       else process.env.MAKA_RUNTIME_READ_SOURCE = previous;
@@ -433,7 +515,7 @@ describe('SessionManager permission mode updates', () => {
     ]);
   });
 
-  test('mixed legacy-only system notes force legacy fallback instead of disappearing', async () => {
+  test('mixed projection-cache-only system notes do not override RuntimeEvent projection', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const manager = makeManagerForReadCutover(store, runStore);
@@ -459,7 +541,7 @@ describe('SessionManager permission mode updates', () => {
 
     const messages = await manager.getMessages(session.id);
 
-    expect(messages).toEqual([...seeded.legacyMessages, legacyNote]);
+    expect(messages).toEqual(seeded.projectedMessages);
   });
 
   test('getMessages orders RuntimeEvent-primary reads by session event chronology across runs', async () => {
@@ -574,7 +656,7 @@ describe('SessionManager permission mode updates', () => {
     backends.register('fake', (ctx) => new EventBackend(ctx, [
       { type: 'complete', stopReason: 'end_turn' },
     ]));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(6_760) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(6_760) });
     const session = await manager.createSession(makeInput());
     await seedRuntimeRun(runStore, makeRunHeader({
       sessionId: session.id,
@@ -604,7 +686,7 @@ describe('SessionManager permission mode updates', () => {
     backends.register('fake', (ctx) => new EventBackend(ctx, [
       { type: 'complete', stopReason: 'end_turn' },
     ]));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(6_770) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(6_770) });
     const session = await manager.createSession(makeInput());
     await seedRuntimeReadTurn({
       store,
@@ -651,6 +733,50 @@ describe('SessionManager permission mode updates', () => {
     expect(childMessages[1]).toMatchObject({ type: 'assistant', turnId: 'source', text: 'runtime branch answer' });
     expect(childMessages[2]).toMatchObject({ type: 'system_note', kind: 'session_start' });
     expect(childMessages.some((message) => message.type === 'turn_state')).toBe(false);
+
+    const runtimeMessages = await manager.getMessages(child.id);
+    expect(runtimeMessages[0]).toMatchObject({ type: 'user', turnId: 'source', text: 'runtime branch context' });
+    expect(runtimeMessages[1]).toMatchObject({ type: 'assistant', turnId: 'source', text: 'runtime branch answer' });
+  });
+
+  test('branch child next turn receives cloned RuntimeEvent context', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_870),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'source', text: 'branch seed' }));
+    const child = await manager.branchFromTurn(session.id, { sourceTurnId: 'source', name: 'Child' });
+    await store.appendMessage(child.id, {
+      type: 'assistant',
+      id: 'child-cache-only',
+      turnId: 'cache-only',
+      ts: 6_999,
+      text: 'cache-only child context',
+      modelId: 'fake-model',
+    });
+
+    await drain(manager.sendMessage(child.id, { turnId: 'child-next', text: 'child follow-up' }));
+
+    const childInput = backendInstances[1]?.sendInputs[0];
+    if (!childInput) throw new Error('child backend input was not recorded');
+    expect(childInput.context.some((message) => message.type === 'user' && message.turnId === 'source' && message.text === 'branch seed')).toBe(true);
+    expect(childInput.context.some((message) => message.type === 'assistant' && message.id === 'child-cache-only')).toBe(false);
+    expect(childInput.runtimeContext?.map((event) => event.turnId)).toEqual(['source', 'source', 'source']);
+    expect(childInput.runtimeContext?.[0]?.sessionId).toBe(child.id);
   });
 
   test('multi-run RuntimeEvent projection preserves retry regenerate and branch lineage on turns', async () => {
@@ -725,7 +851,7 @@ describe('SessionManager permission mode updates', () => {
     });
   });
 
-  test('getMessages keeps legacy SessionStore behavior when no runStore is provided', async () => {
+  test('getMessages fails fast when RuntimeReadModel stores are not provided', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
@@ -736,10 +862,10 @@ describe('SessionManager permission mode updates', () => {
     ];
     await store.appendMessages(session.id, legacyMessages);
 
-    expect(await manager.getMessages(session.id)).toEqual(legacyMessages);
+    await expectRejects(manager.getMessages(session.id), /RuntimeReadModel requires AgentRunStore and RuntimeEventStore/);
   });
 
-  test('next turn receives complete prior RuntimeEvent context alongside legacy context', async () => {
+  test('next turn receives complete prior RuntimeEvent context and projection context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -751,8 +877,7 @@ describe('SessionManager permission mode updates', () => {
     });
     const manager = new SessionManager({
       store,
-      runStore,
-      backends,
+      runStore, runtimeEventStore: runStore, backends,
       newId: nextId(),
       now: nextNow(6_800),
       runtimeSource: 'test',
@@ -765,13 +890,13 @@ describe('SessionManager permission mode updates', () => {
     const secondInput = backendInstances[0]?.sendInputs[1];
     if (!secondInput) throw new Error('second backend input was not recorded');
     expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-1')).toBe(true);
-    expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-2')).toBe(true);
+    expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-2')).toBe(false);
     expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
     expect(secondInput.runtimeContext?.map((event) => event.role)).toEqual(['user', 'model', 'system']);
     expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
   });
 
-  test('next turn falls back to legacy when RuntimeEvents do not cover legacy model-visible context', async () => {
+  test('next turn still receives RuntimeEvent context when projection cache has extra rows', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -783,8 +908,7 @@ describe('SessionManager permission mode updates', () => {
     });
     const manager = new SessionManager({
       store,
-      runStore,
-      backends,
+      runStore, runtimeEventStore: runStore, backends,
       newId: nextId(),
       now: nextNow(6_850),
       runtimeSource: 'test',
@@ -797,18 +921,18 @@ describe('SessionManager permission mode updates', () => {
       id: 'legacy-extra-assistant',
       turnId: 'legacy-extra',
       ts: 6_899,
-      text: 'legacy-only context',
+      text: 'cache-only context',
       modelId: 'fake-model',
     });
     await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
 
     const secondInput = backendInstances[0]?.sendInputs[1];
     if (!secondInput) throw new Error('second backend input was not recorded');
-    expect(secondInput.runtimeContext).toBeUndefined();
-    expect(secondInput.context.some((message) => message.type === 'assistant' && message.id === 'legacy-extra-assistant')).toBe(true);
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    expect(secondInput.context.some((message) => message.type === 'assistant' && message.id === 'legacy-extra-assistant')).toBe(false);
   });
 
-  test('next turn remains legacy-only when prior RuntimeEvent ledger is unusable', async () => {
+  test('next turn fails when prior RuntimeEvent ledger is unusable', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failRuntimeEventAppends: true });
     const backends = new BackendRegistry();
@@ -820,8 +944,7 @@ describe('SessionManager permission mode updates', () => {
     });
     const manager = new SessionManager({
       store,
-      runStore,
-      backends,
+      runStore, runtimeEventStore: runStore, backends,
       newId: nextId(),
       now: nextNow(6_900),
       runtimeSource: 'test',
@@ -829,25 +952,23 @@ describe('SessionManager permission mode updates', () => {
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
-    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
-
-    const secondInput = backendInstances[0]?.sendInputs[1];
-    if (!secondInput) throw new Error('second backend input was not recorded');
-    expect(secondInput.runtimeContext).toBeUndefined();
-    expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-1')).toBe(true);
-    expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-2')).toBe(true);
+    await expectRejects(
+      drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' })),
+      /RuntimeEvent ledger is missing/,
+    );
+    expect(backendInstances[0]?.sendInputs.length).toBe(1);
   });
 
-  test('sendMessage production source uses AiSdkFlow instead of an inline mapper flow', async () => {
-    const source = await readFile(new URL('../../src/session-manager.ts', import.meta.url), 'utf8');
-    const sendMessageSource = source.slice(
-      source.indexOf('async *sendMessage'),
+  test('RuntimeKernel production source uses AiSdkFlow instead of an inline mapper flow', async () => {
+    const source = await readFile(new URL('../../src/runtime-kernel.ts', import.meta.url), 'utf8');
+    const startTurnSource = source.slice(
+      source.indexOf('async *startTurn'),
       source.indexOf('async stopSession'),
     );
 
-    expect(sendMessageSource.includes('new AiSdkFlow')).toBe(true);
-    expect(sendMessageSource.includes('mapSessionEventToRuntimeEvent')).toBe(false);
-    expect(sendMessageSource.includes('createSessionEventMapMemory')).toBe(false);
+    expect(startTurnSource.includes('new AiSdkFlow')).toBe(true);
+    expect(startTurnSource.includes('mapSessionEventToRuntimeEvent')).toBe(false);
+    expect(startTurnSource.includes('createSessionEventMapMemory')).toBe(false);
   });
 
   test('rejects backend configuration updates while a turn is actively streaming', async () => {
@@ -885,7 +1006,7 @@ describe('SessionManager permission mode updates', () => {
     backends.register('fake', () => {
       throw new Error('backend init failed');
     });
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(7_500) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(7_500) });
     const session = await manager.createSession(makeInput());
 
     await expectRejects(
@@ -937,7 +1058,7 @@ describe('SessionManager permission mode updates', () => {
       { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
       { type: 'complete', stopReason: 'permission_handoff' },
     ]));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(9_000) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_000) });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -1078,7 +1199,7 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     const gate = makeGate();
     backends.register('fake', (ctx) => new TestBackend(ctx, gate));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_700) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_700) });
     const session = await manager.createSession(makeInput());
 
     const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
@@ -1104,7 +1225,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TraceBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_750) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_750) });
     const session = await manager.createSession(makeInput());
 
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -1185,7 +1306,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_810) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_810) });
     const session = await manager.createSession(makeInput({ status: 'running' }));
     await seedRunningTurn(store, session.id, 'turn-1');
     await seedRun(runStore, makeRunHeader({
@@ -1217,7 +1338,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_815) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_815) });
     const session = await manager.createSession(makeInput({ status: 'running' }));
     await seedRunningTurn(store, session.id, 'turn-1');
     await seedRun(runStore, makeRunHeader({
@@ -1267,7 +1388,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_817) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_817) });
     const failed = await manager.createSession(makeInput({ status: 'running' }));
     const aborted = await manager.createSession(makeInput({ status: 'running' }));
     const cancelled = await manager.createSession(makeInput({ status: 'running' }));
@@ -1337,7 +1458,7 @@ describe('SessionManager permission mode updates', () => {
     expect((await runStore.readEvents(cancelled.id, 'cancelled-run')).map((event) => event.type)).toContain('run_cancelled');
   });
 
-  test('startup recovery falls back when RuntimeEvents are unreadable or terminal facts are incomplete', async () => {
+  test('startup recovery refuses cache-completed recovery without a RuntimeEvent terminal fact', async () => {
     const unreadableStore = new MemorySessionStore();
     const unreadableRunStore = new MemoryAgentRunStore({ failRuntimeEventReads: true });
     const incompleteStore = new MemorySessionStore();
@@ -1346,15 +1467,13 @@ describe('SessionManager permission mode updates', () => {
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const unreadableManager = new SessionManager({
       store: unreadableStore,
-      runStore: unreadableRunStore,
-      backends,
+      runStore: unreadableRunStore, runtimeEventStore: unreadableRunStore, backends,
       newId: nextId(),
       now: nextNow(12_818),
     });
     const incompleteManager = new SessionManager({
       store: incompleteStore,
-      runStore: incompleteRunStore,
-      backends,
+      runStore: incompleteRunStore, runtimeEventStore: incompleteRunStore, backends,
       newId: nextId(),
       now: nextNow(12_819),
     });
@@ -1411,11 +1530,12 @@ describe('SessionManager permission mode updates', () => {
     await unreadableManager.recoverInterruptedSessions();
     await incompleteManager.recoverInterruptedSessions();
 
-    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('completed');
-    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('completed');
-    expect((await incompleteRunStore.readRun(incomplete.id, 'run-1')).status).toBe('completed');
-    expect((await incompleteStore.listTurns(incomplete.id))[0]?.status).toBe('completed');
-    expect((await incompleteRunStore.readEvents(incomplete.id, 'run-1')).find((event) => event.type === 'run_completed')?.data?.recoveryReason).toBe('stale_completed_run');
+    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('failed');
+    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('failed');
+    expect((await incompleteRunStore.readRun(incomplete.id, 'run-1')).status).toBe('failed');
+    expect((await incompleteStore.listTurns(incomplete.id))[0]?.status).toBe('failed');
+    expect((await unreadableRunStore.readEvents(unreadable.id, 'run-1')).find((event) => event.type === 'run_failed')?.data?.recoveryReason).toBe('model_stream_completed_without_runtime_terminal');
+    expect((await incompleteRunStore.readEvents(incomplete.id, 'run-1')).find((event) => event.type === 'run_failed')?.data?.recoveryReason).toBe('model_stream_completed_without_runtime_terminal');
   });
 
   test('startup recovery fails stale tool tails while preserving partial output retention', async () => {
@@ -1423,7 +1543,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_820) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_820) });
     const session = await manager.createSession(makeInput({ status: 'running' }));
     await seedRunningTurn(store, session.id, 'turn-1');
     await store.appendMessage(session.id, {
@@ -1459,7 +1579,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_830) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_830) });
     const session = await manager.createSession(makeInput({ status: 'waiting_for_user' }));
     await seedRunningTurn(store, session.id, 'turn-1');
     await seedRun(runStore, makeRunHeader({
@@ -1487,7 +1607,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_840) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_840) });
     const session = await manager.createSession(makeInput({ status: 'running' }));
     await seedRunningTurn(store, session.id, 'turn-1');
     await seedRun(runStore, makeRunHeader({
@@ -1514,7 +1634,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_850) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_850) });
     const session = await manager.createSession(makeInput({ status: 'running' }));
     await seedRunningTurn(store, session.id, 'turn-1');
     await seedRun(runStore, makeRunHeader({
@@ -1550,7 +1670,7 @@ describe('SessionManager permission mode updates', () => {
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(12_860) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_860) });
     const completed = await manager.createSession(makeInput({ status: 'active' }));
     const failed = await manager.createSession(makeInput({ status: 'active' }));
     const cancelled = await manager.createSession(makeInput({ status: 'active' }));
@@ -1613,19 +1733,28 @@ describe('SessionManager permission mode updates', () => {
 
   test('retry creates a new sibling turn and does not rewrite the aborted source turn', async () => {
     const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     const events: PartialEvent[] = [
-      { type: 'abort', reason: 'user_stop' },
+      { type: 'complete', stopReason: 'end_turn' },
     ];
     backends.register('fake', (ctx) => new EventBackend(ctx, events));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(13_000) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(13_000) });
     const session = await manager.createSession(makeInput());
-    await drain(manager.sendMessage(session.id, { turnId: 'source', text: 'try this' }));
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'source-run',
+      turnId: 'source',
+      status: 'cancelled',
+      completedAt: 102,
+    }), [
+      runtimeEvent({ id: 'source-user', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'try this' } }),
+      runtimeEvent({ id: 'source-abort', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 102, role: 'system', author: 'system', status: 'aborted', actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } } }),
+    ]);
 
-    events.splice(0, events.length, { type: 'complete', stopReason: 'end_turn' });
     await drain(manager.retryTurn(session.id, { sourceTurnId: 'source', turnId: 'retry-1' }));
 
-    const turns = await store.listTurns(session.id);
+    const turns = await manager.listTurns(session.id);
     expect(turns.find((turn) => turn.turnId === 'source')?.status).toBe('aborted');
     const retry = turns.find((turn) => turn.turnId === 'retry-1');
     expect(retry?.status).toBe('completed');
@@ -1637,11 +1766,12 @@ describe('SessionManager permission mode updates', () => {
 
   test('regenerate creates a new sibling turn from a completed source turn', async () => {
     const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
       { type: 'complete', stopReason: 'end_turn' },
     ]));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(14_000) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(14_000) });
     const session = await manager.createSession(makeInput());
     await drain(manager.sendMessage(session.id, { turnId: 'source', text: 'answer this' }));
 
@@ -1656,11 +1786,12 @@ describe('SessionManager permission mode updates', () => {
 
   test('branchFromTurn creates a new session with parent lineage and copied message boundary', async () => {
     const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new EventBackend(ctx, [
       { type: 'complete', stopReason: 'end_turn' },
     ]));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(15_000) });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(15_000) });
     const session = await manager.createSession(makeInput({ name: 'Parent' }));
     await drain(manager.sendMessage(session.id, { turnId: 'source', text: 'context' }));
     await drain(manager.sendMessage(session.id, { turnId: 'after', text: 'do not copy' }));
@@ -1675,6 +1806,50 @@ describe('SessionManager permission mode updates', () => {
     expect(childMessages.some((message) => message.type === 'turn_state')).toBe(false);
   });
 });
+
+class DelegatingRuntimeKernel implements RuntimeKernelLike {
+  readonly starts: Array<{ sessionId: string; input: Parameters<RuntimeKernelLike['startTurn']>[1] }> = [];
+  readonly stopped: string[] = [];
+  readonly permissionResponses: string[] = [];
+  activeRuns = false;
+  disposed: string[] = [];
+  cachedHeaders: SessionHeader[] = [];
+
+  constructor(private readonly events: readonly SessionEvent[] = []) {}
+
+  async *startTurn(
+    sessionId: string,
+    input: Parameters<RuntimeKernelLike['startTurn']>[1],
+  ): AsyncIterable<SessionEvent> {
+    this.starts.push({ sessionId, input });
+    for (const event of this.events) {
+      yield event;
+    }
+  }
+
+  async stopSession(sessionId: string): Promise<void> {
+    this.stopped.push(sessionId);
+  }
+
+  async respondToPermission(
+    sessionId: string,
+    _response: Parameters<RuntimeKernelLike['respondToPermission']>[1],
+  ): Promise<void> {
+    this.permissionResponses.push(sessionId);
+  }
+
+  hasActiveRuns(): boolean {
+    return this.activeRuns;
+  }
+
+  updateCachedHeader(_sessionId: string, header: SessionHeader): void {
+    this.cachedHeaders.push(header);
+  }
+
+  async disposeBackend(sessionId: string): Promise<void> {
+    this.disposed.push(sessionId);
+  }
+}
 
 class TestBackend implements AgentBackend {
   readonly kind = 'fake' as const;
@@ -1900,7 +2075,7 @@ class MemorySessionStore implements SessionStore {
   }
 }
 
-class MemoryAgentRunStore implements AgentRunStore {
+class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
@@ -1950,6 +2125,55 @@ class MemoryAgentRunStore implements AgentRunStore {
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     if (this.options.failRuntimeEventReads) throw new Error('runtime event read failed');
     return (this.runtimeEvents.get(key(sessionId, runId)) ?? []).map(copyRuntimeEvent);
+  }
+
+  async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
+    const ordered: Array<{ event: RuntimeEvent; runId: string; eventIndex: number }> = [];
+    for (const [eventKey, events] of this.runtimeEvents.entries()) {
+      const [eventSessionId, runId] = eventKey.split(':');
+      if (eventSessionId !== sessionId || !runId) continue;
+      events.forEach((event, eventIndex) => ordered.push({ event: copyRuntimeEvent(event), runId, eventIndex }));
+    }
+    ordered.sort((a, b) =>
+      a.event.ts - b.event.ts ||
+      a.runId.localeCompare(b.runId) ||
+      a.eventIndex - b.eventIndex ||
+      a.event.id.localeCompare(b.event.id)
+    );
+    return ordered.map((item) => item.event);
+  }
+}
+
+class MemoryRuntimeEventStore implements RuntimeEventStore {
+  private runtimeEvents = new Map<string, RuntimeEvent[]>();
+
+  constructor(private readonly options: { failRuntimeEventAppends?: boolean; failRuntimeEventReads?: boolean } = {}) {}
+
+  async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    if (this.options.failRuntimeEventAppends) throw new Error('runtime event append failed');
+    const eventKey = key(sessionId, runId);
+    this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
+  }
+
+  async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+    if (this.options.failRuntimeEventReads) throw new Error('runtime event read failed');
+    return (this.runtimeEvents.get(key(sessionId, runId)) ?? []).map(copyRuntimeEvent);
+  }
+
+  async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
+    const ordered: Array<{ event: RuntimeEvent; runId: string; eventIndex: number }> = [];
+    for (const [eventKey, events] of this.runtimeEvents.entries()) {
+      const [eventSessionId, runId] = eventKey.split(':');
+      if (eventSessionId !== sessionId || !runId) continue;
+      events.forEach((event, eventIndex) => ordered.push({ event: copyRuntimeEvent(event), runId, eventIndex }));
+    }
+    ordered.sort((a, b) =>
+      a.event.ts - b.event.ts ||
+      a.runId.localeCompare(b.runId) ||
+      a.eventIndex - b.eventIndex ||
+      a.event.id.localeCompare(b.event.id)
+    );
+    return ordered.map((item) => item.event);
   }
 }
 
@@ -2008,15 +2232,15 @@ function makeRunEvent(overrides: Partial<AgentRunEvent> = {}): AgentRunEvent {
   };
 }
 
-function makeManagerForReadCutover(store: MemorySessionStore, runStore: AgentRunStore): SessionManager {
+function makeManagerForReadCutover(store: MemorySessionStore, runStore: AgentRunStore & RuntimeEventStore): SessionManager {
   const backends = new BackendRegistry();
   backends.register('fake', (ctx) => new TestBackend(ctx));
-  return new SessionManager({ store, runStore, backends, newId: nextId(), now: nextNow(6_755) });
+  return new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(6_755) });
 }
 
 async function seedRuntimeReadTurn(input: {
   store: MemorySessionStore;
-  runStore: AgentRunStore;
+  runStore: AgentRunStore & RuntimeEventStore;
   sessionId: string;
   turnId: string;
   runId: string;
@@ -2085,7 +2309,7 @@ async function seedRuntimeReadTurn(input: {
 
 async function seedRuntimeReadTurnWithHeader(input: {
   store: MemorySessionStore;
-  runStore: AgentRunStore;
+  runStore: AgentRunStore & RuntimeEventStore;
   sessionId: string;
   turnId: string;
   runId: string;
@@ -2172,7 +2396,7 @@ async function seedRun(
 }
 
 async function seedRuntimeRun(
-  runStore: AgentRunStore,
+  runStore: AgentRunStore & RuntimeEventStore,
   header: AgentRunHeader,
   events: RuntimeEvent[],
 ): Promise<void> {

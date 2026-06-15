@@ -1,5 +1,5 @@
 import { describe, test } from 'node:test';
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent } from '@maka/core';
+import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import { expect } from '../test-helpers.js';
 import { inspectAgentRunReadModel } from '../agent-run-inspect.js';
 
@@ -37,7 +37,7 @@ describe('inspectAgentRunReadModel', () => {
       ts: ts + 10,
     }));
 
-    const inspected = await inspectAgentRunReadModel(runStore, { sessionId, runId });
+    const inspected = await inspectAgentRunReadModel(runStore, runStore, { sessionId, runId });
 
     expect(inspected.sourceHealth).toEqual({
       runtimeLedger: 'present',
@@ -57,7 +57,7 @@ describe('inspectAgentRunReadModel', () => {
     await missingRuntimeStore.createRun(makeHeader({ status: 'completed' }));
     await missingRuntimeStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_completed' }));
 
-    const missing = await inspectAgentRunReadModel(missingRuntimeStore, { sessionId, runId });
+    const missing = await inspectAgentRunReadModel(missingRuntimeStore, missingRuntimeStore, { sessionId, runId });
 
     expect(missing.events.map((event) => event.type)).toEqual(['run_completed']);
     expect(missing.sourceHealth.runtimeLedger).toBe('missing');
@@ -69,7 +69,7 @@ describe('inspectAgentRunReadModel', () => {
     await corruptRuntimeStore.createRun(makeHeader({ status: 'completed' }));
     await corruptRuntimeStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_completed' }));
 
-    const corrupt = await inspectAgentRunReadModel(corruptRuntimeStore, { sessionId, runId });
+    const corrupt = await inspectAgentRunReadModel(corruptRuntimeStore, corruptRuntimeStore, { sessionId, runId });
 
     expect(corrupt.events.map((event) => event.type)).toEqual(['run_completed']);
     expect(corrupt.sourceHealth.runtimeLedger).toBe('read_failed');
@@ -89,7 +89,7 @@ describe('inspectAgentRunReadModel', () => {
       actions: { endInvocation: true },
     }));
 
-    const inspected = await inspectAgentRunReadModel(runStore, { sessionId, runId });
+    const inspected = await inspectAgentRunReadModel(runStore, runStore, { sessionId, runId });
 
     expect(inspected.sourceHealth.statusConsistency).toBe('inconsistent');
     expect(inspected.terminalRuntimeFact?.runStatus).toBe('completed');
@@ -97,7 +97,7 @@ describe('inspectAgentRunReadModel', () => {
   });
 });
 
-class MemoryAgentRunStore implements AgentRunStore {
+class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
@@ -146,6 +146,22 @@ class MemoryAgentRunStore implements AgentRunStore {
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     if (this.options.failRuntimeEventReads) throw new Error('runtime ledger is corrupt');
     return (this.runtimeEvents.get(key(sessionId, runId)) ?? []).map(copyRuntimeEvent);
+  }
+
+  async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
+    const ordered: Array<{ event: RuntimeEvent; runId: string; eventIndex: number }> = [];
+    for (const [eventKey, events] of this.runtimeEvents.entries()) {
+      const [eventSessionId, runId] = eventKey.split(':');
+      if (eventSessionId !== sessionId || !runId) continue;
+      events.forEach((event, eventIndex) => ordered.push({ event: copyRuntimeEvent(event), runId, eventIndex }));
+    }
+    ordered.sort((a, b) =>
+      a.event.ts - b.event.ts ||
+      a.runId.localeCompare(b.runId) ||
+      a.eventIndex - b.eventIndex ||
+      a.event.id.localeCompare(b.event.id)
+    );
+    return ordered.map((item) => item.event);
   }
 }
 
