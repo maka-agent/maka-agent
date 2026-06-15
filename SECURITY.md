@@ -4,13 +4,13 @@ This document names the trust boundaries Maka treats as load-bearing,
 the in-process safety nets it ships but does NOT treat as boundaries,
 and how to report a vulnerability.
 
-It is modeled after [hermes-agent's SECURITY.md][hermes-sec] and
+It is modeled after [external-reference's SECURITY.md][external reference-sec] and
 shares the same honesty principle: the only enforcement boundary
 against an adversarial LLM is the operating system. Anything the
 agent process screens internally is a heuristic operating on an
 attacker-influenced string.
 
-[hermes-sec]: https://github.com/NousResearch/hermes-agent/blob/main/SECURITY.md
+[external reference-sec]: https://github.com/NousResearch/external-reference/blob/main/SECURITY.md
 
 ## 1. Reporting a vulnerability
 
@@ -116,7 +116,7 @@ are welcome as ordinary issues, not security advisories.
 
 1. **Permission engine.** Prompts the user before
    destructive / file-write / shell-unsafe / web-egress tools. A
-   determined adversarial LLM can still craft tool sequences that
+   determined adversarial LLM can still construct tool sequences that
    the user accepts (social engineering). The OS is the boundary,
    the engine is the UX.
 2. **`redactSecrets()` output sanitizer.** Best-effort pattern
@@ -217,6 +217,6 @@ release notes.
 ## 6. Acknowledgement
 
 The structure and several phrases of this document are adapted
-from the [Hermes Agent SECURITY.md][hermes-sec]. Thanks to the
+from the [external reference SECURITY.md][external reference-sec]. Thanks to the
 Nous Research team for setting the bar on honest agent security
 framing.
