@@ -24,7 +24,7 @@ export const STATUS = 'preview' as const;
 // Endpoints — Google OAuth2. Spec lives in
 // docs/30-plugins.md §11.1 (antigravity-auth plugin). Token
 // endpoint is the standard Google OAuth2 token endpoint; the
-// loopback port (51121) matches the spec exactly. alma-docs-only:
+// loopback port (51121) matches the spec exactly. spec-only:
 // these are the canonical Google OAuth values; the missing piece
 // is the client_id (and possibly client_secret) the upstream
 // antigravity-auth plugin uses.
@@ -80,7 +80,7 @@ export function buildAntigravityAuthorizationUrl(config: AntigravityAuthorizatio
   url.searchParams.set('state', config.state);
   // Google-specific: ask for offline_access (refresh tokens) and
   // prompt=consent so we definitely receive a refresh token on
-  // re-auth. alma-docs-only assumption based on standard Google
+  // re-auth. spec-only assumption based on standard Google
   // OAuth practice.
   url.searchParams.set('access_type', 'offline');
   url.searchParams.set('prompt', 'consent');

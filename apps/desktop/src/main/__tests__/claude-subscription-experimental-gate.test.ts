@@ -291,7 +291,7 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
 });
 
 describe('Claude OAuth authorize URL compatibility', () => {
-  it('uses the Alma / upstream shape: code=true and state equals PKCE verifier', async () => {
+  it('uses the upstream shape: code=true and state equals PKCE verifier', async () => {
     const [service, core] = await Promise.all([
       readFile(SERVICE_SOURCE, 'utf8'),
       readFile(CORE_TYPES_SOURCE, 'utf8'),
@@ -299,7 +299,7 @@ describe('Claude OAuth authorize URL compatibility', () => {
     assert.match(
       core,
       /url\.searchParams\.set\('code',\s*'true'\)/,
-      'Claude authorize URL must include code=true like Alma / Claude Code',
+      'Claude authorize URL must include code=true like the upstream Claude Code OAuth flow',
     );
     assert.match(
       service,

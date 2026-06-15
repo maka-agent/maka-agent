@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe('WeChat scan login', () => {
-  it('renders Alma iLink qrcode_img_content into an image data URL', async () => {
+  it('renders iLink qrcode_img_content into an image data URL', async () => {
     const rawQrContent = 'https://ilinkai.weixin.qq.com/connect/weixin-login?qrcode=scan-token-123';
     const requests: Array<{ url: string; headers: HeadersInit | undefined }> = [];
 

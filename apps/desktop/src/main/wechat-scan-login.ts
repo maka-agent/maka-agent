@@ -2,9 +2,10 @@
  * PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): WeChat personal-account
  * scan-login via the iLink ClawBot endpoints. The reference design uses
  * an external service hosted by Tencent that returns QR payload content
- * + a token. Alma renders that payload into a local PNG data URL before
- * handing it to the renderer; the user scans the QR with WeChat on their
- * phone; we poll the status endpoint for `confirmed` / `expired`.
+ * + a token. The upstream client renders that payload into a local PNG
+ * data URL before handing it to the renderer; the user scans the QR with
+ * WeChat on their phone; we poll the status endpoint for `confirmed` /
+ * `expired`.
  *
  * Endpoints (reverse-engineered from the upstream desktop client at
  * external reference main.js:41518-41600):

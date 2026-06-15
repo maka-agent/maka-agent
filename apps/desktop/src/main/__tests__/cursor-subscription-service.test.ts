@@ -2,8 +2,8 @@
  * Static-analysis + unit tests for the Cursor subscription OAuth
  * service (PR-MODEL-OAUTH-ALL-0).
  *
- * Pins the login URL params, poll URL shape and refresh URL we
- * copied 1:1 from alma's cursor-auth plugin.
+ * Pins the login URL params, poll URL shape and refresh URL to
+ * the upstream cursor-auth values.
  */
 
 import { strict as assert } from 'node:assert';
@@ -39,8 +39,8 @@ const HELPERS_SOURCE = resolve(
   'cursor-subscription-helpers.ts',
 );
 
-describe('Cursor subscription OAuth config (alma cursor-auth pattern)', () => {
-  it('pins login / poll / refresh URLs to alma cursor-auth values', () => {
+describe('Cursor subscription OAuth config (upstream cursor-auth pattern)', () => {
+  it('pins login / poll / refresh URLs to upstream cursor-auth values', () => {
     assert.equal(CURSOR_OAUTH_CONFIG.loginUrl, 'https://cursor.com/loginDeepControl');
     assert.equal(CURSOR_OAUTH_CONFIG.pollUrl, 'https://api2.cursor.sh/auth/poll');
     assert.equal(
@@ -49,7 +49,7 @@ describe('Cursor subscription OAuth config (alma cursor-auth pattern)', () => {
     );
   });
 
-  it('mirrors alma poll cadence: 1s baseline, 1.2x backoff, 10s cap, 150 attempts', () => {
+  it('mirrors upstream poll cadence: 1s baseline, 1.2x backoff, 10s cap, 150 attempts', () => {
     assert.equal(CURSOR_OAUTH_CONFIG.pollBaseDelayMs, 1000);
     assert.equal(CURSOR_OAUTH_CONFIG.pollMaxDelayMs, 10_000);
     assert.equal(CURSOR_OAUTH_CONFIG.pollBackoffMultiplier, 1.2);
@@ -125,7 +125,7 @@ describe('Cursor service source-grep contract', () => {
     assert.match(
       helpersSrc,
       /api2\.cursor\.sh\/auth\/poll/,
-      'poll URL literal must exactly match alma cursor-auth (in helpers config)',
+      'poll URL literal must exactly match upstream cursor-auth (in helpers config)',
     );
     assert.match(
       serviceSrc,
@@ -140,7 +140,7 @@ describe('Cursor service source-grep contract', () => {
     assert.match(
       helpersSrc,
       /api2\.cursor\.sh\/auth\/exchange_user_api_key/,
-      'refresh URL literal must exactly match alma cursor-auth (in helpers config)',
+      'refresh URL literal must exactly match upstream cursor-auth (in helpers config)',
     );
     assert.match(serviceSrc, /Authorization:\s*`Bearer/, 'refresh must send Bearer auth');
   });

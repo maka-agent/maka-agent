@@ -15,8 +15,8 @@ describe('pi agent loop migration plan contract', () => {
 
     assert.match(plan, /PR-PI-AGENT-LOOP-0/);
     assert.match(plan, /packages\/runtime\/src\/ai-sdk-backend\.ts/);
-    assert.match(plan, /\/Users\/jakevin\/\.Trash\/alma-re\/docs\/20-acp\.md/);
-    assert.match(plan, /\/Users\/jakevin\/\.Trash\/alma-re\/readable\/main\.js:20597-21460/);
+    assert.match(plan, /Reference Loop Findings/);
+    assert.match(plan, /packages\/runtime\/src\/session-manager\.ts/);
   });
 
   it('requires a separate backend instead of overloading the current provider loop', async () => {

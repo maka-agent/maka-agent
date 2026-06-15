@@ -2,8 +2,8 @@
  * Static-analysis + unit tests for the Antigravity (Google /
  * Gemini) subscription OAuth service (PR-MODEL-OAUTH-ALL-0).
  *
- * Antigravity has no alma source available — only the
- * docs/30-plugins.md §11.1 spec. We pin:
+ * Antigravity has no working upstream plugin source available —
+ * only the docs/30-plugins.md §11.1 spec. We pin:
  *   - the loopback port (51121, matches the spec)
  *   - the `STATUS = 'preview'` marker
  *   - the fail-closed envelope when GOOGLE_CLIENT_ID is empty
@@ -143,12 +143,12 @@ describe('Antigravity service source-grep contract', () => {
     assert.match(src, /export const STATUS = 'preview' as const;/);
   });
 
-  it('marks Google-specific calls as alma-docs-only in the comment block', async () => {
+  it('marks Google-specific calls as spec-only in the comment block', async () => {
     const src = await readFile(HELPERS_SOURCE, 'utf8');
     assert.match(
       src,
-      /alma-docs-only/i,
-      'antigravity helpers must call out that endpoint values come from the alma docs spec, not from a working plugin source',
+      /spec-only/i,
+      'antigravity helpers must call out that endpoint values come from the docs spec, not from a working upstream plugin source',
     );
   });
 

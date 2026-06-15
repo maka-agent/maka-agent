@@ -207,8 +207,8 @@ export class ClaudeSubscriptionService {
     // legitimate reason for multiple concurrent pendings.
     this.pending.clear();
     const verifier = base64urlEncode(randomBytes(PKCE_VERIFIER_LENGTH_BYTES));
-    // Alma / upstream Claude Code uses the PKCE verifier as the OAuth
-    // state value. Anthropic's authorize page rejects shorter, unrelated
+    // Upstream Claude Code uses the PKCE verifier as the OAuth state
+    // value. Anthropic's authorize page rejects shorter, unrelated
     // state strings with "Invalid request format", so keep this flow
     // source-compatible while still validating the pasted state strictly.
     const state = verifier;
@@ -270,7 +270,7 @@ export class ClaudeSubscriptionService {
   /**
    * Validate the pasted code, then exchange for tokens.
    *
-   * Claude Code / Alma use the PKCE verifier itself as OAuth state.
+   * Upstream Claude Code uses the PKCE verifier itself as OAuth state.
    * That means the pasted `code#state` contains the verifier needed
    * for token exchange. We still validate against pending state when
    * pending exists, but if the in-memory pending map was lost

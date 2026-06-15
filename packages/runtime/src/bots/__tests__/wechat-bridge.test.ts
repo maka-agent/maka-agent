@@ -23,7 +23,7 @@ describe('WechatBridge', () => {
     assert.equal(normalizeWechatBridgeUrl('https://example.com/wechat-bridge'), null);
   });
 
-  test('normalizes only the Alma iLink base URL for direct WeChat login', () => {
+  test('normalizes only the iLink base URL for direct WeChat login', () => {
     assert.equal(normalizeWechatIlinkBaseUrl(undefined), null);
     assert.equal(normalizeWechatIlinkBaseUrl(' https://ilinkai.weixin.qq.com/ '), 'https://ilinkai.weixin.qq.com');
     assert.equal(normalizeWechatIlinkBaseUrl('http://ilinkai.weixin.qq.com'), null);
@@ -41,7 +41,7 @@ describe('WechatBridge', () => {
     );
   });
 
-  test('fetches an Alma-compatible QR payload from the local bridge and renders a data URL', async () => {
+  test('fetches an iLink-compatible QR payload from the local bridge and renders a data URL', async () => {
     const server = createServer((req, res) => {
       if (req.url === '/api/weixin/qrcode') {
         res.setHeader('Content-Type', 'application/json');
@@ -148,7 +148,7 @@ describe('WechatBridge', () => {
     assert.equal(event?.receivedAt, 1_700_000_001_234);
   });
 
-  test('maps Alma iLink text and voice transcript messages into bot events', () => {
+  test('maps iLink text and voice transcript messages into bot events', () => {
     const event = mapWechatIlinkMessage({
       from_user_id: 'wxid_friend',
       client_id: 'client-1',

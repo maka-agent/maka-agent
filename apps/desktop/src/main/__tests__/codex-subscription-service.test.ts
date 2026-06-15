@@ -2,9 +2,9 @@
  * Static-analysis + unit tests for the OpenAI Codex subscription
  * OAuth service (PR-MODEL-OAUTH-ALL-0).
  *
- * Pins the params we copied 1:1 from alma's openai-codex-auth
- * plugin (clientId, scopes, extras, redirect URI, PKCE shape),
- * plus the JWT account-id extraction.
+ * Pins the params (clientId, scopes, extras, redirect URI, PKCE
+ * shape) to the upstream openai-codex-auth values, plus the JWT
+ * account-id extraction.
  */
 
 import { strict as assert } from 'node:assert';
@@ -40,7 +40,7 @@ const HELPERS_SOURCE = resolve(
   'codex-subscription-helpers.ts',
 );
 
-describe('Codex subscription OAuth config (alma openai-codex-auth pattern)', () => {
+describe('Codex subscription OAuth config (upstream openai-codex-auth pattern)', () => {
   it('pins clientId, endpoints, redirect URI, scopes and extras', () => {
     assert.equal(CODEX_OAUTH_CONFIG.clientId, 'app_EMoamEEZ73f0CkXaXp7hrann');
     assert.equal(CODEX_OAUTH_CONFIG.authUrl, 'https://auth.openai.com/oauth/authorize');

@@ -1259,13 +1259,12 @@ satisfy before merge. The threat model is captured here so the
 implementation cannot be reviewed against an aspirational verbal
 description; the gate is what reviewers grep.
 
-Reference: Alma's `AlmaComputerUse` helper (separate signed bundle,
-`LSUIElement`, AX + ScreenCaptureKit + CGEvent, NDJSON over a Unix
-socket) is the architectural prior art that informs these
-boundaries. Maka's eventual implementation does not have to mirror
-the same wire shape, but each contract below applies regardless of
-whether the runner lives in a helper process or inline in the main
-process.
+Reference: a separate signed helper bundle (`LSUIElement`, AX +
+ScreenCaptureKit + CGEvent, NDJSON over a Unix socket) is the
+architectural prior art that informs these boundaries. Maka's
+eventual implementation does not have to mirror the same wire
+shape, but each contract below applies regardless of whether the
+runner lives in a helper process or inline in the main process.
 
 Doc convention is the same as Path 17:
 - **Contract invariant** — 1-3 final-state bullets the gate will enforce
@@ -1623,8 +1622,8 @@ Doc convention is the same as Path 17:
 / PR-RUNTIME-CU reviewers).**
 
 - Maka's eventual CU implementation does NOT have to use a separate
-  signed helper bundle like Alma's. Inline-in-main-process is also
-  acceptable, provided ALL the boundaries above hold. The main-
+  signed helper bundle. Inline-in-main-process is also acceptable,
+  provided ALL the boundaries above hold. The main-
   process Electron context is already a trust boundary vs the
   renderer; an additional process boundary is defense-in-depth, not
   a contract requirement.

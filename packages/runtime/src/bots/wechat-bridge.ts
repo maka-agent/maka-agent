@@ -296,7 +296,7 @@ export async function getWechatBridgeQrCode(
   return {
     ok: false,
     error: generalizedErrorMessage(lastError),
-    hint: '先启动本机 wechat-bridge，并确认它暴露了 Alma 兼容的 /api/weixin/qrcode 或 /qrcode 接口。',
+    hint: '先启动本机 wechat-bridge，并确认它暴露了 iLink 兼容的 /api/weixin/qrcode 或 /qrcode 接口。',
   };
 }
 

@@ -304,11 +304,11 @@ describe('Bot settings UI contract', () => {
     assert.doesNotMatch(settings, /扫码登录由本机 wechat-bridge 处理/, 'Scan login must not be a toast-only handoff');
     assert.match(styles, /\.settingsWechatQrModal\b/, 'QR modal styles must be present');
     assert.match(styles, /\.settingsWechatQrFrame img\b/, 'QR image must have a stable frame style');
-    assert.match(scanLogin, /get_bot_qrcode\?bot_type=3/, 'Main scan-login wrapper must use the Alma-compatible iLink QR endpoint');
-    assert.match(scanLogin, /get_qrcode_status\?qrcode=/, 'Main scan-login wrapper must use the Alma-compatible iLink status endpoint');
+    assert.match(scanLogin, /get_bot_qrcode\?bot_type=3/, 'Main scan-login wrapper must use the iLink QR endpoint');
+    assert.match(scanLogin, /get_qrcode_status\?qrcode=/, 'Main scan-login wrapper must use the iLink status endpoint');
     assert.match(scanLogin, /X-WECHAT-UIN/, 'Main scan-login wrapper must send the required WeChat UIN header');
     assert.match(scanLogin, /createRequire\(import\.meta\.url\)/, 'Main scan-login wrapper must be able to load the QR renderer from Electron ESM');
-    assert.match(scanLogin, /qrcode\.toDataURL\(raw/, 'Alma iLink qrcode_img_content is QR payload content and must be rendered before reaching <img>');
+    assert.match(scanLogin, /qrcode\.toDataURL\(raw/, 'iLink qrcode_img_content is QR payload content and must be rendered before reaching <img>');
     assert.match(scanLogin, /return \{ qrcodeUrl: await renderWeChatQrcode\(qrcodeContent\), qrToken \}/, 'Direct scan login must return a renderer-safe QR image data URL, not raw iLink content');
     assert.match(desktopPackage, /"qrcode":\s*"\^1\.5\.4"/, 'Desktop main process must declare the QR renderer dependency it uses');
     assert.match(main, /from '\.\/wechat-scan-login\.js'/, 'Electron ESM main import must include the emitted .js extension');

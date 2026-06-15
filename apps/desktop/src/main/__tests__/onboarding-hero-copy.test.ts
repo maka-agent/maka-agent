@@ -220,7 +220,7 @@ describe('getOnboardingHeroCopy — invariants', () => {
   });
 });
 
-describe('getOnboardingSetupSteps — Craft-style AI setup guide', () => {
+describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
   it('guides completely new users through AI setup before first chat', () => {
     const steps = getOnboardingSetupSteps({ kind: 'needs_connection' } as OnboardingState);
     assert.ok(steps);

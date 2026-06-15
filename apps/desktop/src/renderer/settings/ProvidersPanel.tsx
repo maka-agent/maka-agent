@@ -1090,11 +1090,11 @@ function subscriptionDisplay(serviceId: BrowserOAuthServiceId): SubscriptionDisp
         shortName: 'Antigravity',
         // OAuth flow + token persistence + IPC handlers ARE wired
         // and tested; the only thing gating real login is the
-        // Google client_id constant (the alma reference doesn't
-        // expose it in the public plugin repo). When the user
-        // clicks 登录 the service surfaces that exact reason via
-        // its envelope, so this card-level copy stays factual
-        // without claiming the whole thing is unimplemented.
+        // Google client_id constant (no public upstream plugin source
+        // exposes it). When the user clicks 登录 the service surfaces
+        // that exact reason via its envelope, so this card-level
+        // copy stays factual without claiming the whole thing is
+        // unimplemented.
         detail: '使用 Google 账号登录给 Gemini 模型。当前为预览状态：需要 Google client_id 后才能完成登录。',
       };
   }
