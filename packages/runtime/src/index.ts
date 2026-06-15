@@ -176,6 +176,19 @@ export type {
   RuntimeEventToDraftOptions,
 } from './runtime-event-adapters.js';
 
+// runtime-event-read-model.ts — side-by-side RuntimeEvent read projection.
+export {
+  projectRuntimeEventsToStoredMessages,
+  compareRuntimeReadModelMessages,
+} from './runtime-event-read-model.js';
+export type {
+  ProjectRuntimeEventsToStoredMessagesOptions,
+  RuntimeEventReadModelDiagnostic,
+  RuntimeEventReadModelDiagnosticCode,
+  RuntimeEventReadModelProjection,
+  RuntimeReadModelCompatibilityResult,
+} from './runtime-event-read-model.js';
+
 // model-history.ts — policy-driven model-history projection.
 export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
 export type {

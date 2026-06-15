@@ -27,6 +27,7 @@
     "./telemetry": "./dist/telemetry/index.js",
     "./bots": "./dist/bots/index.js",
     "./runtime-event-adapters": "./dist/runtime-event-adapters.js",
+    "./runtime-event-read-model": "./dist/runtime-event-read-model.js",
     "./model-history": "./dist/model-history.js",
     "./invocation-context": "./dist/invocation-context.js",
     "./runtime-runner": "./dist/runtime-runner.js",

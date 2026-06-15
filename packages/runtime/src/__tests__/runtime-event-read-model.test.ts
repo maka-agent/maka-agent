@@ -1,0 +1,545 @@
+import { describe, test } from 'node:test';
+import type {
+  AgentRunHeader,
+  CreateSessionInput,
+  RuntimeEvent,
+  SessionHeader,
+  SessionListFilter,
+  SessionSummary,
+  StoredMessage,
+  TurnRecord,
+} from '@maka/core';
+import { deriveTurnRecords } from '@maka/core';
+import { expect } from '../test-helpers.js';
+import {
+  compareRuntimeReadModelMessages,
+  projectRuntimeEventsToStoredMessages,
+} from '../runtime-event-read-model.js';
+import { materializeSession } from '../materializer.js';
+import {
+  BackendRegistry,
+  SessionManager,
+  type SessionStore,
+} from '../session-manager.js';
+
+const ts = 1_800_000_000_000;
+const sessionId = 'sess-1';
+const runId = 'run-1';
+const turnId = 'turn-1';
+const invocationId = 'inv-1';
+let eventSeq = 0;
+
+const header: AgentRunHeader = {
+  runId,
+  sessionId,
+  turnId,
+  status: 'completed',
+  backendKind: 'ai-sdk',
+  llmConnectionSlug: 'anthropic',
+  modelId: 'claude-sonnet-4-5',
+  cwd: '/tmp/work',
+  permissionMode: 'ask',
+  createdAt: ts,
+  updatedAt: ts + 20,
+  completedAt: ts + 20,
+  parentTurnId: 'parent-turn',
+};
+
+function ev(overrides: Partial<RuntimeEvent>): RuntimeEvent {
+  eventSeq += 1;
+  return {
+    id: `event-${eventSeq}`,
+    invocationId,
+    runId,
+    sessionId,
+    turnId,
+    ts,
+    partial: false,
+    role: 'system',
+    author: 'system',
+    ...overrides,
+  };
+}
+
+function baseEvents(): RuntimeEvent[] {
+  return [
+    ev({
+      id: 'evt-user',
+      ts: ts + 1,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'read the file' },
+      refs: { storedMessageId: 'legacy-user' },
+    }),
+    ev({
+      id: 'evt-tool-call',
+      ts: ts + 2,
+      role: 'model',
+      author: 'agent',
+      content: {
+        kind: 'function_call',
+        id: 'tool-1',
+        name: 'Read',
+        args: { path: '/tmp/a.txt' },
+      },
+      actions: { stateDelta: { displayName: 'Read file', intent: 'inspect' } },
+      refs: { toolCallId: 'tool-1' },
+    }),
+    ev({
+      id: 'evt-permission-request',
+      ts: ts + 3,
+      role: 'system',
+      author: 'system',
+      actions: {
+        permissionRequest: {
+          requestId: 'req-1',
+          toolUseId: 'tool-1',
+          toolName: 'Read',
+          category: 'read',
+          reason: 'custom',
+          args: { path: '/tmp/a.txt' },
+          hint: 'needs read access',
+        },
+      },
+      refs: { toolCallId: 'tool-1' },
+    }),
+    ev({
+      id: 'evt-permission-decision',
+      ts: ts + 4,
+      role: 'system',
+      author: 'user',
+      actions: {
+        permissionDecision: {
+          requestId: 'req-1',
+          decision: 'allow',
+          rememberForTurn: true,
+        },
+      },
+      refs: { toolCallId: 'tool-1' },
+    }),
+    ev({
+      id: 'evt-tool-result',
+      ts: ts + 5,
+      role: 'tool',
+      author: 'tool',
+      content: {
+        kind: 'function_response',
+        id: 'tool-1',
+        name: 'Read',
+        result: { kind: 'text', text: 'file contents' },
+      },
+      actions: { stateDelta: { durationMs: 42 } },
+      refs: { toolCallId: 'tool-1', storedMessageId: 'legacy-result' },
+    }),
+    ev({
+      id: 'evt-assistant',
+      ts: ts + 6,
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: 'The file says: file contents' },
+      refs: { storedMessageId: 'legacy-assistant' },
+    }),
+    ev({
+      id: 'evt-token',
+      ts: ts + 7,
+      role: 'system',
+      author: 'system',
+      actions: {
+        tokenUsage: {
+          input: 100,
+          output: 25,
+          cacheRead: 10,
+          costUsd: 0.002,
+          contextRemaining: 9000,
+        },
+      },
+    }),
+    ev({
+      id: 'evt-complete',
+      ts: ts + 8,
+      role: 'system',
+      author: 'system',
+      status: 'completed',
+      actions: { endInvocation: true },
+    }),
+  ];
+}
+
+function equivalentLegacyMessages(): StoredMessage[] {
+  return [
+    {
+      type: 'user',
+      id: 'legacy-user',
+      turnId,
+      ts: ts + 1,
+      text: 'read the file',
+    },
+    {
+      type: 'tool_call',
+      id: 'tool-1',
+      turnId,
+      ts: ts + 2,
+      toolName: 'Read',
+      displayName: 'Read file',
+      intent: 'inspect',
+      args: { path: '/tmp/a.txt' },
+    },
+    {
+      type: 'permission_decision',
+      id: 'req-1',
+      turnId,
+      ts: ts + 4,
+      toolUseId: 'tool-1',
+      toolName: 'Read',
+      decision: 'allow',
+      rememberForTurn: true,
+      hint: 'needs read access',
+    },
+    {
+      type: 'tool_result',
+      id: 'legacy-result',
+      turnId,
+      ts: ts + 5,
+      toolUseId: 'tool-1',
+      isError: false,
+      content: { kind: 'text', text: 'file contents' },
+      durationMs: 42,
+    },
+    {
+      type: 'assistant',
+      id: 'legacy-assistant',
+      turnId,
+      ts: ts + 6,
+      text: 'The file says: file contents',
+      modelId: 'claude-sonnet-4-5',
+    },
+    {
+      type: 'token_usage',
+      id: 'evt-token',
+      turnId,
+      ts: ts + 7,
+      input: 100,
+      output: 25,
+      cacheRead: 10,
+      costUsd: 0.002,
+    },
+    {
+      type: 'turn_state',
+      id: 'evt-complete',
+      turnId,
+      ts: ts + 8,
+      status: 'completed',
+      parentTurnId: 'parent-turn',
+      partialOutputRetained: true,
+    },
+  ];
+}
+
+describe('projectRuntimeEventsToStoredMessages', () => {
+  test('full RuntimeEvent turn projects legacy-compatible rows', () => {
+    const out = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
+
+    expect(out.messages.map((message) => message.type)).toEqual([
+      'user',
+      'tool_call',
+      'permission_decision',
+      'tool_result',
+      'assistant',
+      'token_usage',
+      'turn_state',
+    ]);
+    expect(out.messages[1]).toMatchObject({
+      type: 'tool_call',
+      id: 'tool-1',
+      toolName: 'Read',
+      displayName: 'Read file',
+      intent: 'inspect',
+    });
+    expect(out.messages[2]).toMatchObject({
+      type: 'permission_decision',
+      id: 'req-1',
+      toolUseId: 'tool-1',
+      toolName: 'Read',
+      decision: 'allow',
+      hint: 'needs read access',
+    });
+    expect(out.messages[3]).toMatchObject({
+      type: 'tool_result',
+      id: 'legacy-result',
+      toolUseId: 'tool-1',
+      durationMs: 42,
+    });
+    expect(out.messages[4]).toMatchObject({
+      type: 'assistant',
+      modelId: 'claude-sonnet-4-5',
+      text: 'The file says: file contents',
+    });
+    expect(out.messages[6]).toMatchObject({
+      type: 'turn_state',
+      status: 'completed',
+      parentTurnId: 'parent-turn',
+      partialOutputRetained: true,
+    });
+    expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
+  });
+
+  test('projected rows materialize to the same runtime view model as equivalent legacy rows', () => {
+    const out = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
+    const projected = materializeSession(out.messages);
+    const legacy = materializeSession(equivalentLegacyMessages());
+
+    expect(projected).toEqual(legacy);
+  });
+
+  test('partial RuntimeEvents are excluded', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-partial',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'streaming' },
+      }),
+      ev({
+        id: 'evt-final',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'final' },
+      }),
+    ], { runHeaders: [header] });
+
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0]).toMatchObject({ type: 'assistant', text: 'final' });
+    expect(out.diagnostics.map((diag) => diag.code)).toEqual(['partial_skipped']);
+  });
+
+  test('unsupported and incomplete events are diagnostic-only', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-thinking',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'private reasoning' },
+      }),
+      ev({
+        id: 'evt-permission-orphan',
+        actions: {
+          permissionDecision: {
+            requestId: 'missing-request',
+            decision: 'deny',
+          },
+        },
+      }),
+      ev({
+        id: 'evt-invalid-result',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-x',
+          name: 'Read',
+          result: 'plain string is not ToolResultContent',
+        },
+      }),
+    ], { runHeaders: [header] });
+
+    expect(out.messages).toEqual([]);
+    expect(out.diagnostics.map((diag) => diag.code)).toEqual([
+      'unsupported_event',
+      'unsupported_event',
+      'incomplete_event',
+      'unsupported_event',
+      'incomplete_event',
+      'unsupported_event',
+    ]);
+  });
+
+  test('failed terminal RuntimeEvent maps to failed turn state when run header carries failure class', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-failed',
+        ts: ts + 9,
+        status: 'failed',
+        actions: { endInvocation: true },
+      }),
+    ], {
+      runHeaders: [{ ...header, status: 'failed', failureClass: 'tool_failed' }],
+    });
+
+    expect(out.messages).toEqual([{
+      type: 'turn_state',
+      id: 'evt-failed',
+      turnId,
+      ts: ts + 9,
+      status: 'failed',
+      parentTurnId: 'parent-turn',
+      errorClass: 'tool_failed',
+      partialOutputRetained: false,
+    }]);
+    expect(out.diagnostics).toEqual([]);
+  });
+});
+
+describe('compareRuntimeReadModelMessages', () => {
+  test('accepts semantically equivalent projected and legacy messages despite id differences', () => {
+    const projected = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
+    const legacyWithDifferentIds = equivalentLegacyMessages().map((message) => {
+      if (message.type === 'tool_call' || message.type === 'permission_decision') return message;
+      return { ...message, id: `different-${message.id}` } as StoredMessage;
+    });
+    const result = compareRuntimeReadModelMessages(projected.messages, legacyWithDifferentIds);
+
+    expect(result.compatible).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test('treats nested JSON with different property order as compatible', () => {
+    const projected = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-tool-call-json',
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'tool-json',
+          name: 'JsonTool',
+          args: { beta: 2, alpha: { z: 3, a: 1 } },
+        },
+      }),
+      ev({
+        id: 'evt-tool-result-json',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-json',
+          name: 'JsonTool',
+          result: { kind: 'json', value: { outer: { y: 2, x: 1 }, list: [{ b: 2, a: 1 }] } },
+        },
+      }),
+    ], { runHeaders: [header] });
+    const legacy: StoredMessage[] = [
+      {
+        type: 'tool_call',
+        id: 'tool-json',
+        turnId,
+        ts,
+        toolName: 'JsonTool',
+        args: { alpha: { a: 1, z: 3 }, beta: 2 },
+      },
+      {
+        type: 'tool_result',
+        id: 'different-result-id',
+        turnId,
+        ts,
+        toolUseId: 'tool-json',
+        isError: false,
+        content: { kind: 'json', value: { list: [{ a: 1, b: 2 }], outer: { x: 1, y: 2 } } },
+      },
+    ];
+
+    const result = compareRuntimeReadModelMessages(projected.messages, legacy);
+
+    expect(result.compatible).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test('rejects missing tool result and assistant text cases', () => {
+    const projected = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
+    const missing = projected.messages.filter((message) =>
+      message.type !== 'tool_result' && message.type !== 'assistant'
+    );
+    const result = compareRuntimeReadModelMessages(missing, equivalentLegacyMessages());
+
+    expect(result.compatible).toBe(false);
+    expect(result.diagnostics.map((diag) => diag.code)).toEqual([
+      'missing_legacy_message',
+      'missing_legacy_message',
+    ]);
+  });
+});
+
+describe('SessionManager read behavior', () => {
+  test('getMessages still returns legacy stored messages from the SessionStore', async () => {
+    const messages: StoredMessage[] = equivalentLegacyMessages();
+    const store = new ReadOnlyStore(messages);
+    const manager = new SessionManager({
+      store,
+      backends: new BackendRegistry(),
+      newId: () => 'id',
+      now: () => ts,
+    });
+
+    const out = await manager.getMessages(sessionId);
+
+    expect(out).toEqual(messages);
+    expect(store.readMessagesCalls).toBe(1);
+  });
+});
+
+class ReadOnlyStore implements SessionStore {
+  readMessagesCalls = 0;
+
+  constructor(private readonly messages: StoredMessage[]) {}
+
+  async create(_input: CreateSessionInput): Promise<SessionHeader> {
+    throw new Error('not implemented');
+  }
+
+  async list(_filter?: SessionListFilter): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async readHeader(id: string): Promise<SessionHeader> {
+    return makeHeader(id);
+  }
+
+  async readMessages(_sessionId: string): Promise<StoredMessage[]> {
+    this.readMessagesCalls += 1;
+    return [...this.messages];
+  }
+
+  async listTurns(_sessionId: string): Promise<TurnRecord[]> {
+    return deriveTurnRecords(this.messages);
+  }
+
+  async appendMessage(_sessionId: string, _m: StoredMessage): Promise<void> {
+    throw new Error('not implemented');
+  }
+
+  async appendMessages(_sessionId: string, _ms: StoredMessage[]): Promise<void> {
+    throw new Error('not implemented');
+  }
+
+  async updateHeader(id: string, patch: Partial<SessionHeader>): Promise<SessionHeader> {
+    return { ...makeHeader(id), ...patch };
+  }
+
+  async archive(_sessionId: string): Promise<void> {}
+  async unarchive(_sessionId: string): Promise<void> {}
+  async setFlagged(_sessionId: string, _isFlagged: boolean): Promise<void> {}
+  async rename(_sessionId: string, _name: string): Promise<void> {}
+  async remove(_sessionId: string): Promise<void> {}
+}
+
+function makeHeader(id: string): SessionHeader {
+  return {
+    id,
+    workspaceRoot: '/tmp/work',
+    cwd: '/tmp/work',
+    createdAt: ts,
+    lastUsedAt: ts,
+    name: 'Session',
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    hasUnread: false,
+    backend: 'fake',
+    llmConnectionSlug: 'fake',
+    connectionLocked: false,
+    model: 'fake-model',
+    permissionMode: 'ask',
+    schemaVersion: 1,
+  };
+}
