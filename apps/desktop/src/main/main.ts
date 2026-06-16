@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import { isExternalUrl } from './external-link-guard.js';
 import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
@@ -141,7 +141,13 @@ import {
   setActiveProxy,
   testConnection,
 } from '@maka/runtime';
-import type { BotIncomingMessage, ToolArtifactRecorderInput, ToolResultArchiveRecorderInput } from '@maka/runtime';
+import type {
+  BotIncomingMessage,
+  ToolArtifactRecorderInput,
+  ToolResultArchiveReaderInput,
+  ToolResultArchiveReadResult,
+  ToolResultArchiveRecorderInput,
+} from '@maka/runtime';
 import type { ContextBudgetPolicy } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
@@ -700,6 +706,24 @@ async function persistArchivedToolResult(
   return { artifactId: artifact.id };
 }
 
+async function readArchivedToolResult(
+  event: ToolResultArchiveReaderInput,
+): Promise<ToolResultArchiveReadResult> {
+  const record = await artifactStore.get(event.artifactId);
+  if (!record) return { ok: false, reason: 'not_found' };
+  if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+  if (record.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
+  if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
+  if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
+
+  const read = await artifactStore.readText(event.artifactId, {
+    maxBytes: event.maxBytes ?? event.originalBytes,
+  });
+  if (!read.ok) return read;
+  if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
+  return { ok: true, serializedResult: read.text };
+}
+
 async function resolveToolArtifactSourcePath(cwd: string, sourcePath: string): Promise<string | null> {
   const candidate = isAbsolute(sourcePath) ? sourcePath : resolve(cwd, sourcePath);
   let root: string;
@@ -769,6 +793,7 @@ backends.register('ai-sdk', async (ctx) => {
       ),
     recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
     archiveToolResult: (event) => persistArchivedToolResult(event),
+    readToolResultArchive: (event) => readArchivedToolResult(event),
     recordRunTrace: ctx.recordRunTrace,
     newId: randomUUID,
     now: Date.now,
@@ -783,10 +808,16 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
   const maxHistoryTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   const minRecentTurns = parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2);
   const staleToolResultPrune = buildStaleToolResultPrunePolicy();
+  const archiveRetrieval = buildArchiveRetrievalPolicy();
+  const historySearch = buildHistorySearchPolicy();
+  const historyRewrite = buildHistoryRewriteGatePolicy();
   if (
     maxHistoryEstimatedTokens === undefined &&
     maxHistoryTurns === undefined &&
-    staleToolResultPrune === undefined
+    staleToolResultPrune === undefined &&
+    archiveRetrieval === undefined &&
+    historySearch === undefined &&
+    historyRewrite === undefined
   ) {
     return undefined;
   }
@@ -795,6 +826,9 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
     ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
     ...(maxHistoryEstimatedTokens !== undefined ? { maxHistoryEstimatedTokens } : {}),
     ...(staleToolResultPrune !== undefined ? { staleToolResultPrune } : {}),
+    ...(archiveRetrieval !== undefined ? { archiveRetrieval } : {}),
+    ...(historySearch !== undefined ? { historySearch } : {}),
+    ...(historyRewrite !== undefined ? { historyRewrite } : {}),
     minRecentTurns,
   };
 }
@@ -814,6 +848,37 @@ function buildStaleToolResultPrunePolicy(): NonNullable<ContextBudgetPolicy['sta
   };
 }
 
+function buildArchiveRetrievalPolicy(): NonNullable<ContextBudgetPolicy['archiveRetrieval']> | undefined {
+  if (process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL !== 'on') return undefined;
+  return {
+    enabled: true,
+    maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 3),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 8192),
+    maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 1024 * 1024),
+    order: 'newest_first',
+  };
+}
+
+function buildHistorySearchPolicy(): NonNullable<ContextBudgetPolicy['historySearch']> | undefined {
+  if (process.env.MAKA_CONTEXT_HISTORY_SEARCH !== 'on') return undefined;
+  return {
+    enabled: true,
+    maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_MAX_RESULTS, 5),
+    around: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_AROUND, 1),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_MAX_TOKENS, 4096),
+  };
+}
+
+function buildHistoryRewriteGatePolicy(): NonNullable<ContextBudgetPolicy['historyRewrite']> | undefined {
+  if (process.env.MAKA_CONTEXT_HISTORY_REWRITE !== 'on') return undefined;
+  return {
+    enabled: true,
+    name: process.env.MAKA_CONTEXT_HISTORY_REWRITE_NAME ?? 'desktop-history-rewrite',
+    historyRewriteVersion: process.env.MAKA_CONTEXT_HISTORY_REWRITE_VERSION ?? 'phase6-v1',
+    resetReason: process.env.MAKA_CONTEXT_HISTORY_REWRITE_RESET_REASON ?? 'operator_enabled_history_rewrite_gate',
+  };
+}
+
 function defaultHistoryBudgetTokens(connection: LlmConnection): number | undefined {
   if (connection.providerType === 'deepseek') return undefined;
   return 32_000;
@@ -828,6 +893,10 @@ function parseOptionalPositiveInt(value: string | undefined): number | undefined
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 function buildSubscriptionModelFetch(
