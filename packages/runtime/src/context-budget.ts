@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import type { ModelMessage } from 'ai';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type {
@@ -20,6 +22,12 @@ export interface ContextBudgetPolicy {
   charsPerToken?: number;
   /** Optional replay-only pruning for stale oversized tool results before whole-turn compaction. */
   staleToolResultPrune?: StaleToolResultPrunePolicy;
+  /** Optional replay-only archive hydration after pruning. Defaults off. */
+  archiveRetrieval?: ArchiveRetrievalPolicy;
+  /** Optional deterministic prior-history search used to re-add bounded around-context. Defaults off. */
+  historySearch?: RuntimeEventHistorySearchPolicy;
+  /** Named rewrite/compaction gate for diagnostics and explicit cache-shape resets. */
+  historyRewrite?: HistoryRewriteGatePolicy;
 }
 
 export interface StaleToolResultPrunePolicy {
@@ -33,6 +41,29 @@ export interface StaleToolResultPrunePolicy {
    * matching ref exists, so archive-write failure keeps original content.
    */
   archiveRefs?: readonly ToolResultArchiveRef[] | Readonly<Record<string, ToolResultArchiveRef>>;
+}
+
+export interface ArchiveRetrievalPolicy {
+  enabled: boolean;
+  maxResults?: number;
+  maxEstimatedTokens?: number;
+  maxBytes?: number;
+  order?: 'newest_first';
+}
+
+export interface RuntimeEventHistorySearchPolicy {
+  enabled: boolean;
+  query?: string;
+  maxResults?: number;
+  around?: number;
+  maxEstimatedTokens?: number;
+}
+
+export interface HistoryRewriteGatePolicy {
+  enabled: boolean;
+  name?: string;
+  historyRewriteVersion: string;
+  resetReason: string;
 }
 
 export const ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND = 'maka.archived_tool_result';
@@ -78,6 +109,49 @@ export interface ToolResultArchiveRef {
   reason: ArchivedToolResultReason;
 }
 
+export type ToolResultArchiveReadFailureReason =
+  | 'not_found'
+  | 'deleted'
+  | 'too_large'
+  | 'not_allowed'
+  | 'read_failed'
+  | 'source_mismatch'
+  | 'session_mismatch'
+  | 'size_mismatch'
+  | 'corrupt';
+
+export interface ToolResultArchiveReaderInput extends ArchivedToolResultPlaceholder {
+  sessionId: string;
+  maxBytes?: number;
+}
+
+export type ToolResultArchiveReadResult =
+  | { ok: true; serializedResult: string }
+  | { ok: false; reason: ToolResultArchiveReadFailureReason };
+
+export type ToolResultArchiveReader = (
+  input: ToolResultArchiveReaderInput,
+) => Promise<ToolResultArchiveReadResult> | ToolResultArchiveReadResult;
+
+export interface ArchiveRetrievalResult {
+  events: RuntimeEvent[];
+  diagnosticPatch: Partial<ContextBudgetDiagnostic>;
+}
+
+export interface RuntimeEventHistorySearchHit {
+  eventId: string;
+  turnId: string;
+  ts: number;
+  score: number;
+  matchedTerms: string[];
+}
+
+export interface RuntimeEventHistoryAroundResult {
+  events: RuntimeEvent[];
+  hits: RuntimeEventHistorySearchHit[];
+  diagnosticPatch: Partial<ContextBudgetDiagnostic>;
+}
+
 export interface BudgetedRuntimeContext {
   events: RuntimeEvent[];
   diagnostic: ContextBudgetDiagnostic;
@@ -100,7 +174,17 @@ export function applyRuntimeEventContextBudget(
 ): BudgetedRuntimeContext | undefined {
   const prunePolicy = policy?.staleToolResultPrune;
   const pruneEnabled = prunePolicy?.enabled === true;
-  const enabled = Boolean(policy?.maxHistoryEstimatedTokens || policy?.maxHistoryTurns || pruneEnabled);
+  const archiveRetrievalEnabled = policy?.archiveRetrieval?.enabled === true;
+  const historySearchEnabled = policy?.historySearch?.enabled === true;
+  const historyRewriteEnabled = policy?.historyRewrite?.enabled === true;
+  const enabled = Boolean(
+    policy?.maxHistoryEstimatedTokens ||
+    policy?.maxHistoryTurns ||
+    pruneEnabled ||
+    archiveRetrievalEnabled ||
+    historySearchEnabled ||
+    historyRewriteEnabled
+  );
   if (!enabled) return undefined;
   if (!policy) return undefined;
   const charsPerToken = policy?.charsPerToken ?? 4;
@@ -140,6 +224,13 @@ export function applyRuntimeEventContextBudget(
     droppedTurns: Math.max(0, turnGroups.length - keptTurnIds.size),
     keptEvents: keptEvents.length,
     droppedEvents: Math.max(0, budgetEvents.length - keptEvents.length),
+    ...(policy.historyRewrite?.enabled === true
+      ? {
+          historyRewriteVersion: policy.historyRewrite.historyRewriteVersion,
+          historyRewriteResetReason: policy.historyRewrite.resetReason,
+          historyRewriteGate: policy.historyRewrite.name ?? 'history-rewrite',
+        }
+      : {}),
     ...(pruned.prunedToolResults > 0
       ? {
           prunedToolResults: pruned.prunedToolResults,
@@ -159,6 +250,173 @@ export function applyRuntimeEventContextBudget(
       : {}),
   };
   return { events: keptEvents, diagnostic };
+}
+
+export async function retrieveArchivedToolResultsForReplay(
+  events: readonly RuntimeEvent[],
+  policy: ArchiveRetrievalPolicy | undefined,
+  reader: ToolResultArchiveReader | undefined,
+  options: { sessionId: string; charsPerToken?: number },
+): Promise<ArchiveRetrievalResult> {
+  if (policy?.enabled !== true || !reader) {
+    return { events: [...events], diagnosticPatch: {} };
+  }
+
+  const charsPerToken = options.charsPerToken ?? 4;
+  const maxResults = finitePositive(policy.maxResults) ?? 3;
+  const maxEstimatedTokens = finitePositive(policy.maxEstimatedTokens) ?? 8_192;
+  const maxBytes = finitePositive(policy.maxBytes) ?? 1024 * 1024;
+  const candidates = collectArchiveRetrievalCandidates(events, policy.order ?? 'newest_first');
+
+  let retrieved = 0;
+  let retrievedTokens = 0;
+  let skipped = 0;
+  let failures = 0;
+  const skippedReasonCounts: Record<string, number> = {};
+  const failureReasonCounts: Record<string, number> = {};
+  const replacements = new Map<string, unknown>();
+
+  for (const candidate of candidates) {
+    if (retrieved >= maxResults) break;
+    if (candidate.placeholder.originalBytes > maxBytes) {
+      skipped += 1;
+      increment(skippedReasonCounts, 'max_bytes');
+      continue;
+    }
+    if (candidate.placeholder.originalEstimatedTokens > maxEstimatedTokens) {
+      skipped += 1;
+      increment(skippedReasonCounts, 'max_candidate_tokens');
+      continue;
+    }
+    if (retrievedTokens + candidate.placeholder.originalEstimatedTokens > maxEstimatedTokens) {
+      skipped += 1;
+      increment(skippedReasonCounts, 'max_total_tokens');
+      continue;
+    }
+
+    const readResult = await Promise.resolve(reader({
+      ...candidate.placeholder,
+      sessionId: options.sessionId,
+      maxBytes,
+    })).catch((): ToolResultArchiveReadResult => ({ ok: false, reason: 'read_failed' }));
+    if (!readResult.ok) {
+      failures += 1;
+      increment(failureReasonCounts, readResult.reason);
+      continue;
+    }
+    const actualHash = sha256(readResult.serializedResult);
+    if (actualHash !== candidate.placeholder.bodySha256) {
+      failures += 1;
+      increment(failureReasonCounts, 'corrupt');
+      continue;
+    }
+
+    replacements.set(candidate.event.id, deserializeToolResultArchive(readResult.serializedResult));
+    retrieved += 1;
+    retrievedTokens += candidate.placeholder.originalEstimatedTokens;
+  }
+
+  const hydratedEvents = events.map((event) => {
+    const replacement = replacements.get(event.id);
+    if (!replacements.has(event.id) || event.content?.kind !== 'function_response') return event;
+    return {
+      ...event,
+      content: {
+        ...event.content,
+        result: replacement,
+      },
+    };
+  });
+
+  return {
+    events: hydratedEvents,
+    diagnosticPatch: {
+      retrievedArchiveToolResults: retrieved,
+      retrievedArchiveEstimatedTokens: retrievedTokens,
+      archiveRetrievalSkipped: skipped,
+      archiveRetrievalFailures: failures,
+      ...(Object.keys(skippedReasonCounts).length > 0
+        ? { archiveRetrievalSkippedReasonCounts: skippedReasonCounts }
+        : {}),
+      ...(Object.keys(failureReasonCounts).length > 0
+        ? { archiveRetrievalFailureReasonCounts: failureReasonCounts }
+        : {}),
+    },
+  };
+}
+
+export function deserializeToolResultArchive(serialized: string): unknown {
+  if (serialized === 'undefined') return undefined;
+  try {
+    return JSON.parse(serialized) as unknown;
+  } catch {
+    return serialized;
+  }
+}
+
+export function searchRuntimeEventHistory(
+  events: readonly RuntimeEvent[],
+  query: string,
+  policy: RuntimeEventHistorySearchPolicy | undefined,
+): RuntimeEventHistorySearchHit[] {
+  if (policy?.enabled !== true) return [];
+  const terms = tokenizeSearchQuery(query);
+  if (terms.length === 0) return [];
+  const maxResults = finitePositive(policy.maxResults) ?? 5;
+  return events
+    .map((event) => scoreRuntimeEventSearchHit(event, terms))
+    .filter((hit): hit is RuntimeEventHistorySearchHit => hit !== undefined)
+    .sort((a, b) => b.score - a.score || b.ts - a.ts || b.eventId.localeCompare(a.eventId))
+    .slice(0, maxResults);
+}
+
+export function retrieveRuntimeEventHistoryAround(
+  events: readonly RuntimeEvent[],
+  query: string,
+  policy: RuntimeEventHistorySearchPolicy | undefined,
+  options: { charsPerToken?: number } = {},
+): RuntimeEventHistoryAroundResult {
+  if (policy?.enabled !== true) {
+    return { events: [], hits: [], diagnosticPatch: {} };
+  }
+  const charsPerToken = options.charsPerToken ?? 4;
+  const around = Math.max(0, Math.floor(policy.around ?? 1));
+  const maxEstimatedTokens = finitePositive(policy.maxEstimatedTokens) ?? 4_096;
+  const hits = searchRuntimeEventHistory(events, policy.query ?? query, policy);
+  const selectedIndexes = new Set<number>();
+  const indexesByEventId = new Map(events.map((event, index) => [event.id, index]));
+  for (const hit of hits) {
+    const index = indexesByEventId.get(hit.eventId);
+    if (index === undefined) continue;
+    for (let cursor = Math.max(0, index - around); cursor <= Math.min(events.length - 1, index + around); cursor += 1) {
+      selectedIndexes.add(cursor);
+    }
+  }
+
+  const selectedEvents: RuntimeEvent[] = [];
+  let selectedTokens = 0;
+  let skipped = 0;
+  for (const index of [...selectedIndexes].sort((a, b) => a - b)) {
+    const event = events[index]!;
+    const estimate = estimateRuntimeEventsTokens([event], charsPerToken);
+    if (selectedTokens + estimate > maxEstimatedTokens) {
+      skipped += 1;
+      continue;
+    }
+    selectedEvents.push(event);
+    selectedTokens += estimate;
+  }
+
+  return {
+    events: selectedEvents,
+    hits,
+    diagnosticPatch: {
+      historySearchMatches: hits.length,
+      historyAroundRetrievedEvents: selectedEvents.length,
+      historyAroundEstimatedTokens: selectedTokens,
+      ...(skipped > 0 ? { historyAroundSkippedEvents: skipped } : {}),
+    },
+  };
 }
 
 export function buildPromptSegmentEstimates(input: PromptSegmentInput): PromptSegmentEstimate[] {
@@ -266,8 +524,8 @@ function pruneStaleToolResultsBeforeCompact(
     if (isArchivedToolResultPlaceholder(content.result)) return event;
 
     const serializedResult = serializeToolResultForArchive(content.result);
-    const resultBytes = serializedResult.length;
-    const resultEstimatedTokens = estimateTokens(resultBytes, charsPerToken);
+    const resultBytes = utf8ByteLength(serializedResult);
+    const resultEstimatedTokens = estimateTokens(serializedResult.length, charsPerToken);
     if (resultEstimatedTokens <= maxResultEstimatedTokens) return event;
 
     const archiveRef = archiveRefs.get(event.id);
@@ -343,8 +601,8 @@ export function collectStaleToolResultArchiveCandidates(
       continue;
     }
     const serializedResult = serializeToolResultForArchive(content.result);
-    const originalBytes = serializedResult.length;
-    const originalEstimatedTokens = estimateTokens(originalBytes, charsPerToken);
+    const originalBytes = utf8ByteLength(serializedResult);
+    const originalEstimatedTokens = estimateTokens(serializedResult.length, charsPerToken);
     if (originalEstimatedTokens <= maxResultEstimatedTokens) continue;
     candidates.push({
       runtimeEventId: event.id,
@@ -505,6 +763,102 @@ function stableJsonLength(value: unknown): number {
   } catch {
     return String(value).length;
   }
+}
+
+function collectArchiveRetrievalCandidates(
+  events: readonly RuntimeEvent[],
+  order: NonNullable<ArchiveRetrievalPolicy['order']>,
+): Array<{
+  event: RuntimeEvent;
+  placeholder: ArchivedToolResultPlaceholder;
+}> {
+  const candidates: Array<{ event: RuntimeEvent; placeholder: ArchivedToolResultPlaceholder }> = [];
+  for (const event of events) {
+    if (event.content?.kind !== 'function_response') continue;
+    if (!isArchivedToolResultPlaceholder(event.content.result)) continue;
+    candidates.push({ event, placeholder: event.content.result });
+  }
+  return order === 'newest_first' ? candidates.reverse() : candidates;
+}
+
+function scoreRuntimeEventSearchHit(
+  event: RuntimeEvent,
+  terms: readonly string[],
+): RuntimeEventHistorySearchHit | undefined {
+  const haystack = runtimeEventSearchText(event).toLowerCase();
+  if (!haystack) return undefined;
+  let score = 0;
+  const matchedTerms: string[] = [];
+  for (const term of terms) {
+    if (!haystack.includes(term)) continue;
+    matchedTerms.push(term);
+    score += term.length;
+  }
+  if (score <= 0) return undefined;
+  return {
+    eventId: event.id,
+    turnId: turnKey(event),
+    ts: event.ts,
+    score,
+    matchedTerms,
+  };
+}
+
+function runtimeEventSearchText(event: RuntimeEvent): string {
+  const content = event.content;
+  if (!content) return '';
+  switch (content.kind) {
+    case 'text':
+    case 'thinking':
+      return content.text;
+    case 'function_call':
+      return `${content.name} ${stableStringify(content.args)}`;
+    case 'function_response':
+      if (isArchivedToolResultPlaceholder(content.result)) {
+        return [
+          content.name,
+          content.result.toolName,
+          content.result.toolCallId,
+          content.result.artifactId,
+          content.result.bodySha256,
+          content.result.reason,
+        ].join(' ');
+      }
+      return `${content.name} ${stableStringify(content.result)}`;
+    case 'error':
+      return `${content.message} ${content.reason ?? ''} ${content.code ?? ''}`;
+  }
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  return [...new Set(
+    query
+      .toLowerCase()
+      .split(/[^a-z0-9_./:-]+/i)
+      .map((term) => term.trim())
+      .filter((term) => term.length >= 2),
+  )].slice(0, 16);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return '';
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return String(value);
+  }
+}
+
+function increment(counts: Record<string, number>, key: string): void {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+function utf8ByteLength(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
 }
 
 function finitePositive(value: number | undefined): number | undefined {

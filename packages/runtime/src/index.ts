@@ -81,14 +81,28 @@ export {
   estimateRuntimeEventsTokens,
   estimateTokens,
   isArchivedToolResultPlaceholder,
+  deserializeToolResultArchive,
+  retrieveArchivedToolResultsForReplay,
+  retrieveRuntimeEventHistoryAround,
+  searchRuntimeEventHistory,
   serializeToolResultForArchive,
 } from './context-budget.js';
 export type {
   ArchivedToolResultReason,
   BudgetedRuntimeContext,
   ContextBudgetPolicy,
+  ArchiveRetrievalPolicy,
+  ArchiveRetrievalResult,
+  HistoryRewriteGatePolicy,
+  RuntimeEventHistoryAroundResult,
+  RuntimeEventHistorySearchHit,
+  RuntimeEventHistorySearchPolicy,
   StaleToolResultPrunePolicy,
   StaleToolResultArchiveCandidate,
+  ToolResultArchiveReader,
+  ToolResultArchiveReaderInput,
+  ToolResultArchiveReadFailureReason,
+  ToolResultArchiveReadResult,
   ToolResultArchiveRef,
   ArchivedToolResultPlaceholder,
   PromptSegmentInput,
@@ -203,10 +217,13 @@ export type {
 // runtime-event-read-model.ts — side-by-side RuntimeEvent read projection.
 export {
   projectRuntimeEventsToStoredMessages,
+  projectRuntimeEventsToStoredMessagesWithArchiveStatuses,
+  applyArchivedToolResultReadModelStatuses,
   compareRuntimeReadModelMessages,
   classifyRuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
 export type {
+  ArchivedToolResultReadModelStatus,
   ProjectRuntimeEventsToStoredMessagesOptions,
   RuntimeEventReadModelDiagnostic,
   RuntimeEventReadModelDiagnosticCode,
