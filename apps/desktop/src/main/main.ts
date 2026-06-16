@@ -141,7 +141,7 @@ import {
   setActiveProxy,
   testConnection,
 } from '@maka/runtime';
-import type { BotIncomingMessage, ToolArtifactRecorderInput } from '@maka/runtime';
+import type { BotIncomingMessage, ToolArtifactRecorderInput, ToolResultArchiveRecorderInput } from '@maka/runtime';
 import type { ContextBudgetPolicy } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
@@ -684,6 +684,22 @@ async function persistToolArtifacts(cwd: string, event: ToolArtifactRecorderInpu
   }
 }
 
+async function persistArchivedToolResult(
+  event: ToolResultArchiveRecorderInput,
+): Promise<{ artifactId: string }> {
+  const artifact = await artifactStore.create({
+    sessionId: event.sessionId,
+    turnId: event.turnId,
+    name: `tool-result-${event.runtimeEventId}.json`,
+    kind: 'file',
+    content: event.serializedResult,
+    mimeType: 'application/json',
+    source: 'tool_result_archive',
+    summary: `Archived ${event.toolName} tool result for context budget replay`,
+  });
+  return { artifactId: artifact.id };
+}
+
 async function resolveToolArtifactSourcePath(cwd: string, sourcePath: string): Promise<string | null> {
   const candidate = isAbsolute(sourcePath) ? sourcePath : resolve(cwd, sourcePath);
   let root: string;
@@ -752,6 +768,7 @@ backends.register('ai-sdk', async (ctx) => {
           : event,
       ),
     recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
+    archiveToolResult: (event) => persistArchivedToolResult(event),
     recordRunTrace: ctx.recordRunTrace,
     newId: randomUUID,
     now: Date.now,
@@ -763,14 +780,37 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
   const maxHistoryEstimatedTokens =
     parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS) ??
     defaultHistoryBudgetTokens(connection);
-  if (maxHistoryEstimatedTokens === undefined) return undefined;
   const maxHistoryTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   const minRecentTurns = parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2);
+  const staleToolResultPrune = buildStaleToolResultPrunePolicy();
+  if (
+    maxHistoryEstimatedTokens === undefined &&
+    maxHistoryTurns === undefined &&
+    staleToolResultPrune === undefined
+  ) {
+    return undefined;
+  }
   return {
     name: 'desktop-default-history-budget',
-    maxHistoryEstimatedTokens,
     ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
+    ...(maxHistoryEstimatedTokens !== undefined ? { maxHistoryEstimatedTokens } : {}),
+    ...(staleToolResultPrune !== undefined ? { staleToolResultPrune } : {}),
     minRecentTurns,
+  };
+}
+
+function buildStaleToolResultPrunePolicy(): NonNullable<ContextBudgetPolicy['staleToolResultPrune']> | undefined {
+  if (process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE !== 'on') return undefined;
+  return {
+    enabled: true,
+    maxResultEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
+      2048,
+    ),
+    minRecentTurnsFull: parsePositiveInt(
+      process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS,
+      parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2),
+    ),
   };
 }
 

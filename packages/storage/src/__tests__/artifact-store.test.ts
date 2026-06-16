@@ -67,6 +67,32 @@ describe('FileArtifactStore', () => {
     });
   });
 
+  test('persists archived tool-result artifacts by id', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const first = createArtifactStore(workspaceRoot);
+      await first.create({
+        id: 'archive-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'tool-result-evt-1.json',
+        kind: 'file',
+        content: '{"kind":"json","value":{"ok":true}}',
+        mimeType: 'application/json',
+        source: 'tool_result_archive',
+        now: 100,
+      });
+
+      const second = createArtifactStore(workspaceRoot);
+      const record = await second.get('archive-1');
+      assert.equal(record?.source, 'tool_result_archive');
+      assert.equal(record?.sizeBytes, 35);
+      assert.deepEqual(await second.readText('archive-1'), {
+        ok: true,
+        text: '{"kind":"json","value":{"ok":true}}',
+      });
+    });
+  });
+
   test('soft delete hides rows and blocks reads without purging file bytes', async () => {
     await withStore(async (store) => {
       await store.create({

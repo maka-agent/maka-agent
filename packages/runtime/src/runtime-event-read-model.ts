@@ -11,11 +11,13 @@ import {
   isTerminalRuntimeEvent,
   isTerminalRuntimeEventStatus,
 } from '@maka/core';
+import { isArchivedToolResultPlaceholder } from './context-budget.js';
 
 export type RuntimeEventReadModelDiagnosticCode =
   | 'partial_skipped'
   | 'unsupported_event'
   | 'incomplete_event'
+  | 'archived_tool_result_placeholder'
   | 'generated_id'
   | 'context_remaining_unsupported'
   | 'tool_use_id_mismatch'
@@ -414,11 +416,39 @@ function projectFunctionResponse(
       refToolCallId: event.refs?.toolCallId,
     });
   }
-  if (!isToolResultContent(event.content.result)) {
+  const archivedPlaceholder = isArchivedToolResultPlaceholder(event.content.result)
+    ? event.content.result
+    : undefined;
+  if (!archivedPlaceholder && !isToolResultContent(event.content.result)) {
     diagnostic(state, event, 'incomplete_event', 'function_response result is not a legacy ToolResultContent');
     return false;
   }
+  if (archivedPlaceholder) {
+    diagnostic(state, event, 'archived_tool_result_placeholder', 'function_response result is archived and not loaded in read model', {
+      artifactId: archivedPlaceholder.artifactId,
+      runtimeEventId: archivedPlaceholder.runtimeEventId,
+      toolCallId: archivedPlaceholder.toolCallId,
+      toolName: archivedPlaceholder.toolName,
+      reason: archivedPlaceholder.reason,
+      rewriteVersion: archivedPlaceholder.rewriteVersion,
+    });
+  }
   if (event.content.name) state.toolNameByUseId.set(toolUseId, event.content.name);
+  const resultContent: ToolResultContent = archivedPlaceholder
+    ? {
+        kind: 'archived_tool_result',
+        status: 'not_loaded',
+        runtimeEventId: archivedPlaceholder.runtimeEventId,
+        toolCallId: archivedPlaceholder.toolCallId,
+        toolName: archivedPlaceholder.toolName,
+        artifactId: archivedPlaceholder.artifactId,
+        bodySha256: archivedPlaceholder.bodySha256,
+        originalEstimatedTokens: archivedPlaceholder.originalEstimatedTokens,
+        originalBytes: archivedPlaceholder.originalBytes,
+        rewriteVersion: archivedPlaceholder.rewriteVersion,
+        reason: archivedPlaceholder.reason,
+      }
+    : event.content.result as ToolResultContent;
   messages.push({
     type: 'tool_result',
     id: stableMessageId(event, state, 'tool_result'),
@@ -426,7 +456,7 @@ function projectFunctionResponse(
     ts: event.ts,
     toolUseId,
     isError: event.content.isError === true,
-    content: event.content.result,
+    content: resultContent,
     ...(numberStateDelta(event, 'durationMs') !== undefined
       ? { durationMs: numberStateDelta(event, 'durationMs') }
       : {}),
@@ -673,6 +703,7 @@ function isToolResultContent(value: unknown): value is ToolResultContent {
     || kind === 'file_write'
     || kind === 'terminal'
     || kind === 'image'
+    || kind === 'archived_tool_result'
     || kind === 'summary'
     || kind === 'web_search'
     || kind === 'web_search_error'
