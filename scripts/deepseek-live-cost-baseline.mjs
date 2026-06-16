@@ -38,6 +38,8 @@ const toolMode = process.env.MAKA_COST_BASELINE_TOOLS ?? 'none';
 const seed = process.env.MAKA_COST_BASELINE_SEED ?? runId;
 const cwd = resolve(process.env.MAKA_COST_BASELINE_CWD ?? repoRoot);
 const contextBudget = buildContextBudgetPolicy();
+const stablePolicyLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_STABLE_POLICY_LINES, 140);
+const payloadLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PAYLOAD_LINES, 70);
 
 const sessionStore = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
@@ -65,7 +67,7 @@ const durablePrefix = [
   'Always answer exactly: OK',
   'The following stable policy block is intentionally repeated to make provider prefix caching observable.',
   '<stable-policy>',
-  Array.from({ length: 140 }, (_, index) =>
+  Array.from({ length: stablePolicyLines }, (_, index) =>
     `Stable policy line ${String(index + 1).padStart(3, '0')}: preserve the durable system prefix, avoid unnecessary wording churn, and keep responses short.`,
   ).join('\n'),
   '</stable-policy>',
@@ -124,7 +126,7 @@ const session = await manager.createSession({
 });
 
 const turns = [];
-const repeatedPayload = Array.from({ length: 70 }, (_, index) =>
+const repeatedPayload = Array.from({ length: payloadLines }, (_, index) =>
   `baseline fact ${String(index + 1).padStart(2, '0')}: this stable user payload is repeated to expose how much new-tail text becomes cache miss.`,
 ).join('\n');
 
@@ -196,6 +198,8 @@ const report = {
   toolMode,
   toolCount: tools.length,
   turnCount,
+  stablePolicyLines,
+  payloadLines,
   contextBudget,
   sessionId: session.id,
   totals,
@@ -222,10 +226,14 @@ console.log(JSON.stringify({ jsonPath, markdownPath, totals, turnCount, toolMode
 
 function buildContextBudgetPolicy() {
   if (process.env.MAKA_CONTEXT_BUDGET === 'off') return undefined;
+  const maxHistoryEstimatedTokens = parseOptionalPositiveInt(
+    process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS,
+  );
+  if (maxHistoryEstimatedTokens === undefined) return undefined;
   const maxHistoryTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   return {
     name: process.env.MAKA_CONTEXT_BUDGET_NAME ?? 'cost-baseline-history-budget',
-    maxHistoryEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS, 256_000),
+    maxHistoryEstimatedTokens,
     minRecentTurns: parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2),
     ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
   };
@@ -249,6 +257,8 @@ function renderMarkdown(report, jsonPath) {
     `Model: \`${report.model}\``,
     `Turns: ${report.turnCount}`,
     `Tools: ${report.toolMode} (${report.toolCount})`,
+    `Stable policy lines: ${report.stablePolicyLines}`,
+    `Payload lines: ${report.payloadLines}`,
     `Context budget: ${report.contextBudget ? JSON.stringify(report.contextBudget) : 'off'}`,
     '',
     '## Totals',

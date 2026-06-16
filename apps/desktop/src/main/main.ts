@@ -760,10 +760,10 @@ backends.register('ai-sdk', async (ctx) => {
 
 function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolicy | undefined {
   if (process.env.MAKA_CONTEXT_BUDGET === 'off') return undefined;
-  const maxHistoryEstimatedTokens = parsePositiveInt(
-    process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS,
-    defaultHistoryBudgetTokens(connection),
-  );
+  const maxHistoryEstimatedTokens =
+    parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS) ??
+    defaultHistoryBudgetTokens(connection);
+  if (maxHistoryEstimatedTokens === undefined) return undefined;
   const maxHistoryTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   const minRecentTurns = parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2);
   return {
@@ -774,8 +774,8 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
   };
 }
 
-function defaultHistoryBudgetTokens(connection: LlmConnection): number {
-  if (connection.providerType === 'deepseek') return 256_000;
+function defaultHistoryBudgetTokens(connection: LlmConnection): number | undefined {
+  if (connection.providerType === 'deepseek') return undefined;
   return 32_000;
 }
 
