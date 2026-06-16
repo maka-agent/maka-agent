@@ -1,5 +1,9 @@
 import { generalizedErrorMessage } from '@maka/core/redaction';
-import type { PrefixChangeReason } from '@maka/core/usage-stats/types';
+import type {
+  ContextBudgetDiagnostic,
+  PrefixChangeReason,
+  PromptSegmentEstimate,
+} from '@maka/core/usage-stats/types';
 
 export type RunTracePhase = 'turn' | 'model' | 'tool' | 'permission' | 'abort' | 'usage';
 
@@ -93,7 +97,12 @@ export class RunTrace {
 
   modelStreamStarted(
     activeTools: readonly string[],
-    prefix?: { prefixHash: string; prefixChangeReason: PrefixChangeReason },
+    prefix?: {
+      prefixHash: string;
+      prefixChangeReason: PrefixChangeReason;
+      promptSegments?: PromptSegmentEstimate[];
+      contextBudget?: ContextBudgetDiagnostic;
+    },
   ): void {
     this.emit('model', 'model_stream_started', 'Model stream started', {
       activeTools: [...activeTools],

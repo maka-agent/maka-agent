@@ -157,6 +157,8 @@ class FileTelemetryRepo implements TelemetryRepo {
         ...(row.turnId ? { turnId: row.turnId } : {}),
         ...(row.prefixHash ? { prefixHash: row.prefixHash } : {}),
         ...(row.prefixChangeReason ? { prefixChangeReason: row.prefixChangeReason } : {}),
+        ...(row.promptSegments ? { promptSegments: row.promptSegments } : {}),
+        ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
       } satisfies UsageLogRow));
     return { rows: rows.slice(offset, offset + limit), total: rows.length };
   }

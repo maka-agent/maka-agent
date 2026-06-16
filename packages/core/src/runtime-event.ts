@@ -16,7 +16,11 @@
 
 import type { AttachmentRef } from './events.js';
 import type { PermissionRequest, PermissionResponse } from './permission.js';
-import type { PrefixChangeReason } from './usage-stats/types.js';
+import type {
+  ContextBudgetDiagnostic,
+  PrefixChangeReason,
+  PromptSegmentEstimate,
+} from './usage-stats/types.js';
 
 // ============================================================================
 // Role / Author / Status
@@ -180,6 +184,8 @@ export interface RuntimeEventTokenUsage {
   contextRemaining?: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
+  promptSegments?: PromptSegmentEstimate[];
+  contextBudget?: ContextBudgetDiagnostic;
 }
 
 /**

@@ -142,6 +142,7 @@ import {
   testConnection,
 } from '@maka/runtime';
 import type { BotIncomingMessage, ToolArtifactRecorderInput } from '@maka/runtime';
+import type { ContextBudgetPolicy } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 import {
@@ -735,6 +736,7 @@ backends.register('ai-sdk', async (ctx) => {
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
     tools: builtinTools,
     providerOptions: buildProviderOptions(connection, model),
+    contextBudget: buildContextBudgetPolicy(connection),
     systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd),
     turnTailPrompt: ({ cwd }) => buildTurnTailPrompt(cwd),
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
@@ -755,6 +757,38 @@ backends.register('ai-sdk', async (ctx) => {
     now: Date.now,
   });
 });
+
+function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolicy | undefined {
+  if (process.env.MAKA_CONTEXT_BUDGET === 'off') return undefined;
+  const maxHistoryEstimatedTokens =
+    parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS) ??
+    defaultHistoryBudgetTokens(connection);
+  if (maxHistoryEstimatedTokens === undefined) return undefined;
+  const maxHistoryTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
+  const minRecentTurns = parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2);
+  return {
+    name: 'desktop-default-history-budget',
+    maxHistoryEstimatedTokens,
+    ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
+    minRecentTurns,
+  };
+}
+
+function defaultHistoryBudgetTokens(connection: LlmConnection): number | undefined {
+  if (connection.providerType === 'deepseek') return undefined;
+  return 32_000;
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = parseOptionalPositiveInt(value);
+  return parsed ?? fallback;
+}
+
+function parseOptionalPositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
 
 function buildSubscriptionModelFetch(
   connection: LlmConnection,

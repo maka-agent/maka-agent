@@ -10,7 +10,11 @@
  */
 
 import type { PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
-import type { PrefixChangeReason } from './usage-stats/types.js';
+import type {
+  ContextBudgetDiagnostic,
+  PrefixChangeReason,
+  PromptSegmentEstimate,
+} from './usage-stats/types.js';
 
 export const TOOL_OUTPUT_STREAMS = ['stdout', 'stderr'] as const;
 export const TOOL_OUTPUT_DELTA_MAX_CHARS = 8192;
@@ -335,6 +339,8 @@ export interface TokenUsageEvent extends BaseEvent {
   contextRemaining?: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
+  promptSegments?: PromptSegmentEstimate[];
+  contextBudget?: ContextBudgetDiagnostic;
 }
 
 export interface ErrorEvent extends BaseEvent {

@@ -693,7 +693,10 @@ export {
 // usage-stats/types.ts
 export type {
   LlmCallRecord,
+  ContextBudgetDiagnostic,
   PricingConfig,
+  PromptSegmentEstimate,
+  PromptSegmentKind,
   TimeRange,
   ToolInvocationRecord,
   UsageBucket,

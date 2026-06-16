@@ -11,7 +11,11 @@
 
 import type { AttachmentRef, ToolResultContent } from './events.js';
 import type { PermissionMode } from './permission.js';
-import type { PrefixChangeReason } from './usage-stats/types.js';
+import type {
+  ContextBudgetDiagnostic,
+  PrefixChangeReason,
+  PromptSegmentEstimate,
+} from './usage-stats/types.js';
 
 export const SESSION_STATUSES = [
   'active',
@@ -243,6 +247,8 @@ export interface TokenUsageMessage {
   costUsd?: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
+  promptSegments?: PromptSegmentEstimate[];
+  contextBudget?: ContextBudgetDiagnostic;
 }
 
 export interface TurnStateMessage {

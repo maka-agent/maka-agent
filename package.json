@@ -19,7 +19,8 @@
     "check:stale": "node scripts/check-stale-dist.mjs",
     "prepare:officecli": "node scripts/prepare-officecli.mjs",
     "check:officecli-bundle": "node scripts/check-officecli-bundle.mjs",
-    "check:release": "npm run check:stale && npm run check:officecli-bundle"
+    "check:release": "npm run check:stale && npm run check:officecli-bundle",
+    "cost:deepseek-baseline": "node scripts/deepseek-live-cost-baseline.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

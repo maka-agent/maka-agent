@@ -72,6 +72,8 @@ export interface UsageLogRow {
   turnId?: string;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
+  promptSegments?: PromptSegmentEstimate[];
+  contextBudget?: ContextBudgetDiagnostic;
 }
 
 export interface PricingConfig {
@@ -117,6 +119,8 @@ export interface LlmCallRecord {
   startedAt: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
+  promptSegments?: PromptSegmentEstimate[];
+  contextBudget?: ContextBudgetDiagnostic;
 }
 
 export type PrefixChangeReason =
@@ -128,6 +132,35 @@ export type PrefixChangeReason =
   | 'history_projection_changed'
   | 'stable'
   | 'unknown';
+
+export type PromptSegmentKind =
+  | 'system_prompt'
+  | 'tool_schema'
+  | 'prior_history'
+  | 'current_user'
+  | 'turn_tail';
+
+export interface PromptSegmentEstimate {
+  kind: PromptSegmentKind;
+  chars: number;
+  estimatedTokens: number;
+  messageCount?: number;
+  eventCount?: number;
+  toolCount?: number;
+}
+
+export interface ContextBudgetDiagnostic {
+  enabled: boolean;
+  policyName?: string;
+  maxHistoryEstimatedTokens?: number;
+  maxHistoryTurns?: number;
+  estimatedTokensBefore: number;
+  estimatedTokensAfter: number;
+  keptTurns: number;
+  droppedTurns: number;
+  keptEvents: number;
+  droppedEvents: number;
+}
 
 export interface ToolInvocationRecord {
   sessionId?: string;

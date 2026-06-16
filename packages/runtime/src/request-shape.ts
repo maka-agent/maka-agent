@@ -63,7 +63,7 @@ export function computeRequestShapeDiagnostic(
     providerOptionsHash: stableHash(input.providerOptions ?? {}),
     toolSchemaHash: stableHash({
       activeTools: [...input.activeTools],
-      providerTools: input.providerTools.map(toolShapeForHash),
+      providerTools: input.providerTools.map(toolShapeForDiagnostics),
     }),
     historyProjectionHash: stableHash(input.priorMessages.map(messageShapeForHash)),
   };
@@ -73,6 +73,16 @@ export function computeRequestShapeDiagnostic(
     prefixChangeReason: classifyPrefixChange(componentHashes, prior?.componentHashes),
     componentHashes,
   };
+}
+
+export function toolSchemaCharsForDiagnostics(
+  providerTools: readonly MakaTool[],
+  activeTools: readonly string[],
+): number {
+  return stableStringify({
+    activeTools: [...activeTools],
+    providerTools: providerTools.map(toolShapeForDiagnostics),
+  }).length;
 }
 
 export function stableHash(value: unknown): string {
@@ -96,7 +106,7 @@ function classifyPrefixChange(
   return 'stable';
 }
 
-function toolShapeForHash(tool: MakaTool): unknown {
+function toolShapeForDiagnostics(tool: MakaTool): unknown {
   return {
     name: tool.name,
     description: tool.description,

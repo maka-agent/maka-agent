@@ -39,7 +39,6 @@ import type {
   ErrorEvent,
   TextCompleteEvent,
   TokenUsageEvent,
-  AttachmentRef,
 } from '@maka/core/events';
 import type {
   StoredMessage,
@@ -57,6 +56,10 @@ import type {
 } from '@maka/core/backend-types';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type {
+  ContextBudgetDiagnostic,
+  PromptSegmentEstimate,
+} from '@maka/core/usage-stats/types';
 import type { JSONValue, ModelMessage } from 'ai';
 import { z } from 'zod';
 
@@ -92,8 +95,14 @@ import {
 import {
   canonicalizeToolSet,
   computeRequestShapeDiagnostic,
+  toolSchemaCharsForDiagnostics,
   type RequestShapeDiagnostic,
 } from './request-shape.js';
+import {
+  applyRuntimeEventContextBudget,
+  buildPromptSegmentEstimates,
+  type ContextBudgetPolicy,
+} from './context-budget.js';
 
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
@@ -177,6 +186,8 @@ export interface AiSdkBackendInput {
   turnTailPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Provider-native options passed through to ai-sdk. */
   providerOptions?: Record<string, unknown>;
+  /** Optional prior-history budget. Keeps whole turns to preserve tool-call/result pairs. */
+  contextBudget?: ContextBudgetPolicy;
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
   recordLlmCall?: LlmTelemetryRecorder;
   recordToolInvocation?: ToolTelemetryRecorder;
@@ -278,6 +289,8 @@ export class AiSdkBackend implements AgentBackend {
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
     let requestShapeForTelemetry: RequestShapeDiagnostic | undefined;
+    let promptSegmentsForTelemetry: PromptSegmentEstimate[] = [];
+    let contextBudgetForTelemetry: ContextBudgetDiagnostic | undefined;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -348,13 +361,25 @@ export class AiSdkBackend implements AgentBackend {
         const activeTools = canonicalTools.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
         const turnTailPrompt = await this.resolveTurnTailPrompt();
+        const currentUserContent = formatTextWithAttachmentRefs(input.text, input.attachments);
         const messages = [
           ...priorReplay.messages,
           {
             role: 'user' as const,
-            content: this.buildUserContent(input.text, input.attachments, turnTailPrompt),
+            content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
           },
         ];
+        const promptSegments = buildPromptSegmentEstimates({
+          systemPrompt,
+          toolSchemaChars: toolSchemaCharsForDiagnostics(canonicalTools.providerTools, activeTools),
+          toolCount: canonicalTools.providerTools.length,
+          priorMessages: priorReplay.messages,
+          priorRuntimeEventCount: priorReplay.runtimeEventCount,
+          currentUserContent,
+          turnTailPrompt,
+        });
+        promptSegmentsForTelemetry = promptSegments;
+        contextBudgetForTelemetry = priorReplay.contextBudget;
         const requestShape = computeRequestShapeDiagnostic({
           connection: this.input.connection,
           modelId: this.input.modelId,
@@ -369,6 +394,8 @@ export class AiSdkBackend implements AgentBackend {
         trace.modelStreamStarted(activeTools, {
           prefixHash: requestShape.prefixHash,
           prefixChangeReason: requestShape.prefixChangeReason,
+          promptSegments,
+          ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
         });
 
         const result = await this.modelAdapter.startStream({
@@ -478,6 +505,8 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
               prefixHash: requestShape.prefixHash,
               prefixChangeReason: requestShape.prefixChangeReason,
+              promptSegments,
+              ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
             queue.push({
@@ -497,6 +526,8 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
               prefixHash: requestShape.prefixHash,
               prefixChangeReason: requestShape.prefixChangeReason,
+              promptSegments,
+              ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
             } satisfies TokenUsageEvent);
           }
         } catch {
@@ -571,6 +602,8 @@ export class AiSdkBackend implements AgentBackend {
             prefixHash: requestShapeForTelemetry.prefixHash,
             prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
           } : {}),
+          ...(promptSegmentsForTelemetry.length > 0 ? { promptSegments: promptSegmentsForTelemetry } : {}),
+          ...(contextBudgetForTelemetry !== undefined ? { contextBudget: contextBudgetForTelemetry } : {}),
         });
         queue.close();
       }
@@ -646,6 +679,8 @@ export class AiSdkBackend implements AgentBackend {
     messages: ModelMessage[];
     gate: RuntimeEventReplayFallbackGate | 'stored_message_projection';
     diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
+    runtimeEventCount?: number;
+    contextBudget?: ContextBudgetDiagnostic;
   } {
     const projectedMessages = this.materializePriorMessages(
       input.context.filter((message) => message.turnId !== input.turnId),
@@ -653,12 +688,24 @@ export class AiSdkBackend implements AgentBackend {
     if (!input.runtimeContext) {
       return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: [] };
     }
+    const budgeted = applyRuntimeEventContextBudget(
+      input.runtimeContext.filter((event) => event.turnId !== input.turnId),
+      this.input.contextBudget,
+    );
+    const runtimeContext = budgeted?.events
+      ?? input.runtimeContext.filter((event) => event.turnId !== input.turnId);
 
     const plan = buildRuntimeEventModelReplayPlan(
-      input.runtimeContext.filter((event) => event.turnId !== input.turnId),
+      runtimeContext,
     );
     if (plan.items.length === 0) {
-      return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: plan.diagnostics };
+      return {
+        messages: projectedMessages,
+        gate: 'stored_message_projection',
+        diagnostics: plan.diagnostics,
+        runtimeEventCount: runtimeContext.length,
+        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+      };
     }
 
     if (hasBlockingReplayDiagnostics(plan)) {
@@ -666,6 +713,8 @@ export class AiSdkBackend implements AgentBackend {
         messages: projectedMessages,
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
+        runtimeEventCount: runtimeContext.length,
+        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
       };
     }
 
@@ -674,6 +723,8 @@ export class AiSdkBackend implements AgentBackend {
         messages: plan.textMessages,
         gate: 'runtime_replay_text_only',
         diagnostics: plan.diagnostics,
+        runtimeEventCount: runtimeContext.length,
+        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
       };
     }
 
@@ -682,6 +733,8 @@ export class AiSdkBackend implements AgentBackend {
         messages: projectedMessages,
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
+        runtimeEventCount: runtimeContext.length,
+        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
       };
     }
 
@@ -689,6 +742,8 @@ export class AiSdkBackend implements AgentBackend {
       messages: this.materializeRuntimeReplayPlan(plan),
       gate: 'runtime_replay_provider_native',
       diagnostics: plan.diagnostics,
+      runtimeEventCount: runtimeContext.length,
+      ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
     };
   }
 
@@ -758,9 +813,8 @@ export class AiSdkBackend implements AgentBackend {
     return out;
   }
 
-  /** Build the user content payload for the current turn (text + attachment refs). */
-  private buildUserContent(text: string, attachments?: AttachmentRef[], turnTailPrompt?: string): string {
-    const content = formatTextWithAttachmentRefs(text, attachments);
+  /** Append provider-visible volatile turn facts after the durable user content. */
+  private appendTurnTailPrompt(content: string, turnTailPrompt?: string): string {
     if (!turnTailPrompt) return content;
     return `${content}\n\n${turnTailPrompt}`;
   }

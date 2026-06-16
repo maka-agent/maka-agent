@@ -24,6 +24,7 @@ import {
   canonicalizeToolSet,
   computeRequestShapeDiagnostic,
 } from '../request-shape.js';
+import { applyRuntimeEventContextBudget } from '../context-budget.js';
 
 describe('AiSdkBackend model history', () => {
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
@@ -797,6 +798,86 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     assert.match(JSON.stringify(compactPrompt(models[1]!)), /2026-05-30/);
     assert.equal(JSON.stringify(modelCallSettings(models[0]!)).includes('2026-05-29'), false);
     assert.equal(JSON.stringify(modelCallSettings(models[1]!)).includes('2026-05-30'), false);
+  });
+});
+
+describe('AiSdkBackend context budget and prompt attribution', () => {
+  test('context budget keeps whole recent turns and drops older turns', () => {
+    const events = [
+      runtimeTextEvent({ id: 'old-u', turnId: 'old', role: 'user', author: 'user', text: 'old user text' }),
+      runtimeTextEvent({ id: 'old-a', turnId: 'old', role: 'model', author: 'agent', text: 'old assistant text' }),
+      runtimeTextEvent({ id: 'new-u', turnId: 'new', role: 'user', author: 'user', text: 'new user text' }),
+      runtimeTextEvent({ id: 'new-a', turnId: 'new', role: 'model', author: 'agent', text: 'new assistant text' }),
+    ];
+
+    const budgeted = applyRuntimeEventContextBudget(events, {
+      name: 'test-budget',
+      maxHistoryEstimatedTokens: 1,
+      minRecentTurns: 1,
+      charsPerToken: 1,
+    });
+
+    assert.ok(budgeted);
+    assert.deepEqual([...new Set(budgeted.events.map((event) => event.turnId))], ['new']);
+    assert.equal(budgeted.diagnostic.droppedTurns, 1);
+    assert.equal(budgeted.diagnostic.keptTurns, 1);
+    assert.equal(budgeted.diagnostic.droppedEvents, 2);
+  });
+
+  test('usage events include prompt segments and context budget diagnostics', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      systemPrompt: 'durable system',
+      turnTailPrompt: 'volatile tail',
+      contextBudget: {
+        name: 'test-budget',
+        maxHistoryEstimatedTokens: 1,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'old-u', turnId: 'old', role: 'user', author: 'user', text: 'old user text' }),
+        runtimeTextEvent({ id: 'old-a', turnId: 'old', role: 'model', author: 'agent', text: 'old assistant text' }),
+        runtimeTextEvent({ id: 'new-u', turnId: 'new', role: 'user', author: 'user', text: 'new user text' }),
+        runtimeTextEvent({ id: 'new-a', turnId: 'new', role: 'model', author: 'agent', text: 'new assistant text' }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'system', content: 'durable system' },
+      { role: 'user', content: [{ type: 'text', text: 'new user text' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'new assistant text' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user\n\nvolatile tail' }] },
+    ]);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.ok(usage);
+    assert.equal(usage.contextBudget?.policyName, 'test-budget');
+    assert.equal(usage.contextBudget?.droppedTurns, 1);
+    assert.equal(usage.promptSegments?.some((segment) => segment.kind === 'prior_history'), true);
+    assert.equal(usage.promptSegments?.some((segment) => segment.kind === 'tool_schema'), true);
+    assert.equal(usage.promptSegments?.some((segment) => segment.kind === 'turn_tail'), true);
   });
 });
 

@@ -491,6 +491,8 @@ function projectTokenUsage(
     ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
     ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
     ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
+    ...(usage.promptSegments !== undefined ? { promptSegments: usage.promptSegments } : {}),
+    ...(usage.contextBudget !== undefined ? { contextBudget: usage.contextBudget } : {}),
   });
   return true;
 }
@@ -815,6 +817,8 @@ function semanticMessage(message: StoredMessage): unknown {
         costUsd: message.costUsd,
         prefixHash: message.prefixHash,
         prefixChangeReason: message.prefixChangeReason,
+        promptSegments: message.promptSegments,
+        contextBudget: message.contextBudget,
       };
     case 'turn_state':
       return {

@@ -319,6 +319,8 @@ export function mapSessionEventToRuntimeEvent(
             ...(event.prefixChangeReason !== undefined
               ? { prefixChangeReason: event.prefixChangeReason }
               : {}),
+            ...(event.promptSegments !== undefined ? { promptSegments: event.promptSegments } : {}),
+            ...(event.contextBudget !== undefined ? { contextBudget: event.contextBudget } : {}),
           },
         },
       };
