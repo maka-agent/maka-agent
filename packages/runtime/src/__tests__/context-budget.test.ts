@@ -7,12 +7,14 @@ import {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
+  buildSynthesisCacheBlocksFromHydratedArchives,
   deserializeToolResultArchive,
   renderSynthesisCacheBlock,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
   selectSynthesisCacheForReplay,
   serializeToolResultForArchive,
+  validateSynthesisCacheBlockShape,
   type SynthesisCacheBlock,
 } from '../context-budget.js';
 
@@ -76,6 +78,19 @@ describe('context-budget archive retrieval', () => {
     );
     assert.equal(retrieval.diagnosticPatch.retrievedArchiveToolResults, 1);
     assert.equal(retrieval.diagnosticPatch.retrievedArchiveEstimatedTokens, serialized.length);
+    assert.deepEqual(retrieval.retrievedSourceRefs, [{
+      kind: 'archived_tool_result',
+      sessionId: 'session-1',
+      turnId: 'turn-old',
+      runtimeEventId: 'result-old',
+      toolCallId: 'tool-old',
+      toolName: 'Read',
+      artifactId: 'artifact-old',
+      bodySha256: sha256(serialized),
+      originalEstimatedTokens: serialized.length,
+      originalBytes: utf8Bytes(serialized),
+      placeholderReason: 'stale_tool_result_pruned_before_compact',
+    }]);
   });
 
   test('uses UTF-8 byte length for non-ASCII archive size validation', async () => {
@@ -529,6 +544,172 @@ describe('context-budget synthesis cache', () => {
     assert.deepEqual(result.diagnosticPatch.synthesisCacheInvalidationReasonCounts, {
       new_relevant_tool_result: 1,
     });
+  });
+
+  test('enforces synthesis block count and token budgets', () => {
+    const serialized = serializeToolResultForArchive({ text: 'raw archived key-alpha payload' });
+    const events = [
+      archivedResult('result-alpha', 'turn-alpha', 'tool-alpha', {
+        artifactId: 'artifact-alpha',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+      }),
+      archivedResult('result-beta', 'turn-beta', 'tool-beta', {
+        artifactId: 'artifact-beta',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+      }),
+    ];
+    const first = synthesisBlock({
+      queryKey: 'key-alpha',
+      turnId: 'turn-alpha',
+      runtimeEventId: 'result-alpha',
+      toolCallId: 'tool-alpha',
+      artifactId: 'artifact-alpha',
+      bodySha256: sha256(serialized),
+      originalEstimatedTokens: serialized.length,
+      originalBytes: utf8Bytes(serialized),
+    });
+    const second = {
+      ...synthesisBlock({
+        queryKey: 'key-alpha',
+        turnId: 'turn-beta',
+        runtimeEventId: 'result-beta',
+        toolCallId: 'tool-beta',
+        artifactId: 'artifact-beta',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+      }),
+      blockId: 'synth-key-alpha-second',
+    };
+
+    const maxBlocks = selectSynthesisCacheForReplay(
+      events,
+      'Recover key-alpha',
+      { enabled: true, blocks: [first, second], maxBlocks: 1, maxEstimatedTokens: 10_000 },
+      { sessionId: 'session-1' },
+    );
+    assert.equal(maxBlocks.selectedBlocks.length, 1);
+    assert.deepEqual(maxBlocks.diagnosticPatch.synthesisCacheSkippedReasonCounts, { max_blocks: 1 });
+
+    const maxBlockTokens = selectSynthesisCacheForReplay(
+      events,
+      'Recover key-alpha',
+      { enabled: true, blocks: [{ ...first, estimatedTokens: 99 }], maxBlockEstimatedTokens: 10 },
+      { sessionId: 'session-1' },
+    );
+    assert.equal(maxBlockTokens.selectedBlocks.length, 0);
+    assert.deepEqual(maxBlockTokens.diagnosticPatch.synthesisCacheSkippedReasonCounts, {
+      max_block_tokens: 1,
+    });
+
+    const maxTotalTokens = selectSynthesisCacheForReplay(
+      events,
+      'Recover key-alpha',
+      {
+        enabled: true,
+        blocks: [{ ...first, estimatedTokens: 7 }, { ...second, estimatedTokens: 7 }],
+        maxBlocks: 2,
+        maxEstimatedTokens: 10,
+      },
+      { sessionId: 'session-1' },
+    );
+    assert.equal(maxTotalTokens.selectedBlocks.length, 1);
+    assert.deepEqual(maxTotalTokens.diagnosticPatch.synthesisCacheSkippedReasonCounts, {
+      max_total_tokens: 1,
+    });
+  });
+
+  test('builds stable bounded synthesis blocks from hydrated archive refs', () => {
+    const resultBody = { text: 'key-alpha stable sentinel SYNTHESIS_BUILDER_SENTINEL' };
+    const serialized = serializeToolResultForArchive(resultBody);
+    const placeholderEvents = [
+      archivedResult('result-alpha', 'turn-alpha', 'tool-alpha', {
+        artifactId: 'artifact-alpha',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+      }),
+    ];
+    const hydratedEvents = [
+      {
+        ...placeholderEvents[0]!,
+        content: {
+          kind: 'function_response' as const,
+          id: 'tool-alpha',
+          name: 'Read',
+          result: resultBody,
+        },
+      },
+    ];
+    const sourceRefs = [{
+      kind: 'archived_tool_result' as const,
+      sessionId: 'session-1',
+      turnId: 'turn-alpha',
+      runtimeEventId: 'result-alpha',
+      toolCallId: 'tool-alpha',
+      toolName: 'Read',
+      artifactId: 'artifact-alpha',
+      bodySha256: sha256(serialized),
+      originalEstimatedTokens: serialized.length,
+      originalBytes: utf8Bytes(serialized),
+      placeholderReason: 'stale_tool_result_pruned_before_compact' as const,
+    }];
+
+    const first = buildSynthesisCacheBlocksFromHydratedArchives({
+      sessionId: 'session-1',
+      query: 'Recover key-alpha',
+      hydratedRuntimeEvents: hydratedEvents,
+      retrievedArchiveRefs: sourceRefs,
+      archiveRetrievalMode: 'history_search_gated',
+      limits: { maxBlocks: 1, maxBlockEstimatedTokens: 1024, maxEstimatedTokens: 1024, charsPerToken: 4 },
+      now: 1_800_000_000_100,
+    });
+    const second = buildSynthesisCacheBlocksFromHydratedArchives({
+      sessionId: 'session-1',
+      query: 'Recover key-alpha',
+      hydratedRuntimeEvents: hydratedEvents,
+      retrievedArchiveRefs: sourceRefs,
+      archiveRetrievalMode: 'history_search_gated',
+      limits: { maxBlocks: 1, maxBlockEstimatedTokens: 1024, maxEstimatedTokens: 1024, charsPerToken: 4 },
+      now: 1_800_000_000_100,
+    });
+
+    assert.equal(first.blocks.length, 1);
+    assert.equal(first.blocks[0]?.blockId, second.blocks[0]?.blockId);
+    assert.equal(first.blocks[0]?.createdFrom, 'gated_archive_retrieval');
+    assert.deepEqual(first.blocks[0]?.coverage.artifactIds, ['artifact-alpha']);
+    assert.equal(first.blocks[0]?.coverage.queryKeys.includes('key-alpha'), true);
+    for (const genericKey of ['context', 'for', 'json', 'kind', 'lookup', 'the', 'tools']) {
+      assert.equal(first.blocks[0]?.coverage.queryKeys.includes(genericKey), false, genericKey);
+    }
+    assert.match(first.blocks[0]?.summary ?? '', /SYNTHESIS_BUILDER_SENTINEL/);
+    assert.equal(validateSynthesisCacheBlockShape(first.blocks[0], 'session-1'), true);
+
+    const genericMiss = selectSynthesisCacheForReplay(
+      placeholderEvents,
+      'Recover an unrelated lookup key',
+      { enabled: true, blocks: first.blocks },
+      { sessionId: 'session-1' },
+    );
+    assert.equal(genericMiss.selectedBlocks.length, 0);
+    assert.deepEqual(genericMiss.diagnosticPatch.synthesisCacheSkippedReasonCounts, {
+      coverage_miss: 1,
+    });
+
+    const tooSmall = buildSynthesisCacheBlocksFromHydratedArchives({
+      sessionId: 'session-1',
+      query: 'Recover key-alpha',
+      hydratedRuntimeEvents: hydratedEvents,
+      retrievedArchiveRefs: sourceRefs,
+      archiveRetrievalMode: 'history_search_gated',
+      limits: { maxBlocks: 1, maxBlockEstimatedTokens: 1, maxEstimatedTokens: 1, charsPerToken: 1 },
+    });
+    assert.equal(tooSmall.blocks.length, 0);
+    assert.deepEqual(tooSmall.skippedReasonCounts, { max_block_tokens: 1 });
   });
 });
 

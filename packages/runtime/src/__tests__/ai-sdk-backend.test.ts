@@ -536,6 +536,7 @@ describe('AiSdkBackend model history', () => {
     const events: SessionEvent[] = [];
     const archivedBodies = new Map<string, string>();
     const readRuntimeEventIds: string[] = [];
+    const writeInputs: Array<{ turnId: string; query: string }> = [];
     const oldResult = { body: 'RAW_SYNTHESIS_ARCHIVE_PAYLOAD'.repeat(20) };
     const serialized = JSON.stringify(oldResult);
     const block = synthesisBlock({
@@ -584,6 +585,7 @@ describe('AiSdkBackend model history', () => {
         },
         synthesisCache: {
           enabled: true,
+          mode: 'read_write',
           blocks: [block],
         },
         charsPerToken: 1,
@@ -596,6 +598,10 @@ describe('AiSdkBackend model history', () => {
         readRuntimeEventIds.push(event.runtimeEventId);
         const body = archivedBodies.get(event.runtimeEventId);
         return body ? { ok: true, serializedResult: body } : { ok: false, reason: 'not_found' };
+      },
+      writeSynthesisCache: async (event) => {
+        writeInputs.push({ turnId: event.turnId, query: event.source.query });
+        return { blocks: [] };
       },
     });
 
@@ -631,6 +637,7 @@ describe('AiSdkBackend model history', () => {
     }
 
     assert.deepEqual(readRuntimeEventIds, []);
+    assert.deepEqual(writeInputs, []);
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /maka_synthesis_cache_block/);
     assert.match(prompt, /SYNTHESIS_SENTINEL_KEY_ALPHA/);
@@ -643,11 +650,246 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.retrievedArchiveToolResults, undefined);
   });
 
+  test('loads synthesis blocks before archive retrieval', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const archivedBodies = new Map<string, string>();
+    const readRuntimeEventIds: string[] = [];
+    const oldResult = { body: 'RAW_LOADED_SYNTHESIS_ARCHIVE_PAYLOAD'.repeat(20) };
+    const serialized = JSON.stringify(oldResult);
+    const block = synthesisBlock({
+      queryKey: 'key-alpha',
+      turnId: 'turn-alpha',
+      runtimeEventId: 'rt-result-alpha',
+      toolCallId: 'tool-alpha',
+      artifactId: 'artifact-rt-result-alpha',
+      bodySha256: sha256(serialized),
+      originalEstimatedTokens: serialized.length,
+      originalBytes: utf8Bytes(serialized),
+    });
+    let loadCalls = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'synthesis-cache-load-test',
+        maxHistoryTurns: 1,
+        minRecentTurns: 0,
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 1,
+          minRecentTurnsFull: 0,
+        },
+        archiveRetrieval: {
+          enabled: true,
+          mode: 'history_search_gated',
+          maxResults: 1,
+          maxEstimatedTokens: 4096,
+          maxBytes: 4096,
+        },
+        historySearch: {
+          enabled: true,
+          maxResults: 1,
+          around: 1,
+          maxEstimatedTokens: 4096,
+        },
+        synthesisCache: {
+          enabled: true,
+          maxBlocks: 1,
+        },
+        charsPerToken: 1,
+      },
+      archiveToolResult: async (event) => {
+        archivedBodies.set(event.runtimeEventId, event.serializedResult);
+        return { artifactId: `artifact-${event.runtimeEventId}` };
+      },
+      readToolResultArchive: async (event) => {
+        readRuntimeEventIds.push(event.runtimeEventId);
+        const body = archivedBodies.get(event.runtimeEventId);
+        return body ? { ok: true, serializedResult: body } : { ok: false, reason: 'not_found' };
+      },
+      loadSynthesisCache: async () => {
+        loadCalls += 1;
+        return { blocks: [block] };
+      },
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'Recover key-alpha',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-call-alpha',
+          turnId: 'turn-alpha',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result-alpha',
+          turnId: 'turn-alpha',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: oldResult, isError: false },
+        }),
+        runtimeTextEvent({
+          id: 'rt-new',
+          turnId: 'turn-new',
+          role: 'user',
+          author: 'user',
+          text: 'newer retained context',
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(loadCalls, 1);
+    assert.deepEqual(readRuntimeEventIds, []);
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /maka_synthesis_cache_block/);
+    assert.equal(prompt.includes('RAW_LOADED_SYNTHESIS_ARCHIVE_PAYLOAD'), false);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.synthesisCacheBlocksLoaded, 1);
+    assert.equal(usage?.contextBudget?.synthesisCacheBlocksSelected, 1);
+  });
+
+  test('writes synthesis cache after successful gated archive retrieval without injecting it into the same request', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const archivedBodies = new Map<string, string>();
+    const writeInputs: Array<{ sourceRefCount: number; hydratedHasRaw: boolean }> = [];
+    const oldResult = { body: 'RAW_WRITE_SYNTHESIS_ARCHIVE_PAYLOAD'.repeat(20), key: 'key-alpha' };
+    const serialized = JSON.stringify(oldResult);
+    const writtenBlock = synthesisBlock({
+      queryKey: 'key-alpha',
+      turnId: 'turn-alpha',
+      runtimeEventId: 'rt-result-alpha',
+      toolCallId: 'tool-alpha',
+      artifactId: 'artifact-rt-result-alpha',
+      bodySha256: sha256(serialized),
+      originalEstimatedTokens: serialized.length,
+      originalBytes: utf8Bytes(serialized),
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'synthesis-cache-write-test',
+        maxHistoryTurns: 1,
+        minRecentTurns: 0,
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 1,
+          minRecentTurnsFull: 0,
+        },
+        archiveRetrieval: {
+          enabled: true,
+          mode: 'history_search_gated',
+          maxResults: 1,
+          maxEstimatedTokens: 4096,
+          maxBytes: 4096,
+        },
+        historySearch: {
+          enabled: true,
+          maxResults: 1,
+          around: 1,
+          maxEstimatedTokens: 4096,
+        },
+        synthesisCache: {
+          enabled: true,
+          mode: 'read_write',
+          maxBlocks: 1,
+        },
+        charsPerToken: 1,
+      },
+      archiveToolResult: async (event) => {
+        archivedBodies.set(event.runtimeEventId, event.serializedResult);
+        return { artifactId: `artifact-${event.runtimeEventId}` };
+      },
+      readToolResultArchive: async (event) => {
+        const body = archivedBodies.get(event.runtimeEventId);
+        return body ? { ok: true, serializedResult: body } : { ok: false, reason: 'not_found' };
+      },
+      writeSynthesisCache: async (input) => {
+        writeInputs.push({
+          sourceRefCount: input.source.retrievedArchiveRefs.length,
+          hydratedHasRaw: JSON.stringify(input.source.hydratedRuntimeEvents).includes('RAW_WRITE_SYNTHESIS_ARCHIVE_PAYLOAD'),
+        });
+        return { blocks: [writtenBlock] };
+      },
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'Recover key-alpha',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-call-alpha',
+          turnId: 'turn-alpha',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-alpha', name: 'Read', args: { path: 'key-alpha.txt' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result-alpha',
+          turnId: 'turn-alpha',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-alpha', name: 'Read', result: oldResult, isError: false },
+        }),
+        runtimeTextEvent({
+          id: 'rt-new',
+          turnId: 'turn-new',
+          role: 'user',
+          author: 'user',
+          text: 'newer retained context',
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    assert.deepEqual(writeInputs, [{ sourceRefCount: 1, hydratedHasRaw: true }]);
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /RAW_WRITE_SYNTHESIS_ARCHIVE_PAYLOAD/);
+    assert.equal(prompt.includes('SYNTHESIS_SENTINEL_KEY_ALPHA'), false);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.synthesisCacheWritesAttempted, 1);
+    assert.equal(usage?.contextBudget?.synthesisCacheBlocksWritten, 1);
+    assert.deepEqual(usage?.contextBudget?.synthesisCacheWrittenBlockIds, ['synth-key-alpha']);
+  });
+
   test('falls back to gated archive retrieval when synthesis request asks for evidence', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
     const archivedBodies = new Map<string, string>();
     const readRuntimeEventIds: string[] = [];
+    const writeInputs: Array<{ turnId: string; query: string }> = [];
     const oldResult = { body: 'RAW_SYNTHESIS_ARCHIVE_PAYLOAD'.repeat(20) };
     const serialized = JSON.stringify(oldResult);
     const block = synthesisBlock({
@@ -696,6 +938,7 @@ describe('AiSdkBackend model history', () => {
         },
         synthesisCache: {
           enabled: true,
+          mode: 'read_write',
           blocks: [block],
         },
         charsPerToken: 1,
@@ -708,6 +951,10 @@ describe('AiSdkBackend model history', () => {
         readRuntimeEventIds.push(event.runtimeEventId);
         const body = archivedBodies.get(event.runtimeEventId);
         return body ? { ok: true, serializedResult: body } : { ok: false, reason: 'not_found' };
+      },
+      writeSynthesisCache: async (event) => {
+        writeInputs.push({ turnId: event.turnId, query: event.source.query });
+        return { blocks: [] };
       },
     });
 
@@ -743,6 +990,7 @@ describe('AiSdkBackend model history', () => {
     }
 
     assert.deepEqual(readRuntimeEventIds, ['rt-result-alpha']);
+    assert.deepEqual(writeInputs, []);
     const prompt = JSON.stringify(compactPrompt(model));
     assert.match(prompt, /RAW_SYNTHESIS_ARCHIVE_PAYLOAD/);
     assert.equal(prompt.includes('maka_synthesis_cache_block'), false);
@@ -754,6 +1002,10 @@ describe('AiSdkBackend model history', () => {
       raw_evidence_requested: 1,
     });
     assert.equal(usage?.contextBudget?.retrievedArchiveToolResults, 1);
+    assert.equal(usage?.contextBudget?.synthesisCacheWriteSkipped, 1);
+    assert.deepEqual(usage?.contextBudget?.synthesisCacheWriteSkippedReasonCounts, {
+      raw_evidence_requested: 1,
+    });
   });
 
   test('uses StoredMessage projection when RuntimeEvent tool results are unmatched', async () => {

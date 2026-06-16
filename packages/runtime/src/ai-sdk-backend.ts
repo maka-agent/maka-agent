@@ -106,11 +106,15 @@ import {
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
   estimateRuntimeEventsTokens,
+  rawEvidenceRequestReason,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
   selectSynthesisCacheForReplay,
   type ContextBudgetPolicy,
   type StaleToolResultArchiveCandidate,
+  type SynthesisCacheBlock,
+  type SynthesisSourceRef,
+  type ArchiveRetrievalMode,
   type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
@@ -165,6 +169,49 @@ export interface ToolResultArchiveRecorderInput extends StaleToolResultArchiveCa
 export type ToolResultArchiveRecorder = (
   input: ToolResultArchiveRecorderInput,
 ) => Promise<{ artifactId: string } | void> | { artifactId: string } | void;
+export interface SynthesisCacheLoadInput {
+  sessionId: string;
+  maxBlocks?: number;
+  maxBytes?: number;
+  maxEstimatedTokens?: number;
+}
+export interface SynthesisCacheLoadResult {
+  blocks: SynthesisCacheBlock[];
+  skipped?: number;
+  skippedReasonCounts?: Record<string, number>;
+  evicted?: number;
+  evictionReasonCounts?: Record<string, number>;
+}
+export interface SynthesisCacheWriteInput {
+  sessionId: string;
+  turnId: string;
+  source: {
+    createdFrom: 'gated_archive_retrieval' | 'eager_archive_retrieval';
+    query: string;
+    hydratedRuntimeEvents: RuntimeEvent[];
+    retrievedArchiveRefs: SynthesisSourceRef[];
+    archiveRetrievalMode: ArchiveRetrievalMode;
+  };
+  limits: {
+    maxBlocks: number;
+    maxBlockEstimatedTokens: number;
+    maxEstimatedTokens: number;
+    charsPerToken: number;
+  };
+  requestShapeHashBefore?: string;
+  requestShapeHashAfter?: string;
+}
+export interface SynthesisCacheWriteResult {
+  blocks: SynthesisCacheBlock[];
+  skipped?: number;
+  skippedReasonCounts?: Record<string, number>;
+}
+export type SynthesisCacheLoader = (
+  input: SynthesisCacheLoadInput,
+) => Promise<SynthesisCacheLoadResult> | SynthesisCacheLoadResult;
+export type SynthesisCacheWriter = (
+  input: SynthesisCacheWriteInput,
+) => Promise<SynthesisCacheWriteResult | void> | SynthesisCacheWriteResult | void;
 
 export interface AiSdkBackendInput {
   // ── Session context ────────────────────────────────────────────────────
@@ -229,6 +276,10 @@ export interface AiSdkBackendInput {
    * the current model request only.
    */
   readToolResultArchive?: ToolResultArchiveReader;
+  /** Optional best-effort source-bearing synthesis cache loader. */
+  loadSynthesisCache?: SynthesisCacheLoader;
+  /** Optional best-effort source-bearing synthesis cache writer. */
+  writeSynthesisCache?: SynthesisCacheWriter;
 }
 
 export interface SystemPromptContext {
@@ -738,11 +789,18 @@ export class AiSdkBackend implements AgentBackend {
       return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: [] };
     }
     const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
-    const contextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
+    const preparedContextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
+    const contextBudget = preparedContextBudget.policy;
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
     let runtimeContext = budgeted?.events
       ?? priorRuntimeContext;
     let contextBudgetDiagnostic = budgeted?.diagnostic;
+    if (preparedContextBudget.diagnosticPatch) {
+      contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        preparedContextBudget.diagnosticPatch,
+      );
+    }
 
     const historySearchSource = buildHistorySearchSource(priorRuntimeContext, contextBudget);
     const historyAround = retrieveRuntimeEventHistoryAround(
@@ -802,6 +860,50 @@ export class AiSdkBackend implements AgentBackend {
           retrieval.diagnosticPatch,
         );
       }
+      if (
+        contextBudget?.synthesisCache?.enabled === true &&
+        contextBudget.synthesisCache.mode === 'read_write' &&
+        this.input.writeSynthesisCache &&
+        (retrieval.retrievedSourceRefs?.length ?? 0) > 0 &&
+        (retrieval.diagnosticPatch.retrievedArchiveToolResults ?? 0) > 0
+      ) {
+        const evidenceRequestReason = rawEvidenceRequestReason(input.text);
+        if (evidenceRequestReason) {
+          contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            {
+              synthesisCacheWriteSkipped: 1,
+              synthesisCacheWriteSkippedReasonCounts: { [evidenceRequestReason]: 1 },
+            },
+          );
+        } else {
+          const writePatch = await this.writeSynthesisCacheBlocks({
+            turnId: input.turnId,
+            query: input.text,
+            hydratedRuntimeEvents: runtimeContext,
+            retrievedArchiveRefs: retrieval.retrievedSourceRefs ?? [],
+            archiveRetrievalMode: contextBudget.archiveRetrieval?.mode ?? 'eager',
+            contextBudget,
+          });
+          contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            writePatch,
+          );
+        }
+      } else if (
+        contextBudget?.synthesisCache?.enabled === true &&
+        contextBudget.synthesisCache.mode === 'read_write' &&
+        synthesis.selectedBlocks.length === 0 &&
+        (retrieval.diagnosticPatch.retrievedArchiveToolResults ?? 0) === 0
+      ) {
+        contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+          contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+          {
+            synthesisCacheWriteSkipped: 1,
+            synthesisCacheWriteSkippedReasonCounts: { source_missing: 1 },
+          },
+        );
+      }
     }
 
     const plan = buildRuntimeEventModelReplayPlan(
@@ -858,41 +960,162 @@ export class AiSdkBackend implements AgentBackend {
 
   private async prepareContextBudgetPolicy(
     runtimeContext: readonly RuntimeEvent[],
-  ): Promise<ContextBudgetPolicy | undefined> {
+  ): Promise<{ policy: ContextBudgetPolicy | undefined; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
     const policy = this.input.contextBudget;
-    if (policy?.staleToolResultPrune?.enabled !== true) return policy;
-    const candidates = collectStaleToolResultArchiveCandidates(runtimeContext, policy);
-    if (candidates.length === 0) return policy;
+    if (!policy) return { policy };
+    let nextPolicy = policy;
 
-    const archiveRefs: ToolResultArchiveRef[] = [];
-    for (const candidate of candidates) {
-      const bodySha256 = sha256(candidate.serializedResult);
-      const archived = await Promise.resolve(this.input.archiveToolResult?.({
-        ...candidate,
-        sessionId: this.sessionId,
-        bodySha256,
-      })).catch(() => undefined);
-      if (!archived?.artifactId) continue;
-      archiveRefs.push({
-        runtimeEventId: candidate.runtimeEventId,
-        toolCallId: candidate.toolCallId,
-        toolName: candidate.toolName,
-        artifactId: archived.artifactId,
-        bodySha256,
-        originalEstimatedTokens: candidate.originalEstimatedTokens,
-        originalBytes: candidate.originalBytes,
-        rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-        reason: candidate.reason,
-      });
+    if (policy.staleToolResultPrune?.enabled === true) {
+      const candidates = collectStaleToolResultArchiveCandidates(runtimeContext, policy);
+      if (candidates.length > 0) {
+        const archiveRefs: ToolResultArchiveRef[] = [];
+        for (const candidate of candidates) {
+          const bodySha256 = sha256(candidate.serializedResult);
+          const archived = await Promise.resolve(this.input.archiveToolResult?.({
+            ...candidate,
+            sessionId: this.sessionId,
+            bodySha256,
+          })).catch(() => undefined);
+          if (!archived?.artifactId) continue;
+          archiveRefs.push({
+            runtimeEventId: candidate.runtimeEventId,
+            toolCallId: candidate.toolCallId,
+            toolName: candidate.toolName,
+            artifactId: archived.artifactId,
+            bodySha256,
+            originalEstimatedTokens: candidate.originalEstimatedTokens,
+            originalBytes: candidate.originalBytes,
+            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+            reason: candidate.reason,
+          });
+        }
+
+        nextPolicy = {
+          ...nextPolicy,
+          staleToolResultPrune: {
+            ...nextPolicy.staleToolResultPrune!,
+            archiveRefs,
+          },
+        };
+      }
     }
 
+    const loadPatch = await this.loadSynthesisCacheBlocks(nextPolicy);
+    if (loadPatch.policy !== nextPolicy) nextPolicy = loadPatch.policy;
     return {
-      ...policy,
-      staleToolResultPrune: {
-        ...policy.staleToolResultPrune,
-        archiveRefs,
-      },
+      policy: nextPolicy,
+      ...(loadPatch.diagnosticPatch ? { diagnosticPatch: loadPatch.diagnosticPatch } : {}),
     };
+  }
+
+  private async loadSynthesisCacheBlocks(
+    policy: ContextBudgetPolicy,
+  ): Promise<{ policy: ContextBudgetPolicy; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
+    const synthesisCache = policy.synthesisCache;
+    if (synthesisCache?.enabled !== true || !this.input.loadSynthesisCache) {
+      return { policy };
+    }
+    if ((synthesisCache.blocks?.length ?? 0) > 0) {
+      return { policy };
+    }
+    try {
+      const result = await Promise.resolve(this.input.loadSynthesisCache({
+        sessionId: this.sessionId,
+        maxBlocks: synthesisCache.maxBlocks,
+        maxEstimatedTokens: synthesisCache.maxEstimatedTokens,
+        maxBytes: (synthesisCache.maxEstimatedTokens ?? 2_048) * (policy.charsPerToken ?? 4),
+      }));
+      const blocks = result.blocks ?? [];
+      return {
+        policy: {
+          ...policy,
+          synthesisCache: {
+            ...synthesisCache,
+            blocks,
+          },
+        },
+        diagnosticPatch: {
+          synthesisCacheEnabled: true,
+          synthesisCacheMode: synthesisCache.mode ?? 'lookup',
+          synthesisCacheBlocksLoaded: blocks.length,
+          synthesisCacheBlocksAvailable: blocks.length,
+          ...(result.skipped && result.skipped > 0 ? { synthesisCacheLoadSkipped: result.skipped } : {}),
+          ...(result.skippedReasonCounts ? { synthesisCacheLoadSkippedReasonCounts: result.skippedReasonCounts } : {}),
+          ...(result.evicted && result.evicted > 0 ? { synthesisCacheEvicted: result.evicted } : {}),
+          ...(result.evictionReasonCounts ? { synthesisCacheEvictionReasonCounts: result.evictionReasonCounts } : {}),
+        },
+      };
+    } catch {
+      return {
+        policy,
+        diagnosticPatch: {
+          synthesisCacheEnabled: true,
+          synthesisCacheMode: synthesisCache.mode ?? 'lookup',
+          synthesisCacheLoadFailures: 1,
+        },
+      };
+    }
+  }
+
+  private async writeSynthesisCacheBlocks(input: {
+    turnId: string;
+    query: string;
+    hydratedRuntimeEvents: RuntimeEvent[];
+    retrievedArchiveRefs: SynthesisSourceRef[];
+    archiveRetrievalMode: ArchiveRetrievalMode;
+    contextBudget: ContextBudgetPolicy;
+  }): Promise<Partial<ContextBudgetDiagnostic>> {
+    const synthesisCache = input.contextBudget.synthesisCache;
+    if (synthesisCache?.enabled !== true || synthesisCache.mode !== 'read_write' || !this.input.writeSynthesisCache) {
+      return {};
+    }
+    const limits = {
+      maxBlocks: synthesisCache.maxBlocks ?? 1,
+      maxBlockEstimatedTokens: synthesisCache.maxBlockEstimatedTokens ?? 1_024,
+      maxEstimatedTokens: synthesisCache.maxEstimatedTokens ?? 2_048,
+      charsPerToken: input.contextBudget.charsPerToken ?? 4,
+    };
+    try {
+      const result = await Promise.resolve(this.input.writeSynthesisCache({
+        sessionId: this.sessionId,
+        turnId: input.turnId,
+        source: {
+          createdFrom: input.archiveRetrievalMode === 'history_search_gated'
+            ? 'gated_archive_retrieval'
+            : 'eager_archive_retrieval',
+          query: input.query,
+          hydratedRuntimeEvents: input.hydratedRuntimeEvents,
+          retrievedArchiveRefs: input.retrievedArchiveRefs,
+          archiveRetrievalMode: input.archiveRetrievalMode,
+        },
+        limits,
+        requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+      }));
+      const blocks = result?.blocks ?? [];
+      const estimatedTokens = blocks.reduce((total, block) => total + (block.estimatedTokens ?? 0), 0);
+      return {
+        synthesisCacheEnabled: true,
+        synthesisCacheMode: 'read_write',
+        synthesisCacheWritesAttempted: 1,
+        synthesisCacheBlocksWritten: blocks.length,
+        ...(blocks.length > 0 ? {
+          synthesisCacheWrittenBlockIds: blocks.map((block) => block.blockId),
+          synthesisCacheWriteEstimatedTokens: estimatedTokens,
+          highWaterName: blocks[0]!.highWaterName,
+          highWaterSeq: blocks[0]!.highWaterSeq,
+          highWaterReason: 'synthesis_cache_write',
+        } : {}),
+        ...(result?.skipped && result.skipped > 0 ? { synthesisCacheWriteSkipped: result.skipped } : {}),
+        ...(result?.skippedReasonCounts ? { synthesisCacheWriteSkippedReasonCounts: result.skippedReasonCounts } : {}),
+      };
+    } catch {
+      return {
+        synthesisCacheEnabled: true,
+        synthesisCacheMode: 'read_write',
+        synthesisCacheWritesAttempted: 1,
+        synthesisCacheWriteFailures: 1,
+      };
+    }
   }
 
   private canReplayProviderNative(plan: RuntimeEventModelReplayPlan): boolean {
@@ -1164,6 +1387,18 @@ function mergeContextBudgetDiagnostic(
     synthesisCacheInvalidationReasonCounts: mergeCountRecords(
       base.synthesisCacheInvalidationReasonCounts,
       patch.synthesisCacheInvalidationReasonCounts,
+    ),
+    synthesisCacheLoadSkippedReasonCounts: mergeCountRecords(
+      base.synthesisCacheLoadSkippedReasonCounts,
+      patch.synthesisCacheLoadSkippedReasonCounts,
+    ),
+    synthesisCacheWriteSkippedReasonCounts: mergeCountRecords(
+      base.synthesisCacheWriteSkippedReasonCounts,
+      patch.synthesisCacheWriteSkippedReasonCounts,
+    ),
+    synthesisCacheEvictionReasonCounts: mergeCountRecords(
+      base.synthesisCacheEvictionReasonCounts,
+      patch.synthesisCacheEvictionReasonCounts,
     ),
   };
 }

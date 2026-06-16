@@ -188,7 +188,11 @@ export interface ContextBudgetDiagnostic {
   historyAroundEstimatedTokens?: number;
   historyAroundSkippedEvents?: number;
   synthesisCacheEnabled?: boolean;
-  synthesisCacheMode?: 'off' | 'lookup' | 'insert' | 'fallback_archive_retrieval';
+  synthesisCacheMode?: 'off' | 'lookup' | 'read_write' | 'write_only' | 'fallback_archive_retrieval';
+  synthesisCacheBlocksLoaded?: number;
+  synthesisCacheLoadSkipped?: number;
+  synthesisCacheLoadSkippedReasonCounts?: Record<string, number>;
+  synthesisCacheLoadFailures?: number;
   synthesisCacheBlocksAvailable?: number;
   synthesisCacheBlocksSelected?: number;
   synthesisCacheBlockIds?: string[];
@@ -197,6 +201,15 @@ export interface ContextBudgetDiagnostic {
   synthesisCacheSkippedReasonCounts?: Record<string, number>;
   synthesisCacheInvalidated?: number;
   synthesisCacheInvalidationReasonCounts?: Record<string, number>;
+  synthesisCacheWritesAttempted?: number;
+  synthesisCacheBlocksWritten?: number;
+  synthesisCacheWrittenBlockIds?: string[];
+  synthesisCacheWriteEstimatedTokens?: number;
+  synthesisCacheWriteSkipped?: number;
+  synthesisCacheWriteSkippedReasonCounts?: Record<string, number>;
+  synthesisCacheWriteFailures?: number;
+  synthesisCacheEvicted?: number;
+  synthesisCacheEvictionReasonCounts?: Record<string, number>;
   highWaterName?: string;
   highWaterSeq?: number;
   highWaterReason?:

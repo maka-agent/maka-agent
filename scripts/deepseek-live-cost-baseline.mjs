@@ -11,10 +11,13 @@ import {
   SessionManager,
   buildBuiltinTools,
   buildProviderOptions,
+  buildSynthesisCacheBlocksFromHydratedArchives,
   computeCost,
   createDefaultPermissionEngineDeps,
+  estimateTokens,
   getAIModel,
   getBuiltinPricing,
+  validateSynthesisCacheBlockShape,
 } from '../packages/runtime/dist/index.js';
 import {
   createAgentRunStore,
@@ -58,6 +61,22 @@ if (process.env.MAKA_COST_BASELINE_PHASE7_TOOL_MATRIX === 'on') {
 
 if (process.env.MAKA_COST_BASELINE_PHASE8_SYNTHESIS_MATRIX === 'on') {
   const exitCode = await runPhase8SynthesisMatrix({
+    apiKey,
+    model,
+    repoRoot,
+    outputRoot,
+    runId,
+    seed,
+    cwd,
+  });
+  process.exit(exitCode);
+}
+
+if (
+  process.env.MAKA_COST_BASELINE_PHASE9_SYNTHESIS_LIFECYCLE === 'on' ||
+  process.argv.includes('--phase9-synthesis-lifecycle')
+) {
+  const exitCode = await runPhase9SynthesisLifecycleMatrix({
     apiKey,
     model,
     repoRoot,
@@ -721,6 +740,165 @@ async function runPhase8SynthesisMatrix(input) {
   return 0;
 }
 
+async function runPhase9SynthesisLifecycleMatrix(input) {
+  const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase9-synthesis-lifecycle');
+  await mkdir(matrixOutputRoot, { recursive: true });
+  const sentinel = process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL
+    ?? `PHASE9_SENTINEL_${sha256(`${input.seed}:phase9`).slice(0, 16)}`;
+  const lookupKey = process.env.MAKA_COST_BASELINE_PHASE7_LOOKUP_KEY ?? 'phase9-live-key';
+  const resultLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_RESULT_LINES, 220);
+  const noisyArchiveCount = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES, 8);
+  const cases = [];
+  for (const matrixCase of [
+    { name: 'generated_block_reuse', noiseArchiveCount: 0 },
+    { name: 'bounded_budget_and_fallbacks', noiseArchiveCount: noisyArchiveCount },
+  ]) {
+    const scenarios = [];
+    for (const mode of ['full', 'gated', 'synthesis_read_write']) {
+      scenarios.push(await runPhase8SynthesisScenario({
+        ...input,
+        matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+        matrixCase: matrixCase.name,
+        mode,
+        sentinel,
+        lookupKey,
+        resultLines,
+        noiseArchiveCount: matrixCase.noiseArchiveCount,
+      }));
+    }
+    cases.push({
+      name: matrixCase.name,
+      noiseArchiveCount: matrixCase.noiseArchiveCount,
+      archiveCount: matrixCase.noiseArchiveCount + 1,
+      scenarios,
+    });
+  }
+  const invariantFailures = validatePhase9SynthesisLifecycleMatrix(cases, sentinel);
+  const scenarios = cases[0]?.scenarios ?? [];
+  const report = {
+    sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
+    scenario: {
+      name: 'phase9_synthesis_cache_lifecycle_matrix',
+      cases: cases.map((matrixCase) => matrixCase.name),
+      modes: scenarios.map((scenario) => scenario.mode),
+    },
+    passed: invariantFailures.length === 0,
+    invariantFailures,
+    repoRoot: input.repoRoot,
+    outputRoot: matrixOutputRoot,
+    model: input.model,
+    seed: input.seed,
+    lookupKey,
+    sentinelSha256: sha256(sentinel),
+    resultLines,
+    noisyArchiveCount,
+    cases,
+    scenarios,
+  };
+  const jsonPath = resolve(
+    process.env.MAKA_COST_BASELINE_PHASE9_MATRIX_JSON
+      ?? join(matrixOutputRoot, 'phase9-synthesis-lifecycle-matrix.json'),
+  );
+  await mkdir(resolve(jsonPath, '..'), { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  console.log(JSON.stringify({
+    jsonPath,
+    model: input.model,
+    scenario: report.scenario.name,
+    cases: cases.map((matrixCase) => ({
+      name: matrixCase.name,
+      modes: matrixCase.scenarios.map((scenario) => ({
+        mode: scenario.mode,
+        writesAttempted: scenario.recoveryContextBudget?.synthesisCacheWritesAttempted ?? 0,
+        blocksWritten: scenario.recoveryContextBudget?.synthesisCacheBlocksWritten ?? 0,
+        artifactBackedWrites: scenario.synthesisCacheWrites
+          ?.reduce((total, write) => total + (write.blockIds?.length ?? 0), 0) ?? 0,
+        persistedArtifacts: scenario.persistedSynthesisArtifactIds?.length ?? 0,
+        repeatedLoadedBlocks: scenario.repeatedContextBudget?.synthesisCacheBlocksLoaded ?? 0,
+        repeatedSelectedBlocks: scenario.repeatedContextBudget?.synthesisCacheBlocksSelected ?? 0,
+        repeatedArchivedToolResultsRead: scenario.repeatedArchivedToolResultsRead,
+        rawEvidenceArchivedToolResultsRead: scenario.rawEvidenceArchivedToolResultsRead,
+        recoveryUsage: scenario.recoveryUsage,
+        repeatedUsage: scenario.repeatedUsage,
+      })),
+    })),
+    invariantFailures,
+  }, null, 2));
+  if (invariantFailures.length > 0) {
+    console.error([
+      'Phase 9 synthesis lifecycle matrix invariant failures:',
+      ...invariantFailures.map((failure) => `- ${failure}`),
+    ].join('\n'));
+    return 1;
+  }
+  return 0;
+}
+
+async function loadPersistedSynthesisCacheBlocksFromArtifacts(artifactStore, input) {
+  const maxBlocks = input.maxBlocks ?? 1;
+  const maxEstimatedTokens = input.maxEstimatedTokens ?? 2_048;
+  const maxBytes = input.maxBytes ?? maxEstimatedTokens * 4;
+  const skippedReasonCounts = {};
+  const blocks = [];
+  const records = await artifactStore.list(input.sessionId, { includeDeleted: true });
+  for (const record of records) {
+    if (record.status !== 'live') {
+      incrementCount(skippedReasonCounts, 'deleted');
+      continue;
+    }
+    if (record.source !== 'synthesis_cache_block' || record.kind !== 'file') {
+      continue;
+    }
+    if (record.sessionId !== input.sessionId) {
+      incrementCount(skippedReasonCounts, 'session_mismatch');
+      continue;
+    }
+    if (blocks.length >= maxBlocks) {
+      incrementCount(skippedReasonCounts, 'max_blocks');
+      continue;
+    }
+    if (record.sizeBytes > maxBytes) {
+      incrementCount(skippedReasonCounts, 'max_bytes');
+      continue;
+    }
+    const read = await artifactStore.readText(record.id, { maxBytes });
+    if (!read.ok) {
+      incrementCount(skippedReasonCounts, read.reason);
+      continue;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(read.text);
+    } catch {
+      incrementCount(skippedReasonCounts, 'invalid_json');
+      continue;
+    }
+    if (parsed && typeof parsed === 'object' && typeof parsed.sessionId === 'string' && parsed.sessionId !== input.sessionId) {
+      incrementCount(skippedReasonCounts, 'session_mismatch');
+      continue;
+    }
+    if (!validateSynthesisCacheBlockShape(parsed, input.sessionId)) {
+      incrementCount(skippedReasonCounts, 'invalid_schema_version');
+      continue;
+    }
+    const estimatedTokens = parsed.estimatedTokens ?? estimateTokens(read.text.length, 4);
+    if (estimatedTokens > maxEstimatedTokens) {
+      incrementCount(skippedReasonCounts, 'max_total_tokens');
+      continue;
+    }
+    blocks.push({
+      ...parsed,
+      estimatedTokens,
+    });
+  }
+  const skipped = Object.values(skippedReasonCounts).reduce((total, count) => total + count, 0);
+  return {
+    blocks,
+    ...(skipped > 0 ? { skipped } : {}),
+    ...(skipped > 0 ? { skippedReasonCounts } : {}),
+  };
+}
+
 async function runPhase8SynthesisScenario(input) {
   const workspaceRoot = join(input.matrixOutputRoot, input.mode, 'workspace');
   await mkdir(workspaceRoot, { recursive: true });
@@ -735,6 +913,9 @@ async function runPhase8SynthesisScenario(input) {
   const archiveReads = [];
   const archiveRefsByRuntimeEventId = new Map();
   const synthesisBlocks = [];
+  const persistedSynthesisArtifactIds = [];
+  const synthesisCacheLoads = [];
+  const synthesisCacheWrites = [];
   let activeTurnId;
   const tools = [buildPhase7LookupTool(input)];
   const connection = {
@@ -829,6 +1010,56 @@ async function runPhase8SynthesisScenario(input) {
         if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
         return { ok: true, serializedResult: read.text };
       },
+      loadSynthesisCache: async (event) => {
+        const loaded = await loadPersistedSynthesisCacheBlocksFromArtifacts(artifactStore, event);
+        synthesisCacheLoads.push({
+          requestTurnId: activeTurnId,
+          blockIds: loaded.blocks.map((block) => block.blockId),
+          skipped: loaded.skipped ?? 0,
+          skippedReasonCounts: loaded.skippedReasonCounts ?? {},
+        });
+        return loaded;
+      },
+      writeSynthesisCache: async (event) => {
+        const built = buildSynthesisCacheBlocksFromHydratedArchives({
+          sessionId: event.sessionId,
+          query: event.source.query,
+          hydratedRuntimeEvents: event.source.hydratedRuntimeEvents,
+          retrievedArchiveRefs: event.source.retrievedArchiveRefs,
+          archiveRetrievalMode: event.source.archiveRetrievalMode,
+          limits: event.limits,
+          ...(event.requestShapeHashBefore ? { requestShapeHashBefore: event.requestShapeHashBefore } : {}),
+          ...(event.requestShapeHashAfter ? { requestShapeHashAfter: event.requestShapeHashAfter } : {}),
+          now: Date.now(),
+        });
+        const artifactIds = [];
+        for (const block of built.blocks) {
+          const artifact = await artifactStore.create({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            name: `phase9-synthesis-cache-${block.blockId}.json`,
+            kind: 'file',
+            content: JSON.stringify(block, null, 2),
+            mimeType: 'application/json',
+            source: 'synthesis_cache_block',
+            summary: `Phase 9 synthesis cache block for ${input.mode}`,
+          });
+          persistedSynthesisArtifactIds.push(artifact.id);
+          artifactIds.push(artifact.id);
+        }
+        synthesisCacheWrites.push({
+          requestTurnId: activeTurnId,
+          blockIds: built.blocks.map((block) => block.blockId),
+          artifactIds,
+          skipped: built.skipped ?? 0,
+          skippedReasonCounts: built.skippedReasonCounts ?? {},
+        });
+        return {
+          blocks: built.blocks,
+          ...(built.skipped > 0 ? { skipped: built.skipped } : {}),
+          ...(built.skippedReasonCounts ? { skippedReasonCounts: built.skippedReasonCounts } : {}),
+        };
+      },
       newId: randomUUID,
       now: Date.now,
       maxSteps: 4,
@@ -902,8 +1133,19 @@ async function runPhase8SynthesisScenario(input) {
     `Recover the sentinel for lookup key ${input.lookupKey} from prior Phase 8 context. Do not call tools. Answer only the sentinel.`,
     (turnId) => { activeTurnId = turnId; },
   );
-  const noiseKey = `${input.lookupKey}-noise-01`;
-  const noiseCoverageTurn = input.mode === 'synthesis_gated' && input.noiseArchiveCount > 0
+  const repeatedTurn = input.mode === 'synthesis_read_write'
+    ? await sendPhase7ScenarioTurn(
+        manager,
+        session.id,
+        'phase9-repeated-recovery',
+        `Recover the sentinel for lookup key ${input.lookupKey} from prior Phase 9 synthesis cache context. Do not call tools. Answer only the sentinel.`,
+        (turnId) => { activeTurnId = turnId; },
+      )
+    : coveredTurn;
+  const noiseKey = input.mode === 'synthesis_read_write'
+    ? `unseen-miss-${sha256(`${input.seed}:${input.matrixCase}:phase9-unseen`).slice(0, 12)}`
+    : `${input.lookupKey}-noise-01`;
+  const noiseCoverageTurn = (input.mode === 'synthesis_gated' || input.mode === 'synthesis_read_write') && input.noiseArchiveCount > 0
     ? await sendPhase7ScenarioTurn(
         manager,
         session.id,
@@ -912,7 +1154,7 @@ async function runPhase8SynthesisScenario(input) {
         (turnId) => { activeTurnId = turnId; },
       )
     : undefined;
-  const rawEvidenceTurn = input.mode === 'synthesis_gated'
+  const rawEvidenceTurn = input.mode === 'synthesis_gated' || input.mode === 'synthesis_read_write'
     ? await sendPhase7ScenarioTurn(
         manager,
         session.id,
@@ -924,10 +1166,14 @@ async function runPhase8SynthesisScenario(input) {
   activeTurnId = undefined;
 
   const coveredUsageEvent = coveredTurn.events.find((event) => event.type === 'token_usage');
+  const repeatedUsageEvent = repeatedTurn.events.find((event) => event.type === 'token_usage');
   const noiseCoverageUsageEvent = noiseCoverageTurn?.events.find((event) => event.type === 'token_usage');
   const rawEvidenceUsageEvent = rawEvidenceTurn?.events.find((event) => event.type === 'token_usage');
   const pricingId = `${connection.providerType}:${input.model}`;
-  const coveredRecordOffset = rawEvidenceTurn ? (noiseCoverageTurn ? -3 : -2) : (noiseCoverageTurn ? -2 : -1);
+  const coveredRecordOffset = input.mode === 'synthesis_read_write'
+    ? (rawEvidenceTurn ? (noiseCoverageTurn ? -4 : -3) : (noiseCoverageTurn ? -3 : -2))
+    : (rawEvidenceTurn ? (noiseCoverageTurn ? -3 : -2) : (noiseCoverageTurn ? -2 : -1));
+  const repeatedRecordOffset = rawEvidenceTurn ? (noiseCoverageTurn ? -3 : -2) : (noiseCoverageTurn ? -2 : -1);
   const noiseRecordOffset = rawEvidenceTurn ? -2 : -1;
   return {
     matrixCase: input.matrixCase,
@@ -935,6 +1181,9 @@ async function runPhase8SynthesisScenario(input) {
     contextBudget,
     sessionId: session.id,
     synthesisBlocksCreated: synthesisBlocks,
+    persistedSynthesisArtifactIds,
+    synthesisCacheLoads,
+    synthesisCacheWrites,
     storeTurns: storeTurns.map((turn) => ({
       turnId: turn.turnId,
       key: turn.key,
@@ -944,19 +1193,21 @@ async function runPhase8SynthesisScenario(input) {
     recoveryAnswer: coveredTurn.assistantText,
     recoveryArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-covered-recovery').length,
     recoveryContextBudget: coveredUsageEvent?.contextBudget,
-    repeatedAnswer: coveredTurn.assistantText,
-    repeatedRecoveredSentinel: coveredTurn.assistantText.includes(input.sentinel),
-    repeatedAnswerExactlySentinel: coveredTurn.assistantText.trim() === input.sentinel,
+    repeatedAnswer: repeatedTurn.assistantText,
+    repeatedRecoveredSentinel: repeatedTurn.assistantText.includes(input.sentinel),
+    repeatedAnswerExactlySentinel: repeatedTurn.assistantText.trim() === input.sentinel,
     archiveReads,
-    repeatedArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-covered-recovery').length,
+    repeatedArchivedToolResultsRead: archiveReads.filter((read) =>
+      read.requestTurnId === (input.mode === 'synthesis_read_write' ? 'phase9-repeated-recovery' : 'phase8-covered-recovery')
+    ).length,
     noiseCoverageAnswer: noiseCoverageTurn?.assistantText,
     noiseCoverageArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-noise-coverage-miss').length,
     noiseCoverageContextBudget: noiseCoverageUsageEvent?.contextBudget,
     rawEvidenceArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-raw-evidence').length,
-    repeatedContextBudget: coveredUsageEvent?.contextBudget,
+    repeatedContextBudget: repeatedUsageEvent?.contextBudget,
     rawEvidenceContextBudget: rawEvidenceUsageEvent?.contextBudget,
     recoveryUsage: usageSummary(coveredUsageEvent, llmRecords.at(coveredRecordOffset), pricingId),
-    repeatedUsage: usageSummary(coveredUsageEvent, llmRecords.at(coveredRecordOffset), pricingId),
+    repeatedUsage: usageSummary(repeatedUsageEvent, llmRecords.at(repeatedRecordOffset), pricingId),
     noiseCoverageUsage: noiseCoverageTurn
       ? usageSummary(noiseCoverageUsageEvent, llmRecords.at(noiseRecordOffset), pricingId)
       : undefined,
@@ -1066,6 +1317,22 @@ function buildPhase7ContextBudgetPolicy(mode) {
 function buildPhase8ContextBudgetPolicy(mode, synthesisBlocks) {
   if (mode === 'full') return undefined;
   const gated = buildPhase7ContextBudgetPolicy('gated');
+  if (mode === 'synthesis_read_write') {
+    return {
+      ...gated,
+      name: 'phase9-synthesis-read-write',
+      synthesisCache: {
+        enabled: true,
+        mode: 'read_write',
+        blocks: synthesisBlocks,
+        maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 1),
+        maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 2048),
+        maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 1024),
+        invalidateOnNewToolResult: true,
+        schemaVersion: 1,
+      },
+    };
+  }
   if (mode !== 'synthesis_gated') return gated;
   return {
     ...gated,
@@ -1370,6 +1637,84 @@ function validatePhase8SynthesisMatrix(cases, sentinel) {
   return failures;
 }
 
+function validatePhase9SynthesisLifecycleMatrix(cases, sentinel) {
+  const failures = [];
+  for (const matrixCase of cases) {
+    const byMode = new Map(matrixCase.scenarios.map((scenario) => [scenario.mode, scenario]));
+    const gated = byMode.get('gated');
+    const lifecycle = byMode.get('synthesis_read_write');
+    for (const mode of ['full', 'gated', 'synthesis_read_write']) {
+      const scenario = byMode.get(mode);
+      if (!scenario) {
+        failures.push(`${matrixCase.name}: missing ${mode} scenario`);
+        continue;
+      }
+      if (!scenario.repeatedRecoveredSentinel || !scenario.repeatedAnswerExactlySentinel) {
+        failures.push(`${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`);
+      }
+      if (typeof scenario.repeatedUsage?.estimatedCostUsd !== 'number') {
+        failures.push(`${matrixCase.name}: ${mode} repeated estimatedCostUsd was not measurable`);
+      }
+    }
+    if (gated && (gated.repeatedArchivedToolResultsRead ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: gated comparison turn did not read archives`);
+    }
+    if (!lifecycle) continue;
+    const writtenBlockCount = lifecycle.synthesisCacheWrites
+      ?.reduce((total, write) => total + (write.blockIds?.length ?? 0), 0) ?? 0;
+    if (writtenBlockCount < 1) {
+      failures.push(`${matrixCase.name}: lifecycle did not write any synthesis blocks`);
+    }
+    if ((lifecycle.persistedSynthesisArtifactIds?.length ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: lifecycle did not create any synthesis artifacts`);
+    }
+    if ((lifecycle.repeatedContextBudget?.synthesisCacheBlocksLoaded ?? 0) !== 1) {
+      failures.push(`${matrixCase.name}: lifecycle repeated turn did not load one synthesis block from artifacts`);
+    }
+    if ((lifecycle.repeatedContextBudget?.synthesisCacheBlocksSelected ?? 0) !== 1) {
+      failures.push(`${matrixCase.name}: lifecycle repeated turn did not select one synthesis block`);
+    }
+    const repeatedLoads = lifecycle.synthesisCacheLoads?.find((load) => load.requestTurnId === 'phase9-repeated-recovery');
+    if ((repeatedLoads?.blockIds?.length ?? 0) !== 1) {
+      failures.push(`${matrixCase.name}: lifecycle repeated turn did not prove artifact-backed synthesis load`);
+    }
+    if ((lifecycle.repeatedArchivedToolResultsRead ?? 0) !== 0) {
+      failures.push(`${matrixCase.name}: lifecycle repeated turn read archives`);
+    }
+    if ((lifecycle.rawEvidenceArchivedToolResultsRead ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: lifecycle raw-evidence turn did not fall back to archive retrieval`);
+    }
+    if ((lifecycle.rawEvidenceContextBudget?.synthesisCacheWriteSkippedReasonCounts?.raw_evidence_requested ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: lifecycle raw-evidence turn did not skip synthesis write`);
+    }
+    if (matrixCase.name === 'bounded_budget_and_fallbacks') {
+      if ((lifecycle.noiseCoverageContextBudget?.synthesisCacheBlocksSelected ?? 0) !== 0) {
+        failures.push(`${matrixCase.name}: lifecycle noise query selected target synthesis`);
+      }
+      if ((lifecycle.noiseCoverageContextBudget?.synthesisCacheSkippedReasonCounts?.coverage_miss ?? 0) < 1) {
+        failures.push(`${matrixCase.name}: lifecycle noise query did not report coverage miss`);
+      }
+    }
+    if (
+      gated &&
+      typeof gated.repeatedUsage?.input === 'number' &&
+      typeof lifecycle.repeatedUsage?.input === 'number' &&
+      lifecycle.repeatedUsage.input >= gated.repeatedUsage.input
+    ) {
+      failures.push(`${matrixCase.name}: lifecycle repeated input was not below gated`);
+    }
+    if (
+      gated &&
+      typeof gated.repeatedUsage?.estimatedCostUsd === 'number' &&
+      typeof lifecycle.repeatedUsage?.estimatedCostUsd === 'number' &&
+      lifecycle.repeatedUsage.estimatedCostUsd >= gated.repeatedUsage.estimatedCostUsd
+    ) {
+      failures.push(`${matrixCase.name}: lifecycle repeated cost was not below gated`);
+    }
+  }
+  return failures;
+}
+
 function buildScenario(policy) {
   const explicitName = process.env.MAKA_COST_BASELINE_SCENARIO;
   if (explicitName) {
@@ -1413,6 +1758,11 @@ function scenarioNameForPolicy(policy) {
 
 function contextBudgetMode(policy) {
   if (!policy) return 'off';
+  if (policy.synthesisCache?.enabled === true) {
+    return policy.synthesisCache.mode === 'read_write'
+      ? 'synthesis_read_write'
+      : 'synthesis_lookup';
+  }
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
     if (policy.archiveRetrieval?.enabled === true) {
       return policy.archiveRetrieval.mode === 'history_search_gated'
@@ -1512,6 +1862,10 @@ function parseOptionalPositiveInt(value) {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function incrementCount(counts, reason) {
+  counts[reason] = (counts[reason] ?? 0) + 1;
 }
 
 function parseArchiveRetrievalMode(value) {
