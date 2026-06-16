@@ -337,23 +337,40 @@ async function runPhase7ToolMatrix(input) {
     ?? `PHASE7_SENTINEL_${sha256(`${input.seed}:phase7`).slice(0, 16)}`;
   const lookupKey = process.env.MAKA_COST_BASELINE_PHASE7_LOOKUP_KEY ?? 'phase7-live-key';
   const resultLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_RESULT_LINES, 220);
-  const scenarios = [];
-  for (const mode of ['full', 'prune', 'eager', 'gated']) {
-    scenarios.push(await runPhase7ToolScenario({
-      ...input,
-      matrixOutputRoot,
-      mode,
-      sentinel,
-      lookupKey,
-      resultLines,
-    }));
+  const noisyArchiveCount = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES, 8);
+  const cases = [];
+  for (const matrixCase of [
+    { name: 'single_archive_recovery', noiseArchiveCount: 0 },
+    { name: 'multi_archive_selectivity', noiseArchiveCount: noisyArchiveCount },
+  ]) {
+    const scenarios = [];
+    for (const mode of ['full', 'prune', 'eager', 'gated']) {
+      scenarios.push(await runPhase7ToolScenario({
+        ...input,
+        matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+        matrixCase: matrixCase.name,
+        mode,
+        sentinel,
+        lookupKey,
+        resultLines,
+        noiseArchiveCount: matrixCase.noiseArchiveCount,
+      }));
+    }
+    cases.push({
+      name: matrixCase.name,
+      noiseArchiveCount: matrixCase.noiseArchiveCount,
+      archiveCount: matrixCase.noiseArchiveCount + 1,
+      scenarios,
+    });
   }
-  const invariantFailures = validatePhase7ToolMatrix(scenarios, sentinel);
+  const scenarios = cases[0]?.scenarios ?? [];
+  const invariantFailures = validatePhase7ToolMatrix(cases, sentinel);
 
   const report = {
     sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
     scenario: {
       name: 'phase7_tool_archive_retrieval_matrix',
+      cases: cases.map((matrixCase) => matrixCase.name),
       modes: scenarios.map((scenario) => scenario.mode),
     },
     passed: invariantFailures.length === 0,
@@ -365,6 +382,8 @@ async function runPhase7ToolMatrix(input) {
     lookupKey,
     sentinelSha256: sha256(sentinel),
     resultLines,
+    noisyArchiveCount,
+    cases,
     scenarios,
   };
   const jsonPath = resolve(
@@ -377,11 +396,18 @@ async function runPhase7ToolMatrix(input) {
     jsonPath,
     model: input.model,
     scenario: report.scenario.name,
-    modes: scenarios.map((scenario) => ({
-      mode: scenario.mode,
-      recoveredSentinel: scenario.recoveredSentinel,
-      archivedToolResultsRead: scenario.archivedToolResultsRead,
-      toolCalls: scenario.toolCalls,
+    cases: cases.map((matrixCase) => ({
+      name: matrixCase.name,
+      modes: matrixCase.scenarios.map((scenario) => ({
+        mode: scenario.mode,
+        recoveredSentinel: scenario.recoveredSentinel,
+        finalAnswerExactlySentinel: scenario.finalAnswerExactlySentinel,
+        archivedToolResultsRead: scenario.archivedToolResultsRead,
+        finalArchivedToolResultsRead: scenario.finalArchivedToolResultsRead,
+        finalUsage: scenario.finalUsage,
+        scenarioUsageTotals: scenario.scenarioUsageTotals,
+        toolCalls: scenario.toolCalls.length,
+      })),
     })),
     invariantFailures,
   }, null, 2));
@@ -407,6 +433,7 @@ async function runPhase7ToolScenario(input) {
   const llmRecords = [];
   const runTraceEvents = [];
   const archiveReads = [];
+  let activeTurnId;
   const tools = [buildPhase7LookupTool(input)];
   const connection = {
     slug: `deepseek-live-phase7-${input.mode}`,
@@ -461,6 +488,7 @@ async function runPhase7ToolScenario(input) {
       },
       readToolResultArchive: async (event) => {
         archiveReads.push({
+          requestTurnId: activeTurnId,
           runtimeEventId: event.runtimeEventId,
           turnId: event.turnId,
           artifactId: event.artifactId,
@@ -503,44 +531,74 @@ async function runPhase7ToolScenario(input) {
     name: `DeepSeek Phase 7 ${input.mode}`,
   });
 
-  const storeTurn = await sendPhase7Turn(
-    manager,
-    session.id,
-    'phase7-store',
-    [
-      `Store the Phase 7 lookup for key ${input.lookupKey}.`,
-      'Call Phase7Lookup, then acknowledge with exactly STORED.',
-      'Do not repeat the sentinel.',
-    ].join('\n'),
-  );
-  const fillerTurn = await sendPhase7Turn(
+  const storeSpecs = buildPhase7StoreSpecs(input);
+  const storeTurns = [];
+  for (const storeSpec of storeSpecs) {
+    storeTurns.push({
+      ...storeSpec,
+      ...(await sendPhase7ScenarioTurn(
+        manager,
+        session.id,
+        storeSpec.turnId,
+        [
+          `Store the Phase 7 lookup for key ${storeSpec.key}.`,
+          'Call Phase7Lookup, then acknowledge with exactly STORED.',
+          'Do not repeat any sentinel value.',
+        ].join('\n'),
+        (turnId) => { activeTurnId = turnId; },
+      )),
+    });
+  }
+  const fillerTurn = await sendPhase7ScenarioTurn(
     manager,
     session.id,
     'phase7-filler',
     'Answer exactly OK. This turn exists so the old tool result becomes stale for pruning.',
+    (turnId) => { activeTurnId = turnId; },
   );
-  const recoverTurn = await sendPhase7Turn(
+  const recoverTurn = await sendPhase7ScenarioTurn(
     manager,
     session.id,
     'phase7-recover',
     `Recover the sentinel for lookup key ${input.lookupKey} from the archived Phase 7 tool result. Do not call tools. Answer only the sentinel.`,
+    (turnId) => { activeTurnId = turnId; },
   );
+  activeTurnId = undefined;
   const finalUsage = recoverTurn.events.find((event) => event.type === 'token_usage');
-  const storageAnswerIncludedSentinel = storeTurn.assistantText.includes(input.sentinel);
+  const storageAnswerIncludedSentinel = storeTurns.some((turn) => turn.assistantText.includes(input.sentinel));
+  const finalArchiveReads = archiveReads.filter((read) => read.requestTurnId === 'phase7-recover');
+  const pricingId = `${connection.providerType}:${input.model}`;
   return {
+    matrixCase: input.matrixCase,
     mode: input.mode,
     contextBudget,
     sessionId: session.id,
-    toolCalls: [...storeTurn.events, ...fillerTurn.events, ...recoverTurn.events]
+    storeTurns: storeTurns.map((turn) => ({
+      turnId: turn.turnId,
+      key: turn.key,
+      target: turn.target,
+      assistantText: turn.assistantText,
+    })),
+    expectedToolCallTurns: storeSpecs.map((spec) => spec.turnId),
+    targetToolCallTurnId: storeSpecs.find((spec) => spec.target)?.turnId,
+    toolCalls: [
+      ...storeTurns.flatMap((turn) => turn.events),
+      ...fillerTurn.events,
+      ...recoverTurn.events,
+    ]
       .filter((event) => event.type === 'tool_start')
       .map((event) => ({ turnId: event.turnId, toolName: event.toolName })),
     storageAnswerIncludedSentinel,
     finalAnswer: recoverTurn.assistantText,
     recoveredSentinel: recoverTurn.assistantText.includes(input.sentinel),
+    finalAnswerExactlySentinel: recoverTurn.assistantText.trim() === input.sentinel,
     archivedToolResultsRead: archiveReads.length,
     archiveReads,
+    finalArchivedToolResultsRead: finalArchiveReads.length,
+    finalArchiveReads,
     finalContextBudget: finalUsage?.contextBudget,
-    finalUsage: usageSummary(finalUsage, llmRecords.at(-1)),
+    finalUsage: usageSummary(finalUsage, llmRecords.at(-1), pricingId),
+    scenarioUsageTotals: usageTotals(llmRecords, pricingId),
     requestShapeTrace: runTraceEvents
       .filter((event) =>
         event.data?.requestShapeHash ||
@@ -565,15 +623,39 @@ function buildPhase7LookupTool(input) {
       key: z.string().describe('The lookup key requested by the user.'),
     }),
     permissionRequired: false,
-    impl: ({ key }) => ({
-      key,
-      sentinel: input.sentinel,
-      rows: Array.from({ length: input.resultLines }, (_, index) => ({
-        index,
-        text: `phase7 archived payload row ${String(index + 1).padStart(3, '0')} for ${key}`,
-      })),
-    }),
+    impl: ({ key }) => {
+      const target = key === input.lookupKey;
+      const sentinel = target
+        ? input.sentinel
+        : `PHASE7_NOISE_${sha256(`${input.seed}:${input.matrixCase}:${key}`).slice(0, 16)}`;
+      return {
+        key,
+        target,
+        sentinel,
+        rows: Array.from({ length: input.resultLines }, (_, index) => ({
+          index,
+          text: `phase7 archived payload row ${String(index + 1).padStart(3, '0')} for ${key}`,
+        })),
+      };
+    },
   };
+}
+
+function buildPhase7StoreSpecs(input) {
+  const noiseSpecs = Array.from({ length: input.noiseArchiveCount ?? 0 }, (_, index) => ({
+    turnId: `phase7-store-noise-${String(index + 1).padStart(2, '0')}`,
+    key: `${input.lookupKey}-noise-${String(index + 1).padStart(2, '0')}`,
+    target: false,
+  }));
+  const targetTurnId = noiseSpecs.length === 0 ? 'phase7-store' : 'phase7-store-target';
+  return [
+    ...noiseSpecs,
+    {
+      turnId: targetTurnId,
+      key: input.lookupKey,
+      target: true,
+    },
+  ];
 }
 
 function buildPhase7ContextBudgetPolicy(mode) {
@@ -607,7 +689,7 @@ function buildPhase7ContextBudgetPolicy(mode) {
       historySearch: {
         enabled: true,
         maxResults: 1,
-        around: 1,
+        around: 0,
         maxEstimatedTokens: 4096,
       },
     };
@@ -641,77 +723,144 @@ async function sendPhase7Turn(manager, sessionId, turnId, text) {
   };
 }
 
-function usageSummary(usageEvent, llmRecord) {
+async function sendPhase7ScenarioTurn(manager, sessionId, turnId, text, setActiveTurnId) {
+  setActiveTurnId(turnId);
+  try {
+    return await sendPhase7Turn(manager, sessionId, turnId, text);
+  } finally {
+    setActiveTurnId(undefined);
+  }
+}
+
+function usageSummary(usageEvent, llmRecord, pricingId) {
+  const cost = llmRecord ? costForLlmRecord(llmRecord, pricingId) : undefined;
   return {
     input: usageEvent?.input ?? llmRecord?.inputTokens,
     output: usageEvent?.output ?? llmRecord?.outputTokens,
     cacheHitInput: usageEvent?.cacheHitInput ?? llmRecord?.cacheHitInputTokens,
     cacheMissInput: usageEvent?.cacheMissInput ?? llmRecord?.cacheMissInputTokens,
     cacheWriteInput: usageEvent?.cacheWriteInput ?? llmRecord?.cacheWriteInputTokens,
+    estimatedCostUsd: cost?.totalCost,
     requestShapeChangeReason: usageEvent?.requestShapeChangeReason ?? llmRecord?.requestShapeChangeReason,
     contextBudget: usageEvent?.contextBudget ?? llmRecord?.contextBudget,
   };
 }
 
-function validatePhase7ToolMatrix(scenarios, sentinel) {
+function usageTotals(llmRecords, pricingId) {
+  return llmRecords.reduce((acc, record) => {
+    const cost = costForLlmRecord(record, pricingId);
+    acc.calls += 1;
+    acc.input += record.inputTokens ?? 0;
+    acc.output += record.outputTokens ?? 0;
+    acc.cacheHitInput += record.cacheHitInputTokens ?? 0;
+    acc.cacheMissInput += record.cacheMissInputTokens ?? 0;
+    acc.cacheWriteInput += record.cacheWriteInputTokens ?? 0;
+    acc.estimatedCostUsd += cost?.totalCost ?? 0;
+    return acc;
+  }, {
+    calls: 0,
+    input: 0,
+    output: 0,
+    cacheHitInput: 0,
+    cacheMissInput: 0,
+    cacheWriteInput: 0,
+    estimatedCostUsd: 0,
+  });
+}
+
+function costForLlmRecord(record, pricingId) {
+  return computeCost(
+    {
+      inputTokens: record.inputTokens,
+      outputTokens: record.outputTokens,
+      cacheHitInputTokens: record.cacheHitInputTokens,
+      cacheMissInputTokens: record.cacheMissInputTokens,
+      cacheWriteInputTokens: record.cacheWriteInputTokens,
+    },
+    getBuiltinPricing(pricingId),
+  );
+}
+
+function validatePhase7ToolMatrix(cases, sentinel) {
   const failures = [];
-  const byMode = new Map(scenarios.map((scenario) => [scenario.mode, scenario]));
-  for (const mode of ['full', 'prune', 'eager', 'gated']) {
-    const scenario = byMode.get(mode);
-    if (!scenario) {
-      failures.push(`missing ${mode} scenario`);
-      continue;
-    }
-    if (scenario.storageAnswerIncludedSentinel) {
-      failures.push(`${mode} scenario repeated sentinel in storage acknowledgement`);
-    }
-    if (scenario.toolCalls.length !== 1) {
-      failures.push(`${mode} scenario expected exactly one tool call, saw ${scenario.toolCalls.length}`);
-    } else {
-      const [call] = scenario.toolCalls;
-      if (call.turnId !== 'phase7-store' || call.toolName !== 'Phase7Lookup') {
-        failures.push(`${mode} scenario unexpected tool call ${call.toolName} on ${call.turnId}`);
+  for (const matrixCase of cases) {
+    const byMode = new Map(matrixCase.scenarios.map((scenario) => [scenario.mode, scenario]));
+    for (const mode of ['full', 'prune', 'eager', 'gated']) {
+      const scenario = byMode.get(mode);
+      if (!scenario) {
+        failures.push(`${matrixCase.name}: missing ${mode} scenario`);
+        continue;
+      }
+      if (scenario.storageAnswerIncludedSentinel) {
+        failures.push(`${matrixCase.name}: ${mode} scenario repeated sentinel in storage acknowledgement`);
+      }
+      const expectedTurnCounts = new Map(scenario.expectedToolCallTurns.map((turnId) => [turnId, 0]));
+      for (const call of scenario.toolCalls) {
+        if (call.toolName !== 'Phase7Lookup') {
+          failures.push(`${matrixCase.name}: ${mode} scenario unexpected tool call ${call.toolName}`);
+        }
+        if (!expectedTurnCounts.has(call.turnId)) {
+          failures.push(`${matrixCase.name}: ${mode} scenario unexpected tool call on ${call.turnId}`);
+        } else {
+          expectedTurnCounts.set(call.turnId, expectedTurnCounts.get(call.turnId) + 1);
+        }
+      }
+      for (const [turnId, count] of expectedTurnCounts.entries()) {
+        if (count !== 1) {
+          failures.push(`${matrixCase.name}: ${mode} scenario expected one Phase7Lookup call on ${turnId}, saw ${count}`);
+        }
+      }
+      if (scenario.toolCalls.length !== scenario.expectedToolCallTurns.length) {
+        failures.push(`${matrixCase.name}: ${mode} scenario expected ${scenario.expectedToolCallTurns.length} tool calls, saw ${scenario.toolCalls.length}`);
       }
     }
-  }
 
-  const full = byMode.get('full');
-  const prune = byMode.get('prune');
-  const eager = byMode.get('eager');
-  const gated = byMode.get('gated');
-  if (full && !full.recoveredSentinel) failures.push('full scenario did not recover sentinel');
-  if (full?.recoveredSentinel && full.finalAnswer.trim() !== sentinel) {
-    failures.push('full scenario final answer was not exactly the sentinel');
-  }
-  if (prune?.recoveredSentinel) failures.push('prune scenario recovered sentinel without archive retrieval');
-  if (prune && prune.archivedToolResultsRead !== 0) failures.push('prune scenario unexpectedly read archives');
-  if (eager && !eager.recoveredSentinel) failures.push('eager scenario did not recover sentinel');
-  if (eager?.recoveredSentinel && eager.finalAnswer.trim() !== sentinel) {
-    failures.push('eager scenario final answer was not exactly the sentinel');
-  }
-  if (eager && eager.archivedToolResultsRead < 1) failures.push('eager scenario did not read any archive');
-  if (eager?.finalContextBudget?.archiveRetrievalMode !== 'eager') {
-    failures.push('eager scenario did not report eager retrieval mode');
-  }
-  if ((eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
-    failures.push('eager scenario final turn did not retrieve an archive');
-  }
-  if (gated && !gated.recoveredSentinel) failures.push('gated scenario did not recover sentinel');
-  if (gated?.recoveredSentinel && gated.finalAnswer.trim() !== sentinel) {
-    failures.push('gated scenario final answer was not exactly the sentinel');
-  }
-  if (gated && gated.archivedToolResultsRead < 1) failures.push('gated scenario did not read any archive');
-  if (gated?.finalContextBudget?.archiveRetrievalMode !== 'history_search_gated') {
-    failures.push('gated scenario did not report history_search_gated retrieval mode');
-  }
-  if ((gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
-    failures.push('gated scenario final turn did not retrieve an archive');
-  }
-  if ((gated?.finalContextBudget?.archiveRetrievalEligibleTurns ?? 0) < 1) {
-    failures.push('gated scenario did not report any archive retrieval eligible turns');
-  }
-  if ((gated?.finalContextBudget?.historySearchMatches ?? 0) < 1) {
-    failures.push('gated scenario did not report a history search match');
+    const full = byMode.get('full');
+    const prune = byMode.get('prune');
+    const eager = byMode.get('eager');
+    const gated = byMode.get('gated');
+    if (full && !full.recoveredSentinel) failures.push(`${matrixCase.name}: full scenario did not recover sentinel`);
+    if (prune?.recoveredSentinel) failures.push(`${matrixCase.name}: prune scenario recovered sentinel without archive retrieval`);
+    if (prune && prune.archivedToolResultsRead !== 0) failures.push(`${matrixCase.name}: prune scenario unexpectedly read archives`);
+    if (eager && !eager.recoveredSentinel) failures.push(`${matrixCase.name}: eager scenario did not recover sentinel`);
+    if (eager && eager.archivedToolResultsRead < 1) failures.push(`${matrixCase.name}: eager scenario did not read any archive`);
+    if (eager?.finalContextBudget?.archiveRetrievalMode !== 'eager') {
+      failures.push(`${matrixCase.name}: eager scenario did not report eager retrieval mode`);
+    }
+    if ((eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: eager scenario final turn did not retrieve an archive`);
+    }
+    if (gated && !gated.recoveredSentinel) failures.push(`${matrixCase.name}: gated scenario did not recover sentinel`);
+    if (gated && gated.archivedToolResultsRead < 1) failures.push(`${matrixCase.name}: gated scenario did not read any archive`);
+    if (gated?.finalContextBudget?.archiveRetrievalMode !== 'history_search_gated') {
+      failures.push(`${matrixCase.name}: gated scenario did not report history_search_gated retrieval mode`);
+    }
+    if ((gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: gated scenario final turn did not retrieve an archive`);
+    }
+    if ((gated?.finalContextBudget?.archiveRetrievalEligibleTurns ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: gated scenario did not report any archive retrieval eligible turns`);
+    }
+    if ((gated?.finalContextBudget?.historySearchMatches ?? 0) < 1) {
+      failures.push(`${matrixCase.name}: gated scenario did not report a history search match`);
+    }
+    if (matrixCase.name === 'multi_archive_selectivity') {
+      if ((gated?.finalArchivedToolResultsRead ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: gated scenario final turn should read exactly one matching archive, saw ${gated?.finalArchivedToolResultsRead ?? 0}`);
+      }
+      if ((gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: gated scenario should inject exactly one matching archive, saw ${gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0}`);
+      }
+      if ((eager?.finalArchivedToolResultsRead ?? 0) <= (gated?.finalArchivedToolResultsRead ?? 0)) {
+        failures.push(`${matrixCase.name}: eager scenario final turn did not read more archives than gated`);
+      }
+      if ((eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) <= (gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0)) {
+        failures.push(`${matrixCase.name}: eager scenario did not inject more archives than gated`);
+      }
+      if ((eager?.finalContextBudget?.retrievedArchiveEstimatedTokens ?? 0) <= (gated?.finalContextBudget?.retrievedArchiveEstimatedTokens ?? 0)) {
+        failures.push(`${matrixCase.name}: eager scenario did not report higher retrieved archive token volume than gated`);
+      }
+    }
   }
   return failures;
 }
