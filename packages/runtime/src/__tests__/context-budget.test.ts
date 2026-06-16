@@ -265,6 +265,66 @@ describe('context-budget archive retrieval', () => {
       { kind: 'text', text: 'second' },
     );
   });
+
+  test('gates archive reads to history-selected turns when requested', async () => {
+    const selected = serializeToolResultForArchive({ kind: 'text', text: 'selected' });
+    const unselected = serializeToolResultForArchive({ kind: 'text', text: 'unselected' });
+    const events = [
+      archivedResult('result-selected', 'turn-selected', 'tool-selected', {
+        artifactId: 'artifact-selected',
+        bodySha256: sha256(selected),
+        originalEstimatedTokens: selected.length,
+        originalBytes: utf8Bytes(selected),
+      }),
+      archivedResult('result-unselected', 'turn-unselected', 'tool-unselected', {
+        artifactId: 'artifact-unselected',
+        bodySha256: sha256(unselected),
+        originalEstimatedTokens: unselected.length,
+        originalBytes: utf8Bytes(unselected),
+      }),
+    ];
+    const reads: string[] = [];
+
+    const retrieved = await retrieveArchivedToolResultsForReplay(
+      events,
+      {
+        enabled: true,
+        mode: 'history_search_gated',
+        maxResults: 2,
+        maxEstimatedTokens: 1024,
+        maxBytes: 1024,
+      },
+      async (input) => {
+        reads.push(input.runtimeEventId);
+        return {
+          ok: true,
+          serializedResult: input.runtimeEventId === 'result-selected' ? selected : unselected,
+        };
+      },
+      { sessionId: 'session-1', allowedTurnIds: new Set(['turn-selected']) },
+    );
+
+    assert.deepEqual(reads, ['result-selected']);
+    assert.equal(retrieved.diagnosticPatch.archiveRetrievalMode, 'history_search_gated');
+    assert.equal(retrieved.diagnosticPatch.archiveRetrievalEligibleTurns, 1);
+    assert.equal(retrieved.diagnosticPatch.retrievedArchiveToolResults, 1);
+    assert.equal(retrieved.diagnosticPatch.archiveRetrievalSkipped, 1);
+    assert.deepEqual(retrieved.diagnosticPatch.archiveRetrievalSkippedReasonCounts, {
+      history_search_gate: 1,
+    });
+    assert.deepEqual(
+      retrieved.events[0]?.content?.kind === 'function_response'
+        ? retrieved.events[0].content.result
+        : undefined,
+      { kind: 'text', text: 'selected' },
+    );
+    assert.equal(
+      retrieved.events[1]?.content?.kind === 'function_response'
+        ? (retrieved.events[1].content.result as { kind?: string }).kind
+        : undefined,
+      ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
+    );
+  });
 });
 
 describe('context-budget search and rewrite diagnostics', () => {

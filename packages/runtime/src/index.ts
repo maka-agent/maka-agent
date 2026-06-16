@@ -91,6 +91,7 @@ export type {
   ArchivedToolResultReason,
   BudgetedRuntimeContext,
   ContextBudgetPolicy,
+  ArchiveRetrievalMode,
   ArchiveRetrievalPolicy,
   ArchiveRetrievalResult,
   HistoryRewriteGatePolicy,

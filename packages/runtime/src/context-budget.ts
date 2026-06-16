@@ -45,11 +45,18 @@ export interface StaleToolResultPrunePolicy {
 
 export interface ArchiveRetrievalPolicy {
   enabled: boolean;
+  /**
+   * Defaults to `eager` for Phase 6 compatibility. `history_search_gated`
+   * only hydrates placeholders whose turn was selected by history search.
+   */
+  mode?: ArchiveRetrievalMode;
   maxResults?: number;
   maxEstimatedTokens?: number;
   maxBytes?: number;
   order?: 'newest_first';
 }
+
+export type ArchiveRetrievalMode = 'eager' | 'history_search_gated';
 
 export interface RuntimeEventHistorySearchPolicy {
   enabled: boolean;
@@ -256,13 +263,19 @@ export async function retrieveArchivedToolResultsForReplay(
   events: readonly RuntimeEvent[],
   policy: ArchiveRetrievalPolicy | undefined,
   reader: ToolResultArchiveReader | undefined,
-  options: { sessionId: string; charsPerToken?: number },
+  options: {
+    sessionId: string;
+    charsPerToken?: number;
+    allowedTurnIds?: ReadonlySet<string> | readonly string[];
+  },
 ): Promise<ArchiveRetrievalResult> {
   if (policy?.enabled !== true || !reader) {
     return { events: [...events], diagnosticPatch: {} };
   }
 
   const charsPerToken = options.charsPerToken ?? 4;
+  const mode = policy.mode ?? 'eager';
+  const allowedTurnIds = normalizeAllowedTurnIds(options.allowedTurnIds);
   const maxResults = finitePositive(policy.maxResults) ?? 3;
   const maxEstimatedTokens = finitePositive(policy.maxEstimatedTokens) ?? 8_192;
   const maxBytes = finitePositive(policy.maxBytes) ?? 1024 * 1024;
@@ -278,6 +291,11 @@ export async function retrieveArchivedToolResultsForReplay(
 
   for (const candidate of candidates) {
     if (retrieved >= maxResults) break;
+    if (mode === 'history_search_gated' && !allowedTurnIds.has(turnKey(candidate.event))) {
+      skipped += 1;
+      increment(skippedReasonCounts, 'history_search_gate');
+      continue;
+    }
     if (candidate.placeholder.originalBytes > maxBytes) {
       skipped += 1;
       increment(skippedReasonCounts, 'max_bytes');
@@ -331,6 +349,10 @@ export async function retrieveArchivedToolResultsForReplay(
   return {
     events: hydratedEvents,
     diagnosticPatch: {
+      archiveRetrievalMode: mode,
+      ...(mode === 'history_search_gated'
+        ? { archiveRetrievalEligibleTurns: allowedTurnIds.size }
+        : {}),
       retrievedArchiveToolResults: retrieved,
       retrievedArchiveEstimatedTokens: retrievedTokens,
       archiveRetrievalSkipped: skipped,
@@ -779,6 +801,14 @@ function collectArchiveRetrievalCandidates(
     candidates.push({ event, placeholder: event.content.result });
   }
   return order === 'newest_first' ? candidates.reverse() : candidates;
+}
+
+function normalizeAllowedTurnIds(
+  turnIds: ReadonlySet<string> | readonly string[] | undefined,
+): ReadonlySet<string> {
+  if (!turnIds) return new Set();
+  if (turnIds instanceof Set) return turnIds;
+  return new Set(turnIds);
 }
 
 function scoreRuntimeEventSearchHit(
