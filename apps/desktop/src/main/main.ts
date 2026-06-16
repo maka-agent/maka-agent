@@ -214,6 +214,10 @@ import {
 } from './text-file-import.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
+import {
+  loadSynthesisCacheBlocksFromArtifacts,
+  persistSynthesisCacheBlocksToArtifacts,
+} from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
 import { BrowserViewManager } from './browser/view-manager.js';
 import { BrowserViewController } from './browser/controller.js';
@@ -805,6 +809,17 @@ backends.register('ai-sdk', async (ctx) => {
     recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
     archiveToolResult: (event) => persistArchivedToolResult(event),
     readToolResultArchive: (event) => readArchivedToolResult(event),
+    loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
+    writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
+      onArtifactCreated: (artifact) => {
+        mainWindow?.webContents.send('artifacts:changed', {
+          reason: 'created',
+          artifactId: artifact.id,
+          sessionId: artifact.sessionId,
+          ts: Date.now(),
+        });
+      },
+    }),
     recordRunTrace: ctx.recordRunTrace,
     newId: randomUUID,
     now: Date.now,
@@ -821,6 +836,7 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
   const staleToolResultPrune = buildStaleToolResultPrunePolicy();
   const archiveRetrieval = buildArchiveRetrievalPolicy();
   const historySearch = buildHistorySearchPolicy();
+  const synthesisCache = buildSynthesisCachePolicy();
   const historyRewrite = buildHistoryRewriteGatePolicy();
   if (
     maxHistoryEstimatedTokens === undefined &&
@@ -828,6 +844,7 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
     staleToolResultPrune === undefined &&
     archiveRetrieval === undefined &&
     historySearch === undefined &&
+    synthesisCache === undefined &&
     historyRewrite === undefined
   ) {
     return undefined;
@@ -839,6 +856,7 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
     ...(staleToolResultPrune !== undefined ? { staleToolResultPrune } : {}),
     ...(archiveRetrieval !== undefined ? { archiveRetrieval } : {}),
     ...(historySearch !== undefined ? { historySearch } : {}),
+    ...(synthesisCache !== undefined ? { synthesisCache } : {}),
     ...(historyRewrite !== undefined ? { historyRewrite } : {}),
     minRecentTurns,
   };
@@ -861,8 +879,10 @@ function buildStaleToolResultPrunePolicy(): NonNullable<ContextBudgetPolicy['sta
 
 function buildArchiveRetrievalPolicy(): NonNullable<ContextBudgetPolicy['archiveRetrieval']> | undefined {
   if (process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL !== 'on') return undefined;
+  const mode = parseArchiveRetrievalMode(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE);
   return {
     enabled: true,
+    ...(mode ? { mode } : {}),
     maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 3),
     maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 8192),
     maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 1024 * 1024),
@@ -877,6 +897,19 @@ function buildHistorySearchPolicy(): NonNullable<ContextBudgetPolicy['historySea
     maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_MAX_RESULTS, 5),
     around: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_AROUND, 1),
     maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_MAX_TOKENS, 4096),
+  };
+}
+
+function buildSynthesisCachePolicy(): NonNullable<ContextBudgetPolicy['synthesisCache']> | undefined {
+  if (process.env.MAKA_CONTEXT_SYNTHESIS_CACHE !== 'on') return undefined;
+  return {
+    enabled: true,
+    mode: parseSynthesisCacheMode(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MODE),
+    maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 1),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 2048),
+    maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 1024),
+    invalidateOnNewToolResult: true,
+    schemaVersion: 1,
   };
 }
 
@@ -904,6 +937,14 @@ function parseOptionalPositiveInt(value: string | undefined): number | undefined
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseSynthesisCacheMode(value: string | undefined): 'lookup' | 'read_write' {
+  return value === 'read_write' ? 'read_write' : 'lookup';
+}
+
+function parseArchiveRetrievalMode(value: string | undefined): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
+  return value === 'history_search_gated' || value === 'eager' ? value : undefined;
 }
 
 function sha256(text: string): string {
