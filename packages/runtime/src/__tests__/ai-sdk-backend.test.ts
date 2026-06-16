@@ -7,6 +7,7 @@ import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolResultMessage } from '@maka/core/session';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
+import { z } from 'zod';
 import {
   AiSdkBackend,
   INVALID_TOOL_NAME,
@@ -19,6 +20,10 @@ import {
   type RunTraceEvent,
 } from '../ai-sdk-backend.js';
 import { PermissionEngine } from '../permission-engine.js';
+import {
+  canonicalizeToolSet,
+  computeRequestShapeDiagnostic,
+} from '../request-shape.js';
 
 describe('AiSdkBackend model history', () => {
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
@@ -641,6 +646,157 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 17);
     assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
+  });
+});
+
+describe('AiSdkBackend request-shape diagnostics', () => {
+  test('identical request shape keeps the same hash and reports stable after first turn', () => {
+    const tools = canonicalizeToolSet([
+      testTool('Read', z.object({ path: z.string() })),
+      testTool('Bash', z.object({ command: z.string() })),
+    ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })));
+    const first = computeRequestShapeDiagnostic({
+      connection: connection(),
+      modelId: 'mock-model-id',
+      systemPrompt: 'durable system',
+      providerOptions: { temperature: 0, nested: { b: 2, a: 1 } },
+      providerTools: tools.providerTools,
+      activeTools: tools.activeTools,
+      priorMessages: [{ role: 'user', content: 'hello' }],
+    }, undefined);
+    const second = computeRequestShapeDiagnostic({
+      connection: connection(),
+      modelId: 'mock-model-id',
+      systemPrompt: 'durable system',
+      providerOptions: { nested: { a: 1, b: 2 }, temperature: 0 },
+      providerTools: tools.providerTools,
+      activeTools: tools.activeTools,
+      priorMessages: [{ role: 'user', content: 'hello' }],
+    }, first);
+
+    assert.equal(first.prefixChangeReason, 'first_turn');
+    assert.equal(second.prefixChangeReason, 'stable');
+    assert.equal(second.prefixHash, first.prefixHash);
+  });
+
+  test('classifies targeted request-shape changes', () => {
+    const tools = canonicalizeToolSet([
+      testTool('Read', z.object({ path: z.string() })),
+    ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })));
+    const baseInput = {
+      connection: connection(),
+      modelId: 'mock-model-id',
+      systemPrompt: 'durable system',
+      providerOptions: { temperature: 0 },
+      providerTools: tools.providerTools,
+      activeTools: tools.activeTools,
+      priorMessages: [{ role: 'user' as const, content: 'hello' }],
+    };
+    const base = computeRequestShapeDiagnostic(baseInput, undefined);
+
+    assert.equal(computeRequestShapeDiagnostic({
+      ...baseInput,
+      systemPrompt: 'changed system',
+    }, base).prefixChangeReason, 'system_prompt_changed');
+    assert.equal(computeRequestShapeDiagnostic({
+      ...baseInput,
+      providerTools: canonicalizeToolSet([
+        testTool('Read', z.object({ path: z.string(), offset: z.number().optional() })),
+      ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }))).providerTools,
+    }, base).prefixChangeReason, 'tool_schema_changed');
+    assert.equal(computeRequestShapeDiagnostic({
+      ...baseInput,
+      providerOptions: { temperature: 1 },
+    }, base).prefixChangeReason, 'provider_options_changed');
+    assert.equal(computeRequestShapeDiagnostic({
+      ...baseInput,
+      modelId: 'other-model',
+    }, base).prefixChangeReason, 'model_or_provider_changed');
+    assert.equal(computeRequestShapeDiagnostic({
+      ...baseInput,
+      priorMessages: [{ role: 'assistant' as const, content: 'hello' }],
+    }, base).prefixChangeReason, 'history_projection_changed');
+  });
+
+  test('tool canonicalization is independent of registration order and places invalid last', () => {
+    const invalid = testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }));
+    const first = canonicalizeToolSet([
+      testTool('Write', z.object({ path: z.string(), content: z.string() })),
+      testTool('Read', z.object({ path: z.string() })),
+    ], invalid);
+    const second = canonicalizeToolSet([
+      testTool('Read', z.object({ path: z.string() })),
+      testTool('Write', z.object({ content: z.string(), path: z.string() })),
+    ], invalid);
+
+    assert.deepEqual(first.activeTools, ['Read', 'Write']);
+    assert.deepEqual(first.providerTools.map((tool) => tool.name), ['Read', 'Write', INVALID_TOOL_NAME]);
+    assert.deepEqual(second.providerTools.map((tool) => tool.name), ['Read', 'Write', INVALID_TOOL_NAME]);
+    assert.equal(
+      computeRequestShapeDiagnostic({
+        connection: connection(),
+        modelId: 'mock-model-id',
+        providerTools: first.providerTools,
+        activeTools: first.activeTools,
+        priorMessages: [],
+      }, undefined).componentHashes.toolSchemaHash,
+      computeRequestShapeDiagnostic({
+        connection: connection(),
+        modelId: 'mock-model-id',
+        providerTools: second.providerTools,
+        activeTools: second.activeTools,
+        priorMessages: [],
+      }, undefined).componentHashes.toolSchemaHash,
+    );
+  });
+
+  test('volatile turn-tail facts do not churn the durable prefix hash', async () => {
+    const events: SessionEvent[] = [];
+    const llmRecords: LlmCallRecord[] = [];
+    const models: MockLanguageModelV3[] = [];
+    let date = '2026-05-29';
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => {
+        const model = completionModel();
+        models.push(model);
+        return model;
+      },
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      systemPrompt: 'durable system prompt',
+      turnTailPrompt: () => `Maka session environment:\n<env>\n  Today's date: ${date}\n</env>`,
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
+    });
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+    date = '2026-05-30';
+    for await (const event of backend.send({ turnId: 'turn-2', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    const usageEvents = events.filter((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usageEvents[0]?.prefixChangeReason, 'first_turn');
+    assert.equal(usageEvents[1]?.prefixChangeReason, 'stable');
+    assert.equal(usageEvents[1]?.prefixHash, usageEvents[0]?.prefixHash);
+    assert.equal(llmRecords[1]?.prefixChangeReason, 'stable');
+    assert.match(JSON.stringify(compactPrompt(models[0]!)), /2026-05-29/);
+    assert.match(JSON.stringify(compactPrompt(models[1]!)), /2026-05-30/);
+    assert.equal(JSON.stringify(modelCallSettings(models[0]!)).includes('2026-05-29'), false);
+    assert.equal(JSON.stringify(modelCallSettings(models[1]!)).includes('2026-05-30'), false);
   });
 });
 
@@ -1685,6 +1841,23 @@ function compactPrompt(model: MockLanguageModelV3): unknown {
     role: message.role,
     content: message.content,
   }));
+}
+
+function modelCallSettings(model: MockLanguageModelV3): unknown {
+  const call = model.doStreamCalls[0] as unknown as Record<string, unknown> | undefined;
+  if (!call) return {};
+  const { prompt: _prompt, ...rest } = call;
+  return rest;
+}
+
+function testTool(name: string, parameters: unknown): MakaTool {
+  return {
+    name,
+    description: `${name} description`,
+    parameters,
+    permissionRequired: false,
+    impl: async () => ({ ok: true }),
+  };
 }
 
 async function drain(iterable: AsyncIterable<unknown>): Promise<void> {

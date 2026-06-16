@@ -736,6 +736,7 @@ backends.register('ai-sdk', async (ctx) => {
     tools: builtinTools,
     providerOptions: buildProviderOptions(connection, model),
     systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd),
+    turnTailPrompt: ({ cwd }) => buildTurnTailPrompt(cwd),
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
       recordToolInvocation(
@@ -3287,12 +3288,6 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
 async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: string): Promise<string | undefined> {
   const settings = await settingsStore.get();
   const personalization = buildPersonalizationPromptFragment(settings.personalization);
-  const environment = cwd
-    ? buildSessionEnvironmentPromptFragment({
-        cwd,
-        projectGit: await resolveProjectGitInfo(cwd),
-      })
-    : undefined;
   const skills = await buildSkillsPromptFragment(workspaceRoot);
   const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
     ? await buildWorkspaceInstructionsPromptFragment(cwd)
@@ -3312,7 +3307,6 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
   const memoryFragment = await buildLocalMemoryPromptFragment();
   const fragments = [
     personalization.text,
-    environment,
     deepResearch,
     botPlatformHint,
     skills,
@@ -3320,6 +3314,14 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
     memoryFragment,
   ].filter((fragment): fragment is string => Boolean(fragment));
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
+}
+
+async function buildTurnTailPrompt(cwd?: string): Promise<string | undefined> {
+  if (!cwd) return undefined;
+  return buildSessionEnvironmentPromptFragment({
+    cwd,
+    projectGit: await resolveProjectGitInfo(cwd),
+  });
 }
 
 async function buildLocalMemoryPromptFragment(): Promise<string | undefined> {

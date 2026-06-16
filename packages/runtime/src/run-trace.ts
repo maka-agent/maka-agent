@@ -1,4 +1,5 @@
 import { generalizedErrorMessage } from '@maka/core/redaction';
+import type { PrefixChangeReason } from '@maka/core/usage-stats/types';
 
 export type RunTracePhase = 'turn' | 'model' | 'tool' | 'permission' | 'abort' | 'usage';
 
@@ -90,9 +91,13 @@ export class RunTrace {
     });
   }
 
-  modelStreamStarted(activeTools: readonly string[]): void {
+  modelStreamStarted(
+    activeTools: readonly string[],
+    prefix?: { prefixHash: string; prefixChangeReason: PrefixChangeReason },
+  ): void {
     this.emit('model', 'model_stream_started', 'Model stream started', {
       activeTools: [...activeTools],
+      ...(prefix !== undefined ? prefix : {}),
     });
   }
 
@@ -119,6 +124,8 @@ export class RunTrace {
     reasoningTokens: number;
     totalTokens: number;
     rawFinishReason?: string;
+    prefixHash?: string;
+    prefixChangeReason?: PrefixChangeReason;
   }): void {
     this.emit('usage', 'usage_recorded', 'Token usage recorded', {
       inputTokens: usage.inputTokens,
@@ -130,6 +137,8 @@ export class RunTrace {
       reasoningTokens: usage.reasoningTokens,
       totalTokens: usage.totalTokens,
       ...(usage.rawFinishReason !== undefined ? { rawFinishReason: usage.rawFinishReason } : {}),
+      ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
+      ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
     });
   }
 

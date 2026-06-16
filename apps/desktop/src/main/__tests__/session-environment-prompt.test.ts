@@ -47,11 +47,12 @@ describe('session environment prompt', () => {
     assert.doesNotMatch(prompt, /Git branch: .*\nmalicious/);
   });
 
-  it('is injected into the main system prompt path before tool-specific context', async () => {
+  it('is injected as a current-turn tail instead of durable system prefix', async () => {
     const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
 
-    assert.match(source, /buildSessionEnvironmentPromptFragment\(\{/);
+    assert.match(source, /turnTailPrompt:\s*\(\{ cwd \}\) => buildTurnTailPrompt\(cwd\)/);
+    assert.match(source, /async function buildTurnTailPrompt\(cwd\?: string\)/);
     assert.match(source, /projectGit:\s*await resolveProjectGitInfo\(cwd\)/);
-    assert.match(source, /personalization\.text,\n\s*environment,\n\s*deepResearch/);
+    assert.doesNotMatch(source, /personalization\.text,\n\s*environment,\n\s*deepResearch/);
   });
 });
