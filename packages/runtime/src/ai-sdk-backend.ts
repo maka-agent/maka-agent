@@ -746,6 +746,9 @@ export class AiSdkBackend implements AgentBackend {
       contextBudget?.historySearch,
       { charsPerToken: contextBudget?.charsPerToken },
     );
+    const archiveRetrievalAllowedTurnIds = contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
+      ? new Set(historyAround.events.map((event) => runtimeEventTurnKey(event)))
+      : undefined;
     if (historyAround.events.length > 0) {
       runtimeContext = mergeRuntimeEventsInOriginalOrder(priorRuntimeContext, runtimeContext, historyAround.events);
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
@@ -766,6 +769,7 @@ export class AiSdkBackend implements AgentBackend {
       {
         sessionId: this.sessionId,
         charsPerToken: contextBudget?.charsPerToken,
+        allowedTurnIds: archiveRetrievalAllowedTurnIds,
       },
     );
     runtimeContext = retrieval.events;
@@ -1070,8 +1074,8 @@ function buildContextBudgetDiagnosticShell(
   policy: ContextBudgetPolicy | undefined,
 ): ContextBudgetDiagnostic {
   const charsPerToken = policy?.charsPerToken ?? 4;
-  const turnCountBefore = new Set(before.map((event) => event.turnId || '<unknown-turn>')).size;
-  const turnCountAfter = new Set(after.map((event) => event.turnId || '<unknown-turn>')).size;
+  const turnCountBefore = new Set(before.map((event) => runtimeEventTurnKey(event))).size;
+  const turnCountAfter = new Set(after.map((event) => runtimeEventTurnKey(event))).size;
   return {
     enabled: true,
     ...(policy?.name ? { policyName: policy.name } : {}),
@@ -1093,6 +1097,10 @@ function buildContextBudgetDiagnosticShell(
         }
       : {}),
   };
+}
+
+function runtimeEventTurnKey(event: RuntimeEvent): string {
+  return event.turnId || '<unknown-turn>';
 }
 
 function buildHistorySearchSource(

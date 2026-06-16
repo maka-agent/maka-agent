@@ -175,6 +175,8 @@ export interface ContextBudgetDiagnostic {
   archiveWriteFailures?: number;
   unarchivedToolResults?: number;
   archivePlaceholderReasonCounts?: Record<string, number>;
+  archiveRetrievalMode?: 'eager' | 'history_search_gated';
+  archiveRetrievalEligibleTurns?: number;
   retrievedArchiveToolResults?: number;
   retrievedArchiveEstimatedTokens?: number;
   archiveRetrievalSkipped?: number;

@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -41,6 +42,19 @@ const cwd = resolve(process.env.MAKA_COST_BASELINE_CWD ?? repoRoot);
 const contextBudget = buildContextBudgetPolicy();
 const stablePolicyLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_STABLE_POLICY_LINES, 140);
 const payloadLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PAYLOAD_LINES, 70);
+
+if (process.env.MAKA_COST_BASELINE_PHASE7_TOOL_MATRIX === 'on') {
+  const exitCode = await runPhase7ToolMatrix({
+    apiKey,
+    model,
+    repoRoot,
+    outputRoot,
+    runId,
+    seed,
+    cwd,
+  });
+  process.exit(exitCode);
+}
 
 const sessionStore = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
@@ -316,6 +330,392 @@ await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 await writeFile(markdownPath, renderMarkdown(report, jsonPath), 'utf8');
 console.log(JSON.stringify({ jsonPath, markdownPath, totals, turnCount, toolMode, contextBudget }, null, 2));
 
+async function runPhase7ToolMatrix(input) {
+  const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase7-tool-matrix');
+  await mkdir(matrixOutputRoot, { recursive: true });
+  const sentinel = process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL
+    ?? `PHASE7_SENTINEL_${sha256(`${input.seed}:phase7`).slice(0, 16)}`;
+  const lookupKey = process.env.MAKA_COST_BASELINE_PHASE7_LOOKUP_KEY ?? 'phase7-live-key';
+  const resultLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_RESULT_LINES, 220);
+  const scenarios = [];
+  for (const mode of ['full', 'prune', 'eager', 'gated']) {
+    scenarios.push(await runPhase7ToolScenario({
+      ...input,
+      matrixOutputRoot,
+      mode,
+      sentinel,
+      lookupKey,
+      resultLines,
+    }));
+  }
+  const invariantFailures = validatePhase7ToolMatrix(scenarios, sentinel);
+
+  const report = {
+    sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
+    scenario: {
+      name: 'phase7_tool_archive_retrieval_matrix',
+      modes: scenarios.map((scenario) => scenario.mode),
+    },
+    passed: invariantFailures.length === 0,
+    invariantFailures,
+    repoRoot: input.repoRoot,
+    outputRoot: matrixOutputRoot,
+    model: input.model,
+    seed: input.seed,
+    lookupKey,
+    sentinelSha256: sha256(sentinel),
+    resultLines,
+    scenarios,
+  };
+  const jsonPath = resolve(
+    process.env.MAKA_COST_BASELINE_PHASE7_MATRIX_JSON
+      ?? join(matrixOutputRoot, 'phase7-tool-live-matrix.json'),
+  );
+  await mkdir(resolve(jsonPath, '..'), { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  console.log(JSON.stringify({
+    jsonPath,
+    model: input.model,
+    scenario: report.scenario.name,
+    modes: scenarios.map((scenario) => ({
+      mode: scenario.mode,
+      recoveredSentinel: scenario.recoveredSentinel,
+      archivedToolResultsRead: scenario.archivedToolResultsRead,
+      toolCalls: scenario.toolCalls,
+    })),
+    invariantFailures,
+  }, null, 2));
+  if (invariantFailures.length > 0) {
+    console.error([
+      'Phase 7 tool matrix invariant failures:',
+      ...invariantFailures.map((failure) => `- ${failure}`),
+    ].join('\n'));
+    return 1;
+  }
+  return 0;
+}
+
+async function runPhase7ToolScenario(input) {
+  const workspaceRoot = join(input.matrixOutputRoot, input.mode, 'workspace');
+  await mkdir(workspaceRoot, { recursive: true });
+  const sessionStore = createSessionStore(workspaceRoot);
+  const runStore = createAgentRunStore(workspaceRoot);
+  const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+  const artifactStore = createArtifactStore(workspaceRoot);
+  const permissionEngine = new PermissionEngine(createDefaultPermissionEngineDeps());
+  const backends = new BackendRegistry();
+  const llmRecords = [];
+  const runTraceEvents = [];
+  const archiveReads = [];
+  const tools = [buildPhase7LookupTool(input)];
+  const connection = {
+    slug: `deepseek-live-phase7-${input.mode}`,
+    name: `DeepSeek live Phase 7 ${input.mode}`,
+    providerType: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    defaultModel: input.model,
+    enabled: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const contextBudget = buildPhase7ContextBudgetPolicy(input.mode);
+  const systemPrompt = [
+    'You are a Maka Phase 7 live harness assistant.',
+    `Lookup key: ${input.lookupKey}`,
+    'When asked to store the Phase 7 lookup, call Phase7Lookup exactly once with the lookup key.',
+    'After the tool result is available, answer exactly STORED.',
+    'Do not include the sentinel value in the storage acknowledgement.',
+    'When later asked to recover the sentinel, answer only the sentinel value found in prior tool results.',
+    'Do not call Phase7Lookup during sentinel recovery; recovery must use prior context only.',
+  ].join('\n');
+
+  backends.register('ai-sdk', async (ctx) =>
+    new AiSdkBackend({
+      sessionId: ctx.sessionId,
+      header: { ...ctx.header, model: input.model },
+      appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+      connection,
+      apiKey: input.apiKey,
+      modelId: input.model,
+      permissionEngine,
+      modelFactory: getAIModel,
+      tools,
+      providerOptions: buildProviderOptions(connection, input.model),
+      contextBudget,
+      systemPrompt,
+      turnTailPrompt: phase7TurnTailPrompt(input.cwd),
+      recordLlmCall: (record) => llmRecords.push(record),
+      recordRunTrace: (event) => runTraceEvents.push(event),
+      archiveToolResult: async (event) => {
+        const artifact = await artifactStore.create({
+          sessionId: event.sessionId,
+          turnId: event.turnId,
+          name: `phase7-tool-result-${event.runtimeEventId}.json`,
+          kind: 'file',
+          content: event.serializedResult,
+          mimeType: 'application/json',
+          source: 'tool_result_archive',
+          summary: `Archived ${event.toolName} Phase 7 tool result for ${input.mode}`,
+        });
+        return { artifactId: artifact.id };
+      },
+      readToolResultArchive: async (event) => {
+        archiveReads.push({
+          runtimeEventId: event.runtimeEventId,
+          turnId: event.turnId,
+          artifactId: event.artifactId,
+        });
+        const record = await artifactStore.get(event.artifactId);
+        if (!record) return { ok: false, reason: 'not_found' };
+        if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+        if (record.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
+        if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
+        if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
+        const read = await artifactStore.readText(event.artifactId, {
+          maxBytes: event.maxBytes ?? event.originalBytes,
+        });
+        if (!read.ok) return read;
+        if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
+        return { ok: true, serializedResult: read.text };
+      },
+      newId: randomUUID,
+      now: Date.now,
+      maxSteps: 4,
+      streamConnectTimeoutMs: 30_000,
+      streamIdleTimeoutMs: 120_000,
+    }),
+  );
+
+  const manager = new SessionManager({
+    store: sessionStore,
+    runStore,
+    runtimeEventStore,
+    backends,
+    newId: randomUUID,
+    now: Date.now,
+  });
+  const session = await manager.createSession({
+    cwd: input.cwd,
+    backend: 'ai-sdk',
+    llmConnectionSlug: connection.slug,
+    model: input.model,
+    permissionMode: 'explore',
+    name: `DeepSeek Phase 7 ${input.mode}`,
+  });
+
+  const storeTurn = await sendPhase7Turn(
+    manager,
+    session.id,
+    'phase7-store',
+    [
+      `Store the Phase 7 lookup for key ${input.lookupKey}.`,
+      'Call Phase7Lookup, then acknowledge with exactly STORED.',
+      'Do not repeat the sentinel.',
+    ].join('\n'),
+  );
+  const fillerTurn = await sendPhase7Turn(
+    manager,
+    session.id,
+    'phase7-filler',
+    'Answer exactly OK. This turn exists so the old tool result becomes stale for pruning.',
+  );
+  const recoverTurn = await sendPhase7Turn(
+    manager,
+    session.id,
+    'phase7-recover',
+    `Recover the sentinel for lookup key ${input.lookupKey} from the archived Phase 7 tool result. Do not call tools. Answer only the sentinel.`,
+  );
+  const finalUsage = recoverTurn.events.find((event) => event.type === 'token_usage');
+  const storageAnswerIncludedSentinel = storeTurn.assistantText.includes(input.sentinel);
+  return {
+    mode: input.mode,
+    contextBudget,
+    sessionId: session.id,
+    toolCalls: [...storeTurn.events, ...fillerTurn.events, ...recoverTurn.events]
+      .filter((event) => event.type === 'tool_start')
+      .map((event) => ({ turnId: event.turnId, toolName: event.toolName })),
+    storageAnswerIncludedSentinel,
+    finalAnswer: recoverTurn.assistantText,
+    recoveredSentinel: recoverTurn.assistantText.includes(input.sentinel),
+    archivedToolResultsRead: archiveReads.length,
+    archiveReads,
+    finalContextBudget: finalUsage?.contextBudget,
+    finalUsage: usageSummary(finalUsage, llmRecords.at(-1)),
+    requestShapeTrace: runTraceEvents
+      .filter((event) =>
+        event.data?.requestShapeHash ||
+        event.data?.requestShapeChangeReason ||
+        event.data?.contextBudget
+      )
+      .map((event) => ({
+        phase: event.phase,
+        type: event.type,
+        requestShapeHash: event.data?.requestShapeHash,
+        requestShapeChangeReason: event.data?.requestShapeChangeReason,
+        contextBudget: event.data?.contextBudget,
+      })),
+  };
+}
+
+function buildPhase7LookupTool(input) {
+  return {
+    name: 'Phase7Lookup',
+    description: 'Deterministic Phase 7 harness tool. Use only when asked to store the Phase 7 lookup key.',
+    parameters: z.object({
+      key: z.string().describe('The lookup key requested by the user.'),
+    }),
+    permissionRequired: false,
+    impl: ({ key }) => ({
+      key,
+      sentinel: input.sentinel,
+      rows: Array.from({ length: input.resultLines }, (_, index) => ({
+        index,
+        text: `phase7 archived payload row ${String(index + 1).padStart(3, '0')} for ${key}`,
+      })),
+    }),
+  };
+}
+
+function buildPhase7ContextBudgetPolicy(mode) {
+  if (mode === 'full') return undefined;
+  const base = {
+    name: `phase7-${mode}`,
+    minRecentTurns: 1,
+    charsPerToken: 4,
+    staleToolResultPrune: {
+      enabled: true,
+      maxResultEstimatedTokens: parsePositiveInt(
+        process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
+        128,
+      ),
+      minRecentTurnsFull: 0,
+    },
+  };
+  if (mode === 'prune') return base;
+  const archiveRetrieval = {
+    enabled: true,
+    mode: mode === 'gated' ? 'history_search_gated' : 'eager',
+    maxResults: 4,
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 16_384),
+    maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 2 * 1024 * 1024),
+    order: 'newest_first',
+  };
+  if (mode === 'gated') {
+    return {
+      ...base,
+      archiveRetrieval,
+      historySearch: {
+        enabled: true,
+        maxResults: 1,
+        around: 1,
+        maxEstimatedTokens: 4096,
+      },
+    };
+  }
+  return {
+    ...base,
+    archiveRetrieval,
+  };
+}
+
+function phase7TurnTailPrompt(cwd) {
+  return [
+    '<current-session-environment>',
+    `cwd: ${cwd}`,
+    `calendar_date: ${process.env.MAKA_COST_BASELINE_DATE ?? new Date().toISOString().slice(0, 10)}`,
+    '</current-session-environment>',
+  ].join('\n');
+}
+
+async function sendPhase7Turn(manager, sessionId, turnId, text) {
+  const events = [];
+  for await (const event of manager.sendMessage(sessionId, { turnId, text })) {
+    events.push(event);
+  }
+  return {
+    events,
+    assistantText: events
+      .filter((event) => event.type === 'text_complete')
+      .map((event) => event.text)
+      .join('\n'),
+  };
+}
+
+function usageSummary(usageEvent, llmRecord) {
+  return {
+    input: usageEvent?.input ?? llmRecord?.inputTokens,
+    output: usageEvent?.output ?? llmRecord?.outputTokens,
+    cacheHitInput: usageEvent?.cacheHitInput ?? llmRecord?.cacheHitInputTokens,
+    cacheMissInput: usageEvent?.cacheMissInput ?? llmRecord?.cacheMissInputTokens,
+    cacheWriteInput: usageEvent?.cacheWriteInput ?? llmRecord?.cacheWriteInputTokens,
+    requestShapeChangeReason: usageEvent?.requestShapeChangeReason ?? llmRecord?.requestShapeChangeReason,
+    contextBudget: usageEvent?.contextBudget ?? llmRecord?.contextBudget,
+  };
+}
+
+function validatePhase7ToolMatrix(scenarios, sentinel) {
+  const failures = [];
+  const byMode = new Map(scenarios.map((scenario) => [scenario.mode, scenario]));
+  for (const mode of ['full', 'prune', 'eager', 'gated']) {
+    const scenario = byMode.get(mode);
+    if (!scenario) {
+      failures.push(`missing ${mode} scenario`);
+      continue;
+    }
+    if (scenario.storageAnswerIncludedSentinel) {
+      failures.push(`${mode} scenario repeated sentinel in storage acknowledgement`);
+    }
+    if (scenario.toolCalls.length !== 1) {
+      failures.push(`${mode} scenario expected exactly one tool call, saw ${scenario.toolCalls.length}`);
+    } else {
+      const [call] = scenario.toolCalls;
+      if (call.turnId !== 'phase7-store' || call.toolName !== 'Phase7Lookup') {
+        failures.push(`${mode} scenario unexpected tool call ${call.toolName} on ${call.turnId}`);
+      }
+    }
+  }
+
+  const full = byMode.get('full');
+  const prune = byMode.get('prune');
+  const eager = byMode.get('eager');
+  const gated = byMode.get('gated');
+  if (full && !full.recoveredSentinel) failures.push('full scenario did not recover sentinel');
+  if (full?.recoveredSentinel && full.finalAnswer.trim() !== sentinel) {
+    failures.push('full scenario final answer was not exactly the sentinel');
+  }
+  if (prune?.recoveredSentinel) failures.push('prune scenario recovered sentinel without archive retrieval');
+  if (prune && prune.archivedToolResultsRead !== 0) failures.push('prune scenario unexpectedly read archives');
+  if (eager && !eager.recoveredSentinel) failures.push('eager scenario did not recover sentinel');
+  if (eager?.recoveredSentinel && eager.finalAnswer.trim() !== sentinel) {
+    failures.push('eager scenario final answer was not exactly the sentinel');
+  }
+  if (eager && eager.archivedToolResultsRead < 1) failures.push('eager scenario did not read any archive');
+  if (eager?.finalContextBudget?.archiveRetrievalMode !== 'eager') {
+    failures.push('eager scenario did not report eager retrieval mode');
+  }
+  if ((eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
+    failures.push('eager scenario final turn did not retrieve an archive');
+  }
+  if (gated && !gated.recoveredSentinel) failures.push('gated scenario did not recover sentinel');
+  if (gated?.recoveredSentinel && gated.finalAnswer.trim() !== sentinel) {
+    failures.push('gated scenario final answer was not exactly the sentinel');
+  }
+  if (gated && gated.archivedToolResultsRead < 1) failures.push('gated scenario did not read any archive');
+  if (gated?.finalContextBudget?.archiveRetrievalMode !== 'history_search_gated') {
+    failures.push('gated scenario did not report history_search_gated retrieval mode');
+  }
+  if ((gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
+    failures.push('gated scenario final turn did not retrieve an archive');
+  }
+  if ((gated?.finalContextBudget?.archiveRetrievalEligibleTurns ?? 0) < 1) {
+    failures.push('gated scenario did not report any archive retrieval eligible turns');
+  }
+  if ((gated?.finalContextBudget?.historySearchMatches ?? 0) < 1) {
+    failures.push('gated scenario did not report a history search match');
+  }
+  return failures;
+}
+
 function buildScenario(policy) {
   const explicitName = process.env.MAKA_COST_BASELINE_SCENARIO;
   if (explicitName) {
@@ -341,22 +741,31 @@ function buildScenario(policy) {
 function scenarioNameForPolicy(policy) {
   if (!policy) return 'budget_off';
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
-    return policy.archiveRetrieval?.enabled === true
-      ? 'archive_prune_on_retrieval_on'
-      : 'archive_prune_on_retrieval_off';
+    if (policy.archiveRetrieval?.enabled === true) {
+      return policy.archiveRetrieval.mode === 'history_search_gated'
+        ? 'archive_prune_on_retrieval_history_search_gated'
+        : 'archive_prune_on_retrieval_on';
+    }
+    return 'archive_prune_on_retrieval_off';
   }
   if (policy.historyRewrite?.enabled === true) return 'named_history_rewrite';
-  return policy.archiveRetrieval?.enabled === true
-    ? 'emergency_history_cap_archive_retrieval_on'
-    : 'emergency_history_cap';
+  if (policy.archiveRetrieval?.enabled === true) {
+    return policy.archiveRetrieval.mode === 'history_search_gated'
+      ? 'emergency_history_cap_archive_retrieval_history_search_gated'
+      : 'emergency_history_cap_archive_retrieval_on';
+  }
+  return 'emergency_history_cap';
 }
 
 function contextBudgetMode(policy) {
   if (!policy) return 'off';
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
-    return policy.archiveRetrieval?.enabled === true
-      ? 'archive_prune_plus_retrieval'
-      : 'archive_prune_only';
+    if (policy.archiveRetrieval?.enabled === true) {
+      return policy.archiveRetrieval.mode === 'history_search_gated'
+        ? 'archive_prune_plus_history_search_gated_retrieval'
+        : 'archive_prune_plus_retrieval';
+    }
+    return 'archive_prune_only';
   }
   return 'emergency_cap';
 }
@@ -410,8 +819,10 @@ function buildStaleToolResultPrunePolicy() {
 
 function buildArchiveRetrievalPolicy() {
   if (process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL !== 'on') return undefined;
+  const mode = parseArchiveRetrievalMode(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE);
   return {
     enabled: true,
+    ...(mode ? { mode } : {}),
     maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 3),
     maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 8192),
     maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 1024 * 1024),
@@ -447,6 +858,12 @@ function parseOptionalPositiveInt(value) {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseArchiveRetrievalMode(value) {
+  if (!value || value === 'eager') return undefined;
+  if (value === 'history_search_gated') return value;
+  throw new Error(`Unsupported MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE: ${value}`);
 }
 
 function classifyCacheMissShape(prefixChangeReason, requestShapeChangeReason) {
