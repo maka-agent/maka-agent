@@ -23,6 +23,7 @@ export interface UsageSummaryV2 {
   totalTokens: {
     input: number;
     output: number;
+    cacheMiss: number;
     cacheRead: number;
     cacheWrite: number;
     reasoning: number;
@@ -39,6 +40,7 @@ export interface UsageBucket {
   requests: number;
   inputTokens: number;
   outputTokens: number;
+  cacheMissTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   reasoningTokens: number;
@@ -57,6 +59,7 @@ export interface UsageLogRow {
   toolName?: string;
   inputTokens: number;
   outputTokens: number;
+  cacheMissTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   reasoningTokens: number;
@@ -85,10 +88,27 @@ export interface LlmCallRecord {
   modelId: string;
   inputTokens: number;
   outputTokens: number;
+  cacheHitInputTokens?: number;
+  cacheMissInputTokens?: number;
+  /** Backward-compatible alias for cacheHitInputTokens. */
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
   reasoningTokens?: number;
   totalTokens?: number;
+  rawFinishReason?: string;
+  rawUsage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
   latencyMs: number;
   status: 'success' | 'error' | 'aborted';
   errorClass?: string;

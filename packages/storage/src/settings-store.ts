@@ -183,8 +183,10 @@ class FileSettingsStore implements SettingsStore {
           model: assistantByTurn.get(message.turnId) ?? header.model,
           inputTokens: message.input,
           outputTokens: message.output,
+          cacheMiss: message.cacheMissInput,
           cacheRead: message.cacheRead,
           cacheCreation: message.cacheCreation,
+          reasoning: message.reasoning,
           costUsd: message.costUsd,
           status: 'success' as const,
         }));
@@ -195,8 +197,10 @@ class FileSettingsStore implements SettingsStore {
     const logs = [...modelLogs, ...toolLogs].sort((a, b) => b.ts - a.ts);
     const totalInput = sum(modelLogs.map((log) => log.inputTokens));
     const totalOutput = sum(modelLogs.map((log) => log.outputTokens));
+    const cacheMiss = sum(modelLogs.map((log) => log.cacheMiss ?? 0));
     const cacheRead = sum(modelLogs.map((log) => log.cacheRead ?? 0));
     const cacheCreation = sum(modelLogs.map((log) => log.cacheCreation ?? 0));
+    const reasoning = sum(modelLogs.map((log) => log.reasoning ?? 0));
     return {
       summary: {
         totalRequests: modelLogs.length,
@@ -205,8 +209,10 @@ class FileSettingsStore implements SettingsStore {
         inputTokens: totalInput,
         outputTokens: totalOutput,
         cacheTokens: cacheRead + cacheCreation,
+        cacheMiss,
         cacheRead,
         cacheCreation,
+        reasoning,
       },
       logs,
       byProvider: aggregateBy(modelLogs, 'provider'),

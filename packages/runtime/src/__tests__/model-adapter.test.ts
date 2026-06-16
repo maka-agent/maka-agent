@@ -103,11 +103,163 @@ describe('ModelAdapter stream and error normalization', () => {
       {
         inputTokens: 20,
         outputTokens: 5,
+        cacheHitInputTokens: 7,
+        cacheMissInputTokens: 10,
         cachedInputTokens: 7,
         cacheWriteInputTokens: 3,
         reasoningTokens: 2,
         totalTokens: 30,
       },
+    );
+  });
+
+  test('preserves DeepSeek and OpenAI-compatible raw usage fields', () => {
+    assert.deepEqual(
+      normalizeAiSdkUsage(
+        {
+          promptTokens: 100,
+          completionTokens: 20,
+          prompt_cache_hit_tokens: 40,
+          prompt_cache_miss_tokens: 60,
+          prompt_tokens_details: {
+            cached_tokens: 35,
+          },
+          completion_tokens_details: {
+            reasoning_tokens: 8,
+          },
+        },
+        { rawFinishReason: { unified: 'stop', raw: 'provider_stop' } },
+      ),
+      {
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheHitInputTokens: 40,
+        cacheMissInputTokens: 60,
+        cachedInputTokens: 40,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 8,
+        totalTokens: 120,
+        rawFinishReason: 'provider_stop',
+        raw: {
+          prompt_cache_hit_tokens: 40,
+          prompt_cache_miss_tokens: 60,
+          prompt_tokens_details: {
+            cached_tokens: 35,
+          },
+          completion_tokens_details: {
+            reasoning_tokens: 8,
+          },
+        },
+      },
+    );
+  });
+
+  test('normalizes AI SDK raw DeepSeek usage metadata and no-cache token details', () => {
+    assert.deepEqual(
+      normalizeAiSdkUsage(
+        {
+          inputTokens: 100,
+          outputTokens: 20,
+          inputTokenDetails: {
+            noCacheTokens: 25,
+            cacheReadTokens: 75,
+          },
+          outputTokenDetails: {
+            reasoningTokens: 9,
+          },
+          raw: {
+            prompt_cache_hit_tokens: 70,
+            prompt_cache_miss_tokens: 30,
+            prompt_tokens_details: {
+              cached_tokens: 70,
+            },
+            completion_tokens_details: {
+              reasoning_tokens: 11,
+            },
+          },
+        },
+        { rawFinishReason: 'stop' },
+      ),
+      {
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheHitInputTokens: 70,
+        cacheMissInputTokens: 30,
+        cachedInputTokens: 70,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 9,
+        totalTokens: 120,
+        rawFinishReason: 'stop',
+        raw: {
+          prompt_cache_hit_tokens: 70,
+          prompt_cache_miss_tokens: 30,
+          prompt_tokens_details: {
+            cached_tokens: 70,
+          },
+          completion_tokens_details: {
+            reasoning_tokens: 11,
+          },
+        },
+      },
+    );
+  });
+
+  test('normalizes direct DeepSeek snake_case usage totals', () => {
+    assert.deepEqual(
+      normalizeAiSdkUsage(
+        {
+          prompt_tokens: 1460,
+          completion_tokens: 2,
+          total_tokens: 1462,
+          prompt_cache_hit_tokens: 1408,
+          prompt_cache_miss_tokens: 52,
+          prompt_tokens_details: {
+            cached_tokens: 1408,
+          },
+        },
+        { rawFinishReason: 'stop' },
+      ),
+      {
+        inputTokens: 1460,
+        outputTokens: 2,
+        cacheHitInputTokens: 1408,
+        cacheMissInputTokens: 52,
+        cachedInputTokens: 1408,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 1462,
+        rawFinishReason: 'stop',
+        raw: {
+          prompt_tokens: 1460,
+          completion_tokens: 2,
+          total_tokens: 1462,
+          prompt_cache_hit_tokens: 1408,
+          prompt_cache_miss_tokens: 52,
+          prompt_tokens_details: {
+            cached_tokens: 1408,
+          },
+        },
+      },
+    );
+  });
+
+  test('derives cache miss input when explicit miss is absent and treats no cache data as fresh', () => {
+    assert.equal(
+      normalizeAiSdkUsage({
+        inputTokens: 100,
+        outputTokens: 10,
+        cachedInputTokens: 30,
+        cacheWriteInputTokens: 20,
+      })?.cacheMissInputTokens,
+      50,
+    );
+
+    assert.equal(
+      normalizeAiSdkUsage({
+        inputTokens: 100,
+        outputTokens: 10,
+      })?.cacheMissInputTokens,
+      100,
     );
   });
 });

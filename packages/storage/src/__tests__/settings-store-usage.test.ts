@@ -77,8 +77,10 @@ describe('SettingsStore.usageStats request logs', () => {
           ts: 20,
           input: 120,
           output: 30,
+          cacheMissInput: 105,
           cacheRead: 10,
           cacheCreation: 5,
+          reasoning: 4,
           costUsd: 0.01,
         },
       ]);
@@ -88,6 +90,10 @@ describe('SettingsStore.usageStats request logs', () => {
       assert.equal(stats.summary.totalRequests, 1, 'summary counts model requests only');
       assert.equal(stats.summary.totalTokens, 150);
       assert.equal(stats.summary.totalCostUsd, 0.01);
+      assert.equal(stats.summary.cacheMiss, 105);
+      assert.equal(stats.summary.cacheRead, 10);
+      assert.equal(stats.summary.cacheCreation, 5);
+      assert.equal(stats.summary.reasoning, 4);
       assert.equal(stats.byProvider.length, 1, 'provider aggregates remain model-only');
       assert.equal(stats.byModel.length, 1, 'model aggregates remain model-only');
 
@@ -98,6 +104,10 @@ describe('SettingsStore.usageStats request logs', () => {
       assert.equal(modelLog.model, 'claude-sonnet-4-runtime');
       assert.equal(modelLog.inputTokens, 120);
       assert.equal(modelLog.outputTokens, 30);
+      assert.equal(modelLog.cacheMiss, 105);
+      assert.equal(modelLog.cacheRead, 10);
+      assert.equal(modelLog.cacheCreation, 5);
+      assert.equal(modelLog.reasoning, 4);
 
       const toolLog = stats.logs.find((log) => log.kind === 'tool');
       assert.ok(toolLog);

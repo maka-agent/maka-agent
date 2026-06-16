@@ -211,29 +211,67 @@ export interface AiSdkStreamChunk {
   args?: unknown;
   result?: unknown;
   usage?: AiSdkUsageLike;
-  finishReason?: string;
+  finishReason?: unknown;
   error?: unknown;
 }
 
 export interface StreamTextResult {
   fullStream: AsyncIterable<AiSdkStreamChunk>;
   usage: Promise<AiSdkUsageLike | undefined>;
-  finishReason: Promise<string>;
+  finishReason: Promise<unknown>;
+}
+
+type TokenCountBreakdown = {
+  total?: number;
+  noCache?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  text?: number;
+  reasoning?: number;
+};
+
+export interface AiSdkRawUsageFields {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+  };
+  completion_tokens_details?: {
+    reasoning_tokens?: number;
+  };
 }
 
 export interface AiSdkUsageLike {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
-  inputTokens?: number;
-  outputTokens?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  inputTokens?: number | TokenCountBreakdown;
+  outputTokens?: number | TokenCountBreakdown;
+  cacheHitInputTokens?: number;
+  cacheMissInputTokens?: number;
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
   reasoningTokens?: number;
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+  };
+  completion_tokens_details?: {
+    reasoning_tokens?: number;
+  };
   inputTokenDetails?: {
     cachedTokens?: number;
+    cacheMissTokens?: number;
+    noCacheTokens?: number;
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
     reasoningTokens?: number;
@@ -241,48 +279,158 @@ export interface AiSdkUsageLike {
   outputTokenDetails?: {
     reasoningTokens?: number;
   };
+  raw?: AiSdkRawUsageFields;
 }
 
 export interface NormalizedAiSdkUsage {
   inputTokens: number;
   outputTokens: number;
-  cachedInputTokens: number;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
   cacheWriteInputTokens: number;
   reasoningTokens: number;
   totalTokens: number;
+  rawFinishReason?: string;
+  raw?: AiSdkRawUsageFields;
+  /** Backward-compatible alias for cacheHitInputTokens. */
+  cachedInputTokens: number;
 }
 
-export function normalizeAiSdkUsage(usage: AiSdkUsageLike | undefined): NormalizedAiSdkUsage | undefined {
+export function normalizeAiSdkUsage(
+  usage: AiSdkUsageLike | undefined,
+  options: { rawFinishReason?: unknown } = {},
+): NormalizedAiSdkUsage | undefined {
   if (!usage) return undefined;
-  const inputTokens = finiteToken(usage.inputTokens) ?? finiteToken(usage.promptTokens) ?? 0;
-  const outputTokens = finiteToken(usage.outputTokens) ?? finiteToken(usage.completionTokens) ?? 0;
-  const cachedInputTokens =
-    finiteToken(usage.cachedInputTokens)
+  const inputTokens =
+    finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total')
+    ?? finiteToken(usage.promptTokens)
+    ?? finiteToken(usage.raw?.prompt_tokens)
+    ?? finiteToken(usage.prompt_tokens)
+    ?? 0;
+  const outputTokens =
+    finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total')
+    ?? finiteToken(usage.completionTokens)
+    ?? finiteToken(usage.raw?.completion_tokens)
+    ?? finiteToken(usage.completion_tokens)
+    ?? 0;
+  const cacheHitInputTokens =
+    finiteToken(usage.cacheHitInputTokens)
+    ?? finiteToken(usage.cachedInputTokens)
     ?? finiteToken(usage.cacheReadInputTokens)
+    ?? finiteToken(usage.raw?.prompt_cache_hit_tokens)
+    ?? finiteToken(usage.prompt_cache_hit_tokens)
+    ?? finiteToken(usage.raw?.prompt_tokens_details?.cached_tokens)
+    ?? finiteToken(usage.prompt_tokens_details?.cached_tokens)
+    ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheRead')
     ?? finiteToken(usage.inputTokenDetails?.cacheReadTokens)
     ?? finiteToken(usage.inputTokenDetails?.cachedTokens)
     ?? 0;
   const cacheWriteInputTokens =
     finiteToken(usage.cacheWriteInputTokens)
     ?? finiteToken(usage.cacheCreationInputTokens)
+    ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheWrite')
     ?? finiteToken(usage.inputTokenDetails?.cacheWriteTokens)
     ?? 0;
+  const explicitCacheMissInputTokens =
+    finiteToken(usage.cacheMissInputTokens)
+    ?? finiteToken(usage.raw?.prompt_cache_miss_tokens)
+    ?? finiteToken(usage.prompt_cache_miss_tokens)
+    ?? finiteTokenFromBreakdown(usage.inputTokens, 'noCache')
+    ?? finiteToken(usage.inputTokenDetails?.noCacheTokens)
+    ?? finiteToken(usage.inputTokenDetails?.cacheMissTokens);
+  const cacheMissInputTokens =
+    explicitCacheMissInputTokens
+    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
   const reasoningTokens =
     finiteToken(usage.reasoningTokens)
+    ?? finiteTokenFromBreakdown(usage.outputTokens, 'reasoning')
     ?? finiteToken(usage.outputTokenDetails?.reasoningTokens)
+    ?? finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens)
+    ?? finiteToken(usage.completion_tokens_details?.reasoning_tokens)
     ?? finiteToken(usage.inputTokenDetails?.reasoningTokens)
     ?? 0;
-  const totalTokens = finiteToken(usage.totalTokens) ?? inputTokens + outputTokens;
+  const totalTokens =
+    finiteToken(usage.totalTokens)
+    ?? finiteToken(usage.raw?.total_tokens)
+    ?? finiteToken(usage.total_tokens)
+    ?? inputTokens + outputTokens;
+  const raw = rawUsageFields(usage);
+  const rawFinishReason = rawFinishReasonString(options.rawFinishReason);
   return {
     inputTokens,
     outputTokens,
-    cachedInputTokens,
+    cacheHitInputTokens,
+    cacheMissInputTokens,
     cacheWriteInputTokens,
     reasoningTokens,
     totalTokens,
+    ...(rawFinishReason !== undefined ? { rawFinishReason } : {}),
+    ...(raw !== undefined ? { raw } : {}),
+    cachedInputTokens: cacheHitInputTokens,
   };
 }
 
 function finiteToken(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function finiteTokenFromBreakdown(
+  value: number | TokenCountBreakdown | undefined,
+  key: keyof TokenCountBreakdown,
+): number | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  return finiteToken(value[key]);
+}
+
+function finiteTokenFromValueOrBreakdown(
+  value: number | TokenCountBreakdown | undefined,
+  key: keyof TokenCountBreakdown,
+): number | undefined {
+  return finiteToken(value) ?? finiteTokenFromBreakdown(value, key);
+}
+
+function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {
+  const raw: AiSdkRawUsageFields = {};
+  const promptTokens =
+    finiteToken(usage.prompt_tokens)
+    ?? finiteToken(usage.raw?.prompt_tokens);
+  if (promptTokens !== undefined) raw.prompt_tokens = promptTokens;
+  const completionTokens =
+    finiteToken(usage.completion_tokens)
+    ?? finiteToken(usage.raw?.completion_tokens);
+  if (completionTokens !== undefined) raw.completion_tokens = completionTokens;
+  const totalTokens =
+    finiteToken(usage.total_tokens)
+    ?? finiteToken(usage.raw?.total_tokens);
+  if (totalTokens !== undefined) raw.total_tokens = totalTokens;
+  const promptCacheHitTokens =
+    finiteToken(usage.prompt_cache_hit_tokens)
+    ?? finiteToken(usage.raw?.prompt_cache_hit_tokens);
+  if (promptCacheHitTokens !== undefined) raw.prompt_cache_hit_tokens = promptCacheHitTokens;
+  const promptCacheMissTokens =
+    finiteToken(usage.prompt_cache_miss_tokens)
+    ?? finiteToken(usage.raw?.prompt_cache_miss_tokens);
+  if (promptCacheMissTokens !== undefined) raw.prompt_cache_miss_tokens = promptCacheMissTokens;
+  const cachedTokens =
+    finiteToken(usage.prompt_tokens_details?.cached_tokens)
+    ?? finiteToken(usage.raw?.prompt_tokens_details?.cached_tokens);
+  if (cachedTokens !== undefined) raw.prompt_tokens_details = { cached_tokens: cachedTokens };
+  const reasoningTokens =
+    finiteToken(usage.completion_tokens_details?.reasoning_tokens)
+    ?? finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens);
+  if (reasoningTokens !== undefined) {
+    raw.completion_tokens_details = { reasoning_tokens: reasoningTokens };
+  }
+  return Object.keys(raw).length > 0 ? raw : undefined;
+}
+
+export function rawFinishReasonString(reason: unknown): string | undefined {
+  if (typeof reason === 'string') return reason;
+  if (reason && typeof reason === 'object') {
+    const raw = (reason as { raw?: unknown }).raw;
+    if (typeof raw === 'string') return raw;
+    const unified = (reason as { unified?: unknown }).unified;
+    if (typeof unified === 'string') return unified;
+  }
+  return undefined;
 }

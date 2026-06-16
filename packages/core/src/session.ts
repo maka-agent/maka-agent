@@ -229,7 +229,15 @@ export interface TokenUsageMessage {
   ts: number;
   input: number;
   output: number;
+  cacheHitInput?: number;
+  cacheMissInput?: number;
+  cacheWriteInput?: number;
+  reasoning?: number;
+  total?: number;
+  rawFinishReason?: string;
+  /** Backward-compatible alias for cacheHitInput. */
   cacheRead?: number;
+  /** Backward-compatible alias for cacheWriteInput. */
   cacheCreation?: number;
   costUsd?: number;
 }

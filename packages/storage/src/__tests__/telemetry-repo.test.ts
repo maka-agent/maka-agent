@@ -9,8 +9,20 @@ describe('FileTelemetryRepo', () => {
   test('upserts LLM calls by id and aggregates the latest record', async () => {
     await withRepo(async (repo) => {
       await repo.load();
-      repo.insertLlmCall(llmRecord({ id: 'usage_turn_1', inputTokens: 10, outputTokens: 20, totalTokens: 30 }));
-      repo.insertLlmCall(llmRecord({ id: 'usage_turn_1', inputTokens: 30, outputTokens: 40, totalTokens: 70 }));
+      repo.insertLlmCall(llmRecord({
+        id: 'usage_turn_1',
+        inputTokens: 10,
+        outputTokens: 20,
+        cacheMissInputTokens: 10,
+        totalTokens: 30,
+      }));
+      repo.insertLlmCall(llmRecord({
+        id: 'usage_turn_1',
+        inputTokens: 30,
+        outputTokens: 40,
+        cacheMissInputTokens: 30,
+        totalTokens: 70,
+      }));
       await flushWrites();
 
       const summary = repo.summary({ range: 'all' });
@@ -19,9 +31,11 @@ describe('FileTelemetryRepo', () => {
       assert.equal(summary.totalRequests, 1);
       assert.equal(summary.totalTokens.input, 30);
       assert.equal(summary.totalTokens.output, 40);
+      assert.equal(summary.totalTokens.cacheMiss, 30);
       assert.equal(summary.totalTokens.total, 70);
       assert.equal(logs.total, 1);
       assert.equal(logs.rows[0]?.inputTokens, 30);
+      assert.equal(logs.rows[0]?.cacheMissTokens, 30);
     });
   });
 
@@ -140,6 +154,8 @@ function llmRecord(overrides: Record<string, unknown> = {}) {
     modelId: 'gpt-4o',
     inputTokens: 10,
     outputTokens: 20,
+    cacheHitInputTokens: 0,
+    cacheMissInputTokens: 10,
     cachedInputTokens: 0,
     cacheWriteInputTokens: 0,
     reasoningTokens: 0,

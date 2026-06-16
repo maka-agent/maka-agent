@@ -112,18 +112,24 @@ export class RunTrace {
   usageRecorded(usage: {
     inputTokens: number;
     outputTokens: number;
+    cacheHitInputTokens: number;
+    cacheMissInputTokens: number;
     cachedInputTokens: number;
     cacheWriteInputTokens: number;
     reasoningTokens: number;
     totalTokens: number;
+    rawFinishReason?: string;
   }): void {
     this.emit('usage', 'usage_recorded', 'Token usage recorded', {
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      cacheHitInputTokens: usage.cacheHitInputTokens,
+      cacheMissInputTokens: usage.cacheMissInputTokens,
       cachedInputTokens: usage.cachedInputTokens,
       cacheWriteInputTokens: usage.cacheWriteInputTokens,
       reasoningTokens: usage.reasoningTokens,
       totalTokens: usage.totalTokens,
+      ...(usage.rawFinishReason !== undefined ? { rawFinishReason: usage.rawFinishReason } : {}),
     });
   }
 

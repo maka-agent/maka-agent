@@ -303,6 +303,12 @@ export function mapSessionEventToRuntimeEvent(
           tokenUsage: {
             input: event.input,
             output: event.output,
+            ...(event.cacheHitInput !== undefined ? { cacheHitInput: event.cacheHitInput } : {}),
+            ...(event.cacheMissInput !== undefined ? { cacheMissInput: event.cacheMissInput } : {}),
+            ...(event.cacheWriteInput !== undefined ? { cacheWriteInput: event.cacheWriteInput } : {}),
+            ...(event.reasoning !== undefined ? { reasoning: event.reasoning } : {}),
+            ...(event.total !== undefined ? { total: event.total } : {}),
+            ...(event.rawFinishReason !== undefined ? { rawFinishReason: event.rawFinishReason } : {}),
             ...(event.cacheRead !== undefined ? { cacheRead: event.cacheRead } : {}),
             ...(event.cacheCreation !== undefined ? { cacheCreation: event.cacheCreation } : {}),
             ...(event.costUsd !== undefined ? { costUsd: event.costUsd } : {}),

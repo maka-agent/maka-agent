@@ -5475,7 +5475,7 @@ function UsageSettingsPage(props: {
         <MetricCard title="总请求" value={String(stats?.summary.totalRequests ?? 0)} />
         <MetricCard title="总费用" value={`$${(stats?.summary.totalCostUsd ?? 0).toFixed(2)}`} detail="以模型供应商最终结算为准" />
         <MetricCard title="总 Token" value={String(stats?.summary.totalTokens ?? 0)} detail={`输入 ${stats?.summary.inputTokens ?? 0} / 输出 ${stats?.summary.outputTokens ?? 0}`} />
-        <MetricCard title="缓存 Token" value={String(stats?.summary.cacheTokens ?? 0)} detail={`命中 ${stats?.summary.cacheRead ?? 0} / 创建 ${stats?.summary.cacheCreation ?? 0}`} />
+        <MetricCard title="缓存 Token" value={String(stats?.summary.cacheTokens ?? 0)} detail={`新 ${stats?.summary.cacheMiss ?? 0} / 命中 ${stats?.summary.cacheRead ?? 0} / 创建 ${stats?.summary.cacheCreation ?? 0}`} />
       </div>
 
       <Segmented

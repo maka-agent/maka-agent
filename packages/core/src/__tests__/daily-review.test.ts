@@ -104,6 +104,7 @@ describe('pickDailyReviewTopEntries', () => {
       requests,
       inputTokens: 0,
       outputTokens: 0,
+      cacheMissTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       reasoningTokens: 0,
@@ -134,6 +135,7 @@ describe('buildDailyReviewSummary', () => {
     totalTokens: {
       input: 100,
       output: 200,
+      cacheMiss: 100,
       cacheRead: 0,
       cacheWrite: 0,
       reasoning: 0,

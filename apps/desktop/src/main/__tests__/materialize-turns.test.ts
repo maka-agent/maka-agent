@@ -221,6 +221,9 @@ describe('materializeTurns', () => {
         ts: 110,
         input: 1000,
         output: 200,
+        cacheMissInput: 800,
+        cacheRead: 150,
+        reasoning: 20,
         costUsd: 0.01,
       } as StoredMessage,
       {
@@ -230,12 +233,18 @@ describe('materializeTurns', () => {
         ts: 120,
         input: 500,
         output: 50,
+        cacheMissInput: 300,
+        cacheRead: 100,
+        reasoning: 5,
         costUsd: 0.005,
       } as StoredMessage,
       assistantMsg('t1', 200, 'a'),
     ]);
     assert.equal(turns[0]?.tokens?.input, 1500);
     assert.equal(turns[0]?.tokens?.output, 250);
+    assert.equal(turns[0]?.tokens?.cacheMiss, 1100);
+    assert.equal(turns[0]?.tokens?.cacheRead, 250);
+    assert.equal(turns[0]?.tokens?.reasoning, 25);
     // Use a tolerance since FP add may produce 0.015000000000000001 etc.
     assert.ok(
       turns[0]?.tokens?.costUsd !== undefined &&

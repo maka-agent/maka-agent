@@ -12,15 +12,20 @@ export interface LlmRecorderDeps {
 export function recordLlmCall(deps: LlmRecorderDeps, record: LlmCallRecord): void {
   queueMicrotask(() => {
     try {
-      const cachedInputTokens = record.cachedInputTokens ?? 0;
+      const cacheHitInputTokens = record.cacheHitInputTokens ?? record.cachedInputTokens ?? 0;
       const cacheWriteInputTokens = record.cacheWriteInputTokens ?? 0;
+      const cacheMissInputTokens =
+        record.cacheMissInputTokens
+        ?? Math.max(0, record.inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+      const cachedInputTokens = cacheHitInputTokens;
       const reasoningTokens = record.reasoningTokens ?? 0;
       const totalTokens = record.totalTokens ?? record.inputTokens + record.outputTokens + reasoningTokens;
       const costUsd = computeCost(
         {
           inputTokens: record.inputTokens,
           outputTokens: record.outputTokens,
-          cachedInputTokens,
+          cacheHitInputTokens,
+          cacheMissInputTokens,
           cacheWriteInputTokens,
         },
         deps.lookupPricing(`${record.providerId}:${record.modelId}`),
@@ -29,6 +34,8 @@ export function recordLlmCall(deps: LlmRecorderDeps, record: LlmCallRecord): voi
       deps.repo.insertLlmCall({
         ...record,
         id: `usage_${record.turnId ?? randomUUID()}`,
+        cacheHitInputTokens,
+        cacheMissInputTokens,
         cachedInputTokens,
         cacheWriteInputTokens,
         reasoningTokens,

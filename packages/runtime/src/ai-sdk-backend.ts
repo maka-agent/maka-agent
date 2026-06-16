@@ -74,6 +74,7 @@ import {
 import {
   ModelAdapter,
   normalizeAiSdkUsage,
+  rawFinishReasonString,
   type ModelFactory,
   type ModelFactoryInput,
   type NormalizedAiSdkUsage,
@@ -267,6 +268,7 @@ export class AiSdkBackend implements AgentBackend {
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
+    let rawFinishReason: string | undefined;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -363,6 +365,9 @@ export class AiSdkBackend implements AgentBackend {
         for await (const chunk of result.fullStream) {
           if (this.aborted) break;
           watchdog.markActivity();
+          if (chunk.type === 'finish' || chunk.type === 'step-finish') {
+            rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
+          }
           this.modelAdapter.handleStreamChunk(chunk, turnId, assistantMessageId, queue, {
             onText: (t) => { assistantText += t; },
             onTextComplete: (t) => { assistantText = t; },
@@ -380,6 +385,7 @@ export class AiSdkBackend implements AgentBackend {
         // "step cap reached" notice so the UI has SOMETHING and the
         // user can choose to send "继续" for a fresh turn.
         const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
+        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
         if (
           !this.aborted
           && assistantText.length === 0
@@ -421,7 +427,7 @@ export class AiSdkBackend implements AgentBackend {
 
         // Final usage event (await result.usage which resolves once stream ends).
         try {
-          tokenUsage = normalizeAiSdkUsage(await result.usage);
+          tokenUsage = normalizeAiSdkUsage(await result.usage, { rawFinishReason });
           if (tokenUsage) {
             trace.usageRecorded(tokenUsage);
             const tu: TokenUsageMessage = {
@@ -431,6 +437,12 @@ export class AiSdkBackend implements AgentBackend {
               ts: this.now(),
               input: tokenUsage.inputTokens,
               output: tokenUsage.outputTokens,
+              cacheHitInput: tokenUsage.cacheHitInputTokens,
+              cacheMissInput: tokenUsage.cacheMissInputTokens,
+              cacheWriteInput: tokenUsage.cacheWriteInputTokens,
+              reasoning: tokenUsage.reasoningTokens,
+              total: tokenUsage.totalTokens,
+              ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
             };
@@ -442,6 +454,12 @@ export class AiSdkBackend implements AgentBackend {
               ts: this.now(),
               input: tokenUsage.inputTokens,
               output: tokenUsage.outputTokens,
+              cacheHitInput: tokenUsage.cacheHitInputTokens,
+              cacheMissInput: tokenUsage.cacheMissInputTokens,
+              cacheWriteInput: tokenUsage.cacheWriteInputTokens,
+              reasoning: tokenUsage.reasoningTokens,
+              total: tokenUsage.totalTokens,
+              ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
             } satisfies TokenUsageEvent);
@@ -502,10 +520,14 @@ export class AiSdkBackend implements AgentBackend {
           modelId: this.input.modelId,
           inputTokens: tokenUsage?.inputTokens ?? 0,
           outputTokens: tokenUsage?.outputTokens ?? 0,
+          cacheHitInputTokens: tokenUsage?.cacheHitInputTokens ?? 0,
+          cacheMissInputTokens: tokenUsage?.cacheMissInputTokens ?? 0,
           cachedInputTokens: tokenUsage?.cachedInputTokens ?? 0,
           cacheWriteInputTokens: tokenUsage?.cacheWriteInputTokens ?? 0,
           reasoningTokens: tokenUsage?.reasoningTokens ?? 0,
           totalTokens: tokenUsage?.totalTokens,
+          ...(tokenUsage?.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+          ...(tokenUsage?.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
           latencyMs: Math.max(0, this.now() - startedAt),
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),

@@ -524,6 +524,8 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.deepEqual(usage, {
       inputTokens: 100,
       outputTokens: 20,
+      cacheHitInputTokens: 30,
+      cacheMissInputTokens: 60,
       cachedInputTokens: 30,
       cacheWriteInputTokens: 10,
       reasoningTokens: 5,
@@ -592,7 +594,18 @@ describe('AiSdkBackend usage telemetry', () => {
 
     const usageMessage = messages.find((message) =>
       (message as { type?: string }).type === 'token_usage'
-    ) as { input?: number; output?: number; cacheRead?: number; cacheCreation?: number } | undefined;
+    ) as {
+      input?: number;
+      output?: number;
+      cacheHitInput?: number;
+      cacheMissInput?: number;
+      cacheWriteInput?: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+      reasoning?: number;
+      total?: number;
+      rawFinishReason?: string;
+    } | undefined;
     const usageEvent = events.find((event) => event.type === 'token_usage') as
       | Extract<SessionEvent, { type: 'token_usage' }>
       | undefined;
@@ -601,18 +614,33 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal((usageMessage as { turnId?: string } | undefined)?.turnId, 'turn-1');
     assert.equal(usageMessage?.input, 10);
     assert.equal(usageMessage?.output, 7);
+    assert.equal(usageMessage?.cacheHitInput, 3);
+    assert.equal(usageMessage?.cacheMissInput, 5);
+    assert.equal(usageMessage?.cacheWriteInput, 2);
     assert.equal(usageMessage?.cacheRead, 3);
     assert.equal(usageMessage?.cacheCreation, 2);
+    assert.equal(usageMessage?.reasoning, 2);
+    assert.equal(usageMessage?.total, 17);
+    assert.equal(usageMessage?.rawFinishReason, 'stop');
     assert.equal(usageEvent?.input, 10);
     assert.equal(usageEvent?.output, 7);
+    assert.equal(usageEvent?.cacheHitInput, 3);
+    assert.equal(usageEvent?.cacheMissInput, 5);
+    assert.equal(usageEvent?.cacheWriteInput, 2);
     assert.equal(usageEvent?.cacheRead, 3);
     assert.equal(usageEvent?.cacheCreation, 2);
+    assert.equal(usageEvent?.reasoning, 2);
+    assert.equal(usageEvent?.total, 17);
+    assert.equal(usageEvent?.rawFinishReason, 'stop');
     assert.equal(llmRecords[0]?.inputTokens, 10);
     assert.equal(llmRecords[0]?.outputTokens, 7);
+    assert.equal(llmRecords[0]?.cacheHitInputTokens, 3);
+    assert.equal(llmRecords[0]?.cacheMissInputTokens, 5);
     assert.equal(llmRecords[0]?.cachedInputTokens, 3);
     assert.equal(llmRecords[0]?.cacheWriteInputTokens, 2);
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 17);
+    assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
   });
 });
 

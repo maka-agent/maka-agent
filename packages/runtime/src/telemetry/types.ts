@@ -7,6 +7,8 @@ export interface TelemetryRepoLite {
 
 export type PersistedLlmCallRecord = LlmCallRecord & {
   id: string;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
   cachedInputTokens: number;
   cacheWriteInputTokens: number;
   reasoningTokens: number;

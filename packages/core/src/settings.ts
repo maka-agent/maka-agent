@@ -268,8 +268,10 @@ export interface UsageRequestLog {
   toolName?: string;
   inputTokens: number;
   outputTokens: number;
+  cacheMiss?: number;
   cacheRead?: number;
   cacheCreation?: number;
+  reasoning?: number;
   costUsd?: number;
   latencyMs?: number;
   status: 'success' | 'error';
@@ -282,8 +284,10 @@ export interface UsageSummary {
   inputTokens: number;
   outputTokens: number;
   cacheTokens: number;
+  cacheMiss: number;
   cacheRead: number;
   cacheCreation: number;
+  reasoning: number;
 }
 
 export interface UsageStats {

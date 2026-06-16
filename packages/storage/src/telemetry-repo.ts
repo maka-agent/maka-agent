@@ -13,6 +13,8 @@ import type {
 
 type PersistedLlmCallRecord = LlmCallRecord & {
   id: string;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
   cachedInputTokens: number;
   cacheWriteInputTokens: number;
   reasoningTokens: number;
@@ -91,7 +93,8 @@ class FileTelemetryRepo implements TelemetryRepo {
     const rows = this.filteredUsageRows(query, from, to);
     const input = sum(rows.map((row) => row.inputTokens));
     const output = sum(rows.map((row) => row.outputTokens));
-    const cacheRead = sum(rows.map((row) => row.cachedInputTokens));
+    const cacheMiss = sum(rows.map((row) => row.cacheMissInputTokens));
+    const cacheRead = sum(rows.map((row) => row.cacheHitInputTokens));
     const cacheWrite = sum(rows.map((row) => row.cacheWriteInputTokens));
     const reasoning = sum(rows.map((row) => row.reasoningTokens));
     return {
@@ -101,12 +104,13 @@ class FileTelemetryRepo implements TelemetryRepo {
       totalTokens: {
         input,
         output,
+        cacheMiss,
         cacheRead,
         cacheWrite,
         reasoning,
         total: sum(rows.map((row) => row.totalTokens)),
       },
-      cacheHitRequests: rows.filter((row) => row.cachedInputTokens > 0).length,
+      cacheHitRequests: rows.filter((row) => row.cacheHitInputTokens > 0).length,
       cacheCreateRequests: rows.filter((row) => row.cacheWriteInputTokens > 0).length,
       errorRequests: rows.filter((row) => row.status === 'error').length,
     };
@@ -140,7 +144,8 @@ class FileTelemetryRepo implements TelemetryRepo {
         modelId: row.modelId,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,
-        cacheReadTokens: row.cachedInputTokens,
+        cacheMissTokens: row.cacheMissInputTokens,
+        cacheReadTokens: row.cacheHitInputTokens,
         cacheWriteTokens: row.cacheWriteInputTokens,
         reasoningTokens: row.reasoningTokens,
         totalTokens: row.totalTokens,
@@ -221,9 +226,44 @@ function normalizeFile(input: unknown): TelemetryFile {
   if (!input || typeof input !== 'object') return emptyFile();
   const value = input as Partial<TelemetryFile>;
   return {
-    usageRecords: Array.isArray(value.usageRecords) ? value.usageRecords : [],
+    usageRecords: Array.isArray(value.usageRecords) ? value.usageRecords.map(normalizeLlmCallRecord) : [],
     toolInvocations: Array.isArray(value.toolInvocations) ? value.toolInvocations : [],
     pricingOverrides: Array.isArray(value.pricingOverrides) ? value.pricingOverrides : [],
+  };
+}
+
+function normalizeLlmCallRecord(input: unknown): PersistedLlmCallRecord {
+  const row = input as Partial<PersistedLlmCallRecord>;
+  const inputTokens = finiteNumber(row.inputTokens) ?? 0;
+  const outputTokens = finiteNumber(row.outputTokens) ?? 0;
+  const cacheHitInputTokens =
+    finiteNumber(row.cacheHitInputTokens)
+    ?? finiteNumber(row.cachedInputTokens)
+    ?? 0;
+  const cacheWriteInputTokens = finiteNumber(row.cacheWriteInputTokens) ?? 0;
+  const cacheMissInputTokens =
+    finiteNumber(row.cacheMissInputTokens)
+    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+  const reasoningTokens = finiteNumber(row.reasoningTokens) ?? 0;
+  return {
+    ...row,
+    id: typeof row.id === 'string' ? row.id : `usage_${row.turnId ?? row.ts ?? 'unknown'}`,
+    providerId: typeof row.providerId === 'string' ? row.providerId : 'unknown',
+    modelId: typeof row.modelId === 'string' ? row.modelId : 'unknown',
+    inputTokens,
+    outputTokens,
+    cacheHitInputTokens,
+    cacheMissInputTokens,
+    cachedInputTokens: cacheHitInputTokens,
+    cacheWriteInputTokens,
+    reasoningTokens,
+    totalTokens: finiteNumber(row.totalTokens) ?? inputTokens + outputTokens + reasoningTokens,
+    costUsd: finiteNumber(row.costUsd) ?? 0,
+    latencyMs: finiteNumber(row.latencyMs) ?? 0,
+    status: row.status === 'error' || row.status === 'aborted' ? row.status : 'success',
+    startedAt: finiteNumber(row.startedAt) ?? finiteNumber(row.ts) ?? 0,
+    date: typeof row.date === 'string' ? row.date : new Date(finiteNumber(row.ts) ?? 0).toISOString().slice(0, 10),
+    ts: finiteNumber(row.ts) ?? 0,
   };
 }
 
@@ -260,7 +300,8 @@ function usageBucket(key: string, rows: PersistedLlmCallRecord[]): UsageBucket {
     requests: rows.length,
     inputTokens: sum(rows.map((row) => row.inputTokens)),
     outputTokens: sum(rows.map((row) => row.outputTokens)),
-    cacheReadTokens: sum(rows.map((row) => row.cachedInputTokens)),
+    cacheMissTokens: sum(rows.map((row) => row.cacheMissInputTokens)),
+    cacheReadTokens: sum(rows.map((row) => row.cacheHitInputTokens)),
     cacheWriteTokens: sum(rows.map((row) => row.cacheWriteInputTokens)),
     reasoningTokens: sum(rows.map((row) => row.reasoningTokens)),
     totalTokens: sum(rows.map((row) => row.totalTokens)),
@@ -288,6 +329,7 @@ function toolBuckets(rows: PersistedToolInvocationRecord[]): UsageBucket[] {
         requests: groupRows.length,
         inputTokens: inputBytes,
         outputTokens: outputBytes,
+        cacheMissTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         reasoningTokens: 0,
@@ -302,4 +344,8 @@ function toolBuckets(rows: PersistedToolInvocationRecord[]): UsageBucket[] {
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }

@@ -199,8 +199,10 @@ export interface TurnViewModel {
   tokens?: {
     input: number;
     output: number;
+    cacheMiss?: number;
     cacheRead?: number;
     cacheCreation?: number;
+    reasoning?: number;
     costUsd?: number;
   };
 }
@@ -286,8 +288,10 @@ export function materializeTurns(
       const totals = turn.tokens ?? { input: 0, output: 0 };
       totals.input += message.input;
       totals.output += message.output;
+      if (message.cacheMissInput !== undefined) totals.cacheMiss = (totals.cacheMiss ?? 0) + message.cacheMissInput;
       if (message.cacheRead !== undefined) totals.cacheRead = (totals.cacheRead ?? 0) + message.cacheRead;
       if (message.cacheCreation !== undefined) totals.cacheCreation = (totals.cacheCreation ?? 0) + message.cacheCreation;
+      if (message.reasoning !== undefined) totals.reasoning = (totals.reasoning ?? 0) + message.reasoning;
       if (message.costUsd !== undefined) totals.costUsd = (totals.costUsd ?? 0) + message.costUsd;
       turn.tokens = totals;
     }
