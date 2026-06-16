@@ -1,7 +1,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { canonicalizeToolSet } from '../request-shape.js';
+import {
+  canonicalizeToolSet,
+  toolSchemaCharsForDiagnostics,
+  computeRequestShapeDiagnostic,
+} from '../request-shape.js';
 import type { MakaTool } from '../tool-runtime.js';
 
 function tool(name: string, exposure?: 'direct' | 'deferred'): MakaTool {
@@ -51,5 +55,45 @@ describe('canonicalizeToolSet exposure gating', () => {
   test('omitting exposure means direct (backward compatible), names sorted', () => {
     const { activeTools } = canonicalizeToolSet([tool('Write'), tool('Read')], invalid);
     assert.deepEqual(activeTools, ['Read', 'Write']);
+  });
+});
+
+describe('diagnostics measure the provider-visible (active) tool subset', () => {
+  const connection = { providerType: 'openai', slug: 'c' } as never;
+
+  function rich(name: string, exposure: 'direct' | 'deferred', schema: unknown): MakaTool {
+    return { name, description: name, parameters: schema, impl: () => ({}), exposure };
+  }
+
+  function diag(providerTools: MakaTool[], activeTools: string[], prior?: ReturnType<typeof computeRequestShapeDiagnostic>) {
+    return computeRequestShapeDiagnostic(
+      { connection, modelId: 'm', systemPrompt: 's', providerOptions: {}, providerTools, activeTools, priorMessages: [] },
+      prior,
+    );
+  }
+
+  test('char count excludes an inactive deferred tool schema', () => {
+    const tools = [rich('Read', 'direct', { a: 1 }), rich('Rive', 'deferred', { big: 'x'.repeat(500) })];
+    const withoutRive = toolSchemaCharsForDiagnostics(tools, ['Read']);
+    const withRive = toolSchemaCharsForDiagnostics(tools, ['Read', 'Rive']);
+    assert.ok(withRive > withoutRive + 400, 'activating Rive should add its schema chars to the count');
+  });
+
+  test('toolSchemaHash ignores an INACTIVE deferred tool schema change', () => {
+    const a = [rich('Read', 'direct', { a: 1 }), rich('Rive', 'deferred', { v: 1 })];
+    const b = [rich('Read', 'direct', { a: 1 }), rich('Rive', 'deferred', { v: 2 })];
+    assert.equal(
+      diag(a, ['Read']).componentHashes.toolSchemaHash,
+      diag(b, ['Read']).componentHashes.toolSchemaHash,
+      'a change to an unadvertised deferred schema must not move the hash',
+    );
+  });
+
+  test('loading a deferred tool moves toolSchemaHash and reports tool_schema_changed', () => {
+    const tools = [rich('Read', 'direct', { a: 1 }), rich('Rive', 'deferred', { v: 1 })];
+    const before = diag(tools, ['Read']);
+    const after = diag(tools, ['Read', 'Rive'], before);
+    assert.notEqual(after.componentHashes.toolSchemaHash, before.componentHashes.toolSchemaHash);
+    assert.equal(after.prefixChangeReason, 'tool_schema_changed');
   });
 });

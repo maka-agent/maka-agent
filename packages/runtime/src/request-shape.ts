@@ -87,7 +87,11 @@ export function computeRequestShapeDiagnostic(
     providerOptionsHash: stableHash(input.providerOptions ?? {}),
     toolSchemaHash: stableHash({
       activeTools: [...input.activeTools],
-      providerTools: input.providerTools.map(toolShapeForDiagnostics),
+      // Only the provider-visible (active) subset crosses the wire, so the
+      // schema hash must reflect that subset — otherwise an inactive deferred
+      // tool's schema change would falsely fire `tool_schema_changed`, and a
+      // load would not be distinguishable from churn.
+      providerTools: providerVisibleTools(input.providerTools, input.activeTools).map(toolShapeForDiagnostics),
     }),
     historyProjectionHash: stableHash(input.priorMessages.map(messageShapeForHash)),
   };
@@ -123,8 +127,17 @@ export function toolSchemaCharsForDiagnostics(
 ): number {
   return stableStringify({
     activeTools: [...activeTools],
-    providerTools: providerTools.map(toolShapeForDiagnostics),
+    providerTools: providerVisibleTools(providerTools, activeTools).map(toolShapeForDiagnostics),
   }).length;
+}
+
+/** The provider-visible tools — the active subset actually serialized on the wire. */
+function providerVisibleTools(
+  providerTools: readonly MakaTool[],
+  activeTools: readonly string[],
+): MakaTool[] {
+  const active = new Set(activeTools);
+  return providerTools.filter((tool) => active.has(tool.name));
 }
 
 export function stableHash(value: unknown): string {
