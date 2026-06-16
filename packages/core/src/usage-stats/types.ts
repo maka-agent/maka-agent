@@ -172,6 +172,9 @@ export interface ContextBudgetDiagnostic {
   prunedToolResultEstimatedTokensBefore?: number;
   prunedToolResultEstimatedTokensAfter?: number;
   archivePlaceholders?: number;
+  archiveWriteFailures?: number;
+  unarchivedToolResults?: number;
+  archivePlaceholderReasonCounts?: Record<string, number>;
 }
 
 export interface ToolInvocationRecord {

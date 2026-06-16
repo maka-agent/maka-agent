@@ -145,6 +145,19 @@ export type ToolResultContent =
   | { kind: 'file_diff'; paths: string[]; diff: string }
   | { kind: 'file_write'; path: string; bytes: number }
   | {
+      kind: 'archived_tool_result';
+      status: 'not_loaded' | 'missing' | 'corrupt';
+      runtimeEventId: string;
+      toolCallId: string;
+      toolName: string;
+      artifactId?: string;
+      bodySha256?: string;
+      originalEstimatedTokens: number;
+      originalBytes: number;
+      rewriteVersion: number;
+      reason: 'stale_tool_result_pruned_before_compact';
+    }
+  | {
       kind: 'terminal';
       cwd: string;
       cmd: string;

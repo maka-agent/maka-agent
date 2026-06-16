@@ -40,6 +40,7 @@ import type {
   TextCompleteEvent,
   TokenUsageEvent,
 } from '@maka/core/events';
+import { createHash } from 'node:crypto';
 import type {
   StoredMessage,
   AssistantMessage,
@@ -55,6 +56,7 @@ import type {
   PermissionDecision,
 } from '@maka/core/backend-types';
 import type { LlmConnection } from '@maka/core/llm-connections';
+import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type {
   ContextBudgetDiagnostic,
@@ -99,9 +101,13 @@ import {
   type RequestShapeDiagnostic,
 } from './request-shape.js';
 import {
+  ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildPromptSegmentEstimates,
+  collectStaleToolResultArchiveCandidates,
   type ContextBudgetPolicy,
+  type StaleToolResultArchiveCandidate,
+  type ToolResultArchiveRef,
 } from './context-budget.js';
 
 export {
@@ -147,6 +153,13 @@ export const INVALID_TOOL_NAME = 'invalid';
 export type AppendMessageFn = (m: StoredMessage) => Promise<void>;
 export type LlmTelemetryRecorder = (record: LlmCallRecord) => void;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
+export interface ToolResultArchiveRecorderInput extends StaleToolResultArchiveCandidate {
+  sessionId: string;
+  bodySha256: string;
+}
+export type ToolResultArchiveRecorder = (
+  input: ToolResultArchiveRecorderInput,
+) => Promise<{ artifactId: string } | void> | { artifactId: string } | void;
 
 export interface AiSdkBackendInput {
   // ── Session context ────────────────────────────────────────────────────
@@ -199,6 +212,12 @@ export interface AiSdkBackendInput {
    * file-backed persistence.
    */
   recordToolArtifacts?: ToolArtifactRecorder;
+  /**
+   * Optional archive writer for replay-only stale tool-result pruning. The
+   * runtime rewrites only candidates whose original body has been durably
+   * archived by this callback.
+   */
+  archiveToolResult?: ToolResultArchiveRecorder;
 }
 
 export interface SystemPromptContext {
@@ -337,7 +356,7 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
-    const priorReplay = this.buildPriorMessages(input);
+    const priorReplay = await this.buildPriorMessages(input);
 
     // --- Background pump: streamText → fullStream → normalize → queue ---
     const pumpDone: Promise<void> = (async () => {
@@ -690,25 +709,24 @@ export class AiSdkBackend implements AgentBackend {
    *  V0.1: text-only round-tripping. Tool calls / results within projected
    *  history are deliberately NOT replayed unless RuntimeEvent native replay
    *  is available for the provider. */
-  private buildPriorMessages(input: BackendSendInput): {
+  private async buildPriorMessages(input: BackendSendInput): Promise<{
     messages: ModelMessage[];
     gate: RuntimeEventReplayFallbackGate | 'stored_message_projection';
     diagnostics: RuntimeEventModelReplayPlan['diagnostics'];
     runtimeEventCount?: number;
     contextBudget?: ContextBudgetDiagnostic;
-  } {
+  }> {
     const projectedMessages = this.materializePriorMessages(
       input.context.filter((message) => message.turnId !== input.turnId),
     );
     if (!input.runtimeContext) {
       return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: [] };
     }
-    const budgeted = applyRuntimeEventContextBudget(
-      input.runtimeContext.filter((event) => event.turnId !== input.turnId),
-      this.input.contextBudget,
-    );
+    const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
+    const contextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
+    const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
     const runtimeContext = budgeted?.events
-      ?? input.runtimeContext.filter((event) => event.turnId !== input.turnId);
+      ?? priorRuntimeContext;
 
     const plan = buildRuntimeEventModelReplayPlan(
       runtimeContext,
@@ -759,6 +777,45 @@ export class AiSdkBackend implements AgentBackend {
       diagnostics: plan.diagnostics,
       runtimeEventCount: runtimeContext.length,
       ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+    };
+  }
+
+  private async prepareContextBudgetPolicy(
+    runtimeContext: readonly RuntimeEvent[],
+  ): Promise<ContextBudgetPolicy | undefined> {
+    const policy = this.input.contextBudget;
+    if (policy?.staleToolResultPrune?.enabled !== true) return policy;
+    const candidates = collectStaleToolResultArchiveCandidates(runtimeContext, policy);
+    if (candidates.length === 0) return policy;
+
+    const archiveRefs: ToolResultArchiveRef[] = [];
+    for (const candidate of candidates) {
+      const bodySha256 = sha256(candidate.serializedResult);
+      const archived = await Promise.resolve(this.input.archiveToolResult?.({
+        ...candidate,
+        sessionId: this.sessionId,
+        bodySha256,
+      })).catch(() => undefined);
+      if (!archived?.artifactId) continue;
+      archiveRefs.push({
+        runtimeEventId: candidate.runtimeEventId,
+        toolCallId: candidate.toolCallId,
+        toolName: candidate.toolName,
+        artifactId: archived.artifactId,
+        bodySha256,
+        originalEstimatedTokens: candidate.originalEstimatedTokens,
+        originalBytes: candidate.originalBytes,
+        rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+        reason: candidate.reason,
+      });
+    }
+
+    return {
+      ...policy,
+      staleToolResultPrune: {
+        ...policy.staleToolResultPrune,
+        archiveRefs,
+      },
     };
   }
 
@@ -920,6 +977,10 @@ function toolResultOutput(value: unknown, isError: boolean): AiSdkToolResultOutp
   return typeof value === 'string'
     ? { type: 'text', value }
     : { type: 'json', value: jsonValue(value) };
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolean {

@@ -186,6 +186,75 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('archives stale RuntimeEvent tool results before replay placeholder rewrite', async () => {
+    const model = completionModel();
+    const archiveRequests: Array<{ runtimeEventId: string; serializedResult: string; bodySha256: string }> = [];
+    const oldResult = { body: 'x'.repeat(500) };
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'archive-test',
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 1,
+          minRecentTurnsFull: 0,
+        },
+        charsPerToken: 1,
+      },
+      archiveToolResult: async (event) => {
+        archiveRequests.push({
+          runtimeEventId: event.runtimeEventId,
+          serializedResult: event.serializedResult,
+          bodySha256: event.bodySha256,
+        });
+        return { artifactId: `artifact-${event.runtimeEventId}` };
+      },
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-call',
+          turnId: 'turn-prev',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result',
+          turnId: 'turn-prev',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: oldResult, isError: false },
+        }),
+      ],
+    }));
+
+    assert.equal(archiveRequests.length, 1);
+    assert.equal(archiveRequests[0]?.runtimeEventId, 'rt-result');
+    assert.equal(archiveRequests[0]?.serializedResult, JSON.stringify(oldResult));
+    assert.match(archiveRequests[0]?.bodySha256 ?? '', /^[a-f0-9]{64}$/);
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /"kind":"maka\.archived_tool_result"/);
+    assert.match(prompt, /"artifactId":"artifact-rt-result"/);
+    assert.match(prompt, /"runtimeEventId":"rt-result"/);
+    assert.equal(prompt.includes(oldResult.body), false);
+  });
+
   test('uses StoredMessage projection when RuntimeEvent tool results are unmatched', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
@@ -901,7 +970,7 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
     });
     assert.equal(optOut, undefined);
 
-    const budgeted = applyRuntimeEventContextBudget(events, {
+    const missingArchive = applyRuntimeEventContextBudget(events, {
       staleToolResultPrune: {
         enabled: true,
         maxResultEstimatedTokens: 1,
@@ -910,21 +979,68 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
       minRecentTurns: 1,
       charsPerToken: 1,
     });
+    assert.ok(missingArchive);
+    assert.equal(missingArchive.diagnostic.prunedToolResults, undefined);
+    assert.equal(missingArchive.diagnostic.archiveWriteFailures, 1);
+    const missingArchiveOldResponse = missingArchive.events.find((event) => event.id === 'old-result');
+    assert.equal(missingArchiveOldResponse?.content?.kind, 'function_response');
+    assert.deepEqual(
+      missingArchiveOldResponse?.content?.kind === 'function_response'
+        ? missingArchiveOldResponse.content.result
+        : undefined,
+      oldResult,
+    );
+
+    const budgeted = applyRuntimeEventContextBudget(events, {
+      staleToolResultPrune: {
+        enabled: true,
+        maxResultEstimatedTokens: 1,
+        minRecentTurnsFull: 1,
+        archiveRefs: [{
+          runtimeEventId: 'old-result',
+          toolCallId: 'tool-old',
+          toolName: 'Read',
+          artifactId: 'artifact-old-result',
+          bodySha256: 'sha256-old-result',
+          originalEstimatedTokens: JSON.stringify(oldResult).length,
+          originalBytes: JSON.stringify(oldResult).length,
+          rewriteVersion: 1,
+          reason: 'stale_tool_result_pruned_before_compact',
+        }],
+      },
+      minRecentTurns: 1,
+      charsPerToken: 1,
+    });
 
     assert.ok(budgeted);
     assert.equal(budgeted.diagnostic.prunedToolResults, 1);
     assert.equal(budgeted.diagnostic.archivePlaceholders, 1);
+    assert.equal(budgeted.diagnostic.archiveWriteFailures, undefined);
+    assert.deepEqual(budgeted.diagnostic.archivePlaceholderReasonCounts, {
+      stale_tool_result_pruned_before_compact: 1,
+    });
     const oldResponse = budgeted.events.find((event) => event.id === 'old-result');
     assert.equal(oldResponse?.content?.kind, 'function_response');
     const oldResponseContent = oldResponse?.content;
     assert.equal(oldResponseContent?.kind, 'function_response');
     const placeholder = oldResponseContent?.kind === 'function_response'
-      ? oldResponseContent.result as { kind?: string; runtimeEventId?: string; toolCallId?: string; toolName?: string }
+      ? oldResponseContent.result as {
+        kind?: string;
+        rewriteVersion?: number;
+        artifactId?: string;
+        runtimeEventId?: string;
+        toolCallId?: string;
+        toolName?: string;
+        bodySha256?: string;
+      }
       : undefined;
     assert.equal(placeholder?.kind, ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND);
+    assert.equal(placeholder?.rewriteVersion, 1);
+    assert.equal(placeholder?.artifactId, 'artifact-old-result');
     assert.equal(placeholder?.runtimeEventId, 'old-result');
     assert.equal(placeholder?.toolCallId, 'tool-old');
     assert.equal(placeholder?.toolName, 'Read');
+    assert.equal(placeholder?.bodySha256, 'sha256-old-result');
 
     const newResponse = budgeted.events.find((event) => event.id === 'new-result');
     assert.equal(newResponse?.content?.kind, 'function_response');

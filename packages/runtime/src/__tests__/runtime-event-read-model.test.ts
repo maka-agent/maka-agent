@@ -283,6 +283,49 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
   });
 
+  test('archived tool-result placeholders project to diagnostic tool-result rows', () => {
+    const events = baseEvents();
+    const toolResult = events.find((event) => event.id === 'evt-tool-result');
+    if (toolResult?.content?.kind !== 'function_response') throw new Error('fixture missing tool result');
+    toolResult.content.result = {
+      kind: 'maka.archived_tool_result',
+      rewriteVersion: 1,
+      artifactId: 'artifact-tool-result',
+      runtimeEventId: 'evt-tool-result',
+      toolCallId: 'tool-1',
+      toolName: 'Read',
+      bodySha256: 'a'.repeat(64),
+      originalEstimatedTokens: 200,
+      originalBytes: 800,
+      reason: 'stale_tool_result_pruned_before_compact',
+    };
+
+    const out = projectRuntimeEventsToStoredMessages(events, { runHeaders: [header] });
+    const projected = out.messages.find((message) => message.type === 'tool_result');
+
+    expect(projected).toMatchObject({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: {
+        kind: 'archived_tool_result',
+        status: 'not_loaded',
+        artifactId: 'artifact-tool-result',
+        bodySha256: 'a'.repeat(64),
+        runtimeEventId: 'evt-tool-result',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        originalEstimatedTokens: 200,
+        originalBytes: 800,
+        rewriteVersion: 1,
+        reason: 'stale_tool_result_pruned_before_compact',
+      },
+    });
+    expect(out.diagnostics.map((diag) => diag.code)).toEqual([
+      'archived_tool_result_placeholder',
+      'context_remaining_unsupported',
+    ]);
+  });
+
   test('projected rows materialize to the same runtime view model as equivalent legacy rows', () => {
     const out = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
     const projected = materializeSession(out.messages);

@@ -1,6 +1,6 @@
 export type ArtifactKind = 'file' | 'diff' | 'html' | 'image' | 'pdf';
 
-export type ArtifactSource = 'tool_result' | 'user_upload' | 'export' | 'snapshot' | 'fixture';
+export type ArtifactSource = 'tool_result' | 'tool_result_archive' | 'user_upload' | 'export' | 'snapshot' | 'fixture';
 
 export type ArtifactStatus = 'live' | 'deleted';
 
