@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
+import type { ModelMessage } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
@@ -336,7 +338,7 @@ describe('AiSdkBackend model history', () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
     let archivedBody = '';
-    const oldResult = { body: 'retrieved archived payload' };
+    const oldResult = { body: 'retrieved 中文 archived payload 🙂'.repeat(3) };
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -368,10 +370,15 @@ describe('AiSdkBackend model history', () => {
         archivedBody = event.serializedResult;
         return { artifactId: `artifact-${event.runtimeEventId}` };
       },
-      readToolResultArchive: async (event) => ({
-        ok: true,
-        serializedResult: event.bodySha256 === sha256(archivedBody) ? archivedBody : 'tampered',
-      }),
+      readToolResultArchive: async (event) => {
+        if (event.originalBytes !== utf8Bytes(archivedBody)) {
+          return { ok: false, reason: 'size_mismatch' };
+        }
+        return {
+          ok: true,
+          serializedResult: event.bodySha256 === sha256(archivedBody) ? archivedBody : 'tampered',
+        };
+      },
     });
 
     for await (const event of backend.send({
@@ -399,7 +406,7 @@ describe('AiSdkBackend model history', () => {
     }
 
     const prompt = JSON.stringify(compactPrompt(model));
-    assert.match(prompt, /retrieved archived payload/);
+    assert.match(prompt, /retrieved 中文 archived payload/);
     assert.equal(prompt.includes('maka.archived_tool_result'), false);
     const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
       event.type === 'token_usage'
@@ -973,6 +980,58 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     assert.notEqual(historyChanged.requestShapeHash, base.requestShapeHash);
   });
 
+  test('tool-result output hydration changes request shape without changing durable prefix', () => {
+    const tools = canonicalizeToolSet([
+      testTool('Read', z.object({ path: z.string() })),
+    ], testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })));
+    const toolCallMessage: ModelMessage = {
+      role: 'assistant',
+      content: [{
+        type: 'tool-call',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        input: { path: 'archive.txt' },
+      }],
+    };
+    const placeholderToolResult: ModelMessage = {
+      role: 'tool',
+      content: [{
+        type: 'tool-result',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        output: { type: 'text', value: '[archived placeholder]' },
+      }],
+    };
+    const hydratedToolResult: ModelMessage = {
+      role: 'tool',
+      content: [{
+        type: 'tool-result',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        output: { type: 'text', value: 'hydrated archive payload '.repeat(20) },
+      }],
+    };
+    const baseInput = {
+      connection: connection(),
+      modelId: 'mock-model-id',
+      systemPrompt: 'durable system',
+      providerOptions: { temperature: 0 },
+      providerTools: tools.providerTools,
+      activeTools: tools.activeTools,
+      priorMessages: [toolCallMessage, placeholderToolResult],
+    };
+    const placeholder = computeRequestShapeDiagnostic(baseInput, undefined);
+    const hydrated = computeRequestShapeDiagnostic({
+      ...baseInput,
+      priorMessages: [toolCallMessage, hydratedToolResult],
+    }, placeholder);
+
+    assert.equal(hydrated.prefixChangeReason, 'stable');
+    assert.equal(hydrated.prefixHash, placeholder.prefixHash);
+    assert.equal(hydrated.requestShapeChangeReason, 'history_projection_changed');
+    assert.notEqual(hydrated.requestShapeHash, placeholder.requestShapeHash);
+  });
+
   test('tool canonicalization is independent of registration order and places invalid last', () => {
     const invalid = testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }));
     const first = canonicalizeToolSet([
@@ -1156,7 +1215,7 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
           artifactId: 'artifact-old-result',
           bodySha256: 'sha256-old-result',
           originalEstimatedTokens: JSON.stringify(oldResult).length,
-          originalBytes: JSON.stringify(oldResult).length,
+          originalBytes: utf8Bytes(JSON.stringify(oldResult)),
           rewriteVersion: 1,
           reason: 'stale_tool_result_pruned_before_compact',
         }],
@@ -2326,6 +2385,10 @@ function modelCallSettings(model: MockLanguageModelV3): unknown {
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function utf8Bytes(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
 }
 
 function testTool(name: string, parameters: unknown): MakaTool {

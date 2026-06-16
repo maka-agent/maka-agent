@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -40,7 +41,7 @@ describe('context-budget archive retrieval', () => {
           artifactId: 'artifact-old',
           bodySha256: sha256(serialized),
           originalEstimatedTokens: serialized.length,
-          originalBytes: serialized.length,
+          originalBytes: utf8Bytes(serialized),
           rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
           reason: 'stale_tool_result_pruned_before_compact',
         }],
@@ -74,13 +75,66 @@ describe('context-budget archive retrieval', () => {
     assert.equal(retrieval.diagnosticPatch.retrievedArchiveEstimatedTokens, serialized.length);
   });
 
+  test('uses UTF-8 byte length for non-ASCII archive size validation', async () => {
+    const originalResult = { kind: 'text', text: '旧归档 payload 🙂'.repeat(3) };
+    const serialized = serializeToolResultForArchive(originalResult);
+    assert.ok(utf8Bytes(serialized) > serialized.length);
+    const events = [
+      toolCall('call-old', 'turn-old', 'tool-old'),
+      toolResult('result-old', 'turn-old', 'tool-old', originalResult),
+      toolCall('call-new', 'turn-new', 'tool-new'),
+      toolResult('result-new', 'turn-new', 'tool-new', { kind: 'text', text: 'new full payload' }),
+    ];
+    const budgeted = applyRuntimeEventContextBudget(events, {
+      staleToolResultPrune: {
+        enabled: true,
+        maxResultEstimatedTokens: 1,
+        minRecentTurnsFull: 1,
+        archiveRefs: [{
+          runtimeEventId: 'result-old',
+          toolCallId: 'tool-old',
+          toolName: 'Read',
+          artifactId: 'artifact-old',
+          bodySha256: sha256(serialized),
+          originalEstimatedTokens: serialized.length,
+          originalBytes: utf8Bytes(serialized),
+          rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+          reason: 'stale_tool_result_pruned_before_compact',
+        }],
+      },
+      archiveRetrieval: { enabled: true, maxResults: 1, maxEstimatedTokens: 1024, maxBytes: 1024 },
+      minRecentTurns: 1,
+      charsPerToken: 1,
+    });
+
+    assert.ok(budgeted);
+    assert.equal(budgeted.diagnostic.prunedToolResults, 1);
+    const retrieval = await retrieveArchivedToolResultsForReplay(
+      budgeted.events,
+      { enabled: true, maxResults: 1, maxEstimatedTokens: 1024, maxBytes: 1024 },
+      async (input) =>
+        input.originalBytes === utf8Bytes(serialized)
+          ? { ok: true, serializedResult: serialized }
+          : { ok: false, reason: 'size_mismatch' },
+      { sessionId: 'session-1', charsPerToken: 1 },
+    );
+
+    const hydrated = retrieval.events.find((event) => event.id === 'result-old');
+    assert.deepEqual(
+      hydrated?.content?.kind === 'function_response' ? hydrated.content.result : undefined,
+      originalResult,
+    );
+    assert.equal(retrieval.diagnosticPatch.retrievedArchiveToolResults, 1);
+    assert.equal(retrieval.diagnosticPatch.archiveRetrievalFailures, 0);
+  });
+
   test('keeps placeholders and records corrupt/missing archive diagnostics', async () => {
     const serialized = serializeToolResultForArchive({ kind: 'text', text: 'body' });
     const events = [toolCall('call-1', 'turn-1', 'tool-1'), archivedResult('result-1', 'turn-1', 'tool-1', {
       artifactId: 'artifact-1',
       bodySha256: sha256(serialized),
       originalEstimatedTokens: serialized.length,
-      originalBytes: serialized.length,
+      originalBytes: utf8Bytes(serialized),
     })];
 
     const corrupt = await retrieveArchivedToolResultsForReplay(
@@ -113,7 +167,7 @@ describe('context-budget archive retrieval', () => {
       artifactId: 'artifact-1',
       bodySha256: sha256(serialized),
       originalEstimatedTokens: serialized.length,
-      originalBytes: serialized.length,
+      originalBytes: utf8Bytes(serialized),
     })];
 
     const disabled = await retrieveArchivedToolResultsForReplay(
@@ -150,7 +204,7 @@ describe('context-budget archive retrieval', () => {
         artifactId: 'artifact-small',
         bodySha256: sha256(small),
         originalEstimatedTokens: small.length,
-        originalBytes: small.length,
+        originalBytes: utf8Bytes(small),
       }),
     ];
     const readIds: string[] = [];
@@ -180,14 +234,14 @@ describe('context-budget archive retrieval', () => {
         artifactId: 'artifact-1',
         bodySha256: sha256(first),
         originalEstimatedTokens: first.length,
-        originalBytes: first.length,
+        originalBytes: utf8Bytes(first),
       }),
       toolCall('call-2', 'turn-2', 'tool-2'),
       archivedResult('result-2', 'turn-2', 'tool-2', {
         artifactId: 'artifact-2',
         bodySha256: sha256(second),
         originalEstimatedTokens: second.length,
-        originalBytes: second.length,
+        originalBytes: utf8Bytes(second),
       }),
     ];
     const seen: string[] = [];
@@ -323,4 +377,8 @@ function baseEvent(overrides: Partial<RuntimeEvent>): RuntimeEvent {
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function utf8Bytes(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
 }

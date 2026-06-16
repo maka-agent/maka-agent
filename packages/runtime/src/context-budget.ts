@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import type { ModelMessage } from 'ai';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -523,8 +524,8 @@ function pruneStaleToolResultsBeforeCompact(
     if (isArchivedToolResultPlaceholder(content.result)) return event;
 
     const serializedResult = serializeToolResultForArchive(content.result);
-    const resultBytes = serializedResult.length;
-    const resultEstimatedTokens = estimateTokens(resultBytes, charsPerToken);
+    const resultBytes = utf8ByteLength(serializedResult);
+    const resultEstimatedTokens = estimateTokens(serializedResult.length, charsPerToken);
     if (resultEstimatedTokens <= maxResultEstimatedTokens) return event;
 
     const archiveRef = archiveRefs.get(event.id);
@@ -600,8 +601,8 @@ export function collectStaleToolResultArchiveCandidates(
       continue;
     }
     const serializedResult = serializeToolResultForArchive(content.result);
-    const originalBytes = serializedResult.length;
-    const originalEstimatedTokens = estimateTokens(originalBytes, charsPerToken);
+    const originalBytes = utf8ByteLength(serializedResult);
+    const originalEstimatedTokens = estimateTokens(serializedResult.length, charsPerToken);
     if (originalEstimatedTokens <= maxResultEstimatedTokens) continue;
     candidates.push({
       runtimeEventId: event.id,
@@ -854,6 +855,10 @@ function increment(counts: Record<string, number>, key: string): void {
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function utf8ByteLength(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
 }
 
 function finitePositive(value: number | undefined): number | undefined {

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { PrefixChangeReason } from '@maka/core/usage-stats/types';
@@ -197,10 +198,21 @@ function contentShapeForHash(content: unknown): unknown {
         ...(typeof part.toolName === 'string' ? { toolName: part.toolName } : {}),
         ...(typeof part.toolCallId === 'string' ? { toolCallId: part.toolCallId } : {}),
         ...(typeof part.text === 'string' ? { chars: part.text.length } : {}),
+        ...('output' in part ? { output: payloadShapeForHash(part.output) } : {}),
       };
     });
   }
   return { type: typeof content };
+}
+
+function payloadShapeForHash(value: unknown): unknown {
+  const serialized = stableStringify(value);
+  return {
+    type: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
+    chars: serialized.length,
+    bytes: Buffer.byteLength(serialized, 'utf8'),
+    hash: stableHash(value),
+  };
 }
 
 function canonicalize(value: unknown, parentKey?: string): unknown {
