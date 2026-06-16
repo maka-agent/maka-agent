@@ -105,8 +105,12 @@ import {
   applyRuntimeEventContextBudget,
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
+  estimateRuntimeEventsTokens,
+  retrieveArchivedToolResultsForReplay,
+  retrieveRuntimeEventHistoryAround,
   type ContextBudgetPolicy,
   type StaleToolResultArchiveCandidate,
+  type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
 
@@ -218,6 +222,12 @@ export interface AiSdkBackendInput {
    * archived by this callback.
    */
   archiveToolResult?: ToolResultArchiveRecorder;
+  /**
+   * Optional archive reader for replay-only stale tool-result retrieval. The
+   * runtime never mutates persisted RuntimeEvents; successful reads hydrate
+   * the current model request only.
+   */
+  readToolResultArchive?: ToolResultArchiveReader;
 }
 
 export interface SystemPromptContext {
@@ -725,8 +735,46 @@ export class AiSdkBackend implements AgentBackend {
     const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
     const contextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
-    const runtimeContext = budgeted?.events
+    let runtimeContext = budgeted?.events
       ?? priorRuntimeContext;
+    let contextBudgetDiagnostic = budgeted?.diagnostic;
+
+    const historySearchSource = buildHistorySearchSource(priorRuntimeContext, contextBudget);
+    const historyAround = retrieveRuntimeEventHistoryAround(
+      historySearchSource,
+      input.text,
+      contextBudget?.historySearch,
+      { charsPerToken: contextBudget?.charsPerToken },
+    );
+    if (historyAround.events.length > 0) {
+      runtimeContext = mergeRuntimeEventsInOriginalOrder(priorRuntimeContext, runtimeContext, historyAround.events);
+      contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        historyAround.diagnosticPatch,
+      );
+    } else if (contextBudget?.historySearch?.enabled === true) {
+      contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        historyAround.diagnosticPatch,
+      );
+    }
+
+    const retrieval = await retrieveArchivedToolResultsForReplay(
+      runtimeContext,
+      contextBudget?.archiveRetrieval,
+      this.input.readToolResultArchive,
+      {
+        sessionId: this.sessionId,
+        charsPerToken: contextBudget?.charsPerToken,
+      },
+    );
+    runtimeContext = retrieval.events;
+    if (contextBudget?.archiveRetrieval?.enabled === true) {
+      contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        retrieval.diagnosticPatch,
+      );
+    }
 
     const plan = buildRuntimeEventModelReplayPlan(
       runtimeContext,
@@ -737,7 +785,7 @@ export class AiSdkBackend implements AgentBackend {
         gate: 'stored_message_projection',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
-        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+        ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
       };
     }
 
@@ -747,7 +795,7 @@ export class AiSdkBackend implements AgentBackend {
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
-        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+        ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
       };
     }
 
@@ -757,7 +805,7 @@ export class AiSdkBackend implements AgentBackend {
         gate: 'runtime_replay_text_only',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
-        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+        ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
       };
     }
 
@@ -767,7 +815,7 @@ export class AiSdkBackend implements AgentBackend {
         gate: 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
-        ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+        ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
       };
     }
 
@@ -776,7 +824,7 @@ export class AiSdkBackend implements AgentBackend {
       gate: 'runtime_replay_provider_native',
       diagnostics: plan.diagnostics,
       runtimeEventCount: runtimeContext.length,
-      ...(budgeted ? { contextBudget: budgeted.diagnostic } : {}),
+      ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
     };
   }
 
@@ -991,6 +1039,105 @@ function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolea
     diagnostic.code === 'unmatched_tool_result' ||
     diagnostic.code === 'tool_id_mismatch'
   );
+}
+
+function mergeRuntimeEventsInOriginalOrder(
+  original: readonly RuntimeEvent[],
+  current: readonly RuntimeEvent[],
+  extra: readonly RuntimeEvent[],
+): RuntimeEvent[] {
+  const wantedIds = new Set<string>();
+  const byId = new Map<string, RuntimeEvent>();
+  for (const event of current) {
+    wantedIds.add(event.id);
+    byId.set(event.id, event);
+  }
+  for (const event of extra) {
+    wantedIds.add(event.id);
+    if (!byId.has(event.id)) byId.set(event.id, event);
+  }
+  const out: RuntimeEvent[] = [];
+  for (const event of original) {
+    if (!wantedIds.has(event.id)) continue;
+    out.push(byId.get(event.id) ?? event);
+  }
+  return out;
+}
+
+function buildContextBudgetDiagnosticShell(
+  before: readonly RuntimeEvent[],
+  after: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy | undefined,
+): ContextBudgetDiagnostic {
+  const charsPerToken = policy?.charsPerToken ?? 4;
+  const turnCountBefore = new Set(before.map((event) => event.turnId || '<unknown-turn>')).size;
+  const turnCountAfter = new Set(after.map((event) => event.turnId || '<unknown-turn>')).size;
+  return {
+    enabled: true,
+    ...(policy?.name ? { policyName: policy.name } : {}),
+    ...(policy?.maxHistoryEstimatedTokens !== undefined
+      ? { maxHistoryEstimatedTokens: policy.maxHistoryEstimatedTokens }
+      : {}),
+    ...(policy?.maxHistoryTurns !== undefined ? { maxHistoryTurns: policy.maxHistoryTurns } : {}),
+    estimatedTokensBefore: estimateRuntimeEventsTokens(before, charsPerToken),
+    estimatedTokensAfter: estimateRuntimeEventsTokens(after, charsPerToken),
+    keptTurns: turnCountAfter,
+    droppedTurns: Math.max(0, turnCountBefore - turnCountAfter),
+    keptEvents: after.length,
+    droppedEvents: Math.max(0, before.length - after.length),
+    ...(policy?.historyRewrite?.enabled === true
+      ? {
+          historyRewriteVersion: policy.historyRewrite.historyRewriteVersion,
+          historyRewriteResetReason: policy.historyRewrite.resetReason,
+          historyRewriteGate: policy.historyRewrite.name ?? 'history-rewrite',
+        }
+      : {}),
+  };
+}
+
+function buildHistorySearchSource(
+  events: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy | undefined,
+): readonly RuntimeEvent[] {
+  if (policy?.staleToolResultPrune?.enabled !== true) return events;
+  return applyRuntimeEventContextBudget(events, {
+    ...policy,
+    maxHistoryEstimatedTokens: undefined,
+    maxHistoryTurns: undefined,
+    archiveRetrieval: undefined,
+    historySearch: undefined,
+    historyRewrite: undefined,
+  })?.events ?? events;
+}
+
+function mergeContextBudgetDiagnostic(
+  base: ContextBudgetDiagnostic,
+  patch: Partial<ContextBudgetDiagnostic>,
+): ContextBudgetDiagnostic {
+  return {
+    ...base,
+    ...patch,
+    archiveRetrievalFailureReasonCounts: mergeCountRecords(
+      base.archiveRetrievalFailureReasonCounts,
+      patch.archiveRetrievalFailureReasonCounts,
+    ),
+    archiveRetrievalSkippedReasonCounts: mergeCountRecords(
+      base.archiveRetrievalSkippedReasonCounts,
+      patch.archiveRetrievalSkippedReasonCounts,
+    ),
+  };
+}
+
+function mergeCountRecords(
+  left: Record<string, number> | undefined,
+  right: Record<string, number> | undefined,
+): Record<string, number> | undefined {
+  if (!left && !right) return undefined;
+  const out: Record<string, number> = { ...(left ?? {}) };
+  for (const [key, value] of Object.entries(right ?? {})) {
+    out[key] = (out[key] ?? 0) + value;
+  }
+  return out;
 }
 
 function jsonValue(value: unknown): JSONValue {

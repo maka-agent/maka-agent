@@ -175,6 +175,19 @@ export interface ContextBudgetDiagnostic {
   archiveWriteFailures?: number;
   unarchivedToolResults?: number;
   archivePlaceholderReasonCounts?: Record<string, number>;
+  retrievedArchiveToolResults?: number;
+  retrievedArchiveEstimatedTokens?: number;
+  archiveRetrievalSkipped?: number;
+  archiveRetrievalFailures?: number;
+  archiveRetrievalSkippedReasonCounts?: Record<string, number>;
+  archiveRetrievalFailureReasonCounts?: Record<string, number>;
+  historySearchMatches?: number;
+  historyAroundRetrievedEvents?: number;
+  historyAroundEstimatedTokens?: number;
+  historyAroundSkippedEvents?: number;
+  historyRewriteVersion?: string;
+  historyRewriteResetReason?: string;
+  historyRewriteGate?: string;
 }
 
 export interface ToolInvocationRecord {

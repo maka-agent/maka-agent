@@ -2,7 +2,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -115,6 +115,20 @@ backends.register('ai-sdk', async (ctx) =>
       });
       return { artifactId: artifact.id };
     },
+    readToolResultArchive: async (event) => {
+      const record = await artifactStore.get(event.artifactId);
+      if (!record) return { ok: false, reason: 'not_found' };
+      if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+      if (record.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
+      if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
+      if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
+      const read = await artifactStore.readText(event.artifactId, {
+        maxBytes: event.maxBytes ?? event.originalBytes,
+      });
+      if (!read.ok) return read;
+      if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
+      return { ok: true, serializedResult: read.text };
+    },
     newId: randomUUID,
     now: Date.now,
     maxSteps: 1,
@@ -207,6 +221,11 @@ for (let i = 1; i <= turnCount; i += 1) {
     archivePlaceholders: contextBudgetDiagnostic?.archivePlaceholders ?? 0,
     archiveWriteFailures: contextBudgetDiagnostic?.archiveWriteFailures ?? 0,
     archivePlaceholderReasonCounts: contextBudgetDiagnostic?.archivePlaceholderReasonCounts,
+    retrievedArchiveToolResults: contextBudgetDiagnostic?.retrievedArchiveToolResults ?? 0,
+    retrievedArchiveEstimatedTokens: contextBudgetDiagnostic?.retrievedArchiveEstimatedTokens ?? 0,
+    archiveRetrievalSkipped: contextBudgetDiagnostic?.archiveRetrievalSkipped ?? 0,
+    archiveRetrievalFailures: contextBudgetDiagnostic?.archiveRetrievalFailures ?? 0,
+    archiveRetrievalFailureReasonCounts: contextBudgetDiagnostic?.archiveRetrievalFailureReasonCounts,
     errorReason: errorEvent?.reason,
   });
 }
@@ -223,8 +242,15 @@ const totals = turns.reduce((acc, turn) => {
   else acc.unknownCacheMissTurns += 1;
   acc.archivePlaceholders += turn.archivePlaceholders ?? 0;
   acc.archiveWriteFailures += turn.archiveWriteFailures ?? 0;
+  acc.retrievedArchiveToolResults += turn.retrievedArchiveToolResults ?? 0;
+  acc.retrievedArchiveEstimatedTokens += turn.retrievedArchiveEstimatedTokens ?? 0;
+  acc.archiveRetrievalSkipped += turn.archiveRetrievalSkipped ?? 0;
+  acc.archiveRetrievalFailures += turn.archiveRetrievalFailures ?? 0;
   for (const [reason, count] of Object.entries(turn.archivePlaceholderReasonCounts ?? {})) {
     acc.archivePlaceholderReasonCounts[reason] = (acc.archivePlaceholderReasonCounts[reason] ?? 0) + count;
+  }
+  for (const [reason, count] of Object.entries(turn.archiveRetrievalFailureReasonCounts ?? {})) {
+    acc.archiveRetrievalFailureReasonCounts[reason] = (acc.archiveRetrievalFailureReasonCounts[reason] ?? 0) + count;
   }
   return acc;
 }, {
@@ -240,6 +266,11 @@ const totals = turns.reduce((acc, turn) => {
   archivePlaceholders: 0,
   archiveWriteFailures: 0,
   archivePlaceholderReasonCounts: {},
+  retrievedArchiveToolResults: 0,
+  retrievedArchiveEstimatedTokens: 0,
+  archiveRetrievalSkipped: 0,
+  archiveRetrievalFailures: 0,
+  archiveRetrievalFailureReasonCounts: {},
 });
 
 const report = {
@@ -294,6 +325,7 @@ function buildScenario(policy) {
       archivePruneEnabled: policy?.staleToolResultPrune?.enabled === true,
       historyTokenCap: policy?.maxHistoryEstimatedTokens ?? null,
       historyTurnCap: policy?.maxHistoryTurns ?? null,
+      archiveRetrievalEnabled: policy?.archiveRetrieval?.enabled === true,
     };
   }
   return {
@@ -302,21 +334,29 @@ function buildScenario(policy) {
     archivePruneEnabled: policy?.staleToolResultPrune?.enabled === true,
     historyTokenCap: policy?.maxHistoryEstimatedTokens ?? null,
     historyTurnCap: policy?.maxHistoryTurns ?? null,
+    archiveRetrievalEnabled: policy?.archiveRetrieval?.enabled === true,
   };
 }
 
 function scenarioNameForPolicy(policy) {
   if (!policy) return 'budget_off';
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
-    return 'archive_prune_on';
+    return policy.archiveRetrieval?.enabled === true
+      ? 'archive_prune_on_retrieval_on'
+      : 'archive_prune_on_retrieval_off';
   }
-  return 'emergency-history-cap';
+  if (policy.historyRewrite?.enabled === true) return 'named_history_rewrite';
+  return policy.archiveRetrieval?.enabled === true
+    ? 'emergency_history_cap_archive_retrieval_on'
+    : 'emergency_history_cap';
 }
 
 function contextBudgetMode(policy) {
   if (!policy) return 'off';
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
-    return 'archive_prune_only';
+    return policy.archiveRetrieval?.enabled === true
+      ? 'archive_prune_plus_retrieval'
+      : 'archive_prune_only';
   }
   return 'emergency_cap';
 }
@@ -328,7 +368,17 @@ function buildContextBudgetPolicy() {
   );
   const maxHistoryTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   const staleToolResultPrune = buildStaleToolResultPrunePolicy();
-  if (maxHistoryEstimatedTokens === undefined && maxHistoryTurns === undefined && !staleToolResultPrune) {
+  const archiveRetrieval = buildArchiveRetrievalPolicy();
+  const historySearch = buildHistorySearchPolicy();
+  const historyRewrite = buildHistoryRewriteGatePolicy();
+  if (
+    maxHistoryEstimatedTokens === undefined &&
+    maxHistoryTurns === undefined &&
+    !staleToolResultPrune &&
+    !archiveRetrieval &&
+    !historySearch &&
+    !historyRewrite
+  ) {
     return undefined;
   }
   return {
@@ -336,6 +386,9 @@ function buildContextBudgetPolicy() {
     minRecentTurns: parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2),
     ...(maxHistoryEstimatedTokens !== undefined ? { maxHistoryEstimatedTokens } : {}),
     ...(staleToolResultPrune ? { staleToolResultPrune } : {}),
+    ...(archiveRetrieval ? { archiveRetrieval } : {}),
+    ...(historySearch ? { historySearch } : {}),
+    ...(historyRewrite ? { historyRewrite } : {}),
     ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
   };
 }
@@ -355,6 +408,37 @@ function buildStaleToolResultPrunePolicy() {
   };
 }
 
+function buildArchiveRetrievalPolicy() {
+  if (process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL !== 'on') return undefined;
+  return {
+    enabled: true,
+    maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 3),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 8192),
+    maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 1024 * 1024),
+    order: 'newest_first',
+  };
+}
+
+function buildHistorySearchPolicy() {
+  if (process.env.MAKA_CONTEXT_HISTORY_SEARCH !== 'on') return undefined;
+  return {
+    enabled: true,
+    maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_MAX_RESULTS, 5),
+    around: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_AROUND, 1),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_SEARCH_MAX_TOKENS, 4096),
+  };
+}
+
+function buildHistoryRewriteGatePolicy() {
+  if (process.env.MAKA_CONTEXT_HISTORY_REWRITE !== 'on') return undefined;
+  return {
+    enabled: true,
+    name: process.env.MAKA_CONTEXT_HISTORY_REWRITE_NAME ?? 'baseline-history-rewrite',
+    historyRewriteVersion: process.env.MAKA_CONTEXT_HISTORY_REWRITE_VERSION ?? 'phase6-v1',
+    resetReason: process.env.MAKA_CONTEXT_HISTORY_REWRITE_RESET_REASON ?? 'operator_enabled_history_rewrite_gate',
+  };
+}
+
 function parsePositiveInt(value, fallback) {
   return parseOptionalPositiveInt(value) ?? fallback;
 }
@@ -371,6 +455,10 @@ function classifyCacheMissShape(prefixChangeReason, requestShapeChangeReason) {
   if (prefixChangeReason && prefixChangeReason !== 'stable') return 'explicit_durable_prefix_change';
   if (requestShapeChangeReason && requestShapeChangeReason !== 'stable') return 'derived_request_shape_change';
   return 'stable_shape';
+}
+
+function sha256(text) {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 function renderMarkdown(report, jsonPath) {
@@ -398,11 +486,16 @@ function renderMarkdown(report, jsonPath) {
     `- archivePlaceholders: ${report.totals.archivePlaceholders}`,
     `- archiveWriteFailures: ${report.totals.archiveWriteFailures}`,
     `- archivePlaceholderReasonCounts: ${JSON.stringify(report.totals.archivePlaceholderReasonCounts)}`,
+    `- retrievedArchiveToolResults: ${report.totals.retrievedArchiveToolResults}`,
+    `- retrievedArchiveEstimatedTokens: ${report.totals.retrievedArchiveEstimatedTokens}`,
+    `- archiveRetrievalSkipped: ${report.totals.archiveRetrievalSkipped}`,
+    `- archiveRetrievalFailures: ${report.totals.archiveRetrievalFailures}`,
+    `- archiveRetrievalFailureReasonCounts: ${JSON.stringify(report.totals.archiveRetrievalFailureReasonCounts)}`,
     '',
     '## Turns',
     '',
-    '| turn | input | hit | miss | write | output | prefix reason | request reason | miss source | archive | archive fail | prior history est | budget after |',
-    '| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: |',
+    '| turn | input | hit | miss | write | output | prefix reason | request reason | miss source | archive | retrieved | retrieval fail | prior history est | budget after |',
+    '| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |',
   ];
   for (const turn of report.turns) {
     const prior = turn.promptSegments?.find((segment) => segment.kind === 'prior_history');
@@ -417,7 +510,8 @@ function renderMarkdown(report, jsonPath) {
       turn.requestShapeChangeReason ?? '',
       turn.cacheMissShapeSource ?? turn.cacheMissInputSource ?? '',
       turn.archivePlaceholders ?? 0,
-      turn.archiveWriteFailures ?? 0,
+      turn.retrievedArchiveToolResults ?? 0,
+      turn.archiveRetrievalFailures ?? 0,
       prior?.estimatedTokens ?? 0,
       turn.contextBudget?.estimatedTokensAfter ?? 0,
     ].join(' | ') + ' |');
