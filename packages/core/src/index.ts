@@ -115,6 +115,9 @@ export type {
 } from './agent-run.js';
 export { AGENT_RUN_STATUSES } from './agent-run.js';
 
+// browser.ts
+export type { BrowserState, BrowserViewRect } from './browser.js';
+
 // session-event-health.ts
 export type {
   SessionEventStreamSnapshot,

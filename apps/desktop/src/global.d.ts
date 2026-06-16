@@ -48,6 +48,8 @@ import type {
   DailyReviewSummary,
   WebSearchProvider,
   WebSearchResponse,
+  BrowserState,
+  BrowserViewRect,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -433,6 +435,19 @@ declare global {
           | { ok: true; target: 'file' | 'directory' }
           | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed' }
         >;
+      };
+      browser: {
+        setActiveSession(sessionId: string | null): void;
+        setViewport(input: { sessionId: string; rect: BrowserViewRect | null }): void;
+        navigate(sessionId: string, url: string): Promise<void>;
+        back(sessionId: string): Promise<void>;
+        forward(sessionId: string): Promise<void>;
+        reload(sessionId: string): Promise<void>;
+        stop(sessionId: string): Promise<void>;
+        close(sessionId: string): Promise<void>;
+        getState(sessionId: string): Promise<BrowserState | null>;
+        onState(handler: (payload: { sessionId: string; state: BrowserState }) => void): () => void;
+        onLive(handler: (payload: { sessionIds: string[] }) => void): () => void;
       };
     };
   }

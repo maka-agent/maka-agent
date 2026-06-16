@@ -2813,6 +2813,8 @@ button:active {
   -webkit-app-region: no-drag;
   margin-right: 6px;
   margin-bottom: 9px;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .maka-chat-header-memory-pill:hover {
@@ -2839,6 +2841,7 @@ button:active {
   margin-right: 6px;
   margin-bottom: 9px;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .maka-chat-header-mode-pill svg {
@@ -2924,6 +2927,7 @@ button:active {
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  flex: 0 0 auto;
   -webkit-app-region: no-drag;
   cursor: pointer;
   transition: transform 0.12s var(--ease-out-strong);
@@ -2967,6 +2971,10 @@ button:active {
   line-height: 1.4;
   margin-right: 6px;
   -webkit-app-region: no-drag;
+  /* Short status label (运行中 etc.): keep on one line and never let the
+     tight header (browser panel open) collapse it into vertical text. */
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 .maka-chat-header-status[data-tone="accent"] {
   background: oklch(from var(--accent) l c h / 0.14);
@@ -3009,6 +3017,10 @@ button:active {
   background: var(--foreground-5);
   border: 1px solid var(--border);
   -webkit-app-region: no-drag;
+  /* Keep the pill at its intrinsic width when the header is tight (e.g. the
+     browser panel narrows the chat column). The flexible tab title absorbs the
+     squeeze and truncates; the mode labels never collapse into vertical text. */
+  flex: 0 0 auto;
 }
 
 .maka-mode-switcher[data-disabled] {
@@ -3027,6 +3039,7 @@ button:active {
   padding: 3px 11px;
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
   transition: background 140ms ease, color 140ms ease;
 }
 
@@ -8511,6 +8524,91 @@ button:active {
 .maka-detail-with-artifacts > .mainColumn {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* P3 BrowserPanel — a right-side split: a chrome toolbar (address bar + nav)
+   over a strip the native WebContentsView floats above. The strip itself is
+   empty by design (the native layer paints there); only the empty state shows
+   when no page is loaded. */
+.maka-browser-panel {
+  flex: 0 0 auto;
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.maka-browser-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.maka-browser-navbtn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.maka-browser-navbtn:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+}
+
+.maka-browser-navbtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.maka-browser-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface, var(--background));
+  color: var(--text);
+  font-size: 12px;
+}
+
+.maka-browser-strip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.maka-browser-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted, #888);
+}
+
+.maka-browser-empty-hint {
+  font-size: 12px;
+  max-width: 280px;
 }
 
 .maka-artifact-pane {

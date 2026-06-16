@@ -49,6 +49,8 @@ import type {
   DailyReviewSummary,
   WebSearchProvider,
   WebSearchResponse,
+  BrowserState,
+  BrowserViewRect,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -740,6 +742,51 @@ contextBridge.exposeInMainWorld('maka', {
       | { ok: false; reason: 'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed' }
     > {
       return ipcRenderer.invoke('skills:open', id, target);
+    },
+  },
+  // Embedded browser (P3). The native WebContentsView floats above the DOM; the
+  // renderer panel only mirrors its strip's rect and drives navigation. No
+  // automation endpoint/secret is ever exposed here — that stays main-internal.
+  browser: {
+    /** Tell main which conversation this window shows, so it can validate targets. */
+    setActiveSession(sessionId: string | null): void {
+      ipcRenderer.send('browser:active-session', sessionId);
+    },
+    /** Mirror the panel strip's on-screen rect (null hides the native view). */
+    setViewport(input: { sessionId: string; rect: BrowserViewRect | null }): void {
+      ipcRenderer.send('browser:setViewport', input);
+    },
+    navigate(sessionId: string, url: string): Promise<void> {
+      return ipcRenderer.invoke('browser:navigate', sessionId, url);
+    },
+    back(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('browser:back', sessionId);
+    },
+    forward(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('browser:forward', sessionId);
+    },
+    reload(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('browser:reload', sessionId);
+    },
+    stop(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('browser:stop', sessionId);
+    },
+    close(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('browser:close-page', sessionId);
+    },
+    getState(sessionId: string): Promise<BrowserState | null> {
+      return ipcRenderer.invoke('browser:get-state', sessionId);
+    },
+    onState(handler: (payload: { sessionId: string; state: BrowserState }) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; state: BrowserState }) =>
+        handler(payload);
+      ipcRenderer.on('browser:state', listener);
+      return () => ipcRenderer.off('browser:state', listener);
+    },
+    onLive(handler: (payload: { sessionIds: string[] }) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { sessionIds: string[] }) => handler(payload);
+      ipcRenderer.on('browser:live', listener);
+      return () => ipcRenderer.off('browser:live', listener);
     },
   },
 });

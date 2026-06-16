@@ -207,6 +207,13 @@ import {
 } from './text-file-import.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
+import { buildBrowserTools } from './browser/browser-tools.js';
+import { BrowserViewManager } from './browser/view-manager.js';
+import { BrowserViewController } from './browser/controller.js';
+import { createBrowserViewHost } from './browser/automation-host.js';
+import { provideBrowserViewHost } from './browser/browser-host.js';
+import { releaseBrowserSession, revokeHiddenBrowserActions } from './browser/session.js';
+import type { BrowserViewRect } from './browser/logic.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -549,6 +556,10 @@ const builtinTools = [
     getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
   }),
   buildRiveWorkflowTool(),
+  // Embedded-browser observe→act tools. They drive the conversation's own
+  // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
+  // outside the app (no host) they report the browser as unavailable.
+  ...buildBrowserTools(),
 ];
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
@@ -987,6 +998,30 @@ const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 const planReminderTimers = new Map<string, NodeJS.Timeout>();
 const PLAN_REMINDER_DEFAULT_SNOOZE_MS = 10 * 60 * 1000;
 
+// Embedded browser: one WebContentsView per conversation, lazily created on
+// first use. The factory reads the live mainWindow at create time, so views
+// created after a window re-open attach to the current window.
+let browserViews: BrowserViewManager<BrowserViewController> | undefined;
+// The session the renderer currently shows; browser:* renderer channels are
+// validated against it so a stale/miswired panel can't steer another
+// conversation's view (the agent path uses the runtime's trusted sessionId).
+let shownBrowserSessionId: string | null = null;
+
+function getBrowserViews(): BrowserViewManager<BrowserViewController> {
+  if (!browserViews) {
+    browserViews = new BrowserViewManager<BrowserViewController>({
+      create: (sessionId) => {
+        if (!mainWindow) throw new Error('Embedded browser used before the window is ready.');
+        return new BrowserViewController(mainWindow, sessionId, (sid, state) => {
+          mainWindow?.webContents.send('browser:state', { sessionId: sid, state });
+        });
+      },
+      onLiveChange: (sessionIds) => mainWindow?.webContents.send('browser:live', { sessionIds }),
+    });
+  }
+  return browserViews;
+}
+
 /**
  * Guard against saved x/y referencing a display that no longer exists
  * (laptop docked → undocked, external monitor unplugged). Walks the
@@ -1165,6 +1200,9 @@ async function createWindow(): Promise<void> {
   mainWindow.on('unmaximize', scheduleSave);
   mainWindow.on('close', () => {
     if (saveTimer) clearTimeout(saveTimer);
+    // The window owns the embedded-browser views (children of its contentView);
+    // tear them down so their WebContents close with it instead of leaking.
+    void browserViews?.disposeAll();
     if (!mainWindow) return;
     const final: SavedBounds = mainWindow.isMaximized()
       ? { ...mainWindow.getNormalBounds(), isMaximized: true }
@@ -2326,6 +2364,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
     await runtime.archive(sessionId);
+    // An archived conversation is no longer shown: drop its browser connection
+    // and view so it does not keep a live Chromium page in the background.
+    await releaseBrowserSession(sessionId);
     emitSessionsChanged('archived', sessionId);
   });
   ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
@@ -2376,7 +2417,77 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
     await runtime.remove(sessionId);
+    // Drop the conversation's browser connection and destroy its view (no-op
+    // if it never opened one). releaseBrowserSession disposes the view via the
+    // host, covering both agent-driven and hand-opened views.
+    await releaseBrowserSession(sessionId);
     emitSessionsChanged('deleted', sessionId);
+  });
+
+  // ── Embedded browser (P3) ──────────────────────────────────────────────────
+  // Provide the host the browser tools / BrowserSession resolve through. The
+  // endpoint + secret it returns stay same-process and never cross these
+  // renderer channels.
+  // The getter reads the live shownBrowserSessionId so the host's visible-lease
+  // gate (canDrive) reflects the conversation the window currently shows.
+  provideBrowserViewHost(createBrowserViewHost(getBrowserViews(), () => shownBrowserSessionId));
+
+  // Never trust the renderer's target: it must be the session the calling
+  // window currently shows (reported via browser:active-session). The agent
+  // automation path does NOT use these channels — it uses the runtime's
+  // sessionId — so this only guards the human's manual navigation.
+  ipcMain.on('browser:active-session', (_event, sessionId: unknown) => {
+    shownBrowserSessionId = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+    // Main owns visibility: proactively hide every other conversation's view so a
+    // stale one can never float over the newly-shown conversation, regardless of
+    // renderer effect ordering or a reload. The shown view is re-positioned by
+    // its panel's rect mirror.
+    getBrowserViews().hideAllExcept(shownBrowserSessionId);
+    // The visible lease is continuous: revoke any browser action still running
+    // for a conversation that just went off screen, so it can't keep reading or
+    // driving a hidden, logged-in page. canDrive only gates the START.
+    revokeHiddenBrowserActions(shownBrowserSessionId);
+  });
+  const browserTargetOk = (target: unknown): target is string =>
+    typeof target === 'string' && target.length > 0 && target === shownBrowserSessionId;
+
+  // The renderer mirrors its browser panel strip's on-screen rect here so the
+  // native view tracks it; a null rect (modal open / panel unmounted) hides it.
+  ipcMain.on('browser:setViewport', (_event, input: { sessionId?: unknown; rect?: BrowserViewRect | null }) => {
+    if (!browserTargetOk(input?.sessionId)) return;
+    getBrowserViews().setViewport(input.sessionId, input.rect ?? null);
+  });
+  // Create on first navigate so conversations that never open the browser pay nothing.
+  ipcMain.handle('browser:navigate', async (_event, target: unknown, url: unknown) => {
+    if (!browserTargetOk(target)) return;
+    await getBrowserViews().getOrCreate(target).navigate(String(url ?? ''));
+  });
+  ipcMain.handle('browser:back', (_event, target: unknown) => {
+    if (browserTargetOk(target)) getBrowserViews().get(target)?.goBack();
+  });
+  ipcMain.handle('browser:forward', (_event, target: unknown) => {
+    if (browserTargetOk(target)) getBrowserViews().get(target)?.goForward();
+  });
+  ipcMain.handle('browser:reload', (_event, target: unknown) => {
+    if (browserTargetOk(target)) getBrowserViews().get(target)?.reload();
+  });
+  ipcMain.handle('browser:stop', (_event, target: unknown) => {
+    if (browserTargetOk(target)) getBrowserViews().get(target)?.stop();
+  });
+  // Read-only state query, intentionally NOT gated by browserTargetOk: the panel
+  // issues it from its mount effect, which runs BEFORE the parent's
+  // setActiveSession updates shownBrowserSessionId. Gating it dropped the seed
+  // during a conversation switch, leaving the switched-to panel stuck on its
+  // empty state with the native view hidden. Reading a session's own view state
+  // is not a trust boundary — only mutation (navigate/back/...) and view
+  // positioning (setViewport) are, and those stay guarded.
+  ipcMain.handle('browser:get-state', (_event, target: unknown) =>
+    typeof target === 'string' && target.length > 0 ? (getBrowserViews().get(target)?.state() ?? null) : null,
+  );
+  // The tab's × promises "Close": destroy the conversation's page outright via
+  // the same dispose chain as session delete.
+  ipcMain.handle('browser:close-page', async (_event, target: unknown) => {
+    if (browserTargetOk(target)) await releaseBrowserSession(target);
   });
 
   ipcMain.handle('connections:list', async () => {
@@ -3616,6 +3727,7 @@ app.on('before-quit', () => {
   for (const id of Array.from(planReminderTimers.keys())) clearPlanReminderTimer(id);
   void botRegistry.stopAll();
   void openGateway.stop();
+  void browserViews?.disposeAll();
 });
 
 app.on('activate', () => {

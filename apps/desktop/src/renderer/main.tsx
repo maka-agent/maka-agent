@@ -70,6 +70,7 @@ import {
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import { ProviderLogo } from './settings/ProvidersPanel';
 import { ArtifactPane } from './artifact-pane';
+import { BrowserPanel } from './browser-panel';
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
@@ -252,6 +253,9 @@ function AppShell() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const [activeId, setActiveIdState] = useState<string | undefined>();
+  // P3: session ids with a live embedded-browser view. The right-side
+  // BrowserPanel mounts only for these, so ordinary chats reserve no space.
+  const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
   const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
   const navSelectionRef = useRef<NavSelection>(navSelection);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
@@ -891,6 +895,17 @@ function AppShell() {
 
   useEffect(() => {
     activeIdRef.current = activeId;
+  }, [activeId]);
+
+  // P3 embedded browser: track which sessions have a live view (panel mounts
+  // only for those) and tell main which session this window shows (so it can
+  // validate browser:* IPC targets).
+  useEffect(() => {
+    const off = window.maka.browser.onLive((payload) => setLiveBrowserSessionIds(payload.sessionIds));
+    return off;
+  }, []);
+  useEffect(() => {
+    window.maka.browser.setActiveSession(activeId ?? null);
   }, [activeId]);
 
   useEffect(() => {
@@ -2842,6 +2857,9 @@ function AppShell() {
                 onImportFolderOutline={importFolderOutlineIntoComposer}
               />
             </div>
+            {activeId && liveBrowserSessionIds.includes(activeId) && (
+              <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
+            )}
             <ArtifactPane sessionId={activeId} />
           </div>
           </MakaUriContext.Provider>
