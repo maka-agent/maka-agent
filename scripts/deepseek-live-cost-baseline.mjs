@@ -17,6 +17,7 @@ import {
 } from '../packages/runtime/dist/index.js';
 import {
   createAgentRunStore,
+  createArtifactStore,
   createRuntimeEventStore,
   createSessionStore,
 } from '../packages/storage/dist/index.js';
@@ -44,6 +45,7 @@ const payloadLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PAYLOAD_LIN
 const sessionStore = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+const artifactStore = createArtifactStore(workspaceRoot);
 const permissionEngine = new PermissionEngine(createDefaultPermissionEngineDeps());
 const backends = new BackendRegistry();
 const llmRecords = [];
@@ -100,6 +102,19 @@ backends.register('ai-sdk', async (ctx) =>
     turnTailPrompt,
     recordLlmCall: (record) => llmRecords.push(record),
     recordRunTrace: (event) => runTraceEvents.push(event),
+    archiveToolResult: async (event) => {
+      const artifact = await artifactStore.create({
+        sessionId: event.sessionId,
+        turnId: event.turnId,
+        name: `tool-result-${event.runtimeEventId}.json`,
+        kind: 'file',
+        content: event.serializedResult,
+        mimeType: 'application/json',
+        source: 'tool_result_archive',
+        summary: `Archived ${event.toolName} tool result for DeepSeek cost baseline replay`,
+      });
+      return { artifactId: artifact.id };
+    },
     newId: randomUUID,
     now: Date.now,
     maxSteps: 1,
@@ -147,6 +162,9 @@ for (let i = 1; i <= turnCount; i += 1) {
   const completeEvent = events.find((event) => event.type === 'complete');
   const errorEvent = events.find((event) => event.type === 'error');
   const llmRecord = llmRecords.at(-1);
+  const cacheMissInputSource = usageEvent?.cacheMissInputSource ?? llmRecord?.cacheMissInputSource;
+  const cacheMissInput = usageEvent?.cacheMissInput ?? llmRecord?.cacheMissInputTokens;
+  const contextBudgetDiagnostic = usageEvent?.contextBudget ?? llmRecord?.contextBudget;
   const cost = llmRecord
     ? computeCost(
         {
@@ -172,8 +190,11 @@ for (let i = 1; i <= turnCount; i += 1) {
     requestShapeHash: usageEvent?.requestShapeHash,
     input: usageEvent?.input ?? llmRecord?.inputTokens,
     cacheHitInput: usageEvent?.cacheHitInput ?? llmRecord?.cacheHitInputTokens,
-    cacheMissInput: usageEvent?.cacheMissInput ?? llmRecord?.cacheMissInputTokens,
-    cacheMissInputSource: usageEvent?.cacheMissInputSource ?? llmRecord?.cacheMissInputSource,
+    cacheMissInput,
+    cacheMissInputSource,
+    providerExplicitCacheMissInput: cacheMissInputSource === 'explicit' ? cacheMissInput : null,
+    locallyDerivedCacheMissInput: cacheMissInputSource === 'derived' ? cacheMissInput : null,
+    cacheWriteInput: usageEvent?.cacheWriteInput ?? llmRecord?.cacheWriteInputTokens,
     cacheMissShapeSource: classifyCacheMissShape(
       usageEvent?.prefixChangeReason,
       usageEvent?.requestShapeChangeReason,
@@ -182,7 +203,10 @@ for (let i = 1; i <= turnCount; i += 1) {
     total: usageEvent?.total,
     estimatedCostUsd: cost?.totalCost,
     promptSegments: usageEvent?.promptSegments ?? llmRecord?.promptSegments,
-    contextBudget: usageEvent?.contextBudget ?? llmRecord?.contextBudget,
+    contextBudget: contextBudgetDiagnostic,
+    archivePlaceholders: contextBudgetDiagnostic?.archivePlaceholders ?? 0,
+    archiveWriteFailures: contextBudgetDiagnostic?.archiveWriteFailures ?? 0,
+    archivePlaceholderReasonCounts: contextBudgetDiagnostic?.archivePlaceholderReasonCounts,
     errorReason: errorEvent?.reason,
   });
 }
@@ -191,13 +215,36 @@ const totals = turns.reduce((acc, turn) => {
   acc.input += turn.input ?? 0;
   acc.cacheHitInput += turn.cacheHitInput ?? 0;
   acc.cacheMissInput += turn.cacheMissInput ?? 0;
+  acc.cacheWriteInput += turn.cacheWriteInput ?? 0;
   acc.output += turn.output ?? 0;
   acc.estimatedCostUsd += turn.estimatedCostUsd ?? 0;
+  if (turn.cacheMissInputSource === 'explicit') acc.explicitCacheMissTurns += 1;
+  else if (turn.cacheMissInputSource === 'derived') acc.derivedCacheMissTurns += 1;
+  else acc.unknownCacheMissTurns += 1;
+  acc.archivePlaceholders += turn.archivePlaceholders ?? 0;
+  acc.archiveWriteFailures += turn.archiveWriteFailures ?? 0;
+  for (const [reason, count] of Object.entries(turn.archivePlaceholderReasonCounts ?? {})) {
+    acc.archivePlaceholderReasonCounts[reason] = (acc.archivePlaceholderReasonCounts[reason] ?? 0) + count;
+  }
   return acc;
-}, { input: 0, cacheHitInput: 0, cacheMissInput: 0, output: 0, estimatedCostUsd: 0 });
+}, {
+  input: 0,
+  cacheHitInput: 0,
+  cacheMissInput: 0,
+  cacheWriteInput: 0,
+  output: 0,
+  estimatedCostUsd: 0,
+  explicitCacheMissTurns: 0,
+  derivedCacheMissTurns: 0,
+  unknownCacheMissTurns: 0,
+  archivePlaceholders: 0,
+  archiveWriteFailures: 0,
+  archivePlaceholderReasonCounts: {},
+});
 
 const report = {
   sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
+  scenario: buildScenario(contextBudget),
   repoRoot,
   workspaceRoot,
   model,
@@ -237,6 +284,42 @@ const markdownPath = join(outputDir, 'deepseek-live-cost-baseline.md');
 await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 await writeFile(markdownPath, renderMarkdown(report, jsonPath), 'utf8');
 console.log(JSON.stringify({ jsonPath, markdownPath, totals, turnCount, toolMode, contextBudget }, null, 2));
+
+function buildScenario(policy) {
+  const explicitName = process.env.MAKA_COST_BASELINE_SCENARIO;
+  if (explicitName) {
+    return {
+      name: explicitName,
+      contextBudgetMode: contextBudgetMode(policy),
+      archivePruneEnabled: policy?.staleToolResultPrune?.enabled === true,
+      historyTokenCap: policy?.maxHistoryEstimatedTokens ?? null,
+      historyTurnCap: policy?.maxHistoryTurns ?? null,
+    };
+  }
+  return {
+    name: scenarioNameForPolicy(policy),
+    contextBudgetMode: contextBudgetMode(policy),
+    archivePruneEnabled: policy?.staleToolResultPrune?.enabled === true,
+    historyTokenCap: policy?.maxHistoryEstimatedTokens ?? null,
+    historyTurnCap: policy?.maxHistoryTurns ?? null,
+  };
+}
+
+function scenarioNameForPolicy(policy) {
+  if (!policy) return 'budget_off';
+  if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
+    return 'archive_prune_on';
+  }
+  return 'emergency-history-cap';
+}
+
+function contextBudgetMode(policy) {
+  if (!policy) return 'off';
+  if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
+    return 'archive_prune_only';
+  }
+  return 'emergency_cap';
+}
 
 function buildContextBudgetPolicy() {
   if (process.env.MAKA_CONTEXT_BUDGET === 'off') return undefined;
@@ -296,6 +379,7 @@ function renderMarkdown(report, jsonPath) {
     '',
     `JSON: \`${jsonPath}\``,
     `Model: \`${report.model}\``,
+    `Scenario: \`${report.scenario.name}\` (${report.scenario.contextBudgetMode})`,
     `Turns: ${report.turnCount}`,
     `Tools: ${report.toolMode} (${report.toolCount})`,
     `Stable policy lines: ${report.stablePolicyLines}`,
@@ -307,13 +391,18 @@ function renderMarkdown(report, jsonPath) {
     `- input: ${report.totals.input}`,
     `- cacheHitInput: ${report.totals.cacheHitInput}`,
     `- cacheMissInput: ${report.totals.cacheMissInput}`,
+    `- cacheWriteInput: ${report.totals.cacheWriteInput}`,
     `- output: ${report.totals.output}`,
     `- estimatedCostUsd: ${report.totals.estimatedCostUsd}`,
+    `- cacheMissSourceTurns: explicit=${report.totals.explicitCacheMissTurns}, derived=${report.totals.derivedCacheMissTurns}, unknown=${report.totals.unknownCacheMissTurns}`,
+    `- archivePlaceholders: ${report.totals.archivePlaceholders}`,
+    `- archiveWriteFailures: ${report.totals.archiveWriteFailures}`,
+    `- archivePlaceholderReasonCounts: ${JSON.stringify(report.totals.archivePlaceholderReasonCounts)}`,
     '',
     '## Turns',
     '',
-    '| turn | input | hit | miss | output | prefix reason | request reason | miss source | prior history est | budget after |',
-    '| ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: |',
+    '| turn | input | hit | miss | write | output | prefix reason | request reason | miss source | archive | archive fail | prior history est | budget after |',
+    '| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: |',
   ];
   for (const turn of report.turns) {
     const prior = turn.promptSegments?.find((segment) => segment.kind === 'prior_history');
@@ -322,10 +411,13 @@ function renderMarkdown(report, jsonPath) {
       turn.input ?? 0,
       turn.cacheHitInput ?? 0,
       turn.cacheMissInput ?? 0,
+      turn.cacheWriteInput ?? 0,
       turn.output ?? 0,
       turn.prefixChangeReason ?? '',
       turn.requestShapeChangeReason ?? '',
       turn.cacheMissShapeSource ?? turn.cacheMissInputSource ?? '',
+      turn.archivePlaceholders ?? 0,
+      turn.archiveWriteFailures ?? 0,
       prior?.estimatedTokens ?? 0,
       turn.contextBudget?.estimatedTokensAfter ?? 0,
     ].join(' | ') + ' |');

@@ -35,6 +35,8 @@ export type {
   ModelFactoryInput,
   RunTraceEvent,
   RunTraceRecorder,
+  ToolResultArchiveRecorder,
+  ToolResultArchiveRecorderInput,
 } from './ai-sdk-backend.js';
 export { PiAgentBackend, normalizePiAgentFrame } from './pi-agent-backend.js';
 export type {
@@ -71,16 +73,23 @@ export { getAIModel, buildProviderOptions } from './model-factory.js';
 export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';
 export {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
+  ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildPromptSegmentEstimates,
+  collectStaleToolResultArchiveCandidates,
   estimateModelMessagesChars,
   estimateRuntimeEventsTokens,
   estimateTokens,
+  isArchivedToolResultPlaceholder,
+  serializeToolResultForArchive,
 } from './context-budget.js';
 export type {
+  ArchivedToolResultReason,
   BudgetedRuntimeContext,
   ContextBudgetPolicy,
   StaleToolResultPrunePolicy,
+  StaleToolResultArchiveCandidate,
+  ToolResultArchiveRef,
   ArchivedToolResultPlaceholder,
   PromptSegmentInput,
 } from './context-budget.js';

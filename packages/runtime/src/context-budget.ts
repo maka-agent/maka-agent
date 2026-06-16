@@ -28,19 +28,54 @@ export interface StaleToolResultPrunePolicy {
   maxResultEstimatedTokens?: number;
   /** Keep this many newest turns' tool results full. Defaults to ContextBudgetPolicy.minRecentTurns, then 1. */
   minRecentTurnsFull?: number;
+  /**
+   * Archive refs keyed by RuntimeEvent id. Rewrites only happen when a
+   * matching ref exists, so archive-write failure keeps original content.
+   */
+  archiveRefs?: readonly ToolResultArchiveRef[] | Readonly<Record<string, ToolResultArchiveRef>>;
 }
 
 export const ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND = 'maka.archived_tool_result';
+export const ARCHIVED_TOOL_RESULT_REWRITE_VERSION = 1;
 const DEFAULT_MAX_TOOL_RESULT_ESTIMATED_TOKENS = 2048;
+export type ArchivedToolResultReason = 'stale_tool_result_pruned_before_compact';
 
 export interface ArchivedToolResultPlaceholder {
   kind: typeof ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  artifactId: string;
   runtimeEventId: string;
   toolCallId: string;
   toolName: string;
+  bodySha256: string;
   originalEstimatedTokens: number;
   originalBytes: number;
-  reason: 'stale_tool_result_pruned_before_compact';
+  reason: ArchivedToolResultReason;
+}
+
+export interface StaleToolResultArchiveCandidate {
+  runtimeEventId: string;
+  turnId: string;
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  serializedResult: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  reason: ArchivedToolResultReason;
+}
+
+export interface ToolResultArchiveRef {
+  runtimeEventId: string;
+  toolCallId: string;
+  toolName: string;
+  artifactId: string;
+  bodySha256: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  reason: ArchivedToolResultReason;
 }
 
 export interface BudgetedRuntimeContext {
@@ -111,6 +146,15 @@ export function applyRuntimeEventContextBudget(
           prunedToolResultEstimatedTokensBefore: pruned.estimatedTokensBefore,
           prunedToolResultEstimatedTokensAfter: pruned.estimatedTokensAfter,
           archivePlaceholders: pruned.prunedToolResults,
+          archivePlaceholderReasonCounts: {
+            stale_tool_result_pruned_before_compact: pruned.prunedToolResults,
+          },
+        }
+      : {}),
+    ...(pruned.archiveWriteFailures > 0
+      ? {
+          archiveWriteFailures: pruned.archiveWriteFailures,
+          unarchivedToolResults: pruned.archiveWriteFailures,
         }
       : {}),
   };
@@ -180,12 +224,19 @@ function pruneStaleToolResultsBeforeCompact(
 ): {
   events: RuntimeEvent[];
   prunedToolResults: number;
+  archiveWriteFailures: number;
   estimatedTokensBefore: number;
   estimatedTokensAfter: number;
 } {
   const prunePolicy = policy.staleToolResultPrune;
   if (prunePolicy?.enabled !== true) {
-    return { events: [...events], prunedToolResults: 0, estimatedTokensBefore: 0, estimatedTokensAfter: 0 };
+    return {
+      events: [...events],
+      prunedToolResults: 0,
+      archiveWriteFailures: 0,
+      estimatedTokensBefore: 0,
+      estimatedTokensAfter: 0,
+    };
   }
 
   const maxResultEstimatedTokens =
@@ -196,8 +247,10 @@ function pruneStaleToolResultsBeforeCompact(
     Math.floor(prunePolicy.minRecentTurnsFull ?? policy.minRecentTurns ?? 1),
   );
   const protectedTurnIds = recentTurnIds(events, minRecentTurnsFull);
+  const archiveRefs = normalizeArchiveRefs(prunePolicy.archiveRefs);
 
   let prunedToolResults = 0;
+  let archiveWriteFailures = 0;
   let estimatedTokensBefore = 0;
   let estimatedTokensAfter = 0;
   const prunedEvents = events.map((event) => {
@@ -210,15 +263,33 @@ function pruneStaleToolResultsBeforeCompact(
       return event;
     }
 
-    const resultBytes = stableJsonLength(content.result);
+    if (isArchivedToolResultPlaceholder(content.result)) return event;
+
+    const serializedResult = serializeToolResultForArchive(content.result);
+    const resultBytes = serializedResult.length;
     const resultEstimatedTokens = estimateTokens(resultBytes, charsPerToken);
     if (resultEstimatedTokens <= maxResultEstimatedTokens) return event;
 
-    const placeholder: ArchivedToolResultPlaceholder = {
-      kind: ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
+    const archiveRef = archiveRefs.get(event.id);
+    if (!archiveRef || !archiveRefMatches(archiveRef, {
       runtimeEventId: event.id,
       toolCallId: content.id,
       toolName: content.name,
+      originalBytes: resultBytes,
+      originalEstimatedTokens: resultEstimatedTokens,
+    })) {
+      archiveWriteFailures += 1;
+      return event;
+    }
+
+    const placeholder: ArchivedToolResultPlaceholder = {
+      kind: ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
+      rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+      artifactId: archiveRef.artifactId,
+      runtimeEventId: event.id,
+      toolCallId: content.id,
+      toolName: content.name,
+      bodySha256: archiveRef.bodySha256,
       originalEstimatedTokens: resultEstimatedTokens,
       originalBytes: resultBytes,
       reason: 'stale_tool_result_pruned_before_compact',
@@ -239,9 +310,127 @@ function pruneStaleToolResultsBeforeCompact(
   return {
     events: prunedEvents,
     prunedToolResults,
+    archiveWriteFailures,
     estimatedTokensBefore,
     estimatedTokensAfter,
   };
+}
+
+export function collectStaleToolResultArchiveCandidates(
+  events: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy | undefined,
+): StaleToolResultArchiveCandidate[] {
+  const prunePolicy = policy?.staleToolResultPrune;
+  if (prunePolicy?.enabled !== true) return [];
+  const charsPerToken = policy?.charsPerToken ?? 4;
+  const maxResultEstimatedTokens =
+    finitePositive(prunePolicy.maxResultEstimatedTokens)
+    ?? DEFAULT_MAX_TOOL_RESULT_ESTIMATED_TOKENS;
+  const minRecentTurnsFull = Math.max(
+    0,
+    Math.floor(prunePolicy.minRecentTurnsFull ?? policy?.minRecentTurns ?? 1),
+  );
+  const protectedTurnIds = recentTurnIds(events, minRecentTurnsFull);
+  const candidates: StaleToolResultArchiveCandidate[] = [];
+  for (const event of events) {
+    const content = event.content;
+    if (
+      event.partial ||
+      content?.kind !== 'function_response' ||
+      protectedTurnIds.has(turnKey(event)) ||
+      isArchivedToolResultPlaceholder(content.result)
+    ) {
+      continue;
+    }
+    const serializedResult = serializeToolResultForArchive(content.result);
+    const originalBytes = serializedResult.length;
+    const originalEstimatedTokens = estimateTokens(originalBytes, charsPerToken);
+    if (originalEstimatedTokens <= maxResultEstimatedTokens) continue;
+    candidates.push({
+      runtimeEventId: event.id,
+      turnId: event.turnId,
+      toolCallId: content.id,
+      toolName: content.name,
+      result: content.result,
+      serializedResult,
+      originalEstimatedTokens,
+      originalBytes,
+      rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+      reason: 'stale_tool_result_pruned_before_compact',
+    });
+  }
+  return candidates;
+}
+
+export function serializeToolResultForArchive(result: unknown): string {
+  if (result === undefined) return 'undefined';
+  try {
+    return JSON.stringify(result) ?? 'null';
+  } catch {
+    return String(result);
+  }
+}
+
+export function isArchivedToolResultPlaceholder(value: unknown): value is ArchivedToolResultPlaceholder {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ArchivedToolResultPlaceholder>;
+  return candidate.kind === ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND
+    && candidate.rewriteVersion === ARCHIVED_TOOL_RESULT_REWRITE_VERSION
+    && typeof candidate.artifactId === 'string'
+    && candidate.artifactId.length > 0
+    && typeof candidate.runtimeEventId === 'string'
+    && candidate.runtimeEventId.length > 0
+    && typeof candidate.toolCallId === 'string'
+    && candidate.toolCallId.length > 0
+    && typeof candidate.toolName === 'string'
+    && candidate.toolName.length > 0
+    && typeof candidate.bodySha256 === 'string'
+    && candidate.bodySha256.length > 0
+    && typeof candidate.originalEstimatedTokens === 'number'
+    && Number.isFinite(candidate.originalEstimatedTokens)
+    && candidate.originalEstimatedTokens > 0
+    && typeof candidate.originalBytes === 'number'
+    && Number.isFinite(candidate.originalBytes)
+    && candidate.originalBytes > 0
+    && candidate.reason === 'stale_tool_result_pruned_before_compact';
+}
+
+function normalizeArchiveRefs(
+  refs: StaleToolResultPrunePolicy['archiveRefs'],
+): Map<string, ToolResultArchiveRef> {
+  const map = new Map<string, ToolResultArchiveRef>();
+  if (!refs) return map;
+  if (Array.isArray(refs)) {
+    for (const ref of refs) map.set(ref.runtimeEventId, ref);
+    return map;
+  }
+  for (const [runtimeEventId, ref] of Object.entries(refs)) {
+    map.set(runtimeEventId, ref);
+  }
+  return map;
+}
+
+function archiveRefMatches(
+  ref: ToolResultArchiveRef,
+  candidate: {
+    runtimeEventId: string;
+    toolCallId: string;
+    toolName: string;
+    originalEstimatedTokens: number;
+    originalBytes: number;
+  },
+): boolean {
+  return ref.runtimeEventId === candidate.runtimeEventId
+    && ref.toolCallId === candidate.toolCallId
+    && ref.toolName === candidate.toolName
+    && ref.rewriteVersion === ARCHIVED_TOOL_RESULT_REWRITE_VERSION
+    && ref.reason === 'stale_tool_result_pruned_before_compact'
+    && typeof ref.artifactId === 'string'
+    && ref.artifactId.length > 0
+    && typeof ref.bodySha256 === 'string'
+    && ref.bodySha256.length > 0
+    && ref.originalEstimatedTokens === candidate.originalEstimatedTokens
+    && ref.originalBytes === candidate.originalBytes;
 }
 
 function recentTurnIds(events: readonly RuntimeEvent[], count: number): Set<string> {
