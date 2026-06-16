@@ -70,6 +70,8 @@ export interface UsageLogRow {
   errorClass?: string;
   sessionId?: string;
   turnId?: string;
+  prefixHash?: string;
+  prefixChangeReason?: PrefixChangeReason;
 }
 
 export interface PricingConfig {
@@ -113,7 +115,19 @@ export interface LlmCallRecord {
   status: 'success' | 'error' | 'aborted';
   errorClass?: string;
   startedAt: number;
+  prefixHash?: string;
+  prefixChangeReason?: PrefixChangeReason;
 }
+
+export type PrefixChangeReason =
+  | 'first_turn'
+  | 'system_prompt_changed'
+  | 'tool_schema_changed'
+  | 'provider_options_changed'
+  | 'model_or_provider_changed'
+  | 'history_projection_changed'
+  | 'stable'
+  | 'unknown';
 
 export interface ToolInvocationRecord {
   sessionId?: string;

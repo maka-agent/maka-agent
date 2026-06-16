@@ -11,6 +11,7 @@
 
 import type { AttachmentRef, ToolResultContent } from './events.js';
 import type { PermissionMode } from './permission.js';
+import type { PrefixChangeReason } from './usage-stats/types.js';
 
 export const SESSION_STATUSES = [
   'active',
@@ -240,6 +241,8 @@ export interface TokenUsageMessage {
   /** Backward-compatible alias for cacheWriteInput. */
   cacheCreation?: number;
   costUsd?: number;
+  prefixHash?: string;
+  prefixChangeReason?: PrefixChangeReason;
 }
 
 export interface TurnStateMessage {

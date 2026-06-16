@@ -315,6 +315,10 @@ export function mapSessionEventToRuntimeEvent(
             ...(event.contextRemaining !== undefined
               ? { contextRemaining: event.contextRemaining }
               : {}),
+            ...(event.prefixHash !== undefined ? { prefixHash: event.prefixHash } : {}),
+            ...(event.prefixChangeReason !== undefined
+              ? { prefixChangeReason: event.prefixChangeReason }
+              : {}),
           },
         },
       };

@@ -89,6 +89,11 @@ import {
   type RuntimeEventModelReplayPlan,
   type RuntimeEventReplayFallbackGate,
 } from './model-history.js';
+import {
+  canonicalizeToolSet,
+  computeRequestShapeDiagnostic,
+  type RequestShapeDiagnostic,
+} from './request-shape.js';
 
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
@@ -168,6 +173,8 @@ export interface AiSdkBackendInput {
   permissionTimeoutMs?: number;
   /** Optional system prompt (skills + workspace AGENTS.md merged upstream). */
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
+  /** Optional provider-visible current-turn tail kept out of the durable system prefix. */
+  turnTailPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Provider-native options passed through to ai-sdk. */
   providerOptions?: Record<string, unknown>;
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
@@ -213,6 +220,7 @@ export class AiSdkBackend implements AgentBackend {
   /** Paused while the backend is waiting on a user permission decision. */
   private currentWatchdog: StreamWatchdog | null = null;
   private currentRunTrace: RunTrace | null = null;
+  private priorRequestShape: RequestShapeDiagnostic | undefined;
 
   constructor(input: AiSdkBackendInput) {
     this.input = input;
@@ -269,6 +277,7 @@ export class AiSdkBackend implements AgentBackend {
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
+    let requestShapeForTelemetry: RequestShapeDiagnostic | undefined;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -304,9 +313,9 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build ai-sdk tools dict with permission-wrapped execute ---
+    const canonicalTools = canonicalizeToolSet(this.input.tools, buildInvalidMakaTool());
     const aiSdkTools: Record<string, unknown> = {};
-    const allTools = [...this.input.tools, buildInvalidMakaTool()];
-    for (const t of allTools) {
+    for (const t of canonicalTools.providerTools) {
       aiSdkTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
@@ -316,11 +325,6 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
     const priorReplay = this.buildPriorMessages(input);
-    const messages = priorReplay.messages;
-    messages.push({
-      role: 'user',
-      content: this.buildUserContent(input.text, input.attachments),
-    });
 
     // --- Background pump: streamText → fullStream → normalize → queue ---
     const pumpDone: Promise<void> = (async () => {
@@ -341,8 +345,31 @@ export class AiSdkBackend implements AgentBackend {
         });
         this.currentWatchdog = watchdog;
         watchdog.start();
-        const activeTools = this.input.tools.map((tool) => tool.name);
-        trace.modelStreamStarted(activeTools);
+        const activeTools = canonicalTools.activeTools;
+        const systemPrompt = await this.resolveSystemPrompt();
+        const turnTailPrompt = await this.resolveTurnTailPrompt();
+        const messages = [
+          ...priorReplay.messages,
+          {
+            role: 'user' as const,
+            content: this.buildUserContent(input.text, input.attachments, turnTailPrompt),
+          },
+        ];
+        const requestShape = computeRequestShapeDiagnostic({
+          connection: this.input.connection,
+          modelId: this.input.modelId,
+          systemPrompt,
+          providerOptions: this.input.providerOptions,
+          providerTools: canonicalTools.providerTools,
+          activeTools,
+          priorMessages: priorReplay.messages,
+        }, this.priorRequestShape);
+        requestShapeForTelemetry = requestShape;
+        this.priorRequestShape = requestShape;
+        trace.modelStreamStarted(activeTools, {
+          prefixHash: requestShape.prefixHash,
+          prefixChangeReason: requestShape.prefixChangeReason,
+        });
 
         const result = await this.modelAdapter.startStream({
           model,
@@ -354,11 +381,11 @@ export class AiSdkBackend implements AgentBackend {
           ) => {
             return repairMakaToolCall({
               toolCall,
-              availableToolNames: this.input.tools.map((tool) => tool.name),
+              availableToolNames: activeTools,
               error,
             });
           },
-          system: await this.resolveSystemPrompt(),
+          system: systemPrompt,
           abortSignal: this.abortController!.signal,
         });
 
@@ -429,7 +456,11 @@ export class AiSdkBackend implements AgentBackend {
         try {
           tokenUsage = normalizeAiSdkUsage(await result.usage, { rawFinishReason });
           if (tokenUsage) {
-            trace.usageRecorded(tokenUsage);
+            trace.usageRecorded({
+              ...tokenUsage,
+              prefixHash: requestShape.prefixHash,
+              prefixChangeReason: requestShape.prefixChangeReason,
+            });
             const tu: TokenUsageMessage = {
               type: 'token_usage',
               id: this.newId(),
@@ -445,6 +476,8 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
+              prefixHash: requestShape.prefixHash,
+              prefixChangeReason: requestShape.prefixChangeReason,
             };
             await this.input.appendMessage(tu).catch(() => {});
             queue.push({
@@ -462,6 +495,8 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
+              prefixHash: requestShape.prefixHash,
+              prefixChangeReason: requestShape.prefixChangeReason,
             } satisfies TokenUsageEvent);
           }
         } catch {
@@ -532,6 +567,10 @@ export class AiSdkBackend implements AgentBackend {
           status: streamStatus,
           ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
           startedAt,
+          ...(requestShapeForTelemetry !== undefined ? {
+            prefixHash: requestShapeForTelemetry.prefixHash,
+            prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
+          } : {}),
         });
         queue.close();
       }
@@ -720,8 +759,10 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   /** Build the user content payload for the current turn (text + attachment refs). */
-  private buildUserContent(text: string, attachments?: AttachmentRef[]): string {
-    return formatTextWithAttachmentRefs(text, attachments);
+  private buildUserContent(text: string, attachments?: AttachmentRef[], turnTailPrompt?: string): string {
+    const content = formatTextWithAttachmentRefs(text, attachments);
+    if (!turnTailPrompt) return content;
+    return `${content}\n\n${turnTailPrompt}`;
   }
 
   private async resolveSystemPrompt(): Promise<string | undefined> {
@@ -733,6 +774,17 @@ export class AiSdkBackend implements AgentBackend {
       });
     }
     return this.input.systemPrompt;
+  }
+
+  private async resolveTurnTailPrompt(): Promise<string | undefined> {
+    if (typeof this.input.turnTailPrompt === 'function') {
+      return await this.input.turnTailPrompt({
+        sessionId: this.sessionId,
+        cwd: this.input.header.cwd,
+        workspaceRoot: this.input.header.workspaceRoot,
+      });
+    }
+    return this.input.turnTailPrompt;
   }
 
   private async *drain(queue: AsyncEventQueue<SessionEvent>): AsyncIterable<SessionEvent> {

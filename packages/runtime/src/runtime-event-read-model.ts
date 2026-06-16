@@ -489,6 +489,8 @@ function projectTokenUsage(
     ...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
     ...(usage.cacheCreation !== undefined ? { cacheCreation: usage.cacheCreation } : {}),
     ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+    ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
+    ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
   });
   return true;
 }
@@ -811,6 +813,8 @@ function semanticMessage(message: StoredMessage): unknown {
         cacheRead: message.cacheRead,
         cacheCreation: message.cacheCreation,
         costUsd: message.costUsd,
+        prefixHash: message.prefixHash,
+        prefixChangeReason: message.prefixChangeReason,
       };
     case 'turn_state':
       return {

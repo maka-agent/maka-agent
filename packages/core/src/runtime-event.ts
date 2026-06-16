@@ -16,6 +16,7 @@
 
 import type { AttachmentRef } from './events.js';
 import type { PermissionRequest, PermissionResponse } from './permission.js';
+import type { PrefixChangeReason } from './usage-stats/types.js';
 
 // ============================================================================
 // Role / Author / Status
@@ -177,6 +178,8 @@ export interface RuntimeEventTokenUsage {
   cacheCreation?: number;
   costUsd?: number;
   contextRemaining?: number;
+  prefixHash?: string;
+  prefixChangeReason?: PrefixChangeReason;
 }
 
 /**
