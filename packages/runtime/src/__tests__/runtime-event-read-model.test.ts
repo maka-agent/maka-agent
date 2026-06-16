@@ -14,6 +14,7 @@ import { expect } from '../test-helpers.js';
 import {
   compareRuntimeReadModelMessages,
   projectRuntimeEventsToStoredMessages,
+  projectRuntimeEventsToStoredMessagesWithArchiveStatuses,
 } from '../runtime-event-read-model.js';
 import { materializeSession } from '../materializer.js';
 import {
@@ -324,6 +325,45 @@ describe('projectRuntimeEventsToStoredMessages', () => {
       'archived_tool_result_placeholder',
       'context_remaining_unsupported',
     ]);
+  });
+
+  test('archive status wrapper can project missing and corrupt rows without changing sync defaults', () => {
+    const events = baseEvents();
+    const toolResult = events.find((event) => event.id === 'evt-tool-result');
+    if (toolResult?.content?.kind !== 'function_response') throw new Error('fixture missing tool result');
+    toolResult.content.result = {
+      kind: 'maka.archived_tool_result',
+      rewriteVersion: 1,
+      artifactId: 'artifact-tool-result',
+      runtimeEventId: 'evt-tool-result',
+      toolCallId: 'tool-1',
+      toolName: 'Read',
+      bodySha256: 'a'.repeat(64),
+      originalEstimatedTokens: 200,
+      originalBytes: 800,
+      reason: 'stale_tool_result_pruned_before_compact',
+    };
+
+    const defaultOut = projectRuntimeEventsToStoredMessages(events, { runHeaders: [header] });
+    const defaultProjected = defaultOut.messages.find((message) => message.type === 'tool_result');
+    expect(defaultProjected).toMatchObject({ type: 'tool_result' });
+    expect(archivedStatus(defaultProjected)).toBe('not_loaded');
+
+    const missingOut = projectRuntimeEventsToStoredMessagesWithArchiveStatuses(events, {
+      runHeaders: [header],
+      archiveStatuses: { 'evt-tool-result': 'missing' },
+    });
+    const missingProjected = missingOut.messages.find((message) => message.type === 'tool_result');
+    expect(missingProjected).toMatchObject({ type: 'tool_result' });
+    expect(archivedStatus(missingProjected)).toBe('missing');
+
+    const corruptOut = projectRuntimeEventsToStoredMessagesWithArchiveStatuses(events, {
+      runHeaders: [header],
+      archiveStatuses: [{ runtimeEventId: 'evt-tool-result', status: 'corrupt' }],
+    });
+    const corruptProjected = corruptOut.messages.find((message) => message.type === 'tool_result');
+    expect(corruptProjected).toMatchObject({ type: 'tool_result' });
+    expect(archivedStatus(corruptProjected)).toBe('corrupt');
   });
 
   test('projected rows materialize to the same runtime view model as equivalent legacy rows', () => {
@@ -649,6 +689,11 @@ async function expectRejects(promise: Promise<unknown>, pattern: RegExp): Promis
     return;
   }
   throw new Error(`Expected promise to reject with ${pattern}`);
+}
+
+function archivedStatus(message: StoredMessage | undefined): string | undefined {
+  if (message?.type !== 'tool_result') return undefined;
+  return message.content.kind === 'archived_tool_result' ? message.content.status : undefined;
 }
 
 function makeHeader(id: string): SessionHeader {

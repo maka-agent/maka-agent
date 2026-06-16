@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
@@ -253,6 +254,158 @@ describe('AiSdkBackend model history', () => {
     assert.match(prompt, /"artifactId":"artifact-rt-result"/);
     assert.match(prompt, /"runtimeEventId":"rt-result"/);
     assert.equal(prompt.includes(oldResult.body), false);
+  });
+
+  test('history search does not re-add stale full tool results after archive pruning', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const oldResult = { body: 'SECRET_PAYLOAD_SHOULD_NOT_RETURN'.repeat(20) };
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'archive-search-test',
+        maxHistoryTurns: 1,
+        minRecentTurns: 0,
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 1,
+          minRecentTurnsFull: 0,
+        },
+        historySearch: {
+          enabled: true,
+          maxResults: 1,
+          around: 1,
+          maxEstimatedTokens: 4096,
+        },
+        charsPerToken: 1,
+      },
+      archiveToolResult: async (event) => ({ artifactId: `artifact-${event.runtimeEventId}` }),
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'Find SECRET_PAYLOAD_SHOULD_NOT_RETURN',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-call',
+          turnId: 'turn-old',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'secret.txt' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result',
+          turnId: 'turn-old',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: oldResult, isError: false },
+        }),
+        runtimeEvent({
+          id: 'rt-new',
+          turnId: 'turn-new',
+          role: 'user',
+          author: 'user',
+          content: { kind: 'text', text: 'newer retained context' },
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.equal(prompt.includes(oldResult.body), false);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.archivePlaceholders, 1);
+    assert.equal(usage?.contextBudget?.historySearchMatches, 0);
+  });
+
+  test('hydrates archived RuntimeEvent tool results for model replay when retrieval is enabled', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    let archivedBody = '';
+    const oldResult = { body: 'retrieved archived payload' };
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'archive-retrieval-test',
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 1,
+          minRecentTurnsFull: 0,
+        },
+        archiveRetrieval: {
+          enabled: true,
+          maxResults: 1,
+          maxEstimatedTokens: 1024,
+          maxBytes: 1024,
+        },
+        charsPerToken: 1,
+      },
+      archiveToolResult: async (event) => {
+        archivedBody = event.serializedResult;
+        return { artifactId: `artifact-${event.runtimeEventId}` };
+      },
+      readToolResultArchive: async (event) => ({
+        ok: true,
+        serializedResult: event.bodySha256 === sha256(archivedBody) ? archivedBody : 'tampered',
+      }),
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-call',
+          turnId: 'turn-prev',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result',
+          turnId: 'turn-prev',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: oldResult, isError: false },
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /retrieved archived payload/);
+    assert.equal(prompt.includes('maka.archived_tool_result'), false);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.retrievedArchiveToolResults, 1);
+    assert.equal(usage?.contextBudget?.archiveRetrievalFailures, 0);
   });
 
   test('uses StoredMessage projection when RuntimeEvent tool results are unmatched', async () => {
@@ -2169,6 +2322,10 @@ function modelCallSettings(model: MockLanguageModelV3): unknown {
   if (!call) return {};
   const { prompt: _prompt, ...rest } = call;
   return rest;
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 function testTool(name: string, parameters: unknown): MakaTool {

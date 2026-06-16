@@ -42,6 +42,11 @@ export interface ProjectRuntimeEventsToStoredMessagesOptions {
   runHeaders: readonly AgentRunHeader[] | Readonly<Record<string, AgentRunHeader>>;
 }
 
+export interface ArchivedToolResultReadModelStatus {
+  runtimeEventId: string;
+  status: Extract<ToolResultContent, { kind: 'archived_tool_result' }>['status'];
+}
+
 export interface RuntimeReadModelCompatibilityResult {
   compatible: boolean;
   diagnostics: RuntimeEventReadModelDiagnostic[];
@@ -163,6 +168,51 @@ export function projectRuntimeEventsToStoredMessages(
   }
 
   return { messages, diagnostics: state.diagnostics };
+}
+
+export function projectRuntimeEventsToStoredMessagesWithArchiveStatuses(
+  events: readonly RuntimeEvent[],
+  options: ProjectRuntimeEventsToStoredMessagesOptions & {
+    archiveStatuses: readonly ArchivedToolResultReadModelStatus[] | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>;
+  },
+): RuntimeEventReadModelProjection {
+  return projectRuntimeEventsToStoredMessages(
+    applyArchivedToolResultReadModelStatuses(events, options.archiveStatuses),
+    options,
+  );
+}
+
+export function applyArchivedToolResultReadModelStatuses(
+  events: readonly RuntimeEvent[],
+  archiveStatuses: readonly ArchivedToolResultReadModelStatus[] | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>,
+): RuntimeEvent[] {
+  const statuses = normalizeArchiveStatuses(archiveStatuses);
+  if (statuses.size === 0) return [...events];
+  return events.map((event) => {
+    const status = statuses.get(event.id);
+    if (!status || event.content?.kind !== 'function_response') return event;
+    if (!isArchivedToolResultPlaceholder(event.content.result)) return event;
+    const placeholder = event.content.result;
+    return {
+      ...event,
+      content: {
+        ...event.content,
+        result: {
+          kind: 'archived_tool_result',
+          status,
+          runtimeEventId: placeholder.runtimeEventId,
+          toolCallId: placeholder.toolCallId,
+          toolName: placeholder.toolName,
+          artifactId: placeholder.artifactId,
+          bodySha256: placeholder.bodySha256,
+          originalEstimatedTokens: placeholder.originalEstimatedTokens,
+          originalBytes: placeholder.originalBytes,
+          rewriteVersion: placeholder.rewriteVersion,
+          reason: placeholder.reason,
+        } satisfies ToolResultContent,
+      },
+    };
+  });
 }
 
 export function compareRuntimeReadModelMessages(
@@ -346,6 +396,22 @@ function projectText(
 
   diagnostic(state, event, 'unsupported_event', `text content with role ${event.role} is not projected`);
   return false;
+}
+
+function normalizeArchiveStatuses(
+  archiveStatuses: readonly ArchivedToolResultReadModelStatus[] | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>,
+): Map<string, ArchivedToolResultReadModelStatus['status']> {
+  const map = new Map<string, ArchivedToolResultReadModelStatus['status']>();
+  if (Array.isArray(archiveStatuses)) {
+    for (const item of archiveStatuses) {
+      map.set(item.runtimeEventId, item.status);
+    }
+    return map;
+  }
+  for (const [runtimeEventId, status] of Object.entries(archiveStatuses)) {
+    map.set(runtimeEventId, status);
+  }
+  return map;
 }
 
 function projectThinking(
