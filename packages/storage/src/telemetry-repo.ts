@@ -160,6 +160,8 @@ class FileTelemetryRepo implements TelemetryRepo {
         ...(row.prefixChangeReason ? { prefixChangeReason: row.prefixChangeReason } : {}),
         ...(row.requestShapeHash ? { requestShapeHash: row.requestShapeHash } : {}),
         ...(row.requestShapeChangeReason ? { requestShapeChangeReason: row.requestShapeChangeReason } : {}),
+        ...(row.toolSchemaChangeReason ? { toolSchemaChangeReason: row.toolSchemaChangeReason } : {}),
+        ...(row.toolAvailability ? { toolAvailability: row.toolAvailability } : {}),
         ...(row.promptSegments ? { promptSegments: row.promptSegments } : {}),
         ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
       } satisfies UsageLogRow));

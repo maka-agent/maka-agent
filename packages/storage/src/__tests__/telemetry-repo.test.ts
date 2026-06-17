@@ -39,6 +39,31 @@ describe('FileTelemetryRepo', () => {
     });
   });
 
+  test('carries the tool-availability diagnostic and tool-schema change reason through logs()', async () => {
+    await withRepo(async (repo) => {
+      await repo.load();
+      repo.insertLlmCall(llmRecord({
+        id: 'usage_diag',
+        toolSchemaChangeReason: 'tool_source_enabled',
+        toolAvailability: {
+          mode: 'economy',
+          enabledSourceIds: ['office'],
+          availableSourceIds: ['rive'],
+          connectorToolName: 'load_tools',
+          visibleToolNamesBySource: { office: ['office_edit'] },
+          hiddenToolCount: 1,
+        },
+      }));
+      await flushWrites();
+
+      const row = repo.logs({ range: 'all' }).rows[0];
+      assert.equal(row?.toolSchemaChangeReason, 'tool_source_enabled');
+      assert.equal(row?.toolAvailability?.mode, 'economy');
+      assert.deepEqual(row?.toolAvailability?.enabledSourceIds, ['office']);
+      assert.equal(row?.toolAvailability?.hiddenToolCount, 1);
+    });
+  });
+
   test('filters logs by range, status, provider, model, and pagination', async () => {
     await withRepo(async (repo) => {
       await repo.load();
