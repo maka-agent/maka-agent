@@ -1040,11 +1040,24 @@ function SettingsPage(props: {
       return <AboutSettingsPage />;
     case 'general':
       return (
-        <SettingsRows>
-          <SettingRow title="启动" detail="打开应用后回到最近一次对话。" value="已启用" />
-          <SettingRow title="新对话模式" detail="新对话默认从确认模式开始。" value="确认" />
-          <SettingRow title="默认模型" detail="新对话默认使用的模型连接。" value={props.defaultSlug ?? '未设置'} />
-        </SettingsRows>
+        <div className="settingsStructuredPage">
+          <div className="settingsFormRow">
+            <div>
+              <strong>隐身模式</strong>
+              <small>开启后暂停本地记忆读写、联网搜索和计划提醒触发；关闭后恢复正常工作区状态。</small>
+            </div>
+            <Switch
+              ariaLabel="启用隐身模式"
+              checked={props.settings.privacy.incognitoActive}
+              onChange={(incognitoActive) => void props.onUpdateSettings({ privacy: { incognitoActive } })}
+            />
+          </div>
+          <SettingsRows>
+            <SettingRow title="启动" detail="打开应用后回到最近一次对话。" value="已启用" />
+            <SettingRow title="新对话模式" detail="新对话默认从确认模式开始。" value="确认" />
+            <SettingRow title="默认模型" detail="新对话默认使用的模型连接。" value={props.defaultSlug ?? '未设置'} />
+          </SettingsRows>
+        </div>
       );
     case 'theme':
       return (
@@ -3975,8 +3988,12 @@ function memoryOriginLabel(origin: NonNullable<LocalMemoryState['latestEntry']>[
 
 function memoryEntryStatusLabel(status: LocalMemoryState['entries'][number]['status']): string {
   switch (status) {
+    case 'draft': return '草稿';
+    case 'review_required': return '待确认';
     case 'active': return '生效';
     case 'archived': return '已归档';
+    case 'rejected': return '已拒绝';
+    case 'unknown': return '未识别';
   }
 }
 

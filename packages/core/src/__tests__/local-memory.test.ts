@@ -2,15 +2,21 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   LOCAL_MEMORY_MAX_BYTES,
+  appendApprovedLocalMemoryEntryDraft,
+  appendLocalMemoryProposalDraft,
   appendManualLocalMemoryEntryDraft,
+  approveLocalMemoryProposalDraft,
   buildLocalMemoryPromptBody,
   defaultLocalMemoryMarkdown,
   defaultLocalMemorySettings,
+  findLocalMemoryEntryDraft,
   findLocalMemoryEntryDraftRange,
   normalizeLocalMemorySettings,
   parseLocalMemoryMarkdown,
+  rejectLocalMemoryProposalDraft,
   setLocalMemoryEntryStatusDraft,
   stableLocalMemoryEntryId,
+  stableLocalMemoryProposalId,
 } from '../local-memory.js';
 
 describe('local MEMORY.md contract', () => {
@@ -100,6 +106,37 @@ describe('local MEMORY.md contract', () => {
     assert.doesNotMatch(body, /maka-memory|Archived|should not enter/);
   });
 
+  it('excludes pending, rejected, and unknown statuses from prompt injection', () => {
+    const source = [
+      '# Maka Memory',
+      '',
+      '## Active',
+      '<!-- maka-memory: id=active origin=manual status=active -->',
+      'Use this.',
+      '',
+      '## Pending',
+      '<!-- maka-memory: id=pending proposalId=proposal-abc source=chat_extracted status=review_required -->',
+      'Do not inject pending.',
+      '',
+      '## Rejected',
+      '<!-- maka-memory: id=rejected proposalId=proposal-def source=chat_extracted status=rejected -->',
+      'Do not inject rejected.',
+      '',
+      '## Future',
+      '<!-- maka-memory: id=future status=future_status -->',
+      'Do not inject unknown future status.',
+    ].join('\n');
+
+    const parsed = parseLocalMemoryMarkdown(source);
+    const body = buildLocalMemoryPromptBody(source);
+
+    assert.equal(parsed.entries.length, 4);
+    assert.equal(parsed.activeEntries.length, 1);
+    assert.equal(parsed.entries.find((entry) => entry.id === 'future')?.status, 'unknown');
+    assert.match(body ?? '', /Use this/);
+    assert.doesNotMatch(body ?? '', /pending|rejected|unknown future/i);
+  });
+
   it('redacts legacy secrets before building the prompt body', () => {
     const body = buildLocalMemoryPromptBody([
       '# Maka Memory',
@@ -155,6 +192,81 @@ describe('local MEMORY.md contract', () => {
     assert.equal(parsed.activeEntries[0]?.id, stableId);
     assert.equal(parsed.activeEntries[0]?.origin, 'manual');
     assert.deepEqual(parsed.activeEntries[0]?.tags, ['preference', 'writing-style']);
+  });
+
+  it('creates pending proposals and keeps approval explicit', () => {
+    const proposalId = stableLocalMemoryProposalId('Remember dark mode preference.', 1700000000000);
+    const pending = appendLocalMemoryProposalDraft('# Maka Pending Memory\n', {
+      proposalId,
+      title: 'Theme preference',
+      content: 'Remember dark mode preference.',
+      proposedAt: 1700000000000,
+      sourceTurnId: 'turn-1',
+    });
+
+    assert.equal(pending.ok, true);
+    if (!pending.ok) return;
+    assert.equal(buildLocalMemoryPromptBody(pending.draft), undefined);
+    const proposal = findLocalMemoryEntryDraft(pending.draft, proposalId);
+    assert.equal(proposal?.status, 'review_required');
+    assert.equal(proposal?.content, 'Remember dark mode preference.');
+
+    const approved = approveLocalMemoryProposalDraft('# Maka Memory\n', pending.draft, {
+      proposalId,
+      entryId: 'mem-approved123',
+      confirmedAt: 1700000001000,
+      approvalSurface: 'settings_review_queue',
+    });
+
+    assert.equal(approved.ok, true);
+    if (!approved.ok) return;
+    assert.match(approved.memoryDraft, /id=mem-approved123/);
+    assert.match(approved.memoryDraft, /source=chat_extracted/);
+    assert.match(approved.memoryDraft, /confirmedAt=1700000001000/);
+    assert.doesNotMatch(approved.pendingDraft, /proposal-approved123|Theme preference|dark mode/);
+    assert.match(buildLocalMemoryPromptBody(approved.memoryDraft) ?? '', /Remember dark mode preference/);
+  });
+
+  it('rejects pending proposals without creating active memory', () => {
+    const pending = appendLocalMemoryProposalDraft('# Maka Pending Memory\n', {
+      proposalId: 'proposal-reject123',
+      title: 'Rejected proposal',
+      content: 'Do not save this.',
+      proposedAt: 1700000000000,
+    });
+    assert.equal(pending.ok, true);
+    if (!pending.ok) return;
+
+    const rejected = rejectLocalMemoryProposalDraft(pending.draft, {
+      proposalId: 'proposal-reject123',
+      rejectedAt: 1700000001000,
+    });
+
+    assert.equal(rejected.ok, true);
+    if (!rejected.ok) return;
+    const parsed = parseLocalMemoryMarkdown(rejected.draft);
+    assert.equal(parsed.entries[0]?.status, 'rejected');
+    assert.equal(parsed.entries[0]?.rejectedAt, 1700000001000);
+    assert.equal(buildLocalMemoryPromptBody(rejected.draft), undefined);
+  });
+
+  it('writes approved user-authored entries with confirmation metadata', () => {
+    const approved = appendApprovedLocalMemoryEntryDraft('# Maka Memory\n', {
+      id: 'mem-user123',
+      title: 'Writing preference',
+      content: 'Prefer concise answers.',
+      source: 'user_authored',
+      confirmedAt: 1700000000000,
+      approvalSurface: 'manual_editor_save',
+    });
+
+    assert.equal(approved.ok, true);
+    if (!approved.ok) return;
+    const parsed = parseLocalMemoryMarkdown(approved.draft);
+    assert.equal(parsed.activeEntries[0]?.id, 'mem-user123');
+    assert.equal(parsed.activeEntries[0]?.source, 'user_authored');
+    assert.equal(parsed.activeEntries[0]?.confirmedAt, 1700000000000);
+    assert.match(buildLocalMemoryPromptBody(approved.draft) ?? '', /Prefer concise answers/);
   });
 
   it('keeps manual entry ids stable across title edits', () => {
