@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from 'electron';
 import { isExternalUrl } from './external-link-guard.js';
 import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -166,7 +166,7 @@ import {
   errorReason,
   requireReadyConnection,
 } from './chat-readiness.js';
-import { createSafeStorageCredentialStore } from './credential-store.js';
+import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { connectionTestStatusPatch } from './connection-test-status.js';
@@ -248,7 +248,7 @@ const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
 const attachmentApprovals = createAttachmentApprovalRegistry();
-const credentialStore = createSafeStorageCredentialStore(workspaceRoot);
+const credentialStore = createFileCredentialStore(workspaceRoot);
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
 // Lives in main process only; renderer accesses via IPC. Tokens
 // never cross the IPC boundary (xuan G-X3). Cloak path is dynamic-
@@ -4061,6 +4061,15 @@ async function ensureBootstrapConnection(): Promise<void> {
 registerIpc();
 
 app.whenReady().then(async () => {
+  // One-time migration of credentials.json off Electron safeStorage so
+  // the pure-Node runtime can read it (issue #32). Runs before any
+  // credential read/write below; failure is non-fatal (legacy file is
+  // left intact and later credential reads fail closed with guidance).
+  try {
+    await migrateLegacyCredentials(workspaceRoot, safeStorage);
+  } catch (error) {
+    console.error('[credentials] migration off safeStorage failed; legacy file left intact:', error);
+  }
   if (visualSmokeFixture) {
     console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
     await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
