@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { BackendKind } from '@maka/core';
 import {
   BackendRegistry,
   SessionManager,
@@ -27,20 +28,22 @@ export interface RunExperimentDeps {
    * the pure-Node CredentialStore). The registry is keyed by BackendKind.
    */
   registerBackends: (registry: BackendRegistry) => void;
-  /**
-   * Allow irreversible/host-reaching tool categories (delete, destructive
-   * git, privileged, browser). Default false: the workspace is a copy, not
-   * a jail, so these are denied unless you run inside a real OS/container
-   * sandbox. Read/edit/shell still run — enough for ordinary coding tasks.
-   */
-  allowDangerousTools?: boolean;
   now?: () => number;
   newId?: () => string;
 }
 
-/** Categories `execute` mode still raises a prompt for — denied by default
- *  because the throwaway workspace does not contain their blast radius. */
-const DANGEROUS_CATEGORIES = new Set(['fs_destructive', 'git_destructive', 'privileged', 'browser']);
+/**
+ * A backend is "inert" when it executes no real tools on the host — only the
+ * stub FakeBackend qualifies. Every model-backed backend (`ai-sdk`,
+ * `pi-agent`) can drive Bash/network, and the throwaway workspace is a copy,
+ * not a jail, so running one in-process would hand the host (files, env incl.
+ * API keys, network) to the config under test. Those run ONLY inside an
+ * isolated executor — which this build does not ship yet (follow-up PR). Until
+ * then a non-inert backend fails closed; see the preflight in runExperiment.
+ */
+export function backendNeedsIsolation(backend: BackendKind): boolean {
+  return backend !== 'fake';
+}
 
 /**
  * Run one `Config × Task` end-to-end: copy the fixture into a throwaway
@@ -53,6 +56,14 @@ export async function runExperiment(
   task: Task,
   deps: RunExperimentDeps,
 ): Promise<ResultRecord> {
+  // Fail closed before any work starts: a model-backed backend would run the
+  // config under test on the host with no isolation. Refuse it until the
+  // executor ships; the inert FakeBackend is the only thing safe in-process.
+  if (backendNeedsIsolation(config.backend)) {
+    throw new Error(
+      `@maka/headless: backend "${config.backend}" executes tools on the host and requires an isolated executor, which this build does not ship yet — only the inert "fake" backend runs in-process`,
+    );
+  }
   const now = deps.now ?? Date.now;
   const newId = deps.newId ?? randomUUID;
   const startedAt = now();
@@ -87,24 +98,22 @@ export async function runExperiment(
 
     const turnId = newId();
     // Drain the turn to completion. The trajectory + status come from the
-    // captured InvocationResult, not the streamed SessionEvents — but a
-    // headless benchmark has no human to answer permission prompts, so we
-    // resolve each one as it streams by: allow ordinary tool use, deny the
-    // dangerous categories whose blast radius escapes the workspace copy
-    // (unless the caller opted in via allowDangerousTools).
-    const allowDangerous = deps.allowDangerousTools === true;
+    // captured InvocationResult, not the streamed SessionEvents. Only the
+    // inert FakeBackend reaches this point (the preflight refuses the rest),
+    // so no real tool actually runs — but fail safe regardless: any permission
+    // request in-process is DENIED, because nothing here can honor host tool
+    // execution safely. Real tool use waits for the isolated executor.
     for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
       if ((event as { type?: string }).type === 'permission_request') {
-        const { requestId, category } = event as { requestId: string; category: string };
-        const decision = allowDangerous || !DANGEROUS_CATEGORIES.has(category) ? 'allow' : 'deny';
-        await manager.respondToPermission(session.id, { requestId, decision, rememberForTurn: true });
+        const { requestId } = event as { requestId: string };
+        await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
       }
     }
 
     // Clean-room grading: restore the verification assets from the pristine
     // fixture so anything the agent wrote over its own test is reverted
     // before it is graded.
-    await restoreProtectedPaths(task.workspaceDir, workspace.dir, task.verification.protectedPaths ?? []);
+    await restoreProtectedPaths(task.workspaceDir, workspace.dir, task.verification.protectedPaths);
 
     const evaluation = await runVerification(
       task.verification.command,

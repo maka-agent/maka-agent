@@ -48,8 +48,12 @@ export interface TaskVerification {
    * fixture AFTER the agent finishes and BEFORE the command runs — so a
    * config under test cannot rewrite its own grading to pass. List the
    * test / grading assets here; anything not listed is the agent's to edit.
+   *
+   * REQUIRED, not optional: the grading boundary must be a conscious choice,
+   * never a silent omission. Declare `[]` only when the verification reads
+   * nothing the agent can forge (e.g. a pure `test -f` against a fixture file).
    */
-  protectedPaths?: string[];
+  protectedPaths: string[];
 }
 
 /**

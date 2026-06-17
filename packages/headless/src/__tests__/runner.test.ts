@@ -106,7 +106,7 @@ describe('runExperiment (walking skeleton)', () => {
         id: 'pass-task',
         instruction: 'do the thing',
         workspaceDir: fixtureDir,
-        verification: { command: 'test -f marker.txt' },
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
       };
 
       const result = await runExperiment(fakeConfig, task, {
@@ -135,7 +135,7 @@ describe('runExperiment (walking skeleton)', () => {
         id: 'fail-task',
         instruction: 'do the thing',
         workspaceDir: fixtureDir,
-        verification: { command: 'test -f does-not-exist.txt' },
+        verification: { command: 'test -f does-not-exist.txt', protectedPaths: [] },
       };
 
       const result = await runExperiment(fakeConfig, task, {
@@ -174,23 +174,31 @@ describe('clean-room grading (a config cannot rewrite its own test to pass)', ()
     });
   });
 
-  test('without protectedPaths the tamper wins — proving the guard is load-bearing', async () => {
+});
+
+describe('fail-closed (a model-backed backend does not run without isolation)', () => {
+  test('refuses a real backend when no isolated executor is available', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
-      await writeBuggyFixture(fixtureDir);
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const realConfig: Config = {
+        id: 'real-cfg',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-6',
+      };
       const task: Task = {
-        id: 'tamper-unguarded',
-        instruction: 'fix the bug',
+        id: 'real-task',
+        instruction: 'do the thing',
         workspaceDir: fixtureDir,
-        verification: { command: 'node check.mjs' }, // nothing protected
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
       };
 
-      const result = await runExperiment(fakeConfig, task, {
-        storageRoot,
-        registerBackends: registerTamperBackend,
-      });
-
-      assert.equal(result.status, 'completed');
-      assert.equal(result.passed, true); // the rewritten always-pass script graded it
+      // A real backend would run tools on the host with no isolation, so the
+      // run is refused before it starts — no workspace prepared, no agent turn.
+      await assert.rejects(
+        runExperiment(realConfig, task, { storageRoot, registerBackends: registerFakeBackend }),
+        /isolated executor/i,
+      );
     });
   });
 });

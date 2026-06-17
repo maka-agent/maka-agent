@@ -1,32 +1,64 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { registerAiSdkBackend, registerFakeBackend, type LabConnection } from './backends.js';
+import { registerFakeBackend } from './backends.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
+import { backendNeedsIsolation } from './runner.js';
 import { readResults, toComparisonTable, writeResults } from './results.js';
 
-/** A run spec is the experiment (configs × tasks) plus the connections a
- *  real ('ai-sdk') run resolves slugs against. */
-interface LabSpec extends ExperimentSpec {
-  connections?: LabConnection[];
+/**
+ * Reject a spec we cannot run safely or score trustworthily, BEFORE any run
+ * starts — eval is a hard boundary, not a per-cell failure:
+ *  - a model-backed backend would execute the config under test on the host
+ *    with no isolation; only the inert "fake" backend runs until the container
+ *    executor lands (follow-up PR);
+ *  - a task with no declared grading boundary cannot be scored honestly.
+ */
+function validateEvalSpec(spec: ExperimentSpec): void {
+  for (const config of spec.configs) {
+    if (backendNeedsIsolation(config.backend)) {
+      throw new Error(
+        `config "${config.id}": backend "${config.backend}" requires an isolated executor, not available in this build — only "fake" runs (real-model eval lands with the container executor)`,
+      );
+    }
+  }
+  for (const task of spec.tasks) {
+    if (!Array.isArray(task.verification?.protectedPaths)) {
+      throw new Error(
+        `task "${task.id}": verification.protectedPaths is required (an array; use [] when the verification reads nothing the agent can forge)`,
+      );
+    }
+  }
 }
 
-async function runCommand(args: string[]): Promise<number> {
+async function evalCommand(args: string[]): Promise<number> {
   let positional: string[];
   let flags: Record<string, string>;
   try {
     ({ positional, flags } = parseArgs(args, ['out']));
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless run <spec.json> [--out <dir>]`);
+    console.error(`${(error as Error).message}\nusage: maka-headless eval <spec.json> [--out <dir>]`);
     return 1;
   }
   const specPath = positional[0];
   if (!specPath) {
-    console.error('usage: maka-headless run <spec.json> [--out <dir>]');
+    console.error('usage: maka-headless eval <spec.json> [--out <dir>]');
     return 1;
   }
+
+  // Read + parse + validate up front: an unreadable file, malformed JSON, a
+  // refused backend, or a missing grading boundary is an infrastructure error,
+  // not benchmark data — fail before running anything.
+  let spec: ExperimentSpec;
+  try {
+    spec = JSON.parse(await readFile(specPath, 'utf8')) as ExperimentSpec;
+    validateEvalSpec(spec);
+  } catch (error) {
+    console.error(`maka-headless: ${(error as Error).message}`);
+    return 1;
+  }
+
   const specDir = dirname(resolve(specPath));
-  const spec = JSON.parse(await readFile(specPath, 'utf8')) as LabSpec;
   // Task workspace fixtures are resolved relative to the spec file so a
   // spec is portable alongside its fixtures.
   const tasks = spec.tasks.map((task) => ({
@@ -40,10 +72,10 @@ async function runCommand(args: string[]): Promise<number> {
     { configs: spec.configs, tasks },
     {
       storageRoot: join(outDir, 'runs'),
-      registerBackends: (registry) => {
-        registerFakeBackend(registry);
-        if (spec.connections?.length) registerAiSdkBackend(registry, spec.connections);
-      },
+      // Only the inert FakeBackend wires in: validateEvalSpec refuses every
+      // model-backed config, so a real backend never reaches a run. They wire
+      // in here (with their connections) once the isolated executor lands.
+      registerBackends: registerFakeBackend,
     },
     (r) => console.log(`  ${mark(r.passed, r.error)} ${r.taskId} × ${r.configId}${r.error ? ` — ${r.error}` : ''}`),
   );
@@ -54,7 +86,11 @@ async function runCommand(args: string[]): Promise<number> {
   await writeResults(resultsPath, records);
   await writeFile(tablePath, table, 'utf8');
   console.log(`\n${table}\nresults: ${resultsPath}\ntable:   ${tablePath}`);
-  return 0;
+  // Honest exit code: a run that THREW (missing workspace, unknown backend, …)
+  // carries an `error` and never produced a trustworthy pass/fail — that is an
+  // infrastructure failure, exit non-zero. A run that completed and merely
+  // failed its verification is valid benchmark data and stays exit 0.
+  return records.some((r) => r.error) ? 1 : 0;
 }
 
 async function compareCommand(args: string[]): Promise<number> {
@@ -92,14 +128,14 @@ function parseArgs(args: string[], knownFlags: string[]): { positional: string[]
 }
 
 function printUsage(): void {
-  console.error('maka-headless — headless agent experiment lab\n');
-  console.error('  maka-headless run <spec.json> [--out <dir>]   run configs × tasks, write results + table');
-  console.error('  maka-headless compare <results.jsonl>         print the comparison table');
+  console.error('maka-headless — headless agent runner (eval mode)\n');
+  console.error('  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table');
+  console.error('  maka-headless compare <results.jsonl>          print the comparison table');
 }
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
-  if (cmd === 'run') return runCommand(rest);
+  if (cmd === 'eval') return evalCommand(rest);
   if (cmd === 'compare') return compareCommand(rest);
   printUsage();
   return cmd ? 1 : 0;

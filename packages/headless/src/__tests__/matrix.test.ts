@@ -25,13 +25,13 @@ describe('runMatrix', () => {
         id: 'pass',
         instruction: 'go',
         workspaceDir: fixtureDir,
-        verification: { command: 'test -f marker.txt' },
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
       };
       const failTask: Task = {
         id: 'fail',
         instruction: 'go',
         workspaceDir: fixtureDir,
-        verification: { command: 'test -f nope.txt' },
+        verification: { command: 'test -f nope.txt', protectedPaths: [] },
       };
       const spec: ExperimentSpec = { configs: [config('a'), config('b')], tasks: [passTask, failTask] };
 
@@ -60,7 +60,7 @@ describe('runMatrix', () => {
         id: 'bad',
         instruction: 'go',
         workspaceDir: join(storageRoot, 'does-not-exist'),
-        verification: { command: 'true' },
+        verification: { command: 'true', protectedPaths: [] },
       };
       const records = await runMatrix(
         { configs: [config('a')], tasks: [badTask] },

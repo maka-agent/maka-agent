@@ -7,7 +7,7 @@
       "id": "marker-present",
       "instruction": "Ensure the marker file exists.",
       "workspaceDir": "./demo",
-      "verification": { "command": "test -f marker.txt" }
+      "verification": { "command": "test -f marker.txt", "protectedPaths": [] }
     }
   ]
 }
