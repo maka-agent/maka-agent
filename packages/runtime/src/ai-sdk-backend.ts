@@ -451,7 +451,15 @@ export class AiSdkBackend implements AgentBackend {
       : undefined;
     const seedLoadedNames = deferredCatalog
       ? toolNamesForNamespaces(deferredCatalog, seedNamespaces ?? new Set())
-      : undefined;
+      // No catalog ⇒ deferral is off: advertise every tool, including any tagged
+      // `exposure: 'deferred'`. Without this, a deferred tag with no catalog would
+      // strand the tool off the wire with no `load_tool` to recover it — the
+      // input contract (absent catalog ⇒ all tools advertised) made self-enforcing.
+      : new Set(
+          baseTools
+            .filter((tool) => tool.exposure === 'deferred')
+            .map((tool) => tool.name),
+        );
     const canonicalTools = canonicalizeToolSet(baseTools, invalidTool, seedLoadedNames);
 
     // Per-step active snapshot the execute-boundary guard reads. `prepareStep`
@@ -521,51 +529,66 @@ export class AiSdkBackend implements AgentBackend {
             content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
           },
         ];
-        const toolSchemaChars = toolSchemaCharsForDiagnostics(canonicalTools.providerTools, activeTools);
-        const toolSourceDiagnostic = toolSourceSelection.diagnostic !== undefined
-          ? this.enrichToolSourceDiagnostic(toolSourceSelection.diagnostic, canonicalTools, toolSchemaChars)
-          : undefined;
-        const promptSegments = buildPromptSegmentEstimates({
-          systemPrompt,
-          toolSchemaChars,
-          toolCount: canonicalTools.providerTools.length,
-          priorMessages: priorReplay.messages,
-          priorRuntimeEventCount: priorReplay.runtimeEventCount,
-          currentUserContent,
-          turnTailPrompt,
-        });
-        promptSegmentsForTelemetry = promptSegments;
+        // Diagnostics describe the provider-visible (active) tool subset. A
+        // deferred family loaded *this* turn expands that subset on later steps
+        // (via prepareStep), so the durable cost record is refined against the
+        // final active set once the stream is consumed (see below). Both
+        // computations classify against the same pre-turn baseline. When tool
+        // source economy reduced the surface, its diagnostic is enriched from the
+        // same per-step schema-char measurement.
         contextBudgetForTelemetry = priorReplay.contextBudget;
-        const requestShape = computeRequestShapeDiagnostic({
-          connection: this.input.connection,
-          modelId: this.input.modelId,
-          systemPrompt,
-          providerOptions: this.input.providerOptions,
-          providerTools: canonicalTools.providerTools,
-          activeTools,
-          priorMessages: priorReplay.messages,
-          ...(toolSourceDiagnostic !== undefined
-            ? { toolSourceEconomy: toolSourceDiagnostic }
-            : {}),
-        }, this.priorRequestShape);
+        const priorShapeBaseline = this.priorRequestShape;
+        const computeTurnDiagnostics = (active: readonly string[]) => {
+          const toolSchemaChars = toolSchemaCharsForDiagnostics(canonicalTools.providerTools, active);
+          const toolSourceDiagnostic = toolSourceSelection.diagnostic !== undefined
+            ? this.enrichToolSourceDiagnostic(toolSourceSelection.diagnostic, canonicalTools, toolSchemaChars)
+            : undefined;
+          return {
+            promptSegments: buildPromptSegmentEstimates({
+              systemPrompt,
+              toolSchemaChars,
+              toolCount: canonicalTools.providerTools.length,
+              priorMessages: priorReplay.messages,
+              priorRuntimeEventCount: priorReplay.runtimeEventCount,
+              currentUserContent,
+              turnTailPrompt,
+            }),
+            requestShape: computeRequestShapeDiagnostic({
+              connection: this.input.connection,
+              modelId: this.input.modelId,
+              systemPrompt,
+              providerOptions: this.input.providerOptions,
+              providerTools: canonicalTools.providerTools,
+              activeTools: active,
+              priorMessages: priorReplay.messages,
+              ...(toolSourceDiagnostic !== undefined
+                ? { toolSourceEconomy: toolSourceDiagnostic }
+                : {}),
+            }, priorShapeBaseline),
+          };
+        };
+        // Step-0 (turn-start) view: literally what the first request carries, so
+        // the stream-start trace reports it as the prefix actually sent.
+        let turnDiagnostics = computeTurnDiagnostics(activeTools);
         if (priorReplay.contextBudget?.highWaterReason) {
-          priorReplay.contextBudget.highWaterRequestShapeHashBefore = this.priorRequestShape?.requestShapeHash;
-          priorReplay.contextBudget.highWaterRequestShapeHashAfter = requestShape.requestShapeHash;
+          priorReplay.contextBudget.highWaterRequestShapeHashBefore = priorShapeBaseline?.requestShapeHash;
+          priorReplay.contextBudget.highWaterRequestShapeHashAfter = turnDiagnostics.requestShape.requestShapeHash;
         }
-        requestShapeForTelemetry = requestShape;
-        this.priorRequestShape = requestShape;
+        promptSegmentsForTelemetry = turnDiagnostics.promptSegments;
+        requestShapeForTelemetry = turnDiagnostics.requestShape;
+        this.priorRequestShape = turnDiagnostics.requestShape;
         trace.modelStreamStarted(activeTools, {
-          prefixHash: requestShape.prefixHash,
-          prefixChangeReason: requestShape.prefixChangeReason,
-          requestShapeHash: requestShape.requestShapeHash,
-          requestShapeChangeReason: requestShape.requestShapeChangeReason,
-          ...(requestShape.toolSchemaChangeReason !== undefined
-            ? { toolSchemaChangeReason: requestShape.toolSchemaChangeReason }
+          prefixHash: turnDiagnostics.requestShape.prefixHash,
+          prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+          requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+          requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+          ...(turnDiagnostics.requestShape.toolSchemaChangeReason !== undefined
+            ? { toolSchemaChangeReason: turnDiagnostics.requestShape.toolSchemaChangeReason }
             : {}),
-          ...(requestShape.toolSourceEconomy !== undefined
-            ? { toolSourceEconomy: requestShape.toolSourceEconomy }
+          ...(turnDiagnostics.requestShape.toolSourceEconomy !== undefined
+            ? { toolSourceEconomy: turnDiagnostics.requestShape.toolSourceEconomy }
             : {}),
-          promptSegments,
+          promptSegments: turnDiagnostics.promptSegments,
           ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
         });
 
@@ -600,6 +623,20 @@ export class AiSdkBackend implements AgentBackend {
             onThinking: (t) => { thinkingText += t; },
             onThinkingComplete: (t, sig) => { thinkingText = t; thinkingSignature = sig; },
           });
+        }
+
+        // Same-turn deferred load: prepareStep expanded the provider tool set on
+        // later steps, so refine the durable cost record + prefix baseline against
+        // the final active set — otherwise this turn under-reports the loaded
+        // schema and the cache reset would surface a turn late. No-op when nothing
+        // loaded this turn (the active set length is unchanged; the ratchet only
+        // grows it).
+        const finalActiveTools = currentRepairToolNames();
+        if (finalActiveTools.length !== activeTools.length) {
+          turnDiagnostics = computeTurnDiagnostics(finalActiveTools);
+          promptSegmentsForTelemetry = turnDiagnostics.promptSegments;
+          requestShapeForTelemetry = turnDiagnostics.requestShape;
+          this.priorRequestShape = turnDiagnostics.requestShape;
         }
 
         // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): when the
@@ -657,15 +694,15 @@ export class AiSdkBackend implements AgentBackend {
           if (tokenUsage) {
             trace.usageRecorded({
               ...tokenUsage,
-              prefixHash: requestShape.prefixHash,
-              prefixChangeReason: requestShape.prefixChangeReason,
-              requestShapeHash: requestShape.requestShapeHash,
-              requestShapeChangeReason: requestShape.requestShapeChangeReason,
-              ...(requestShape.toolSchemaChangeReason !== undefined
-                ? { toolSchemaChangeReason: requestShape.toolSchemaChangeReason }
+              prefixHash: turnDiagnostics.requestShape.prefixHash,
+              prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+              requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+              requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+              ...(turnDiagnostics.requestShape.toolSchemaChangeReason !== undefined
+                ? { toolSchemaChangeReason: turnDiagnostics.requestShape.toolSchemaChangeReason }
                 : {}),
-              ...(requestShape.toolSourceEconomy !== undefined
-                ? { toolSourceEconomy: requestShape.toolSourceEconomy }
+              ...(turnDiagnostics.requestShape.toolSourceEconomy !== undefined
+                ? { toolSourceEconomy: turnDiagnostics.requestShape.toolSourceEconomy }
                 : {}),
             });
             const tu: TokenUsageMessage = {
@@ -684,11 +721,11 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
-              prefixHash: requestShape.prefixHash,
-              prefixChangeReason: requestShape.prefixChangeReason,
-              requestShapeHash: requestShape.requestShapeHash,
-              requestShapeChangeReason: requestShape.requestShapeChangeReason,
-              promptSegments,
+              prefixHash: turnDiagnostics.requestShape.prefixHash,
+              prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+              requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+              requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+              promptSegments: turnDiagnostics.promptSegments,
               ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
@@ -708,11 +745,11 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
-              prefixHash: requestShape.prefixHash,
-              prefixChangeReason: requestShape.prefixChangeReason,
-              requestShapeHash: requestShape.requestShapeHash,
-              requestShapeChangeReason: requestShape.requestShapeChangeReason,
-              promptSegments,
+              prefixHash: turnDiagnostics.requestShape.prefixHash,
+              prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+              requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+              requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+              promptSegments: turnDiagnostics.promptSegments,
               ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
             } satisfies TokenUsageEvent);
           }

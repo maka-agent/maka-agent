@@ -51,6 +51,17 @@ export interface RequestShapeDiagnostic {
 
 const NO_LOADED_TOOLS: ReadonlySet<string> = new Set();
 
+/**
+ * Split the registry into the full dispatch set (`providerTools`) and the
+ * model-visible subset (`activeTools`).
+ *
+ * `loadedDeferredNames` is the set of deferred tools to advertise; any
+ * `exposure: 'deferred'` tool NOT in it is withheld from `activeTools`. The
+ * default empty set therefore hides every deferred tool — correct only when a
+ * deferral system (a `load_tool` catalog + prepareStep) is wired to load them
+ * on demand. A caller with deferred-tagged tools but no such system must pass
+ * those names here (or untag them), or the tools become unreachable.
+ */
 export function canonicalizeToolSet(
   tools: readonly MakaTool[],
   invalidTool: MakaTool,

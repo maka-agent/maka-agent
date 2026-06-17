@@ -4,11 +4,13 @@ import { z } from 'zod';
 import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
+import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 
 import { AiSdkBackend, type MakaTool } from '../ai-sdk-backend.js';
 import { PermissionEngine } from '../permission-engine.js';
 import { buildLoadTool, type DeferredToolCatalog } from '../load-tool.js';
+import { canonicalizeToolSet, toolSchemaCharsForDiagnostics } from '../request-shape.js';
 
 // End-to-end through the live AiSdkBackend: the deferred catalog drives the
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
@@ -38,8 +40,15 @@ function tools(implCalls: string[]): MakaTool[] {
   ];
 }
 
-function backend(model: MockLanguageModelV3, implCalls: string[]): AiSdkBackend {
+interface BackendOpts {
+  /** Override the deferred catalog (pass `null` to omit it entirely). */
+  deferredCatalog?: DeferredToolCatalog | null;
+  recordLlmCall?: (record: LlmCallRecord) => void;
+}
+
+function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendOpts = {}): AiSdkBackend {
   let n = 0;
+  const resolvedCatalog = opts.deferredCatalog === null ? undefined : opts.deferredCatalog ?? catalog;
   return new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
@@ -50,7 +59,8 @@ function backend(model: MockLanguageModelV3, implCalls: string[]): AiSdkBackend 
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
     tools: tools(implCalls),
-    deferredCatalog: catalog,
+    ...(resolvedCatalog ? { deferredCatalog: resolvedCatalog } : {}),
+    ...(opts.recordLlmCall ? { recordLlmCall: opts.recordLlmCall } : {}),
     newId: () => `id-${++n}`,
     now: () => 1,
   });
@@ -99,6 +109,48 @@ describe('AiSdkBackend deferred tool loading', () => {
       implCalls,
       [],
       'the real browser_click impl must never run when it was used before activation',
+    );
+  });
+
+  test('diagnostics: a same-turn load is reflected in the recorded tool-schema cost (GPT-Pro P2)', async () => {
+    const records: LlmCallRecord[] = [];
+    const implCalls: string[] = [];
+    // step 0 loads browser; browser_click activates at step 1 via prepareStep.
+    await drain(backend(loadBrowserThenFinishModel(), implCalls, {
+      recordLlmCall: (r) => records.push(r),
+    }).send({ turnId: 'turn-1', text: 'load browser', context: [] }));
+
+    assert.equal(records.length, 1, 'exactly one llm-call cost record for the turn');
+    const toolSeg = records[0].promptSegments?.find((s) => s.kind === 'tool_schema');
+    assert.ok(toolSeg, 'a tool_schema prompt segment was recorded');
+
+    // The recorded cost must reflect the FINAL active set (Read + load_tool +
+    // browser_click), not the lean step-0 set — otherwise the load turn
+    // under-reports the heavy schema it actually sent on step 1.
+    const providerTools = canonicalizeToolSet(tools([]), INVALID_FIXTURE).providerTools;
+    const leanChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', 'load_tool']);
+    const loadedChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', 'load_tool', 'browser_click']);
+    assert.ok(loadedChars > leanChars, 'sanity: the loaded set is heavier than the lean set');
+    assert.equal(toolSeg.chars, loadedChars, 'recorded tool-schema chars include the loaded browser_click');
+    assert.equal(
+      records[0].requestShapeChangeReason,
+      'first_turn',
+      'first turn establishes the baseline; the expansion sets the durable prefix for next turn',
+    );
+  });
+
+  test('no catalog: a deferred-tagged tool stays advertised (GPT-Pro P3)', async () => {
+    const captured: string[][] = [];
+    const implCalls: string[] = [];
+    // No deferredCatalog ⇒ deferral is off ⇒ the contract is "advertise everything".
+    await drain(backend(capturingModel(captured), implCalls, { deferredCatalog: null }).send({
+      turnId: 'turn-1',
+      text: 'hi',
+      context: [],
+    }));
+    assert.ok(
+      captured[0].includes('browser_click'),
+      'a tool tagged exposure:deferred must still be advertised when no catalog is configured',
     );
   });
 
@@ -153,6 +205,36 @@ function parallelLoadUseModel(captured: string[][]): MockLanguageModelV3 {
             { type: 'stream-start', warnings: [] },
             { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
           ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
+/** Placeholder invalid tool — only used to build providerTools for char math. */
+const INVALID_FIXTURE: MakaTool = {
+  name: 'invalid',
+  description: 'x',
+  parameters: z.object({}),
+  impl: () => ({}),
+};
+
+/** Step 0 loads the browser namespace, then the turn finishes (no use). */
+function loadBrowserThenFinishModel(): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doStream: async () => {
+      step += 1;
+      const parts: LanguageModelV3StreamPart[] =
+        step === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', toolCallId: 'tc-load', toolName: 'load_tool', input: JSON.stringify({ namespace: 'browser' }) },
+              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+            ];
       return { stream: convertArrayToReadableStream(parts) };
     },
   });
