@@ -91,8 +91,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const aiSdkFlow = new AiSdkFlow({
       backend: begin.backend,
       drainAfterTerminal: true,
-      onSessionEvent: async (sessionEvent) => {
+      onSessionEvent: async (sessionEvent, runtimeEvent) => {
         await run.recordSessionEvent(sessionEvent);
+        await run.recordRuntimeEvents([runtimeEvent]);
         await sessionEvents.push(sessionEvent);
       },
       onError: async (error) => {
@@ -110,6 +111,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const runner = new RuntimeRunner({
       flow: aiSdkFlow,
       providers: { newId: this.deps.newId, now: this.deps.now },
+      onInitialRuntimeEvent: (event) => run.recordRuntimeEvents([event]),
       stopOnTerminal: false,
     });
     const runnerResult = runner.run({
@@ -124,7 +126,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
       lineage: run.lineage,
       abortSignal: abortController.signal,
     }).then(async (result) => {
-      await run.recordRuntimeEvents(result.events);
       await this.deps.runtimeInvocationObserver?.(result);
       return result;
     }, (error) => {
