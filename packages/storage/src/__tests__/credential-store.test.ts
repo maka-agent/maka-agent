@@ -1,0 +1,239 @@
+import assert from 'node:assert/strict';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, test } from 'node:test';
+import {
+  CREDENTIAL_SCHEMA_VERSION,
+  createFileCredentialStore,
+  withCredentialFileLock,
+  type CredentialKind,
+} from '../credential-store.js';
+
+const isPosix = process.platform !== 'win32';
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-cred-'));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+describe('FileCredentialStore', () => {
+  test('round-trips secrets and returns null for missing ones', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      assert.equal(await store.getSecret('openai-prod', 'api_key'), null);
+
+      await store.setSecret('openai-prod', 'api_key', 'sk-test-123');
+      assert.equal(await store.getSecret('openai-prod', 'api_key'), 'sk-test-123');
+
+      await store.deleteSecret('openai-prod', 'api_key');
+      assert.equal(await store.getSecret('openai-prod', 'api_key'), null);
+    });
+  });
+
+  test('deleteSecret(slug) with no kind clears every kind for that slug only', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('a', 'api_key', 'key-a');
+      await store.setSecret('a', 'oauth_token', 'tok-a');
+      await store.setSecret('b', 'api_key', 'key-b');
+
+      await store.deleteSecret('a');
+
+      assert.equal(await store.getSecret('a', 'api_key'), null);
+      assert.equal(await store.getSecret('a', 'oauth_token'), null);
+      assert.equal(await store.getSecret('b', 'api_key'), 'key-b');
+    });
+  });
+
+  test('writes a versioned, plaintext (file-first) file', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('openai-prod', 'api_key', 'sk-plain');
+
+      const raw = JSON.parse(await readFile(join(dir, 'credentials.json'), 'utf8')) as {
+        version: number;
+        values: Record<string, string>;
+      };
+      assert.equal(raw.version, CREDENTIAL_SCHEMA_VERSION);
+      // File-first: the value is stored as plaintext, not encoded.
+      assert.equal(raw.values['openai-prod:apiKey'], 'sk-plain');
+    });
+  });
+
+  test('reading an unknown / pre-migration schema fails closed', async () => {
+    await withTempDir(async (dir) => {
+      const path = join(dir, 'credentials.json');
+
+      // Legacy file: no `version` field (the safeStorage-era shape).
+      await writeFile(path, JSON.stringify({ values: { 'x:apiKey': 'enc' } }), 'utf8');
+      const legacy = createFileCredentialStore(dir);
+      await assert.rejects(legacy.getSecret('x', 'api_key'), /schema version/);
+
+      // Future version we don't understand.
+      await writeFile(path, JSON.stringify({ version: 999, values: {} }), 'utf8');
+      const future = createFileCredentialStore(dir);
+      await assert.rejects(future.getSecret('x', 'api_key'), /schema version/);
+    });
+  });
+
+  test('leaves no temp file behind after a write', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('a', 'api_key', 'k');
+      const entries = await readdir(dir);
+      assert.deepEqual(entries, ['credentials.json']);
+    });
+  });
+
+  test('creates the file 0600 on POSIX', { skip: !isPosix }, async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('a', 'api_key', 'k');
+      const mode = (await stat(join(dir, 'credentials.json'))).mode & 0o777;
+      assert.equal(mode, 0o600);
+    });
+  });
+
+  test('re-chmods a pre-existing world-readable file to 0600 on write', { skip: !isPosix }, async () => {
+    await withTempDir(async (dir) => {
+      const path = join(dir, 'credentials.json');
+      // A valid v1 file that was created with a loose mode.
+      await writeFile(path, JSON.stringify({ version: CREDENTIAL_SCHEMA_VERSION, values: {} }), {
+        encoding: 'utf8',
+        mode: 0o644,
+      });
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('a', 'api_key', 'k');
+      const mode = (await stat(path)).mode & 0o777;
+      assert.equal(mode, 0o600);
+    });
+  });
+
+  test('hardens a pre-existing world-accessible workspace dir to 0700 on write', { skip: !isPosix }, async () => {
+    await withTempDir(async (dir) => {
+      await chmod(dir, 0o777); // a loose dir that predates the hardening
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('a', 'api_key', 'k');
+      // ensureSecretDir re-chmods an existing dir (mkdir's mode only applies on
+      // creation); the writer and the lock share it, so the lock can't leave
+      // the dir loose either.
+      assert.equal((await stat(dir)).mode & 0o777, 0o700);
+    });
+  });
+
+  test('serializes concurrent writes across slugs without clobbering', async () => {
+    await withTempDir(async (dir) => {
+      // With no in-instance queue, these contend directly on the file lock —
+      // this proves the lock alone serializes a read-modify-write so no slug is
+      // dropped. A handful is enough; more just adds lock-poll wall-clock.
+      const store = createFileCredentialStore(dir);
+      const count = 8;
+      await Promise.all(
+        Array.from({ length: count }, (_unused, i) => store.setSecret(`conn-${i}`, 'api_key', `key-${i}`)),
+      );
+      for (let i = 0; i < count; i++) {
+        assert.equal(await store.getSecret(`conn-${i}`, 'api_key'), `key-${i}`);
+      }
+    });
+  });
+
+  test('two independent store instances writing concurrently both survive (cross-process lock)', async () => {
+    await withTempDir(async (dir) => {
+      // Separate instances => separate in-instance queues; only the file
+      // lock can stop a read-modify-write lost update between them.
+      const a = createFileCredentialStore(dir);
+      const b = createFileCredentialStore(dir);
+      await Promise.all([
+        a.setSecret('slug-a', 'api_key', 'AAA'),
+        b.setSecret('slug-b', 'api_key', 'BBB'),
+      ]);
+
+      const reader = createFileCredentialStore(dir);
+      assert.equal(await reader.getSecret('slug-a', 'api_key'), 'AAA');
+      assert.equal(await reader.getSecret('slug-b', 'api_key'), 'BBB');
+    });
+  });
+
+  test('a held lock is waited on, never stolen (no lost update)', async () => {
+    await withTempDir(async (dir) => {
+      const path = join(dir, 'credentials.json');
+      // Hold the lock as another process (or a crashed one) would: the lock is
+      // the `${path}.lock` directory. The store must wait for it, never steal it.
+      const lockPath = `${path}.lock`;
+      await mkdir(lockPath);
+
+      const store = createFileCredentialStore(dir);
+      let settled = false;
+      const write = store.setSecret('a', 'api_key', 'V').then(() => {
+        settled = true;
+      });
+
+      // The lock is held, so the write is blocked before its critical section:
+      // it must not steal the lock and must not have written the file yet.
+      await assert.rejects(stat(path)); // file absent — proven blocked, not stolen
+      assert.equal(settled, false);
+
+      await rm(lockPath, { recursive: true, force: true }); // release
+      await write;
+      assert.equal(await store.getSecret('a', 'api_key'), 'V'); // proceeds only once the lock frees
+    });
+  });
+
+  test('a never-released lock fails loud with the lock path and recovery hint', async () => {
+    await withTempDir(async (dir) => {
+      const path = join(dir, 'credentials.json');
+      await mkdir(`${path}.lock`); // a crashed holder's lock that never releases
+      // A small timeout drives the fail-loud path without the production wait.
+      // The error must name the lock dir AND how to recover, so the guidance
+      // can't silently regress.
+      await assert.rejects(
+        withCredentialFileLock(path, async () => 'unreachable', 60),
+        (error: Error) =>
+          error.message.includes(`${path}.lock`)
+          && /remove that directory and retry/.test(error.message),
+      );
+    });
+  });
+});
+
+describe('FileCredentialStore secret-kind + slug contract', () => {
+  // The on-disk stored-kind suffixes are a backward-compat contract: a
+  // migrated legacy file keeps the same `slug:kind` keys, so the suffix
+  // names must not drift.
+  const kindToStoredSuffix: Array<[CredentialKind, string]> = [
+    ['api_key', 'apiKey'],
+    ['oauth_token', 'oauthToken'],
+    ['bot_token', 'botToken'],
+    ['app_secret', 'botAppSecret'],
+    ['proxy_password', 'proxyPassword'],
+    ['gateway_token', 'gatewayToken'],
+    ['tavily_api_key', 'tavilyApiKey'],
+  ];
+
+  test('preserves the legacy stored-key suffix for every kind', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      // The generic API expresses every kind — including the bot/proxy/gateway/
+      // tavily secrets the migration carries — as `${slug}:${suffix}`. The
+      // caller owns the slug, so a key never derives from a secret value.
+      for (const [kind] of kindToStoredSuffix) {
+        await store.setSecret('settings:bot:telegram', kind, `val-${kind}`);
+      }
+      const raw = JSON.parse(await readFile(join(dir, 'credentials.json'), 'utf8')) as {
+        values: Record<string, string>;
+      };
+      for (const [kind, suffix] of kindToStoredSuffix) {
+        assert.equal(
+          raw.values[`settings:bot:telegram:${suffix}`],
+          `val-${kind}`,
+          `${kind} -> settings:bot:telegram:${suffix}`,
+        );
+      }
+    });
+  });
+});

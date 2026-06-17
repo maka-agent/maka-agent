@@ -1,0 +1,391 @@
+import { randomUUID } from 'node:crypto';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+
+/**
+ * Pure-Node credential store. Shared by the desktop app and any
+ * headless consumer (CLI / eval harness / third party) that runs the
+ * runtime outside Electron.
+ *
+ * At rest this is plaintext JSON behind 0600 file perms (file-first;
+ * see issue #32). The OS user account is the security boundary
+ * (SECURITY.md). At-rest encryption (an OS keychain via a pure-Node
+ * binding, or a passphrase) is a later addition — deliberately deferred
+ * until there is a real backend, so its sync/async shape is designed
+ * against that backend instead of guessed now.
+ *
+ * Writes are serialized across processes by an atomic-mkdir lockfile that is
+ * never stolen (see withCredentialFileLock), so two store instances (or
+ * processes) sharing one file can't lose each other's update through a
+ * read-modify-write race.
+ *
+ * Secret VALUES are never logged. Callers expose the typed
+ * `CredentialStore` API to third parties — never the raw file format,
+ * which stays an internal implementation detail.
+ */
+
+type StoredCredentialKind =
+  | 'apiKey'
+  | 'oauthToken'
+  | 'botToken'
+  | 'botAppSecret'
+  | 'proxyPassword'
+  | 'gatewayToken'
+  | 'tavilyApiKey';
+export type CredentialKind =
+  | 'api_key'
+  | 'oauth_token'
+  | 'bot_token'
+  | 'app_secret'
+  | 'proxy_password'
+  | 'gateway_token'
+  | 'tavily_api_key';
+
+/** Current on-disk schema version. Unknown versions fail closed on read. */
+export const CREDENTIAL_SCHEMA_VERSION = 1;
+
+interface CredentialFile {
+  version: number;
+  values: Record<string, string>;
+}
+
+export interface CredentialStore {
+  getSecret(slug: string, kind: CredentialKind): Promise<string | null>;
+  setSecret(slug: string, kind: CredentialKind, value: string): Promise<void>;
+  /** Delete one kind, or — with no kind — every kind for the slug (e.g. a
+   *  connection being removed). */
+  deleteSecret(slug: string, kind?: CredentialKind): Promise<void>;
+}
+
+export function createFileCredentialStore(workspaceRoot: string): CredentialStore {
+  return new FileCredentialStore(join(workspaceRoot, 'credentials.json'));
+}
+
+/**
+ * Injected decryptor for the one-time legacy migration. The legacy
+ * credentials.json stored each secret as an opaque, externally-encrypted string
+ * (Electron `safeStorage`, base64-wrapped); only the desktop main process can
+ * decrypt it. The migration lives here so it shares the live store's lock and
+ * atomic writer, but the crypto stays the caller's: desktop passes a decryptor
+ * backed by `safeStorage`, while a headless caller has none and never runs it.
+ */
+export interface LegacyCredentialDecryptor {
+  /** Whether decryption is currently possible. If false, the migration aborts
+   *  and leaves the encrypted file untouched (never destroy unrecoverable
+   *  secrets). */
+  isAvailable(): boolean;
+  /** Decrypt one legacy stored value to plaintext. */
+  decrypt(storedValue: string): string;
+}
+
+/**
+ * One-time migration of a legacy (pre-version, externally-encrypted)
+ * credentials.json to the shared v1 plaintext-0600 shape, in place.
+ *
+ * Runs under the SAME cross-process lock as the live store and re-reads inside
+ * it, so a racing process that already migrated (and a live writer that added a
+ * newer secret) is never clobbered by a stale snapshot. Idempotent: a no-op
+ * when the file is missing or already v1. Fails closed: an unexpected version,
+ * a malformed `values`, or a decryptor that is unavailable while there are
+ * values to decrypt throws and leaves the file untouched rather than risk
+ * tombstoning unrecoverable secrets.
+ *
+ * Tombstone, not dual-active: a successful run rewrites every value as
+ * plaintext, so no decryptable copy survives.
+ */
+export async function migrateLegacyCredentialFile(
+  path: string,
+  decryptor: LegacyCredentialDecryptor,
+): Promise<void> {
+  await withCredentialFileLock(path, async () => {
+    let raw: string;
+    try {
+      raw = await readFile(path, 'utf8');
+    } catch (error) {
+      if ((error as { code?: string }).code === 'ENOENT') return; // nothing to migrate
+      throw error;
+    }
+
+    const parsed = JSON.parse(raw) as { version?: number; values?: Record<string, string> };
+    if (parsed.version === CREDENTIAL_SCHEMA_VERSION) return; // already migrated (possibly by a racing process)
+    if (parsed.version !== undefined) {
+      throw new Error(`Cannot migrate credentials.json: unexpected schema version ${parsed.version}.`);
+    }
+
+    const legacy = parsed.values;
+    if (legacy === null || typeof legacy !== 'object' || Array.isArray(legacy)) {
+      throw new Error('Cannot migrate credentials.json: missing or malformed `values`. Leaving it untouched.');
+    }
+    const entries = Object.entries(legacy);
+    // Every legacy value must be a string we can hand to the decryptor. A
+    // non-string entry means a corrupt or foreign file, so fail closed and
+    // leave it untouched rather than feed garbage to decrypt — the same
+    // per-value guarantee the v1 reader enforces.
+    for (const [key, storedValue] of entries) {
+      if (typeof storedValue !== 'string') {
+        throw new Error(
+          `Cannot migrate credentials.json: value for "${key}" is not a string. Leaving it untouched.`,
+        );
+      }
+    }
+    // Only the actual decryption needs the decryptor. An empty legacy file has
+    // nothing to decrypt, so it must still migrate to the v1 empty shape even
+    // when the decryptor is unavailable — otherwise a user who deleted their
+    // last secret under the old store, on a box where safeStorage is now
+    // unavailable, would be stuck: the v1 store refuses the unversioned file and
+    // the migration would refuse to stamp it.
+    if (entries.length > 0 && !decryptor.isAvailable()) {
+      throw new Error(
+        'Cannot migrate credentials.json: the legacy decryptor is unavailable. Leaving the encrypted file untouched.',
+      );
+    }
+
+    // Decrypt EVERY legacy value to plaintext. Keys are preserved verbatim
+    // (slugs can contain ':', so we never parse them apart).
+    const migrated: Record<string, string> = {};
+    for (const [key, storedValue] of entries) {
+      migrated[key] = decryptor.decrypt(storedValue);
+    }
+
+    await writeSecretFileAtomic(
+      path,
+      JSON.stringify({ version: CREDENTIAL_SCHEMA_VERSION, values: migrated }, null, 2) + '\n',
+    );
+  });
+}
+
+class FileCredentialStore implements CredentialStore {
+  constructor(private readonly path: string) {}
+
+  getSecret(slug: string, kind: CredentialKind): Promise<string | null> {
+    return this.get(slug, toStoredKind(kind));
+  }
+
+  setSecret(slug: string, kind: CredentialKind, value: string): Promise<void> {
+    return this.set(slug, toStoredKind(kind), value);
+  }
+
+  async deleteSecret(slug: string, kind?: CredentialKind): Promise<void> {
+    await this.mutate((values) => {
+      if (kind) {
+        delete values[this.key(slug, toStoredKind(kind))];
+        return;
+      }
+      // No kind: clear every kind for the slug in one read-modify-write.
+      for (const storedKind of STORED_CREDENTIAL_KINDS) {
+        delete values[this.key(slug, storedKind)];
+      }
+    });
+  }
+
+  private async get(slug: string, kind: StoredCredentialKind): Promise<string | null> {
+    const value = (await this.readUnlocked()).values[this.key(slug, kind)];
+    return value === undefined ? null : value;
+  }
+
+  private set(slug: string, kind: StoredCredentialKind, value: string): Promise<void> {
+    return this.mutate((values) => {
+      values[this.key(slug, kind)] = value;
+    });
+  }
+
+  /**
+   * Read-modify-write the whole file under the cross-process lockfile. The lock
+   * serializes concurrent calls on this instance and a second store instance /
+   * process alike, so one mechanism covers both — no separate in-instance queue.
+   */
+  private mutate(apply: (values: Record<string, string>) => void): Promise<void> {
+    return withCredentialFileLock(this.path, async () => {
+      const file = await this.readUnlocked();
+      apply(file.values);
+      await this.write(file);
+    });
+  }
+
+  private key(slug: string, kind: StoredCredentialKind): string {
+    return `${slug}:${kind}`;
+  }
+
+  private async readUnlocked(): Promise<CredentialFile> {
+    let raw: string;
+    try {
+      raw = await readFile(this.path, 'utf8');
+    } catch (error) {
+      if ((error as { code?: string }).code === 'ENOENT') {
+        return { version: CREDENTIAL_SCHEMA_VERSION, values: {} };
+      }
+      throw error;
+    }
+    const parsed = JSON.parse(raw) as Partial<CredentialFile>;
+    // Fail closed on an unknown / pre-migration schema. A legacy file
+    // (safeStorage-encrypted, no `version`) lands here as `undefined`
+    // and must be migrated by the desktop importer before use — we do
+    // not silently start a parallel plaintext store next to it.
+    if (parsed.version !== CREDENTIAL_SCHEMA_VERSION) {
+      throw new Error(
+        `Unsupported credentials.json schema version: ${String(parsed.version)} `
+          + `(expected ${CREDENTIAL_SCHEMA_VERSION}). Open the desktop app once to migrate, `
+          + `or re-authenticate. If migration keeps failing, a stale lock may be blocking it — `
+          + `remove ${this.path}.lock and retry.`,
+      );
+    }
+    // A v1 file must carry a well-formed `values` map. Treat a missing or
+    // malformed `values` as corruption and fail closed rather than silently
+    // serving an empty store (which would read as "no credentials").
+    const values = parsed.values;
+    if (values === null || typeof values !== 'object' || Array.isArray(values)) {
+      throw new Error('Corrupt credentials.json: `values` is missing or not an object.');
+    }
+    for (const [k, v] of Object.entries(values)) {
+      if (typeof v !== 'string') {
+        throw new Error(`Corrupt credentials.json: value for "${k}" is not a string.`);
+      }
+    }
+    return { version: CREDENTIAL_SCHEMA_VERSION, values: values as Record<string, string> };
+  }
+
+  private write(file: CredentialFile): Promise<void> {
+    return writeSecretFileAtomic(this.path, JSON.stringify(file, null, 2) + '\n');
+  }
+}
+
+/**
+ * Create (or harden) the directory that holds a secret file: 0700, and
+ * re-chmod a pre-existing looser dir so neither the secret nor the lock can sit
+ * world-readable. mkdir's mode only applies on creation, so the chmod is what
+ * fixes an existing dir. On POSIX a chmod failure fails closed (we must not
+ * write plaintext credentials into a dir we couldn't lock down); no-op on
+ * Windows. Shared by the writer and the lock so their dir hardening can't drift.
+ */
+async function ensureSecretDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await chmodStrict(dir, 0o700);
+}
+
+/**
+ * Owner-only atomic write for a credentials file: a 0700 dir, an exclusive
+ * 0600 temp ('wx'/O_EXCL so we never follow a pre-planted symlink at a
+ * predictable path), 0600 re-enforced, an atomic rename, and temp cleanup on
+ * failure. Shared by the live store and the one-time migration so the hardening
+ * can't drift between the two write paths.
+ */
+async function writeSecretFileAtomic(path: string, contents: string): Promise<void> {
+  await ensureSecretDir(dirname(path));
+  const tempPath = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, contents, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await chmodStrict(tempPath, 0o600);
+    await rename(tempPath, path);
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    throw error;
+  }
+}
+
+/**
+ * chmod that fails loud on POSIX and is best-effort on Windows. A secret file
+ * or its directory left looser than intended breaks the 0600/0700 boundary, so
+ * on POSIX we surface the failure rather than write plaintext into it; Windows
+ * has no POSIX mode, so a failure there is a no-op. One policy for both the
+ * secret file (0600) and its directory (0700) so they can't drift apart.
+ */
+async function chmodStrict(path: string, mode: number): Promise<void> {
+  if (process.platform === 'win32') {
+    await chmod(path, mode).catch(() => {});
+    return;
+  }
+  await chmod(path, mode);
+}
+
+// A contended acquire polls this often, then fails loud after the timeout.
+const LOCK_POLL_MS = 25;
+const LOCK_TIMEOUT_MS = 10_000;
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Serialize a read-modify-write across processes / store instances that share
+ * one credentials.json, so two writers can't lose each other's update through a
+ * read, read, write, write race.
+ *
+ * Acquire is an atomic `mkdir` of `${targetPath}.lock` (POSIX mkdir is atomic
+ * and fails EEXIST if it already exists); release deletes it. The lock is NEVER
+ * stolen — a held or leftover lock is waited on, then we fail loud. That is the
+ * whole design, and the reason it is correct. Every "detect a crashed holder's
+ * stale lock, then remove it and re-acquire" scheme — the earlier hand-rolled
+ * ones AND proper-lockfile — is a TOCTOU race: between judging a lock stale and
+ * deleting it, another contender can reclaim it, so the delete drops a live
+ * lock and both writers enter the critical section. There is no safe userspace
+ * compare-and-steal, so we do not steal at all.
+ *
+ * The cost: a hard crash (SIGKILL / power loss) mid-write leaves the lock
+ * directory behind, and the next writer fails loud until it is removed — an
+ * explicit, one-command recovery, never a silent lost update. A clean exit or a
+ * completed write releases it via the finally. credentials.json is written
+ * rarely and is local, so this is the right trade for credential data. Used by
+ * both the live store and the one-time migration so they serialize on one lock.
+ *
+ * `timeoutMs` defaults to LOCK_TIMEOUT_MS; it is a parameter only so a test can
+ * drive the fail-loud path with a small value. Exported for that test — it is
+ * deliberately NOT re-exported from index.ts, so the package's public surface
+ * stays the typed store + migration and callers can't drive the lock directly.
+ */
+export async function withCredentialFileLock<T>(
+  targetPath: string,
+  fn: () => Promise<T>,
+  timeoutMs: number = LOCK_TIMEOUT_MS,
+): Promise<T> {
+  const lockPath = `${targetPath}.lock`;
+  // mkdir (the acquire below) is atomic but needs its parent to exist; harden it
+  // to 0700 the same way the writer does so the lock dir never sits loose.
+  await ensureSecretDir(dirname(targetPath));
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EEXIST') throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `credentials.json is locked by another process (${lockPath}). `
+            + 'If no other process is using it, remove that directory and retry.',
+        );
+      }
+      await delay(LOCK_POLL_MS);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
+}
+
+const STORED_CREDENTIAL_KINDS = [
+  'apiKey',
+  'oauthToken',
+  'botToken',
+  'botAppSecret',
+  'proxyPassword',
+  'gatewayToken',
+  'tavilyApiKey',
+] as const satisfies readonly StoredCredentialKind[];
+
+function toStoredKind(kind: CredentialKind): StoredCredentialKind {
+  switch (kind) {
+    case 'api_key':
+      return 'apiKey';
+    case 'oauth_token':
+      return 'oauthToken';
+    case 'bot_token':
+      return 'botToken';
+    case 'app_secret':
+      return 'botAppSecret';
+    case 'proxy_password':
+      return 'proxyPassword';
+    case 'gateway_token':
+      return 'gatewayToken';
+    case 'tavily_api_key':
+      return 'tavilyApiKey';
+  }
+}
