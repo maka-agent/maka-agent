@@ -237,6 +237,16 @@ export interface ContextBudgetDiagnostic {
   synthesisCacheWriteFailures?: number;
   synthesisCacheEvicted?: number;
   synthesisCacheEvictionReasonCounts?: Record<string, number>;
+  historyCompactEnabled?: boolean;
+  historyCompactMode?: 'off' | 'deterministic';
+  historyCompactBlockIds?: string[];
+  historyCompactedTurns?: number;
+  historyCompactedEvents?: number;
+  historyCompactedEstimatedTokensBefore?: number;
+  historyCompactedEstimatedTokensAfter?: number;
+  historyCompactSkipped?: number;
+  historyCompactSkippedReasonCounts?: Record<string, number>;
+  historyCompactCoverageHashes?: string[];
   highWaterName?: string;
   highWaterSeq?: number;
   highWaterReason?:
@@ -244,6 +254,7 @@ export interface ContextBudgetDiagnostic {
     | 'history_search_gated_retrieval'
     | 'synthesis_cache_write'
     | 'synthesis_cache_select'
+    | 'history_compact'
     | 'manual_reset'
     | 'system_change'
     | 'tools_change'
