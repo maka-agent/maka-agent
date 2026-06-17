@@ -622,6 +622,25 @@ describe('open gateway settings contract', () => {
     expect(patched.workspaceInstructions.enabled).toBe(false);
   });
 
+  test('workspace privacy defaults to non-incognito and normalizes strictly', () => {
+    const defaults = createDefaultSettings();
+
+    expect(defaults.privacy.incognitoActive).toBe(false);
+    expect(normalizeSettings({ privacy: { incognitoActive: true } }).privacy.incognitoActive).toBe(true);
+    expect(normalizeSettings({ privacy: { incognitoActive: 'yes' } }).privacy.incognitoActive).toBe(false);
+    expect(normalizeSettings({}).privacy.incognitoActive).toBe(false);
+  });
+
+  test('mergeSettings carries privacy toggle through update surface', () => {
+    const patched = mergeSettings(createDefaultSettings(), {
+      privacy: {
+        incognitoActive: true,
+      },
+    });
+
+    expect(patched.privacy.incognitoActive).toBe(true);
+  });
+
   // PR-BOT-USER-ALLOWLIST-0 — settings shape normalization. The runtime gate
   // (isAllowedUser in @maka/runtime/bots/simple-bridge) is covered separately.
   // These tests exercise `normalizeSettings`, which is the boundary that

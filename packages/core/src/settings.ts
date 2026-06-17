@@ -243,6 +243,10 @@ export interface WorkspaceInstructionsSettings {
   enabled: boolean;
 }
 
+export interface PrivacySettings {
+  incognitoActive: boolean;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   network: NetworkSettings;
@@ -255,6 +259,7 @@ export interface AppSettings {
   webSearch: WebSearchSettings;
   localMemory: LocalMemorySettings;
   workspaceInstructions: WorkspaceInstructionsSettings;
+  privacy: PrivacySettings;
 }
 
 export interface UsageRequestLog {
@@ -319,6 +324,7 @@ export type UpdateAppSettingsInput = Partial<{
   openGateway: Partial<OpenGatewaySettings>;
   localMemory: Partial<LocalMemorySettings>;
   workspaceInstructions: Partial<WorkspaceInstructionsSettings>;
+  privacy: Partial<PrivacySettings>;
   webSearch: Partial<{
     enabled: boolean;
     defaultProvider: WebSearchProvider;
@@ -439,6 +445,7 @@ export function createDefaultSettings(): AppSettings {
     workspaceInstructions: {
       enabled: true,
     },
+    privacy: defaultPrivacySettings(),
   };
 }
 
@@ -506,6 +513,9 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
     workspaceInstructions: patch.workspaceInstructions
       ? normalizeWorkspaceInstructionsSettings({ ...current.workspaceInstructions, ...patch.workspaceInstructions })
       : current.workspaceInstructions,
+    privacy: patch.privacy
+      ? normalizePrivacySettings({ ...current.privacy, ...patch.privacy })
+      : current.privacy,
     webSearch: mergeWebSearchSettings(current.webSearch, patch.webSearch),
   };
 }
@@ -587,6 +597,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     webSearch: value.webSearch,
     localMemory: value.localMemory,
     workspaceInstructions: value.workspaceInstructions,
+    privacy: value.privacy,
   });
   // PR110b: milestones bypass the generic patch surface so we can
   // sanitize them with the closed-enum + at-most-one validator on
@@ -650,12 +661,23 @@ export function normalizeSettings(input: unknown): AppSettings {
     webSearch: normalizeWebSearchSettings(base.webSearch),
     localMemory: normalizeLocalMemorySettings(base.localMemory),
     workspaceInstructions: normalizeWorkspaceInstructionsSettings(base.workspaceInstructions),
+    privacy: normalizePrivacySettings(base.privacy),
   };
 }
 
 function normalizeWorkspaceInstructionsSettings(settings: WorkspaceInstructionsSettings): WorkspaceInstructionsSettings {
   return {
     enabled: settings.enabled !== false,
+  };
+}
+
+function defaultPrivacySettings(): PrivacySettings {
+  return { incognitoActive: false };
+}
+
+function normalizePrivacySettings(settings: PrivacySettings): PrivacySettings {
+  return {
+    incognitoActive: settings.incognitoActive === true,
   };
 }
 

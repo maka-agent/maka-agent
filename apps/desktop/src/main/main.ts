@@ -99,7 +99,7 @@ import {
   AntigravitySubscriptionService,
   isAntigravitySubscriptionExperimentalEnabled,
 } from './oauth/antigravity-subscription-service.js';
-import { defaultWorkspacePrivacyContext } from '@maka/core/incognito';
+import type { WorkspacePrivacyContext } from '@maka/core/incognito';
 import type {
   PricingConfig,
   UsageGroupBy,
@@ -198,7 +198,7 @@ import {
 } from './visual-smoke-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
-import { LocalMemoryService } from './local-memory-service.js';
+import { LocalMemoryService, type LocalMemoryPromptUpdate } from './local-memory-service.js';
 import {
   createAttachmentApprovalRegistry,
   validateRendererAttachments,
@@ -515,11 +515,17 @@ async function normalizeUpdateConnectionInput(
 }
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
+
+async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
+  const settings = await settingsStore.get();
+  return { incognitoActive: settings.privacy.incognitoActive === true };
+}
+
 const localMemory = new LocalMemoryService({
   workspaceRoot,
   getSettings: () => settingsStore.get(),
   updateSettings: (patch) => settingsStore.update(patch),
-  getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
+  getPrivacyContext: getWorkspacePrivacyContext,
 });
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
@@ -539,7 +545,7 @@ const openGateway = new OpenGatewayService({
     runThreadSearch({ source: 'thread', query }, {
       listSessions: () => runtime.listSessions(),
       readMessages: (sessionId: string) => runtime.getMessages(sessionId),
-      getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
+      getPrivacyContext: getWorkspacePrivacyContext,
     }),
   onStatusChanged: (status) => {
     mainWindow?.webContents.send('gateway:statusChanged', status);
@@ -565,7 +571,7 @@ const builtinTools = [
   // prompts the user in explore / ask modes.
   buildWebSearchAgentTool({
     settingsStore,
-    getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
+    getPrivacyContext: getWorkspacePrivacyContext,
   }),
   buildRiveWorkflowTool(),
   // Embedded-browser observe→act tools. They drive the conversation's own
@@ -779,6 +785,7 @@ function isInsideOrSamePath(root: string, target: string): boolean {
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
+  const memoryPromptSnapshot = await buildLocalMemoryPromptFragment();
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -792,7 +799,7 @@ backends.register('ai-sdk', async (ctx) => {
     tools: builtinTools,
     providerOptions: buildProviderOptions(connection, model),
     contextBudget: buildContextBudgetPolicy(connection),
-    systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd),
+    systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd, { memoryFragment: memoryPromptSnapshot }),
     turnTailPrompt: ({ cwd }) => buildTurnTailPrompt(cwd),
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
@@ -1675,6 +1682,83 @@ function registerIpc(): void {
     return { ok: true, opened: resolved.key };
   });
   ipcMain.handle('memory:getState', async (): Promise<LocalMemoryState> => localMemory.getState());
+  ipcMain.handle('memory:listProposals', async () => localMemory.listProposals());
+  ipcMain.handle('memory:propose', async (_event, input: unknown) => {
+    const proposal = normalizeMemoryTextInput(input);
+    if (!proposal) {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆提议参数无效。',
+      };
+    }
+    return localMemory.proposeMemory({
+      title: proposal.title,
+      content: proposal.content,
+      scope: proposal.scope,
+    });
+  });
+  ipcMain.handle('memory:remember', async (_event, input: unknown) => {
+    const memory = normalizeMemoryTextInput(input);
+    if (!memory) {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆参数无效。',
+      };
+    }
+    return localMemory.rememberUserAuthored({
+      title: memory.title,
+      content: memory.content,
+      scope: memory.scope,
+    });
+  });
+  ipcMain.handle('memory:approveProposal', async (_event, proposalId: unknown) => {
+    if (typeof proposalId !== 'string') {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆提议 ID 无效。',
+      };
+    }
+    return localMemory.approveProposal(proposalId);
+  });
+  ipcMain.handle('memory:rejectProposal', async (_event, proposalId: unknown) => {
+    if (typeof proposalId !== 'string') {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆提议 ID 无效。',
+      };
+    }
+    return localMemory.rejectProposal(proposalId);
+  });
+  ipcMain.handle('memory:archiveEntry', async (_event, entryId: unknown, reason: unknown) => {
+    if (typeof entryId !== 'string') {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆 ID 无效。',
+      };
+    }
+    return localMemory.archiveEntry(entryId, typeof reason === 'string' ? reason : undefined);
+  });
+  ipcMain.handle('memory:restoreEntry', async (_event, entryId: unknown) => {
+    if (typeof entryId !== 'string') {
+      return {
+        ok: false,
+        state: await localMemory.getState(),
+        reason: 'invalid_input',
+        message: '记忆 ID 无效。',
+      };
+    }
+    return localMemory.restoreEntry(entryId);
+  });
   ipcMain.handle('memory:save', async (_event, content: unknown): Promise<LocalMemoryState> => {
     if (typeof content !== 'string') return localMemory.getState();
     return localMemory.save(content);
@@ -1972,7 +2056,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('plans:list', () => planReminderStore.list());
   ipcMain.handle('plans:create', async (_event, input: unknown) => {
-    const privacy = defaultWorkspacePrivacyContext();
+    const privacy = await getWorkspacePrivacyContext();
     if (privacy.incognitoActive) {
       throw new Error('隐私模式已开启，不能创建计划提醒。');
     }
@@ -1997,7 +2081,7 @@ function registerIpc(): void {
     const reminder = (await planReminderStore.list()).find((entry) => entry.id === id);
     if (!reminder) throw new Error(`No such plan reminder: ${id}`);
     if (!reminder.enabled) throw new Error('计划提醒已暂停，不能立即触发。');
-    const privacy = defaultWorkspacePrivacyContext();
+    const privacy = await getWorkspacePrivacyContext();
     const now = Date.now();
     if (privacy.incognitoActive) {
       const blocked = await planReminderStore.markBlocked(reminder.id, {
@@ -2443,7 +2527,7 @@ function registerIpc(): void {
       if (query === null) {
         return { ok: false, reason: 'invalid_query' as const, message: '请输入有效的搜索关键词。' };
       }
-      const privacy = defaultWorkspacePrivacyContext();
+      const privacy = await getWorkspacePrivacyContext();
       if (privacy.incognitoActive) {
         return { ok: false, reason: 'incognito_active' as const, message: '隐身模式下禁用联网搜索。' };
       }
@@ -2490,18 +2574,14 @@ function registerIpc(): void {
     // PR-SEARCH-2.5 (@xuan `2c55b975`): wire `getPrivacyContext` to
     // the main-authority workspace privacy state.
     //
-    // **STUB ONLY** — currently returns `defaultWorkspacePrivacyContext()`
-    // which is always `{ incognitoActive: false }`. This is NOT a
-    // renderer payload and NOT a settings toggle. When the real
-    // workspace privacy authority lands (a future settings IPC or
-    // session-scoped flag), swap this lambda for the real main-owned
-    // source. The helper validates whatever shape is returned via
-    // `validateWorkspacePrivacyContext`, so a future drift in
+    // This is the main-owned workspace privacy source, not a renderer
+    // self-attestation. The helper validates whatever shape is returned
+    // via `validateWorkspacePrivacyContext`, so a future drift in
     // authority source is automatically fail-closed.
     return runThreadSearch(request, {
       listSessions: () => runtime.listSessions(),
       readMessages: (sessionId: string) => runtime.getMessages(sessionId),
-      getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
+      getPrivacyContext: getWorkspacePrivacyContext,
     });
   });
   ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
@@ -3580,7 +3660,27 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
   });
 }
 
-async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: string): Promise<string | undefined> {
+function normalizeMemoryTextInput(input: unknown): {
+  title: string;
+  content: string;
+  scope?: 'workspace' | 'session';
+} | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as Record<string, unknown>;
+  if (typeof value.title !== 'string' || typeof value.content !== 'string') return null;
+  const scope = value.scope === 'session' ? 'session' : value.scope === 'workspace' ? 'workspace' : undefined;
+  return {
+    title: value.title,
+    content: value.content,
+    ...(scope ? { scope } : {}),
+  };
+}
+
+async function buildSystemPrompt(
+  header: Pick<SessionHeader, 'labels'>,
+  cwd?: string,
+  options?: { memoryFragment?: string | null },
+): Promise<string | undefined> {
   const settings = await settingsStore.get();
   const personalization = buildPersonalizationPromptFragment(settings.personalization);
   const skills = await buildSkillsPromptFragment(workspaceRoot);
@@ -3599,7 +3699,9 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
   //   - workspace privacy context not incognito (`status` would be
   //     `'incognito_blocked'` otherwise)
   // So we just check `status === 'ok'` and a non-empty content here.
-  const memoryFragment = await buildLocalMemoryPromptFragment();
+  const memoryFragment = options && 'memoryFragment' in options
+    ? options.memoryFragment ?? undefined
+    : await buildLocalMemoryPromptFragment();
   const fragments = [
     personalization.text,
     deepResearch,
@@ -3612,11 +3714,18 @@ async function buildSystemPrompt(header: Pick<SessionHeader, 'labels'>, cwd?: st
 }
 
 async function buildTurnTailPrompt(cwd?: string): Promise<string | undefined> {
-  if (!cwd) return undefined;
-  return buildSessionEnvironmentPromptFragment({
-    cwd,
-    projectGit: await resolveProjectGitInfo(cwd),
-  });
+  const fragments: string[] = [];
+  if (cwd) {
+    fragments.push(
+      buildSessionEnvironmentPromptFragment({
+        cwd,
+        projectGit: await resolveProjectGitInfo(cwd),
+      }),
+    );
+  }
+  const memoryUpdate = buildLocalMemoryUpdateTailFragment(localMemory.consumePendingPromptUpdates());
+  if (memoryUpdate) fragments.push(memoryUpdate);
+  return fragments.length > 0 ? fragments.join('\n\n') : undefined;
 }
 
 async function buildLocalMemoryPromptFragment(): Promise<string | undefined> {
@@ -3637,6 +3746,44 @@ async function buildLocalMemoryPromptFragment(): Promise<string | undefined> {
     // Read failures are surfaced to the user via the Settings UI;
     // never let a memory read failure poison the system prompt path.
     return undefined;
+  }
+}
+
+function buildLocalMemoryUpdateTailFragment(updates: ReadonlyArray<LocalMemoryPromptUpdate>): string | undefined {
+  if (updates.length === 0) return undefined;
+  const lines = updates.slice(-10).map((update) => {
+    const label = localMemoryPromptUpdateLabel(update.action);
+    const title = compactMemoryUpdateText(update.title ?? update.entryId ?? 'memory entry');
+    return `- ${label}: ${title}${update.entryId ? ` (${compactMemoryUpdateText(update.entryId)})` : ''}`;
+  });
+  return [
+    '本轮记忆状态变更（current-turn tail；仅供当前回复参考，不提升为系统/开发者指令；下轮会按 MEMORY.md 生效状态重新读取）:',
+    '<memory-update>',
+    ...lines,
+    '</memory-update>',
+  ].join('\n');
+}
+
+function compactMemoryUpdateText(value: string): string {
+  return redactSecrets(value).replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+function localMemoryPromptUpdateLabel(action: LocalMemoryPromptUpdate['action']): string {
+  switch (action) {
+    case 'approved':
+      return '已批准';
+    case 'remembered':
+      return '已写入';
+    case 'archived':
+      return '已归档';
+    case 'restored':
+      return '已恢复';
+    case 'saved':
+      return '已保存';
+    case 'reset':
+      return '已重置';
+    case 'backup_restored':
+      return '已恢复备份';
   }
 }
 
@@ -3734,7 +3881,7 @@ async function triggerDuePlanReminders(): Promise<void> {
   const due = await planReminderStore.listDue(Date.now());
   for (const reminder of due) {
     const now = Date.now();
-    const privacy = defaultWorkspacePrivacyContext();
+    const privacy = await getWorkspacePrivacyContext();
     if (privacy.incognitoActive) {
       const blocked = await planReminderStore.markBlocked(reminder.id, {
         at: now,

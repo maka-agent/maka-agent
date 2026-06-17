@@ -39,6 +39,7 @@ import type {
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
+  LocalMemoryEntryPreview,
   LocalMemoryState,
   AuthorizationUrlPayload,
   SubscriptionAccountState,
@@ -88,6 +89,10 @@ export interface OnboardingSnapshot {
   state: OnboardingState;
   milestones: OnboardingMilestone[];
 }
+
+type LocalMemoryMutationResult =
+  | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
+  | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
 export type WorkspaceInstructionFileStatus =
   | 'available'
@@ -280,6 +285,27 @@ contextBridge.exposeInMainWorld('maka', {
   memory: {
     getState(): Promise<LocalMemoryState> {
       return ipcRenderer.invoke('memory:getState');
+    },
+    listProposals(): Promise<ReadonlyArray<LocalMemoryEntryPreview>> {
+      return ipcRenderer.invoke('memory:listProposals');
+    },
+    propose(input: { title: string; content: string; scope?: 'workspace' | 'session' }): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:propose', input);
+    },
+    remember(input: { title: string; content: string; scope?: 'workspace' | 'session' }): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:remember', input);
+    },
+    approveProposal(proposalId: string): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:approveProposal', proposalId);
+    },
+    rejectProposal(proposalId: string): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:rejectProposal', proposalId);
+    },
+    archiveEntry(entryId: string, reason?: string): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:archiveEntry', entryId, reason);
+    },
+    restoreEntry(entryId: string): Promise<LocalMemoryMutationResult> {
+      return ipcRenderer.invoke('memory:restoreEntry', entryId);
     },
     save(content: string): Promise<LocalMemoryState> {
       return ipcRenderer.invoke('memory:save', content);

@@ -328,6 +328,123 @@ describe('LocalMemoryService', () => {
     assert.equal(state.latestEntry?.id, 'active');
   });
 
+  it('stores assistant proposals in PENDING.md until approval', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+
+    const proposed = await service.proposeMemory({
+      title: 'Tone',
+      content: 'Prefer direct answers.',
+      sourceTurnId: 'turn-1',
+    });
+
+    assert.equal(proposed.ok, true);
+    assert.equal((await service.getState()).activeEntryCount, 1); // default example remains the only active MEMORY.md entry.
+    assert.match(await readFile(service.pendingFile, 'utf8'), /status=review_required/);
+    assert.match(await readFile(service.pendingFile, 'utf8'), /Prefer direct answers/);
+    assert.doesNotMatch(await readFile(service.file, 'utf8'), /Prefer direct answers/);
+    assert.equal((await service.listProposals()).length, 1);
+  });
+
+  it('approves a pending proposal into active MEMORY.md and removes it from the queue', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    const proposed = await service.proposeMemory({
+      title: 'Tone',
+      content: 'Prefer direct answers.',
+      sourceTurnId: 'turn-1',
+    });
+    assert.equal(proposed.ok, true);
+    if (!proposed.ok) return;
+    const proposalId = proposed.proposal?.proposalId ?? proposed.proposal?.id;
+    assert.ok(proposalId);
+
+    const approved = await service.approveProposal(proposalId);
+
+    assert.equal(approved.ok, true);
+    assert.equal(approved.entry?.source, 'chat_extracted');
+    assert.equal(approved.entry?.status, 'active');
+    assert.equal(approved.entry?.confirmedAt, 1_700_000_000_000);
+    assert.match(await readFile(service.file, 'utf8'), /source=chat_extracted/);
+    assert.match(await readFile(service.file, 'utf8'), /confirmedAt=1700000000000/);
+    assert.match(await readFile(service.file, 'utf8'), /Prefer direct answers/);
+    assert.doesNotMatch(await readFile(service.pendingFile, 'utf8'), /Prefer direct answers/);
+    assert.equal((await service.listProposals()).length, 0);
+    const updates = service.consumePendingPromptUpdates();
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0]?.action, 'approved');
+    assert.equal(updates[0]?.title, 'Tone');
+    assert.equal(service.consumePendingPromptUpdates().length, 0);
+  });
+
+  it('rejects a pending proposal without creating active memory', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    const proposed = await service.proposeMemory({
+      title: 'Tone',
+      content: 'Do not save this.',
+    });
+    assert.equal(proposed.ok, true);
+    if (!proposed.ok) return;
+    const proposalId = proposed.proposal?.proposalId ?? proposed.proposal?.id;
+    assert.ok(proposalId);
+
+    const rejected = await service.rejectProposal(proposalId);
+
+    assert.equal(rejected.ok, true);
+    assert.match(await readFile(service.pendingFile, 'utf8'), /status=rejected/);
+    assert.match(await readFile(service.pendingFile, 'utf8'), /rejectedAt=1700000000000/);
+    assert.doesNotMatch(await readFile(service.file, 'utf8'), /Do not save this/);
+    assert.equal((await service.listProposals()).length, 0);
+  });
+
+  it('archives and restores entries through the service with lifecycle metadata', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    const remembered = await service.rememberUserAuthored({
+      title: 'Tone',
+      content: 'Prefer direct answers.',
+    });
+    assert.equal(remembered.ok, true);
+    if (!remembered.ok) return;
+    const entryId = remembered.entry?.id;
+    assert.ok(entryId);
+    assert.equal(service.consumePendingPromptUpdates()[0]?.action, 'remembered');
+
+    const archived = await service.archiveEntry(entryId, 'user requested');
+    assert.equal(archived.ok, true);
+    assert.equal(archived.entry?.status, 'archived');
+    assert.match(await readFile(service.file, 'utf8'), /status=archived/);
+    assert.match(await readFile(service.file, 'utf8'), /archivedAt=1700000000000/);
+    assert.equal((await service.getState()).activeEntries.some((entry) => entry.id === entryId), false);
+
+    const restored = await service.restoreEntry(entryId);
+    assert.equal(restored.ok, true);
+    assert.equal(restored.entry?.status, 'active');
+    assert.equal((await service.getState()).activeEntries.some((entry) => entry.id === entryId), true);
+    const updates = service.consumePendingPromptUpdates();
+    assert.deepEqual(updates.map((update) => update.action), ['archived', 'restored']);
+    assert.equal(updates[0]?.entryId, entryId);
+    assert.equal(updates[1]?.entryId, entryId);
+  });
+
+  it('blocks proposal and approval mutations while incognito is active', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-memory-incognito-mutate-'));
+    const service = new LocalMemoryService({
+      workspaceRoot,
+      getSettings: async () => createDefaultSettings(),
+      updateSettings: async () => createDefaultSettings(),
+      getPrivacyContext: async () => ({ incognitoActive: true }),
+    });
+
+    const proposed = await service.proposeMemory({ title: 'Blocked', content: 'Do not store.' });
+    const remembered = await service.rememberUserAuthored({ title: 'Blocked', content: 'Do not store.' });
+    const archived = await service.archiveEntry('mem-missing');
+
+    assert.equal(proposed.ok, false);
+    if (!proposed.ok) assert.equal(proposed.reason, 'incognito_active');
+    assert.equal(remembered.ok, false);
+    if (!remembered.ok) assert.equal(remembered.reason, 'incognito_active');
+    assert.equal(archived.ok, false);
+    if (!archived.ok) assert.equal(archived.reason, 'incognito_active');
+  });
+
   it('does not write oversized content', async () => {
     const { service } = await makeService()();
     await service.getState();
