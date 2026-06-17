@@ -61,7 +61,6 @@ import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats
 import type {
   ContextBudgetDiagnostic,
   PromptSegmentEstimate,
-  ToolSourceEconomyDiagnostic,
 } from '@maka/core/usage-stats/types';
 import type { JSONValue, ModelMessage } from 'ai';
 import { z } from 'zod';
@@ -96,26 +95,19 @@ import {
   type RuntimeEventReplayFallbackGate,
 } from './model-history.js';
 import {
-  canonicalizeToolSet,
   computeRequestShapeDiagnostic,
   toolSchemaCharsForDiagnostics,
   type RequestShapeDiagnostic,
 } from './request-shape.js';
 import {
-  ToolSourceEconomyRuntime,
-  type ToolSourceEconomyConfig,
-} from './tool-source-economy.js';
-import {
-  buildDeferredPrepareStep,
-  seedNamespacesFromRuntimeEvents,
-} from './deferred-activation.js';
-import { toolNamesForNamespaces, type DeferredToolCatalog } from './load-tool.js';
+  ToolAvailabilityRuntime,
+  type ToolAvailabilityConfig,
+} from './tool-availability.js';
 import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
-  estimateTokens,
   estimateRuntimeEventsTokens,
   rawEvidenceRequestReason,
   retrieveArchivedToolResultsForReplay,
@@ -139,12 +131,6 @@ export {
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { normalizeAiSdkUsage } from './model-adapter.js';
 export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from './model-adapter.js';
-export type {
-  ConnectToolSourceResult,
-  ToolSourceDefinition,
-  ToolSourceEconomyConfig,
-  ToolSourceEconomySelection,
-} from './tool-source-economy.js';
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';
 
 type AiSdkToolResultOutput =
@@ -248,16 +234,16 @@ export interface AiSdkBackendInput {
   /** Canonical-named tools available this session. Backend wraps each with
    *  permission gating before passing to ai-sdk. */
   tools: MakaTool[];
-  /** Optional opt-in tool source economy mode. Omitted/full mode preserves the full tool surface. */
-  toolSourceEconomy?: ToolSourceEconomyConfig;
   /**
-   * Optional deferred-tool catalog (Layer 1). When present, `exposure:'deferred'`
-   * tools are withheld from the per-turn prompt until the model loads their
-   * namespace via `load_tool`; the backend builds the per-step `prepareStep`
-   * activation, seeds it from durable prior-turn loads, and gates execution.
-   * When absent, every tool is advertised every turn (legacy behavior).
+   * Optional unified tool-availability config (issue #37). With `economy: true`,
+   * only core + ungrouped tools are advertised each turn; each group's tools are
+   * withheld until the model activates the group via `load_tools`, which takes
+   * effect same-turn through `prepareStep` and persists across turns via the
+   * RuntimeEvent ledger. Omitted or `economy: false` advertises every tool every
+   * turn (full surface). The runtime owns the catalog, connector, activation,
+   * gating, and diagnostics.
    */
-  deferredCatalog?: DeferredToolCatalog;
+  toolAvailability?: ToolAvailabilityConfig;
 
   // ── Optional knobs (defaults shown) ────────────────────────────────────
   /** ID generator; default `crypto.randomUUID()`. */
@@ -330,7 +316,7 @@ export class AiSdkBackend implements AgentBackend {
   private readonly maxSteps: number;
   private readonly toolRuntime: ToolRuntime;
   private readonly modelAdapter: ModelAdapter;
-  private readonly toolSourceEconomyRuntime: ToolSourceEconomyRuntime;
+  private readonly toolAvailabilityRuntime: ToolAvailabilityRuntime;
 
   private aborted = false;
   private abortController: AbortController | null = null;
@@ -348,7 +334,11 @@ export class AiSdkBackend implements AgentBackend {
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
     this.maxSteps = input.maxSteps ?? 50;
-    this.toolSourceEconomyRuntime = new ToolSourceEconomyRuntime(input.tools, input.toolSourceEconomy);
+    this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
+      input.tools,
+      input.toolAvailability,
+      buildInvalidMakaTool(),
+    );
     this.modelAdapter = new ModelAdapter({
       connection: input.connection,
       apiKey: input.apiKey,
@@ -436,59 +426,26 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build ai-sdk tools dict with permission-wrapped execute ---
-    // Tool source economy (opt-in) selects the base tool surface first; deferred
-    // activation (Layer 1) then seeds the loaded-set on top of that selection, so
-    // the two coexist: economy decides which sources are visible, deferred
-    // withholds heavy-schema families until the model calls `load_tool`.
-    const toolSourceSelection = this.toolSourceEconomyRuntime.selectTools();
-    const baseTools = toolSourceSelection.tools;
-    const invalidTool = buildInvalidMakaTool();
-    const deferredCatalog = this.input.deferredCatalog;
-    const seedNamespaces = deferredCatalog
-      ? seedNamespacesFromRuntimeEvents(
-          (input.runtimeContext ?? []).filter((event) => event.turnId !== turnId),
-        )
-      : undefined;
-    const seedLoadedNames = deferredCatalog
-      ? toolNamesForNamespaces(deferredCatalog, seedNamespaces ?? new Set())
-      // No catalog ⇒ deferral is off: advertise every tool, including any tagged
-      // `exposure: 'deferred'`. Without this, a deferred tag with no catalog would
-      // strand the tool off the wire with no `load_tool` to recover it — the
-      // input contract (absent catalog ⇒ all tools advertised) made self-enforcing.
-      : new Set(
-          baseTools
-            .filter((tool) => tool.exposure === 'deferred')
-            .map((tool) => tool.name),
-        );
-    const canonicalTools = canonicalizeToolSet(baseTools, invalidTool, seedLoadedNames);
-
-    // Per-step active snapshot the execute-boundary guard reads. `prepareStep`
-    // recomputes it before every step; the guard rejects a deferred tool absent
-    // from the current step's snapshot (handles same-step parallel load+use).
-    let prepareStep: ReturnType<typeof buildDeferredPrepareStep> | undefined;
-    // Tool names the repair path matches a mis-cased call against. Without a
-    // deferred catalog this is the static active set; with one it must follow the
-    // current step's snapshot so a deferred family loaded mid-turn (e.g. browser_*)
-    // is repairable on the step it becomes active, not routed to `invalid`.
-    let currentRepairToolNames: () => string[] = () => canonicalTools.activeTools;
-    if (deferredCatalog) {
-      const turnActivation = { currentStepActive: new Set<string>(canonicalTools.activeTools) };
-      this.toolRuntime.setStepActivation(() => turnActivation.currentStepActive);
-      currentRepairToolNames = () => [...turnActivation.currentStepActive];
-      prepareStep = buildDeferredPrepareStep({
-        tools: baseTools,
-        invalidTool,
-        catalog: deferredCatalog,
-        seedNamespaces,
-        onActiveSnapshot: (active) => {
-          turnActivation.currentStepActive = new Set(active);
-        },
-      });
+    // One runtime owns provider-visible tool availability (issue #37): the
+    // catalog, the `load_tools` connector, same-turn activation via prepareStep,
+    // the execute-boundary gating, and the diagnostics. Seed prior-turn group
+    // activations from the durable ledger (the current turn is excluded — it has
+    // not committed yet) so a group loaded earlier stays advertised.
+    const plan = this.toolAvailabilityRuntime.prepare(
+      (input.runtimeContext ?? []).filter((event) => event.turnId !== turnId),
+    );
+    const providerTools = plan.providerTools;
+    const prepareStep = plan.prepareStep;
+    // Tool names the repair path matches a mis-cased call against — follows the
+    // current step's snapshot so a group loaded mid-turn is repairable on the
+    // step it becomes active, not routed to `invalid`.
+    const currentRepairToolNames = plan.currentRepairToolNames;
+    if (plan.gating) {
+      this.toolRuntime.setGating(plan.gating);
     }
 
-
     const aiSdkTools: Record<string, unknown> = {};
-    for (const t of canonicalTools.providerTools) {
+    for (const t of providerTools) {
       aiSdkTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
@@ -518,7 +475,7 @@ export class AiSdkBackend implements AgentBackend {
         });
         this.currentWatchdog = watchdog;
         watchdog.start();
-        const activeTools = canonicalTools.activeTools;
+        const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
         const turnTailPrompt = await this.resolveTurnTailPrompt();
         const currentUserContent = formatTextWithAttachmentRefs(input.text, input.attachments);
@@ -529,20 +486,17 @@ export class AiSdkBackend implements AgentBackend {
             content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
           },
         ];
-        // Diagnostics describe the provider-visible (active) tool subset. A
-        // deferred family loaded *this* turn expands that subset on later steps
-        // (via prepareStep), so the durable cost record is refined against the
-        // final active set once the stream is consumed (see below). Both
-        // computations classify against the same pre-turn baseline. When tool
-        // source economy reduced the surface, its diagnostic is enriched from the
-        // same per-step schema-char measurement.
+        // Diagnostics describe the provider-visible (active) tool subset. A group
+        // loaded *this* turn expands that subset on later steps (via prepareStep),
+        // so the durable cost record is refined against the final active set once
+        // the stream is consumed (see below). Both computations classify against
+        // the same pre-turn baseline. The availability runtime builds the tool
+        // diagnostic from the same per-step active set + schema-char measurement.
         contextBudgetForTelemetry = priorReplay.contextBudget;
         const priorShapeBaseline = this.priorRequestShape;
         const computeTurnDiagnostics = (active: readonly string[]) => {
-          const toolSchemaChars = toolSchemaCharsForDiagnostics(canonicalTools.providerTools, active);
-          const toolSourceDiagnostic = toolSourceSelection.diagnostic !== undefined
-            ? this.enrichToolSourceDiagnostic(toolSourceSelection.diagnostic, canonicalTools, toolSchemaChars)
-            : undefined;
+          const toolSchemaChars = toolSchemaCharsForDiagnostics(providerTools, active);
+          const toolAvailabilityDiagnostic = plan.diagnostics(active, toolSchemaChars);
           return {
             promptSegments: buildPromptSegmentEstimates({
               systemPrompt,
@@ -558,11 +512,11 @@ export class AiSdkBackend implements AgentBackend {
               modelId: this.input.modelId,
               systemPrompt,
               providerOptions: this.input.providerOptions,
-              providerTools: canonicalTools.providerTools,
+              providerTools,
               activeTools: active,
               priorMessages: priorReplay.messages,
-              ...(toolSourceDiagnostic !== undefined
-                ? { toolSourceEconomy: toolSourceDiagnostic }
+              ...(toolAvailabilityDiagnostic !== undefined
+                ? { toolAvailability: toolAvailabilityDiagnostic }
                 : {}),
             }, priorShapeBaseline),
           };
@@ -596,8 +550,8 @@ export class AiSdkBackend implements AgentBackend {
           ...(turnDiagnostics.requestShape.toolSchemaChangeReason !== undefined
             ? { toolSchemaChangeReason: turnDiagnostics.requestShape.toolSchemaChangeReason }
             : {}),
-          ...(turnDiagnostics.requestShape.toolSourceEconomy !== undefined
-            ? { toolSourceEconomy: turnDiagnostics.requestShape.toolSourceEconomy }
+          ...(turnDiagnostics.requestShape.toolAvailability !== undefined
+            ? { toolAvailability: turnDiagnostics.requestShape.toolAvailability }
             : {}),
           promptSegments: turnDiagnostics.promptSegments,
           ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
@@ -709,8 +663,8 @@ export class AiSdkBackend implements AgentBackend {
               ...(turnDiagnostics.requestShape.toolSchemaChangeReason !== undefined
                 ? { toolSchemaChangeReason: turnDiagnostics.requestShape.toolSchemaChangeReason }
                 : {}),
-              ...(turnDiagnostics.requestShape.toolSourceEconomy !== undefined
-                ? { toolSourceEconomy: turnDiagnostics.requestShape.toolSourceEconomy }
+              ...(turnDiagnostics.requestShape.toolAvailability !== undefined
+                ? { toolAvailability: turnDiagnostics.requestShape.toolAvailability }
                 : {}),
             });
             const tu: TokenUsageMessage = {
@@ -840,8 +794,8 @@ export class AiSdkBackend implements AgentBackend {
             ...(requestShapeForTelemetry.toolSchemaChangeReason !== undefined
               ? { toolSchemaChangeReason: requestShapeForTelemetry.toolSchemaChangeReason }
               : {}),
-            ...(requestShapeForTelemetry.toolSourceEconomy !== undefined
-              ? { toolSourceEconomy: requestShapeForTelemetry.toolSourceEconomy }
+            ...(requestShapeForTelemetry.toolAvailability !== undefined
+              ? { toolAvailability: requestShapeForTelemetry.toolAvailability }
               : {}),
           } : {}),
           ...(promptSegmentsForTelemetry.length > 0 ? { promptSegments: promptSegmentsForTelemetry } : {}),
@@ -874,28 +828,6 @@ export class AiSdkBackend implements AgentBackend {
   // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
-
-  private enrichToolSourceDiagnostic(
-    diagnostic: ToolSourceEconomyDiagnostic,
-    canonicalTools: { providerTools: MakaTool[]; activeTools: string[] },
-    visibleToolSchemaChars: number,
-  ): ToolSourceEconomyDiagnostic {
-    const fullTools = canonicalizeToolSet(this.input.tools, buildInvalidMakaTool());
-    const fullToolSchemaChars = toolSchemaCharsForDiagnostics(fullTools.providerTools, fullTools.activeTools);
-    const visibleToolNamesExcludingConnector = canonicalTools.activeTools
-      .filter((toolName) => toolName !== diagnostic.connectorToolName);
-    const toolSchemaCharReduction = Math.max(0, fullToolSchemaChars - visibleToolSchemaChars);
-    return {
-      ...diagnostic,
-      visibleToolCount: canonicalTools.activeTools.length,
-      fullToolCount: fullTools.activeTools.length,
-      hiddenToolCount: Math.max(0, fullTools.activeTools.length - visibleToolNamesExcludingConnector.length),
-      visibleToolSchemaChars,
-      fullToolSchemaChars,
-      toolSchemaCharReduction,
-      estimatedToolSchemaTokenReduction: estimateTokens(toolSchemaCharReduction),
-    };
-  }
 
   async stop(_reason: 'user_stop' | 'redirect'): Promise<void> {
     this.aborted = true;
