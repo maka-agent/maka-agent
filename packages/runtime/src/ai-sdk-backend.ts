@@ -61,6 +61,7 @@ import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats
 import type {
   ContextBudgetDiagnostic,
   PromptSegmentEstimate,
+  ToolSourceEconomyDiagnostic,
 } from '@maka/core/usage-stats/types';
 import type { JSONValue, ModelMessage } from 'ai';
 import { z } from 'zod';
@@ -101,10 +102,15 @@ import {
   type RequestShapeDiagnostic,
 } from './request-shape.js';
 import {
+  ToolSourceEconomyRuntime,
+  type ToolSourceEconomyConfig,
+} from './tool-source-economy.js';
+import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
+  estimateTokens,
   estimateRuntimeEventsTokens,
   rawEvidenceRequestReason,
   retrieveArchivedToolResultsForReplay,
@@ -128,6 +134,12 @@ export {
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { normalizeAiSdkUsage } from './model-adapter.js';
 export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from './model-adapter.js';
+export type {
+  ConnectToolSourceResult,
+  ToolSourceDefinition,
+  ToolSourceEconomyConfig,
+  ToolSourceEconomySelection,
+} from './tool-source-economy.js';
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';
 
 type AiSdkToolResultOutput =
@@ -231,6 +243,8 @@ export interface AiSdkBackendInput {
   /** Canonical-named tools available this session. Backend wraps each with
    *  permission gating before passing to ai-sdk. */
   tools: MakaTool[];
+  /** Optional opt-in tool source economy mode. Omitted/full mode preserves the full tool surface. */
+  toolSourceEconomy?: ToolSourceEconomyConfig;
 
   // ── Optional knobs (defaults shown) ────────────────────────────────────
   /** ID generator; default `crypto.randomUUID()`. */
@@ -303,6 +317,7 @@ export class AiSdkBackend implements AgentBackend {
   private readonly maxSteps: number;
   private readonly toolRuntime: ToolRuntime;
   private readonly modelAdapter: ModelAdapter;
+  private readonly toolSourceEconomyRuntime: ToolSourceEconomyRuntime;
 
   private aborted = false;
   private abortController: AbortController | null = null;
@@ -320,6 +335,7 @@ export class AiSdkBackend implements AgentBackend {
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
     this.maxSteps = input.maxSteps ?? 50;
+    this.toolSourceEconomyRuntime = new ToolSourceEconomyRuntime(input.tools, input.toolSourceEconomy);
     this.modelAdapter = new ModelAdapter({
       connection: input.connection,
       apiKey: input.apiKey,
@@ -407,7 +423,9 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build ai-sdk tools dict with permission-wrapped execute ---
-    const canonicalTools = canonicalizeToolSet(this.input.tools, buildInvalidMakaTool());
+    const toolSourceSelection = this.toolSourceEconomyRuntime.selectTools();
+    const invalidTool = buildInvalidMakaTool();
+    const canonicalTools = canonicalizeToolSet(toolSourceSelection.tools, invalidTool);
     const aiSdkTools: Record<string, unknown> = {};
     for (const t of canonicalTools.providerTools) {
       aiSdkTools[t.name] = {
@@ -450,9 +468,13 @@ export class AiSdkBackend implements AgentBackend {
             content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
           },
         ];
+        const toolSchemaChars = toolSchemaCharsForDiagnostics(canonicalTools.providerTools, activeTools);
+        const toolSourceDiagnostic = toolSourceSelection.diagnostic !== undefined
+          ? this.enrichToolSourceDiagnostic(toolSourceSelection.diagnostic, canonicalTools, toolSchemaChars)
+          : undefined;
         const promptSegments = buildPromptSegmentEstimates({
           systemPrompt,
-          toolSchemaChars: toolSchemaCharsForDiagnostics(canonicalTools.providerTools, activeTools),
+          toolSchemaChars,
           toolCount: canonicalTools.providerTools.length,
           priorMessages: priorReplay.messages,
           priorRuntimeEventCount: priorReplay.runtimeEventCount,
@@ -469,6 +491,9 @@ export class AiSdkBackend implements AgentBackend {
           providerTools: canonicalTools.providerTools,
           activeTools,
           priorMessages: priorReplay.messages,
+          ...(toolSourceDiagnostic !== undefined
+            ? { toolSourceEconomy: toolSourceDiagnostic }
+            : {}),
         }, this.priorRequestShape);
         if (priorReplay.contextBudget?.highWaterReason) {
           priorReplay.contextBudget.highWaterRequestShapeHashBefore = this.priorRequestShape?.requestShapeHash;
@@ -481,6 +506,12 @@ export class AiSdkBackend implements AgentBackend {
           prefixChangeReason: requestShape.prefixChangeReason,
           requestShapeHash: requestShape.requestShapeHash,
           requestShapeChangeReason: requestShape.requestShapeChangeReason,
+          ...(requestShape.toolSchemaChangeReason !== undefined
+            ? { toolSchemaChangeReason: requestShape.toolSchemaChangeReason }
+            : {}),
+          ...(requestShape.toolSourceEconomy !== undefined
+            ? { toolSourceEconomy: requestShape.toolSourceEconomy }
+            : {}),
           promptSegments,
           ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
         });
@@ -576,6 +607,12 @@ export class AiSdkBackend implements AgentBackend {
               prefixChangeReason: requestShape.prefixChangeReason,
               requestShapeHash: requestShape.requestShapeHash,
               requestShapeChangeReason: requestShape.requestShapeChangeReason,
+              ...(requestShape.toolSchemaChangeReason !== undefined
+                ? { toolSchemaChangeReason: requestShape.toolSchemaChangeReason }
+                : {}),
+              ...(requestShape.toolSourceEconomy !== undefined
+                ? { toolSourceEconomy: requestShape.toolSourceEconomy }
+                : {}),
             });
             const tu: TokenUsageMessage = {
               type: 'token_usage',
@@ -701,6 +738,12 @@ export class AiSdkBackend implements AgentBackend {
             prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
             requestShapeHash: requestShapeForTelemetry.requestShapeHash,
             requestShapeChangeReason: requestShapeForTelemetry.requestShapeChangeReason,
+            ...(requestShapeForTelemetry.toolSchemaChangeReason !== undefined
+              ? { toolSchemaChangeReason: requestShapeForTelemetry.toolSchemaChangeReason }
+              : {}),
+            ...(requestShapeForTelemetry.toolSourceEconomy !== undefined
+              ? { toolSourceEconomy: requestShapeForTelemetry.toolSourceEconomy }
+              : {}),
           } : {}),
           ...(promptSegmentsForTelemetry.length > 0 ? { promptSegments: promptSegmentsForTelemetry } : {}),
           ...(contextBudgetForTelemetry !== undefined ? { contextBudget: contextBudgetForTelemetry } : {}),
@@ -732,6 +775,28 @@ export class AiSdkBackend implements AgentBackend {
   // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
+
+  private enrichToolSourceDiagnostic(
+    diagnostic: ToolSourceEconomyDiagnostic,
+    canonicalTools: { providerTools: MakaTool[]; activeTools: string[] },
+    visibleToolSchemaChars: number,
+  ): ToolSourceEconomyDiagnostic {
+    const fullTools = canonicalizeToolSet(this.input.tools, buildInvalidMakaTool());
+    const fullToolSchemaChars = toolSchemaCharsForDiagnostics(fullTools.providerTools, fullTools.activeTools);
+    const visibleToolNamesExcludingConnector = canonicalTools.activeTools
+      .filter((toolName) => toolName !== diagnostic.connectorToolName);
+    const toolSchemaCharReduction = Math.max(0, fullToolSchemaChars - visibleToolSchemaChars);
+    return {
+      ...diagnostic,
+      visibleToolCount: canonicalTools.activeTools.length,
+      fullToolCount: fullTools.activeTools.length,
+      hiddenToolCount: Math.max(0, fullTools.activeTools.length - visibleToolNamesExcludingConnector.length),
+      visibleToolSchemaChars,
+      fullToolSchemaChars,
+      toolSchemaCharReduction,
+      estimatedToolSchemaTokenReduction: estimateTokens(toolSchemaCharReduction),
+    };
+  }
 
   async stop(_reason: 'user_stop' | 'redirect'): Promise<void> {
     this.aborted = true;

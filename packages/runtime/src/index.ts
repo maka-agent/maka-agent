@@ -35,6 +35,8 @@ export type {
   ModelFactoryInput,
   RunTraceEvent,
   RunTraceRecorder,
+  ToolSourceDefinition,
+  ToolSourceEconomyConfig,
   SynthesisCacheLoader,
   SynthesisCacheLoadInput,
   SynthesisCacheLoadResult,
