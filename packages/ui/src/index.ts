@@ -3,6 +3,7 @@ export * from './assistant-stream.js';
 export * from './components.js';
 export * from './maka-uri.js';
 export * from './materialize.js';
+export * from './permission-queue.js';
 export * from './redact.js';
 export * from './smooth-stream.js';
 export * from './thinking-stream.js';
