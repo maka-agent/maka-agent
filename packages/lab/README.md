@@ -56,7 +56,12 @@ relative to the spec file, so a spec travels with its fixtures.
 - **`ai-sdk`** — a real model. Reads the key from `apiKeyEnv`; the lab
   carries no secrets at rest. Runs are fully autonomous: the lab
   auto-approves tool permissions, with the throwaway workspace (never the
-  source fixture) as the safety boundary.
+  source fixture) as the safety boundary. See `examples/fix-add.spec.json`
+  — a buggy `add()` the model must fix until `node --test` passes:
+
+  ```sh
+  DEEPSEEK_API_KEY=… maka-lab run examples/fix-add.spec.json --out /tmp/out
+  ```
 
 ## Scope
 
