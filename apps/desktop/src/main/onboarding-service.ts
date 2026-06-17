@@ -214,7 +214,7 @@ export function bindOnboardingDeps(input: {
     list(): Promise<LlmConnection[]>;
     getDefault(): Promise<string | null>;
   };
-  credentialStore: Pick<CredentialStore, 'getApiKey'>;
+  credentialStore: Pick<CredentialStore, 'getSecret'>;
   listSessions(): Promise<SessionSummary[]>;
 }): OnboardingServiceDeps {
   return {
@@ -225,7 +225,7 @@ export function bindOnboardingDeps(input: {
     upsertMilestone: (id, status) => input.settingsStore.upsertOnboardingMilestone(id, status),
     clearMilestone: (id) => input.settingsStore.clearOnboardingMilestone(id),
     hasApiKey: async (slug) => {
-      const key = await input.credentialStore.getApiKey(slug);
+      const key = await input.credentialStore.getSecret(slug, 'api_key');
       return typeof key === 'string' && key.length > 0;
     },
   };
