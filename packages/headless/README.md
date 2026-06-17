@@ -66,10 +66,6 @@ spec file, so a spec travels with its fixtures.
 }
 ```
 
-`examples/fix-add.spec.json` is the *shape* of a real-model run (backend
-`ai-sdk`). The trust posture above refuses it in this build; it becomes
-runnable when the executor lands.
-
 ## Grading
 
 Verification runs the task's `command` in the workspace; exit code 0 = pass.
@@ -77,9 +73,8 @@ A config must not be able to grade itself, so `verification.protectedPaths` is
 **required**: list the test/grading files and they are restored from the
 pristine fixture *after* the agent finishes and *before* the command runs — a
 model that rewrote its own test to pass has that edit reverted. Declare `[]`
-only when the verification reads nothing the agent can forge. `examples/fix-add`
-protects `test.mjs` — the model may edit `src.mjs`, never the test that grades
-it.
+only when the verification reads nothing the agent can forge — as the bundled
+`examples/demo` does, checking a fixture file the agent has no reason to touch.
 
 ## Exit code
 

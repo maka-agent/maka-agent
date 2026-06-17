@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { registerFakeBackend } from './backends.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
 import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { readResults, toComparisonTable, writeResults } from './results.js';
@@ -68,10 +67,8 @@ async function evalCommand(args: string[]): Promise<number> {
     { configs: spec.configs, tasks },
     {
       storageRoot: join(outDir, 'runs'),
-      // Only the inert FakeBackend wires in: validateEvalSpec refuses every
-      // model-backed config, so a real backend never reaches a run. They wire
-      // in here (with their connections) once the isolated executor lands.
-      registerBackends: registerFakeBackend,
+      // registerBackends omitted → runExperiment defaults to the inert
+      // FakeBackend, the only backend this build runs.
     },
     (r) => console.log(`  ${mark(r.passed, r.error)} ${r.taskId} × ${r.configId}${r.error ? ` — ${r.error}` : ''}`),
   );

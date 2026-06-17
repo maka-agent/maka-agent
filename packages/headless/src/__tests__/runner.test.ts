@@ -177,6 +177,22 @@ describe('runExperiment (walking skeleton)', () => {
       assert.notEqual(result.exitCode, 0);
     });
   });
+
+  test('defaults to the inert FakeBackend when no registerBackends is given', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const task: Task = {
+        id: 'default-backend',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+      // Minimal usage — no registerBackends supplied; the engine wires fake.
+      const result = await runExperiment(fakeConfig, task, { storageRoot });
+      assert.equal(result.status, 'completed');
+      assert.equal(result.passed, true);
+    });
+  });
 });
 
 describe('clean-room grading (a config cannot rewrite its own test to pass)', () => {

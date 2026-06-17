@@ -12,6 +12,7 @@ import {
   createSessionStore,
 } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
+import { registerFakeBackend } from './backends.js';
 import { prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
 import { runVerification } from './evaluator.js';
 
@@ -23,12 +24,11 @@ export interface RunExperimentDeps {
    */
   storageRoot: string;
   /**
-   * Registers the backend(s) a Config may select. Injected so the lab
-   * core stays free of model/credential wiring: the skeleton registers a
-   * FakeBackend; real runs register an AiSdkBackend (which reads keys via
-   * the pure-Node CredentialStore). The registry is keyed by BackendKind.
+   * Override the backend wiring — a test seam. Defaults to the inert
+   * FakeBackend, the only backend this build runs; real backends rejoin with
+   * the isolated executor. Minimal usage is just `{ storageRoot }`.
    */
-  registerBackends: (registry: BackendRegistry) => void;
+  registerBackends?: (registry: BackendRegistry) => void;
   now?: () => number;
   newId?: () => string;
 }
@@ -94,7 +94,7 @@ export async function runExperiment(
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
     const backends = new BackendRegistry();
-    deps.registerBackends(backends);
+    (deps.registerBackends ?? registerFakeBackend)(backends);
 
     let invocation: InvocationResult | undefined;
     const manager = new SessionManager({
