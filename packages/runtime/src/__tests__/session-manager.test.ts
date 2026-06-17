@@ -294,6 +294,34 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents[2]?.status).toBe('completed');
   });
 
+  test('completed turns are readable when the complete event reaches the renderer', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const runtimeEventStore = new MemoryRuntimeEventStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TextCompleteBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_625),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+
+    expect((await iterator.next()).value?.type).toBe('text_delta');
+    expect((await iterator.next()).value?.type).toBe('text_complete');
+    expect((await iterator.next()).value?.type).toBe('complete');
+
+    const messages = await manager.getMessages(session.id);
+    expect(messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
+
+    await iterator.next();
+  });
+
   test('runtime event ledger write failure does not fail sendMessage', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1946,6 +1974,46 @@ class TestBackend implements AgentBackend {
       this.ctx.store.disposeCount += 1;
     }
   }
+}
+
+class TextCompleteBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const messageId = `${input.turnId}-m`;
+    yield {
+      type: 'text_delta',
+      id: `${input.turnId}-delta`,
+      turnId: input.turnId,
+      ts: 7_000,
+      messageId,
+      text: 'ok',
+    };
+    yield {
+      type: 'text_complete',
+      id: `${input.turnId}-text-complete`,
+      turnId: input.turnId,
+      ts: 7_001,
+      messageId,
+      text: 'ok',
+    };
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 7_002,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
 }
 
 class LateErrorBackend implements AgentBackend {
