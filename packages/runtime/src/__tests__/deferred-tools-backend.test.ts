@@ -9,10 +9,14 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 
 import { AiSdkBackend, type MakaTool } from '../ai-sdk-backend.js';
 import { PermissionEngine } from '../permission-engine.js';
-import { buildLoadTool, type DeferredToolCatalog } from '../load-tool.js';
-import { canonicalizeToolSet, toolSchemaCharsForDiagnostics } from '../request-shape.js';
+import {
+  ToolAvailabilityRuntime,
+  LOAD_TOOLS_NAME,
+  type ToolAvailabilityConfig,
+} from '../tool-availability.js';
+import { toolSchemaCharsForDiagnostics } from '../request-shape.js';
 
-// End-to-end through the live AiSdkBackend: the deferred catalog drives the
+// End-to-end through the live AiSdkBackend: the availability config drives the
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
 // loads, and the execute-boundary guard is fed by the live snapshot.
 
@@ -21,19 +25,18 @@ const ZERO_USAGE: LanguageModelV3Usage = {
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
 
-const catalog: DeferredToolCatalog = [
-  { namespace: 'browser', summary: 'Browser automation', toolNames: ['browser_click'] },
-];
+const config: ToolAvailabilityConfig = {
+  economy: true,
+  groups: [{ id: 'browser', toolNames: ['browser_click'], label: 'Browser automation' }],
+};
 
 function tools(implCalls: string[]): MakaTool[] {
   return [
     { name: 'Read', description: 'Read', parameters: z.object({ path: z.string().optional() }), permissionRequired: false, impl: () => ({ ok: true }) },
-    buildLoadTool(catalog),
     {
       name: 'browser_click',
       description: 'Click in the browser',
       parameters: z.object({}),
-      exposure: 'deferred',
       permissionRequired: false,
       impl: () => { implCalls.push('browser_click'); return { ok: true }; },
     },
@@ -41,14 +44,14 @@ function tools(implCalls: string[]): MakaTool[] {
 }
 
 interface BackendOpts {
-  /** Override the deferred catalog (pass `null` to omit it entirely). */
-  deferredCatalog?: DeferredToolCatalog | null;
+  /** Override the availability config (pass `null` to omit it ⇒ full surface). */
+  toolAvailability?: ToolAvailabilityConfig | null;
   recordLlmCall?: (record: LlmCallRecord) => void;
 }
 
 function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendOpts = {}): AiSdkBackend {
   let n = 0;
-  const resolvedCatalog = opts.deferredCatalog === null ? undefined : opts.deferredCatalog ?? catalog;
+  const resolved = opts.toolAvailability === null ? undefined : opts.toolAvailability ?? config;
   return new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
@@ -59,7 +62,7 @@ function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendO
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
     tools: tools(implCalls),
-    ...(resolvedCatalog ? { deferredCatalog: resolvedCatalog } : {}),
+    ...(resolved ? { toolAvailability: resolved } : {}),
     ...(opts.recordLlmCall ? { recordLlmCall: opts.recordLlmCall } : {}),
     newId: () => `id-${++n}`,
     now: () => 1,
@@ -67,7 +70,7 @@ function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendO
 }
 
 describe('AiSdkBackend deferred tool loading', () => {
-  test('step 0 hides an unloaded deferred tool but advertises load_tool', async () => {
+  test('step 0 hides an unloaded group tool but advertises load_tools', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
     await drain(backend(capturingModel(captured), implCalls).send({
@@ -75,12 +78,12 @@ describe('AiSdkBackend deferred tool loading', () => {
       text: 'hi',
       context: [],
     }));
-    assert.ok(captured[0].includes('Read'), 'direct Read advertised');
-    assert.ok(captured[0].includes('load_tool'), 'load_tool advertised');
-    assert.ok(!captured[0].includes('browser_click'), 'unloaded deferred browser_click hidden');
+    assert.ok(captured[0].includes('Read'), 'ungrouped Read advertised');
+    assert.ok(captured[0].includes(LOAD_TOOLS_NAME), 'load_tools advertised');
+    assert.ok(!captured[0].includes('browser_click'), 'unloaded browser_click hidden');
   });
 
-  test('durable seed: a prior-turn load_tool re-advertises the tool at the next turn (Slice 7)', async () => {
+  test('durable seed: a prior-turn load re-advertises the tool at the next turn', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
     await drain(backend(capturingModel(captured), implCalls).send({
@@ -95,7 +98,7 @@ describe('AiSdkBackend deferred tool loading', () => {
     );
   });
 
-  test('guard: same-step parallel load_tool(browser)+browser_click rejects the click (Slice 5 live)', async () => {
+  test('guard: same-step parallel load_tools(browser)+browser_click rejects the click (live)', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
     await drain(backend(parallelLoadUseModel(captured), implCalls).send({
@@ -112,7 +115,7 @@ describe('AiSdkBackend deferred tool loading', () => {
     );
   });
 
-  test('diagnostics: a same-turn load is reflected in the recorded tool-schema cost (GPT-Pro P2)', async () => {
+  test('diagnostics: a same-turn load is reflected in the recorded tool-schema cost', async () => {
     const records: LlmCallRecord[] = [];
     const implCalls: string[] = [];
     // step 0 loads browser; browser_click activates at step 1 via prepareStep.
@@ -124,12 +127,13 @@ describe('AiSdkBackend deferred tool loading', () => {
     const toolSeg = records[0].promptSegments?.find((s) => s.kind === 'tool_schema');
     assert.ok(toolSeg, 'a tool_schema prompt segment was recorded');
 
-    // The recorded cost must reflect the FINAL active set (Read + load_tool +
+    // The recorded cost must reflect the FINAL active set (Read + load_tools +
     // browser_click), not the lean step-0 set — otherwise the load turn
-    // under-reports the heavy schema it actually sent on step 1.
-    const providerTools = canonicalizeToolSet(tools([]), INVALID_FIXTURE).providerTools;
-    const leanChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', 'load_tool']);
-    const loadedChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', 'load_tool', 'browser_click']);
+    // under-reports the heavy schema it actually sent on step 1. Use the real
+    // runtime so the provider tool set (incl. the connector) matches the backend.
+    const providerTools = new ToolAvailabilityRuntime(tools([]), config, INVALID_FIXTURE).prepare([]).providerTools;
+    const leanChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', LOAD_TOOLS_NAME]);
+    const loadedChars = toolSchemaCharsForDiagnostics(providerTools, ['Read', LOAD_TOOLS_NAME, 'browser_click']);
     assert.ok(loadedChars > leanChars, 'sanity: the loaded set is heavier than the lean set');
     assert.equal(toolSeg.chars, loadedChars, 'recorded tool-schema chars include the loaded browser_click');
     assert.equal(
@@ -139,7 +143,7 @@ describe('AiSdkBackend deferred tool loading', () => {
     );
   });
 
-  test('high-water "after" hash stays consistent with the final recorded requestShapeHash across a same-turn load (GPT-Pro P3)', async () => {
+  test('high-water "after" hash stays consistent with the final recorded requestShapeHash across a same-turn load', async () => {
     const records: LlmCallRecord[] = [];
     const implCalls: string[] = [];
     const be = backend(loadBrowserThenFinishModel(), implCalls, { recordLlmCall: (r) => records.push(r) });
@@ -170,22 +174,20 @@ describe('AiSdkBackend deferred tool loading', () => {
     assert.equal(cb.highWaterRequestShapeHashBefore, undefined, 'first turn has no pre-turn baseline');
   });
 
-  test('no catalog: a deferred-tagged tool stays advertised (GPT-Pro P3)', async () => {
+  test('economy off: every tool stays advertised, no connector', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
-    // No deferredCatalog ⇒ deferral is off ⇒ the contract is "advertise everything".
-    await drain(backend(capturingModel(captured), implCalls, { deferredCatalog: null }).send({
+    // economy off ⇒ the contract is "advertise everything", no load_tools.
+    await drain(backend(capturingModel(captured), implCalls, { toolAvailability: null }).send({
       turnId: 'turn-1',
       text: 'hi',
       context: [],
     }));
-    assert.ok(
-      captured[0].includes('browser_click'),
-      'a tool tagged exposure:deferred must still be advertised when no catalog is configured',
-    );
+    assert.ok(captured[0].includes('browser_click'), 'a group tool is advertised when economy is off');
+    assert.ok(!captured[0].includes(LOAD_TOOLS_NAME), 'no connector in full mode');
   });
 
-  test('repair: a mis-cased deferred call after a mid-turn load repairs to the canonical name (Codex [P2])', async () => {
+  test('repair: a mis-cased group call after a mid-turn load repairs to the canonical name', async () => {
     const captured: string[][] = [];
     const implCalls: string[] = [];
     await drain(backend(loadThenMiscasedClickModel(captured), implCalls).send({
@@ -228,7 +230,7 @@ function parallelLoadUseModel(captured: string[][]): MockLanguageModelV3 {
       const parts: LanguageModelV3StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
-            { type: 'tool-call', toolCallId: 'tc-load', toolName: 'load_tool', input: JSON.stringify({ namespace: 'browser' }) },
+            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
             { type: 'tool-call', toolCallId: 'tc-click', toolName: 'browser_click', input: JSON.stringify({}) },
             { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
           ]
@@ -249,7 +251,7 @@ const INVALID_FIXTURE: MakaTool = {
   impl: () => ({}),
 };
 
-/** Step 0 loads the browser namespace, then the turn finishes (no use). */
+/** Step 0 loads the browser group, then the turn finishes (no use). */
 function loadBrowserThenFinishModel(): MockLanguageModelV3 {
   let step = 0;
   return new MockLanguageModelV3({
@@ -259,7 +261,7 @@ function loadBrowserThenFinishModel(): MockLanguageModelV3 {
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'tc-load', toolName: 'load_tool', input: JSON.stringify({ namespace: 'browser' }) },
+              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
               { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
             ]
           : [
@@ -272,7 +274,7 @@ function loadBrowserThenFinishModel(): MockLanguageModelV3 {
 }
 
 /**
- * Step 0 loads the browser namespace; step 1 emits a mis-cased `BROWSER_CLICK`
+ * Step 0 loads the browser group; step 1 emits a mis-cased `BROWSER_CLICK`
  * (a provider that case-drifts a tool that only became active this step). The
  * AI SDK can't match the upper-cased name, so it calls the repair callback.
  */
@@ -285,7 +287,7 @@ function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV3 {
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
-              { type: 'tool-call', toolCallId: 'tc-load', toolName: 'load_tool', input: JSON.stringify({ namespace: 'browser' }) },
+              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
               { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
             ]
           : step === 2
@@ -307,13 +309,13 @@ function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV3 {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** A complete prior turn whose model called load_tool(browser) and got a result. */
+/** A complete prior turn whose model called load_tools(browser) and got a result. */
 function priorBrowserLoad(turnId: string): RuntimeEvent[] {
   const base = { invocationId: 'inv-1', runId: 'run-1', sessionId: 'session-1', turnId, ts: 1, partial: false } as const;
   return [
     { ...base, id: 'p-u', role: 'user', author: 'user', content: { kind: 'text', text: 'load browser' } },
-    { ...base, id: 'p-call', role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tc-prev', name: 'load_tool', args: { namespace: 'browser' } } },
-    { ...base, id: 'p-resp', role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tc-prev', name: 'load_tool', result: { loaded: ['browser_click'] } } },
+    { ...base, id: 'p-call', role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tc-prev', name: LOAD_TOOLS_NAME, args: { group: 'browser' } } },
+    { ...base, id: 'p-resp', role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tc-prev', name: LOAD_TOOLS_NAME, result: { loaded: ['browser_click'] } } },
     { ...base, id: 'p-end', role: 'model', author: 'agent', status: 'completed', actions: { endInvocation: true } },
   ];
 }

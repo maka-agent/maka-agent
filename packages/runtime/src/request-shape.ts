@@ -4,7 +4,7 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 import type {
   PrefixChangeReason,
   ToolSchemaChangeReason,
-  ToolSourceEconomyDiagnostic,
+  ToolAvailabilityDiagnostic,
 } from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
 import { toJSONSchema } from 'zod';
@@ -24,7 +24,7 @@ export interface RequestShapeInput {
   providerTools: readonly MakaTool[];
   activeTools: readonly string[];
   priorMessages: readonly ModelMessage[];
-  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
+  toolAvailability?: ToolAvailabilityDiagnostic;
 }
 
 export interface RequestShapeComponents {
@@ -46,37 +46,34 @@ export interface RequestShapeDiagnostic {
   requestShapeChangeReason: PrefixChangeReason;
   componentHashes: RequestShapeComponents;
   toolSchemaChangeReason?: ToolSchemaChangeReason;
-  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
+  toolAvailability?: ToolAvailabilityDiagnostic;
 }
-
-const NO_LOADED_TOOLS: ReadonlySet<string> = new Set();
 
 /**
  * Split the registry into the full dispatch set (`providerTools`) and the
  * model-visible subset (`activeTools`).
  *
- * `loadedDeferredNames` is the set of deferred tools to advertise; any
- * `exposure: 'deferred'` tool NOT in it is withheld from `activeTools`. The
- * default empty set therefore hides every deferred tool — correct only when a
- * deferral system (a `load_tool` catalog + prepareStep) is wired to load them
- * on demand. A caller with deferred-tagged tools but no such system must pass
- * those names here (or untag them), or the tools become unreachable.
+ * `activeNames` is the explicit allow-list of tools to advertise this step —
+ * the single source of truth computed by `ToolAvailabilityRuntime` (core +
+ * ungrouped + loaded groups). A tool absent from it is withheld from
+ * `activeTools` but stays in `providerTools` so it remains dispatchable once
+ * its group loads. Omitting `activeNames` advertises every visible tool — the
+ * full-surface case (economy off / no gating).
  */
 export function canonicalizeToolSet(
   tools: readonly MakaTool[],
   invalidTool: MakaTool,
-  loadedDeferredNames: ReadonlySet<string> = NO_LOADED_TOOLS,
+  activeNames?: ReadonlySet<string>,
 ): CanonicalToolSet {
   const visibleTools = tools
     .filter((tool) => tool.name !== invalidTool.name)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
-  // providerTools stays the full registry (dispatch never depends on exposure).
-  // activeTools is the model-visible subset: every direct tool plus any deferred
-  // tool already loaded this session. The AI SDK serializes only activeTools to
-  // the provider, so deferred-and-unloaded schemas stay off the wire.
+  // providerTools stays the full registry (dispatch never depends on visibility).
+  // activeTools is the model-visible subset the AI SDK serializes to the
+  // provider, so a gated-and-unloaded schema stays off the wire.
   const activeTools = visibleTools
-    .filter((tool) => tool.exposure !== 'deferred' || loadedDeferredNames.has(tool.name))
+    .filter((tool) => activeNames === undefined || activeNames.has(tool.name))
     .map((tool) => tool.name);
   return {
     providerTools: [...visibleTools, invalidTool],
@@ -112,8 +109,8 @@ export function computeRequestShapeDiagnostic(
   const toolSchemaChangeReason = classifyToolSchemaChange(
     componentHashes,
     prior?.componentHashes,
-    input.toolSourceEconomy,
-    prior?.toolSourceEconomy,
+    input.toolAvailability,
+    prior?.toolAvailability,
   );
   return {
     prefixHash,
@@ -128,7 +125,7 @@ export function computeRequestShapeDiagnostic(
     ),
     componentHashes,
     ...(toolSchemaChangeReason !== undefined ? { toolSchemaChangeReason } : {}),
-    ...(input.toolSourceEconomy !== undefined ? { toolSourceEconomy: input.toolSourceEconomy } : {}),
+    ...(input.toolAvailability !== undefined ? { toolAvailability: input.toolAvailability } : {}),
   };
 }
 
@@ -187,24 +184,24 @@ function classifyRequestShapeChange(
 function classifyToolSchemaChange(
   current: RequestShapeComponents,
   prior: RequestShapeComponents | undefined,
-  currentEconomy: ToolSourceEconomyDiagnostic | undefined,
-  priorEconomy: ToolSourceEconomyDiagnostic | undefined,
+  currentAvail: ToolAvailabilityDiagnostic | undefined,
+  priorAvail: ToolAvailabilityDiagnostic | undefined,
 ): ToolSchemaChangeReason | undefined {
   if (!prior || current.toolSchemaHash === prior.toolSchemaHash) return undefined;
-  if (isEnabledSourceStrictSuperset(currentEconomy, priorEconomy) && sourceCatalogStable(currentEconomy, priorEconomy)) {
+  if (isEnabledSourceStrictSuperset(currentAvail, priorAvail) && sourceCatalogStable(currentAvail, priorAvail)) {
     return 'tool_source_enabled';
   }
-  if (sourceStateChanged(currentEconomy, priorEconomy)) {
+  if (sourceStateChanged(currentAvail, priorAvail)) {
     return 'tool_source_state_changed';
   }
   return 'tool_schema_changed';
 }
 
 function isEnabledSourceStrictSuperset(
-  current: ToolSourceEconomyDiagnostic | undefined,
-  prior: ToolSourceEconomyDiagnostic | undefined,
+  current: ToolAvailabilityDiagnostic | undefined,
+  prior: ToolAvailabilityDiagnostic | undefined,
 ): boolean {
-  if (current?.mode !== 'source_economy' || prior?.mode !== 'source_economy') return false;
+  if (current?.mode !== 'economy' || prior?.mode !== 'economy') return false;
   const currentIds = new Set(current.enabledSourceIds);
   const priorIds = new Set(prior.enabledSourceIds);
   if (currentIds.size <= priorIds.size) return false;
@@ -215,25 +212,24 @@ function isEnabledSourceStrictSuperset(
 }
 
 function sourceCatalogStable(
-  current: ToolSourceEconomyDiagnostic | undefined,
-  prior: ToolSourceEconomyDiagnostic | undefined,
+  current: ToolAvailabilityDiagnostic | undefined,
+  prior: ToolAvailabilityDiagnostic | undefined,
 ): boolean {
   if (!current || !prior) return false;
   return stableStringify(sourceCatalogShape(current)) === stableStringify(sourceCatalogShape(prior));
 }
 
 function sourceStateChanged(
-  current: ToolSourceEconomyDiagnostic | undefined,
-  prior: ToolSourceEconomyDiagnostic | undefined,
+  current: ToolAvailabilityDiagnostic | undefined,
+  prior: ToolAvailabilityDiagnostic | undefined,
 ): boolean {
   return stableStringify(current ?? null) !== stableStringify(prior ?? null);
 }
 
-function sourceCatalogShape(diagnostic: ToolSourceEconomyDiagnostic): unknown {
+function sourceCatalogShape(diagnostic: ToolAvailabilityDiagnostic): unknown {
   return {
     mode: diagnostic.mode,
     connectorToolName: diagnostic.connectorToolName,
-    coreToolNames: diagnostic.coreToolNames ?? [],
     visibleToolNamesBySource: diagnostic.visibleToolNamesBySource ?? {},
   };
 }

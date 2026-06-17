@@ -21,13 +21,12 @@ import { canonicalizeToolSet } from '../request-shape.js';
 import type { MakaTool } from '../tool-runtime.js';
 
 // A tool with a real (non-trivial) zod schema so the AI SDK actually serializes it.
-function tool(name: string, exposure?: 'direct' | 'deferred'): MakaTool {
+function tool(name: string): MakaTool {
   return {
     name,
     description: `${name} tool`,
     parameters: z.object({ q: z.string().describe('an argument') }),
     impl: () => ({ ok: true }),
-    ...(exposure ? { exposure } : {}),
   };
 }
 
@@ -49,10 +48,10 @@ function newAdapter(): ModelAdapter {
  * tool names the provider actually received in doStream — i.e. what crosses the
  * wire after the AI SDK applies `activeTools`.
  */
-async function toolNamesSeenByProvider(loaded: ReadonlySet<string>): Promise<string[]> {
-  const tools: MakaTool[] = [tool('Read'), tool('load_tool'), tool('Rive', 'deferred')];
+async function toolNamesSeenByProvider(activeNames: ReadonlySet<string>): Promise<string[]> {
+  const tools: MakaTool[] = [tool('Read'), tool('load_tools'), tool('Rive')];
   const invalid = tool('invalid');
-  const canonical = canonicalizeToolSet(tools, invalid, loaded);
+  const canonical = canonicalizeToolSet(tools, invalid, activeNames);
 
   const aiSdkTools: Record<string, unknown> = {};
   for (const t of canonical.providerTools) {
@@ -83,18 +82,18 @@ async function toolNamesSeenByProvider(loaded: ReadonlySet<string>): Promise<str
   return seen;
 }
 
-describe('deferred tools are trimmed from the provider request (wire-level)', () => {
-  test('an unloaded deferred tool never reaches the model; invalid is never advertised', async () => {
-    const seen = await toolNamesSeenByProvider(new Set());
-    assert.ok(seen.includes('Read'), 'direct Read should reach the provider');
-    assert.ok(seen.includes('load_tool'), 'load_tool should reach the provider');
-    assert.ok(!seen.includes('Rive'), 'unloaded deferred Rive must NOT reach the provider');
+describe('hidden tools are trimmed from the provider request (wire-level)', () => {
+  test('a tool outside the active set never reaches the model; invalid is never advertised', async () => {
+    const seen = await toolNamesSeenByProvider(new Set(['Read', 'load_tools']));
+    assert.ok(seen.includes('Read'), 'active Read should reach the provider');
+    assert.ok(seen.includes('load_tools'), 'load_tools should reach the provider');
+    assert.ok(!seen.includes('Rive'), 'unloaded Rive must NOT reach the provider');
     assert.ok(!seen.includes('invalid'), 'invalid is providerTools-only, never advertised');
   });
 
-  test('a loaded deferred tool does reach the model (ratchet activates it)', async () => {
-    const seen = await toolNamesSeenByProvider(new Set(['Rive']));
-    assert.ok(seen.includes('Rive'), 'loaded deferred Rive should reach the provider');
-    assert.ok(seen.includes('Read'), 'direct tools stay present after a load');
+  test('a tool added to the active set does reach the model (ratchet activates it)', async () => {
+    const seen = await toolNamesSeenByProvider(new Set(['Read', 'load_tools', 'Rive']));
+    assert.ok(seen.includes('Rive'), 'activated Rive should reach the provider');
+    assert.ok(seen.includes('Read'), 'active tools stay present after a load');
   });
 });
