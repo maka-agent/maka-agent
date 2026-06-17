@@ -8,6 +8,7 @@ import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventHistoryCompact,
   applyRuntimeEventContextBudget,
+  buildHistoryCompactBlockFromSummary,
   buildSynthesisCacheBlocksFromHydratedArchives,
   deserializeToolResultArchive,
   renderHistoryCompactBlock,
@@ -844,6 +845,50 @@ describe('context-budget history compact', () => {
     assert.equal(validateHistoryCompactBlockShape(first.blocks[0], 'session-1'), true);
     assert.match(renderHistoryCompactBlock(first.blocks[0]!), /bodySha256=/);
     assert.equal(first.events[0]?.id, `history-compact:${first.blocks[0]?.blockId}`);
+  });
+
+  test('selects a loaded compact block instead of rebuilding the folded region', () => {
+    const folded = [
+      textEvent('old-1', 'turn-1', 'loaded alpha '.repeat(15)),
+      textEvent('old-2', 'turn-2', 'loaded beta '.repeat(15)),
+    ];
+    const loadedBlock = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: folded,
+      summary: 'LOADED_CONTEXT_COMPACT_SENTINEL',
+      highWaterName: 'loaded-compact',
+      highWaterSeq: 9,
+      charsPerToken: 1,
+    });
+
+    const result = applyRuntimeEventContextBudget(
+      [
+        ...folded,
+        textEvent('recent-1', 'turn-3', 'recent tail'),
+      ],
+      {
+        maxHistoryEstimatedTokens: 180,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'lookup',
+          highWaterRatio: 0.5,
+          targetRatio: 0.2,
+          minRecentTurns: 1,
+          blocks: [loadedBlock],
+        },
+      },
+    );
+
+    assert.ok(result);
+    assert.equal(result.historyCompactBlocks?.[0]?.blockId, loadedBlock.blockId);
+    assert.equal(result.diagnostic.historyCompactBlocksAvailable, 1);
+    assert.equal(result.diagnostic.historyCompactBlocksSelected, 1);
+    assert.deepEqual(result.diagnostic.historyCompactBlockIds, [loadedBlock.blockId]);
+    assert.match(
+      result.events[0]?.content?.kind === 'text' ? result.events[0].content.text : '',
+      /LOADED_CONTEXT_COMPACT_SENTINEL/,
+    );
   });
 });
 

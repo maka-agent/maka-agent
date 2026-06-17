@@ -109,11 +109,13 @@ import {
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
   estimateRuntimeEventsTokens,
+  historyCompactBlockToRuntimeEvent,
   rawEvidenceRequestReason,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
   selectSynthesisCacheForReplay,
   type ContextBudgetPolicy,
+  type HistoryCompactBlock,
   type StaleToolResultArchiveCandidate,
   type SynthesisCacheBlock,
   type SynthesisSourceRef,
@@ -215,6 +217,44 @@ export type SynthesisCacheLoader = (
 export type SynthesisCacheWriter = (
   input: SynthesisCacheWriteInput,
 ) => Promise<SynthesisCacheWriteResult | void> | SynthesisCacheWriteResult | void;
+export interface HistoryCompactLoadInput {
+  sessionId: string;
+  maxBlocks?: number;
+  maxBytes?: number;
+  maxEstimatedTokens?: number;
+}
+export interface HistoryCompactLoadResult {
+  blocks: HistoryCompactBlock[];
+  skipped?: number;
+  skippedReasonCounts?: Record<string, number>;
+}
+export interface HistoryCompactWriteInput {
+  sessionId: string;
+  turnId: string;
+  source: {
+    draftBlock: HistoryCompactBlock;
+    foldedRuntimeEvents: RuntimeEvent[];
+  };
+  limits: {
+    maxBlocks: number;
+    maxBlockEstimatedTokens: number;
+    maxEstimatedTokens: number;
+    charsPerToken: number;
+  };
+  requestShapeHashBefore?: string;
+  requestShapeHashAfter?: string;
+}
+export interface HistoryCompactWriteResult {
+  blocks: HistoryCompactBlock[];
+  skipped?: number;
+  skippedReasonCounts?: Record<string, number>;
+}
+export type HistoryCompactLoader = (
+  input: HistoryCompactLoadInput,
+) => Promise<HistoryCompactLoadResult> | HistoryCompactLoadResult;
+export type HistoryCompactWriter = (
+  input: HistoryCompactWriteInput,
+) => Promise<HistoryCompactWriteResult | void> | HistoryCompactWriteResult | void;
 
 export interface AiSdkBackendInput {
   // ── Session context ────────────────────────────────────────────────────
@@ -293,6 +333,10 @@ export interface AiSdkBackendInput {
   loadSynthesisCache?: SynthesisCacheLoader;
   /** Optional best-effort source-bearing synthesis cache writer. */
   writeSynthesisCache?: SynthesisCacheWriter;
+  /** Optional best-effort source-bearing history compact block loader. */
+  loadHistoryCompact?: HistoryCompactLoader;
+  /** Optional best-effort source-bearing history compact block writer/summarizer. */
+  writeHistoryCompact?: HistoryCompactWriter;
 }
 
 export interface SystemPromptContext {
@@ -897,6 +941,29 @@ export class AiSdkBackend implements AgentBackend {
         preparedContextBudget.diagnosticPatch,
       );
     }
+    if (
+      budgeted?.historyCompactBlocks?.length &&
+      contextBudget?.historyCompact?.mode === 'read_write' &&
+      this.input.writeHistoryCompact
+    ) {
+      const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
+      const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
+      if (draftBlocks.length > 0) {
+        const writePatch = await this.writeHistoryCompactBlocks({
+          turnId: input.turnId,
+          contextBudget,
+          priorRuntimeContext,
+          draftBlocks,
+        });
+        if (writePatch.replacementBlocks.length > 0) {
+          runtimeContext = replaceHistoryCompactReplayBlocks(runtimeContext, writePatch.replacementBlocks);
+        }
+        contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+          contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+          writePatch.diagnosticPatch,
+        );
+      }
+    }
 
     const historySearchSource = buildHistorySearchSource(priorRuntimeContext, contextBudget);
     const historyAround = retrieveRuntimeEventHistoryAround(
@@ -1096,12 +1163,65 @@ export class AiSdkBackend implements AgentBackend {
       }
     }
 
+    const compactLoadPatch = await this.loadHistoryCompactBlocks(nextPolicy);
+    if (compactLoadPatch.policy !== nextPolicy) nextPolicy = compactLoadPatch.policy;
     const loadPatch = await this.loadSynthesisCacheBlocks(nextPolicy);
     if (loadPatch.policy !== nextPolicy) nextPolicy = loadPatch.policy;
+    const diagnosticPatch = mergeContextBudgetDiagnosticPatches(
+      compactLoadPatch.diagnosticPatch,
+      loadPatch.diagnosticPatch,
+    );
     return {
       policy: nextPolicy,
-      ...(loadPatch.diagnosticPatch ? { diagnosticPatch: loadPatch.diagnosticPatch } : {}),
+      ...(diagnosticPatch ? { diagnosticPatch } : {}),
     };
+  }
+
+  private async loadHistoryCompactBlocks(
+    policy: ContextBudgetPolicy,
+  ): Promise<{ policy: ContextBudgetPolicy; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
+    const historyCompact = policy.historyCompact;
+    if (historyCompact?.enabled !== true || !this.input.loadHistoryCompact) {
+      return { policy };
+    }
+    if ((historyCompact.blocks?.length ?? 0) > 0) {
+      return { policy };
+    }
+    try {
+      const result = await Promise.resolve(this.input.loadHistoryCompact({
+        sessionId: this.sessionId,
+        maxBlocks: historyCompact.maxBlocks,
+        maxEstimatedTokens: historyCompact.maxEstimatedTokens,
+        maxBytes: (historyCompact.maxEstimatedTokens ?? 2_048) * (policy.charsPerToken ?? 4),
+      }));
+      const blocks = result.blocks ?? [];
+      return {
+        policy: {
+          ...policy,
+          historyCompact: {
+            ...historyCompact,
+            blocks,
+          },
+        },
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: historyCompact.mode ?? 'deterministic',
+          historyCompactBlocksLoaded: blocks.length,
+          historyCompactBlocksAvailable: blocks.length,
+          ...(result.skipped && result.skipped > 0 ? { historyCompactLoadSkipped: result.skipped } : {}),
+          ...(result.skippedReasonCounts ? { historyCompactLoadSkippedReasonCounts: result.skippedReasonCounts } : {}),
+        },
+      };
+    } catch {
+      return {
+        policy,
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: historyCompact.mode ?? 'deterministic',
+          historyCompactLoadFailures: 1,
+        },
+      };
+    }
   }
 
   private async loadSynthesisCacheBlocks(
@@ -1210,6 +1330,99 @@ export class AiSdkBackend implements AgentBackend {
         synthesisCacheMode: 'read_write',
         synthesisCacheWritesAttempted: 1,
         synthesisCacheWriteFailures: 1,
+      };
+    }
+  }
+
+  private async writeHistoryCompactBlocks(input: {
+    turnId: string;
+    contextBudget: ContextBudgetPolicy;
+    priorRuntimeContext: readonly RuntimeEvent[];
+    draftBlocks: HistoryCompactBlock[];
+  }): Promise<{
+    diagnosticPatch: Partial<ContextBudgetDiagnostic>;
+    replacementBlocks: HistoryCompactBlock[];
+  }> {
+    const historyCompact = input.contextBudget.historyCompact;
+    if (historyCompact?.enabled !== true || historyCompact.mode !== 'read_write' || !this.input.writeHistoryCompact) {
+      return { diagnosticPatch: {}, replacementBlocks: [] };
+    }
+    const limits = {
+      maxBlocks: historyCompact.maxBlocks ?? 1,
+      maxBlockEstimatedTokens:
+        historyCompact.maxBlockEstimatedTokens ?? historyCompact.maxSummaryEstimatedTokens ?? 1_024,
+      maxEstimatedTokens: historyCompact.maxEstimatedTokens ?? 2_048,
+      charsPerToken: input.contextBudget.charsPerToken ?? 4,
+    };
+    const replacementBlocks: HistoryCompactBlock[] = [];
+    let writesAttempted = 0;
+    let written = 0;
+    let skipped = 0;
+    const skippedReasonCounts: Record<string, number> = {};
+    try {
+      for (const draftBlock of input.draftBlocks.slice(0, limits.maxBlocks)) {
+        const foldedIds = new Set(draftBlock.coverage.runtimeEventIds);
+        const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) => foldedIds.has(event.id));
+        if (foldedRuntimeEvents.length === 0) {
+          skipped += 1;
+          incrementRecord(skippedReasonCounts, 'source_missing');
+          continue;
+        }
+        writesAttempted += 1;
+        const result = await Promise.resolve(this.input.writeHistoryCompact({
+          sessionId: this.sessionId,
+          turnId: input.turnId,
+          source: {
+            draftBlock,
+            foldedRuntimeEvents,
+          },
+          limits,
+          requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+        }));
+        const blocks = result?.blocks ?? [];
+        if (result?.skipped && result.skipped > 0) {
+          skipped += result.skipped;
+          mergeCountsInto(skippedReasonCounts, result.skippedReasonCounts);
+        }
+        for (const block of blocks) {
+          replacementBlocks.push(block);
+          written += 1;
+        }
+      }
+      const estimatedTokens = replacementBlocks.reduce((total, block) => total + (block.estimatedTokens ?? 0), 0);
+      return {
+        replacementBlocks,
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: 'read_write',
+          historyCompactWritesAttempted: writesAttempted,
+          historyCompactBlocksWritten: written,
+          ...(replacementBlocks.length > 0
+            ? {
+                historyCompactWrittenBlockIds: replacementBlocks.map((block) => block.blockId),
+                historyCompactWriteEstimatedTokens: estimatedTokens,
+                historyCompactBlockIds: replacementBlocks.map((block) => block.blockId),
+                historyCompactedEstimatedTokensAfter: estimatedTokens,
+                highWaterName: replacementBlocks[0]!.highWaterName,
+                highWaterSeq: replacementBlocks[0]!.highWaterSeq,
+                highWaterReason: 'history_compact',
+              }
+            : {}),
+          ...(skipped > 0 ? { historyCompactWriteSkipped: skipped } : {}),
+          ...(Object.keys(skippedReasonCounts).length > 0
+            ? { historyCompactWriteSkippedReasonCounts: skippedReasonCounts }
+            : {}),
+        },
+      };
+    } catch {
+      return {
+        replacementBlocks: [],
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: 'read_write',
+          historyCompactWritesAttempted: writesAttempted || 1,
+          historyCompactWriteFailures: 1,
+        },
       };
     }
   }
@@ -1496,7 +1709,29 @@ function mergeContextBudgetDiagnostic(
       base.synthesisCacheEvictionReasonCounts,
       patch.synthesisCacheEvictionReasonCounts,
     ),
+    historyCompactSkippedReasonCounts: mergeCountRecords(
+      base.historyCompactSkippedReasonCounts,
+      patch.historyCompactSkippedReasonCounts,
+    ),
+    historyCompactLoadSkippedReasonCounts: mergeCountRecords(
+      base.historyCompactLoadSkippedReasonCounts,
+      patch.historyCompactLoadSkippedReasonCounts,
+    ),
+    historyCompactWriteSkippedReasonCounts: mergeCountRecords(
+      base.historyCompactWriteSkippedReasonCounts,
+      patch.historyCompactWriteSkippedReasonCounts,
+    ),
   };
+}
+
+function mergeContextBudgetDiagnosticPatches(
+  left: Partial<ContextBudgetDiagnostic> | undefined,
+  right: Partial<ContextBudgetDiagnostic> | undefined,
+): Partial<ContextBudgetDiagnostic> | undefined {
+  if (!left && !right) return undefined;
+  if (!left) return right;
+  if (!right) return left;
+  return mergeContextBudgetDiagnostic(left as ContextBudgetDiagnostic, right);
 }
 
 function mergeCountRecords(
@@ -1509,6 +1744,27 @@ function mergeCountRecords(
     out[key] = (out[key] ?? 0) + value;
   }
   return out;
+}
+
+function replaceHistoryCompactReplayBlocks(
+  events: readonly RuntimeEvent[],
+  blocks: readonly HistoryCompactBlock[],
+): RuntimeEvent[] {
+  if (blocks.length === 0) return [...events];
+  return [
+    ...blocks.map((block) => historyCompactBlockToRuntimeEvent(block)),
+    ...events.filter((event) => !event.id.startsWith('history-compact:')),
+  ];
+}
+
+function incrementRecord(counts: Record<string, number>, key: string): void {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function mergeCountsInto(target: Record<string, number>, source: Record<string, number> | undefined): void {
+  for (const [key, value] of Object.entries(source ?? {})) {
+    target[key] = (target[key] ?? 0) + value;
+  }
 }
 
 function jsonValue(value: unknown): JSONValue {
