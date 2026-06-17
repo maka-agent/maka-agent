@@ -31,11 +31,6 @@ export function buildBuiltinTools(): MakaTool[] {
         timeout_ms: z.number().int().positive().max(600_000).optional(),
       }),
       permissionRequired: true,
-      toolSource: {
-        id: 'shell',
-        label: 'Shell',
-        description: 'Shell command execution tools.',
-      },
       impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
         const result = await runStreamingShell(command, {
           cwd,
@@ -62,11 +57,6 @@ export function buildBuiltinTools(): MakaTool[] {
         limit: z.number().int().positive().optional(),
       }),
       permissionRequired: false,
-      toolSource: {
-        id: 'core',
-        label: 'Core',
-        description: 'Read-only file inspection tools.',
-      },
       impl: async ({ path, offset, limit }, { cwd }) => {
         const abs = await resolveExistingInsideCwd(cwd, path, 'Read');
         const content = await fs.readFile(abs, 'utf8');
@@ -82,11 +72,6 @@ export function buildBuiltinTools(): MakaTool[] {
       description: 'Write content to a file (creates or overwrites). Subject to permission policy.',
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
-      toolSource: {
-        id: 'files.write',
-        label: 'File writing',
-        description: 'Workspace file creation and modification tools.',
-      },
       impl: async ({ path, content }, { cwd }) => {
         const abs = await resolveWritableInsideCwd(cwd, path, 'Write');
         await fs.writeFile(abs, content, 'utf8');
@@ -103,11 +88,6 @@ export function buildBuiltinTools(): MakaTool[] {
         new_string: z.string(),
       }),
       permissionRequired: true,
-      toolSource: {
-        id: 'files.write',
-        label: 'File writing',
-        description: 'Workspace file creation and modification tools.',
-      },
       impl: async ({ path, old_string, new_string }, { cwd }) => {
         const abs = await resolveExistingInsideCwd(cwd, path, 'Edit');
         const current = await fs.readFile(abs, 'utf8');
@@ -130,11 +110,6 @@ export function buildBuiltinTools(): MakaTool[] {
         cwd: z.string().optional(),
       }),
       permissionRequired: false,
-      toolSource: {
-        id: 'core',
-        label: 'Core',
-        description: 'Read-only file inspection tools.',
-      },
       impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
         assertRelativeGlobPattern(pattern);
         const base = relCwd ? await resolveExistingInsideCwd(cwd, relCwd, 'Glob cwd') : await fs.realpath(cwd);
@@ -155,11 +130,6 @@ export function buildBuiltinTools(): MakaTool[] {
         glob: z.string().optional(),
       }),
       permissionRequired: false,
-      toolSource: {
-        id: 'core',
-        label: 'Core',
-        description: 'Read-only file inspection tools.',
-      },
       impl: async ({ pattern, path, glob }, { cwd }) => {
         const args = ['-n', '--no-heading', '--max-count=50'];
         if (glob) args.push('--glob', glob);
