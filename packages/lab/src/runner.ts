@@ -75,11 +75,17 @@ export async function runExperiment(
     });
 
     const turnId = newId();
-    // Drain the turn to completion; the trajectory + status come from the
-    // captured InvocationResult, not from the streamed SessionEvents.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    for await (const _event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
-      // streamed UI events are not needed headlessly
+    // Drain the turn to completion. The trajectory + status come from the
+    // captured InvocationResult, not the streamed SessionEvents — but a
+    // headless benchmark has no human to answer permission prompts, so we
+    // auto-approve every request as it streams by. The lab IS the
+    // autonomy boundary: isolation (throwaway workspace) is the safety
+    // net here, not interactive confirmation.
+    for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
+      if ((event as { type?: string }).type === 'permission_request') {
+        const { requestId } = event as { requestId: string };
+        await manager.respondToPermission(session.id, { requestId, decision: 'allow', rememberForTurn: true });
+      }
     }
 
     const evaluation = await runVerification(

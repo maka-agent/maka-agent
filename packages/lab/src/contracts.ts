@@ -75,4 +75,6 @@ export interface ResultRecord {
   durationMs: number;
   startedAt: number;
   finishedAt: number;
+  /** Present when the run threw before producing a result (matrix-level failure). */
+  error?: string;
 }
