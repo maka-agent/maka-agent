@@ -14,7 +14,7 @@ import type { PermissionDecision } from '@maka/core/backend-types';
 import type { ToolCategory } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
-import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type { ToolInvocationRecord, ToolSourceId } from '@maka/core/usage-stats/types';
 import { redactSecrets } from '@maka/core/redaction';
 
 import type { PermissionEngine } from './permission-engine.js';
@@ -42,6 +42,12 @@ export interface MakaTool<P = any, R = unknown> {
   displayName?: string;
   /** Optional trusted category override for custom tools. */
   categoryHint?: ToolCategory;
+  /** Optional source grouping used by opt-in tool source economy mode. */
+  toolSource?: {
+    id: ToolSourceId;
+    label?: string;
+    description?: string;
+  };
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
 }
