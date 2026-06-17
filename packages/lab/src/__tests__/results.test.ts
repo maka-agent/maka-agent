@@ -57,4 +57,20 @@ describe('toComparisonTable', () => {
     const table = toComparisonTable([record('t1', 'a', false, { status: 'failed', error: 'boom' })]);
     assert.match(table, /\| t1 \| ⚠️ \|/);
   });
+
+  test('a failed run renders ⚠️ and is excluded from the pass count', () => {
+    const table = toComparisonTable([
+      record('t1', 'a', true, { status: 'failed' }), // crashed; stale passed flag
+      record('t1', 'b', true),
+    ]);
+    const lines = table.trimEnd().split('\n');
+    assert.equal(lines[2], '| t1 | ⚠️ | ✅ |');
+    assert.equal(lines[3], '| **pass rate** | 0/1 | 1/1 |');
+  });
+
+  test('escapes pipe characters in ids so they cannot break the table', () => {
+    const table = toComparisonTable([record('a|b', 'c|d', true)]);
+    assert.match(table, /a\\\|b/);
+    assert.match(table, /c\\\|d/);
+  });
 });

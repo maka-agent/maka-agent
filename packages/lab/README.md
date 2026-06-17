@@ -54,10 +54,14 @@ relative to the spec file, so a spec travels with its fixtures.
   pipeline; it never edits files, so a task passes only if its fixture
   already satisfies the verification.
 - **`ai-sdk`** — a real model. Reads the key from `apiKeyEnv`; the lab
-  carries no secrets at rest. Runs are fully autonomous: the lab
-  auto-approves tool permissions, with the throwaway workspace (never the
-  source fixture) as the safety boundary. See `examples/fix-add.spec.json`
-  — a buggy `add()` the model must fix until `node --test` passes:
+  carries no secrets at rest. Runs headlessly: read/edit/shell are
+  auto-allowed, but irreversible/host-reaching categories (delete,
+  destructive git, privileged, browser) are **denied by default** — the
+  workspace is a copy, not a sandbox, so a tool can still reach outside it
+  via absolute paths or the network. Opt into the dangerous categories
+  (`allowDangerousTools`) only inside a real OS/container sandbox. See
+  `examples/fix-add.spec.json` — a buggy `add()` the model must fix until
+  `node --test` passes:
 
   ```sh
   DEEPSEEK_API_KEY=… maka-lab run examples/fix-add.spec.json --out /tmp/out

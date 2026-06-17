@@ -27,9 +27,20 @@ export interface RunExperimentDeps {
    * the pure-Node CredentialStore). The registry is keyed by BackendKind.
    */
   registerBackends: (registry: BackendRegistry) => void;
+  /**
+   * Allow irreversible/host-reaching tool categories (delete, destructive
+   * git, privileged, browser). Default false: the workspace is a copy, not
+   * a jail, so these are denied unless you run inside a real OS/container
+   * sandbox. Read/edit/shell still run — enough for ordinary coding tasks.
+   */
+  allowDangerousTools?: boolean;
   now?: () => number;
   newId?: () => string;
 }
+
+/** Categories `execute` mode still raises a prompt for — denied by default
+ *  because the throwaway workspace does not contain their blast radius. */
+const DANGEROUS_CATEGORIES = new Set(['fs_destructive', 'git_destructive', 'privileged', 'browser']);
 
 /**
  * Run one `Config × Task` end-to-end: copy the fixture into a throwaway
@@ -78,13 +89,15 @@ export async function runExperiment(
     // Drain the turn to completion. The trajectory + status come from the
     // captured InvocationResult, not the streamed SessionEvents — but a
     // headless benchmark has no human to answer permission prompts, so we
-    // auto-approve every request as it streams by. The lab IS the
-    // autonomy boundary: isolation (throwaway workspace) is the safety
-    // net here, not interactive confirmation.
+    // resolve each one as it streams by: allow ordinary tool use, deny the
+    // dangerous categories whose blast radius escapes the workspace copy
+    // (unless the caller opted in via allowDangerousTools).
+    const allowDangerous = deps.allowDangerousTools === true;
     for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
       if ((event as { type?: string }).type === 'permission_request') {
-        const { requestId } = event as { requestId: string };
-        await manager.respondToPermission(session.id, { requestId, decision: 'allow', rememberForTurn: true });
+        const { requestId, category } = event as { requestId: string; category: string };
+        const decision = allowDangerous || !DANGEROUS_CATEGORIES.has(category) ? 'allow' : 'deny';
+        await manager.respondToPermission(session.id, { requestId, decision, rememberForTurn: true });
       }
     }
 
@@ -101,7 +114,9 @@ export async function runExperiment(
       sessionId: session.id,
       runId: invocation?.runId ?? turnId,
       status: invocation?.status ?? 'failed',
-      passed: evaluation.passed,
+      // Only a completed run can "pass" — a crashed/errored run that happens
+      // to leave a green fixture must not read as a pass.
+      passed: invocation?.status === 'completed' && evaluation.passed,
       exitCode: evaluation.exitCode,
       steps: invocation?.events.length ?? 0,
       durationMs: finishedAt - startedAt,

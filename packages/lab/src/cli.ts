@@ -12,7 +12,14 @@ interface LabSpec extends ExperimentSpec {
 }
 
 async function runCommand(args: string[]): Promise<number> {
-  const { positional, flags } = parseArgs(args);
+  let positional: string[];
+  let flags: Record<string, string>;
+  try {
+    ({ positional, flags } = parseArgs(args, ['out']));
+  } catch (error) {
+    console.error(`${(error as Error).message}\nusage: maka-lab run <spec.json> [--out <dir>]`);
+    return 1;
+  }
   const specPath = positional[0];
   if (!specPath) {
     console.error('usage: maka-lab run <spec.json> [--out <dir>]');
@@ -65,13 +72,21 @@ function mark(passed: boolean, error?: string): string {
   return passed ? '✅' : '❌';
 }
 
-function parseArgs(args: string[]): { positional: string[]; flags: Record<string, string> } {
+function parseArgs(args: string[], knownFlags: string[]): { positional: string[]; flags: Record<string, string> } {
   const positional: string[] = [];
   const flags: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (arg.startsWith('--')) flags[arg.slice(2)] = args[++i] ?? '';
-    else positional.push(arg);
+    if (!arg.startsWith('--')) {
+      positional.push(arg);
+      continue;
+    }
+    const name = arg.slice(2);
+    if (!knownFlags.includes(name)) throw new Error(`unknown flag: ${arg}`);
+    const value = args[i + 1];
+    if (value === undefined || value.startsWith('--')) throw new Error(`flag ${arg} needs a value`);
+    flags[name] = value;
+    i++;
   }
   return { positional, flags };
 }

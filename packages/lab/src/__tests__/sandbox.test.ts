@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -41,6 +41,14 @@ describe('prepareWorkspace', () => {
       const ws = await prepareWorkspace(fixtureDir);
       await ws.cleanup();
       await assert.rejects(stat(ws.dir));
+    });
+  });
+
+  test('rejects a fixture containing a symlink', async () => {
+    await withFixture(async (fixtureDir) => {
+      await writeFile(join(fixtureDir, 'real.txt'), 'x', 'utf8');
+      await symlink('/etc/hosts', join(fixtureDir, 'escape'));
+      await assert.rejects(prepareWorkspace(fixtureDir), /symlink/);
     });
   });
 });

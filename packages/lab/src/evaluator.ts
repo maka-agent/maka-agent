@@ -1,4 +1,18 @@
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
+
+/**
+ * Kill the verification command and any children it spawned. The child is
+ * a process-group leader (spawned detached), so a negative pid signals the
+ * whole group. Windows has no process groups — fall back to the shell.
+ */
+function killTree(child: ChildProcess): void {
+  try {
+    if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+    else child.kill('SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+}
 
 export interface EvaluationResult {
   /** Exit code 0 and not timed out. */
@@ -28,7 +42,10 @@ export function runVerification(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<EvaluationResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, { cwd, shell: true });
+    // detached: the shell becomes its own process-group leader so a
+    // timeout can kill the WHOLE tree (backgrounded grandchildren
+    // included), not just the shell.
+    const child = spawn(command, { cwd, shell: true, detached: true });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -38,7 +55,7 @@ export function runVerification(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      killTree(child);
     }, timeoutMs);
 
     child.stdout?.on('data', (chunk: Buffer) => { stdout = cap(stdout, chunk); });

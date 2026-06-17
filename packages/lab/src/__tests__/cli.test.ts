@@ -61,4 +61,16 @@ describe('maka-lab CLI', () => {
     const result = await runCli(['run']);
     assert.equal(result.code, 1);
   });
+
+  test('rejects an unknown flag', async () => {
+    const result = await runCli(['run', 'spec.json', '--bogus', 'x']);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /unknown flag/);
+  });
+
+  test('rejects --out without a value', async () => {
+    const result = await runCli(['run', 'spec.json', '--out']);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /needs a value/);
+  });
 });
