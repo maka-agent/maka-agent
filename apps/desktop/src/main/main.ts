@@ -216,6 +216,10 @@ import {
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+} from './history-compact-artifacts.js';
+import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
 } from './synthesis-cache-artifacts.js';
@@ -836,6 +840,17 @@ backends.register('ai-sdk', async (ctx) => {
     recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
     archiveToolResult: (event) => persistArchivedToolResult(event),
     readToolResultArchive: (event) => readArchivedToolResult(event),
+    loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
+    writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
+      onArtifactCreated: (artifact) => {
+        mainWindow?.webContents.send('artifacts:changed', {
+          reason: 'created',
+          artifactId: artifact.id,
+          sessionId: artifact.sessionId,
+          ts: Date.now(),
+        });
+      },
+    }),
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {
@@ -864,6 +879,7 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
   const archiveRetrieval = buildArchiveRetrievalPolicy();
   const historySearch = buildHistorySearchPolicy();
   const synthesisCache = buildSynthesisCachePolicy();
+  const historyCompact = buildHistoryCompactPolicy();
   const historyRewrite = buildHistoryRewriteGatePolicy();
   if (
     maxHistoryEstimatedTokens === undefined &&
@@ -872,6 +888,7 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
     archiveRetrieval === undefined &&
     historySearch === undefined &&
     synthesisCache === undefined &&
+    historyCompact === undefined &&
     historyRewrite === undefined
   ) {
     return undefined;
@@ -884,6 +901,7 @@ function buildContextBudgetPolicy(connection: LlmConnection): ContextBudgetPolic
     ...(archiveRetrieval !== undefined ? { archiveRetrieval } : {}),
     ...(historySearch !== undefined ? { historySearch } : {}),
     ...(synthesisCache !== undefined ? { synthesisCache } : {}),
+    ...(historyCompact !== undefined ? { historyCompact } : {}),
     ...(historyRewrite !== undefined ? { historyRewrite } : {}),
     minRecentTurns,
   };
@@ -940,6 +958,30 @@ function buildSynthesisCachePolicy(): NonNullable<ContextBudgetPolicy['synthesis
   };
 }
 
+function buildHistoryCompactPolicy(): NonNullable<ContextBudgetPolicy['historyCompact']> | undefined {
+  if (process.env.MAKA_CONTEXT_HISTORY_COMPACT !== 'on') return undefined;
+  const highWaterRatio = parseOptionalRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_RATIO);
+  const forceRatio = parseOptionalRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO);
+  const targetRatio = parseOptionalRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO);
+  const tailEstimatedTokens = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS);
+  const minRecentTurns = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS);
+  const maxSummaryEstimatedTokens = parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS);
+  return {
+    enabled: true,
+    mode: parseHistoryCompactMode(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MODE),
+    ...(highWaterRatio !== undefined ? { highWaterRatio } : {}),
+    ...(forceRatio !== undefined ? { forceRatio } : {}),
+    ...(targetRatio !== undefined ? { targetRatio } : {}),
+    ...(tailEstimatedTokens !== undefined ? { tailEstimatedTokens } : {}),
+    ...(minRecentTurns !== undefined ? { minRecentTurns } : {}),
+    ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
+    maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 2048),
+    maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 1024),
+    highWaterName: process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_NAME ?? 'desktop-history-compact',
+  };
+}
+
 function buildHistoryRewriteGatePolicy(): NonNullable<ContextBudgetPolicy['historyRewrite']> | undefined {
   if (process.env.MAKA_CONTEXT_HISTORY_REWRITE !== 'on') return undefined;
   return {
@@ -966,8 +1008,19 @@ function parseOptionalPositiveInt(value: string | undefined): number | undefined
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function parseOptionalRatio(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(1, parsed) : undefined;
+}
+
 function parseSynthesisCacheMode(value: string | undefined): 'lookup' | 'read_write' {
   return value === 'read_write' ? 'read_write' : 'lookup';
+}
+
+function parseHistoryCompactMode(value: string | undefined): NonNullable<ContextBudgetPolicy['historyCompact']>['mode'] {
+  if (value === 'lookup' || value === 'read_write' || value === 'deterministic') return value;
+  return 'lookup';
 }
 
 function parseArchiveRetrievalMode(value: string | undefined): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
