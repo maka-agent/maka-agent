@@ -207,14 +207,14 @@ describe('permission response IPC boundary', () => {
     const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
     const renderer = await readFile(rendererPath, 'utf8');
     // Find the 'complete' case in handleSessionEvent — the body must
-    // null out permissionBySession[sessionId] when stopReason is
-    // not permission_handoff.
+    // clear the session's permission queue when stopReason is not
+    // permission_handoff.
     const completeCase = renderer.match(/case 'complete':[\s\S]*?break;/);
     assert.ok(completeCase, "'complete' case must exist in renderer event handler");
     assert.match(
       completeCase[0],
-      /setPermissionBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]:\s*undefined\s*\}\)\)/,
-      "'complete' case must clear permissionBySession for the session — mirrors the abort handler",
+      /setPermissionBySession\(\(current\) => clearPermissions\(current, sessionId\)\)/,
+      "'complete' case must clear the session's permission queue — mirrors the abort handler",
     );
   });
 
