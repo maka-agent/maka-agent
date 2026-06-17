@@ -82,6 +82,7 @@ export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';
 export {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+  applyRuntimeEventHistoryCompact,
   applyRuntimeEventContextBudget,
   buildSynthesisCacheBlocksFromHydratedArchives,
   buildPromptSegmentEstimates,
@@ -93,11 +94,13 @@ export {
   isArchivedToolResultPlaceholder,
   rawEvidenceRequestReason,
   deserializeToolResultArchive,
+  renderHistoryCompactBlock,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
   searchRuntimeEventHistory,
   serializeToolResultForArchive,
   stableSynthesisBlockId,
+  validateHistoryCompactBlockShape,
   validateSynthesisCacheBlockShape,
 } from './context-budget.js';
 export type {
@@ -107,6 +110,11 @@ export type {
   ArchiveRetrievalMode,
   ArchiveRetrievalPolicy,
   ArchiveRetrievalResult,
+  HistoryCompactBlock,
+  HistoryCompactCoverage,
+  HistoryCompactPolicy,
+  HistoryCompactReplayResult,
+  HistoryCompactSourceArchiveRef,
   HistoryRewriteGatePolicy,
   RuntimeEventHistoryAroundResult,
   RuntimeEventHistorySearchHit,

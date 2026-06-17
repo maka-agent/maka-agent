@@ -6,14 +6,17 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+  applyRuntimeEventHistoryCompact,
   applyRuntimeEventContextBudget,
   buildSynthesisCacheBlocksFromHydratedArchives,
   deserializeToolResultArchive,
+  renderHistoryCompactBlock,
   renderSynthesisCacheBlock,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
   selectSynthesisCacheForReplay,
   serializeToolResultForArchive,
+  validateHistoryCompactBlockShape,
   validateSynthesisCacheBlockShape,
   type SynthesisCacheBlock,
 } from '../context-budget.js';
@@ -710,6 +713,137 @@ describe('context-budget synthesis cache', () => {
     });
     assert.equal(tooSmall.blocks.length, 0);
     assert.deepEqual(tooSmall.skippedReasonCounts, { max_block_tokens: 1 });
+  });
+});
+
+describe('context-budget history compact', () => {
+  test('folds older turns into a source-bearing compact block at high water', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'alpha context '.repeat(12)),
+      textEvent('old-2', 'turn-2', 'beta context '.repeat(12)),
+      toolCall('old-call', 'turn-3', 'tool-old'),
+      toolResult('old-result', 'turn-3', 'tool-old', { text: 'gamma tool payload '.repeat(8) }),
+      textEvent('recent-1', 'turn-4', 'recent user context'),
+      textEvent('recent-2', 'turn-5', 'latest user context'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 240,
+      minRecentTurns: 2,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterName: 'reasonix-lowfreq-v1',
+        highWaterRatio: 0.5,
+        targetRatio: 0.2,
+        minRecentTurns: 2,
+        maxSummaryEstimatedTokens: 90,
+      },
+    });
+
+    assert.ok(result);
+    assert.equal(result.diagnostic.highWaterReason, 'history_compact');
+    assert.equal(result.diagnostic.highWaterName, 'reasonix-lowfreq-v1');
+    assert.equal(result.diagnostic.historyCompactMode, 'deterministic');
+    assert.equal(result.diagnostic.historyCompactedTurns, 3);
+    assert.equal(result.diagnostic.historyCompactedEvents, 4);
+    assert.equal(result.diagnostic.droppedTurns, 3);
+    assert.equal(result.diagnostic.droppedEvents, 3);
+    assert.equal(result.diagnostic.historyCompactBlockIds?.length, 1);
+    assert.equal(result.events.some((event) => event.id === 'old-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'old-result'), false);
+    assert.equal(result.events.some((event) => event.id === 'recent-1'), true);
+    assert.equal(result.events.some((event) => event.id === 'recent-2'), true);
+
+    const synthetic = result.events.find((event) => event.id.startsWith('history-compact:'));
+    assert.equal(synthetic?.role, 'user');
+    assert.equal(synthetic?.author, 'system');
+    const compactText = synthetic?.content?.kind === 'text' ? synthetic.content.text : '';
+    assert.match(compactText, /<maka_history_compact_block/);
+    assert.match(compactText, /runtimeEventIds=\[old-1, old-2, old-call, old-result\]/);
+    assert.equal(events.some((event) => event.id === 'old-1'), true, 'input events remain unchanged');
+  });
+
+  test('keeps prior history unchanged below high water', () => {
+    const events = [
+      textEvent('short-1', 'turn-1', 'short context'),
+      textEvent('short-2', 'turn-2', 'still short'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 1000,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterRatio: 0.8,
+      },
+    });
+
+    assert.ok(result);
+    assert.deepEqual(result.events.map((event) => event.id), ['short-1', 'short-2']);
+    assert.equal(result.diagnostic.historyCompactEnabled, true);
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { below_high_water: 1 });
+    assert.equal(result.diagnostic.highWaterReason, undefined);
+  });
+
+  test('skips compaction when archive-before-project is required but missing', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'missing archive source '.repeat(20)),
+      textEvent('old-2', 'turn-2', 'also missing archive '.repeat(20)),
+      textEvent('recent-1', 'turn-3', 'recent tail'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 500,
+      minRecentTurns: 1,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        archiveRequired: true,
+        highWaterRatio: 0.5,
+        targetRatio: 0.2,
+      },
+    });
+
+    assert.ok(result);
+    assert.equal(result.events.some((event) => event.id.startsWith('history-compact:')), false);
+    assert.equal(result.diagnostic.historyCompactSkipped, 1);
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { archive_missing: 1 });
+    assert.equal(result.diagnostic.highWaterReason, undefined);
+  });
+
+  test('builds stable compact blocks with explicit render and shape validation', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'stable alpha '.repeat(15)),
+      textEvent('old-2', 'turn-2', 'stable beta '.repeat(15)),
+      textEvent('recent-1', 'turn-3', 'recent tail'),
+    ];
+    const policy = {
+      maxHistoryEstimatedTokens: 180,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterRatio: 0.5,
+        targetRatio: 0.2,
+        minRecentTurns: 1,
+        maxSummaryEstimatedTokens: 120,
+      },
+    } as const;
+
+    const first = applyRuntimeEventHistoryCompact(events, policy, {
+      charsPerToken: 1,
+      maxHistoryEstimatedTokens: 180,
+    });
+    const second = applyRuntimeEventHistoryCompact(events, policy, {
+      charsPerToken: 1,
+      maxHistoryEstimatedTokens: 180,
+    });
+
+    assert.equal(first.blocks.length, 1);
+    assert.equal(first.blocks[0]?.blockId, second.blocks[0]?.blockId);
+    assert.equal(validateHistoryCompactBlockShape(first.blocks[0], 'session-1'), true);
+    assert.match(renderHistoryCompactBlock(first.blocks[0]!), /bodySha256=/);
+    assert.equal(first.events[0]?.id, `history-compact:${first.blocks[0]?.blockId}`);
   });
 });
 
