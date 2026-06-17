@@ -4,6 +4,8 @@ export type ArtifactSource =
   | 'tool_result'
   | 'tool_result_archive'
   | 'synthesis_cache_block'
+  | 'history_compact_block'
+  | 'history_compact_source'
   | 'user_upload'
   | 'export'
   | 'snapshot'

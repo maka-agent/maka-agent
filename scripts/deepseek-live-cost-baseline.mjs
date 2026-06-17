@@ -10,6 +10,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildHistoryCompactBlockFromSummary,
   buildProviderOptions,
   buildSynthesisCacheBlocksFromHydratedArchives,
   computeCost,
@@ -17,6 +18,7 @@ import {
   estimateTokens,
   getAIModel,
   getBuiltinPricing,
+  validateHistoryCompactBlockShape,
   validateSynthesisCacheBlockShape,
 } from '../packages/runtime/dist/index.js';
 import {
@@ -77,6 +79,22 @@ if (
   process.argv.includes('--phase9-synthesis-lifecycle')
 ) {
   const exitCode = await runPhase9SynthesisLifecycleMatrix({
+    apiKey,
+    model,
+    repoRoot,
+    outputRoot,
+    runId,
+    seed,
+    cwd,
+  });
+  process.exit(exitCode);
+}
+
+if (
+  process.env.MAKA_COST_BASELINE_PHASE10_HISTORY_COMPACT === 'on' ||
+  process.argv.includes('--phase10-history-compact')
+) {
+  const exitCode = await runPhase10HistoryCompactMatrix({
     apiKey,
     model,
     repoRoot,
@@ -834,6 +852,414 @@ async function runPhase9SynthesisLifecycleMatrix(input) {
   return 0;
 }
 
+async function runPhase10HistoryCompactMatrix(input) {
+  const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase10-history-compact');
+  await mkdir(matrixOutputRoot, { recursive: true });
+  const sentinel = process.env.MAKA_COST_BASELINE_PHASE10_SENTINEL
+    ?? `PHASE10_SENTINEL_${sha256(`${input.seed}:phase10`).slice(0, 16)}`;
+  const payloadLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE10_PAYLOAD_LINES, 120);
+  const matrixCase = {
+    name: 'text_history_recovery',
+    oldTurnCount: 1,
+    payloadLines,
+  };
+  const scenarios = [];
+  for (const mode of ['full', 'deterministic', 'history_compact_read_write']) {
+    scenarios.push(await runPhase10HistoryCompactScenario({
+      ...input,
+      matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+      matrixCase: matrixCase.name,
+      mode,
+      sentinel,
+      payloadLines,
+    }));
+  }
+  const cases = [{
+    ...matrixCase,
+    scenarios,
+  }];
+  const invariantFailures = validatePhase10HistoryCompactMatrix(cases, sentinel);
+  const byMode = new Map(scenarios.map((scenario) => [scenario.mode, scenario]));
+  const full = byMode.get('full');
+  const deterministic = byMode.get('deterministic');
+  const readWrite = byMode.get('history_compact_read_write');
+  const report = {
+    sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
+    scenario: {
+      name: 'phase10_history_compact_matrix',
+      cases: cases.map((item) => item.name),
+      modes: scenarios.map((scenario) => scenario.mode),
+    },
+    passed: invariantFailures.length === 0,
+    invariantFailures,
+    repoRoot: input.repoRoot,
+    outputRoot: matrixOutputRoot,
+    model: input.model,
+    seed: input.seed,
+    sentinelSha256: sha256(sentinel),
+    payloadLines,
+    comparisons: {
+      deterministicRepeatedVsFull: usageDelta(full?.repeatedUsage, deterministic?.repeatedUsage),
+      readWriteRepeatedVsFull: usageDelta(full?.repeatedUsage, readWrite?.repeatedUsage),
+      readWriteRepeatedVsDeterministic: usageDelta(deterministic?.repeatedUsage, readWrite?.repeatedUsage),
+    },
+    cases,
+    scenarios,
+  };
+  const jsonPath = resolve(
+    process.env.MAKA_COST_BASELINE_PHASE10_MATRIX_JSON
+      ?? join(matrixOutputRoot, 'phase10-history-compact-live-matrix.json'),
+  );
+  await mkdir(resolve(jsonPath, '..'), { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  console.log(JSON.stringify({
+    jsonPath,
+    model: input.model,
+    scenario: report.scenario.name,
+    cases: cases.map((item) => ({
+      name: item.name,
+      modes: item.scenarios.map((scenario) => ({
+        mode: scenario.mode,
+        recoveryAnswerExactlySentinel: scenario.recoveryAnswerExactlySentinel,
+        repeatedAnswerExactlySentinel: scenario.repeatedAnswerExactlySentinel,
+        recoveryHistoryCompactSelected: scenario.recoveryContextBudget?.historyCompactBlocksSelected ?? 0,
+        recoveryHistoryCompactWritten: scenario.recoveryContextBudget?.historyCompactBlocksWritten ?? 0,
+        repeatedHistoryCompactLoaded: scenario.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0,
+        repeatedHistoryCompactSelected: scenario.repeatedContextBudget?.historyCompactBlocksSelected ?? 0,
+        repeatedHistoryCompactWriteAttempts: scenario.repeatedContextBudget?.historyCompactWritesAttempted ?? 0,
+        persistedBlockArtifacts: scenario.persistedHistoryCompactArtifactIds?.length ?? 0,
+        persistedSourceArtifacts: scenario.persistedHistoryCompactSourceArtifactIds?.length ?? 0,
+        recoveryUsage: scenario.recoveryUsage,
+        repeatedUsage: scenario.repeatedUsage,
+        scenarioUsageTotals: scenario.scenarioUsageTotals,
+      })),
+    })),
+    comparisons: report.comparisons,
+    invariantFailures,
+  }, null, 2));
+  if (invariantFailures.length > 0) {
+    console.error([
+      'Phase 10 history compact matrix invariant failures:',
+      ...invariantFailures.map((failure) => `- ${failure}`),
+    ].join('\n'));
+    return 1;
+  }
+  return 0;
+}
+
+async function loadPersistedHistoryCompactBlocksFromArtifacts(artifactStore, input) {
+  const maxBlocks = input.maxBlocks ?? 1;
+  const maxEstimatedTokens = input.maxEstimatedTokens ?? 2_048;
+  const maxBytes = input.maxBytes ?? maxEstimatedTokens * 4;
+  const skippedReasonCounts = {};
+  const blocks = [];
+  const records = await artifactStore.list(input.sessionId, { includeDeleted: true });
+  for (const record of records) {
+    if (record.status !== 'live') {
+      incrementCount(skippedReasonCounts, 'deleted');
+      continue;
+    }
+    if (record.source !== 'history_compact_block' || record.kind !== 'file') {
+      continue;
+    }
+    if (record.sessionId !== input.sessionId) {
+      incrementCount(skippedReasonCounts, 'session_mismatch');
+      continue;
+    }
+    if (blocks.length >= maxBlocks) {
+      incrementCount(skippedReasonCounts, 'max_blocks');
+      continue;
+    }
+    if (record.sizeBytes > maxBytes) {
+      incrementCount(skippedReasonCounts, 'max_bytes');
+      continue;
+    }
+    const read = await artifactStore.readText(record.id, { maxBytes });
+    if (!read.ok) {
+      incrementCount(skippedReasonCounts, read.reason);
+      continue;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(read.text);
+    } catch {
+      incrementCount(skippedReasonCounts, 'invalid_json');
+      continue;
+    }
+    if (parsed && typeof parsed === 'object' && typeof parsed.sessionId === 'string' && parsed.sessionId !== input.sessionId) {
+      incrementCount(skippedReasonCounts, 'session_mismatch');
+      continue;
+    }
+    if (!validateHistoryCompactBlockShape(parsed, input.sessionId)) {
+      incrementCount(skippedReasonCounts, 'invalid_schema_version');
+      continue;
+    }
+    const estimatedTokens = parsed.estimatedTokens ?? estimateTokens(read.text.length, 4);
+    if (estimatedTokens > maxEstimatedTokens) {
+      incrementCount(skippedReasonCounts, 'max_total_tokens');
+      continue;
+    }
+    blocks.push({ ...parsed, estimatedTokens });
+  }
+  const skipped = Object.values(skippedReasonCounts).reduce((total, count) => total + count, 0);
+  return {
+    blocks,
+    ...(skipped > 0 ? { skipped } : {}),
+    ...(skipped > 0 ? { skippedReasonCounts } : {}),
+  };
+}
+
+async function persistPhase10HistoryCompactBlocksToArtifacts(artifactStore, event, input) {
+  const now = Date.now();
+  const sourceArchiveRefs = [];
+  const sourceArtifactIds = [];
+  const blockArtifactIds = [];
+  for (const runtimeEvent of event.source.foldedRuntimeEvents) {
+    const serializedBody = serializeHistoryCompactSourceBody(runtimeEvent.content ?? {});
+    const artifact = await artifactStore.create({
+      sessionId: event.sessionId,
+      turnId: runtimeEvent.turnId,
+      name: `phase10-history-compact-source-${runtimeEvent.id}.json`,
+      kind: 'file',
+      content: JSON.stringify(runtimeEvent, null, 2),
+      mimeType: 'application/json',
+      source: 'history_compact_source',
+      summary: 'Archived RuntimeEvent source for Phase 10 history compact replay',
+    });
+    sourceArtifactIds.push(artifact.id);
+    sourceArchiveRefs.push({
+      runtimeEventId: runtimeEvent.id,
+      artifactId: artifact.id,
+      bodySha256: sha256(serializedBody),
+      originalEstimatedTokens: estimateTokens(serializedBody.length, event.limits.charsPerToken),
+      originalBytes: Buffer.byteLength(serializedBody, 'utf8'),
+    });
+  }
+  const block = buildHistoryCompactBlockFromSummary({
+    sessionId: event.sessionId,
+    foldedRuntimeEvents: event.source.foldedRuntimeEvents,
+    summary: buildPhase10HostHistoryCompactSummary(input, event),
+    highWaterName: event.source.draftBlock.highWaterName,
+    highWaterSeq: event.source.draftBlock.highWaterSeq,
+    maxSummaryEstimatedTokens: event.limits.maxBlockEstimatedTokens,
+    sourceArchiveRefs,
+    requestShapeHashBefore: event.requestShapeHashBefore,
+    requestShapeHashAfter: event.requestShapeHashAfter,
+    now,
+    charsPerToken: event.limits.charsPerToken,
+  });
+  if ((block.estimatedTokens ?? 0) > event.limits.maxBlockEstimatedTokens) {
+    return {
+      blocks: [],
+      skipped: 1,
+      skippedReasonCounts: { max_block_tokens: 1 },
+      sourceArtifactIds,
+      blockArtifactIds,
+    };
+  }
+  if ((block.estimatedTokens ?? 0) > event.limits.maxEstimatedTokens) {
+    return {
+      blocks: [],
+      skipped: 1,
+      skippedReasonCounts: { max_total_tokens: 1 },
+      sourceArtifactIds,
+      blockArtifactIds,
+    };
+  }
+  const artifact = await artifactStore.create({
+    sessionId: event.sessionId,
+    turnId: event.turnId,
+    name: `phase10-history-compact-${block.blockId}.json`,
+    kind: 'file',
+    content: JSON.stringify(block, null, 2),
+    mimeType: 'application/json',
+    source: 'history_compact_block',
+    summary: 'Phase 10 history compact block for context budget replay',
+  });
+  blockArtifactIds.push(artifact.id);
+  return {
+    blocks: [block],
+    sourceArtifactIds,
+    blockArtifactIds,
+  };
+}
+
+async function runPhase10HistoryCompactScenario(input) {
+  const workspaceRoot = join(input.matrixOutputRoot, input.mode, 'workspace');
+  await mkdir(workspaceRoot, { recursive: true });
+  const sessionStore = createSessionStore(workspaceRoot);
+  const runStore = createAgentRunStore(workspaceRoot);
+  const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+  const artifactStore = createArtifactStore(workspaceRoot);
+  const permissionEngine = new PermissionEngine(createDefaultPermissionEngineDeps());
+  const backends = new BackendRegistry();
+  const llmRecords = [];
+  const runTraceEvents = [];
+  const historyCompactLoads = [];
+  const historyCompactWrites = [];
+  const persistedHistoryCompactArtifactIds = [];
+  const persistedHistoryCompactSourceArtifactIds = [];
+  let activeTurnId;
+  const connection = {
+    slug: `deepseek-live-phase10-${input.mode}`,
+    name: `DeepSeek live Phase 10 ${input.mode}`,
+    providerType: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    defaultModel: input.model,
+    enabled: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const contextBudget = buildPhase10ContextBudgetPolicy(input.mode);
+  const systemPrompt = [
+    'You are a Maka Phase 10 live harness assistant.',
+    'For Phase 10 storage turns, answer exactly STORED and do not repeat the sentinel.',
+    'When asked to recover the Phase 10 sentinel, answer only the sentinel value from prior context or a <maka_history_compact_block>.',
+    'Never call tools for this harness.',
+  ].join('\n');
+
+  backends.register('ai-sdk', async (ctx) =>
+    new AiSdkBackend({
+      sessionId: ctx.sessionId,
+      header: { ...ctx.header, model: input.model },
+      appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+      connection,
+      apiKey: input.apiKey,
+      modelId: input.model,
+      permissionEngine,
+      modelFactory: getAIModel,
+      tools: [],
+      providerOptions: buildProviderOptions(connection, input.model),
+      contextBudget,
+      systemPrompt,
+      turnTailPrompt: phase7TurnTailPrompt(input.cwd),
+      recordLlmCall: (record) => llmRecords.push(record),
+      recordRunTrace: (event) => runTraceEvents.push(event),
+      loadHistoryCompact: async (event) => {
+        const loaded = await loadPersistedHistoryCompactBlocksFromArtifacts(artifactStore, event);
+        historyCompactLoads.push({
+          requestTurnId: activeTurnId,
+          blockIds: loaded.blocks.map((block) => block.blockId),
+          skipped: loaded.skipped ?? 0,
+          skippedReasonCounts: loaded.skippedReasonCounts ?? {},
+        });
+        return loaded;
+      },
+      writeHistoryCompact: async (event) => {
+        const persisted = await persistPhase10HistoryCompactBlocksToArtifacts(artifactStore, event, input);
+        persistedHistoryCompactArtifactIds.push(...(persisted.blockArtifactIds ?? []));
+        persistedHistoryCompactSourceArtifactIds.push(...(persisted.sourceArtifactIds ?? []));
+        historyCompactWrites.push({
+          requestTurnId: activeTurnId,
+          blockIds: persisted.blocks.map((block) => block.blockId),
+          blockArtifactIds: persisted.blockArtifactIds ?? [],
+          sourceArtifactIds: persisted.sourceArtifactIds ?? [],
+          skipped: persisted.skipped ?? 0,
+          skippedReasonCounts: persisted.skippedReasonCounts ?? {},
+        });
+        return {
+          blocks: persisted.blocks,
+          ...(persisted.skipped > 0 ? { skipped: persisted.skipped } : {}),
+          ...(persisted.skippedReasonCounts ? { skippedReasonCounts: persisted.skippedReasonCounts } : {}),
+        };
+      },
+      newId: randomUUID,
+      now: Date.now,
+      maxSteps: 1,
+      streamConnectTimeoutMs: 30_000,
+      streamIdleTimeoutMs: 120_000,
+    }),
+  );
+
+  const manager = new SessionManager({
+    store: sessionStore,
+    runStore,
+    runtimeEventStore,
+    backends,
+    newId: randomUUID,
+    now: Date.now,
+  });
+  const session = await manager.createSession({
+    cwd: input.cwd,
+    backend: 'ai-sdk',
+    llmConnectionSlug: connection.slug,
+    model: input.model,
+    permissionMode: 'explore',
+    name: `DeepSeek Phase 10 ${input.mode}`,
+  });
+
+  async function sendRecordedTurn(turnId, text) {
+    activeTurnId = turnId;
+    const recordIndex = llmRecords.length;
+    try {
+      const turn = await sendPhase7Turn(manager, session.id, turnId, text);
+      return {
+        ...turn,
+        usageEvent: turn.events.find((event) => event.type === 'token_usage'),
+        llmRecord: llmRecords[recordIndex] ?? llmRecords.at(-1),
+      };
+    } finally {
+      activeTurnId = undefined;
+    }
+  }
+
+  const storeTurn = await sendRecordedTurn(
+    'phase10-store-old',
+    buildPhase10StoragePrompt(input),
+  );
+  const fillerTurn = await sendRecordedTurn(
+    'phase10-filler',
+    'Answer exactly OK. This small turn keeps the large Phase 10 memory outside the retained tail during recovery.',
+  );
+  const recoveryTurn = await sendRecordedTurn(
+    'phase10-recovery',
+    'Recover the Phase 10 sentinel from prior context. Do not explain. Answer only the sentinel.',
+  );
+  const repeatedTurn = await sendRecordedTurn(
+    'phase10-repeated-recovery',
+    'Recover the Phase 10 sentinel again from prior context. Do not explain. Answer only the sentinel.',
+  );
+
+  const pricingId = `${connection.providerType}:${input.model}`;
+  return {
+    matrixCase: input.matrixCase,
+    mode: input.mode,
+    contextBudget,
+    sessionId: session.id,
+    storageAnswer: storeTurn.assistantText,
+    storageAnswerIncludedSentinel: storeTurn.assistantText.includes(input.sentinel),
+    fillerAnswer: fillerTurn.assistantText,
+    recoveryAnswer: recoveryTurn.assistantText,
+    recoveryRecoveredSentinel: recoveryTurn.assistantText.includes(input.sentinel),
+    recoveryAnswerExactlySentinel: recoveryTurn.assistantText.trim() === input.sentinel,
+    repeatedAnswer: repeatedTurn.assistantText,
+    repeatedRecoveredSentinel: repeatedTurn.assistantText.includes(input.sentinel),
+    repeatedAnswerExactlySentinel: repeatedTurn.assistantText.trim() === input.sentinel,
+    historyCompactLoads,
+    historyCompactWrites,
+    persistedHistoryCompactArtifactIds,
+    persistedHistoryCompactSourceArtifactIds,
+    recoveryContextBudget: recoveryTurn.usageEvent?.contextBudget,
+    repeatedContextBudget: repeatedTurn.usageEvent?.contextBudget,
+    recoveryUsage: usageSummary(recoveryTurn.usageEvent, recoveryTurn.llmRecord, pricingId),
+    repeatedUsage: usageSummary(repeatedTurn.usageEvent, repeatedTurn.llmRecord, pricingId),
+    scenarioUsageTotals: usageTotals(llmRecords, pricingId),
+    requestShapeTrace: runTraceEvents
+      .filter((event) =>
+        event.data?.requestShapeHash ||
+        event.data?.requestShapeChangeReason ||
+        event.data?.contextBudget
+      )
+      .map((event) => ({
+        phase: event.phase,
+        type: event.type,
+        requestShapeHash: event.data?.requestShapeHash,
+        requestShapeChangeReason: event.data?.requestShapeChangeReason,
+        contextBudget: event.data?.contextBudget,
+      })),
+  };
+}
+
 async function loadPersistedSynthesisCacheBlocksFromArtifacts(artifactStore, input) {
   const maxBlocks = input.maxBlocks ?? 1;
   const maxEstimatedTokens = input.maxEstimatedTokens ?? 2_048;
@@ -1390,6 +1816,57 @@ function buildPhase8SynthesisBlock(input) {
   };
 }
 
+function buildPhase10ContextBudgetPolicy(mode) {
+  if (mode === 'full') return undefined;
+  const compactMode = mode === 'history_compact_read_write' ? 'read_write' : 'deterministic';
+  return {
+    name: `phase10-history-compact-${compactMode}`,
+    maxHistoryEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS, 1600),
+    minRecentTurns: 1,
+    charsPerToken: parsePositiveInt(process.env.MAKA_CONTEXT_CHARS_PER_TOKEN, 1),
+    historyCompact: {
+      enabled: true,
+      mode: compactMode,
+      highWaterRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_RATIO, 0.5),
+      forceRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO, 0.9),
+      targetRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO, 0.25),
+      tailEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS, 400),
+      minRecentTurns: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS, 1),
+      maxSummaryEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS, 512),
+      maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
+      maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 8192),
+      maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 4096),
+      highWaterName: `phase10-history-compact-${compactMode}`,
+    },
+  };
+}
+
+function buildPhase10StoragePrompt(input) {
+  const payload = Array.from({ length: input.payloadLines }, (_, index) =>
+    `phase10 old payload line ${String(index + 1).padStart(3, '0')}: stable filler for live cost accounting and prompt-cache measurement.`,
+  ).join('\n');
+  return [
+    'Store the Phase 10 memory. Answer exactly STORED and do not repeat the sentinel.',
+    '<phase10_memory>',
+    `sentinel: ${input.sentinel}`,
+    `seed: ${input.seed}`,
+    'purpose: exercise history compact replay and artifact-backed host summary loading.',
+    payload,
+    '</phase10_memory>',
+  ].join('\n');
+}
+
+function buildPhase10HostHistoryCompactSummary(input, event) {
+  const foldedTurnIds = [...new Set(event.source.foldedRuntimeEvents.map((runtimeEvent) => runtimeEvent.turnId))];
+  return [
+    'Phase 10 host history compact summary.',
+    `Recoverable sentinel: ${input.sentinel}`,
+    `Covered older turn ids: ${foldedTurnIds.join(', ')}`,
+    `Folded runtime event count: ${event.source.foldedRuntimeEvents.length}`,
+    'Use this summary for sentinel recovery. Raw old payload lines are preserved separately as source artifacts.',
+  ].join('\n');
+}
+
 function phase7TurnTailPrompt(cwd) {
   return [
     '<current-session-environment>',
@@ -1456,6 +1933,24 @@ function usageTotals(llmRecords, pricingId) {
     cacheWriteInput: 0,
     estimatedCostUsd: 0,
   });
+}
+
+function usageDelta(base, candidate) {
+  if (!base || !candidate) return undefined;
+  return {
+    input: numericDelta(base.input, candidate.input),
+    output: numericDelta(base.output, candidate.output),
+    cacheHitInput: numericDelta(base.cacheHitInput, candidate.cacheHitInput),
+    cacheMissInput: numericDelta(base.cacheMissInput, candidate.cacheMissInput),
+    cacheWriteInput: numericDelta(base.cacheWriteInput, candidate.cacheWriteInput),
+    estimatedCostUsd: numericDelta(base.estimatedCostUsd, candidate.estimatedCostUsd),
+  };
+}
+
+function numericDelta(base, candidate) {
+  return typeof base === 'number' && typeof candidate === 'number'
+    ? candidate - base
+    : undefined;
 }
 
 function costForLlmRecord(record, pricingId) {
@@ -1715,6 +2210,90 @@ function validatePhase9SynthesisLifecycleMatrix(cases, sentinel) {
   return failures;
 }
 
+function validatePhase10HistoryCompactMatrix(cases, sentinel) {
+  const failures = [];
+  for (const matrixCase of cases) {
+    const byMode = new Map(matrixCase.scenarios.map((scenario) => [scenario.mode, scenario]));
+    for (const mode of ['full', 'deterministic', 'history_compact_read_write']) {
+      const scenario = byMode.get(mode);
+      if (!scenario) {
+        failures.push(`${matrixCase.name}: missing ${mode} scenario`);
+        continue;
+      }
+      if (scenario.storageAnswerIncludedSentinel) {
+        failures.push(`${matrixCase.name}: ${mode} scenario repeated sentinel during storage`);
+      }
+      if (!scenario.recoveryRecoveredSentinel || !scenario.recoveryAnswerExactlySentinel) {
+        failures.push(`${matrixCase.name}: ${mode} recovery turn did not recover exactly ${sentinel}`);
+      }
+      if (!scenario.repeatedRecoveredSentinel || !scenario.repeatedAnswerExactlySentinel) {
+        failures.push(`${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`);
+      }
+      if (typeof scenario.repeatedUsage?.estimatedCostUsd !== 'number') {
+        failures.push(`${matrixCase.name}: ${mode} repeated estimatedCostUsd was not measurable`);
+      }
+    }
+
+    const deterministic = byMode.get('deterministic');
+    if (deterministic) {
+      if ((deterministic.recoveryContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: deterministic recovery did not select one history compact block`);
+      }
+      if ((deterministic.repeatedContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: deterministic repeated turn did not select one history compact block`);
+      }
+      if ((deterministic.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0) !== 0) {
+        failures.push(`${matrixCase.name}: deterministic repeated turn unexpectedly loaded persisted history compact blocks`);
+      }
+    }
+
+    const readWrite = byMode.get('history_compact_read_write');
+    if (readWrite) {
+      if ((readWrite.recoveryContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write recovery did not select one history compact draft`);
+      }
+      if ((readWrite.recoveryContextBudget?.historyCompactWritesAttempted ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write recovery did not attempt one history compact write`);
+      }
+      if ((readWrite.recoveryContextBudget?.historyCompactBlocksWritten ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write recovery did not write one host history compact block`);
+      }
+      if ((readWrite.persistedHistoryCompactArtifactIds?.length ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write did not persist one history compact block artifact`);
+      }
+      if ((readWrite.persistedHistoryCompactSourceArtifactIds?.length ?? 0) < 1) {
+        failures.push(`${matrixCase.name}: read_write did not persist source RuntimeEvent artifacts`);
+      }
+      if ((readWrite.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write repeated turn did not load one persisted history compact block`);
+      }
+      if ((readWrite.repeatedContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write repeated turn did not select one persisted history compact block`);
+      }
+      if ((readWrite.repeatedContextBudget?.historyCompactWritesAttempted ?? 0) > 0) {
+        failures.push(`${matrixCase.name}: read_write repeated turn rewrote a loaded history compact block`);
+      }
+      const repeatedLoad = readWrite.historyCompactLoads
+        ?.find((load) => load.requestTurnId === 'phase10-repeated-recovery');
+      if ((repeatedLoad?.blockIds?.length ?? 0) !== 1) {
+        failures.push(`${matrixCase.name}: read_write repeated turn did not prove artifact-backed history compact load`);
+      }
+    }
+
+    const full = byMode.get('full');
+    if (
+      full &&
+      readWrite &&
+      typeof full.repeatedUsage?.input === 'number' &&
+      typeof readWrite.repeatedUsage?.input === 'number' &&
+      readWrite.repeatedUsage.input >= full.repeatedUsage.input
+    ) {
+      failures.push(`${matrixCase.name}: read_write repeated input was not below full history`);
+    }
+  }
+  return failures;
+}
+
 function buildScenario(policy) {
   const explicitName = process.env.MAKA_COST_BASELINE_SCENARIO;
   if (explicitName) {
@@ -1739,6 +2318,11 @@ function buildScenario(policy) {
 
 function scenarioNameForPolicy(policy) {
   if (!policy) return 'budget_off';
+  if (policy.historyCompact?.enabled === true) {
+    return policy.historyCompact.mode === 'read_write'
+      ? 'history_compact_read_write'
+      : `history_compact_${policy.historyCompact.mode ?? 'deterministic'}`;
+  }
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
     if (policy.archiveRetrieval?.enabled === true) {
       return policy.archiveRetrieval.mode === 'history_search_gated'
@@ -1763,6 +2347,11 @@ function contextBudgetMode(policy) {
       ? 'synthesis_read_write'
       : 'synthesis_lookup';
   }
+  if (policy.historyCompact?.enabled === true) {
+    if (policy.historyCompact.mode === 'read_write') return 'history_compact_read_write';
+    if (policy.historyCompact.mode === 'lookup') return 'history_compact_lookup';
+    return 'history_compact_deterministic';
+  }
   if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
     if (policy.archiveRetrieval?.enabled === true) {
       return policy.archiveRetrieval.mode === 'history_search_gated'
@@ -1784,13 +2373,15 @@ function buildContextBudgetPolicy() {
   const archiveRetrieval = buildArchiveRetrievalPolicy();
   const historySearch = buildHistorySearchPolicy();
   const historyRewrite = buildHistoryRewriteGatePolicy();
+  const historyCompact = buildHistoryCompactPolicy();
   if (
     maxHistoryEstimatedTokens === undefined &&
     maxHistoryTurns === undefined &&
     !staleToolResultPrune &&
     !archiveRetrieval &&
     !historySearch &&
-    !historyRewrite
+    !historyRewrite &&
+    !historyCompact
   ) {
     return undefined;
   }
@@ -1802,6 +2393,7 @@ function buildContextBudgetPolicy() {
     ...(archiveRetrieval ? { archiveRetrieval } : {}),
     ...(historySearch ? { historySearch } : {}),
     ...(historyRewrite ? { historyRewrite } : {}),
+    ...(historyCompact ? { historyCompact } : {}),
     ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
   };
 }
@@ -1854,6 +2446,32 @@ function buildHistoryRewriteGatePolicy() {
   };
 }
 
+function buildHistoryCompactPolicy() {
+  if (process.env.MAKA_CONTEXT_HISTORY_COMPACT !== 'on') return undefined;
+  return {
+    enabled: true,
+    mode: parseHistoryCompactMode(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MODE),
+    highWaterRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_RATIO, 0.8),
+    forceRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO, 0.9),
+    targetRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO, 0.5),
+    ...(parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS) !== undefined
+      ? { tailEstimatedTokens: parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS) }
+      : {}),
+    minRecentTurns: parsePositiveInt(
+      process.env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS,
+      parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2),
+    ),
+    maxSummaryEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS,
+      768,
+    ),
+    maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
+    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 2048),
+    maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 1024),
+    highWaterName: process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_NAME ?? 'cost-baseline-history-compact',
+  };
+}
+
 function parsePositiveInt(value, fallback) {
   return parseOptionalPositiveInt(value) ?? fallback;
 }
@@ -1868,10 +2486,26 @@ function incrementCount(counts, reason) {
   counts[reason] = (counts[reason] ?? 0) + 1;
 }
 
+function parseRatio(value, fallback) {
+  return parseOptionalRatio(value) ?? fallback;
+}
+
+function parseOptionalRatio(value) {
+  if (!value) return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : undefined;
+}
+
 function parseArchiveRetrievalMode(value) {
   if (!value || value === 'eager') return undefined;
   if (value === 'history_search_gated') return value;
   throw new Error(`Unsupported MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE: ${value}`);
+}
+
+function parseHistoryCompactMode(value) {
+  if (!value || value === 'deterministic') return 'deterministic';
+  if (value === 'lookup' || value === 'read_write') return value;
+  throw new Error(`Unsupported MAKA_CONTEXT_HISTORY_COMPACT_MODE: ${value}`);
 }
 
 function classifyCacheMissShape(prefixChangeReason, requestShapeChangeReason) {
@@ -1884,6 +2518,15 @@ function classifyCacheMissShape(prefixChangeReason, requestShapeChangeReason) {
 
 function sha256(text) {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function serializeHistoryCompactSourceBody(value) {
+  if (value === undefined) return '';
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return String(value);
+  }
 }
 
 function renderMarkdown(report, jsonPath) {
