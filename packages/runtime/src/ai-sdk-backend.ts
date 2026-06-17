@@ -547,7 +547,7 @@ export class AiSdkBackend implements AgentBackend {
             promptSegments: buildPromptSegmentEstimates({
               systemPrompt,
               toolSchemaChars,
-              toolCount: canonicalTools.providerTools.length,
+              toolCount: active.length,
               priorMessages: priorReplay.messages,
               priorRuntimeEventCount: priorReplay.runtimeEventCount,
               currentUserContent,

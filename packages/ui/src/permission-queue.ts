@@ -35,6 +35,22 @@ export function dequeuePermission(
   return { ...queues, [sessionId]: queue.filter((r) => r.requestId !== requestId) };
 }
 
+/**
+ * Remove a request by its toolUseId. A permission that ends without a user
+ * decision — a runtime timeout / expiry — emits a `tool_result` rather than a
+ * `permission_decision_ack`, so the renderer drains the stale queue entry on
+ * that result. No-op once the request was already dequeued via its ack.
+ */
+export function dequeuePermissionByToolUseId(
+  queues: PermissionQueues,
+  sessionId: string,
+  toolUseId: string,
+): PermissionQueues {
+  const queue = queues[sessionId];
+  if (!queue || !queue.some((r) => r.toolUseId === toolUseId)) return queues;
+  return { ...queues, [sessionId]: queue.filter((r) => r.toolUseId !== toolUseId) };
+}
+
 /** Drop every pending request for a session (its turn errored / aborted / ended). */
 export function clearPermissions(queues: PermissionQueues, sessionId: string): PermissionQueues {
   if (!queues[sessionId]?.length) return queues;

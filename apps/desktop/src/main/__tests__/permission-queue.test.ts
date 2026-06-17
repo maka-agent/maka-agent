@@ -5,6 +5,7 @@ import {
   activePermissionFor,
   clearPermissions,
   dequeuePermission,
+  dequeuePermissionByToolUseId,
   enqueuePermission,
   type PermissionQueues,
 } from '@maka/ui';
@@ -71,6 +72,19 @@ describe('permission queue', () => {
     q = enqueuePermission(q, 's2', req('b'));
     assert.equal(activePermissionFor(q, 's1')?.requestId, 'a');
     assert.equal(activePermissionFor(q, 's2')?.requestId, 'b');
+  });
+
+  test('dequeuePermissionByToolUseId drains a request that ended without a decision', () => {
+    // An expired/timed-out permission emits a tool_result (keyed by toolUseId),
+    // not a permission_decision_ack — the renderer drains the stale entry on it.
+    let q: PermissionQueues = {};
+    q = enqueuePermission(q, 's', req('a')); // toolUseId call_a
+    q = enqueuePermission(q, 's', req('b', 'browser_extract')); // toolUseId call_b
+    q = dequeuePermissionByToolUseId(q, 's', 'call_a');
+    assert.deepEqual(q['s'].map((r) => r.requestId), ['b']);
+    // No-op (same reference) once it's gone — on the normal allow path the ack
+    // already dequeued, so the later tool_result must not disturb the queue.
+    assert.equal(dequeuePermissionByToolUseId(q, 's', 'call_a'), q);
   });
 
   test('activePermissionFor handles an undefined session and an empty queue', () => {

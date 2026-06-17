@@ -57,6 +57,7 @@ import {
   formatDailyReviewMarkdown,
   enqueuePermission,
   dequeuePermission,
+  dequeuePermissionByToolUseId,
   clearPermissions,
   activePermissionFor,
   type PermissionQueues,
@@ -2190,6 +2191,11 @@ function AppShell() {
         });
         break;
       case 'tool_result':
+        // A permission that ended without a user decision (runtime timeout /
+        // expiry) emits a tool_result, not a permission_decision_ack — drain any
+        // stale queue entry for this tool so it can't resurface as an
+        // un-answerable overlay. No-op when the ack already dequeued it.
+        setPermissionBySession((current) => dequeuePermissionByToolUseId(current, sessionId, event.toolUseId));
         upsertTool(sessionId, event.toolUseId, {
           toolUseId: event.toolUseId,
           status: event.isError ? 'errored' : 'completed',

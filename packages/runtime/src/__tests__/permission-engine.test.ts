@@ -253,6 +253,46 @@ describe('PermissionEngine — turn lifecycle', () => {
     expect(engine.recordResponse('t1', { requestId: r.event.requestId, decision: 'allow' })).toBeNull();
   });
 
+  test('allow + rememberForTurn absorbs other parked requests sharing the scope', async () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    // Two writes to the same path parked in parallel — neither answered yet, so
+    // the second still prompts (the scope is not yet remembered).
+    const r1 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu1', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    const r2 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu2', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
+    expect(engine.pendingCount('t1')).toBe(2);
+
+    // Answer the first with allow + remember-for-turn.
+    engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow', rememberForTurn: true });
+
+    // The second resolves on its own (no second prompt), as allow, under its own id.
+    const resolved2 = await r2.parked;
+    expect(resolved2.decision).toBe('allow');
+    expect(resolved2.requestId).toBe(r2.event.requestId);
+    expect(engine.pendingCount('t1')).toBe(0);
+  });
+
+  test('allow WITHOUT remember leaves other parked requests untouched', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r1 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu1', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    const r2 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu2', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
+    engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow' }); // no rememberForTurn
+    expect(engine.pendingCount('t1')).toBe(1); // r2 still parked
+  });
+
+  test('remember does not absorb a parked request in a different scope', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r1 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu1', toolName: 'Write', args: { path: '/x' }, mode: 'ask' });
+    const r2 = engine.evaluate({ sessionId: 's1', turnId: 't1', toolUseId: 'tu2', toolName: 'Write', args: { path: '/y' }, mode: 'ask' });
+    if (r1.kind !== 'prompt' || r2.kind !== 'prompt') throw new Error('expected prompts');
+    engine.recordResponse('t1', { requestId: r1.event.requestId, decision: 'allow', rememberForTurn: true });
+    expect(engine.pendingCount('t1')).toBe(1); // different path → different scope → still parked
+  });
+
   test('beginTurn is idempotent', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
