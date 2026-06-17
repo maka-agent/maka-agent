@@ -1,7 +1,11 @@
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import type { PrefixChangeReason } from '@maka/core/usage-stats/types';
+import type {
+  PrefixChangeReason,
+  ToolSchemaChangeReason,
+  ToolSourceEconomyDiagnostic,
+} from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
 import { toJSONSchema } from 'zod';
 
@@ -20,6 +24,7 @@ export interface RequestShapeInput {
   providerTools: readonly MakaTool[];
   activeTools: readonly string[];
   priorMessages: readonly ModelMessage[];
+  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
 }
 
 export interface RequestShapeComponents {
@@ -40,6 +45,8 @@ export interface RequestShapeDiagnostic {
   requestShapeHash: string;
   requestShapeChangeReason: PrefixChangeReason;
   componentHashes: RequestShapeComponents;
+  toolSchemaChangeReason?: ToolSchemaChangeReason;
+  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
 }
 
 export function canonicalizeToolSet(
@@ -77,6 +84,12 @@ export function computeRequestShapeDiagnostic(
   const durablePrefixComponents = durableComponents(componentHashes);
   const prefixHash = stableHash(durablePrefixComponents);
   const requestShapeHash = stableHash(componentHashes);
+  const toolSchemaChangeReason = classifyToolSchemaChange(
+    componentHashes,
+    prior?.componentHashes,
+    input.toolSourceEconomy,
+    prior?.toolSourceEconomy,
+  );
   return {
     prefixHash,
     prefixChangeReason: classifyDurablePrefixChange(
@@ -84,8 +97,13 @@ export function computeRequestShapeDiagnostic(
       prior ? durableComponents(prior.componentHashes) : undefined,
     ),
     requestShapeHash,
-    requestShapeChangeReason: classifyRequestShapeChange(componentHashes, prior?.componentHashes),
+    requestShapeChangeReason: classifyRequestShapeChange(
+      componentHashes,
+      prior?.componentHashes,
+    ),
     componentHashes,
+    ...(toolSchemaChangeReason !== undefined ? { toolSchemaChangeReason } : {}),
+    ...(input.toolSourceEconomy !== undefined ? { toolSourceEconomy: input.toolSourceEconomy } : {}),
   };
 }
 
@@ -130,6 +148,60 @@ function classifyRequestShapeChange(
   if (current.providerOptionsHash !== prior.providerOptionsHash) return 'provider_options_changed';
   if (current.historyProjectionHash !== prior.historyProjectionHash) return 'history_projection_changed';
   return 'stable';
+}
+
+function classifyToolSchemaChange(
+  current: RequestShapeComponents,
+  prior: RequestShapeComponents | undefined,
+  currentEconomy: ToolSourceEconomyDiagnostic | undefined,
+  priorEconomy: ToolSourceEconomyDiagnostic | undefined,
+): ToolSchemaChangeReason | undefined {
+  if (!prior || current.toolSchemaHash === prior.toolSchemaHash) return undefined;
+  if (isEnabledSourceStrictSuperset(currentEconomy, priorEconomy) && sourceCatalogStable(currentEconomy, priorEconomy)) {
+    return 'tool_source_enabled';
+  }
+  if (sourceStateChanged(currentEconomy, priorEconomy)) {
+    return 'tool_source_state_changed';
+  }
+  return 'tool_schema_changed';
+}
+
+function isEnabledSourceStrictSuperset(
+  current: ToolSourceEconomyDiagnostic | undefined,
+  prior: ToolSourceEconomyDiagnostic | undefined,
+): boolean {
+  if (current?.mode !== 'source_economy' || prior?.mode !== 'source_economy') return false;
+  const currentIds = new Set(current.enabledSourceIds);
+  const priorIds = new Set(prior.enabledSourceIds);
+  if (currentIds.size <= priorIds.size) return false;
+  for (const sourceId of priorIds) {
+    if (!currentIds.has(sourceId)) return false;
+  }
+  return true;
+}
+
+function sourceCatalogStable(
+  current: ToolSourceEconomyDiagnostic | undefined,
+  prior: ToolSourceEconomyDiagnostic | undefined,
+): boolean {
+  if (!current || !prior) return false;
+  return stableStringify(sourceCatalogShape(current)) === stableStringify(sourceCatalogShape(prior));
+}
+
+function sourceStateChanged(
+  current: ToolSourceEconomyDiagnostic | undefined,
+  prior: ToolSourceEconomyDiagnostic | undefined,
+): boolean {
+  return stableStringify(current ?? null) !== stableStringify(prior ?? null);
+}
+
+function sourceCatalogShape(diagnostic: ToolSourceEconomyDiagnostic): unknown {
+  return {
+    mode: diagnostic.mode,
+    connectorToolName: diagnostic.connectorToolName,
+    coreToolNames: diagnostic.coreToolNames ?? [],
+    visibleToolNamesBySource: diagnostic.visibleToolNamesBySource ?? {},
+  };
 }
 
 function durableComponents(components: RequestShapeComponents): DurablePrefixComponents {

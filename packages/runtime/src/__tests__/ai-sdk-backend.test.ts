@@ -28,6 +28,10 @@ import {
   computeRequestShapeDiagnostic,
 } from '../request-shape.js';
 import {
+  CONNECT_TOOL_SOURCE_NAME,
+  ToolSourceEconomyRuntime,
+} from '../tool-source-economy.js';
+import {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   applyRuntimeEventContextBudget,
   type SynthesisCacheBlock,
@@ -1657,6 +1661,228 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     );
   });
 
+  test('classifies strict enabled-source expansion as tool_source_enabled', () => {
+    const invalid = testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() }));
+    const initialTools = canonicalizeToolSet([
+      testTool('Read', z.object({ path: z.string() })),
+      testTool(CONNECT_TOOL_SOURCE_NAME, z.object({ source: z.string() })),
+    ], invalid);
+    const expandedTools = canonicalizeToolSet([
+      testTool('Read', z.object({ path: z.string() })),
+      testTool('WebFetch', z.object({ url: z.string() })),
+      testTool(CONNECT_TOOL_SOURCE_NAME, z.object({ source: z.string() })),
+    ], invalid);
+    const sourceCatalog = { web: ['WebFetch'] };
+    const first = computeRequestShapeDiagnostic({
+      connection: connection(),
+      modelId: 'mock-model-id',
+      providerTools: initialTools.providerTools,
+      activeTools: initialTools.activeTools,
+      priorMessages: [],
+      toolSourceEconomy: {
+        mode: 'source_economy',
+        enabledSourceIds: [],
+        availableSourceIds: ['web'],
+        connectorToolName: CONNECT_TOOL_SOURCE_NAME,
+        coreToolNames: ['Read'],
+        visibleToolNamesBySource: sourceCatalog,
+      },
+    }, undefined);
+    const second = computeRequestShapeDiagnostic({
+      connection: connection(),
+      modelId: 'mock-model-id',
+      providerTools: expandedTools.providerTools,
+      activeTools: expandedTools.activeTools,
+      priorMessages: [],
+      toolSourceEconomy: {
+        mode: 'source_economy',
+        enabledSourceIds: ['web'],
+        availableSourceIds: [],
+        connectorToolName: CONNECT_TOOL_SOURCE_NAME,
+        coreToolNames: ['Read'],
+        visibleToolNamesBySource: sourceCatalog,
+      },
+    }, first);
+
+    assert.equal(second.prefixChangeReason, 'tool_schema_changed');
+    assert.equal(second.requestShapeChangeReason, 'tool_schema_changed');
+    assert.equal(second.toolSchemaChangeReason, 'tool_source_enabled');
+    assert.notEqual(second.prefixHash, first.prefixHash);
+  });
+
+  test('tool source economy starts small and connector enables sources for later selections', async () => {
+    const runtime = new ToolSourceEconomyRuntime([
+      {
+        ...testTool('Write', z.object({ path: z.string(), content: z.string() })),
+        toolSource: { id: 'files.write', label: 'File writing' },
+      },
+      {
+        ...testTool('Read', z.object({ path: z.string() })),
+        toolSource: { id: 'core' },
+      },
+      {
+        ...testTool('WebFetch', z.object({ url: z.string() })),
+        toolSource: { id: 'web', label: 'Web' },
+      },
+    ], { mode: 'source_economy' });
+    const initial = canonicalizeToolSet(
+      runtime.selectTools().tools,
+      testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+    );
+
+    assert.deepEqual(
+      initial.providerTools.map((tool) => tool.name),
+      ['Read', CONNECT_TOOL_SOURCE_NAME, INVALID_TOOL_NAME].sort((a, b) => {
+        if (a === INVALID_TOOL_NAME) return 1;
+        if (b === INVALID_TOOL_NAME) return -1;
+        return a.localeCompare(b);
+      }),
+    );
+    assert.deepEqual(initial.activeTools, ['Read', CONNECT_TOOL_SOURCE_NAME].sort((a, b) => a.localeCompare(b)));
+
+    const connector = initial.providerTools.find((tool) => tool.name === CONNECT_TOOL_SOURCE_NAME);
+    assert.ok(connector);
+    const result = await connector.impl({ source: 'web' }, {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      cwd: '/tmp/maka',
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+    });
+    assert.deepEqual(result, {
+      ok: true,
+      source: 'web',
+      newlyEnabled: true,
+      enabledSources: ['web'],
+      availableSources: [{ id: 'files.write', label: 'File writing', toolCount: 1 }],
+      availableNextRequest: true,
+      tools: ['WebFetch'],
+    });
+
+    const expanded = canonicalizeToolSet(
+      runtime.selectTools().tools,
+      testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+    );
+    assert.equal(expanded.activeTools.includes('WebFetch'), true);
+    assert.equal(expanded.activeTools.includes('Write'), false);
+
+    const otherRuntime = new ToolSourceEconomyRuntime([
+      testTool('Read', z.object({ path: z.string() })),
+      { ...testTool('WebFetch', z.object({ url: z.string() })), toolSource: { id: 'web' } },
+    ], { mode: 'source_economy' });
+    assert.equal(
+      canonicalizeToolSet(
+        otherRuntime.selectTools().tools,
+        testTool(INVALID_TOOL_NAME, z.object({ tool: z.string().optional() })),
+      ).activeTools.includes('WebFetch'),
+      false,
+    );
+  });
+
+  test('backend full mode keeps the complete tool surface and omits source connector', async () => {
+    const model = completionModel();
+    const llmRecords: LlmCallRecord[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [
+        { ...testTool('Read', z.object({ path: z.string() })), toolSource: { id: 'core' } },
+        { ...testTool('WebFetch', z.object({ url: z.string() })), toolSource: { id: 'web' } },
+      ],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.deepEqual(modelToolNames(model), sortedModelToolNames(['Read', 'WebFetch']));
+    assert.equal(modelToolNames(model).includes(CONNECT_TOOL_SOURCE_NAME), false);
+    assert.equal(toolSchemaPromptSegment(llmRecords[0])?.toolCount, 3);
+  });
+
+  test('backend connector enables sources for later requests only and preserves prefix reason compatibility', async () => {
+    const models: MockLanguageModelV3[] = [];
+    const llmRecords: LlmCallRecord[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => {
+        const model = completionModel();
+        models.push(model);
+        return model;
+      },
+      tools: [
+        { ...testTool('Read', z.object({ path: z.string() })), toolSource: { id: 'core' } },
+        { ...testTool('WebFetch', z.object({ url: z.string() })), toolSource: { id: 'web', label: 'Web' } },
+      ],
+      toolSourceEconomy: { mode: 'source_economy' },
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.deepEqual(
+      modelToolNames(models[0]!),
+      sortedModelToolNames(['Read', CONNECT_TOOL_SOURCE_NAME]),
+    );
+    assert.equal(modelToolNames(models[0]!).includes('WebFetch'), false);
+    assert.equal(toolSchemaPromptSegment(llmRecords[0])?.toolCount, 3);
+    const economyRuntime = (backend as unknown as {
+      toolSourceEconomyRuntime: ToolSourceEconomyRuntime;
+    }).toolSourceEconomyRuntime;
+    const connector = economyRuntime.selectTools().tools.find((tool) => tool.name === CONNECT_TOOL_SOURCE_NAME);
+    assert.ok(connector);
+    const connectResult = await connector.impl({ source: 'web' }, {
+      sessionId: 'session-1',
+      turnId: 'turn-connect',
+      cwd: '/tmp/maka',
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+    });
+    assert.deepEqual(connectResult, {
+      ok: true,
+      source: 'web',
+      newlyEnabled: true,
+      enabledSources: ['web'],
+      availableSources: [],
+      availableNextRequest: true,
+      tools: ['WebFetch'],
+    });
+    assert.equal(modelToolNames(models[0]!).includes('WebFetch'), false);
+
+    await drain(backend.send({ turnId: 'turn-2', text: 'hi again', context: [] }));
+
+    assert.deepEqual(
+      modelToolNames(models[1]!),
+      sortedModelToolNames(['Read', CONNECT_TOOL_SOURCE_NAME, 'WebFetch']),
+    );
+    assert.equal(llmRecords[1]?.prefixChangeReason, 'tool_schema_changed');
+    assert.equal(llmRecords[1]?.requestShapeChangeReason, 'tool_schema_changed');
+    assert.equal(llmRecords[1]?.toolSchemaChangeReason, 'tool_source_enabled');
+    assert.deepEqual(llmRecords[1]?.toolSourceEconomy?.enabledSourceIds, ['web']);
+    assert.equal(toolSchemaPromptSegment(llmRecords[1])?.toolCount, 4);
+  });
+
   test('volatile turn-tail facts do not churn the durable prefix hash', async () => {
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
@@ -3020,6 +3246,45 @@ function modelCallSettings(model: MockLanguageModelV3): unknown {
   if (!call) return {};
   const { prompt: _prompt, ...rest } = call;
   return rest;
+}
+
+function modelToolNames(model: MockLanguageModelV3): string[] {
+  return sortedModelToolNames(Object.keys(modelTools(model)));
+}
+
+function modelTools(model: MockLanguageModelV3): Record<string, unknown> {
+  const call = model.doStreamCalls[0] as unknown as Record<string, unknown> | undefined;
+  const tools = call?.tools;
+  if (!tools) return {};
+  if (Array.isArray(tools)) {
+    const out: Record<string, unknown> = {};
+    for (const tool of tools) {
+      if (tool && typeof tool === 'object') {
+        const record = tool as Record<string, unknown>;
+        const name = typeof record.name === 'string'
+          ? record.name
+          : typeof record.toolName === 'string'
+            ? record.toolName
+            : undefined;
+        if (name) out[name] = tool;
+      }
+    }
+    return out;
+  }
+  if (typeof tools === 'object') return tools as Record<string, unknown>;
+  return {};
+}
+
+function sortedModelToolNames(toolNames: readonly string[]): string[] {
+  return [...toolNames].sort((a, b) => {
+    if (a === INVALID_TOOL_NAME) return 1;
+    if (b === INVALID_TOOL_NAME) return -1;
+    return a.localeCompare(b);
+  });
+}
+
+function toolSchemaPromptSegment(record: LlmCallRecord | undefined): { toolCount?: number } | undefined {
+  return record?.promptSegments?.find((segment) => segment.kind === 'tool_schema');
 }
 
 function sha256(text: string): string {

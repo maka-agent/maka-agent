@@ -75,6 +75,8 @@ export interface UsageLogRow {
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;
   requestShapeChangeReason?: PrefixChangeReason;
+  toolSchemaChangeReason?: ToolSchemaChangeReason;
+  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
 }
@@ -124,10 +126,14 @@ export interface LlmCallRecord {
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;
   requestShapeChangeReason?: PrefixChangeReason;
+  toolSchemaChangeReason?: ToolSchemaChangeReason;
+  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
   cacheMissInputSource?: CacheMissInputSource;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
 }
+
+export type ToolSourceId = string;
 
 export type PrefixChangeReason =
   | 'first_turn'
@@ -138,6 +144,27 @@ export type PrefixChangeReason =
   | 'history_projection_changed'
   | 'stable'
   | 'unknown';
+
+export type ToolSchemaChangeReason =
+  | 'tool_schema_changed'
+  | 'tool_source_enabled'
+  | 'tool_source_state_changed';
+
+export interface ToolSourceEconomyDiagnostic {
+  mode: 'full' | 'source_economy';
+  enabledSourceIds: ToolSourceId[];
+  availableSourceIds?: ToolSourceId[];
+  connectorToolName?: string;
+  coreToolNames?: string[];
+  visibleToolNamesBySource?: Record<ToolSourceId, string[]>;
+  visibleToolCount?: number;
+  fullToolCount?: number;
+  hiddenToolCount?: number;
+  visibleToolSchemaChars?: number;
+  fullToolSchemaChars?: number;
+  toolSchemaCharReduction?: number;
+  estimatedToolSchemaTokenReduction?: number;
+}
 
 export type CacheMissInputSource = 'explicit' | 'derived';
 
