@@ -5788,12 +5788,19 @@ export const Composer = forwardRef<
   );
 });
 
-// Mirror of runtime's LOAD_TOOL_NAME. @maka/ui must not depend on @maka/runtime,
-// so the always-on deferred-loading catalog tool's name is duplicated here as the
-// single hook for its friendly, locale-aware presentation.
-const LOAD_TOOL_NAME = 'load_tool';
+// Mirror of runtime's LOAD_TOOLS_NAME. @maka/ui must not depend on @maka/runtime,
+// so the always-on group-activation connector's name is duplicated here as the
+// single hook for its friendly, locale-aware presentation. The pre-unification
+// name `load_tool` (PR #30) is also matched — it shipped and returns the same
+// `{ loaded: [...] }` shape, so replayed old sessions still render friendly.
+// `connect_tool_source` (PR #34) is intentionally NOT here: it never shipped and
+// its `{ tools: [...] }` result shape this card does not render.
+const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set(['load_tools', 'load_tool']);
+function isConnectorTool(name: string): boolean {
+  return CONNECTOR_TOOL_NAMES.has(name);
+}
 
-/** Locale-aware display name for the deferred-loading catalog tool. */
+/** Locale-aware display name for the group-activation connector. */
 export function loadToolDisplayName(locale: UiLocale): string {
   return locale === 'en' ? 'Load tools' : '加载工具组';
 }
@@ -5806,10 +5813,12 @@ export interface LoadToolResultDescription {
 }
 
 /**
- * Turn a `load_tool` call + its thin `{ loaded: [...] }` result into friendly,
- * locale-aware card copy. Returns `null` when the result is not the expected
- * shape (e.g. a load failure, which is a text/error result) so the caller falls
- * back to the generic preview.
+ * Turn a `load_tools` call + its thin `{ loaded: [...] }` result into friendly,
+ * locale-aware card copy. Reads the group id from `group` (current) or the
+ * historical `namespace` arg (`load_tool`, PR #30) so replayed old sessions
+ * still render. Returns `null` when the result is not the expected shape (e.g. a
+ * load failure, a text/error result) so the caller falls back to the generic
+ * preview.
  */
 export function describeLoadToolResult(
   args: unknown,
@@ -5821,9 +5830,10 @@ export function describeLoadToolResult(
     return null;
   }
   const tools = loaded as string[];
-  const rawNamespace = (args as { namespace?: unknown } | null | undefined)?.namespace;
+  const argRecord = args as { group?: unknown; namespace?: unknown } | null | undefined;
+  const rawGroup = argRecord?.group ?? argRecord?.namespace;
   const namespace =
-    typeof rawNamespace === 'string' && rawNamespace.length > 0 ? rawNamespace : undefined;
+    typeof rawGroup === 'string' && rawGroup.length > 0 ? rawGroup : undefined;
   const n = tools.length;
   if (locale === 'en') {
     return {
@@ -5841,14 +5851,14 @@ export function describeLoadToolResult(
   };
 }
 
-/** Friendly tool name: an explicit displayName wins; load_tool gets a localized name. */
+/** Friendly tool name: an explicit displayName wins; the connector gets a localized name. */
 function resolveToolDisplayName(item: ToolActivityItem): string {
   if (item.displayName) return item.displayName;
-  if (item.toolName === LOAD_TOOL_NAME) return loadToolDisplayName(detectUiLocale());
+  if (isConnectorTool(item.toolName)) return loadToolDisplayName(detectUiLocale());
   return item.toolName;
 }
 
-/** Friendly card for a `load_tool` result; falls back to JSON on unexpected shapes. */
+/** Friendly card for a `load_tools` result; falls back to JSON on unexpected shapes. */
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
   const desc = describeLoadToolResult(props.args, props.value, detectUiLocale());
   if (!desc) {
@@ -5980,7 +5990,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
                 />
               )}
               {item.result && !permissionDenied && (
-                item.toolName === LOAD_TOOL_NAME && item.result.kind === 'json' ? (
+                isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
                   <LoadToolResultPreview args={item.args} value={item.result.value} />
                 ) : (
                   <OverlayPreview content={item.result} />

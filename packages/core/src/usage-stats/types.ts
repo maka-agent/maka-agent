@@ -76,7 +76,7 @@ export interface UsageLogRow {
   requestShapeHash?: string;
   requestShapeChangeReason?: PrefixChangeReason;
   toolSchemaChangeReason?: ToolSchemaChangeReason;
-  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
+  toolAvailability?: ToolAvailabilityDiagnostic;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
 }
@@ -127,7 +127,7 @@ export interface LlmCallRecord {
   requestShapeHash?: string;
   requestShapeChangeReason?: PrefixChangeReason;
   toolSchemaChangeReason?: ToolSchemaChangeReason;
-  toolSourceEconomy?: ToolSourceEconomyDiagnostic;
+  toolAvailability?: ToolAvailabilityDiagnostic;
   cacheMissInputSource?: CacheMissInputSource;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
@@ -150,12 +150,21 @@ export type ToolSchemaChangeReason =
   | 'tool_source_enabled'
   | 'tool_source_state_changed';
 
-export interface ToolSourceEconomyDiagnostic {
-  mode: 'full' | 'source_economy';
+/**
+ * Diagnostic shell describing the provider-visible (active) tool subset for a
+ * turn, produced by the unified `ToolAvailabilityRuntime`. A "source" id here is
+ * a catalog *group* id — the shell retains the historical `*SourceIds` field
+ * names while the config-side vocabulary is `groups`.
+ */
+export interface ToolAvailabilityDiagnostic {
+  /**
+   * Always `'economy'`: a diagnostic is only produced when economy gates the
+   * tool surface. The full-surface case emits no diagnostic at all.
+   */
+  mode: 'economy';
   enabledSourceIds: ToolSourceId[];
   availableSourceIds?: ToolSourceId[];
   connectorToolName?: string;
-  coreToolNames?: string[];
   visibleToolNamesBySource?: Record<ToolSourceId, string[]>;
   visibleToolCount?: number;
   fullToolCount?: number;

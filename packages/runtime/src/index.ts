@@ -35,8 +35,6 @@ export type {
   ModelFactoryInput,
   RunTraceEvent,
   RunTraceRecorder,
-  ToolSourceDefinition,
-  ToolSourceEconomyConfig,
   SynthesisCacheLoader,
   SynthesisCacheLoadInput,
   SynthesisCacheLoadResult,
@@ -316,15 +314,13 @@ export type {
   SessionEventMapMemory,
 } from './ai-sdk-flow.js';
 
-// load-tool.ts — the always-on deferred-tool catalog/lookup tool.
-export { buildLoadTool, toolNamesForNamespaces, LOAD_TOOL_NAME } from './load-tool.js';
-export type { DeferredNamespaceCard, DeferredToolCatalog } from './load-tool.js';
-
-// deferred-activation.ts — per-step active-tool derivation for deferred loading.
-export {
-  loadedNamespacesFromSteps,
-  seedNamespacesFromRuntimeEvents,
-  computeActiveTools,
-  buildDeferredPrepareStep,
-} from './deferred-activation.js';
-export type { StepLike, RuntimeEventLike, DeferredPrepareStepInput } from './deferred-activation.js';
+// tool-availability.ts — unified tool-availability runtime (catalog, the
+// `load_tools` connector, same-turn activation, gating, diagnostics).
+export { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from './tool-availability.js';
+export type {
+  ToolAvailabilityConfig,
+  ToolGroup,
+  ToolAvailabilityPlan,
+  StepLike,
+  RuntimeEventLike,
+} from './tool-availability.js';

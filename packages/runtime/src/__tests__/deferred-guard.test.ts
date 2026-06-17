@@ -12,10 +12,10 @@ import {
 } from '../tool-runtime.js';
 import { PermissionEngine } from '../permission-engine.js';
 
-// The execute-boundary guard (Layer 1, Slice 5) rejects a deferred tool whose
-// name is absent from the current step's active snapshot — before permission
-// eval and before the real impl. These tests drive ToolRuntime directly so the
-// rejection path resolves synchronously (no streaming, no parking).
+// The execute-boundary guard rejects a *gated* tool whose name is absent from
+// the current step's active snapshot — before permission eval and before the
+// real impl. These tests drive ToolRuntime directly so the rejection path
+// resolves synchronously (no streaming, no parking).
 
 function header(): SessionHeader {
   return {
@@ -73,33 +73,35 @@ function makeHarness(): Harness {
   return { runtime, appended, pushed, evaluateCalls };
 }
 
-function deferredTool(name: string, implCalls: string[]): MakaTool {
+function tool(name: string, implCalls: string[]): MakaTool {
   return {
     name,
     description: name,
     parameters: z.object({}),
-    exposure: 'deferred',
     impl: () => { implCalls.push(name); return { ok: true }; },
   };
 }
 
-function run(h: Harness, tool: MakaTool) {
-  const exec = h.runtime.wrapToolExecute(tool, 'turn-1', { push: (e) => h.pushed.push(e) });
+function run(h: Harness, t: MakaTool) {
+  const exec = h.runtime.wrapToolExecute(t, 'turn-1', { push: (e) => h.pushed.push(e) });
   return exec({}, { toolCallId: 'tc1', abortSignal: new AbortController().signal });
 }
 
-describe('deferred execute-boundary guard (Slice 5)', () => {
-  test('rejects a deferred tool absent from the step snapshot — no impl, no permission eval', async () => {
+describe('tool-availability execute-boundary guard', () => {
+  test('rejects a gated tool absent from the step snapshot — no impl, no permission eval', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];
-    // The same-step trap: browser was just requested via load_tool but is not
-    // yet active this step, so browser_click must be rejected.
-    h.runtime.setStepActivation(() => new Set(['Read', 'load_tool']));
+    // The same-step trap: the browser group was just requested via load_tools
+    // but is not yet active this step, so browser_click must be rejected.
+    h.runtime.setGating({
+      gatedNames: new Set(['browser_click']),
+      activeNames: () => new Set(['Read', 'load_tools']),
+    });
 
-    const result = await run(h, deferredTool('browser_click', implCalls));
+    const result = await run(h, tool('browser_click', implCalls));
 
     assert.deepEqual(implCalls, [], 'the real impl must not run');
-    assert.deepEqual(h.evaluateCalls, [], 'permission must not be evaluated for a rejected deferred call');
+    assert.deepEqual(h.evaluateCalls, [], 'permission must not be evaluated for a rejected gated call');
     assert.deepEqual(result, { error: formatDeferredNotLoadedText('browser_click') });
 
     const callMsg = h.appended.find((m) => m.type === 'tool_call');
@@ -116,37 +118,44 @@ describe('deferred execute-boundary guard (Slice 5)', () => {
     );
   });
 
-  test('lets a deferred tool run once its name is in the step snapshot', async () => {
+  test('lets a gated tool run once its name is in the step snapshot', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];
-    h.runtime.setStepActivation(() => new Set(['Read', 'load_tool', 'browser_click']));
+    h.runtime.setGating({
+      gatedNames: new Set(['browser_click']),
+      activeNames: () => new Set(['Read', 'load_tools', 'browser_click']),
+    });
 
-    const tool = deferredTool('browser_click', implCalls);
-    tool.permissionRequired = false;
-    await run(h, tool);
+    const t = tool('browser_click', implCalls);
+    t.permissionRequired = false;
+    await run(h, t);
 
-    assert.deepEqual(implCalls, ['browser_click'], 'an active deferred tool executes normally');
+    assert.deepEqual(implCalls, ['browser_click'], 'an active gated tool executes normally');
     assert.ok(
       !h.pushed.some((e) => e.type === 'tool_result' && e.isError),
       'no synthetic error result for an active tool',
     );
   });
 
-  test('is inert when no step activation is installed (deferred loading off)', async () => {
+  test('is inert when no gating is installed (economy off)', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];
-    // No setStepActivation call: a deferred tool must execute as before.
-    const tool = deferredTool('browser_click', implCalls);
-    tool.permissionRequired = false;
-    await run(h, tool);
+    // No setGating call: any tool must execute as before.
+    const t = tool('browser_click', implCalls);
+    t.permissionRequired = false;
+    await run(h, t);
 
-    assert.deepEqual(implCalls, ['browser_click'], 'guard must not fire without an installed snapshot');
+    assert.deepEqual(implCalls, ['browser_click'], 'guard must not fire without installed gating');
   });
 
-  test('never gates a direct tool (always present in the snapshot)', async () => {
+  test('never gates a tool outside gatedNames, even when absent from the snapshot', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];
-    h.runtime.setStepActivation(() => new Set(['Read']));
+    // Read is not a gated tool; the active snapshot is empty, yet Read must run.
+    h.runtime.setGating({
+      gatedNames: new Set(['browser_click']),
+      activeNames: () => new Set<string>(),
+    });
     const direct: MakaTool = {
       name: 'Read',
       description: 'Read',

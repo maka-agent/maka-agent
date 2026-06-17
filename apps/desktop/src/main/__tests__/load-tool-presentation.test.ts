@@ -3,11 +3,11 @@ import { describe, test } from 'node:test';
 
 import { describeLoadToolResult, loadToolDisplayName } from '@maka/ui';
 
-// The `load_tool` deferred-loading catalog tool gets a friendly, locale-aware
+// The `load_tools` group-activation connector gets a friendly, locale-aware
 // presentation in the renderer instead of its raw name + raw JSON result.
 // The copy logic is pure (locale passed in) so it is tested without a DOM.
 
-describe('load_tool presentation', () => {
+describe('load_tools presentation', () => {
   test('display name is localized', () => {
     assert.equal(loadToolDisplayName('zh'), '加载工具组');
     assert.equal(loadToolDisplayName('en'), 'Load tools');
@@ -15,7 +15,7 @@ describe('load_tool presentation', () => {
 
   test('describes a browser load in Chinese', () => {
     const d = describeLoadToolResult(
-      { namespace: 'browser' },
+      { group: 'browser' },
       { loaded: ['browser_click', 'browser_type'] },
       'zh',
     );
@@ -27,24 +27,29 @@ describe('load_tool presentation', () => {
   });
 
   test('describes a load in English with singular/plural counts', () => {
-    const one = describeLoadToolResult({ namespace: 'office' }, { loaded: ['OfficeDocument'] }, 'en');
+    const one = describeLoadToolResult({ group: 'office' }, { loaded: ['OfficeDocument'] }, 'en');
     assert.ok(one);
     assert.equal(one.title, 'Loaded office tool group');
     assert.equal(one.countLabel, '1 tool now available:');
     assert.equal(one.toolsText, 'OfficeDocument');
 
-    const many = describeLoadToolResult({ namespace: 'office' }, { loaded: ['a', 'b'] }, 'en');
+    const many = describeLoadToolResult({ group: 'office' }, { loaded: ['a', 'b'] }, 'en');
     assert.equal(many?.countLabel, '2 tools now available:');
   });
 
-  test('missing namespace falls back to a generic title', () => {
+  test('historical load_tool namespace arg still renders (replayed old sessions)', () => {
+    assert.equal(describeLoadToolResult({ namespace: 'browser' }, { loaded: ['x'] }, 'zh')?.title, '已加载 browser 工具组');
+    assert.equal(describeLoadToolResult({ namespace: 'office' }, { loaded: ['x'] }, 'en')?.title, 'Loaded office tool group');
+  });
+
+  test('missing group falls back to a generic title', () => {
     assert.equal(describeLoadToolResult({}, { loaded: ['x'] }, 'zh')?.title, '已加载工具组');
     assert.equal(describeLoadToolResult(undefined, { loaded: ['x'] }, 'en')?.title, 'Tools loaded');
   });
 
   test('unexpected result shape → null so the caller uses the generic JSON preview', () => {
-    assert.equal(describeLoadToolResult({ namespace: 'browser' }, { loaded: 'nope' }, 'zh'), null);
-    assert.equal(describeLoadToolResult({ namespace: 'browser' }, { loaded: [1, 2] }, 'zh'), null);
+    assert.equal(describeLoadToolResult({ group: 'browser' }, { loaded: 'nope' }, 'zh'), null);
+    assert.equal(describeLoadToolResult({ group: 'browser' }, { loaded: [1, 2] }, 'zh'), null);
     assert.equal(describeLoadToolResult({}, null, 'en'), null);
   });
 });

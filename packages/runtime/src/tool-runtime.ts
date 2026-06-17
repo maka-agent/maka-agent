@@ -14,7 +14,7 @@ import type { PermissionDecision } from '@maka/core/backend-types';
 import type { ToolCategory } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
-import type { ToolInvocationRecord, ToolSourceId } from '@maka/core/usage-stats/types';
+import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import { redactSecrets } from '@maka/core/redaction';
 
 import type { PermissionEngine } from './permission-engine.js';
@@ -34,14 +34,6 @@ export interface MakaTool<P = any, R = unknown> {
   /** Zod schema describing the tool's argument shape. */
   parameters: unknown;
   /**
-   * Exposure tier. `direct` (the default when omitted) tools are advertised to
-   * the model every turn. `deferred` tools are withheld from the model-visible
-   * `activeTools` set until loaded on demand via `load_tool`, keeping their
-   * schema out of the per-turn prompt. Dispatch works regardless of exposure —
-   * a deferred tool stays in `providerTools` so it is callable once activated.
-   */
-  exposure?: 'direct' | 'deferred';
-  /**
    * If `false`, the wrap layer skips PermissionEngine.evaluate() entirely.
    * Defaults to `true` (always go through the engine).
    */
@@ -50,12 +42,6 @@ export interface MakaTool<P = any, R = unknown> {
   displayName?: string;
   /** Optional trusted category override for custom tools. */
   categoryHint?: ToolCategory;
-  /** Optional source grouping used by opt-in tool source economy mode. */
-  toolSource?: {
-    id: ToolSourceId;
-    label?: string;
-    description?: string;
-  };
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
 }
@@ -72,6 +58,19 @@ export interface MakaToolContext {
 
 export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
+
+/**
+ * Per-step tool-availability gating for the execute boundary. `ToolAvailabilityRuntime`
+ * installs it each turn: `gatedNames` is the static set of tools that may be
+ * hidden this turn (group members when economy is on); `activeNames` returns the
+ * model-visible set for the step currently executing, recomputed before each
+ * step. The guard rejects a *gated* tool that is not yet active — core tools and
+ * the repair fallback are never in `gatedNames`, so they are never gated.
+ */
+export interface ToolGating {
+  gatedNames: ReadonlySet<string>;
+  activeNames: () => ReadonlySet<string>;
+}
 
 export const TOOL_ERROR_RESULT_MAX_CHARS = 4000;
 export const MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN = 5;
@@ -98,13 +97,11 @@ export interface ToolRuntimeInput {
 export class ToolRuntime {
   private activeSubagentToolCount = 0;
   /**
-   * Per-step active-tool snapshot provider for deferred-tool gating (Layer 1,
-   * Slice 5). Set by the backend each turn (from `prepareStep`'s
-   * `onActiveSnapshot`); returns the names advertised to the model for the step
-   * currently executing. Undefined when deferred loading is off — the guard is
-   * then fully inert.
+   * Tool-availability gating for the execute boundary. Set by the backend each
+   * turn from `ToolAvailabilityRuntime`. Undefined when gating is off (economy
+   * off / no hidden groups) — the guard is then fully inert.
    */
-  private stepActivation?: () => ReadonlySet<string>;
+  private gating?: ToolGating;
 
   constructor(private readonly input: ToolRuntimeInput) {}
 
@@ -120,18 +117,18 @@ export class ToolRuntime {
   }
 
   /**
-   * Install the per-step active-tool snapshot provider used to gate deferred
-   * tools. The backend recomputes the snapshot before each step; the guard in
-   * `executeTool` rejects a deferred tool whose name is not in it. Pass
-   * `undefined` to disable gating.
+   * Install the per-step tool-availability gating used at the execute boundary.
+   * The backend recomputes the active snapshot before each step; the guard in
+   * `executeTool` rejects a gated tool whose name is not in it. Pass `undefined`
+   * to disable gating.
    */
-  setStepActivation(get: (() => ReadonlySet<string>) | undefined): void {
-    this.stepActivation = get;
+  setGating(gating: ToolGating | undefined): void {
+    this.gating = gating;
   }
 
   resetTurnState(): void {
     this.activeSubagentToolCount = 0;
-    this.stepActivation = undefined;
+    this.gating = undefined;
   }
 
   async writeSyntheticToolResult(
@@ -204,14 +201,14 @@ export class ToolRuntime {
       ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
     });
 
-    // Deferred-tool execute-boundary guard (Layer 1, Slice 5; Codex Δ5). Uses
-    // the step-start snapshot, NOT a cumulative loaded-set: if one step emits
-    // `load_tool(x)` and a tool from `x` in parallel, that tool is not yet
-    // active (it activates only at the next step's `prepareStep`), so it is
-    // rejected here — before permission eval and before the real impl. This
-    // also closes the AI SDK `activeTools` leak (vercel/ai#8653). The rejection
-    // is recoverable: the model loads via `load_tool`, then retries next step.
-    if (tool.exposure === 'deferred' && this.stepActivation && !this.stepActivation().has(tool.name)) {
+    // Tool-availability execute-boundary guard (Codex Δ5). Uses the step-start
+    // snapshot, NOT a cumulative loaded-set: if one step emits `load_tools(g)`
+    // and a tool from group `g` in parallel, that tool is not yet active (it
+    // activates only at the next step's `prepareStep`), so it is rejected here —
+    // before permission eval and before the real impl. This also closes the AI
+    // SDK `activeTools` leak (vercel/ai#8653). The rejection is recoverable: the
+    // model loads via `load_tools`, then retries next step.
+    if (this.gating && this.gating.gatedNames.has(tool.name) && !this.gating.activeNames().has(tool.name)) {
       const reason = formatDeferredNotLoadedText(tool.name);
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
       trace?.emit('tool', 'tool_failed', 'Deferred tool used before load', {
@@ -556,14 +553,14 @@ export class ToolRuntime {
 }
 
 /**
- * Recoverable message returned when a deferred tool is invoked before its group
- * is loaded. Tells the model exactly how to self-correct: load via `load_tool`,
+ * Recoverable message returned when a gated tool is invoked before its group is
+ * loaded. Tells the model exactly how to self-correct: load via `load_tools`,
  * then retry on a later step.
  */
 export function formatDeferredNotLoadedText(toolName: string): string {
   return (
     `Tool "${toolName}" is available but not loaded yet. ` +
-    `Call load_tool to load its group first, then call "${toolName}" on a later step.`
+    `Call load_tools to load its group first, then call "${toolName}" on a later step.`
   );
 }
 

@@ -5,7 +5,7 @@ import type {
   PrefixChangeReason,
   PromptSegmentEstimate,
   ToolSchemaChangeReason,
-  ToolSourceEconomyDiagnostic,
+  ToolAvailabilityDiagnostic,
 } from '@maka/core/usage-stats/types';
 
 export type RunTracePhase = 'turn' | 'model' | 'tool' | 'permission' | 'abort' | 'usage';
@@ -106,7 +106,7 @@ export class RunTrace {
       requestShapeHash?: string;
       requestShapeChangeReason?: PrefixChangeReason;
       toolSchemaChangeReason?: ToolSchemaChangeReason;
-      toolSourceEconomy?: ToolSourceEconomyDiagnostic;
+      toolAvailability?: ToolAvailabilityDiagnostic;
       promptSegments?: PromptSegmentEstimate[];
       contextBudget?: ContextBudgetDiagnostic;
     },
@@ -146,7 +146,7 @@ export class RunTrace {
     requestShapeHash?: string;
     requestShapeChangeReason?: PrefixChangeReason;
     toolSchemaChangeReason?: ToolSchemaChangeReason;
-    toolSourceEconomy?: ToolSourceEconomyDiagnostic;
+    toolAvailability?: ToolAvailabilityDiagnostic;
   }): void {
     this.emit('usage', 'usage_recorded', 'Token usage recorded', {
       inputTokens: usage.inputTokens,
@@ -166,7 +166,7 @@ export class RunTrace {
         ? { requestShapeChangeReason: usage.requestShapeChangeReason }
         : {}),
       ...(usage.toolSchemaChangeReason !== undefined ? { toolSchemaChangeReason: usage.toolSchemaChangeReason } : {}),
-      ...(usage.toolSourceEconomy !== undefined ? { toolSourceEconomy: usage.toolSourceEconomy } : {}),
+      ...(usage.toolAvailability !== undefined ? { toolAvailability: usage.toolAvailability } : {}),
     });
   }
 
