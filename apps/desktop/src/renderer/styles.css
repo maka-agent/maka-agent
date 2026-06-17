@@ -3928,6 +3928,40 @@ button:active {
   word-break: break-word;
 }
 
+/* load_tool: friendly deferred-loading result card (vs raw JSON). */
+.maka-load-tool-preview {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  font-size: 12.5px;
+}
+
+.maka-load-tool-preview p {
+  margin: 0;
+}
+
+.maka-load-tool-title {
+  font-weight: 600;
+}
+
+.maka-load-tool-count {
+  color: var(--foreground-2);
+}
+
+.maka-load-tool-tools {
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+.maka-load-tool-footer {
+  color: var(--foreground-2);
+  font-size: 12px;
+}
+
 /* File diff: each line tagged with data-line for add / del / hunk / meta /
  * ctx so we can color the unified-diff payload like GitHub / VS Code. */
 .maka-tool-diff {

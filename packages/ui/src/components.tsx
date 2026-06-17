@@ -5788,6 +5788,82 @@ export const Composer = forwardRef<
   );
 });
 
+// Mirror of runtime's LOAD_TOOL_NAME. @maka/ui must not depend on @maka/runtime,
+// so the always-on deferred-loading catalog tool's name is duplicated here as the
+// single hook for its friendly, locale-aware presentation.
+const LOAD_TOOL_NAME = 'load_tool';
+
+/** Locale-aware display name for the deferred-loading catalog tool. */
+export function loadToolDisplayName(locale: UiLocale): string {
+  return locale === 'en' ? 'Load tools' : '加载工具组';
+}
+
+export interface LoadToolResultDescription {
+  title: string;
+  countLabel: string;
+  toolsText: string;
+  footer: string;
+}
+
+/**
+ * Turn a `load_tool` call + its thin `{ loaded: [...] }` result into friendly,
+ * locale-aware card copy. Returns `null` when the result is not the expected
+ * shape (e.g. a load failure, which is a text/error result) so the caller falls
+ * back to the generic preview.
+ */
+export function describeLoadToolResult(
+  args: unknown,
+  value: unknown,
+  locale: UiLocale,
+): LoadToolResultDescription | null {
+  const loaded = (value as { loaded?: unknown } | null | undefined)?.loaded;
+  if (!Array.isArray(loaded) || !loaded.every((name) => typeof name === 'string')) {
+    return null;
+  }
+  const tools = loaded as string[];
+  const rawNamespace = (args as { namespace?: unknown } | null | undefined)?.namespace;
+  const namespace =
+    typeof rawNamespace === 'string' && rawNamespace.length > 0 ? rawNamespace : undefined;
+  const n = tools.length;
+  if (locale === 'en') {
+    return {
+      title: namespace ? `Loaded ${namespace} tool group` : 'Tools loaded',
+      countLabel: n === 1 ? '1 tool now available:' : `${n} tools now available:`,
+      toolsText: tools.join(', '),
+      footer: 'Ready to use on the next step',
+    };
+  }
+  return {
+    title: namespace ? `已加载 ${namespace} 工具组` : '已加载工具组',
+    countLabel: `新增 ${n} 个可用工具：`,
+    toolsText: tools.join('、'),
+    footer: '下一步即可调用',
+  };
+}
+
+/** Friendly tool name: an explicit displayName wins; load_tool gets a localized name. */
+function resolveToolDisplayName(item: ToolActivityItem): string {
+  if (item.displayName) return item.displayName;
+  if (item.toolName === LOAD_TOOL_NAME) return loadToolDisplayName(detectUiLocale());
+  return item.toolName;
+}
+
+/** Friendly card for a `load_tool` result; falls back to JSON on unexpected shapes. */
+function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
+  const desc = describeLoadToolResult(props.args, props.value, detectUiLocale());
+  if (!desc) {
+    return <OverlayPreview content={{ kind: 'json', value: props.value }} />;
+  }
+  return (
+    <div className="maka-load-tool-preview" data-kind="load_tool">
+      <p className="maka-load-tool-title">{desc.title}</p>
+      <p className="maka-load-tool-count">{desc.countLabel}</p>
+      <p className="maka-load-tool-tools">{desc.toolsText}</p>
+      <p className="maka-load-tool-footer">{desc.footer}</p>
+    </div>
+  );
+}
+
 const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
   pending: '排队中',
   waiting_permission: '等待权限',
@@ -5883,7 +5959,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
           >
             <summary className="maka-tool-header">
               <span className="maka-tool-status-dot" data-status={item.status} aria-hidden="true" />
-              <span className="maka-tool-name">{item.displayName ?? item.toolName}</span>
+              <span className="maka-tool-name">{resolveToolDisplayName(item)}</span>
               <span className="maka-tool-meta">
                 {duration && <span className="maka-tool-duration">{duration}</span>}
                 <span className="maka-tool-status-label">{STATUS_LABEL[item.status]}</span>
@@ -5903,7 +5979,13 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
                   truncated={item.outputTruncated === true}
                 />
               )}
-              {item.result && !permissionDenied && <OverlayPreview content={item.result} />}
+              {item.result && !permissionDenied && (
+                item.toolName === LOAD_TOOL_NAME && item.result.kind === 'json' ? (
+                  <LoadToolResultPreview args={item.args} value={item.result.value} />
+                ) : (
+                  <OverlayPreview content={item.result} />
+                )
+              )}
             </div>
           </details>
         );
