@@ -215,6 +215,18 @@ export class PermissionEngine {
 
     if (response.decision === 'allow' && response.rememberForTurn) {
       state.remembered.add(parked.scopeKey);
+      // The user allowed this scope for the whole turn, so other requests
+      // already parked under the same scope (e.g. the rest of a parallel
+      // browser_* batch) must not each re-prompt. Resolve them now — each
+      // tool's own coroutine then emits its own permission_decision_ack, so the
+      // UI queue drains without a second click. The current request was already
+      // deleted above, so the snapshot never re-resolves it.
+      for (const [otherId, other] of [...state.parked]) {
+        if (other.scopeKey === parked.scopeKey) {
+          state.parked.delete(otherId);
+          other.resolve({ requestId: otherId, decision: 'allow', rememberForTurn: true });
+        }
+      }
     }
 
     parked.resolve(response);

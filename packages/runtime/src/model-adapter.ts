@@ -47,6 +47,10 @@ export interface ModelAdapterInput {
   now: () => number;
 }
 
+export interface PrepareStepLike {
+  steps?: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolName: string; input?: unknown }> }>;
+}
+
 export interface ModelAdapterStreamInput {
   model: unknown;
   messages: ModelMessage[];
@@ -58,6 +62,12 @@ export interface ModelAdapterStreamInput {
     toolCall: RepairableAiSdkToolCall;
     error: unknown;
   }) => RepairableAiSdkToolCall | null | Promise<RepairableAiSdkToolCall | null>;
+  /**
+   * Optional per-step active-tool override for deferred tool loading. Recomputes
+   * `activeTools` before each step so a tool loaded mid-turn becomes advertised
+   * on the next step without mutating the cached tools prefix.
+   */
+  prepareStep?: (options: PrepareStepLike) => { activeTools: string[] };
 }
 
 export interface ModelAdapterStreamCallbacks {
@@ -104,6 +114,7 @@ export class ModelAdapter {
       messages: input.messages,
       tools: input.tools,
       activeTools: input.activeTools,
+      ...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
       experimental_repairToolCall: input.repairToolCall,
       system: input.system,
       providerOptions: this.input.providerOptions,

@@ -129,6 +129,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildLoadTool,
   fetchProviderModels,
   getAIModel,
   buildProviderOptions,
@@ -143,6 +144,7 @@ import {
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
+  DeferredToolCatalog,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
   ToolResultArchiveReadResult,
@@ -547,6 +549,31 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
+// Layer 1 deferred-tool loading. The heavy-schema families (Rive, Office, the
+// embedded browser) are withheld from the per-turn prompt and loaded on demand
+// via `load_tool`, keeping their schemas off the wire until needed. Everything
+// else stays always-on. Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any
+// value to advertise every tool every turn (legacy behavior).
+const deferralEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
+const riveTools = [buildRiveWorkflowTool()];
+const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
+// Embedded-browser observe→act tools. They drive the conversation's own
+// WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
+// outside the app (no host) they report the browser as unavailable.
+const browserTools = buildBrowserTools();
+const deferredCatalog: DeferredToolCatalog | undefined = deferralEnabled
+  ? [
+      { namespace: 'rive', summary: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
+      { namespace: 'office', summary: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
+      { namespace: 'browser', summary: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
+    ]
+  : undefined;
+// Tag the heavy families `deferred` only when the catalog is active; otherwise
+// they stay direct (a deferred tag without a catalog would hide them with no
+// way to load).
+const heavyTools = [...riveTools, ...officeTools, ...browserTools].map((tool) =>
+  deferralEnabled ? { ...tool, exposure: 'deferred' as const } : tool,
+);
 const builtinTools = [
   ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
@@ -557,8 +584,6 @@ const builtinTools = [
   // `subagent` category; explore mode allows it, but the implementation
   // itself only reads filenames/text snippets under the session cwd.
   buildExploreAgentTool(),
-  buildOfficeDocumentTool(),
-  buildOfficeDocumentEditTool(),
   // PR-AGENT-WEB-SEARCH-TOOL-0: Tavily-backed WebSearch tool. Closed
   // over settingsStore so the renderer never sees the API key; the
   // permission engine routes it through the `web_read` policy which
@@ -567,11 +592,9 @@ const builtinTools = [
     settingsStore,
     getPrivacyContext: async () => defaultWorkspacePrivacyContext(),
   }),
-  buildRiveWorkflowTool(),
-  // Embedded-browser observe→act tools. They drive the conversation's own
-  // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
-  // outside the app (no host) they report the browser as unavailable.
-  ...buildBrowserTools(),
+  // Always-on catalog/lookup tool; expands a deferred namespace on demand.
+  ...(deferredCatalog ? [buildLoadTool(deferredCatalog)] : []),
+  ...heavyTools,
 ];
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
@@ -790,6 +813,7 @@ backends.register('ai-sdk', async (ctx) => {
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
     tools: builtinTools,
+    deferredCatalog,
     providerOptions: buildProviderOptions(connection, model),
     contextBudget: buildContextBudgetPolicy(connection),
     systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd),

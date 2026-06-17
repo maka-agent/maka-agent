@@ -49,17 +49,38 @@ export interface RequestShapeDiagnostic {
   toolSourceEconomy?: ToolSourceEconomyDiagnostic;
 }
 
+const NO_LOADED_TOOLS: ReadonlySet<string> = new Set();
+
+/**
+ * Split the registry into the full dispatch set (`providerTools`) and the
+ * model-visible subset (`activeTools`).
+ *
+ * `loadedDeferredNames` is the set of deferred tools to advertise; any
+ * `exposure: 'deferred'` tool NOT in it is withheld from `activeTools`. The
+ * default empty set therefore hides every deferred tool — correct only when a
+ * deferral system (a `load_tool` catalog + prepareStep) is wired to load them
+ * on demand. A caller with deferred-tagged tools but no such system must pass
+ * those names here (or untag them), or the tools become unreachable.
+ */
 export function canonicalizeToolSet(
   tools: readonly MakaTool[],
   invalidTool: MakaTool,
+  loadedDeferredNames: ReadonlySet<string> = NO_LOADED_TOOLS,
 ): CanonicalToolSet {
   const visibleTools = tools
     .filter((tool) => tool.name !== invalidTool.name)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
+  // providerTools stays the full registry (dispatch never depends on exposure).
+  // activeTools is the model-visible subset: every direct tool plus any deferred
+  // tool already loaded this session. The AI SDK serializes only activeTools to
+  // the provider, so deferred-and-unloaded schemas stay off the wire.
+  const activeTools = visibleTools
+    .filter((tool) => tool.exposure !== 'deferred' || loadedDeferredNames.has(tool.name))
+    .map((tool) => tool.name);
   return {
     providerTools: [...visibleTools, invalidTool],
-    activeTools: visibleTools.map((tool) => tool.name),
+    activeTools,
   };
 }
 
@@ -77,7 +98,11 @@ export function computeRequestShapeDiagnostic(
     providerOptionsHash: stableHash(input.providerOptions ?? {}),
     toolSchemaHash: stableHash({
       activeTools: [...input.activeTools],
-      providerTools: input.providerTools.map(toolShapeForDiagnostics),
+      // Only the provider-visible (active) subset crosses the wire, so the
+      // schema hash must reflect that subset — otherwise an inactive deferred
+      // tool's schema change would falsely fire `tool_schema_changed`, and a
+      // load would not be distinguishable from churn.
+      providerTools: providerVisibleTools(input.providerTools, input.activeTools).map(toolShapeForDiagnostics),
     }),
     historyProjectionHash: stableHash(input.priorMessages.map(messageShapeForHash)),
   };
@@ -113,8 +138,17 @@ export function toolSchemaCharsForDiagnostics(
 ): number {
   return stableStringify({
     activeTools: [...activeTools],
-    providerTools: providerTools.map(toolShapeForDiagnostics),
+    providerTools: providerVisibleTools(providerTools, activeTools).map(toolShapeForDiagnostics),
   }).length;
+}
+
+/** The provider-visible tools — the active subset actually serialized on the wire. */
+function providerVisibleTools(
+  providerTools: readonly MakaTool[],
+  activeTools: readonly string[],
+): MakaTool[] {
+  const active = new Set(activeTools);
+  return providerTools.filter((tool) => active.has(tool.name));
 }
 
 export function stableHash(value: unknown): string {

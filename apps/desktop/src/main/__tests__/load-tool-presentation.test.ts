@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+
+import { describeLoadToolResult, loadToolDisplayName } from '@maka/ui';
+
+// The `load_tool` deferred-loading catalog tool gets a friendly, locale-aware
+// presentation in the renderer instead of its raw name + raw JSON result.
+// The copy logic is pure (locale passed in) so it is tested without a DOM.
+
+describe('load_tool presentation', () => {
+  test('display name is localized', () => {
+    assert.equal(loadToolDisplayName('zh'), '加载工具组');
+    assert.equal(loadToolDisplayName('en'), 'Load tools');
+  });
+
+  test('describes a browser load in Chinese', () => {
+    const d = describeLoadToolResult(
+      { namespace: 'browser' },
+      { loaded: ['browser_click', 'browser_type'] },
+      'zh',
+    );
+    assert.ok(d);
+    assert.equal(d.title, '已加载 browser 工具组');
+    assert.equal(d.countLabel, '新增 2 个可用工具：');
+    assert.equal(d.toolsText, 'browser_click、browser_type');
+    assert.equal(d.footer, '下一步即可调用');
+  });
+
+  test('describes a load in English with singular/plural counts', () => {
+    const one = describeLoadToolResult({ namespace: 'office' }, { loaded: ['OfficeDocument'] }, 'en');
+    assert.ok(one);
+    assert.equal(one.title, 'Loaded office tool group');
+    assert.equal(one.countLabel, '1 tool now available:');
+    assert.equal(one.toolsText, 'OfficeDocument');
+
+    const many = describeLoadToolResult({ namespace: 'office' }, { loaded: ['a', 'b'] }, 'en');
+    assert.equal(many?.countLabel, '2 tools now available:');
+  });
+
+  test('missing namespace falls back to a generic title', () => {
+    assert.equal(describeLoadToolResult({}, { loaded: ['x'] }, 'zh')?.title, '已加载工具组');
+    assert.equal(describeLoadToolResult(undefined, { loaded: ['x'] }, 'en')?.title, 'Tools loaded');
+  });
+
+  test('unexpected result shape → null so the caller uses the generic JSON preview', () => {
+    assert.equal(describeLoadToolResult({ namespace: 'browser' }, { loaded: 'nope' }, 'zh'), null);
+    assert.equal(describeLoadToolResult({ namespace: 'browser' }, { loaded: [1, 2] }, 'zh'), null);
+    assert.equal(describeLoadToolResult({}, null, 'en'), null);
+  });
+});

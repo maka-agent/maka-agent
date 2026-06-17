@@ -10,7 +10,6 @@ import type {
   PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
   QuickChatMode,
-  PermissionRequestEvent,
   PermissionResponse,
   SessionEventStreamSnapshot,
   SessionEvent,
@@ -56,6 +55,12 @@ import {
   type ToolActivityItem,
   type ToolOutputChunk,
   formatDailyReviewMarkdown,
+  enqueuePermission,
+  dequeuePermission,
+  dequeuePermissionByToolUseId,
+  clearPermissions,
+  activePermissionFor,
+  type PermissionQueues,
 } from '@maka/ui';
 import { SettingsModal } from './settings/SettingsModal';
 import { ErrorBoundary } from './error-boundary';
@@ -306,7 +311,7 @@ function AppShell() {
   // the agentReadEnabled switch).
   const [memoryActive, setMemoryActive] = useState(false);
   const [liveToolsBySession, setLiveToolsBySession] = useState<Record<string, ToolActivityItem[]>>({});
-  const [permissionBySession, setPermissionBySession] = useState<Record<string, PermissionRequestEvent | undefined>>({});
+  const [permissionBySession, setPermissionBySession] = useState<PermissionQueues>({});
   const [sessionEventHealthBySessionState, setSessionEventHealthBySessionState] =
     useState<Record<string, SessionEventStreamSnapshot>>({});
   const sessionEventHealthBySessionRef = useRef<Record<string, SessionEventStreamSnapshot>>({});
@@ -433,7 +438,7 @@ function AppShell() {
       }
     }
   }
-  const activePermission = activeId ? permissionBySession[activeId] : undefined;
+  const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
@@ -1248,7 +1253,11 @@ function AppShell() {
       setThinkingBySession((current) => ({ ...current, ...state.thinkingBySession }));
     }
     if (state.permissionBySession) {
-      setPermissionBySession((current) => ({ ...current, ...state.permissionBySession }));
+      const seeded: PermissionQueues = {};
+      for (const [seedSessionId, request] of Object.entries(state.permissionBySession)) {
+        if (request) seeded[seedSessionId] = [request];
+      }
+      setPermissionBySession((current) => ({ ...current, ...seeded }));
     }
     if (state.liveToolsBySession) {
       setLiveToolsBySession((current) => ({ ...current, ...state.liveToolsBySession }));
@@ -2166,7 +2175,7 @@ function AppShell() {
         });
         break;
       case 'permission_request':
-        setPermissionBySession((current) => ({ ...current, [sessionId]: event }));
+        setPermissionBySession((current) => enqueuePermission(current, sessionId, event));
         upsertTool(sessionId, event.toolUseId, {
           toolUseId: event.toolUseId,
           toolName: event.toolName,
@@ -2175,17 +2184,18 @@ function AppShell() {
         });
         break;
       case 'permission_decision_ack':
-        setPermissionBySession((current) => {
-          const active = current[sessionId];
-          if (!active || active.requestId !== event.requestId) return current;
-          return { ...current, [sessionId]: undefined };
-        });
+        setPermissionBySession((current) => dequeuePermission(current, sessionId, event.requestId));
         upsertTool(sessionId, event.toolUseId, {
           toolUseId: event.toolUseId,
           status: event.decision === 'allow' ? 'running' : 'errored',
         });
         break;
       case 'tool_result':
+        // A permission that ended without a user decision (runtime timeout /
+        // expiry) emits a tool_result, not a permission_decision_ack — drain any
+        // stale queue entry for this tool so it can't resurface as an
+        // un-answerable overlay. No-op when the ack already dequeued it.
+        setPermissionBySession((current) => dequeuePermissionByToolUseId(current, sessionId, event.toolUseId));
         upsertTool(sessionId, event.toolUseId, {
           toolUseId: event.toolUseId,
           status: event.isError ? 'errored' : 'completed',
@@ -2196,7 +2206,7 @@ function AppShell() {
         break;
       case 'error':
         clearStreaming(sessionId);
-        setPermissionBySession((current) => ({ ...current, [sessionId]: undefined }));
+        setPermissionBySession((current) => clearPermissions(current, sessionId));
         if (activeIdRef.current === sessionId) {
           if (isNoRealConnectionEvent(event)) {
             const reason = noRealConnectionReasonFromEvent(event);
@@ -2211,7 +2221,7 @@ function AppShell() {
         break;
       case 'abort':
         clearStreaming(sessionId);
-        setPermissionBySession((current) => ({ ...current, [sessionId]: undefined }));
+        setPermissionBySession((current) => clearPermissions(current, sessionId));
         markInFlightToolsInterrupted(sessionId);
         void refreshSessions();
         void refreshMessages(sessionId);
@@ -2225,7 +2235,7 @@ function AppShell() {
           // reasons. Without this, a session that finishes while a
           // permission overlay was mounted would leave the overlay
           // stuck on screen until the user manually switches away.
-          setPermissionBySession((current) => ({ ...current, [sessionId]: undefined }));
+          setPermissionBySession((current) => clearPermissions(current, sessionId));
         }
         void refreshSessions();
         void refreshMessages(sessionId);

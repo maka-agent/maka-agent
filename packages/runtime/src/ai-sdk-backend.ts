@@ -106,6 +106,11 @@ import {
   type ToolSourceEconomyConfig,
 } from './tool-source-economy.js';
 import {
+  buildDeferredPrepareStep,
+  seedNamespacesFromRuntimeEvents,
+} from './deferred-activation.js';
+import { toolNamesForNamespaces, type DeferredToolCatalog } from './load-tool.js';
+import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildPromptSegmentEstimates,
@@ -245,6 +250,14 @@ export interface AiSdkBackendInput {
   tools: MakaTool[];
   /** Optional opt-in tool source economy mode. Omitted/full mode preserves the full tool surface. */
   toolSourceEconomy?: ToolSourceEconomyConfig;
+  /**
+   * Optional deferred-tool catalog (Layer 1). When present, `exposure:'deferred'`
+   * tools are withheld from the per-turn prompt until the model loads their
+   * namespace via `load_tool`; the backend builds the per-step `prepareStep`
+   * activation, seeds it from durable prior-turn loads, and gates execution.
+   * When absent, every tool is advertised every turn (legacy behavior).
+   */
+  deferredCatalog?: DeferredToolCatalog;
 
   // ── Optional knobs (defaults shown) ────────────────────────────────────
   /** ID generator; default `crypto.randomUUID()`. */
@@ -423,9 +436,57 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     // --- Build ai-sdk tools dict with permission-wrapped execute ---
+    // Tool source economy (opt-in) selects the base tool surface first; deferred
+    // activation (Layer 1) then seeds the loaded-set on top of that selection, so
+    // the two coexist: economy decides which sources are visible, deferred
+    // withholds heavy-schema families until the model calls `load_tool`.
     const toolSourceSelection = this.toolSourceEconomyRuntime.selectTools();
+    const baseTools = toolSourceSelection.tools;
     const invalidTool = buildInvalidMakaTool();
-    const canonicalTools = canonicalizeToolSet(toolSourceSelection.tools, invalidTool);
+    const deferredCatalog = this.input.deferredCatalog;
+    const seedNamespaces = deferredCatalog
+      ? seedNamespacesFromRuntimeEvents(
+          (input.runtimeContext ?? []).filter((event) => event.turnId !== turnId),
+        )
+      : undefined;
+    const seedLoadedNames = deferredCatalog
+      ? toolNamesForNamespaces(deferredCatalog, seedNamespaces ?? new Set())
+      // No catalog ⇒ deferral is off: advertise every tool, including any tagged
+      // `exposure: 'deferred'`. Without this, a deferred tag with no catalog would
+      // strand the tool off the wire with no `load_tool` to recover it — the
+      // input contract (absent catalog ⇒ all tools advertised) made self-enforcing.
+      : new Set(
+          baseTools
+            .filter((tool) => tool.exposure === 'deferred')
+            .map((tool) => tool.name),
+        );
+    const canonicalTools = canonicalizeToolSet(baseTools, invalidTool, seedLoadedNames);
+
+    // Per-step active snapshot the execute-boundary guard reads. `prepareStep`
+    // recomputes it before every step; the guard rejects a deferred tool absent
+    // from the current step's snapshot (handles same-step parallel load+use).
+    let prepareStep: ReturnType<typeof buildDeferredPrepareStep> | undefined;
+    // Tool names the repair path matches a mis-cased call against. Without a
+    // deferred catalog this is the static active set; with one it must follow the
+    // current step's snapshot so a deferred family loaded mid-turn (e.g. browser_*)
+    // is repairable on the step it becomes active, not routed to `invalid`.
+    let currentRepairToolNames: () => string[] = () => canonicalTools.activeTools;
+    if (deferredCatalog) {
+      const turnActivation = { currentStepActive: new Set<string>(canonicalTools.activeTools) };
+      this.toolRuntime.setStepActivation(() => turnActivation.currentStepActive);
+      currentRepairToolNames = () => [...turnActivation.currentStepActive];
+      prepareStep = buildDeferredPrepareStep({
+        tools: baseTools,
+        invalidTool,
+        catalog: deferredCatalog,
+        seedNamespaces,
+        onActiveSnapshot: (active) => {
+          turnActivation.currentStepActive = new Set(active);
+        },
+      });
+    }
+
+
     const aiSdkTools: Record<string, unknown> = {};
     for (const t of canonicalTools.providerTools) {
       aiSdkTools[t.name] = {
@@ -468,51 +529,77 @@ export class AiSdkBackend implements AgentBackend {
             content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
           },
         ];
-        const toolSchemaChars = toolSchemaCharsForDiagnostics(canonicalTools.providerTools, activeTools);
-        const toolSourceDiagnostic = toolSourceSelection.diagnostic !== undefined
-          ? this.enrichToolSourceDiagnostic(toolSourceSelection.diagnostic, canonicalTools, toolSchemaChars)
-          : undefined;
-        const promptSegments = buildPromptSegmentEstimates({
-          systemPrompt,
-          toolSchemaChars,
-          toolCount: canonicalTools.providerTools.length,
-          priorMessages: priorReplay.messages,
-          priorRuntimeEventCount: priorReplay.runtimeEventCount,
-          currentUserContent,
-          turnTailPrompt,
-        });
-        promptSegmentsForTelemetry = promptSegments;
+        // Diagnostics describe the provider-visible (active) tool subset. A
+        // deferred family loaded *this* turn expands that subset on later steps
+        // (via prepareStep), so the durable cost record is refined against the
+        // final active set once the stream is consumed (see below). Both
+        // computations classify against the same pre-turn baseline. When tool
+        // source economy reduced the surface, its diagnostic is enriched from the
+        // same per-step schema-char measurement.
         contextBudgetForTelemetry = priorReplay.contextBudget;
-        const requestShape = computeRequestShapeDiagnostic({
-          connection: this.input.connection,
-          modelId: this.input.modelId,
-          systemPrompt,
-          providerOptions: this.input.providerOptions,
-          providerTools: canonicalTools.providerTools,
-          activeTools,
-          priorMessages: priorReplay.messages,
-          ...(toolSourceDiagnostic !== undefined
-            ? { toolSourceEconomy: toolSourceDiagnostic }
-            : {}),
-        }, this.priorRequestShape);
+        const priorShapeBaseline = this.priorRequestShape;
+        const computeTurnDiagnostics = (active: readonly string[]) => {
+          const toolSchemaChars = toolSchemaCharsForDiagnostics(canonicalTools.providerTools, active);
+          const toolSourceDiagnostic = toolSourceSelection.diagnostic !== undefined
+            ? this.enrichToolSourceDiagnostic(toolSourceSelection.diagnostic, canonicalTools, toolSchemaChars)
+            : undefined;
+          return {
+            promptSegments: buildPromptSegmentEstimates({
+              systemPrompt,
+              toolSchemaChars,
+              toolCount: active.length,
+              priorMessages: priorReplay.messages,
+              priorRuntimeEventCount: priorReplay.runtimeEventCount,
+              currentUserContent,
+              turnTailPrompt,
+            }),
+            requestShape: computeRequestShapeDiagnostic({
+              connection: this.input.connection,
+              modelId: this.input.modelId,
+              systemPrompt,
+              providerOptions: this.input.providerOptions,
+              providerTools: canonicalTools.providerTools,
+              activeTools: active,
+              priorMessages: priorReplay.messages,
+              ...(toolSourceDiagnostic !== undefined
+                ? { toolSourceEconomy: toolSourceDiagnostic }
+                : {}),
+            }, priorShapeBaseline),
+          };
+        };
+        // Publish a diagnostics snapshot to every telemetry sink at once so the
+        // cost record, the prefix baseline, and the context-budget high-water
+        // "after" hash never diverge — they must all describe the same active
+        // tool set. A same-turn deferred load re-publishes the final snapshot
+        // below; the high-water "before" hash is the pre-turn baseline, set once.
+        let turnDiagnostics = computeTurnDiagnostics(activeTools);
+        const publishTurnDiagnostics = (diag: typeof turnDiagnostics): void => {
+          turnDiagnostics = diag;
+          promptSegmentsForTelemetry = diag.promptSegments;
+          requestShapeForTelemetry = diag.requestShape;
+          this.priorRequestShape = diag.requestShape;
+          if (priorReplay.contextBudget?.highWaterReason) {
+            priorReplay.contextBudget.highWaterRequestShapeHashAfter = diag.requestShape.requestShapeHash;
+          }
+        };
+        // Step-0 (turn-start) view: literally what the first request carries, so
+        // the stream-start trace reports it as the prefix actually sent.
         if (priorReplay.contextBudget?.highWaterReason) {
-          priorReplay.contextBudget.highWaterRequestShapeHashBefore = this.priorRequestShape?.requestShapeHash;
-          priorReplay.contextBudget.highWaterRequestShapeHashAfter = requestShape.requestShapeHash;
+          priorReplay.contextBudget.highWaterRequestShapeHashBefore = priorShapeBaseline?.requestShapeHash;
         }
-        requestShapeForTelemetry = requestShape;
-        this.priorRequestShape = requestShape;
+        publishTurnDiagnostics(turnDiagnostics);
         trace.modelStreamStarted(activeTools, {
-          prefixHash: requestShape.prefixHash,
-          prefixChangeReason: requestShape.prefixChangeReason,
-          requestShapeHash: requestShape.requestShapeHash,
-          requestShapeChangeReason: requestShape.requestShapeChangeReason,
-          ...(requestShape.toolSchemaChangeReason !== undefined
-            ? { toolSchemaChangeReason: requestShape.toolSchemaChangeReason }
+          prefixHash: turnDiagnostics.requestShape.prefixHash,
+          prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+          requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+          requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+          ...(turnDiagnostics.requestShape.toolSchemaChangeReason !== undefined
+            ? { toolSchemaChangeReason: turnDiagnostics.requestShape.toolSchemaChangeReason }
             : {}),
-          ...(requestShape.toolSourceEconomy !== undefined
-            ? { toolSourceEconomy: requestShape.toolSourceEconomy }
+          ...(turnDiagnostics.requestShape.toolSourceEconomy !== undefined
+            ? { toolSourceEconomy: turnDiagnostics.requestShape.toolSourceEconomy }
             : {}),
-          promptSegments,
+          promptSegments: turnDiagnostics.promptSegments,
           ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
         });
 
@@ -526,12 +613,13 @@ export class AiSdkBackend implements AgentBackend {
           ) => {
             return repairMakaToolCall({
               toolCall,
-              availableToolNames: activeTools,
+              availableToolNames: currentRepairToolNames(),
               error,
             });
           },
           system: systemPrompt,
           abortSignal: this.abortController!.signal,
+          ...(prepareStep ? { prepareStep } : {}),
         });
 
         for await (const chunk of result.fullStream) {
@@ -546,6 +634,17 @@ export class AiSdkBackend implements AgentBackend {
             onThinking: (t) => { thinkingText += t; },
             onThinkingComplete: (t, sig) => { thinkingText = t; thinkingSignature = sig; },
           });
+        }
+
+        // Same-turn deferred load: prepareStep expanded the provider tool set on
+        // later steps, so refine the durable cost record + prefix baseline against
+        // the final active set — otherwise this turn under-reports the loaded
+        // schema and the cache reset would surface a turn late. No-op when nothing
+        // loaded this turn (the active set length is unchanged; the ratchet only
+        // grows it).
+        const finalActiveTools = currentRepairToolNames();
+        if (finalActiveTools.length !== activeTools.length) {
+          publishTurnDiagnostics(computeTurnDiagnostics(finalActiveTools));
         }
 
         // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): when the
@@ -603,15 +702,15 @@ export class AiSdkBackend implements AgentBackend {
           if (tokenUsage) {
             trace.usageRecorded({
               ...tokenUsage,
-              prefixHash: requestShape.prefixHash,
-              prefixChangeReason: requestShape.prefixChangeReason,
-              requestShapeHash: requestShape.requestShapeHash,
-              requestShapeChangeReason: requestShape.requestShapeChangeReason,
-              ...(requestShape.toolSchemaChangeReason !== undefined
-                ? { toolSchemaChangeReason: requestShape.toolSchemaChangeReason }
+              prefixHash: turnDiagnostics.requestShape.prefixHash,
+              prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+              requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+              requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+              ...(turnDiagnostics.requestShape.toolSchemaChangeReason !== undefined
+                ? { toolSchemaChangeReason: turnDiagnostics.requestShape.toolSchemaChangeReason }
                 : {}),
-              ...(requestShape.toolSourceEconomy !== undefined
-                ? { toolSourceEconomy: requestShape.toolSourceEconomy }
+              ...(turnDiagnostics.requestShape.toolSourceEconomy !== undefined
+                ? { toolSourceEconomy: turnDiagnostics.requestShape.toolSourceEconomy }
                 : {}),
             });
             const tu: TokenUsageMessage = {
@@ -630,11 +729,11 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
-              prefixHash: requestShape.prefixHash,
-              prefixChangeReason: requestShape.prefixChangeReason,
-              requestShapeHash: requestShape.requestShapeHash,
-              requestShapeChangeReason: requestShape.requestShapeChangeReason,
-              promptSegments,
+              prefixHash: turnDiagnostics.requestShape.prefixHash,
+              prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+              requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+              requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+              promptSegments: turnDiagnostics.promptSegments,
               ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
@@ -654,11 +753,11 @@ export class AiSdkBackend implements AgentBackend {
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
-              prefixHash: requestShape.prefixHash,
-              prefixChangeReason: requestShape.prefixChangeReason,
-              requestShapeHash: requestShape.requestShapeHash,
-              requestShapeChangeReason: requestShape.requestShapeChangeReason,
-              promptSegments,
+              prefixHash: turnDiagnostics.requestShape.prefixHash,
+              prefixChangeReason: turnDiagnostics.requestShape.prefixChangeReason,
+              requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
+              requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
+              promptSegments: turnDiagnostics.promptSegments,
               ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
             } satisfies TokenUsageEvent);
           }

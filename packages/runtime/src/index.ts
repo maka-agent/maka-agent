@@ -307,3 +307,16 @@ export type {
   CompleteStopReason,
   SessionEventMapMemory,
 } from './ai-sdk-flow.js';
+
+// load-tool.ts — the always-on deferred-tool catalog/lookup tool.
+export { buildLoadTool, toolNamesForNamespaces, LOAD_TOOL_NAME } from './load-tool.js';
+export type { DeferredNamespaceCard, DeferredToolCatalog } from './load-tool.js';
+
+// deferred-activation.ts — per-step active-tool derivation for deferred loading.
+export {
+  loadedNamespacesFromSteps,
+  seedNamespacesFromRuntimeEvents,
+  computeActiveTools,
+  buildDeferredPrepareStep,
+} from './deferred-activation.js';
+export type { StepLike, RuntimeEventLike, DeferredPrepareStepInput } from './deferred-activation.js';

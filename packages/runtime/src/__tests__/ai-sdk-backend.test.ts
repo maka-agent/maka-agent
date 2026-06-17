@@ -1807,7 +1807,10 @@ describe('AiSdkBackend request-shape diagnostics', () => {
 
     assert.deepEqual(modelToolNames(model), sortedModelToolNames(['Read', 'WebFetch']));
     assert.equal(modelToolNames(model).includes(CONNECT_TOOL_SOURCE_NAME), false);
-    assert.equal(toolSchemaPromptSegment(llmRecords[0])?.toolCount, 3);
+    // toolCount tracks the model-visible (active) tools — the two real tools.
+    // The invalid fallback lives in providerTools but is never advertised, so
+    // it is not counted. (PR #30 unifies toolCount to the wire-visible subset.)
+    assert.equal(toolSchemaPromptSegment(llmRecords[0])?.toolCount, 2);
   });
 
   test('backend connector enables sources for later requests only and preserves prefix reason compatibility', async () => {
@@ -1845,7 +1848,9 @@ describe('AiSdkBackend request-shape diagnostics', () => {
       sortedModelToolNames(['Read', CONNECT_TOOL_SOURCE_NAME]),
     );
     assert.equal(modelToolNames(models[0]!).includes('WebFetch'), false);
-    assert.equal(toolSchemaPromptSegment(llmRecords[0])?.toolCount, 3);
+    // Active = [Read, connector]; WebFetch is hidden until connected and the
+    // invalid fallback is never advertised. toolCount tracks that wire subset.
+    assert.equal(toolSchemaPromptSegment(llmRecords[0])?.toolCount, 2);
     const economyRuntime = (backend as unknown as {
       toolSourceEconomyRuntime: ToolSourceEconomyRuntime;
     }).toolSourceEconomyRuntime;
@@ -1880,7 +1885,8 @@ describe('AiSdkBackend request-shape diagnostics', () => {
     assert.equal(llmRecords[1]?.requestShapeChangeReason, 'tool_schema_changed');
     assert.equal(llmRecords[1]?.toolSchemaChangeReason, 'tool_source_enabled');
     assert.deepEqual(llmRecords[1]?.toolSourceEconomy?.enabledSourceIds, ['web']);
-    assert.equal(toolSchemaPromptSegment(llmRecords[1])?.toolCount, 4);
+    // Active = [Read, connector, WebFetch] once the web source connects.
+    assert.equal(toolSchemaPromptSegment(llmRecords[1])?.toolCount, 3);
   });
 
   test('volatile turn-tail facts do not churn the durable prefix hash', async () => {
