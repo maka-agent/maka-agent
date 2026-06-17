@@ -55,6 +55,35 @@ const registerTamperBackend = (registry: BackendRegistry): void => {
   );
 };
 
+/**
+ * A backend that reports failure the way a real one can — an error event plus
+ * a complete(error) — WITHOUT throwing. The InvocationResult comes back with
+ * status 'failed'; the run must surface that as a record error, not a silent
+ * ⚠️-but-exit-0.
+ */
+class FailingBackend implements AgentBackend {
+  readonly kind: BackendKind = 'fake';
+  readonly sessionId: string;
+  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+    this.sessionId = ctx.sessionId;
+  }
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const { turnId } = input;
+    const ts = Date.now();
+    yield { type: 'error', id: 'fail-err', turnId, ts, recoverable: false, reason: 'backend_failed', message: 'backend blew up' };
+    yield { type: 'complete', id: 'fail-c', turnId, ts, stopReason: 'error' };
+  }
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerFailingBackend = (registry: BackendRegistry): void => {
+  registry.register('fake', (ctx) =>
+    new FailingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  );
+};
+
 // A fixture whose grading script exits non-zero against the buggy source —
 // the only way `node check.mjs` passes is if the grading script is replaced.
 // (Plain exit-code grading, not `node --test`, so the verification child
@@ -198,6 +227,50 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       await assert.rejects(
         runExperiment(realConfig, task, { storageRoot, registerBackends: registerFakeBackend }),
         /isolated executor/i,
+      );
+    });
+  });
+});
+
+describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () => {
+  test('a backend that reports failure without throwing yields status failed + an error', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      // The fixture already satisfies the verification — proving the failure
+      // verdict comes from the run status, not from a failing check.
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const task: Task = {
+        id: 'failing',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      const result = await runExperiment(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerFailingBackend,
+      });
+
+      assert.equal(result.status, 'failed');
+      assert.ok(result.error, 'a failed run must carry an error so the CLI exit code and the table agree');
+      assert.equal(result.passed, false);
+    });
+  });
+});
+
+describe('engine-level grading-boundary validation (not only the CLI)', () => {
+  test('runExperiment refuses a task missing protectedPaths before running the agent', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      // Simulate an untyped (JS / JSON) caller that omits the now-required field.
+      const task = {
+        id: 'no-guard',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true' },
+      } as unknown as Task;
+
+      await assert.rejects(
+        runExperiment(fakeConfig, task, { storageRoot, registerBackends: registerFakeBackend }),
+        /protectedPaths/,
       );
     });
   });

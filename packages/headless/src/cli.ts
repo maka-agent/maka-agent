@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { registerFakeBackend } from './backends.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
-import { backendNeedsIsolation } from './runner.js';
+import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { readResults, toComparisonTable, writeResults } from './results.js';
 
 /**
@@ -23,11 +23,7 @@ function validateEvalSpec(spec: ExperimentSpec): void {
     }
   }
   for (const task of spec.tasks) {
-    if (!Array.isArray(task.verification?.protectedPaths)) {
-      throw new Error(
-        `task "${task.id}": verification.protectedPaths is required (an array; use [] when the verification reads nothing the agent can forge)`,
-      );
-    }
+    validateTaskVerification(task);
   }
 }
 

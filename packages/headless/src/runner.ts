@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 import type { BackendKind } from '@maka/core';
 import {
   BackendRegistry,
@@ -46,6 +47,27 @@ export function backendNeedsIsolation(backend: BackendKind): boolean {
 }
 
 /**
+ * Validate a Task's grading boundary at the ENGINE boundary — so a public
+ * `runExperiment` / `runMatrix` caller that omits or mis-declares
+ * `protectedPaths` fails fast, before any workspace / session / backend is
+ * created, instead of running the agent and only then tripping over a bad
+ * field. The CLI reuses this; there is no second, divergent check.
+ */
+export function validateTaskVerification(task: Task): void {
+  const protectedPaths = task.verification?.protectedPaths;
+  if (!Array.isArray(protectedPaths)) {
+    throw new Error(
+      `task "${task.id}": verification.protectedPaths is required (an array; use [] when the verification reads nothing the agent can forge)`,
+    );
+  }
+  for (const rel of protectedPaths) {
+    if (typeof rel !== 'string' || isAbsolute(rel) || rel.split(/[\\/]+/).includes('..')) {
+      throw new Error(`task "${task.id}": protectedPaths entry must be a workspace-relative path: ${String(rel)}`);
+    }
+  }
+}
+
+/**
  * Run one `Config × Task` end-to-end: copy the fixture into a throwaway
  * workspace, drive a single headless agent turn through SessionManager,
  * capture the trajectory, score it with the Task's verification command,
@@ -64,6 +86,7 @@ export async function runExperiment(
       `@maka/headless: backend "${config.backend}" executes tools on the host and requires an isolated executor, which this build does not ship yet — only the inert "fake" backend runs in-process`,
     );
   }
+  validateTaskVerification(task);
   const now = deps.now ?? Date.now;
   const newId = deps.newId ?? randomUUID;
   const startedAt = now();
@@ -121,21 +144,29 @@ export async function runExperiment(
       task.verification.timeoutMs,
     );
     const finishedAt = now();
+    const status = invocation?.status ?? 'failed';
 
     return {
       taskId: task.id,
       configId: config.id,
       sessionId: session.id,
       runId: invocation?.runId ?? turnId,
-      status: invocation?.status ?? 'failed',
+      status,
       // Only a completed run can "pass" — a crashed/errored run that happens
       // to leave a green fixture must not read as a pass.
-      passed: invocation?.status === 'completed' && evaluation.passed,
+      passed: status === 'completed' && evaluation.passed,
       exitCode: evaluation.exitCode,
       steps: invocation?.events.length ?? 0,
       durationMs: finishedAt - startedAt,
       startedAt,
       finishedAt,
+      // A failed invocation (the backend reported failure without throwing, or
+      // no result was captured) must carry an `error` so the comparison table
+      // (⚠️) and the CLI exit code agree it was not a trustworthy run — not a
+      // silent ⚠️-but-exit-0 that automation reads as success.
+      ...(status === 'failed'
+        ? { error: invocation?.failure?.message ?? invocation?.failure?.class ?? 'run did not complete' }
+        : {}),
     };
   } finally {
     await workspace.cleanup();
