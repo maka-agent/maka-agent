@@ -16,6 +16,7 @@ import type {
   RuntimeEvent,
   RuntimeEventStatus,
 } from '@maka/core/runtime-event';
+import type { AgentFlow } from '../agent-flow.js';
 
 // ============================================================================
 // Test fakes / helpers
@@ -48,6 +49,12 @@ const attachment: AttachmentRef = {
   bytes: 123,
   ref: { kind: 'session_file', sessionId: 'sess-1', relativePath: 'attachments/chart.png' },
 };
+
+type AgentFlowContext = Parameters<AgentFlow['run']>[0];
+const _canonicalContextIsFlowContext: InvocationContext = {} as AgentFlowContext;
+const _flowContextIsCanonicalContext: AgentFlowContext = {} as InvocationContext;
+void _canonicalContextIsFlowContext;
+void _flowContextIsCanonicalContext;
 
 /**
  * Fake flow that runs a script to produce its events. The script receives
