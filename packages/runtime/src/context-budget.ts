@@ -189,8 +189,16 @@ export interface SynthesisCacheReplayResult {
 
 export interface HistoryCompactPolicy {
   enabled: boolean;
-  /** PR1 is deterministic only; host/LLM summarizers belong to the persistence phase. */
-  mode?: 'deterministic';
+  /** `read_write` lets a host persist or replace the deterministic draft block before replay. */
+  mode?: 'deterministic' | 'lookup' | 'read_write';
+  /** Source-bearing compact blocks available for the current replay projection. */
+  blocks?: readonly HistoryCompactBlock[];
+  /** Defaults to 1 to keep replay bounded and deterministic. */
+  maxBlocks?: number;
+  /** Defaults to 2048 to keep replay bounded and deterministic. */
+  maxEstimatedTokens?: number;
+  /** Defaults to maxSummaryEstimatedTokens, then 1024, to reject a single over-large compact block. */
+  maxBlockEstimatedTokens?: number;
   /** Compact once prior history exceeds this ratio of maxHistoryEstimatedTokens. Defaults to 0.8. */
   highWaterRatio?: number;
   /** Diagnostic high-water ratio reserved for future forced compaction. Defaults to 0.9. */
@@ -374,6 +382,7 @@ export interface RuntimeEventHistoryAroundResult {
 export interface BudgetedRuntimeContext {
   events: RuntimeEvent[];
   diagnostic: ContextBudgetDiagnostic;
+  historyCompactBlocks?: HistoryCompactBlock[];
 }
 
 export interface PromptSegmentInput {
@@ -489,7 +498,11 @@ export function applyRuntimeEventContextBudget(
         }
       : {}),
   };
-  return { events: keptEvents, diagnostic };
+  return {
+    events: keptEvents,
+    diagnostic,
+    ...(compacted.blocks.length > 0 ? { historyCompactBlocks: compacted.blocks } : {}),
+  };
 }
 
 export function applyRuntimeEventHistoryCompact(
@@ -599,6 +612,35 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
+  const loadedBlock = selectLoadedHistoryCompactBlock(
+    foldedEvents,
+    compactPolicy,
+    { sessionId: foldedEvents[0]?.sessionId ?? '', charsPerToken },
+    skippedReasonCounts,
+  );
+  if (loadedBlock) {
+    const outputEvents = [historyCompactBlockToRuntimeEvent(loadedBlock), ...retainedEvents];
+    return {
+      events: outputEvents,
+      blocks: [loadedBlock],
+      diagnosticPatch: {
+        ...basePatch,
+        historyCompactBlocksAvailable: compactPolicy.blocks?.length ?? 0,
+        historyCompactBlocksSelected: 1,
+        historyCompactBlockIds: [loadedBlock.blockId],
+        historyCompactedTurns: loadedBlock.coverage.turnIds.length,
+        historyCompactedEvents: loadedBlock.coverage.runtimeEventIds.length,
+        historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(foldedEvents, charsPerToken),
+        historyCompactedEstimatedTokensAfter:
+          loadedBlock.estimatedTokens ?? estimateTokens(renderHistoryCompactBlock(loadedBlock).length, charsPerToken),
+        historyCompactCoverageHashes: loadedBlock.coverage.bodySha256,
+        highWaterName: loadedBlock.highWaterName,
+        highWaterSeq: loadedBlock.highWaterSeq,
+        highWaterReason: 'history_compact',
+      },
+    };
+  }
+
   const archiveRefs = normalizeHistoryCompactSourceArchiveRefs(compactPolicy.sourceArchiveRefs);
   if (compactPolicy.archiveRequired === true) {
     const archiveValidationReason = validateHistoryCompactArchiveCoverage(
@@ -624,7 +666,7 @@ export function applyRuntimeEventHistoryCompact(
     charsPerToken,
     archiveRefs,
   });
-  const synthetic = historyCompactBlockRuntimeEvent(block);
+  const synthetic = historyCompactBlockToRuntimeEvent(block);
   const outputEvents = [synthetic, ...retainedEvents];
   return {
     events: outputEvents,
@@ -632,6 +674,7 @@ export function applyRuntimeEventHistoryCompact(
     diagnosticPatch: {
       ...basePatch,
       historyCompactBlockIds: [block.blockId],
+      historyCompactBlocksSelected: 1,
       historyCompactedTurns: block.coverage.turnIds.length,
       historyCompactedEvents: block.coverage.runtimeEventIds.length,
       historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(foldedEvents, charsPerToken),
@@ -1021,6 +1064,93 @@ export function validateHistoryCompactBlockShape(value: unknown, sessionId?: str
     );
 }
 
+export function historyCompactBlockToRuntimeEvent(block: HistoryCompactBlock): RuntimeEvent {
+  return {
+    id: `history-compact:${block.blockId}`,
+    sessionId: block.sessionId,
+    runId: `history-compact:${block.blockId}`,
+    turnId: `history-compact:${block.highWaterSeq}`,
+    invocationId: `history-compact:${block.blockId}`,
+    ts: block.createdAt,
+    partial: false,
+    role: 'user',
+    author: 'system',
+    content: {
+      kind: 'text',
+      text: renderHistoryCompactBlock(block),
+    },
+    ...(block.sourceArchiveRefs?.[0]
+      ? { refs: { artifactId: block.sourceArchiveRefs[0].artifactId } }
+      : {}),
+  };
+}
+
+export function buildHistoryCompactBlockFromSummary(input: {
+  sessionId: string;
+  foldedRuntimeEvents: readonly RuntimeEvent[];
+  summary: string;
+  highWaterName?: string;
+  highWaterSeq?: number;
+  maxSummaryEstimatedTokens?: number;
+  sourceArchiveRefs?: readonly HistoryCompactSourceArchiveRef[];
+  requestShapeHashBefore?: string;
+  requestShapeHashAfter?: string;
+  now?: number;
+  charsPerToken?: number;
+}): HistoryCompactBlock {
+  const charsPerToken = input.charsPerToken ?? 4;
+  const highWaterName = input.highWaterName ?? 'history-compact-high-water';
+  const createdAt = Math.max(
+    input.now ?? 1,
+    ...input.foldedRuntimeEvents.map((event) => event.ts),
+  );
+  const highWaterSeq = input.highWaterSeq ?? createdAt;
+  const coverage = deriveHistoryCompactCoverage(input.foldedRuntimeEvents);
+  const sourceRefs: SynthesisSourceRef[] = input.foldedRuntimeEvents.map((event) => ({
+    kind: 'runtime_event',
+    sessionId: event.sessionId,
+    turnId: turnKey(event),
+    runtimeEventId: event.id,
+    role: event.role,
+    contentKind: event.content?.kind ?? 'none',
+  }));
+  const maxSummaryTokens = finitePositive(input.maxSummaryEstimatedTokens) ?? 768;
+  const summary = boundText(input.summary, Math.max(80, maxSummaryTokens * Math.max(1, charsPerToken)));
+  const blockDraft = {
+    version: 1,
+    sessionId: input.sessionId,
+    highWaterName,
+    highWaterSeq,
+    coverage,
+    summary,
+  };
+  const sourceArchiveRefs = input.sourceArchiveRefs?.filter(isValidHistoryCompactSourceArchiveRef) ?? [];
+  const block: HistoryCompactBlock = {
+    kind: 'maka.history_compact_block',
+    version: 1,
+    blockId: stableHistoryCompactBlockId(blockDraft),
+    sessionId: input.sessionId,
+    createdAt,
+    highWaterName,
+    highWaterSeq,
+    coverage,
+    summary,
+    limitations: [
+      'Host-owned replay-time summary of older RuntimeEvents.',
+      'Original RuntimeEvents are not mutated; request raw evidence or history search when exact wording matters.',
+      ...(sourceArchiveRefs.length === 0
+        ? ['No archive refs are attached; source coverage is by RuntimeEvent ids and content hashes.']
+        : []),
+    ],
+    sourceRefs,
+    ...(sourceArchiveRefs.length > 0 ? { sourceArchiveRefs } : {}),
+    ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
+    ...(input.requestShapeHashAfter ? { requestShapeHashAfter: input.requestShapeHashAfter } : {}),
+  };
+  block.estimatedTokens = estimateTokens(renderHistoryCompactBlock(block).length, charsPerToken);
+  return block;
+}
+
 export function buildSynthesisCacheBlocksFromHydratedArchives(
   input: BuildSynthesisCacheBlocksInput,
 ): BuildSynthesisCacheBlocksResult {
@@ -1235,6 +1365,76 @@ function selectHistoryCompactTailTurnIds(
   return selected;
 }
 
+function selectLoadedHistoryCompactBlock(
+  foldedEvents: readonly RuntimeEvent[],
+  policy: HistoryCompactPolicy,
+  options: {
+    sessionId: string;
+    charsPerToken: number;
+  },
+  skippedReasonCounts: Record<string, number>,
+): HistoryCompactBlock | undefined {
+  const blocks = policy.blocks ?? [];
+  if (blocks.length === 0) return undefined;
+  const maxBlocks = finitePositive(policy.maxBlocks) ?? 1;
+  const maxEstimatedTokens = finitePositive(policy.maxEstimatedTokens) ?? 2_048;
+  const maxBlockEstimatedTokens =
+    finitePositive(policy.maxBlockEstimatedTokens)
+    ?? finitePositive(policy.maxSummaryEstimatedTokens)
+    ?? 1_024;
+  let selectedTokens = 0;
+  let selected = 0;
+  for (const block of blocks) {
+    if (selected >= maxBlocks) {
+      increment(skippedReasonCounts, 'max_blocks');
+      continue;
+    }
+    const validationReason = validateHistoryCompactBlockForEvents(block, foldedEvents, options.sessionId);
+    if (validationReason) {
+      increment(skippedReasonCounts, validationReason);
+      continue;
+    }
+    const blockTokens =
+      block.estimatedTokens ?? estimateTokens(renderHistoryCompactBlock(block).length, options.charsPerToken);
+    if (blockTokens > maxBlockEstimatedTokens) {
+      increment(skippedReasonCounts, 'max_block_tokens');
+      continue;
+    }
+    if (selectedTokens + blockTokens > maxEstimatedTokens) {
+      increment(skippedReasonCounts, 'max_total_tokens');
+      continue;
+    }
+    selected += 1;
+    selectedTokens += blockTokens;
+    return { ...block, estimatedTokens: blockTokens };
+  }
+  return undefined;
+}
+
+function validateHistoryCompactBlockForEvents(
+  block: HistoryCompactBlock,
+  foldedEvents: readonly RuntimeEvent[],
+  sessionId: string,
+): 'invalid_schema_version' | 'session_mismatch' | 'coverage_miss' | 'source_hash_mismatch' | undefined {
+  if (!validateHistoryCompactBlockShape(block, sessionId || undefined)) return 'invalid_schema_version';
+  if (sessionId.length > 0 && block.sessionId !== sessionId) return 'session_mismatch';
+  const eventsById = new Map(foldedEvents.map((event) => [event.id, event]));
+  for (const eventId of block.coverage.runtimeEventIds) {
+    const event = eventsById.get(eventId);
+    if (!event) return 'coverage_miss';
+    if (!block.coverage.turnIds.includes(turnKey(event))) return 'coverage_miss';
+    if (!block.coverage.contentKinds.includes(event.content?.kind ?? 'none')) return 'coverage_miss';
+    if (!block.coverage.bodySha256.includes(runtimeEventBodySha256(event))) return 'source_hash_mismatch';
+  }
+  const foldedIds = new Set(foldedEvents.map((event) => event.id));
+  for (const event of foldedEvents) {
+    if (!block.coverage.runtimeEventIds.includes(event.id) && foldedIds.has(event.id)) {
+      return 'coverage_miss';
+    }
+  }
+  return undefined;
+}
+
 function buildHistoryCompactBlock(
   foldedEvents: readonly RuntimeEvent[],
   policy: HistoryCompactPolicy,
@@ -1243,19 +1443,6 @@ function buildHistoryCompactBlock(
     archiveRefs: ReadonlyMap<string, HistoryCompactSourceArchiveRef>;
   },
 ): HistoryCompactBlock {
-  const sessionId = foldedEvents[0]?.sessionId ?? 'unknown-session';
-  const highWaterName = policy.highWaterName ?? 'history-compact-high-water';
-  const createdAt = Math.max(1, ...foldedEvents.map((event) => event.ts));
-  const highWaterSeq = createdAt;
-  const coverage = deriveHistoryCompactCoverage(foldedEvents);
-  const sourceRefs: SynthesisSourceRef[] = foldedEvents.map((event) => ({
-    kind: 'runtime_event',
-    sessionId: event.sessionId,
-    turnId: turnKey(event),
-    runtimeEventId: event.id,
-    role: event.role,
-    contentKind: event.content?.kind ?? 'none',
-  }));
   const sourceArchiveRefs: HistoryCompactSourceArchiveRef[] = [];
   for (const event of foldedEvents) {
     const ref = options.archiveRefs.get(event.id);
@@ -1263,37 +1450,15 @@ function buildHistoryCompactBlock(
       sourceArchiveRefs.push(ref);
     }
   }
-  const summary = buildDeterministicHistoryCompactSummary(foldedEvents, policy, options.charsPerToken);
-  const blockDraft = {
-    version: policy.summarySchemaVersion ?? 1,
-    sessionId,
-    highWaterName,
-    highWaterSeq,
-    coverage,
-    summary,
-  };
-  const block: HistoryCompactBlock = {
-    kind: 'maka.history_compact_block',
-    version: 1,
-    blockId: stableHistoryCompactBlockId(blockDraft),
-    sessionId,
-    createdAt,
-    highWaterName,
-    highWaterSeq,
-    coverage,
-    summary,
-    limitations: [
-      'Deterministic replay-time summary of older RuntimeEvents.',
-      'Original RuntimeEvents are not mutated; request raw evidence or history search when exact wording matters.',
-      ...(sourceArchiveRefs.length === 0
-        ? ['No archive refs are attached; source coverage is by RuntimeEvent ids and content hashes.']
-        : []),
-    ],
-    sourceRefs,
-    ...(sourceArchiveRefs.length > 0 ? { sourceArchiveRefs } : {}),
-  };
-  block.estimatedTokens = estimateTokens(renderHistoryCompactBlock(block).length, options.charsPerToken);
-  return block;
+  return buildHistoryCompactBlockFromSummary({
+    sessionId: foldedEvents[0]?.sessionId ?? 'unknown-session',
+    foldedRuntimeEvents: foldedEvents,
+    summary: buildDeterministicHistoryCompactSummary(foldedEvents, policy, options.charsPerToken),
+    highWaterName: policy.highWaterName,
+    maxSummaryEstimatedTokens: policy.maxSummaryEstimatedTokens,
+    sourceArchiveRefs,
+    charsPerToken: options.charsPerToken,
+  });
 }
 
 function deriveHistoryCompactCoverage(events: readonly RuntimeEvent[]): HistoryCompactCoverage {
@@ -1340,24 +1505,6 @@ function historyCompactEventExcerpt(event: RuntimeEvent): string | undefined {
     case 'error':
       return normalizeWhitespace(`${content.code ?? ''} ${content.reason ?? ''} ${content.message}`).slice(0, 220);
   }
-}
-
-function historyCompactBlockRuntimeEvent(block: HistoryCompactBlock): RuntimeEvent {
-  return {
-    id: `history-compact:${block.blockId}`,
-    sessionId: block.sessionId,
-    runId: `history-compact:${block.blockId}`,
-    turnId: `history-compact:${block.highWaterSeq}`,
-    invocationId: `history-compact:${block.blockId}`,
-    ts: block.createdAt,
-    partial: false,
-    role: 'user',
-    author: 'system',
-    content: {
-      kind: 'text',
-      text: renderHistoryCompactBlock(block),
-    },
-  };
 }
 
 function stableHistoryCompactBlockId(value: unknown): string {
