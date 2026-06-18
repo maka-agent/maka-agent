@@ -6323,7 +6323,16 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
   if (!props.content) return null;
   return (
     <div className="maka-modal-backdrop overlay">
-      <UiButton className="maka-button" onClick={props.onClose}>Close</UiButton>
+      <UiButton
+        className="maka-button maka-overlay-close"
+        type="button"
+        variant="ghost"
+        onClick={props.onClose}
+        aria-label="关闭预览"
+      >
+        <X size={14} strokeWidth={1.75} aria-hidden="true" />
+        <span>关闭</span>
+      </UiButton>
       <OverlayPreview content={props.content} />
     </div>
   );

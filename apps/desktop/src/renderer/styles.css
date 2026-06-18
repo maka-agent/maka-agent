@@ -4091,6 +4091,15 @@ button:active {
   word-break: break-word;
 }
 
+.maka-overlay-close {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding-inline: 10px;
+}
+
 /* load_tool: friendly deferred-loading result card (vs raw JSON). */
 .maka-load-tool-preview {
   margin: 8px 0 0;

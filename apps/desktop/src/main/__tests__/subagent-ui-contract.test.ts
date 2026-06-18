@@ -23,6 +23,8 @@ describe('subagent UI contract', () => {
     }));
 
     assert.match(markup, /data-kind="subagent"/);
+    assert.match(markup, /aria-label="关闭预览"/);
+    assert.match(markup, /<span>关闭<\/span>/);
     assert.match(markup, /Research Agent/);
     assert.match(markup, /已完成/);
     assert.match(markup, /只读/);
@@ -35,8 +37,22 @@ describe('subagent UI contract', () => {
     assert.doesNotMatch(markup, /run-secret-456/);
     assert.doesNotMatch(markup, /artifact-secret-1/);
     assert.doesNotMatch(markup, /artifact-secret-2/);
+    assert.doesNotMatch(markup, />Close</);
     assert.doesNotMatch(markup, />explore</);
     assert.doesNotMatch(markup, /事件/);
     assert.doesNotMatch(markup, /42 个事件/);
+  });
+
+  it('keeps the overlay close action icon-backed and localized', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { resolve } = await import('node:path');
+    const source = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const block = source.match(/export function OverlayHost[\s\S]*?^}/m)?.[0] ?? '';
+
+    assert.match(block, /<UiButton[\s\S]*className="maka-button maka-overlay-close"/);
+    assert.match(block, /aria-label="关闭预览"/);
+    assert.match(block, /<X size=\{14\} strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
+    assert.match(block, /<span>关闭<\/span>/);
+    assert.doesNotMatch(block, />Close</);
   });
 });
