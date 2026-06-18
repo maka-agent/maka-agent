@@ -7,17 +7,17 @@
  * Layering (from the architecture doc):
  *
  *   RuntimeRunner
- *     -> InvocationContext
- *     -> AgentFlow          ← this module defines the interface
+ *     -> InvocationContext  ← canonical spine from ./invocation-context.ts
+ *     -> AgentFlow          ← this module defines the flow interface
  *         -> AiSdkFlow      ← default long-term implementation (./ai-sdk-flow.ts)
  *             -> AI SDK streamText
  *             -> ToolRuntime
  *     -> RuntimeEvent ledger
  *     -> projections
  *
- * A Flow owns the model/tool loop for one invocation. It consumes an
- * InvocationContext + a FlowInput (the user turn) and emits the canonical
- * `RuntimeEvent` stream. The current stepping engine lives inside
+ * A Flow owns the model/tool loop for one invocation. It consumes the
+ * canonical InvocationContext + a FlowInput (the user turn) and emits the
+ * canonical `RuntimeEvent` stream. The current stepping engine lives inside
  * `AiSdkBackend.send()`; `AiSdkFlow` wraps that backend and normalizes its
  * renderer-facing `SessionEvent` stream into canonical `RuntimeEvent`s
  * without rewriting the stepping logic. That keeps the AI SDK as Maka's
@@ -34,39 +34,9 @@
 import type { AttachmentRef } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { InvocationContext } from './invocation-context.js';
 
-// ============================================================================
-// InvocationContext — identity + runtime services handed to a Flow
-// ============================================================================
-
-/**
- * Durable invocation spine identity plus the runtime services a Flow needs.
- *
- * Identity hierarchy mirrors `RuntimeEvent`:
- *   `sessionId` ⊃ `invocationId` ⊃ `runId` ⊃ `turnId`.
- *
- * `invocationId` is the durable spine id; `runId` names the specific
- * execution attempt; `turnId` groups all events from one user turn (and
- * matches `StoredMessage.turnId` / `BackendSendInput.turnId`).
- *
- * Today `SessionManager -> AgentRun -> AiSdkBackend` carries only
- * `sessionId` + `turnId`; `invocationId`/`runId` are introduced here as the
- * forward-compatible spine. Adapters that still talk to the legacy backend
- * path pass `invocationId`/`runId` through for projection linkage even
- * though the backend itself does not consume them yet.
- */
-export interface InvocationContext {
-  sessionId: string;
-  invocationId: string;
-  runId: string;
-  turnId: string;
-  /** Optional branch/agent lane for future multi-agent trees. */
-  branch?: string;
-  /** id generator; default `crypto.randomUUID()`. */
-  newId?: () => string;
-  /** Clock; default `Date.now()`. */
-  now?: () => number;
-}
+export type { InvocationContext } from './invocation-context.js';
 
 // ============================================================================
 // FlowInput — the user turn handed to a Flow

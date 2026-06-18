@@ -44,26 +44,19 @@ Each module ships a co-located test suite
 - `packages/runtime/package.json` — added six subpath exports.
 - `packages/runtime/src/index.ts` — selective barrel re-exports.
 
-## Known reconciliation point: two `InvocationContext` types
+## Reconciled: single `InvocationContext` type
 
-Two modules independently declare `InvocationContext`:
+`InvocationContext` is now owned by `invocation-context.ts` and reused by the
+formal flow seam:
 
-- `invocation-context.ts` — the **canonical** runner spine (required
+- `invocation-context.ts` — the canonical runner/flow spine (required
   `source`, `startedAt`, `request`, `newId`, `now`).
-- `agent-flow.ts` — a structurally **wider** flow-seam context (optional
-  `newId`/`now`; no `source`/`startedAt`/`request`).
+- `agent-flow.ts` — imports and re-exports that canonical type for the
+  `AgentFlow.run(ctx, input)` contract.
 
-The runner's context is assignable to the flow's (extra required fields are
-harmless when passed into `AgentFlow.run()`), so the two compose today. The
-runtime barrel re-exports **only** the canonical runner `InvocationContext`
-to avoid a name clash; the flow's narrower view stays reachable via
-`@maka/runtime/agent-flow`.
-
-**Future reconciliation (not done in this increment):** unify on one
-`InvocationContext` owned by `invocation-context.ts`, have `agent-flow.ts`
-import it, and update `ai-sdk-flow.test.ts`'s minimal `ctx` fixture to
-supply the required spine fields. Deferred because it is a behavior-shaping
-merge best done alongside the SessionManager-delegation node.
+The runtime barrel re-exports the canonical `InvocationContext` from
+`invocation-context.ts`; the previous duplicate flow-local context has been
+removed so runner and flow code share the same identity/provider spine.
 
 ## What remains (by phase)
 
