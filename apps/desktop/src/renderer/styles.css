@@ -3317,12 +3317,6 @@ button:active {
   margin-top: 6px;
 }
 
-.maka-error-actions .maka-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .maka-error-copy-action[data-copy-state="pending"] {
   cursor: progress;
 }
