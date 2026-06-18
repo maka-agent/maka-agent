@@ -114,6 +114,60 @@ function flowTerminalEvent(
   };
 }
 
+function flowErrorEvent(ctx: InvocationContext, message: string): RuntimeEvent {
+  return {
+    id: ctx.newId(),
+    invocationId: ctx.invocationId,
+    runId: ctx.runId,
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    ts: ctx.now(),
+    ...(ctx.branch ? { branch: ctx.branch } : {}),
+    partial: false,
+    role: 'system',
+    author: 'system',
+    content: { kind: 'error', reason: 'tool_failed', message },
+  };
+}
+
+function flowTokenUsageEvent(ctx: InvocationContext, rawFinishReason: string): RuntimeEvent {
+  return {
+    id: ctx.newId(),
+    invocationId: ctx.invocationId,
+    runId: ctx.runId,
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    ts: ctx.now(),
+    ...(ctx.branch ? { branch: ctx.branch } : {}),
+    partial: false,
+    role: 'system',
+    author: 'system',
+    actions: { tokenUsage: { input: 1, output: 1, rawFinishReason } },
+  };
+}
+
+function flowPermissionDeniedEvent(ctx: InvocationContext): RuntimeEvent {
+  return {
+    id: ctx.newId(),
+    invocationId: ctx.invocationId,
+    runId: ctx.runId,
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    ts: ctx.now(),
+    ...(ctx.branch ? { branch: ctx.branch } : {}),
+    partial: false,
+    role: 'system',
+    author: 'user',
+    actions: {
+      permissionDecision: {
+        requestId: 'perm-1',
+        decision: 'deny',
+        rememberForTurn: true,
+      },
+    },
+  };
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -261,6 +315,52 @@ describe('RuntimeRunner', () => {
         (ev) => ev.content?.kind === 'text' && ev.content.text === 'cleanup-after-aborted',
       ),
     ).toBe(true);
+  });
+
+  test('non-terminal error content cannot be masked by a completed terminal event', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowErrorEvent(ctx, 'Operation failed'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('tool_failed');
+    expect(result.failure?.message).toBe('Operation failed');
+    expect(result.events.at(-1)?.status).toBe('completed');
+  });
+
+  test('raw tool-calls finish reason marks a completed terminal event incomplete', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowTokenUsageEvent(ctx, 'tool-calls'),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('incomplete_tool_calls');
+    expect(result.failure?.message).toMatch(/tool-call step cap/);
+  });
+
+  test('denied permission decision marks a later completed terminal event failed', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      flowPermissionDeniedEvent(ctx),
+      flowTerminalEvent(ctx, 'completed'),
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('permission_denied');
+    expect(result.failure?.message).toBe('permission request perm-1 was denied');
   });
 
   test('a flow that throws maps to a failed result (user event retained)', async () => {

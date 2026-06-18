@@ -6,3 +6,11 @@ export type { Config, Task, TaskVerification, ResultRecord } from './contracts.j
 export { runExperiment, type RunExperimentDeps } from './runner.js';
 export { runMatrix, type ExperimentSpec } from './matrix.js';
 export { readResults, writeResults, toComparisonTable } from './results.js';
+export type {
+  HeadlessBackendContext,
+  IsolatedCommandInput,
+  IsolatedCommandResult,
+  IsolatedToolExecutor,
+  RealBackendIsolation,
+} from './isolation.js';
+export { buildIsolatedBashTool, buildIsolatedHeadlessTools } from './tools.js';

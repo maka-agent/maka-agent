@@ -13,6 +13,8 @@ import {
 } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
+import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
+import { validateRealBackendIsolation } from './isolation.js';
 import { prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
 import { runVerification } from './evaluator.js';
 
@@ -28,7 +30,14 @@ export interface RunExperimentDeps {
    * FakeBackend, the only backend this build runs; real backends rejoin with
    * the isolated executor. Minimal usage is just `{ storageRoot }`.
    */
-  registerBackends?: (registry: BackendRegistry) => void;
+  registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void | Promise<void>;
+  /**
+   * Required for every model-backed backend. This is deliberately explicit:
+   * a throwaway workspace is not a security boundary, so a real backend may run
+   * only when the caller provides an external isolation boundary such as a
+   * Harbor/Terminal-Bench environment or Docker workspace executor.
+   */
+  realBackendIsolation?: RealBackendIsolation;
   now?: () => number;
   newId?: () => string;
 }
@@ -38,9 +47,9 @@ export interface RunExperimentDeps {
  * stub FakeBackend qualifies. Every model-backed backend (`ai-sdk`,
  * `pi-agent`) can drive Bash/network, and the throwaway workspace is a copy,
  * not a jail, so running one in-process would hand the host (files, env incl.
- * API keys, network) to the config under test. Those run ONLY inside an
- * isolated executor — which this build does not ship yet (follow-up PR). Until
- * then a non-inert backend fails closed; see the preflight in runExperiment.
+ * API keys, network) to the config under test. Those run ONLY after the caller
+ * supplies an explicit external isolation boundary; otherwise the preflight in
+ * runExperiment fails closed.
  */
 export function backendNeedsIsolation(backend: BackendKind): boolean {
   return backend !== 'fake';
@@ -78,13 +87,13 @@ export async function runExperiment(
   task: Task,
   deps: RunExperimentDeps,
 ): Promise<ResultRecord> {
-  // Fail closed before any work starts: a model-backed backend would run the
-  // config under test on the host with no isolation. Refuse it until the
-  // executor ships; the inert FakeBackend is the only thing safe in-process.
   if (backendNeedsIsolation(config.backend)) {
-    throw new Error(
-      `@maka/headless: backend "${config.backend}" executes tools on the host and requires an isolated executor, which this build does not ship yet — only the inert "fake" backend runs in-process`,
-    );
+    validateRealBackendIsolation(deps.realBackendIsolation);
+    if (!deps.registerBackends) {
+      throw new Error(
+        `@maka/headless: backend "${config.backend}" requires registerBackends to wire an isolated backend factory`,
+      );
+    }
   }
   validateTaskVerification(task);
   const now = deps.now ?? Date.now;
@@ -94,7 +103,16 @@ export async function runExperiment(
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
     const backends = new BackendRegistry();
-    (deps.registerBackends ?? registerFakeBackend)(backends);
+    const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
+      deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
+    await registerBackends(backends, {
+      config,
+      task,
+      workspaceDir: workspace.dir,
+      ...(backendNeedsIsolation(config.backend)
+        ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
+        : {}),
+    });
 
     let invocation: InvocationResult | undefined;
     const manager = new SessionManager({
@@ -121,11 +139,10 @@ export async function runExperiment(
 
     const turnId = newId();
     // Drain the turn to completion. The trajectory + status come from the
-    // captured InvocationResult, not the streamed SessionEvents. Only the
-    // inert FakeBackend reaches this point (the preflight refuses the rest),
-    // so no real tool actually runs — but fail safe regardless: any permission
-    // request in-process is DENIED, because nothing here can honor host tool
-    // execution safely. Real tool use waits for the isolated executor.
+    // captured InvocationResult, not the streamed SessionEvents. If a backend
+    // still asks this generic runner for an interactive permission decision,
+    // fail safe and deny it; isolated eval backends should run with explicit
+    // non-interactive policy/tooling.
     for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
       if ((event as { type?: string }).type === 'permission_request') {
         const { requestId } = event as { requestId: string };
@@ -165,7 +182,10 @@ export async function runExperiment(
       // (⚠️) and the CLI exit code agree it was not a trustworthy run — not a
       // silent ⚠️-but-exit-0 that automation reads as success.
       ...(status === 'failed'
-        ? { error: invocation?.failure?.message ?? invocation?.failure?.class ?? 'run did not complete' }
+        ? {
+            error: invocation?.failure?.message ?? invocation?.failure?.class ?? 'run did not complete',
+            ...(invocation?.failure?.class ? { errorClass: invocation.failure.class } : {}),
+          }
         : {}),
     };
   } finally {

@@ -27,20 +27,56 @@ maka-headless eval examples/demo.spec.json --out /tmp/maka-headless-demo
 
 `eval` is **untrusted by construction**: the config under test is something you
 are *measuring*, possibly weak or adversarial, so it must not reach the host.
-Without OS-level isolation the only safe enforcement is to **fail closed**:
+Without OS-level isolation the only safe enforcement is to **fail closed by
+default**:
 
-- Only the inert **`fake`** backend runs. Any model-backed backend (`ai-sdk`,
-  `pi-agent`) is **refused** before a run starts — it would execute
-  shell / network / file tools on your machine, and the throwaway workspace is
-  a copy, not a sandbox.
-- Real-model eval lands once the **isolated executor** ships (a follow-up:
-  per-run container, env allowlist so tools never inherit your secrets,
-  network policy). Until then `eval` on a real backend exits non-zero with a
-  clear refusal.
+- The CLI still wires only the inert **`fake`** backend. A model-backed backend
+  in a JSON spec exits non-zero unless the caller uses the programmatic API to
+  provide backend wiring.
+- Programmatic real-model eval must pass `realBackendIsolation` to
+  `runExperiment` plus a `registerBackends` factory. The isolation record is an
+  explicit assertion that tool execution is already outside the host credential
+  process (for example Harbor / Terminal-Bench or a Docker workspace executor).
+- If the caller wants Maka's standard tool surface, use
+  `buildIsolatedHeadlessTools(executor)`: it replaces `Bash` with a command
+  executor supplied by the isolation boundary, while keeping path-confined pure
+  file tools in the throwaway workspace.
 
 (An *operational* mode — intentionally running a trusted agent that *may* touch
 the host — can slot into this same entry later. That is a different, explicit
 trust posture, never the eval default.)
+
+Programmatic sketch:
+
+```ts
+import {
+  buildIsolatedHeadlessTools,
+  runExperiment,
+  type IsolatedToolExecutor,
+} from '@maka/headless';
+
+const executor: IsolatedToolExecutor = {
+  async exec(input) {
+    // Route to Harbor/Docker/etc. Do not inherit host env/secrets.
+    return { exitCode: 0, stdout: '', stderr: '' };
+  },
+};
+
+await runExperiment(config, task, {
+  storageRoot: '/tmp/maka-headless-runs',
+  realBackendIsolation: {
+    kind: 'external',
+    label: 'Harbor task container',
+    toolExecutor: executor,
+  },
+  registerBackends(registry, context) {
+    registry.register('ai-sdk', (ctx) => createAiSdkBackend({
+      ...ctx,
+      tools: buildIsolatedHeadlessTools(context.toolExecutor!),
+    }));
+  },
+});
+```
 
 ## Spec
 
@@ -85,8 +121,7 @@ and exits 0.
 
 ## Scope
 
-MVP. Deliberately later, as pure additions: the isolated executor (and with it
-real-model eval), parallel matrix execution, LLM/rule evaluators (today:
-exit-code of a command), SWE-bench pack ingestion, and a richer report than the
-markdown grid. Promote the contracts into `@maka/core` once a second consumer
-exists.
+MVP. Deliberately later, as pure additions: first-class Docker/Harbor backend
+registrars, parallel matrix execution, LLM/rule evaluators (today: exit-code of
+a command), SWE-bench pack ingestion, and a richer report than the markdown
+grid. Promote the contracts into `@maka/core` once a second consumer exists.
