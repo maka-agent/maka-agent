@@ -273,6 +273,11 @@ export type {
   RuntimeKernelDeps,
   RuntimeKernelLike,
 } from './runtime-kernel.js';
+export { AgentRun } from './agent-run.js';
+export type {
+  AgentRunActiveSession,
+  AgentRunLineage,
+} from './agent-run.js';
 
 // agent-run-inspect.ts — internal AgentRun/RuntimeEvent source-health view.
 export {
