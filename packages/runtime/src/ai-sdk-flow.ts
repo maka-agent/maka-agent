@@ -40,8 +40,8 @@ import {
   type AgentFlow,
   type AgentFlowControl,
   type FlowInput,
-  type InvocationContext,
 } from './agent-flow.js';
+import type { InvocationContext } from './invocation-context.js';
 
 // ============================================================================
 // SessionEvent → RuntimeEvent mapping (placeholder, Phase 4)

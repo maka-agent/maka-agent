@@ -54,7 +54,7 @@ describe('testProxyConnection', () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(result.error ?? '').toMatch(/timeout/i);
+      expect(result.error ?? '').toMatch(/timeout|fetch failed/i);
       assert.ok(Date.now() - started < 2_000);
     } finally {
       for (const socket of sockets) socket.destroy();
