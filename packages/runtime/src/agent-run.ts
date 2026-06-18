@@ -18,6 +18,10 @@ import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { projectRuntimeEventsToStoredMessages } from './runtime-event-read-model.js';
+import {
+  buildStatusPatch,
+  normalizeStopSessionSource,
+} from './session-projection-helpers.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -247,7 +251,7 @@ export class AgentRun {
         lastUsedAt: lastTs,
         lastMessageAt: lastTs,
         hasUnread: true,
-        ...statusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
+        ...buildStatusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
       });
     } catch {
       // The user-visible turn already completed; preserve existing behavior.
@@ -568,18 +572,6 @@ function errorMessage(error: unknown): string {
   return redactTraceString(error instanceof Error ? error.message : String(error));
 }
 
-function statusPatch(
-  status: SessionStatus,
-  ts: number,
-  blockedReason?: SessionBlockedReason,
-): Pick<SessionHeader, 'status' | 'blockedReason' | 'statusUpdatedAt'> {
-  return {
-    status,
-    blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
-    statusUpdatedAt: ts,
-  };
-}
-
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
@@ -626,11 +618,4 @@ function blockedReasonFromErrorReason(reason: string | undefined): SessionBlocke
   if (reason === 'tool_failed') return 'tool_failed';
   if (reason === 'auth' || reason.includes('api_key') || reason.includes('connection')) return 'NO_REAL_CONNECTION';
   return 'unknown';
-}
-
-function normalizeStopSessionSource(source: StopSessionInput['source'] | undefined): string | undefined {
-  switch (source) {
-    case 'stop_button': return 'renderer.stop_button';
-    case undefined: return undefined;
-  }
 }

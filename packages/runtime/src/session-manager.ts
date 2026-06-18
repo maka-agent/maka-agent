@@ -62,6 +62,11 @@ import type {
   InvocationSource,
 } from './invocation-context.js';
 import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
+import {
+  buildStatusPatch,
+  buildTurnStateMessage,
+  turnHasRetainedOutput as messagesHaveRetainedOutput,
+} from './session-projection-helpers.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
@@ -251,7 +256,7 @@ export class SessionManager {
     status: SessionStatus,
     blockedReason?: SessionBlockedReason,
   ): Promise<SessionSummary> {
-    const next = await this.deps.store.updateHeader(sessionId, statusPatch(status, this.deps.now(), blockedReason));
+    const next = await this.deps.store.updateHeader(sessionId, buildStatusPatch(status, this.deps.now(), blockedReason));
     this.runtimeKernel.updateCachedHeader(sessionId, next);
     return headerToSummary(next);
   }
@@ -409,7 +414,7 @@ export class SessionManager {
     blockedReason?: SessionBlockedReason,
     ts = this.deps.now(),
   ): Promise<void> {
-    await this.updateHeader(sessionId, statusPatch(status, ts, blockedReason));
+    await this.updateHeader(sessionId, buildStatusPatch(status, ts, blockedReason));
   }
 
   private async updateHeader(
@@ -429,30 +434,21 @@ export class SessionManager {
     options: { ts?: number; errorClass?: string; abortSource?: string } = {},
   ): Promise<void> {
     const ts = options.ts ?? this.deps.now();
-    await this.deps.store.appendMessage(sessionId, {
-      type: 'turn_state',
+    await this.deps.store.appendMessage(sessionId, buildTurnStateMessage({
       id: this.deps.newId(),
       turnId,
       ts,
       status,
-      ...(lineage.parentTurnId ? { parentTurnId: lineage.parentTurnId } : {}),
-      ...(lineage.retriedFromTurnId ? { retriedFromTurnId: lineage.retriedFromTurnId } : {}),
-      ...(lineage.regeneratedFromTurnId ? { regeneratedFromTurnId: lineage.regeneratedFromTurnId } : {}),
-      ...(lineage.branchOfTurnId ? { branchOfTurnId: lineage.branchOfTurnId } : {}),
-      ...(lineage.parentSessionId ? { parentSessionId: lineage.parentSessionId } : {}),
-      ...(status === 'aborted' ? { abortedAt: ts } : {}),
-      ...(status === 'aborted' && options.abortSource ? { abortSource: options.abortSource } : {}),
-      ...(status === 'failed' ? { errorClass: options.errorClass ?? 'unknown' } : {}),
+      lineage,
+      ...(options.abortSource ? { abortSource: options.abortSource } : {}),
+      ...(options.errorClass !== undefined ? { errorClass: options.errorClass } : {}),
       partialOutputRetained: await this.turnHasRetainedOutput(sessionId, turnId),
-    });
+    }));
   }
 
   private async turnHasRetainedOutput(sessionId: string, turnId: string): Promise<boolean> {
     const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
-    return messages.some((message) =>
-      (message.type === 'assistant' && message.turnId === turnId && message.text.trim().length > 0) ||
-      (message.type === 'tool_result' && message.turnId === turnId),
-    );
+    return messagesHaveRetainedOutput(messages, turnId);
   }
 
   private async requireTurnForAction(
@@ -678,18 +674,6 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
 
 function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
   return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch;
-}
-
-function statusPatch(
-  status: SessionStatus,
-  ts: number,
-  blockedReason?: SessionBlockedReason,
-): Pick<SessionHeader, 'status' | 'blockedReason' | 'statusUpdatedAt'> {
-  return {
-    status,
-    blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
-    statusUpdatedAt: ts,
-  };
 }
 
 interface InterruptedTurnRecovery {
