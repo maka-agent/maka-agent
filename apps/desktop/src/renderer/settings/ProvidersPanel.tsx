@@ -311,9 +311,9 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             <p>接入中转站、代理服务，或自部署的 OpenAI 兼容接口。</p>
           </div>
           {customProviders.map((type) => (
-            <button key={type} type="button" onClick={() => startAdd(type)}>
+            <Button key={type} type="button" variant="secondary" onClick={() => startAdd(type)}>
               添加 OpenAI 兼容接口
-            </button>
+            </Button>
           ))}
         </div>
       </section>

@@ -3603,26 +3603,30 @@ function MemorySettingsPage(props: {
               <span key={file.file} className="settingsInlineFileState">
                 <span>{file.file} · {workspaceInstructionStatusLabel(file.status, file.chars, file.truncated)}</span>
                 {(file.status === 'available' || file.status === 'empty') && (
-                  <button
+                  <Button
                     type="button"
+                    variant="quiet"
+                    size="sm"
                     className="settingsInlineTextButton"
                     aria-label={`打开项目指令文件 ${file.file}`}
                     disabled={memoryControlsDisabled || isMemoryActionPending(`instruction:${file.file}:open`)}
                     onClick={() => void openWorkspaceInstructionFile(file.file)}
                   >
                     {isMemoryActionPending(`instruction:${file.file}:open`) ? '打开中…' : '打开'}
-                  </button>
+                  </Button>
                 )}
                 {file.status === 'missing' && (
-                  <button
+                  <Button
                     type="button"
+                    variant="quiet"
+                    size="sm"
                     className="settingsInlineTextButton"
                     aria-label={`创建项目指令文件 ${file.file}`}
                     disabled={memoryControlsDisabled || isMemoryActionPending(`instruction:${file.file}:create`)}
                     onClick={() => void createWorkspaceInstructionFile(file.file)}
                   >
                     {isMemoryActionPending(`instruction:${file.file}:create`) ? '创建中…' : '创建'}
-                  </button>
+                  </Button>
                 )}
               </span>
             ))}
@@ -3663,33 +3667,39 @@ function MemorySettingsPage(props: {
               return (
                 <span key={`${backup.kind}:${backup.path}`} className="settingsMemoryBackupCandidate" role="listitem">
                   <span>{backupCandidateLabel} · <RelativeTime ts={backup.updatedAt} /></span>
-                  <button
+                  <Button
                     type="button"
+                    variant="quiet"
+                    size="sm"
                     className="settingsInlineTextButton"
                     aria-label={`打开备份候选 ${backupCandidateLabel}`}
                     disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:open`)}
                     onClick={() => void openBackupCandidate(backup)}
                   >
                     {isMemoryActionPending(`backup:${backup.kind}:open`) ? '打开中…' : '打开'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="quiet"
+                    size="sm"
                     className="settingsInlineTextButton"
                     aria-label={`恢复备份候选 ${backupCandidateLabel}`}
                     disabled={memoryControlsDisabled || !effective.enabled || isMemoryActionPending(`backup:${backup.kind}:restore`)}
                     onClick={() => void restoreBackupCandidate(backup)}
                   >
                     {isMemoryActionPending(`backup:${backup.kind}:restore`) ? '恢复中…' : '恢复'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="quiet"
+                    size="sm"
                     className="settingsInlineTextButton"
                     aria-label={`复制备份候选引用 ${backupCandidateLabel}`}
                     disabled={isMemoryActionPending(`backup:${backup.kind}:copy`)}
                     onClick={() => void copyBackupReference(backup)}
                   >
                     {isMemoryActionPending(`backup:${backup.kind}:copy`) ? '复制中…' : '复制引用'}
-                  </button>
+                  </Button>
                 </span>
               );
             })}
