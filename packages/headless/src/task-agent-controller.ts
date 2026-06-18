@@ -58,6 +58,9 @@ export interface RunTaskOnceDeps extends RunExperimentDeps {
   agentRunStore?: AgentRunStore;
   taskRunId?: string;
   attemptId?: string;
+  createTaskRun?: boolean;
+  closeTaskRun?: boolean;
+  instructionOverride?: string;
   permissionMode?: 'execute';
 }
 
@@ -96,30 +99,35 @@ export async function runTaskOnce(
   const newId = deps.newId ?? randomUUID;
   const taskRunId = deps.taskRunId ?? newId();
   const attemptId = deps.attemptId ?? `${taskRunId}-attempt-1`;
+  const instruction = deps.instructionOverride ?? task.instruction;
+  const createTaskRun = deps.createTaskRun ?? true;
+  const closeTaskRun = deps.closeTaskRun ?? true;
   const taskRunStore = deps.taskRunStore ?? createTaskRunStore(deps.storageRoot);
   const sessionStore = deps.sessionStore ?? createSessionStore(deps.storageRoot);
   const agentRunStore = deps.agentRunStore ?? createAgentRunStore(deps.storageRoot);
   const runtimeEventStore = deps.runtimeEventStore ?? createRuntimeEventStore(deps.storageRoot);
   const startedAt = now();
 
-  await appendTaskEvent(taskRunStore, taskRunId, {
-    type: 'task_run_created',
-    id: newId(),
-    taskRunId,
-    ts: startedAt,
-    taskId: task.id,
-    configId: config.id,
-    taskDefinition: taskDefinitionFromTask(task),
-  });
-  await appendTaskEvent(taskRunStore, taskRunId, {
-    type: 'task_run_queued',
-    id: newId(),
-    taskRunId,
-    ts: now(),
-    taskId: task.id,
-    configId: config.id,
-    taskDefinition: taskDefinitionFromTask(task),
-  });
+  if (createTaskRun) {
+    await appendTaskEvent(taskRunStore, taskRunId, {
+      type: 'task_run_created',
+      id: newId(),
+      taskRunId,
+      ts: startedAt,
+      taskId: task.id,
+      configId: config.id,
+      taskDefinition: taskDefinitionFromTask(task),
+    });
+    await appendTaskEvent(taskRunStore, taskRunId, {
+      type: 'task_run_queued',
+      id: newId(),
+      taskRunId,
+      ts: now(),
+      taskId: task.id,
+      configId: config.id,
+      taskDefinition: taskDefinitionFromTask(task),
+    });
+  }
 
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
@@ -148,7 +156,7 @@ export async function runTaskOnce(
     const run = new AgentRun({
       sessionId: header.id,
       header,
-      userInput: { turnId, text: task.instruction },
+      userInput: { turnId, text: instruction },
       store: sessionStore,
       runStore: agentRunStore,
       runtimeEventStore,
@@ -182,8 +190,8 @@ export async function runTaskOnce(
     try {
       runtimeInvocation = await runRuntimeAttempt({
         run,
-        task,
         header,
+        instruction,
         now,
         newId,
       });
@@ -280,11 +288,13 @@ export async function runTaskOnce(
       status: attemptStatusFromResult(resultRecord.status, taxonomy),
       ...(resultRecord.status === 'failed' ? { error: errorFromResultRecord(resultRecord, taxonomy) } : {}),
     });
-    await appendTaskEvent(
-      taskRunStore,
-      taskRunId,
-      terminalEventFromResult(resultRecord, taxonomy, runResult, taskRunId, newId),
-    );
+    if (closeTaskRun) {
+      await appendTaskEvent(
+        taskRunStore,
+        taskRunId,
+        terminalEventFromResult(resultRecord, taxonomy, runResult, taskRunId, newId),
+      );
+    }
 
     return {
       taskRunId,
@@ -300,8 +310,8 @@ export async function runTaskOnce(
 
 interface RunRuntimeAttemptInput {
   run: AgentRun;
-  task: Task;
   header: SessionHeader;
+  instruction: string;
   now: () => number;
   newId: () => string;
 }
@@ -341,7 +351,7 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<Invocat
     sessionId: input.header.id,
     runId: input.run.runId,
     turnId: input.run.turnId,
-    text: input.task.instruction,
+    text: input.instruction,
     context: begin.backendInput.context,
     ...(begin.backendInput.runtimeContext !== undefined ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
     ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
