@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ToolResultContent } from '@maka/core';
 import type { MakaTool } from './tool-runtime.js';
 
 export const AGENT_SPAWN_TOOL_NAME = 'agent_spawn';
@@ -7,6 +8,8 @@ export const AGENT_OUTPUT_TOOL_NAME = 'agent_output';
 export const CHILD_AGENT_TOOL_NAMES = ['Bash', 'Read', 'Glob', 'Grep'] as const;
 
 const childAgentToolNameSet = new Set<string>(CHILD_AGENT_TOOL_NAMES);
+
+type SubagentToolResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 
 export function buildChildAgentTools(tools: readonly MakaTool[]): MakaTool[] {
   return tools.filter((tool) => childAgentToolNameSet.has(tool.name));
@@ -35,13 +38,17 @@ export function buildSubagentSpawnTool(): MakaTool<
       if (!ctx.spawnChildAgent) {
         throw new Error('spawnChildAgent capability is unavailable in this runtime context');
       }
-      return await ctx.spawnChildAgent({
+      const result = await ctx.spawnChildAgent({
         spec: {
           name: input.agent_name,
           systemPrompt: input.system_prompt,
         },
         prompt: input.prompt,
-      });
+      }) as Omit<SubagentToolResult, 'kind'>;
+      return {
+        kind: 'subagent',
+        ...result,
+      } satisfies SubagentToolResult;
     },
   };
 }

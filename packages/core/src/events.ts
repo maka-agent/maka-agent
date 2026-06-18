@@ -247,6 +247,21 @@ export type ToolResultContent =
       message?: string;
     }
   | {
+      kind: 'subagent';
+      agentName: string;
+      turnId: string;
+      runId?: string;
+      status: 'completed' | 'failed' | 'cancelled' | 'running' | 'waiting_permission';
+      permissionMode: 'explore';
+      summary: string;
+      artifactIds: readonly string[];
+      startedAt?: number;
+      completedAt?: number;
+      durationMs?: number;
+      eventCount?: number;
+      failureClass?: string;
+    }
+  | {
       kind: 'rive_workflow';
       ok: boolean;
       action: string;

@@ -775,6 +775,7 @@ function isToolResultContent(value: unknown): value is ToolResultContent {
     || kind === 'web_search_error'
     || kind === 'office_document'
     || kind === 'explore_agent'
+    || kind === 'subagent'
     || kind === 'rive_workflow';
 }
 

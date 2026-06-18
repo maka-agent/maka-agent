@@ -6507,6 +6507,7 @@ function permissionValuePreview(value: unknown): string {
  *   destructive tone
  * - `office_document`: Office adapter stdout/stderr/diagnostic cards
  * - `explore_agent`: bounded read-only subagent findings
+ * - `subagent`: foreground child-agent run summary
  * - `json`: pretty-printed in a code block
  * - `text` / others: plain `<pre>` fallback
  *
@@ -6573,6 +6574,10 @@ function OverlayPreview(props: { content: ToolResultContent }) {
 
   if (content.kind === 'explore_agent') {
     return <ExploreAgentPreview result={content} />;
+  }
+
+  if (content.kind === 'subagent') {
+    return <SubagentPreview result={content} />;
   }
 
   if (content.kind === 'rive_workflow') {
@@ -6665,6 +6670,107 @@ function formatRiveWorkflowNode(node: NonNullable<Extract<ToolResultContent, { k
     node.worker ? `worker=${node.worker}` : '',
   ].filter(Boolean).join(' · ');
   return attrs ? `- ${label}: ${attrs}` : `- ${label}`;
+}
+
+function SubagentPreview(props: {
+  result: Extract<ToolResultContent, { kind: 'subagent' }>;
+}) {
+  const { result } = props;
+  const duration = formatDuration(result.durationMs);
+  const status = presentSubagentStatus(result.status);
+  const summary = typeof result.summary === 'string' ? result.summary.trim() : '';
+  const artifactIds = result.artifactIds.slice(0, 8);
+  const hiddenArtifactCount = Math.max(0, result.artifactIds.length - artifactIds.length);
+
+  return (
+    <div className="maka-overlay-preview maka-subagent-preview" data-kind="subagent" data-status={result.status}>
+      <header className="maka-explore-agent-head">
+        <strong>{redactSecrets(result.agentName || 'Subagent')}</strong>
+        <small>
+          {status} · 权限 {result.permissionMode}
+          {duration ? ` · 耗时 ${duration}` : ''}
+          {typeof result.eventCount === 'number' ? ` · ${result.eventCount} 个事件` : ''}
+        </small>
+      </header>
+      <dl className="maka-explore-agent-meta">
+        <div>
+          <dt>状态</dt>
+          <dd>{status}</dd>
+        </div>
+        <div>
+          <dt>权限</dt>
+          <dd>{result.permissionMode}</dd>
+        </div>
+        {duration && (
+          <div>
+            <dt>耗时</dt>
+            <dd>{duration}</dd>
+          </div>
+        )}
+        {typeof result.eventCount === 'number' && (
+          <div>
+            <dt>事件</dt>
+            <dd>{result.eventCount}</dd>
+          </div>
+        )}
+        {result.runId && (
+          <div>
+            <dt>Run</dt>
+            <dd>{result.runId}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Turn</dt>
+          <dd>{result.turnId}</dd>
+        </div>
+      </dl>
+      {summary.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="子代理结果摘要">
+          <strong>结果摘要</strong>
+          <p>{redactSecrets(summary)}</p>
+        </section>
+      )}
+      {result.failureClass && (
+        <div className="maka-explore-agent-message" role="note">
+          {redactSecrets(result.failureClass)}
+        </div>
+      )}
+      {artifactIds.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="子代理产物">
+          <strong>产物</strong>
+          <ul>
+            {artifactIds.map((artifactId) => (
+              <li key={artifactId}>
+                <code>{redactSecrets(artifactId)}</code>
+              </li>
+            ))}
+            {hiddenArtifactCount > 0 && (
+              <li>
+                <span>另有 {hiddenArtifactCount} 个产物</span>
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function presentSubagentStatus(status: Extract<ToolResultContent, { kind: 'subagent' }>['status']): string {
+  switch (status) {
+    case 'completed':
+      return '已完成';
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '已取消';
+    case 'running':
+      return '运行中';
+    case 'waiting_permission':
+      return '等待权限';
+    default:
+      return status;
+  }
 }
 
 function ExploreAgentPreview(props: {

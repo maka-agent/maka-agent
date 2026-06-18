@@ -4291,7 +4291,8 @@ button:active {
   color: var(--destructive);
 }
 
-.maka-explore-agent-preview {
+.maka-explore-agent-preview,
+.maka-subagent-preview {
   display: grid;
   gap: 10px;
   padding: 10px 12px;
@@ -4302,7 +4303,9 @@ button:active {
   white-space: normal;
 }
 
-.maka-explore-agent-preview[data-ok="false"] {
+.maka-explore-agent-preview[data-ok="false"],
+.maka-subagent-preview[data-status="failed"],
+.maka-subagent-preview[data-status="cancelled"] {
   border-color: oklch(from var(--destructive) l c h / 0.22);
 }
 

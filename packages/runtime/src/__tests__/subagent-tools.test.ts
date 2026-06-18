@@ -56,6 +56,7 @@ describe('subagent tools', () => {
           agentName: input.spec.name,
           turnId: 'child-turn',
           status: 'completed',
+          permissionMode: 'explore',
           summary: 'done',
           artifactIds: [],
         };
@@ -73,9 +74,11 @@ describe('subagent tools', () => {
       prompt: 'Inspect the runtime tests.',
     }]);
     expect(result).toEqual({
+      kind: 'subagent',
       agentName: 'Researcher',
       turnId: 'child-turn',
       status: 'completed',
+      permissionMode: 'explore',
       summary: 'done',
       artifactIds: [],
     });

@@ -82,6 +82,7 @@ export interface SpawnChildAgentResult {
   turnId: string;
   runId?: string;
   status: 'completed' | 'failed' | 'cancelled' | 'running' | 'waiting_permission';
+  permissionMode: 'explore';
   summary: string;
   artifactIds: string[];
   startedAt: number;
@@ -427,6 +428,7 @@ export class SessionManager {
       turnId,
       ...(run?.runId ? { runId: run.runId } : {}),
       status: run ? agentRunStatusForSpawnResult(run.status) : (aborted ? 'cancelled' : statusFromChildEvents(events)),
+      permissionMode: 'explore',
       summary: summarizeChildEvents(events),
       artifactIds: [],
       startedAt,
