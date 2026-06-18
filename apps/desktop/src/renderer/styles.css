@@ -1772,19 +1772,33 @@ button:active {
   font-size: 24px;
 }
 .maka-onboarding-quickchat {
+  /* QoderWork-style unified composer card: textarea + action row
+     share one bordered surface instead of stacking as two
+     separate fields. The outer wrapper holds the border + radius;
+     each child is borderless so the surface reads as one panel. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   margin-top: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--background-elevated, var(--background));
+  transition:
+    border-color 140ms ease,
+    box-shadow 160ms ease;
+}
+.maka-onboarding-quickchat:focus-within {
+  border-color: oklch(from var(--accent) l c h / 0.55);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
 }
 .maka-onboarding-quickchat-input {
   width: 100%;
   resize: vertical;
   min-height: 80px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--background-elevated, var(--background));
+  padding: 14px 16px;
+  border-radius: 14px 14px 0 0;
+  border: 0;
+  background: transparent;
   color: var(--foreground);
   font: inherit;
   line-height: 1.5;
@@ -1797,8 +1811,11 @@ button:active {
     0 0 0 4px oklch(from var(--accent) l c h / 0.08);
 }
 .maka-onboarding-quickchat-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  /* No per-input outline: the parent `.maka-onboarding-quickchat`
+     surface owns the focus ring via :focus-within, so the
+     textarea reads as part of one card instead of having a
+     second nested focus rectangle. */
+  outline: none;
 }
 .maka-onboarding-quickchat-input:disabled {
   opacity: 0.6;
@@ -1835,6 +1852,11 @@ button:active {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  /* Sit inside the unified composer card frame; the parent
+     `.maka-onboarding-quickchat` owns the border + background,
+     so the action row keeps its padding here. */
+  padding: 8px 10px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 .maka-onboarding-quickchat-action,
