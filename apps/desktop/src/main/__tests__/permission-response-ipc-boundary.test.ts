@@ -479,6 +479,17 @@ describe('permission response IPC boundary', () => {
       /function noRealConnectionSetupDescription\(reason: string \| undefined\): string \{[\s\S]*case 'missing_default_connection':[\s\S]*等待配置默认模型[\s\S]*case 'missing_api_key':[\s\S]*当前模型连接还没有可用凭据[\s\S]*case 'fake_backend':[\s\S]*当前会话来自旧的本地模拟连接/,
       'model-setup send failures should use reason-driven Chinese copy instead of backend exception text',
     );
+    const modelSetupToast = renderer.match(/function showModelSetupToast\(description: string, reason\?: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    assert.match(
+      modelSetupToast,
+      /label: '打开设置 · 模型'[\s\S]*onClick: \(\) => openSettingsSection\('models'\)[\s\S]*openSettingsSection\('models'\)/,
+      'model-setup feedback must land on Settings · Models, not the last-opened Settings tab',
+    );
+    assert.doesNotMatch(
+      modelSetupToast,
+      /onClick: openSettings|openSettings\(\);/,
+      'model-setup feedback should not only open Settings because that can restore an unrelated previous section',
+    );
     assert.match(
       renderer,
       /function sendActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '消息暂时无法发送，请稍后重试。'\)/,

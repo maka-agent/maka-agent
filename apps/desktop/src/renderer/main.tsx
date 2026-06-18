@@ -2407,10 +2407,10 @@ function AppShell() {
       duration: 8000,
       action: {
         label: '打开设置 · 模型',
-        onClick: openSettings,
+        onClick: () => openSettingsSection('models'),
       },
     });
-    openSettings();
+    openSettingsSection('models');
   }
 
   function upsertTool(sessionId: string, toolUseId: string, patch: Partial<ToolActivityItem> & { toolUseId: string }) {
