@@ -198,14 +198,9 @@ export type {
 // Runtime v2 seam (Phase 1–4 increments).
 //
 // Subpath imports (e.g. `@maka/runtime/runtime-runner`) remain canonical;
-// the barrel re-exports below are for convenience. NOTE: `InvocationContext`
-// is exported here from `./invocation-context.js` (the canonical runner
-// spine). `./agent-flow.js` declares a structurally wider
-// `InvocationContext` for its own seam; it is intentionally NOT re-exported
-// from the barrel to avoid a name clash. The runner's context is assignable
-// to the flow's context, so callers that construct the runner context can
-// pass it to an `AgentFlow.run()`. See
-// `docs/runtime-v2-implementation-notes.md` for the reconciliation plan.
+// the barrel re-exports below are for convenience. `InvocationContext` is the
+// canonical runner/flow spine exported from `./invocation-context.js` and used
+// by the formal `AgentFlow` seam.
 // ───────────────────────────────────────────────────────────────────────────
 
 // invocation-context.ts — runner spine types + providers.
@@ -278,6 +273,11 @@ export type {
   RuntimeKernelDeps,
   RuntimeKernelLike,
 } from './runtime-kernel.js';
+export { AgentRun } from './agent-run.js';
+export type {
+  AgentRunActiveSession,
+  AgentRunLineage,
+} from './agent-run.js';
 
 // agent-run-inspect.ts — internal AgentRun/RuntimeEvent source-health view.
 export {
@@ -300,8 +300,7 @@ export type {
   BuildModelHistoryOptions,
 } from './model-history.js';
 
-// agent-flow.ts — formal Flow seam (InvocationContext intentionally omitted;
-// see note above).
+// agent-flow.ts — formal Flow seam.
 export type {
   AgentFlow,
   AgentFlowControl,
