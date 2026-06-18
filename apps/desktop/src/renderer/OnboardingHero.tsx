@@ -677,6 +677,9 @@ function ReadyEmptyHero(props: {
   return (
     <section className="maka-onboarding maka-onboarding-ready" aria-label={copy.ariaLabel}>
       <header>
+        <span className="maka-onboarding-mark" aria-hidden="true">
+          <span className="maka-onboarding-mark-letter">M</span>
+        </span>
         <span className="maka-onboarding-eyebrow">
           <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
           <span>{copy.eyebrow}</span>
