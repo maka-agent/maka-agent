@@ -210,17 +210,17 @@ export class RuntimeRunner {
 
     // 5. Dispatch to the flow and collect canonical events. By default the
     //    first terminal event ends collection; when stopOnTerminal is false,
-    //    keep draining while remembering any non-completed terminal status.
-    //    A thrown error or a non-completed terminal status maps the result
-    //    to 'failed'.
+    //    keep draining while remembering any failure signal. A thrown error,
+    //    non-completed terminal status, denied permission, non-terminal error,
+    //    or incomplete model finish maps the result to 'failed'.
     let failure: InvocationFailure | undefined;
     let terminalSeen = false;
     try {
       for await (const ev of this.flow.run(ctx, flowInput)) {
         events.push(ev);
+        failure ??= failureFromRuntimeEvent(ev);
         if (isTerminalRuntimeEvent(ev)) {
           terminalSeen = true;
-          failure ??= failureFromTerminalEvent(ev);
           if (this.stopOnTerminal) {
             break;
           }
@@ -317,6 +317,35 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
  * than 'completed'. A terminal event without an explicit status (e.g. one
  * that only carries actions.endInvocation) is treated as completed.
  */
+function failureFromRuntimeEvent(event: RuntimeEvent): InvocationFailure | undefined {
+  if (isTerminalRuntimeEvent(event)) {
+    const terminalFailure = failureFromTerminalEvent(event);
+    if (terminalFailure) return terminalFailure;
+  }
+
+  const content = event.content;
+  if (content?.kind === 'error') {
+    return {
+      class: content.reason ?? content.code ?? 'runtime_error',
+      message: content.message,
+    };
+  }
+
+  const permissionDecision = event.actions?.permissionDecision;
+  if (permissionDecision?.decision === 'deny') {
+    return {
+      class: 'permission_denied',
+      message: `permission request ${permissionDecision.requestId} was denied`,
+    };
+  }
+
+  const rawFinishReason = event.actions?.tokenUsage?.rawFinishReason;
+  const finishFailure = failureFromRawFinishReason(rawFinishReason);
+  if (finishFailure) return finishFailure;
+
+  return undefined;
+}
+
 function failureFromTerminalEvent(event: RuntimeEvent): InvocationFailure | undefined {
   const status: RuntimeEventStatus | undefined = event.status;
   if (status === undefined || status === 'completed') return undefined;
@@ -327,4 +356,22 @@ function failureFromTerminalEvent(event: RuntimeEvent): InvocationFailure | unde
     ...(message ? { message } : {}),
     terminalStatus: status,
   };
+}
+
+function failureFromRawFinishReason(rawFinishReason: string | undefined): InvocationFailure | undefined {
+  if (!rawFinishReason) return undefined;
+  const normalized = rawFinishReason.toLowerCase().replace(/_/g, '-');
+  if (normalized === 'tool-calls') {
+    return {
+      class: 'incomplete_tool_calls',
+      message: 'model stopped at the tool-call step cap before completing the invocation',
+    };
+  }
+  if (normalized === 'length' || normalized === 'max-tokens') {
+    return {
+      class: 'max_tokens',
+      message: 'model stopped at the token limit before completing the invocation',
+    };
+  }
+  return undefined;
 }

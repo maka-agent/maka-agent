@@ -7,6 +7,7 @@ import { BackendRegistry, FakeBackend, type AgentBackend, type SessionStore } fr
 import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { Config, Task } from '../contracts.js';
+import type { HeadlessBackendContext } from '../isolation.js';
 import { runExperiment } from '../runner.js';
 
 const registerFakeBackend = (registry: BackendRegistry): void => {
@@ -83,6 +84,41 @@ const registerFailingBackend = (registry: BackendRegistry): void => {
     new FailingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
+
+class IsolatedRealBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+    this.sessionId = ctx.sessionId;
+  }
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const turnId = input.turnId;
+    const ts = Date.now();
+    const messageId = 'isolated-real-msg';
+    await writeFile(join(this.ctx.header.cwd, 'solved.txt'), 'ok\n', 'utf8');
+    await this.ctx.store.appendMessage(this.sessionId, {
+      type: 'assistant',
+      id: messageId,
+      turnId,
+      ts,
+      text: 'solved inside explicit isolation',
+      modelId: this.ctx.header.model,
+    });
+    yield { type: 'text_complete', id: 'isolated-real-tc', turnId, ts, messageId, text: 'solved inside explicit isolation' };
+    yield { type: 'complete', id: 'isolated-real-c', turnId, ts, stopReason: 'end_turn' };
+  }
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerIsolatedRealBackend = (seen: HeadlessBackendContext[]): NonNullable<Parameters<typeof runExperiment>[2]['registerBackends']> =>
+  (registry, context) => {
+    seen.push(context);
+    registry.register('ai-sdk', (ctx) =>
+      new IsolatedRealBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+    );
+  };
 
 // A fixture whose grading script exits non-zero against the buggy source —
 // the only way `node check.mjs` passes is if the grading script is replaced.
@@ -246,6 +282,37 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       );
     });
   });
+
+  test('runs a model-backed backend only when the caller supplies explicit isolation', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const realConfig: Config = {
+        id: 'real-cfg',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'deepseek',
+        model: 'deepseek-chat',
+      };
+      const task: Task = {
+        id: 'real-task',
+        instruction: 'create solved.txt',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f solved.txt', protectedPaths: [] },
+      };
+      const contexts: HeadlessBackendContext[] = [];
+
+      const result = await runExperiment(realConfig, task, {
+        storageRoot,
+        registerBackends: registerIsolatedRealBackend(contexts),
+        realBackendIsolation: { kind: 'external', label: 'unit-test isolated backend' },
+      });
+
+      assert.equal(result.status, 'completed');
+      assert.equal(result.passed, true);
+      assert.equal(contexts.length, 1);
+      assert.equal(contexts[0]?.realBackendIsolation?.label, 'unit-test isolated backend');
+      assert.equal(contexts[0]?.config.id, 'real-cfg');
+      assert.equal(contexts[0]?.task.id, 'real-task');
+    });
+  });
 });
 
 describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () => {
@@ -268,6 +335,7 @@ describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () =>
 
       assert.equal(result.status, 'failed');
       assert.ok(result.error, 'a failed run must carry an error so the CLI exit code and the table agree');
+      assert.equal(result.errorClass, 'backend_failed');
       assert.equal(result.passed, false);
     });
   });

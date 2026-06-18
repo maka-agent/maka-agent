@@ -9,15 +9,15 @@ import { readResults, toComparisonTable, writeResults } from './results.js';
  * Reject a spec we cannot run safely or score trustworthily, BEFORE any run
  * starts — eval is a hard boundary, not a per-cell failure:
  *  - a model-backed backend would execute the config under test on the host
- *    with no isolation; only the inert "fake" backend runs until the container
- *    executor lands (follow-up PR);
+ *    with no isolation; the CLI wires only "fake", while real backends use the
+ *    programmatic API with explicit realBackendIsolation;
  *  - a task with no declared grading boundary cannot be scored honestly.
  */
 function validateEvalSpec(spec: ExperimentSpec): void {
   for (const config of spec.configs) {
     if (backendNeedsIsolation(config.backend)) {
       throw new Error(
-        `config "${config.id}": backend "${config.backend}" requires an isolated executor, not available in this build — only "fake" runs (real-model eval lands with the container executor)`,
+        `config "${config.id}": backend "${config.backend}" requires an isolated executor and programmatic backend wiring — the CLI only wires "fake" by default`,
       );
     }
   }

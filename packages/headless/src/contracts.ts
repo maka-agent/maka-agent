@@ -88,4 +88,6 @@ export interface ResultRecord {
   finishedAt: number;
   /** Present when the run threw before producing a result (matrix-level failure). */
   error?: string;
+  /** Stable failure class from the runtime invocation when status is failed. */
+  errorClass?: string;
 }
