@@ -396,6 +396,42 @@ describe('SessionManager permission mode updates', () => {
     expect(view.replayPlan.textMessages.map((message) => message.content)).toEqual(['runtime question', 'runtime answer']);
   });
 
+  test('RuntimeReadModel excludes child runs from the default session transcript', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const session = await store.create(makeInput());
+    await seedRuntimeReadTurnWithHeader({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'parent-turn',
+      runId: 'parent-run',
+      userText: 'parent question',
+      assistantText: 'parent answer',
+      legacyIdPrefix: 'parent',
+      header: {},
+      tsBase: 100,
+    });
+    await seedRuntimeReadTurnWithHeader({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'child-turn',
+      runId: 'child-run',
+      userText: 'child prompt',
+      assistantText: 'child private answer',
+      legacyIdPrefix: 'child',
+      header: { parentRunId: 'parent-run', agentName: 'Researcher' },
+      tsBase: 200,
+    });
+
+    const view = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id);
+
+    expect(view.runs.map((run) => run.runId)).toEqual(['parent-run']);
+    expect(view.messages.map((message) => message.turnId)).toEqual(['parent-turn', 'parent-turn', 'parent-turn']);
+    expect(view.replayPlan.textMessages.map((message) => message.content)).toEqual(['parent question', 'parent answer']);
+  });
+
   test('projection/cache mismatch does not override RuntimeEvent read output', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -964,6 +1000,121 @@ describe('SessionManager permission mode updates', () => {
     expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
     expect(secondInput.runtimeContext?.map((event) => event.role)).toEqual(['user', 'model', 'system']);
     expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
+  });
+
+  test('next parent turn excludes child run RuntimeEvents from model context', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_825),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'child-run',
+      turnId: 'child-turn',
+      status: 'completed',
+      createdAt: parentRun.updatedAt + 1,
+      updatedAt: parentRun.updatedAt + 4,
+      completedAt: parentRun.updatedAt + 4,
+      parentRunId: parentRun.runId,
+      agentName: 'Researcher',
+    }), [
+      runtimeEvent({
+        id: 'child-user',
+        sessionId: session.id,
+        runId: 'child-run',
+        turnId: 'child-turn',
+        ts: parentRun.updatedAt + 2,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'child prompt' },
+      }),
+      runtimeEvent({
+        id: 'child-assistant',
+        sessionId: session.id,
+        runId: 'child-run',
+        turnId: 'child-turn',
+        ts: parentRun.updatedAt + 3,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'child private answer' },
+      }),
+      runtimeEvent({
+        id: 'child-complete',
+        sessionId: session.id,
+        runId: 'child-run',
+        turnId: 'child-turn',
+        ts: parentRun.updatedAt + 4,
+        role: 'system',
+        author: 'system',
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backendInstances[0]?.sendInputs[1];
+    if (!secondInput) throw new Error('second backend input was not recorded');
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    expect(secondInput.runtimeContext?.some((event) => event.turnId === 'child-turn')).toBe(false);
+    expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'child-turn')).toBe(false);
+  });
+
+  test('child run input records parentRunId and starts without implicit prior context', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_835),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    await drain(manager.sendMessage(session.id, {
+      turnId: 'child-turn',
+      text: 'child prompt',
+      parentRunId: parentRun.runId,
+      agentName: 'Researcher',
+    }));
+
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    if (!childRun) throw new Error('child run was not recorded');
+    expect(childRun.parentRunId).toBe(parentRun.runId);
+    expect(childRun.agentName).toBe('Researcher');
+
+    const childInput = backendInstances[0]?.sendInputs[1];
+    if (!childInput) throw new Error('child backend input was not recorded');
+    expect(childInput.context).toEqual([]);
+    expect(childInput.runtimeContext).toBe(undefined);
   });
 
   test('next turn still receives RuntimeEvent context when projection cache has extra rows', async () => {

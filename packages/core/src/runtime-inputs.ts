@@ -31,6 +31,8 @@ export interface UserMessageInput {
   turnId: string;
   text: string;
   attachments?: AttachmentRef[];
+  parentRunId?: string;
+  agentName?: string;
   parentTurnId?: string;
   retriedFromTurnId?: string;
   regeneratedFromTurnId?: string;

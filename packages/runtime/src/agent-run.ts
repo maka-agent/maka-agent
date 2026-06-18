@@ -44,7 +44,7 @@ export interface AgentRunHooks {
 
 export type AgentRunLineage = Partial<Pick<
   UserMessageInput,
-  'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
+  'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
 >>;
 
 export interface AgentRunInput {
@@ -97,6 +97,7 @@ export class AgentRun {
     this.turnId = input.userInput.turnId;
     this.header = input.header;
     this.lineage = {
+      ...(input.userInput.parentRunId ? { parentRunId: input.userInput.parentRunId } : {}),
       ...(input.userInput.parentTurnId ? { parentTurnId: input.userInput.parentTurnId } : {}),
       ...(input.userInput.retriedFromTurnId ? { retriedFromTurnId: input.userInput.retriedFromTurnId } : {}),
       ...(input.userInput.regeneratedFromTurnId ? { regeneratedFromTurnId: input.userInput.regeneratedFromTurnId } : {}),
@@ -280,6 +281,7 @@ export class AgentRun {
       createdAt,
       updatedAt: createdAt,
       ...this.lineage,
+      ...(this.input.userInput.agentName ? { agentName: this.input.userInput.agentName } : {}),
     };
     try {
       await this.input.runStore.createRun(header);
@@ -302,6 +304,7 @@ export class AgentRun {
   }
 
   private async buildPriorRuntimeContext(): Promise<PriorRuntimeContext | undefined> {
+    if (this.lineage.parentRunId) return undefined;
     if (
       !this.input.runStore ||
       !this.input.runtimeEventStore ||
@@ -309,7 +312,11 @@ export class AgentRun {
       !this.runtimeEventStoreAvailable
     ) return undefined;
     const runs = await this.input.runStore.listSessionRuns(this.sessionId);
-    const priorRuns = runs.filter((run) => run.runId !== this.runId && run.turnId !== this.turnId);
+    const priorRuns = runs.filter((run) =>
+      run.runId !== this.runId &&
+      run.turnId !== this.turnId &&
+      !run.parentRunId
+    );
     if (priorRuns.length === 0) return undefined;
 
     const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];

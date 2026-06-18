@@ -25,6 +25,8 @@ export interface AgentRunHeader {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
+  parentRunId?: string;
+  agentName?: string;
   parentTurnId?: string;
   retriedFromTurnId?: string;
   regeneratedFromTurnId?: string;
