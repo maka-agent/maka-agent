@@ -989,7 +989,7 @@ function SettingsSurface(props: {
                   </div>
                 )}
                 {items.map((item) => (
-                  <button
+                  <Button
                     key={item.id}
                     className="settingsNavItem"
                     data-active={section === item.id}
@@ -1003,7 +1003,7 @@ function SettingsSurface(props: {
                       <item.Icon size={16} strokeWidth={1.5} />
                     </span>
                     <strong>{item.label}</strong>
-                  </button>
+                  </Button>
                 ))}
               </div>
             );
@@ -2462,7 +2462,7 @@ function ThemeSettingsPage(props: {
         )}
       >
         {THEME_OPTIONS.map((option) => (
-          <button
+          <Button
             key={option.value}
             type="button"
             role="radio"
@@ -2478,7 +2478,7 @@ function ThemeSettingsPage(props: {
               <strong>{option.label}</strong>
               <small>{option.help}</small>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -2503,7 +2503,7 @@ function ThemeSettingsPage(props: {
             )}
           >
             {group.palettes.map((palette) => (
-              <button
+              <Button
                 key={palette}
                 type="button"
                 role="radio"
@@ -2520,7 +2520,7 @@ function ThemeSettingsPage(props: {
                   <strong>{PALETTE_LABEL[palette]}</strong>
                   <small>{PALETTE_HELP[palette]}</small>
                 </span>
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -2539,7 +2539,7 @@ function ThemeSettingsPage(props: {
         )}
       >
         {DENSITY_OPTIONS.map((option) => (
-          <button
+          <Button
             key={option.value}
             type="button"
             role="radio"
@@ -2557,7 +2557,7 @@ function ThemeSettingsPage(props: {
               <strong>{option.label}</strong>
               <small>{option.help}</small>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -4997,7 +4997,7 @@ function BotChatSettingsPage(props: {
             ? providerChannel.readiness
             : status?.readiness ?? providerChannel.readiness;
           return (
-            <button
+            <Button
               key={provider}
               type="button"
               data-active={selected === provider}
@@ -5011,7 +5011,7 @@ function BotChatSettingsPage(props: {
               <BotBrandLogo provider={provider} readiness={providerReadiness} support={providerSupport} />
               <span>{BOT_LABELS[provider].label}</span>
               <em data-tone={providerCopy.tone}>{providerCopy.label}</em>
-            </button>
+            </Button>
           );
         })}
       </nav>
@@ -5759,7 +5759,7 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, strin
       }}
     >
       {props.options.map(([value, label]) => (
-        <button
+        <Button
           key={value}
           type="button"
           role="radio"
@@ -5771,7 +5771,7 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, strin
           onClick={() => props.onChange(value)}
         >
           {label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -5779,7 +5779,7 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, strin
 
 function Switch(props: { ariaLabel: string; checked: boolean; onChange(checked: boolean): void; disabled?: boolean; ariaDescribedBy?: string }) {
   return (
-    <button
+    <Button
       className="settingsSwitch"
       type="button"
       role="switch"
@@ -5791,7 +5791,7 @@ function Switch(props: { ariaLabel: string; checked: boolean; onChange(checked: 
       onClick={() => props.onChange(!props.checked)}
     >
       <span />
-    </button>
+    </Button>
   );
 }
 

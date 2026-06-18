@@ -54,12 +54,14 @@ describe('Settings form accessibility labels', () => {
       assert.doesNotMatch(source, /<input\b/, `${path} must use the shared Input primitive for Settings text fields`);
       assert.doesNotMatch(source, /<textarea\b/, `${path} must use the shared Textarea primitive for Settings text areas`);
       assert.doesNotMatch(source, /<select\b/, `${path} must use the Base UI Select primitive for Settings selects`);
+      assert.doesNotMatch(source, /<button\b/, `${path} must use the shared Button primitive for Settings buttons`);
       assert.doesNotMatch(source, /className="maka-button/, `${path} must not keep legacy maka-button styling on migrated actions`);
     }
 
     assert.doesNotMatch(providersPanel, /<input\b/, 'ProvidersPanel must use the shared Input primitive for Settings text fields');
     assert.doesNotMatch(providersPanel, /<textarea\b/, 'ProvidersPanel must use the shared Textarea primitive for Settings text areas');
     assert.doesNotMatch(providersPanel, /<select\b/, 'ProvidersPanel must use the Base UI Select primitive for Settings selects');
+    assert.doesNotMatch(providersPanel, /<button\b/, 'ProvidersPanel must use the shared Button primitive for Settings buttons');
   });
 
   it('keeps shared Settings password copy actions guarded and failure-visible', async () => {

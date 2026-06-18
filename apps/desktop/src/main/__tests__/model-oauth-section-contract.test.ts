@@ -624,7 +624,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.doesNotMatch(
       modelTable,
-      /<li key=\{model\.id\}>\s*<button[\s\S]*role="radio"/,
+      /<li key=\{model\.id\}>\s*<Button[\s\S]*role="radio"/,
       'ModelTable must not wrap radio options in exposed listitem semantics',
     );
   });

@@ -310,7 +310,7 @@ describe('localized main shell contract', () => {
   it('focuses the active Settings nav item when the modal opens', async () => {
     const settings = await readFile(join(process.cwd(), 'src', 'renderer', 'settings', 'SettingsModal.tsx'), 'utf8');
     const modalBlock = settings.match(/function SettingsModal[\s\S]*?function SettingsSurface/)?.[0] ?? '';
-    const navButtonBlock = settings.match(/items\.map\(\(item\) => \([\s\S]*?<\/button>\s*\)\)/)?.[0] ?? '';
+    const navButtonBlock = settings.match(/items\.map\(\(item\) => \([\s\S]*?<\/Button>\s*\)\)/)?.[0] ?? '';
 
     assert.match(
       modalBlock,

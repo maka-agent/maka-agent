@@ -223,19 +223,20 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             {connections.length > 0 && <span>{connections.length} 个配置</span>}
           </div>
           {loadError ? (
-            <button className="enabledEmptyChip" type="button" onClick={() => void reload()}>
+            <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => void reload()}>
               <strong>模型连接载入失败</strong>
               <small>{loadError} · 点击重试。</small>
-            </button>
+            </Button>
           ) : connections.length === 0 ? (
-            <button className="enabledEmptyChip" type="button" onClick={() => startAdd('zai-coding-plan')}>
+            <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => startAdd('zai-coding-plan')}>
               <strong>等待添加供应商</strong>
               <small>从下面选择一个开始配置。</small>
-            </button>
+            </Button>
           ) : connections.map((connection) => (
-              <button
+              <Button
                 key={connection.slug}
                 type="button"
+                variant="ghost"
                 className="enabledProviderChip"
                 data-default={connection.slug === defaultSlug}
                 data-test-status={connection.lastTestStatus ?? 'untested'}
@@ -253,7 +254,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                   <small>{providerDisplay(connection.providerType).name}</small>
                 </span>
                 <span className="enabledProviderChipStatus" aria-hidden="true" />
-              </button>
+              </Button>
             ))
           }
         </div>
@@ -275,9 +276,10 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
           onKeyDown={onCatalogTabsKeyDown}
         >
           {CATALOG_TABS.map((tab) => (
-            <button
+            <Button
               key={tab.id}
               type="button"
+              variant="ghost"
               role="tab"
               aria-selected={catalogTab === tab.id}
               data-active={catalogTab === tab.id}
@@ -286,7 +288,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
               onClick={() => setCatalogTab(tab.id)}
             >
               <strong>{tab.label}</strong>
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -473,8 +475,9 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
   }
 
   return (
-    <button
+    <Button
       className="providerCatalogCard"
+      variant="ghost"
       data-provider={props.type}
       data-status="ready"
       type="button"
@@ -491,7 +494,7 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
         <small>{display.description}</small>
         {props.count > 0 && <span className="providerCatalogCount">已配置 {props.count} 个</span>}
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -685,9 +688,10 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
             ? snapshot.email
             : card.description;
           return (
-            <button
+            <Button
               key={card.id}
               type="button"
+              variant="ghost"
               className="providerCatalogCard providerOAuthCard"
               data-card-id={card.id}
               data-provider={card.providerType}
@@ -705,7 +709,7 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
                 </span>
                 <small className="providerOAuthCardDescription">{liveDescription}</small>
               </span>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -1924,9 +1928,10 @@ function ModelTable(props: {
             const isDefault = model.id === props.defaultModel;
             return (
               <li key={model.id} role="none">
-                <button
+                <Button
                   type="button"
                   className="modelTableRow"
+                  variant="ghost"
                   role="radio"
                   aria-checked={isDefault}
                   data-default={isDefault ? 'true' : undefined}
@@ -1941,7 +1946,7 @@ function ModelTable(props: {
                   <code className="modelTableRowId">{model.id}</code>
                   <ModelCapabilityChips model={model} />
                   {isDefault && <span className="modelTableDefaultBadge">默认</span>}
-                </button>
+                </Button>
               </li>
             );
           })}
