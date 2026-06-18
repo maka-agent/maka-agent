@@ -21,6 +21,7 @@ import {
 } from '../agent-flow.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
 import { RuntimeRunner } from '../runtime-runner.js';
+import type { InvocationContext } from '../invocation-context.js';
 
 // ============================================================================
 // Fake backend — scripted SessionEvent stream + recorded control calls
@@ -90,9 +91,19 @@ const ctx = {
   invocationId: 'inv-1',
   runId: 'run-1',
   turnId: 'turn-1',
+  source: 'test',
+  startedAt: 999,
+  request: {
+    sessionId: 'session-1',
+    invocationId: 'inv-1',
+    runId: 'run-1',
+    turnId: 'turn-1',
+    text: 'hi',
+    source: 'test',
+  },
   newId: () => 'rt-id',
   now: () => 1000,
-};
+} satisfies InvocationContext;
 
 function collect(stream: AsyncIterable<RuntimeEvent>): Promise<RuntimeEvent[]> {
   const out: RuntimeEvent[] = [];
