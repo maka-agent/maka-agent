@@ -68,6 +68,6 @@ describe('toast.confirm keyboard safety contract', () => {
 
     assert.match(confirmBlock, /const cancelRef = useRef<HTMLButtonElement>\(null\)/);
     assert.match(confirmBlock, /useModalA11y\(dialogRef, \(\) => props\.onResolve\(false\), cancelRef\)/);
-    assert.match(confirmBlock, /<button\s+ref=\{cancelRef\}[\s\S]*onClick=\{\(\) => props\.onResolve\(false\)\}/);
+    assert.match(confirmBlock, /<Button\s+ref=\{cancelRef\}[\s\S]*onClick=\{\(\) => props\.onResolve\(false\)\}/);
   });
 });

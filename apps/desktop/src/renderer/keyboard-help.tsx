@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard, X } from 'lucide-react';
-import { useModalA11y } from '@maka/ui';
+import { Button, useModalA11y } from '@maka/ui';
 
 type Section = {
   heading: string;
@@ -133,14 +133,16 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
             </span>
             <h2 className="maka-modal-title" id="maka-help-title">所有可用快捷键</h2>
           </div>
-          <button
+          <Button
             type="button"
             className="settingsCloseButton"
+            variant="quiet"
+            size="icon-sm"
             aria-label="关闭快捷键面板"
             onClick={props.onClose}
           >
             <X strokeWidth={1.75} aria-hidden="true" />
-          </button>
+          </Button>
         </div>
         <div className="maka-modal-body maka-help-body">
           {SHORTCUTS.map((section) => (

@@ -53,7 +53,7 @@ import {
   generalizedErrorMessageChinese,
   redactSecrets,
 } from '@maka/core';
-import { useToast } from '@maka/ui';
+import { Button, useToast } from '@maka/ui';
 import { ArtifactPreview } from './artifact-preview';
 import { nextArtifactListAction } from './artifact-list-keyboard';
 import { openPathFailureCopy } from './open-path';
@@ -351,8 +351,10 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
       onKeyDown={handlePaneKeyDown}
     >
       <header className="maka-artifact-pane-header">
-        <button
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           className="maka-artifact-pane-collapse"
           onClick={() => setCollapsed((current) => !current)}
           // @kenji a11y gate #3: aria-expanded reflects the actual visible
@@ -366,7 +368,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           title={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
         >
           {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-        </button>
+        </Button>
         {!collapsed && (
           <>
             <span className="maka-artifact-pane-title">生成文件</span>
@@ -383,8 +385,10 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                 <strong>生成文件列表载入失败</strong>
                 <p>{activeListError}</p>
               </div>
-              <button
+              <Button
                 className="maka-artifact-error-retry"
+                variant="secondary"
+                size="sm"
                 type="button"
                 onClick={() => void retryArtifactListRefresh()}
                 disabled={pendingArtifactListRetry}
@@ -393,7 +397,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               >
                 <RefreshCcw size={13} strokeWidth={1.75} aria-hidden="true" />
                 <span>{pendingArtifactListRetry ? '重试中…' : '重试'}</span>
-              </button>
+              </Button>
             </div>
           )}
           <ul
@@ -407,9 +411,10 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           >
             {activeRecords.map((record) => (
               <li key={record.id} className="maka-artifact-list-item">
-                <button
+                <Button
                   id={`maka-artifact-row-${record.id}`}
                   type="button"
+                  variant="ghost"
                   className="maka-artifact-row"
                   role="option"
                   aria-selected={record.id === selectedId}
@@ -433,7 +438,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   {record.status === 'deleted' && (
                     <span className="maka-artifact-row-badge">已删除</span>
                   )}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -464,8 +469,10 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
           </div>
           {selected && (
             <div className="maka-artifact-toolbar" role="toolbar" aria-label="生成文件操作">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 className="maka-artifact-toolbar-button"
                 onClick={() => void runArtifactAction(`${selected.id}:open`, () => openInFinder(selected.id))}
                 disabled={artifactActionBusy}
@@ -474,9 +481,11 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               >
                 <FolderOpen size={14} aria-hidden="true" />
                 <span>{pendingArtifactAction === `${selected.id}:open` ? '打开中…' : '在 Finder 中打开'}</span>
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 className="maka-artifact-toolbar-button"
                 onClick={() => void runArtifactAction(`${selected.id}:save`, () => saveAs(selected.id))}
                 disabled={artifactActionBusy}
@@ -485,10 +494,12 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               >
                 <Save size={14} aria-hidden="true" />
                 <span>{pendingArtifactAction === `${selected.id}:save` ? '另存中…' : '另存为'}</span>
-              </button>
+              </Button>
               {isTextKind(selected.kind) && (
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   className="maka-artifact-toolbar-button"
                   onClick={() => void runArtifactAction(`${selected.id}:copy`, () => copyText(selected.id))}
                   disabled={artifactActionBusy}
@@ -497,10 +508,12 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                 >
                   <Copy size={14} aria-hidden="true" />
                   <span>{pendingArtifactAction === `${selected.id}:copy` ? '复制中…' : '复制文本'}</span>
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 type="button"
+                variant="destructive"
+                size="sm"
                 className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive"
                 onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
                 disabled={artifactActionBusy}
@@ -509,7 +522,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               >
                 <Trash2 size={14} aria-hidden="true" />
                 <span>{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
-              </button>
+              </Button>
             </div>
           )}
         </>

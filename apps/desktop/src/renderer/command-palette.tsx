@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
-import { useModalA11y } from '@maka/ui';
+import { Button, Input, useModalA11y } from '@maka/ui';
 import { SETTINGS_NAV } from './settings/SettingsModal';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
@@ -675,7 +675,7 @@ export function CommandPalette(props: {
         onClick={(event) => event.stopPropagation()}
       >
         <div className="maka-palette-input-wrap">
-          <input
+          <Input
             ref={inputRef}
             className="maka-palette-input"
             type="text"
@@ -705,10 +705,11 @@ export function CommandPalette(props: {
                   const active = index === highlight;
                   const commandCommitPending = committedCommandId === cmd.id;
                   return (
-                    <button
+                    <Button
                       key={cmd.id}
                       id={`cmd-${cmd.id}`}
                       type="button"
+                      variant="ghost"
                       role="option"
                       aria-selected={active}
                       aria-disabled={cmd.disabled ? true : undefined}
@@ -735,7 +736,7 @@ export function CommandPalette(props: {
                           <CornerDownLeft size={12} strokeWidth={1.75} />
                         </span>
                       )}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
