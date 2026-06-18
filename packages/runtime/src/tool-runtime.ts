@@ -11,6 +11,7 @@ import type {
   ToolResultMessage,
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
+import type { AgentSpec } from '@maka/core/runtime-inputs';
 import type { ToolCategory } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
@@ -54,6 +55,10 @@ export interface MakaToolContext {
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
+  spawnChildAgent?: (input: {
+    spec: AgentSpec;
+    prompt: string;
+  }) => Promise<unknown>;
 }
 
 export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
@@ -88,6 +93,13 @@ export interface ToolRuntimeInput {
   newId: () => string;
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
+  getCurrentRunId?: () => string | undefined;
+  spawnChildAgent?: (input: {
+    parentRunId: string;
+    spec: AgentSpec;
+    prompt: string;
+    abortSignal: AbortSignal;
+  }) => Promise<unknown>;
   getRunTrace?: () => RunTraceLike | null;
   permissionTimeoutMs?: number;
   recordToolInvocation?: ToolTelemetryRecorder;
@@ -355,6 +367,7 @@ export class ToolRuntime {
         toolCallId: toolUseId,
         abortSignal: ctx.abortSignal,
         emitOutput: output.emit,
+        ...(this.buildSpawnChildAgentContext(ctx.abortSignal)),
       });
       output.flush();
       const durationMs = this.input.now() - startedAt;
@@ -549,6 +562,21 @@ export class ToolRuntime {
 
   private errorReturn(message: string): unknown {
     return { error: message };
+  }
+
+  private buildSpawnChildAgentContext(
+    abortSignal: AbortSignal,
+  ): Pick<MakaToolContext, 'spawnChildAgent'> {
+    const parentRunId = this.input.getCurrentRunId?.();
+    if (!parentRunId || !this.input.spawnChildAgent) return {};
+    return {
+      spawnChildAgent: (input) => this.input.spawnChildAgent?.({
+        parentRunId,
+        spec: input.spec,
+        prompt: input.prompt,
+        abortSignal,
+      }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
+    };
   }
 }
 

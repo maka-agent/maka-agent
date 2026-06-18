@@ -36,6 +36,7 @@ import type {
   BackendKind,
 } from '@maka/core/session';
 import type {
+  AgentSpec,
   ChildAgentTurnInput,
   CreateSessionInput,
   BranchFromTurnInput,
@@ -54,7 +55,7 @@ import {
 import { RuntimeReadModel, type RuntimeReadModelSessionView } from './runtime-read-model.js';
 import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run-inspect.js';
 
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import type { AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
@@ -66,6 +67,28 @@ import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
+}
+
+export interface SpawnChildAgentInput {
+  parentRunId: string;
+  turnId?: string;
+  spec: AgentSpec;
+  prompt: string;
+  abortSignal?: AbortSignal;
+}
+
+export interface SpawnChildAgentResult {
+  agentName: string;
+  turnId: string;
+  runId?: string;
+  status: 'completed' | 'failed' | 'cancelled' | 'running' | 'waiting_permission';
+  summary: string;
+  artifactIds: string[];
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  eventCount: number;
+  failureClass?: string;
 }
 
 // ============================================================================
@@ -101,6 +124,7 @@ export interface BackendFactoryContext {
   store: SessionStore;
   appendMessage?: (message: StoredMessage) => Promise<void>;
   systemPrompt?: string;
+  tools?: readonly MakaTool[];
   recordRunTrace?: RunTraceRecorder;
 }
 
@@ -135,6 +159,7 @@ export interface SessionManagerDeps {
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
+  childTools?: readonly MakaTool[];
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
@@ -335,6 +360,55 @@ export class SessionManager {
     yield* this.runtimeKernel.startChildTurn(sessionId, input);
   }
 
+  async spawnChildAgent(
+    sessionId: string,
+    input: SpawnChildAgentInput,
+  ): Promise<SpawnChildAgentResult> {
+    const turnId = input.turnId ?? this.deps.newId();
+    const startedAt = this.deps.now();
+    const events: SessionEvent[] = [];
+    let aborted = input.abortSignal?.aborted === true;
+    const iterator = this.startChildTurn(sessionId, {
+      turnId,
+      parentRunId: input.parentRunId,
+      spec: input.spec,
+      prompt: input.prompt,
+    })[Symbol.asyncIterator]();
+    const onAbort = () => {
+      aborted = true;
+      void iterator.return?.();
+    };
+    if (input.abortSignal && !input.abortSignal.aborted) {
+      input.abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    try {
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        events.push(next.value);
+      }
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onAbort);
+      if (aborted) await iterator.return?.();
+    }
+
+    const completedAt = this.deps.now();
+    const run = await this.findRunByTurnId(sessionId, turnId);
+    return {
+      agentName: input.spec.name,
+      turnId,
+      ...(run?.runId ? { runId: run.runId } : {}),
+      status: run ? agentRunStatusForSpawnResult(run.status) : (aborted ? 'cancelled' : statusFromChildEvents(events)),
+      summary: summarizeChildEvents(events),
+      artifactIds: [],
+      startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - startedAt),
+      eventCount: events.length,
+      ...(run?.failureClass ? { failureClass: run.failureClass } : {}),
+    };
+  }
+
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
     await this.runtimeKernel.stopSession(sessionId, input);
   }
@@ -412,6 +486,15 @@ export class SessionManager {
   // --------------------------------------------------------------------------
   // Internal helpers
   // --------------------------------------------------------------------------
+
+  private async findRunByTurnId(
+    sessionId: string,
+    turnId: string,
+  ): Promise<AgentRunHeader | undefined> {
+    if (!this.deps.runStore) return undefined;
+    const runs = await this.deps.runStore.listSessionRuns(sessionId).catch(() => []);
+    return runs.find((run) => run.turnId === turnId);
+  }
 
   private async updateStatus(
     sessionId: string,
@@ -700,6 +783,48 @@ function statusPatch(
     blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
     statusUpdatedAt: ts,
   };
+}
+
+function agentRunStatusForSpawnResult(status: AgentRunHeader['status']): SpawnChildAgentResult['status'] {
+  if (status === 'waiting_permission') return 'waiting_permission';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'failed') return 'failed';
+  if (status === 'running' || status === 'created') return 'running';
+  return 'completed';
+}
+
+function statusFromChildEvents(events: readonly SessionEvent[]): SpawnChildAgentResult['status'] {
+  const terminal = [...events].reverse().find((event) =>
+    event.type === 'complete' || event.type === 'error' || event.type === 'abort'
+  );
+  if (!terminal) return 'running';
+  if (terminal.type === 'error') return 'failed';
+  if (terminal.type === 'abort') return 'cancelled';
+  return terminal.stopReason === 'user_stop' || terminal.stopReason === 'error'
+    ? (terminal.stopReason === 'error' ? 'failed' : 'cancelled')
+    : 'completed';
+}
+
+function summarizeChildEvents(events: readonly SessionEvent[]): string {
+  const textComplete = [...events]
+    .reverse()
+    .find((event): event is Extract<SessionEvent, { type: 'text_complete' }> => event.type === 'text_complete');
+  if (textComplete?.text.trim()) return trimSummary(textComplete.text);
+  const chunks = events
+    .filter((event): event is Extract<SessionEvent, { type: 'text_delta' }> => event.type === 'text_delta')
+    .map((event) => event.text)
+    .join('');
+  if (chunks.trim()) return trimSummary(chunks);
+  const error = [...events]
+    .reverse()
+    .find((event): event is Extract<SessionEvent, { type: 'error' }> => event.type === 'error');
+  if (error) return trimSummary(error.message);
+  return '';
+}
+
+function trimSummary(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length <= 4_000 ? trimmed : `${trimmed.slice(0, 3_999)}…`;
 }
 
 interface InterruptedTurnRecovery {

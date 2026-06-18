@@ -229,6 +229,7 @@ describe('AiSdkFlow seam', () => {
     assert.equal(result.status, 'completed');
     assert.equal(backend.sendInputs.length, 1);
     assert.deepEqual(backend.sendInputs[0], {
+      runId: 'rt-2',
       turnId: 'turn-1',
       text: 'hi',
       attachments: [attachment],

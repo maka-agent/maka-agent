@@ -129,6 +129,8 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildChildAgentTools,
+  buildSubagentSpawnTool,
   fetchProviderModels,
   getAIModel,
   buildProviderOptions,
@@ -582,6 +584,7 @@ const toolAvailability: ToolAvailabilityConfig = {
 };
 const builtinTools = [
   ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
+  buildSubagentSpawnTool(),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -602,6 +605,7 @@ const builtinTools = [
   // group tools just need to be present so they are dispatchable once loaded.
   ...heavyTools,
 ];
+const childAgentTools = buildChildAgentTools(builtinTools);
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
 // we only persist `lastError` on transitions, not on every status emit
@@ -821,8 +825,9 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: builtinTools,
+    tools: [...(ctx.tools ?? builtinTools)],
     toolAvailability,
+    spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     providerOptions: buildProviderOptions(connection, model),
     contextBudget: buildContextBudgetPolicy(connection),
     systemPrompt: ctx.systemPrompt ?? (({ cwd }) => buildSystemPrompt(ctx.header, cwd, { memoryFragment: memoryPromptSnapshot })),
@@ -1227,6 +1232,7 @@ const runtime = new SessionManager({
   runStore,
   runtimeEventStore,
   backends,
+  childTools: childAgentTools,
   newId: randomUUID,
   now: Date.now,
 });

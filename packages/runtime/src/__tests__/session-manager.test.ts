@@ -27,7 +27,7 @@ import {
 } from '../session-manager.js';
 import type { RuntimeKernelLike } from '../runtime-kernel.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
-import type { AgentBackend } from '../ai-sdk-backend.js';
+import type { AgentBackend, MakaTool } from '../ai-sdk-backend.js';
 import type { InvocationResult } from '../invocation-context.js';
 
 describe('SessionManager permission mode updates', () => {
@@ -1129,9 +1129,11 @@ describe('SessionManager permission mode updates', () => {
       backendInstances.push(backend);
       return backend;
     });
+    const childTools = [testTool('Read'), testTool('Bash')];
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
+      childTools,
       newId: nextId(),
       now: nextNow(6_840),
       runtimeSource: 'test',
@@ -1154,6 +1156,7 @@ describe('SessionManager permission mode updates', () => {
 
     expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['ask', 'explore']);
     expect(contexts[1]?.systemPrompt).toBe('You are a read-only child researcher.');
+    expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual(['Read', 'Bash']);
     expect(backendInstances).toHaveLength(2);
     expect(backendInstances[0] === backendInstances[1]).toBe(false);
     expect(backendInstances[1]?.sendInputs[0]?.context).toEqual([]);
@@ -2628,6 +2631,16 @@ function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionIn
     name: 'Session',
     labels: [],
     ...overrides,
+  };
+}
+
+function testTool(name: string): MakaTool {
+  return {
+    name,
+    description: `${name} test tool`,
+    parameters: {},
+    permissionRequired: false,
+    impl: async () => ({ ok: true }),
   };
 }
 

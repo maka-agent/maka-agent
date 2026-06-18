@@ -12,7 +12,7 @@ import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-i
 import type { PermissionResponse } from '@maka/core/permission';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
 import { AiSdkFlow } from './ai-sdk-flow.js';
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
 import type { BackendRegistry, SessionStore, StopSessionInput } from './session-manager.js';
@@ -34,6 +34,7 @@ export interface RuntimeKernelDeps {
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
+  childTools?: readonly MakaTool[];
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
 }
@@ -316,6 +317,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       store: this.deps.store,
       appendMessage: async () => {},
       systemPrompt,
+      tools: this.deps.childTools ?? [],
       recordRunTrace: (event) => {
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(event.turnId);
