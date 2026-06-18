@@ -3,7 +3,6 @@ import { expect } from '../test-helpers.js';
 import {
   RuntimeRunner,
   runtimeGateFromCallback,
-  type AgentFlowLike,
   type RuntimeGate,
 } from '../runtime-runner.js';
 import type { AttachmentRef } from '@maka/core/events';
@@ -16,7 +15,7 @@ import type {
   RuntimeEvent,
   RuntimeEventStatus,
 } from '@maka/core/runtime-event';
-import type { AgentFlow } from '../agent-flow.js';
+import type { AgentFlow, RunnableAgentFlow } from '../agent-flow.js';
 
 // ============================================================================
 // Test fakes / helpers
@@ -60,7 +59,7 @@ void _flowContextIsCanonicalContext;
  * Fake flow that runs a script to produce its events. The script receives
  * the InvocationContext so events can line up with the invocation spine.
  */
-class ScriptFlow implements AgentFlowLike {
+class ScriptFlow implements RunnableAgentFlow {
   readonly seen: InvocationContext[] = [];
   constructor(
     private readonly script: (ctx: InvocationContext) =>
@@ -76,7 +75,7 @@ class ScriptFlow implements AgentFlowLike {
 }
 
 /** Flow that throws on first iteration. */
-class ThrowingFlow implements AgentFlowLike {
+class ThrowingFlow implements RunnableAgentFlow {
   ran = false;
   constructor(private readonly error: unknown) {}
   async *run(): AsyncIterable<RuntimeEvent> {
@@ -433,7 +432,7 @@ describe('RuntimeRunner', () => {
   test('runtimeGateFromCallback adapts a sync callback', async () => {
     const providers = makeProviders();
     let flowCalled = false;
-    const flow: AgentFlowLike = {
+    const flow: RunnableAgentFlow = {
       async *run(): AsyncIterable<RuntimeEvent> {
         flowCalled = true;
       },
@@ -531,8 +530,8 @@ describe('RuntimeRunner', () => {
         content: { kind: 'text', text: 'previous' },
       },
     ];
-    let seenInput: Parameters<AgentFlowLike['run']>[1] | undefined;
-    const flow: AgentFlowLike = {
+    let seenInput: Parameters<RunnableAgentFlow['run']>[1] | undefined;
+    const flow: RunnableAgentFlow = {
       async *run(ctx, input) {
         seenInput = input;
         yield flowTerminalEvent(ctx, 'completed');
@@ -560,8 +559,8 @@ describe('RuntimeRunner', () => {
 
   test('flow input context defaults to an empty array', async () => {
     const providers = makeProviders();
-    let seenInput: Parameters<AgentFlowLike['run']>[1] | undefined;
-    const flow: AgentFlowLike = {
+    let seenInput: Parameters<RunnableAgentFlow['run']>[1] | undefined;
+    const flow: RunnableAgentFlow = {
       async *run(ctx, input) {
         seenInput = input;
         yield flowTerminalEvent(ctx, 'completed');

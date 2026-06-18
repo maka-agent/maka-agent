@@ -106,6 +106,12 @@ export interface AgentFlow {
   run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent>;
 }
 
+/**
+ * Narrow runnable flow surface for orchestration code that should not depend
+ * on flow metadata such as `kind` or `sessionId`.
+ */
+export type RunnableAgentFlow = Pick<AgentFlow, 'run'>;
+
 // ============================================================================
 // AgentFlowControl — optional lifecycle/steering surface
 // ============================================================================

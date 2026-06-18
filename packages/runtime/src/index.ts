@@ -305,6 +305,7 @@ export type {
   AgentFlow,
   AgentFlowControl,
   FlowInput,
+  RunnableAgentFlow,
 } from './agent-flow.js';
 export { flowSupportsControl } from './agent-flow.js';
 

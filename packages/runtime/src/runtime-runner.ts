@@ -37,7 +37,7 @@ import type {
   InvocationResultStatus,
 } from './invocation-context.js';
 import { createDefaultInvocationProviders } from './invocation-context.js';
-import type { FlowInput } from './agent-flow.js';
+import type { FlowInput, RunnableAgentFlow } from './agent-flow.js';
 
 // ============================================================================
 // RuntimeGate — narrow preflight seam
@@ -77,25 +77,20 @@ export function runtimeGateFromCallback(
 }
 
 // ============================================================================
-// AgentFlowLike — local flow seam
+// AgentFlowLike — compatibility alias
 // ============================================================================
 
 /**
- * Minimal flow contract RuntimeRunner dispatches to. The formal AgentFlow
- * interface (AiSdkFlow node) will be assignable to this; it is defined
- * locally so this skeleton does not block on — or duplicate — the flow
- * node's public surface.
+ * @deprecated Use `RunnableAgentFlow` from `./agent-flow.js`.
  */
-export interface AgentFlowLike {
-  run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent>;
-}
+export type AgentFlowLike = RunnableAgentFlow;
 
 // ============================================================================
 // RuntimeRunnerDeps
 // ============================================================================
 
 export interface RuntimeRunnerDeps {
-  flow: AgentFlowLike;
+  flow: RunnableAgentFlow;
   /** Optional preflight gate; omitted means "always allow". */
   gate?: RuntimeGate;
   /** Injectable id/time providers. Defaults to crypto.randomUUID / Date.now. */
@@ -119,7 +114,7 @@ export interface RuntimeRunnerDeps {
 // ============================================================================
 
 export class RuntimeRunner {
-  private readonly flow: AgentFlowLike;
+  private readonly flow: RunnableAgentFlow;
   private readonly gate: RuntimeGate | undefined;
   private readonly providers: InvocationProviders;
   private readonly onInitialRuntimeEvent: RuntimeRunnerDeps['onInitialRuntimeEvent'];
