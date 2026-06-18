@@ -47,6 +47,8 @@ export {
   taskDefinitionFromTask,
   taskEventsFromResultRecord,
 } from './task-run-adapter.js';
+export type { RunTaskOnceDeps, RunTaskOnceResult } from './task-agent-controller.js';
+export { runTaskOnce, TaskAgentController } from './task-agent-controller.js';
 export { runExperiment, type RunExperimentDeps } from './runner.js';
 export { runMatrix, type ExperimentSpec } from './matrix.js';
 export { readResults, writeResults, toComparisonTable } from './results.js';
