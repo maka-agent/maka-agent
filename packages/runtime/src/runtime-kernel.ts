@@ -8,7 +8,7 @@ import type {
   SystemNoteMessage,
   TurnRecord,
 } from '@maka/core/session';
-import type { UserMessageInput } from '@maka/core/runtime-inputs';
+import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
 import { AiSdkFlow } from './ai-sdk-flow.js';
@@ -19,6 +19,7 @@ import type { BackendRegistry, SessionStore, StopSessionInput } from './session-
 
 export interface RuntimeKernelLike {
   startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
+  startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   hasActiveRuns(sessionId: string): boolean;
@@ -47,6 +48,7 @@ interface ActiveSession extends AgentRunActiveSession {
 
 export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
+  private readonly childActive = new Map<string, ActiveSession>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {}
 
@@ -76,6 +78,55 @@ export class RuntimeKernel implements RuntimeKernelLike {
       },
     });
 
+    yield* this.runAgentTurn(sessionId, input, run);
+  }
+
+  async *startChildTurn(
+    sessionId: string,
+    input: ChildAgentTurnInput,
+  ): AsyncIterable<SessionEvent> {
+    const parentHeader = await this.deps.store.readHeader(sessionId);
+    const childHeader: SessionHeader = {
+      ...parentHeader,
+      permissionMode: 'explore',
+      connectionLocked: true,
+    };
+    const userInput: UserMessageInput = {
+      turnId: input.turnId,
+      text: input.prompt,
+      parentRunId: input.parentRunId,
+      agentName: input.spec.name,
+    };
+    const activeKey = childActiveKey(sessionId, input.turnId);
+    const run = new AgentRun({
+      sessionId,
+      header: childHeader,
+      userInput,
+      store: this.deps.store,
+      runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
+      newId: this.deps.newId,
+      now: this.deps.now,
+      recordSessionMessages: false,
+      hooks: {
+        ensureActive: (targetSessionId, nextHeader) =>
+          this.ensureChildActive(activeKey, targetSessionId, nextHeader, input.spec.systemPrompt),
+        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
+        unregisterRun: (active, activeRun) => this.unregisterChildRun(activeKey, active, activeRun),
+        updateHeader: async (_targetSessionId, patch) => ({ ...childHeader, ...patch }),
+        updateStatus: async () => {},
+        appendTurnState: async () => {},
+      },
+    });
+
+    yield* this.runAgentTurn(sessionId, userInput, run);
+  }
+
+  private async *runAgentTurn(
+    sessionId: string,
+    input: UserMessageInput,
+    run: AgentRun,
+  ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
     let flowDone = false;
@@ -148,16 +199,16 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
+    const activeSessions = this.activeSessionsFor(sessionId);
+    if (activeSessions.length === 0) return;
     const abortSource = normalizeStopSessionSource(input.source);
-    await active.backend.stop('user_stop');
-    const activeRuns = [...active.activeRuns.values()];
+    await Promise.all(activeSessions.map((active) => active.backend.stop('user_stop')));
+    const activeRuns = activeSessions.flatMap((active) => [...active.activeRuns.values()]);
     for (const run of activeRuns) {
       run.stop(input.source);
     }
     await this.updateStatus(sessionId, 'aborted');
-    for (const run of activeRuns) {
+    for (const run of activeRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
       await this.appendTurnState(
         sessionId,
         run.turnId,
@@ -182,7 +233,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   hasActiveRuns(sessionId: string): boolean {
-    return (this.active.get(sessionId)?.activeRuns.size ?? 0) > 0;
+    return this.activeSessionsFor(sessionId).some((active) => active.activeRuns.size > 0);
   }
 
   updateCachedHeader(sessionId: string, header: SessionHeader): void {
@@ -191,14 +242,28 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   async disposeBackend(sessionId: string): Promise<void> {
-    const active = this.active.get(sessionId);
-    if (!active) return;
+    const activeSessions = this.activeSessionsFor(sessionId);
     this.active.delete(sessionId);
-    try {
-      await active.backend.dispose();
-    } catch {
-      // best-effort
+    for (const [key, active] of this.childActive.entries()) {
+      if (active.sessionId === sessionId) this.childActive.delete(key);
     }
+    for (const active of activeSessions) {
+      try {
+        await active.backend.dispose();
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  private activeSessionsFor(sessionId: string): ActiveSession[] {
+    const sessions: ActiveSession[] = [];
+    const active = this.active.get(sessionId);
+    if (active) sessions.push(active);
+    for (const child of this.childActive.values()) {
+      if (child.sessionId === sessionId) sessions.push(child);
+    }
+    return sessions;
   }
 
   private async ensureActive(
@@ -233,6 +298,42 @@ export class RuntimeKernel implements RuntimeKernelLike {
     return entry;
   }
 
+  private async ensureChildActive(
+    activeKey: string,
+    sessionId: string,
+    header: SessionHeader,
+    systemPrompt: string,
+  ): Promise<ActiveSession> {
+    const existing = this.childActive.get(activeKey);
+    if (existing) {
+      existing.cachedHeader = header;
+      return existing;
+    }
+    const backend = await this.deps.backends.build(header.backend, {
+      sessionId,
+      workspaceRoot: header.workspaceRoot,
+      header,
+      store: this.deps.store,
+      appendMessage: async () => {},
+      systemPrompt,
+      recordRunTrace: (event) => {
+        const active = this.childActive.get(activeKey);
+        const runId = active?.turnToRunId.get(event.turnId);
+        const run = runId ? active?.activeRuns.get(runId) : undefined;
+        run?.recordRunTrace(event);
+      },
+    });
+    const entry: ActiveSession = {
+      sessionId,
+      backend,
+      cachedHeader: header,
+      activeRuns: new Map(),
+      turnToRunId: new Map(),
+    };
+    this.childActive.set(activeKey, entry);
+    return entry;
+  }
+
   private registerRun(active: AgentRunActiveSession, run: AgentRun): void {
     active.activeRuns.set(run.runId, run);
     active.turnToRunId.set(run.turnId, run.runId);
@@ -242,6 +343,21 @@ export class RuntimeKernel implements RuntimeKernelLike {
     active.activeRuns.delete(run.runId);
     if (active.turnToRunId.get(run.turnId) === run.runId) {
       active.turnToRunId.delete(run.turnId);
+    }
+  }
+
+  private async unregisterChildRun(
+    activeKey: string,
+    active: AgentRunActiveSession,
+    run: AgentRun,
+  ): Promise<void> {
+    this.unregisterRun(active, run);
+    if (active.activeRuns.size > 0) return;
+    this.childActive.delete(activeKey);
+    try {
+      await active.backend.dispose();
+    } catch {
+      // best-effort
     }
   }
 
@@ -315,6 +431,10 @@ function normalizeStopSessionSource(source: StopSessionInput['source'] | undefin
     case 'stop_button': return 'renderer.stop_button';
     case undefined: return undefined;
   }
+}
+
+function childActiveKey(sessionId: string, turnId: string): string {
+  return `${sessionId}:${turnId}`;
 }
 
 class AsyncEventQueueClosed extends Error {

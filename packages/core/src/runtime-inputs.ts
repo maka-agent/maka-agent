@@ -40,6 +40,18 @@ export interface UserMessageInput {
   parentSessionId?: string;
 }
 
+export interface AgentSpec {
+  name: string;
+  systemPrompt: string;
+}
+
+export interface ChildAgentTurnInput {
+  turnId: string;
+  parentRunId: string;
+  spec: AgentSpec;
+  prompt: string;
+}
+
 export interface RetryTurnInput {
   sourceTurnId: string;
   turnId?: string;

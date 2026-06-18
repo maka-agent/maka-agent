@@ -208,7 +208,9 @@ export type {
 
 // runtime-inputs.ts
 export type {
+  AgentSpec,
   BranchFromTurnInput,
+  ChildAgentTurnInput,
   CreateSessionInput,
   RegenerateTurnInput,
   RetryTurnInput,

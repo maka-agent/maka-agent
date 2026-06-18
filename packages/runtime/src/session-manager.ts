@@ -36,6 +36,7 @@ import type {
   BackendKind,
 } from '@maka/core/session';
 import type {
+  ChildAgentTurnInput,
   CreateSessionInput,
   BranchFromTurnInput,
   RegenerateTurnInput,
@@ -98,6 +99,8 @@ export interface BackendFactoryContext {
   workspaceRoot: string;
   header: SessionHeader;
   store: SessionStore;
+  appendMessage?: (message: StoredMessage) => Promise<void>;
+  systemPrompt?: string;
   recordRunTrace?: RunTraceRecorder;
 }
 
@@ -323,6 +326,13 @@ export class SessionManager {
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
     yield* this.runtimeKernel.startTurn(sessionId, input);
+  }
+
+  async *startChildTurn(
+    sessionId: string,
+    input: ChildAgentTurnInput,
+  ): AsyncIterable<SessionEvent> {
+    yield* this.runtimeKernel.startChildTurn(sessionId, input);
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {

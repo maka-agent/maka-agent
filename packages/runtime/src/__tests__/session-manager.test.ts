@@ -1117,6 +1117,103 @@ describe('SessionManager permission mode updates', () => {
     expect(childInput.runtimeContext).toBe(undefined);
   });
 
+  test('startChildTurn uses a separate explore backend with the child system prompt', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const contexts: BackendFactoryContext[] = [];
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      contexts.push(ctx);
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_840),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    await drain(manager.startChildTurn(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: {
+        name: 'Researcher',
+        systemPrompt: 'You are a read-only child researcher.',
+      },
+      prompt: 'inspect the repo',
+    }));
+
+    expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['ask', 'explore']);
+    expect(contexts[1]?.systemPrompt).toBe('You are a read-only child researcher.');
+    expect(backendInstances).toHaveLength(2);
+    expect(backendInstances[0] === backendInstances[1]).toBe(false);
+    expect(backendInstances[1]?.sendInputs[0]?.context).toEqual([]);
+    expect(backendInstances[1]?.sendInputs[0]?.runtimeContext).toBe(undefined);
+
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    expect(childRun?.parentRunId).toBe(parentRun.runId);
+    expect(childRun?.agentName).toBe('Researcher');
+    expect(childRun?.permissionMode).toBe('explore');
+
+    const childMessages = (await store.readMessages(session.id)).filter((message) =>
+      'turnId' in message && message.turnId === 'child-turn'
+    );
+    expect(childMessages).toEqual([]);
+  });
+
+  test('stopSession cancels active child runs and disposes their backend', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const childGate = makeGate();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx, ctx.header.permissionMode === 'explore' ? childGate : undefined);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_845),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    const child = manager.startChildTurn(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { name: 'Researcher', systemPrompt: 'read only' },
+      prompt: 'inspect slowly',
+    })[Symbol.asyncIterator]();
+    await child.next();
+
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    childGate.release();
+    await child.next();
+    await child.next();
+
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    if (!childRun) throw new Error('child run was not recorded');
+    expect(childRun.status).toBe('cancelled');
+    expect(store.disposeCount).toBe(1);
+    await manager.setPermissionMode(session.id, 'execute');
+    expect((await store.readHeader(session.id)).permissionMode).toBe('execute');
+  });
+
   test('next turn still receives RuntimeEvent context when projection cache has extra rows', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -2072,6 +2169,24 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
     input: Parameters<RuntimeKernelLike['startTurn']>[1],
   ): AsyncIterable<SessionEvent> {
     this.starts.push({ sessionId, input });
+    for (const event of this.events) {
+      yield event;
+    }
+  }
+
+  async *startChildTurn(
+    sessionId: string,
+    input: Parameters<RuntimeKernelLike['startChildTurn']>[1],
+  ): AsyncIterable<SessionEvent> {
+    this.starts.push({
+      sessionId,
+      input: {
+        turnId: input.turnId,
+        text: input.prompt,
+        parentRunId: input.parentRunId,
+        agentName: input.spec.name,
+      },
+    });
     for (const event of this.events) {
       yield event;
     }

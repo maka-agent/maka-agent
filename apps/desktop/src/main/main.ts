@@ -808,12 +808,14 @@ function isInsideOrSamePath(root: string, target: string): boolean {
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
-  const memoryPromptSnapshot = await buildLocalMemoryPromptFragment();
+  const memoryPromptSnapshot = ctx.systemPrompt === undefined
+    ? await buildLocalMemoryPromptFragment()
+    : '';
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
     header: { ...ctx.header, model },
-    appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+    appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
     connection,
     apiKey: apiKey ?? '',
     modelId: model,
@@ -823,7 +825,7 @@ backends.register('ai-sdk', async (ctx) => {
     toolAvailability,
     providerOptions: buildProviderOptions(connection, model),
     contextBudget: buildContextBudgetPolicy(connection),
-    systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd, { memoryFragment: memoryPromptSnapshot }),
+    systemPrompt: ctx.systemPrompt ?? (({ cwd }) => buildSystemPrompt(ctx.header, cwd, { memoryFragment: memoryPromptSnapshot })),
     turnTailPrompt: ({ cwd }) => buildTurnTailPrompt(cwd),
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
@@ -1217,7 +1219,7 @@ function buildClaudeSubscriptionCloakedFetch(sessionId: string, modelId: string)
 }
 
 backends.register('fake', (ctx) =>
-  new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
 );
 
 const runtime = new SessionManager({

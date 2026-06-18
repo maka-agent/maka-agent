@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
+import type { BackendKind, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { AgentBackend } from './ai-sdk-backend.js';
 import type { SessionStore } from './session-manager.js';
@@ -11,7 +11,12 @@ export class FakeBackend implements AgentBackend {
   readonly sessionId: string;
   private stopped = false;
 
-  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+  constructor(private readonly ctx: {
+    sessionId: string;
+    header: SessionHeader;
+    store: SessionStore;
+    appendMessage?: (message: StoredMessage) => Promise<void>;
+  }) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -33,7 +38,9 @@ export class FakeBackend implements AgentBackend {
     }
 
     const ts = Date.now();
-    await this.ctx.store.appendMessage(this.sessionId, {
+    const appendMessage = this.ctx.appendMessage ?? ((message: StoredMessage) =>
+      this.ctx.store.appendMessage(this.sessionId, message));
+    await appendMessage({
       type: 'assistant',
       id: messageId,
       turnId,
