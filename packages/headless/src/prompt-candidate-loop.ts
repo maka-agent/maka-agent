@@ -6,6 +6,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
   appendFixedPromptWalEvent,
+  FIXED_PROMPT_WAL_SCHEMA_VERSION,
   hashSystemPrompt,
   type PromptCandidateCommittedEvent,
 } from './fixed-prompt-controller.js';
@@ -256,7 +257,7 @@ function promptCandidateCommittedEvent(input: {
   systemPrompt: string;
 }): PromptCandidateCommittedEvent {
   return {
-    schemaVersion: 1,
+    schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'prompt_candidate_committed',
     id: input.id,
     ts: input.ts,
