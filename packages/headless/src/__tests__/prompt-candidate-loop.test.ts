@@ -86,6 +86,41 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('rejects overlapping held-in and held-out task digests', async () => {
+    await withDir(async (dir) => {
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+
+      let called = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInDigests: [{ taskId: 'task-a', summary: 'held-in summary' }],
+          heldOutDigests: [{ taskId: 'task-a', summary: 'held-out summary' }],
+          metaAgent: async () => {
+            called = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: gitNoop(dir),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /held-in and held-out task sets must be disjoint/,
+      );
+
+      assert.equal(called, false);
+    });
+  });
+
   test('fails closed when the prompt edit changes files outside system_prompt.md', async () => {
     await withDir(async (dir) => {
       const programPath = join(dir, 'program.md');
