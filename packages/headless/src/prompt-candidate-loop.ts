@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { lstat, readFile, realpath, writeFile } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
   appendFixedPromptWalEvent,
@@ -86,6 +86,7 @@ export interface CreateCliPromptCandidateGitInput {
 export interface RunPromptCandidateRoundInput {
   runId: string;
   roundId: string;
+  agentCwdPath?: string;
   programPath: string;
   systemPromptPath: string;
   resultsTsvPath: string;
@@ -93,6 +94,7 @@ export interface RunPromptCandidateRoundInput {
   heldInTaskIds: readonly string[];
   heldInDigests: readonly TrajectoryDigest[];
   heldOutDigests?: readonly TrajectoryDigest[];
+  heldOutArtifactPaths?: readonly string[];
   metaAgent: MetaAgent;
   git: PromptCandidateGit;
   now?: () => number;
@@ -112,6 +114,12 @@ export async function runPromptCandidateRound(
   const newId = input.newId ?? randomId;
   assertHeldInDigestsBelongToHeldInTasks(input.heldInTaskIds, input.heldInDigests);
   assertHeldInAndHeldOutDisjoint(input.heldInTaskIds, input.heldOutDigests ?? []);
+  if (input.agentCwdPath !== undefined) {
+    await assertControllerOnlyArtifactsOutsideAgentCwd(
+      input.agentCwdPath,
+      [input.resultsJsonlPath, ...(input.heldOutArtifactPaths ?? [])],
+    );
+  }
   await assertSystemPromptPathMatchesGit(input.systemPromptPath, input.git);
   await assertRegularSystemPromptFile(input.systemPromptPath, input.git.gitRootPath);
   await input.git.assertSystemPromptClean();
@@ -192,6 +200,32 @@ function assertHeldInDigestsBelongToHeldInTasks(
   const outside = heldInDigests.find((digest) => !heldInTasks.has(digest.taskId));
   if (outside) {
     throw new Error(`held-in digests must belong to held-in task set: ${outside.taskId}`);
+  }
+}
+
+async function assertControllerOnlyArtifactsOutsideAgentCwd(
+  agentCwdPath: string,
+  artifactPaths: readonly string[],
+): Promise<void> {
+  const agentCwdRealPath = await realpath(agentCwdPath);
+  const visibleArtifacts: string[] = [];
+  for (const artifactPath of artifactPaths) {
+    const artifactRealPath = await realOrParentResolvedPath(artifactPath);
+    if (artifactRealPath === agentCwdRealPath || isPathInside(agentCwdRealPath, artifactRealPath)) {
+      visibleArtifacts.push(normalizeGitPath(relative(agentCwdRealPath, artifactRealPath) || basename(artifactPath)));
+    }
+  }
+  if (visibleArtifacts.length > 0) {
+    throw new Error(`controller-only artifacts must stay outside agent cwd: ${visibleArtifacts.join(', ')}`);
+  }
+}
+
+async function realOrParentResolvedPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    return resolve(await realpath(dirname(path)), basename(path));
   }
 }
 
@@ -491,4 +525,8 @@ function argsPreview(args: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNotFound(error: unknown): boolean {
+  return isRecord(error) && error.code === 'ENOENT';
 }

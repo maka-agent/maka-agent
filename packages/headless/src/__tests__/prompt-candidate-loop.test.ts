@@ -209,6 +209,47 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('rejects physically visible held-out artifacts before calling the meta-agent', async () => {
+    await withDir(async (dir) => {
+      const agentDir = join(dir, 'agent-cwd');
+      const controllerDir = join(dir, 'controller');
+      await mkdir(agentDir, { recursive: true });
+      await mkdir(controllerDir, { recursive: true });
+      const programPath = join(agentDir, 'program.md');
+      const systemPromptPath = join(agentDir, 'system_prompt.md');
+      const resultsTsvPath = join(agentDir, 'results.tsv');
+      const heldOutEventsPath = join(agentDir, 'held-out-runtime-events.jsonl');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await writeFile(heldOutEventsPath, '', 'utf8');
+
+      let metaAgentCalled = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          agentCwdPath: agentDir,
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(controllerDir, 'results.jsonl'),
+          heldInTaskIds: ['task-a'],
+          heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
+          heldOutDigests: [{ taskId: 'held-out-task', summary: 'hidden held-out task' }],
+          heldOutArtifactPaths: [heldOutEventsPath],
+          metaAgent: async () => {
+            metaAgentCalled = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: gitNoop(agentDir),
+        }),
+        /controller-only artifacts must stay outside agent cwd: held-out-runtime-events\.jsonl/,
+      );
+      assert.equal(metaAgentCalled, false);
+    });
+  });
+
   test('fails closed when the prompt edit changes files outside system_prompt.md', async () => {
     await withDir(async (dir) => {
       const programPath = join(dir, 'program.md');
