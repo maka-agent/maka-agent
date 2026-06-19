@@ -455,11 +455,16 @@ describe('localized main shell contract', () => {
     assert.match(main, /className="maka-workspace-icon-action"[\s\S]*onClick=\{openHelp\}[\s\S]*aria-label="打开帮助"[\s\S]*<HelpCircle size=\{15\}/);
     assert.match(main, /className="maka-workspace-icon-action"[\s\S]*onClick=\{\(\) => openSettingsSection\('health'\)\}[\s\S]*aria-label="打开健康中心"[\s\S]*<CircleGauge size=\{15\}/);
     const workspaceTopActions = extractCssRule(styles, '.maka-workspace-top-actions');
+    const workspaceFeedbackAction = extractCssRule(styles, '.maka-workspace-feedback-action');
     assert.ok(workspaceTopActions, '.maka-workspace-top-actions rule must exist');
+    assert.ok(workspaceFeedbackAction, '.maka-workspace-feedback-action rule must exist');
     assert.match(workspaceTopActions, /position:\s*absolute/);
     assert.match(workspaceTopActions, /top:\s*16px/);
     assert.match(workspaceTopActions, /right:\s*32px/);
     assert.match(workspaceTopActions, /gap:\s*12px/);
+    assert.match(workspaceFeedbackAction, /font-size:\s*13px/);
+    assert.match(workspaceFeedbackAction, /font-weight:\s*500/);
+    assert.match(workspaceFeedbackAction, /color:\s*var\(--foreground-55\)/);
     assert.match(styles, /\.mainColumn\[data-home-surface="true"\]\s*\{[\s\S]*?grid-template-rows:\s*auto auto[\s\S]*?align-content:\s*center/);
     assert.match(main, /if \(sessionListCollapsed\) return;[\s\S]*function onResizeHandleKeyDown/);
     assert.match(main, /aria-hidden=\{sessionListCollapsed \? 'true' : undefined\}/);
@@ -539,6 +544,8 @@ describe('localized main shell contract', () => {
     const workspaceRow = extractCssRule(styles, '.maka-composer-workspace-row');
     const workspacePicker = extractCssRule(styles, '.maka-composer-workspace-picker');
     const workspacePickerHover = extractCssRule(styles, '.maka-composer-workspace-picker:hover');
+    const contextButton = extractCssRule(styles, '.maka-composer-context-plus');
+    const disabledMicButton = extractCssRule(styles, '.maka-composer-mic-button:disabled');
     const noActiveSessionBlock = components.match(/if \(!props\.activeSession\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const activeSessionBlock = components.match(/const isLocalSimulationBackend[\s\S]*?<\/header>/)?.[0] ?? '';
 
@@ -607,11 +614,19 @@ describe('localized main shell contract', () => {
     assert.match(styles, /\.maka-composer-left-controls,\n\.maka-composer-right-controls \{[\s\S]*?gap:\s*12px/);
     assert.match(styles, /\.maka-composer-role-chip,\n\.maka-composer-mode-chip,\n\.maka-composer-model-chip \{[\s\S]*?height:\s*32px[\s\S]*?border-radius:\s*8px/);
     assert.match(components, /className="maka-composer-tool-button maka-composer-context-plus"[\s\S]*aria-label=\{pendingImportAction === 'file' \? '正在添加上下文' : '添加上下文'\}[\s\S]*<Plus size=\{15\}/);
+    assert.ok(contextButton, '.maka-composer-context-plus rule must exist');
+    assert.match(contextButton, /width:\s*30px/);
+    assert.match(contextButton, /height:\s*30px/);
+    assert.match(contextButton, /border-color:\s*var\(--foreground-20\)/);
+    assert.match(contextButton, /border-radius:\s*999px/);
     assert.match(components, /className="maka-composer-role-chip"[\s\S]*aria-label="通用助手"[\s\S]*通用[\s\S]*<ChevronDown size=\{12\}/);
     assert.match(components, /modelLabel\?: string;/);
     assert.match(components, /const modelChipLabel = props\.modelLabel\?\.trim\(\) \|\| '选择模型'/);
     assert.match(components, /className="maka-composer-model-chip"[\s\S]*aria-label=\{`当前模型：\$\{modelChipLabel\}`\}[\s\S]*<span className="maka-composer-model-chip-text">\{modelChipLabel\}<\/span>/);
-    assert.match(components, /aria-label="语音输入暂未启用"[\s\S]*<Mic size=\{14\}/);
+    assert.match(components, /className="maka-composer-tool-button maka-composer-mic-button"[\s\S]*aria-label="语音输入暂未启用"[\s\S]*<Mic size=\{14\}/);
+    assert.ok(disabledMicButton, '.maka-composer-mic-button:disabled rule must exist');
+    assert.match(disabledMicButton, /color:\s*var\(--foreground-55\)/);
+    assert.match(disabledMicButton, /opacity:\s*1/);
     assert.doesNotMatch(components, /aria-label=\{pendingImportAction === 'file' \? '正在导入文件内容' : '导入文件内容'\}/);
     assert.doesNotMatch(components, /aria-label=\{pendingImportAction === 'folder' \? '正在导入文件夹目录' : '导入文件夹目录'\}/);
     assert.doesNotMatch(components, /Paperclip/);

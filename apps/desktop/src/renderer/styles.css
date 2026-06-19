@@ -375,7 +375,8 @@ button:active {
   gap: 6px;
   padding-inline: 8px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--foreground-55);
 }
 
 .maka-workspace-icon-action {
@@ -5292,8 +5293,16 @@ button:active {
 }
 
 .maka-composer-context-plus {
-  border-color: transparent;
+  width: 30px;
+  height: 30px;
+  border-color: var(--foreground-20);
+  border-radius: 999px;
   background: transparent;
+}
+
+.maka-composer-mic-button:disabled {
+  color: var(--foreground-55);
+  opacity: 1;
 }
 
 .maka-composer-tool-button:hover:not(:disabled) {

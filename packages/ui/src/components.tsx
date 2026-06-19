@@ -6166,7 +6166,7 @@ export const Composer = forwardRef<
                 <UiButton
                   variant="quiet"
                   size="icon-sm"
-                  className="maka-composer-tool-button"
+                  className="maka-composer-tool-button maka-composer-mic-button"
                   type="button"
                   disabled
                   aria-label="语音输入暂未启用"
