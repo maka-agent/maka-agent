@@ -523,6 +523,17 @@ export function SessionListPanel(props: {
     >
       <header className="maka-session-panel-header">
         <div className="maka-sidebar-drag-strip">
+          {props.onOpenSearchModal && (
+            <button
+              className="maka-sidebar-search-button"
+              type="button"
+              onClick={props.onOpenSearchModal}
+              aria-label="搜索对话"
+              title="搜索对话"
+            >
+              <Search size={16} strokeWidth={1.65} aria-hidden="true" />
+            </button>
+          )}
           <button
             className="maka-sidebar-toggle"
             type="button"
@@ -4426,7 +4437,6 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
    *  Maka shortcut and Space conflicts with normal typing in
    *  the composer. */
   paletteHint: string;
-  promptListLabel: string;
 }> = {
   zh: {
     ariaLabel: '开始对话',
@@ -4448,9 +4458,8 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     },
     headlineWithLabel: (greeting, label) => `${greeting} ${label}，今天想做点什么？`,
     headlineFallback: (greeting, tail) => `${greeting}，${tail}。`,
-    intro: '说一下你要改的、想问的、想查的；下面是几个常用起点，也可以直接在下方输入框里描述需求。',
+    intro: '说一下你要改的、想问的、想查的；直接在下方输入框里描述需求，Maka 会从这里开始。',
     paletteHint: '唤起命令面板：搜索 · 设置 · 模型 · 主题 · 新对话 都在这里',
-    promptListLabel: '提示建议',
   },
   en: {
     ariaLabel: 'Start a conversation',
@@ -4469,9 +4478,8 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     },
     headlineWithLabel: (greeting, label) => `${greeting} ${label} — what shall we tackle today?`,
     headlineFallback: (greeting, tail) => `${greeting} — ${tail}.`,
-    intro: 'Describe what you want to change, ask, or look up. Here are a few common starting points — or just type in the composer below.',
+    intro: 'Describe what you want to change, ask, or look up. Type it in the composer below and Maka will start from there.',
     paletteHint: 'Open the command palette: search · settings · models · theme · new chat',
-    promptListLabel: 'Prompt suggestions',
   },
 };
 
@@ -4480,18 +4488,19 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
   // Falls back to a neutral title so first-run users don't see "Hi 你, …".
   //
   // PR-UI-1 (@yuejing 2026-05-22): visual unification with OnboardingHero
-  // ReadyEmptyHero. Both heroes now use the same Sparkles-eyebrow chrome,
-  // same headline scale, same chip suggestion grid — so users don't see
-  // a jarring visual switch between "first-run" and "empty session" surfaces.
+  // ReadyEmptyHero. Both heroes now use the same Sparkles-eyebrow chrome
+  // and headline scale so users don't see a jarring visual switch between
+  // "first-run" and "empty session" surfaces.
   //
-  // PR-UI-14 (@yuejing 2026-05-22): locale-aware chips + hero copy. We
-  // detect `navigator.language` once per render and use it to pick both
-  // the prompt suggestion set and the surrounding copy bundle, so users
-  // on en locale never see a mixed-language hero.
+  // PR-QODERWORK-HERO-0: the normal empty chat page now follows the
+  // QoderWork single-card pattern: calm copy above the one real composer
+  // card, without a grid of starter chips competing for the first
+  // viewport. `onPromptSuggestion` stays in the signature for callers
+  // that still pass it, but the generic empty-chat surface no longer
+  // renders suggestions; Deep Research keeps its specialized starters.
   const label = props.userLabel?.trim();
   const locale = detectPromptSuggestionLocale();
   const copy = EMPTY_HERO_COPY_BY_LOCALE[locale];
-  const suggestions = getPromptSuggestions(locale);
   // PR-UI-LAYOUT-4: time-of-day greeting prefix. `detectDayPeriod`
   // reads the user's local clock at render time; we don't memo
   // because the hero is short-lived and React will re-render when
@@ -4528,23 +4537,6 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
           <span>{copy.paletteHint}</span>
         </span>
       </header>
-      {props.onPromptSuggestion && (
-        <ul className="maka-prompt-suggestions" aria-label={copy.promptListLabel}>
-          {suggestions.map((suggestion) => (
-            <li key={suggestion.label}>
-              <UiButton
-                type="button"
-                className="maka-prompt-chip h-auto"
-                variant="quiet"
-                onClick={() => props.onPromptSuggestion?.(suggestion.prompt)}
-              >
-                <span className="maka-prompt-chip-label">{suggestion.label}</span>
-                <span className="maka-prompt-chip-hint">{suggestion.prompt.split('\n')[0]?.slice(0, 60)}…</span>
-              </UiButton>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }

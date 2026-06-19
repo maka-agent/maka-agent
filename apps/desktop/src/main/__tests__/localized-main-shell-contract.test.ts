@@ -431,6 +431,7 @@ describe('localized main shell contract', () => {
     assert.match(components, /sidebarCollapsed\?: boolean;/);
     assert.match(components, /onToggleSidebar\?\(\): void;/);
     assert.match(components, /data-collapsed=\{props\.sidebarCollapsed \? 'true' : undefined\}/);
+    assert.match(components, /className="maka-sidebar-search-button"[\s\S]*aria-label="搜索对话"[\s\S]*<Search size=\{16\}/);
     assert.match(components, /className="maka-sidebar-toggle"[\s\S]*aria-label=\{props\.sidebarCollapsed \? '展开侧边栏' : '收起侧边栏'\}[\s\S]*aria-expanded=\{!props\.sidebarCollapsed\}/);
     assert.match(components, /aria-label=\{MODULE_NAV_LABEL\.sessions\}/);
     assert.match(components, /aria-label=\{MODULE_NAV_LABEL\.search\}/);
@@ -456,6 +457,10 @@ describe('localized main shell contract', () => {
     assert.ok(listPanel, '.maka-panel-list.maka-floating-panel rule must exist');
     assert.match(listPanel, /border-right:\s*1px solid var\(--border\)/);
     assert.match(listPanel, /background:\s*oklch\(from var\(--background\) calc\(l - 0\.015\) c h\)/);
+    const sidebarTopBar = extractCssRule(styles, '.maka-sidebar-drag-strip');
+    assert.ok(sidebarTopBar, '.maka-sidebar-drag-strip rule must exist');
+    assert.match(sidebarTopBar, /justify-content:\s*space-between/);
+    assert.match(styles, /\.maka-sidebar-search-button,\n\.maka-sidebar-toggle \{/);
     const collapsedNav = extractCssRule(styles, '.maka-session-panel[data-collapsed="true"] .maka-nav-primary,\n.maka-session-panel[data-collapsed="true"] .maka-project-badge,\n.maka-session-panel[data-collapsed="true"] .maka-nav-row');
     assert.ok(collapsedNav, 'collapsed nav sizing rule must exist');
     assert.match(collapsedNav, /width:\s*34px/);
@@ -466,10 +471,16 @@ describe('localized main shell contract', () => {
   });
 
   it('keeps the chat composer as the only main card with a narrow QoderWork-like frame', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const styles = await readFile(join(process.cwd(), 'src', 'renderer', 'styles.css'), 'utf8');
+    const emptyHero = components.match(/function EmptyChatHero[\s\S]*?function DeepResearchEmptyHero/)?.[0] ?? '';
     const composerCard = extractCssRule(styles, '.composer .maka-composer-inner');
     const composerFocus = extractCssRule(styles, '.composer .maka-composer-inner:focus-within');
 
+    assert.ok(emptyHero, 'EmptyChatHero source must be discoverable');
+    assert.doesNotMatch(emptyHero, /maka-prompt-suggestions/);
+    assert.doesNotMatch(emptyHero, /maka-prompt-chip/);
+    assert.doesNotMatch(emptyHero, /getPromptSuggestions\(locale\)/);
     assert.ok(composerCard, '.composer .maka-composer-inner rule must exist');
     assert.match(composerCard, /max-width:\s*640px/);
     assert.match(composerCard, /border-radius:\s*14px/);

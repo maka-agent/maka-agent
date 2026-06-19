@@ -511,10 +511,12 @@ button:active {
   min-height: 30px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
   -webkit-app-region: drag;
 }
 
+.maka-sidebar-search-button,
 .maka-sidebar-toggle {
   -webkit-app-region: no-drag;
   width: 30px;
@@ -529,11 +531,13 @@ button:active {
   transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 
+.maka-sidebar-search-button:hover,
 .maka-sidebar-toggle:hover {
   background: var(--foreground-5);
   color: var(--foreground);
 }
 
+.maka-sidebar-search-button:focus-visible,
 .maka-sidebar-toggle:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
@@ -544,7 +548,9 @@ button:active {
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-sidebar-drag-strip {
+  display: grid;
   justify-content: center;
+  gap: 4px;
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-sidebar-modules,
