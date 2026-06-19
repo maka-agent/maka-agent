@@ -239,6 +239,7 @@ describe('prompt candidate loop', () => {
               committed = true;
               return 'commit-1';
             },
+            rollbackCommit: async () => {},
             restoreSystemPrompt: async () => {
               await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
             },
@@ -317,6 +318,7 @@ describe('prompt candidate loop', () => {
               assertSystemPromptClean: async () => {},
               changedFiles: async () => ['prompts/system_prompt.md'],
               commit: async () => 'commit-1',
+              rollbackCommit: async () => {},
               restoreSystemPrompt: async () => {
                 await writeFile(systemPromptPath, 'outside prompt\n', 'utf8');
               },
@@ -364,6 +366,7 @@ describe('prompt candidate loop', () => {
               committed = true;
               return 'commit-1';
             },
+            rollbackCommit: async () => {},
             restoreSystemPrompt: async () => {
               await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
             },
@@ -449,6 +452,7 @@ describe('prompt candidate loop', () => {
             commit: async () => {
               throw new Error('commit rejected');
             },
+            rollbackCommit: async () => {},
             restoreSystemPrompt: async () => {
               restored = true;
               await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
@@ -574,6 +578,49 @@ describe('prompt candidate loop', () => {
       assert.match(status.stdout, /^A  notes\.md$/m);
       assert.match(status.stdout, /^\?\? scratch\.tmp$/m);
       assert.equal(result.commitSha.length, 40);
+    });
+  });
+
+  test('CLI git adapter rolls back the prompt commit when WAL append fails', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await mkdir(resultsJsonlPath);
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath,
+          heldInTaskIds: [],
+          heldInDigests: [],
+          metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+      );
+
+      const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
+      const cached = await execFileAsync('git', ['diff', '--cached', '--', 'system_prompt.md'], { cwd: dir });
+      const worktree = await execFileAsync('git', ['diff', '--', 'system_prompt.md'], { cwd: dir });
+      assert.equal(subject.stdout.trim(), 'initial');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+      assert.equal(cached.stdout, '');
+      assert.equal(worktree.stdout, '');
     });
   });
 
@@ -781,6 +828,7 @@ function gitNoop(gitRootPath = process.cwd()) {
     assertSystemPromptClean: async () => {},
     changedFiles: async () => ['system_prompt.md'],
     commit: async () => 'commit-1',
+    rollbackCommit: async () => {},
     restoreSystemPrompt: async () => {},
   };
 }

@@ -64,6 +64,7 @@ export interface PromptCandidateGit {
   assertSystemPromptClean(): Promise<void>;
   changedFiles(): Promise<readonly string[]>;
   commit(message: string): Promise<string>;
+  rollbackCommit(commitSha: string): Promise<void>;
   restoreSystemPrompt(): Promise<void>;
 }
 
@@ -128,15 +129,20 @@ export async function runPromptCandidateRound(
     await input.git.restoreSystemPrompt();
     throw error;
   }
-  await appendFixedPromptWalEvent(input.resultsJsonlPath, promptCandidateCommittedEvent({
-    runId: input.runId,
-    roundId: input.roundId,
-    id: newId(),
-    ts: now(),
-    commitSha,
-    summary: result.summary,
-    systemPrompt: result.systemPrompt,
-  }));
+  try {
+    await appendFixedPromptWalEvent(input.resultsJsonlPath, promptCandidateCommittedEvent({
+      runId: input.runId,
+      roundId: input.roundId,
+      id: newId(),
+      ts: now(),
+      commitSha,
+      summary: result.summary,
+      systemPrompt: result.systemPrompt,
+    }));
+  } catch (error) {
+    await input.git.rollbackCommit(commitSha);
+    throw error;
+  }
   return {
     systemPrompt: result.systemPrompt,
     summary: result.summary,
@@ -345,6 +351,14 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       await execFileAsync('git', ['commit', '-m', message, '--', systemPromptGitPath], { cwd: gitRootPath });
       const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRootPath });
       return stdout.trim();
+    },
+    async rollbackCommit(commitSha: string): Promise<void> {
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRootPath });
+      if (stdout.trim() !== commitSha) {
+        throw new Error('candidate prompt commit cannot be rolled back because HEAD moved');
+      }
+      await execFileAsync('git', ['reset', '--soft', `${commitSha}^`], { cwd: gitRootPath });
+      await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], { cwd: gitRootPath });
     },
     async restoreSystemPrompt(): Promise<void> {
       await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], { cwd: gitRootPath });
