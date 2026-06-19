@@ -43,6 +43,11 @@ describe('Settings form accessibility labels', () => {
     const settingsBadge = styles.match(/\.settingsBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const authContract = styles.match(/\.settingsAuthContract\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerSurfaces = styles.match(/\.providerEmpty,\n\.providerCard,\n\.settingsRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const modelTable = styles.match(/\.modelTable\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const modelTableRow = styles.match(/\.modelTableRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const modelTableEmpty = styles.match(/\.modelTableEmpty\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const modelTableChip = styles.match(/\.modelTableChip\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const modelTableDefaultBadge = styles.match(/\.modelTableDefaultBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const settingsRow = styles.match(/\.settingsRow\s*\{[\s\S]*?\}/g)?.at(-1) ?? '';
     const settingsRowValue = styles.match(/\.settingsRow > span\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const settingsRowTitle = styles.match(/\.settingsRow strong\s*\{[\s\S]*?\}/)?.[0] ?? '';
@@ -53,8 +58,16 @@ describe('Settings form accessibility labels', () => {
     assert.match(authContract, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Nested auth contract cards should keep the same near-flat shadow');
     assert.match(providerSurfaces, /border-radius:\s*8px;/, 'Provider/settings rows should use the same 8px secondary-surface radius');
     assert.match(providerSurfaces, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Provider/settings rows should avoid heavier legacy panel shadows');
+    assert.match(modelTable, /border-radius:\s*8px;/, 'Settings model table should use the same 8px secondary-surface radius');
+    assert.match(modelTable, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings model table should stay near-flat instead of returning to legacy panel shadows');
+    assert.match(modelTableRow, /border-radius:\s*8px;/, 'Settings model rows should use compact 8px row geometry');
+    assert.match(modelTableEmpty, /border-radius:\s*8px;/, 'Settings model table empty state should align with the same 8px geometry');
+    assert.match(modelTableChip, /border-radius:\s*4px;/, 'Settings model capability chips should use compact squared QoderWork-style corners, not pills');
+    assert.match(modelTableDefaultBadge, /border-radius:\s*4px;/, 'Settings model default badge should use compact squared QoderWork-style corners, not pills');
     assert.match(connectionBadge, /border-radius:\s*4px;/, 'Settings status badges should use compact squared QoderWork-style corners, not pills');
     assert.match(settingsBadge, /border-radius:\s*4px;/, 'Generic Settings badges should use compact squared QoderWork-style corners, not pills');
+    assert.doesNotMatch(modelTableChip, /border-radius:\s*999px;/, 'Settings model capability chips must not regress to pill-shaped chrome');
+    assert.doesNotMatch(modelTableDefaultBadge, /border-radius:\s*999px;/, 'Settings model default badge must not regress to pill-shaped chrome');
     assert.doesNotMatch(connectionBadge, /border-radius:\s*999px;/, 'Settings connection badges must not regress to pill-shaped chrome');
     assert.doesNotMatch(settingsBadge, /border-radius:\s*999px;/, 'Generic Settings badges must not regress to pill-shaped chrome');
     assert.match(settingsRow, /display:\s*grid;/, 'Settings rows should use a stable label/value grid instead of flex auto sizing');

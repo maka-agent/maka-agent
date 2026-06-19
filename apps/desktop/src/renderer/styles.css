@@ -8226,8 +8226,9 @@ button:active {
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--foreground-2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .modelTableHeader {
@@ -8289,7 +8290,7 @@ button:active {
 
 .modelTableEmpty {
   padding: 18px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--background);
   color: var(--foreground-60);
   font-size: 12px;
@@ -8342,11 +8343,7 @@ button:active {
   gap: 10px;
   padding: 7px 10px;
   border: 1px solid transparent;
-  /* PR-UI-LAYOUT-38: modelTableRow radius 8 → 10 to join the card
-   * family rhythm (chips 10, cards 10-12, rows 10). Added smooth
-   * transition + focus-visible ring for keyboard a11y on the
-   * model picker (was missing). */
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--foreground);
   text-align: left;
@@ -8411,23 +8408,23 @@ button:active {
 
 .modelTableChip {
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--foreground-5);
   color: var(--foreground-60);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .modelTableDefaultBadge {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: oklch(from var(--accent) l c h / 0.14);
   color: var(--accent);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .providerActions {
