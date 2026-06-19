@@ -33,7 +33,7 @@ describe('Command palette accessibility and visible copy', () => {
 
     assert.match(
       src,
-      /import \{ Button, InputGroup, InputGroupAddon, InputGroupInput, Kbd, KbdGroup, useModalA11y \} from '@maka\/ui';/,
+      /import \{[^}]*\bButton\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\buseModalA11y\b[^}]*\} from '@maka\/ui';/,
       'CommandPalette must consume COSS InputGroup primitives from @maka/ui',
     );
     assert.match(

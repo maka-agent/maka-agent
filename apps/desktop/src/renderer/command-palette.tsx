@@ -20,6 +20,7 @@ import {
   Palette,
   Plug,
   Plus,
+  Search,
   Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
@@ -30,7 +31,20 @@ import {
 } from 'lucide-react';
 import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
-import { Button, InputGroup, InputGroupAddon, InputGroupInput, Kbd, KbdGroup, useModalA11y } from '@maka/ui';
+import {
+  Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  Kbd,
+  KbdGroup,
+  useModalA11y,
+} from '@maka/ui';
 import { SETTINGS_NAV } from './settings/SettingsModal';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
@@ -697,7 +711,15 @@ export function CommandPalette(props: {
         </InputGroup>
         <div className="maka-palette-list" id="maka-palette-list" role="listbox" aria-label="命令面板结果">
           {grouped.length === 0 ? (
-            <div className="maka-palette-empty">没有匹配的命令</div>
+            <Empty className="maka-palette-empty py-8 md:py-10 gap-3">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Search aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>没有匹配的命令</EmptyTitle>
+                <EmptyDescription>换个关键词，或按 Esc 关闭。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             grouped.map((group) => (
               <div key={group.label} className="maka-palette-group">

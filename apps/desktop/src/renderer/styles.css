@@ -4002,10 +4002,7 @@ button:active {
 }
 
 .maka-palette-empty {
-  padding: 28px 12px;
-  text-align: center;
   color: var(--foreground-50);
-  font-size: 13px;
 }
 
 .maka-palette-footer {
@@ -8984,20 +8981,10 @@ button:active {
 }
 
 .maka-browser-empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  text-align: center;
-  padding: 24px;
   color: var(--text-muted, #888);
 }
 
 .maka-browser-empty-hint {
-  font-size: 12px;
   max-width: 280px;
 }
 

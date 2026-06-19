@@ -14,9 +14,17 @@
  * ordinary chat reserves no space.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RotateCw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
 import type { BrowserState } from '@maka/core';
-import { Button, Input } from '@maka/ui';
+import {
+  Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Input,
+} from '@maka/ui';
 
 const EMPTY_STATE: BrowserState = {
   url: '',
@@ -174,10 +182,17 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
       </div>
       <div className="maka-browser-strip" ref={stripRef}>
         {!state.hasPage && (
-          <div className="maka-browser-empty">
-            <p>嵌入式浏览器</p>
-            <p className="maka-browser-empty-hint">输入网址打开页面，或让助手帮你导航并操作。</p>
-          </div>
+          <Empty className="maka-browser-empty absolute inset-0 py-10 md:py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Globe aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>嵌入式浏览器</EmptyTitle>
+              <EmptyDescription className="maka-browser-empty-hint">
+                输入网址打开页面，或让助手帮你导航并操作。
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </div>

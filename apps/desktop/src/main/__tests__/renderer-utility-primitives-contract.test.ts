@@ -9,7 +9,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
   it('keeps browser chrome on Button/Input instead of raw form controls', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/browser-panel.tsx'), 'utf8');
 
-    assert.match(source, /import \{ Button, Input \} from '@maka\/ui';/);
+    assert.match(source, /import \{[^}]*\bButton\b[^}]*\bInput\b[^}]*\} from '@maka\/ui';/);
     assert.doesNotMatch(source, /<button\b/, 'BrowserPanel nav controls must use shared Button');
     assert.doesNotMatch(source, /<input\b/, 'BrowserPanel address bar must use shared Input');
   });
@@ -69,7 +69,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
   it('keeps command palette search and rows on shared primitives', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/command-palette.tsx'), 'utf8');
 
-    assert.match(source, /import \{ Button, InputGroup, InputGroupAddon, InputGroupInput, Kbd, KbdGroup, useModalA11y \} from '@maka\/ui';/);
+    assert.match(source, /import \{[^}]*\bButton\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\buseModalA11y\b[^}]*\} from '@maka\/ui';/);
     assert.doesNotMatch(source, /<input\b/, 'Command palette search must use shared Input');
     assert.doesNotMatch(source, /<button\b/, 'Command palette rows must use shared Button');
     assert.doesNotMatch(source, /<kbd\b/, 'Command palette shortcut glyphs must use COSS Kbd');

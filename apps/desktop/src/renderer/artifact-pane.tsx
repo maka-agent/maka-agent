@@ -59,6 +59,11 @@ import {
   AlertDescription,
   AlertTitle,
   Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
   Toolbar,
   ToolbarGroup,
   ToolbarSeparator,
@@ -474,7 +479,15 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                 onShowInFolder={() => void runArtifactAction(`${selected.id}:open`, () => openInFinder(selected.id))}
               />
             ) : (
-              <div className="maka-artifact-preview-empty">选择左侧生成文件查看预览。</div>
+              <Empty className="maka-artifact-preview-empty py-10 md:py-12 gap-4">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <FileText aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>暂未选中文件</EmptyTitle>
+                  <EmptyDescription>选择左侧生成文件查看预览。</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             )}
           </div>
           {selected && (
