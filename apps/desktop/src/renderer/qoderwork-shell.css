@@ -59,6 +59,7 @@
 }
 
 .maka-panel-detail.maka-floating-panel.agents-content-area {
+  position: relative;
   margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
   border: 1px solid var(--color-border-tertiary);
   border-radius: var(--agents-content-area-radius);

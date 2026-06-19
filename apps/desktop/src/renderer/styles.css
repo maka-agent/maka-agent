@@ -325,6 +325,63 @@ button:active {
   background: transparent;
 }
 
+.mainColumn[data-home-surface="true"] {
+  grid-template-rows: auto auto;
+  align-content: center;
+  padding-bottom: clamp(36px, 7vh, 72px);
+}
+
+.mainColumn[data-home-surface="true"] .maka-main,
+.mainColumn[data-home-surface="true"] .maka-chat-shell,
+.mainColumn[data-home-surface="true"] .messages {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.mainColumn[data-home-surface="true"] .maka-chatViewport {
+  height: auto;
+}
+
+.mainColumn[data-home-surface="true"] .maka-chatContent {
+  min-height: 0;
+}
+
+.maka-workspace-top-actions {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  z-index: 4;
+  top: 16px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--foreground-60);
+}
+
+.maka-workspace-feedback-action,
+.maka-workspace-icon-action {
+  height: 30px;
+  border-radius: 8px;
+  color: var(--foreground-65);
+}
+
+.maka-workspace-feedback-action {
+  gap: 6px;
+  padding-inline: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.maka-workspace-icon-action {
+  width: 30px;
+}
+
+.maka-workspace-feedback-action:hover,
+.maka-workspace-icon-action:hover {
+  color: var(--foreground);
+  background: var(--foreground-5);
+}
+
 .maka-session-panel {
   /* PR-UX-POLISH-1 commit 4 (WAWQAQ msg `e0dbad11` + kenji msg
    * `2844f64f`): grid is now 4 rows (was 5). The in-list
@@ -1603,13 +1660,13 @@ button:active {
    structured info hierarchy); no app-specific brand mark /
    mascot / illustration character is copied. */
 .maka-onboarding-ready header {
-  justify-items: center;
-  text-align: center;
-  gap: 14px;
+  justify-items: start;
+  text-align: left;
+  gap: 10px;
 }
 
 .maka-onboarding-ready .maka-onboarding-eyebrow {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .maka-onboarding-eyebrow {
@@ -1953,16 +2010,16 @@ button:active {
      and match QoderWork's "不止聊天，搞定一切" hero scale. clamp
      keeps it from blowing out on narrow windows where the hero
      competes with the composer below for vertical space. */
-  font-size: clamp(28px, 2.6vw, 34px);
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.16;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.12;
 }
 .maka-onboarding-ready header p {
   /* Slightly larger subtitle so it carries the meaning without
      reading like fine print under the now-heavier h1. */
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
   max-width: 56ch;
 }
 .maka-onboarding-quickchat {
@@ -4394,12 +4451,14 @@ button:active {
  */
 .maka-hero,
 .emptyChat {
-  width: min(760px, 100%);
+  width: min(750px, 80vw);
   margin: auto;
-  padding: 24px 28px 8vh;
+  padding: 0;
   display: grid;
-  gap: 32px;
+  justify-items: start;
+  gap: 28px;
   color: var(--foreground);
+  text-align: left;
 }
 
 .maka-hero header,
@@ -4428,11 +4487,11 @@ button:active {
 .maka-hero h1,
 .emptyChat h1 {
   margin: 0;
-  max-width: 28ch;
+  max-width: 30ch;
   font-size: 28px;
   font-weight: 600;
   line-height: 1.12;
-  text-wrap: balance;
+  text-wrap: pretty;
 }
 
 .maka-hero p,
@@ -5101,8 +5160,8 @@ button:active {
 }
 
 .composer .maka-composer-inner {
-  width: min(640px, 80vw);
-  max-width: 640px;
+  width: min(750px, 80vw);
+  max-width: 750px;
   margin-inline: auto;
   box-sizing: border-box;
   border-radius: 8px;
@@ -5264,7 +5323,7 @@ button:active {
 }
 
 .maka-composer-workspace-row {
-  width: min(640px, 80vw);
+  width: min(750px, 80vw);
   display: flex;
   justify-content: flex-start;
   box-sizing: border-box;

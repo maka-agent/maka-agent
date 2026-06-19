@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PanelLeftOpen, Search, SquarePen } from 'lucide-react';
+import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftOpen, Search, SquarePen } from 'lucide-react';
 import type {
   ConnectionTestResult,
   ConnectionEvent,
@@ -2677,6 +2677,14 @@ function AppShell() {
   }
 
   const hasModalOpen = Boolean(activePermission) || settingsOpen || helpOpen || paletteOpen || searchModalOpen;
+  const activeMessageLoadError = activeId ? messageLoadErrorBySession[activeId] : undefined;
+  const homeSurfaceActive =
+    navSelection.section === 'sessions'
+    && messages.length === 0
+    && activeStreaming.length === 0
+    && activeThinking.length === 0
+    && liveTools.length === 0
+    && !activeMessageLoadError;
   useEffect(() => {
     void window.maka.appWindow.setTitlebarControlsVisible(!hasModalOpen).catch(() => {});
     return () => {
@@ -2824,6 +2832,52 @@ function AppShell() {
               </UiButton>
             </div>
           )}
+          <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
+            <UiButton
+              className="maka-workspace-feedback-action"
+              variant="quiet"
+              size="sm"
+              type="button"
+              onClick={() => openSettingsSection('about')}
+              title="问题反馈 · 打开关于与环境信息"
+            >
+              <MessageCircleQuestion size={15} strokeWidth={1.7} aria-hidden="true" />
+              <span>问题反馈</span>
+            </UiButton>
+            <UiButton
+              className="maka-workspace-icon-action"
+              variant="quiet"
+              size="icon-sm"
+              type="button"
+              onClick={openPalette}
+              aria-label="打开命令面板"
+              title="打开命令面板"
+            >
+              <Grid3X3 size={15} strokeWidth={1.7} aria-hidden="true" />
+            </UiButton>
+            <UiButton
+              className="maka-workspace-icon-action"
+              variant="quiet"
+              size="icon-sm"
+              type="button"
+              onClick={openHelp}
+              aria-label="打开帮助"
+              title="打开帮助"
+            >
+              <HelpCircle size={15} strokeWidth={1.7} aria-hidden="true" />
+            </UiButton>
+            <UiButton
+              className="maka-workspace-icon-action"
+              variant="quiet"
+              size="icon-sm"
+              type="button"
+              onClick={() => openSettingsSection('health')}
+              aria-label="打开健康中心"
+              title="打开健康中心"
+            >
+              <CircleGauge size={15} strokeWidth={1.7} aria-hidden="true" />
+            </UiButton>
+          </div>
           {/* PR-UI-RENDER-2: install the internal-URI dispatcher
               for any Markdown rendered inside ChatView (assistant
               answers, thinking panels, streaming bubbles). Wrapping
@@ -2834,7 +2888,7 @@ function AppShell() {
               navigation entry point. */}
           <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
-            <div className="mainColumn">
+            <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
               <ChatView
                 messages={messages}
                 streamingText={activeStreaming}

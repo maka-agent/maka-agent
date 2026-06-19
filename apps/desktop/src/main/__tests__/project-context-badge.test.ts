@@ -109,7 +109,7 @@ describe('project context workspace picker', () => {
     assert.match(ui, /branch\?: string \| null;/);
     assert.match(ui, /<span>选择工作目录<\/span>/);
     assert.match(ui, /当前分支 \$\{props\.workspacePicker\.branch\}/);
-    assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(640px,\s*80vw\)/);
+    assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(750px,\s*80vw\)/);
     assert.match(styles, /\.maka-composer-workspace-picker\s*\{/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
     assert.match(renderer, /basenameFromPath\(appInfo\.projectPath\)/);
