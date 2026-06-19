@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { ToolResultContent } from '@maka/core';
 import type { MakaTool } from './tool-runtime.js';
 import {
+  AGENT_WORKSPACE_SAME_WORKSPACE,
+  AGENT_WRITE_BACK_SUMMARY,
   LOCAL_READ_AGENT_DEFINITION,
   LOCAL_READ_AGENT_PROFILE,
   buildToolsForAgentDefinition,
@@ -30,6 +32,8 @@ export function buildSubagentSpawnTool(): MakaTool<
   {
     profile: string;
     task: string;
+    write_back?: string;
+    isolation?: string;
   },
   unknown
 > {
@@ -40,6 +44,10 @@ export function buildSubagentSpawnTool(): MakaTool<
     parameters: z.object({
       profile: z.enum([LOCAL_READ_AGENT_PROFILE]).describe('Child agent profile, currently "local_read".'),
       task: z.string().min(1).max(60_000).describe('Bounded task for the selected child agent.'),
+      write_back: z.enum([AGENT_WRITE_BACK_SUMMARY]).optional()
+        .describe('Requested child write-back mode. local_read currently supports only "summary".'),
+      isolation: z.enum([AGENT_WORKSPACE_SAME_WORKSPACE]).optional()
+        .describe('Requested child workspace isolation. local_read currently runs in the same workspace with isolated context.'),
     }),
     permissionRequired: true,
     categoryHint: 'subagent',

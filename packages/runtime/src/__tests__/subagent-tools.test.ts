@@ -264,9 +264,35 @@ describe('subagent tools', () => {
 
   test('agent_spawn rejects legacy agent ids and unknown profiles without spawning a child', async () => {
     const tool = buildSubagentSpawnTool();
-    const schema = tool.parameters as { safeParse(input: unknown): { success: boolean } };
+    const schema = tool.parameters as {
+      safeParse(input: unknown): { success: boolean; data?: unknown };
+    };
 
     expect(schema.safeParse({ profile: LOCAL_READ_AGENT_PROFILE, task: 'Inspect the repo.' }).success).toBe(true);
+    expect(schema.safeParse({
+      profile: LOCAL_READ_AGENT_PROFILE,
+      task: 'Inspect the repo.',
+      write_back: AGENT_WRITE_BACK_SUMMARY,
+      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+    })).toEqual({
+      success: true,
+      data: {
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the repo.',
+        write_back: AGENT_WRITE_BACK_SUMMARY,
+        isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+      },
+    });
+    expect(schema.safeParse({
+      profile: LOCAL_READ_AGENT_PROFILE,
+      task: 'Inspect the repo.',
+      write_back: 'patch',
+    }).success).toBe(false);
+    expect(schema.safeParse({
+      profile: LOCAL_READ_AGENT_PROFILE,
+      task: 'Inspect the repo.',
+      isolation: 'worktree',
+    }).success).toBe(false);
     expect(schema.safeParse({ agent: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
     expect(schema.safeParse({ profile: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
     expect(schema.safeParse({ agent_name: 'Researcher', instructions: 'Read only.', prompt: 'Inspect.' }).success).toBe(false);
