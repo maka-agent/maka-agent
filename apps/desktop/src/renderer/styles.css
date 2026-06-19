@@ -1382,37 +1382,11 @@ button:active {
   gap: 10px;
 }
 
-/* QoderWork-style centered hero mark: a soft brand-tinted disk
-   with a single bold letter, rendered before the eyebrow on the
-   ready branch so the first-frame focal point is visual, not
-   typographic. Hidden on the needs_connection branch where the
-   eyebrow stays inline above the multi-card grid. */
-.maka-onboarding-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  background: linear-gradient(
-    140deg,
-    color-mix(in srgb, var(--accent) 22%, var(--background)),
-    color-mix(in srgb, var(--accent) 8%, var(--background))
-  );
-  box-shadow:
-    0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent) inset,
-    0 12px 28px -16px color-mix(in srgb, var(--accent) 60%, transparent);
-}
-
-.maka-onboarding-mark-letter {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--accent);
-  user-select: none;
-}
-
+/* QoderWork-style centered hero layout: eyebrow + headline +
+   subtitle stack centered in the column, on the ready branch
+   only. We only borrow the layout (single centered column with
+   structured info hierarchy); no app-specific brand mark /
+   mascot / illustration character is copied. */
 .maka-onboarding-ready header {
   justify-items: center;
   text-align: center;
