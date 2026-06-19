@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { lstat, readFile, writeFile } from 'node:fs/promises';
-import { relative } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
   appendFixedPromptWalEvent,
@@ -249,7 +249,7 @@ async function assertRegularSystemPromptFile(systemPromptPath: string): Promise<
 }
 
 export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitInput): PromptCandidateGit {
-  const systemPromptGitPath = relative(input.cwd, input.systemPromptPath).split('\\').join('/');
+  const systemPromptGitPath = toGitRelativePath(input.cwd, input.systemPromptPath);
   return {
     systemPromptGitPath,
     async changedFiles(): Promise<readonly string[]> {
@@ -266,6 +266,15 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       return stdout.trim();
     },
   };
+}
+
+function toGitRelativePath(cwd: string, path: string): string {
+  const absolutePath = isAbsolute(path) ? path : resolve(cwd, path);
+  const relativePath = relative(cwd, absolutePath).split('\\').join('/');
+  if (relativePath === '' || relativePath === '..' || relativePath.startsWith('../')) {
+    throw new Error('system_prompt.md must be inside the git cwd');
+  }
+  return relativePath;
 }
 
 function normalizeGitPath(path: string): string {
