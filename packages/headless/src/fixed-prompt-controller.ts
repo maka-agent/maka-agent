@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, truncate, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { validateHarborCellOutput, type HarborCellOutput, type HarborCellTokenSummary } from './cell-output.js';
 import type { Config } from './contracts.js';
@@ -201,6 +201,7 @@ export async function readHarborTaskRunOutput(
 
 export async function appendFixedPromptWalEvent(path: string, event: FixedPromptWalEvent): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
+  await truncateTornWalTail(path);
   await appendFile(path, `${JSON.stringify(event)}\n`, 'utf8');
 }
 
@@ -449,6 +450,19 @@ function tsvCell(value: string): string {
 
 function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+async function truncateTornWalTail(path: string): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    if (isNotFound(error)) return;
+    throw error;
+  }
+  if (raw.length === 0 || raw.endsWith('\n')) return;
+  const lastNewline = raw.lastIndexOf('\n');
+  await truncate(path, lastNewline < 0 ? 0 : lastNewline + 1);
 }
 
 export function hashSystemPrompt(systemPrompt: string): string {

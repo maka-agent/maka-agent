@@ -124,6 +124,29 @@ describe('fixed prompt controller', () => {
 
       assert.deepEqual(calls, ['task-b']);
       assert.deepEqual(result.taskIds, ['task-a', 'task-b']);
+
+      const secondCalls: string[] = [];
+      const second = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [
+          { id: 'task-a', path: '/bench/task-a' },
+          { id: 'task-b', path: '/bench/task-b' },
+        ],
+        harborRunner: async ({ task }) => {
+          secondCalls.push(task.id);
+          return harborOutput({ taskId: task.id });
+        },
+        now: () => 101,
+        newId: idFactory(),
+      });
+
+      assert.deepEqual(secondCalls, []);
+      assert.deepEqual(second.taskIds, ['task-a', 'task-b']);
     });
   });
 
