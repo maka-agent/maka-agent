@@ -351,7 +351,12 @@ describe('fixed prompt controller', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
-        harborRunner: async () => harborOutput({ taskId: 'task-a', omitPromptHash: true }),
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            omitPromptHash: true,
+            tokenSummary: { input: 0, output: 0, reasoning: 0, total: 0, costUsd: 0 },
+          }),
         now: () => 100,
         newId: idFactory(),
       });

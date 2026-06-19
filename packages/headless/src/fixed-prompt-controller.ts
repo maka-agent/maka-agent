@@ -372,7 +372,7 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
   errorClass: FixedPromptTaskPlumbingFailedEvent['errorClass'];
   error: string;
 } | undefined {
-  if (output.cell.tokenSummary.total > 0 && output.cell.promptHash === undefined) {
+  if (output.cell.status === 'completed' && output.cell.promptHash === undefined) {
     return {
       errorClass: 'missing_prompt_hash',
       error: `Harbor cell did not report prompt hash ${expectedPromptHash}`,
