@@ -132,6 +132,7 @@ import {
   cn,
 } from './ui.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './coss/alert.js';
+import { Button as CossButton } from './coss/button.js';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './coss/empty.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './coss/input-group.js';
 import { Kbd } from './coss/kbd.js';
@@ -7961,12 +7962,11 @@ function TerminalPreview(props: {
           <span>
             输出较长，当前只展示每路输出的前 {TOOL_LINE_CAP} 行。需要继续研读时，可以切到深度研究并把命令、相关路径和想确认的问题交给只读探索。
           </span>
-          <UiButton
+          <CossButton
             type="button"
             variant="ghost"
             size="sm"
-            className="maka-button maka-button-ghost maka-tool-terminal-copy"
-            data-size="sm"
+            className="maka-tool-terminal-copy"
             onClick={() => void copyFeedback.copy('handoff', handoffText)}
             disabled={handoffCopyPhase === 'pending'}
             aria-label={handoffCopyAria}
@@ -7977,7 +7977,7 @@ function TerminalPreview(props: {
           >
             {handoffCopyPhase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
             <span>{handoffCopyLabel}</span>
-          </UiButton>
+          </CossButton>
         </div>
       )}
     </div>
