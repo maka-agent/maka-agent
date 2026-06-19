@@ -649,6 +649,34 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('command-palette-open shares the 60-session seed and sets paletteOpen for auto-open', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-command-palette-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('command-palette-open', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const state = getVisualSmokeState(fixture);
+      assert.equal(state?.paletteOpen, true, 'paletteOpen must be true so the renderer auto-opens CommandPalette');
+      assert.equal(state?.activeSessionId, 'visual-smoke-sidebar-long-00');
+
+      const file = await readFile(
+        join(workspaceRoot, 'sessions', 'visual-smoke-sidebar-long-00', 'session.jsonl'),
+        'utf8',
+      );
+      const header = JSON.parse(file.split('\n')[0]!) as { id: string; status: string };
+      assert.equal(header.id, 'visual-smoke-sidebar-long-00');
+      assert.equal(header.status, 'active');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('sidebar-long-sessions seed creates 60 sessions for the scroll-fix gate (PR-SIDEBAR-IA-0 Phase 1)', async () => {
     // PR-SIDEBAR-IA-0 Phase 1 (xuan msg `dc790a54`, kenji `0f7bb872`):
     // hard gate fixture for sidebar scroll fix. The CSS contract is

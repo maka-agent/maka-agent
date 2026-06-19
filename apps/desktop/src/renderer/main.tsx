@@ -1320,6 +1320,12 @@ function AppShell() {
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
     }
+    // PR-COSS-COMMAND-INPUT-0: visual-smoke-only opener for the command
+    // palette so screenshot baselines can cover its input shell without
+    // requiring Cmd/Ctrl+K in the capture harness.
+    if (state.paletteOpen) {
+      openPalette();
+    }
     if (state.sidebarSection === 'automations') {
       setNavSelection({ section: 'automations' });
     } else if (state.sidebarSection === 'skills') {

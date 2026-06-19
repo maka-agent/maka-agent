@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
-import { Button, Input, Kbd, KbdGroup, useModalA11y } from '@maka/ui';
+import { Button, InputGroup, InputGroupAddon, InputGroupInput, Kbd, KbdGroup, useModalA11y } from '@maka/ui';
 import { SETTINGS_NAV } from './settings/SettingsModal';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
@@ -674,13 +674,14 @@ export function CommandPalette(props: {
         aria-label="命令面板"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="maka-palette-input-wrap">
-          <Input
+        <InputGroup className="maka-palette-input-wrap" aria-label="命令面板搜索">
+          <InputGroupInput
             ref={inputRef}
             className="maka-palette-input"
             type="text"
             value={query}
             placeholder="搜索命令、设置项或会话…"
+            aria-label="搜索命令、设置项或会话"
             onChange={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={onInputKeyDown}
             autoComplete="off"
@@ -688,10 +689,12 @@ export function CommandPalette(props: {
             aria-controls="maka-palette-list"
             aria-activedescendant={combined[highlight] ? `cmd-${combined[highlight]!.id}` : undefined}
           />
-          <span className="maka-palette-input-hint" aria-hidden="true">
-            <Kbd className="maka-shortcut-kbd">↵</Kbd> 执行 · <Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭
-          </span>
-        </div>
+          <InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">
+            <span className="maka-palette-input-hint" aria-hidden="true">
+              <Kbd className="maka-shortcut-kbd">↵</Kbd> 执行 · <Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭
+            </span>
+          </InputGroupAddon>
+        </InputGroup>
         <div className="maka-palette-list" id="maka-palette-list" role="listbox" aria-label="命令面板结果">
           {grouped.length === 0 ? (
             <div className="maka-palette-empty">没有匹配的命令</div>

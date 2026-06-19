@@ -85,6 +85,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // modal at mount. Captures the SearchModal shell deterministically
   // so xuan's Phase 2 modal gate has a baseline.
   'sidebar-search-modal-open',
+  // PR-COSS-COMMAND-INPUT-0: same 60-session seed; differs only in
+  // `paletteOpen: true`, which auto-opens CommandPalette so COSS
+  // InputGroup changes to the command input shell have a baseline.
+  'command-palette-open',
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
   // kenji `b3d156e9`): same 60-session seed; differs in
   // `focusActiveRow: true`, which programmatically focuses the
@@ -392,6 +396,15 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
         searchModalOpen: true,
       };
+    case 'command-palette-open':
+      // PR-COSS-COMMAND-INPUT-0: same 60-session seed as the sidebar
+      // baselines; `paletteOpen: true` is the only differentiator so
+      // the command palette shell is visible for screenshot review.
+      return {
+        ...state,
+        activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
+        paletteOpen: true,
+      };
     case 'sidebar-row-actions-visible':
       // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`):
       // same 60-session seed; `focusActiveRow: true` makes the
@@ -497,6 +510,7 @@ export async function seedVisualSmokeFixture(input: {
 const LONG_SIDEBAR_SCENARIOS = new Set<VisualSmokeScenario>([
   'sidebar-long-sessions',
   'sidebar-search-modal-open',
+  'command-palette-open',
   'sidebar-row-actions-visible',
 ]);
 
