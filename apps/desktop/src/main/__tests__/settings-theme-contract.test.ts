@@ -148,4 +148,29 @@ describe('Settings theme page contract', () => {
       'Theme settings visible copy must not leak implementation or English UI terms',
     );
   });
+
+  it('keeps shared Button chrome from collapsing theme choice cards', async () => {
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+
+    assert.match(
+      css,
+      /\.settingsThemeOption \{[\s\S]*height:\s*auto;[\s\S]*min-height:\s*66px;[\s\S]*justify-content:\s*stretch;[\s\S]*overflow:\s*hidden;[\s\S]*white-space:\s*normal;/,
+      'Theme option cards must reset shared Button defaults instead of inheriting h-9/centered chrome',
+    );
+    assert.match(
+      css,
+      /\.settingsThemeOptionPreview \{[\s\S]*align-items:\s*stretch;[\s\S]*min-height:\s*142px;/,
+      'Theme preview cards must reserve enough vertical space for preview plus label',
+    );
+    assert.match(
+      css,
+      /\.settingsThemePreview \{[\s\S]*max-height:\s*70px;[\s\S]*aspect-ratio:\s*16 \/ 8;[\s\S]*overflow:\s*hidden;/,
+      'Theme preview mocks must be bounded so they cannot cover visible labels',
+    );
+    assert.match(
+      css,
+      /\.settingsThemeLabel strong \{[\s\S]*overflow:\s*hidden;[\s\S]*text-overflow:\s*ellipsis;[\s\S]*white-space:\s*nowrap;/,
+      'Long palette names must stay inside their option cards',
+    );
+  });
 });

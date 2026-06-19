@@ -6648,13 +6648,19 @@ button:active {
   grid-template-columns: 56px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
+  width: 100%;
+  height: auto;
+  min-height: 66px;
+  justify-content: stretch;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--background-elevated);
   color: var(--foreground);
   cursor: pointer;
+  overflow: hidden;
   padding: 12px;
   text-align: left;
+  white-space: normal;
 }
 
 /* Preview variant: tile stacks vertically (mock on top, label below) and
@@ -6662,7 +6668,9 @@ button:active {
 .settingsThemeOptionPreview {
   grid-template-columns: 1fr;
   grid-template-rows: auto auto;
+  align-items: stretch;
   gap: 10px;
+  min-height: 142px;
 }
 
 /* Mini chat-surface mock rendered inside each theme tile. Hardcodes colors
@@ -6670,6 +6678,7 @@ button:active {
  * tiles is the whole point. */
 .settingsThemePreview {
   width: 100%;
+  max-height: 70px;
   aspect-ratio: 16 / 8;
   border-radius: 10px;
   overflow: hidden;
@@ -6773,8 +6782,8 @@ button:active {
    colors are hard-coded here (not pulled from --accent) so a non-
    active palette still previews its real color. */
 .settingsPaletteSwatch {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: 2px solid var(--border);
   box-shadow: inset 0 0 0 2px oklch(1 0 0 / 0.25);
@@ -7211,6 +7220,7 @@ button:active {
 
 .settingsThemeLabel {
   display: grid;
+  min-width: 0;
   gap: 4px;
 }
 
@@ -7218,12 +7228,16 @@ button:active {
   color: var(--foreground);
   font-size: 14px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settingsThemeLabel small {
   color: var(--foreground-60);
   font-size: 12px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 820px) {

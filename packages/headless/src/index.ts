@@ -37,6 +37,7 @@ export type {
   HarborTaskRunOutput,
   HarborTaskRunner,
   PromptCandidateCommittedEvent,
+  PromptCandidateDecisionEvent,
   ReadHarborTaskRunOutputInput,
   RunFixedPromptControllerInput,
 } from './fixed-prompt-controller.js';
@@ -73,6 +74,29 @@ export {
   renderMetaAgentPrompt,
   runPromptCandidateRound,
 } from './prompt-candidate-loop.js';
+export type {
+  AppendPromptAcceptanceDecisionInput,
+  CalibratePromptAcceptanceBaselineInput,
+  DecidePromptAcceptanceInput,
+  PromptAcceptanceBaseline,
+  PromptAcceptanceBaselinePartition,
+  PromptAcceptanceBaselineRun,
+  PromptAcceptanceDecision,
+  PromptAcceptanceMetrics,
+  PromptAcceptanceNoiseBandInput,
+  PromptAcceptancePartitionSummary,
+  PromptAcceptanceReason,
+  PromptAcceptanceResult,
+  PromptAcceptanceState,
+} from './prompt-acceptance-policy.js';
+export {
+  appendPromptAcceptanceDecision,
+  calibratePromptAcceptanceBaseline,
+  decidePromptAcceptance,
+  promptAcceptanceNoiseBand,
+  promptAcceptanceStateFromWal,
+  summarizePromptAcceptancePartition,
+} from './prompt-acceptance-policy.js';
 export type {
   BenchmarkAdapter,
   BenchmarkAdapterRegistry,

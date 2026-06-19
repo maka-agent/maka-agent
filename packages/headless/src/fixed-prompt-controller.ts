@@ -109,11 +109,33 @@ export interface PromptCandidateCommittedEvent {
   promptHash: string;
 }
 
+export interface PromptCandidateDecisionEvent {
+  schemaVersion: typeof FIXED_PROMPT_WAL_SCHEMA_VERSION;
+  type: 'prompt_candidate_decided';
+  id: string;
+  ts: number;
+  runId: string;
+  roundId: string;
+  decision: 'keep' | 'discard';
+  reason: string;
+  candidateCommitSha: string;
+  previousLastKeptCommitSha: string;
+  lastKeptCommitSha: string;
+  previousHeldInReferencePassEligibleRate: number | null;
+  heldInReferencePassEligibleRate: number | null;
+  originalCommitSha: string;
+  originalHeldOutPassEligibleRate: number | null;
+  heldInPassRateNoiseBand: number;
+  heldOutPassRateNoiseBand: number;
+  metrics: unknown;
+}
+
 export type FixedPromptWalEvent =
   | FixedPromptTaskCompletedEvent
   | FixedPromptTaskInfraFailedEvent
   | FixedPromptTaskPlumbingFailedEvent
-  | PromptCandidateCommittedEvent;
+  | PromptCandidateCommittedEvent
+  | PromptCandidateDecisionEvent;
 
 export type FixedPromptTaskWalEvent =
   | FixedPromptTaskCompletedEvent
@@ -457,7 +479,7 @@ function terminalTaskEvents(
   return byTask;
 }
 
-function eventMatchesPrompt(event: FixedPromptWalEvent, expectedPromptHash: string): boolean {
+function eventMatchesPrompt(event: FixedPromptTaskWalEvent, expectedPromptHash: string): boolean {
   if (event.type === 'task_infra_failed') return true;
   if (event.promptHash === expectedPromptHash) return true;
   return event.type === 'task_plumbing_failed' && event.expectedPromptHash === expectedPromptHash;
