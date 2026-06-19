@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import {
+  AGENT_WORKSPACE_WORKTREE,
   buildChildAgentTools,
+  IMPLEMENTATION_AGENT_ID,
   listBuiltinAgentDefinitions,
   LOAD_TOOLS_NAME,
   WEB_RESEARCH_AGENT_ID,
@@ -63,6 +65,7 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('agent_output'));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
+    assert.ok(!buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)));
     const definitions = listBuiltinAgentDefinitions({
       parentPermissionMode: 'execute',
       tools: buildChildAgentTools(tools),
@@ -71,6 +74,12 @@ describe('isolated headless tools', () => {
       status: 'unavailable',
       reason: 'missing_tools',
       missingTools: ['WebSearch'],
+    });
+    assert.deepEqual(definitions.find((definition) => definition.id === IMPLEMENTATION_AGENT_ID)?.availability, {
+      status: 'unavailable',
+      reason: 'workspace_isolation_unavailable',
+      workspace: AGENT_WORKSPACE_WORKTREE,
+      requiredRuntime: 'worktree_child_executor',
     });
   });
 

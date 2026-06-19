@@ -3,6 +3,8 @@ import type { ToolResultContent } from '@maka/core';
 import type { MakaTool } from './tool-runtime.js';
 import {
   AGENT_WORKSPACE_SAME_WORKSPACE,
+  AGENT_WORKSPACE_WORKTREE,
+  AGENT_WRITE_BACK_PATCH,
   AGENT_WRITE_BACK_SUMMARY,
   BUILTIN_AGENT_DEFINITIONS,
   BUILTIN_AGENT_PROFILES,
@@ -21,8 +23,14 @@ export const AGENT_TOOL_NAMES = [
   AGENT_OUTPUT_TOOL_NAME,
 ] as const;
 export const CHILD_AGENT_TOOL_NAMES = [
-  ...new Set(BUILTIN_AGENT_DEFINITIONS.flatMap((definition) => definition.tools)),
+  ...new Set(
+    BUILTIN_AGENT_DEFINITIONS
+      .filter((definition) => definition.contract.workspace === AGENT_WORKSPACE_SAME_WORKSPACE)
+      .flatMap((definition) => definition.tools),
+  ),
 ] as readonly string[];
+const AGENT_SPAWN_WRITE_BACK_MODES = [AGENT_WRITE_BACK_SUMMARY, AGENT_WRITE_BACK_PATCH] as const;
+const AGENT_SPAWN_ISOLATION_MODES = [AGENT_WORKSPACE_SAME_WORKSPACE, AGENT_WORKSPACE_WORKTREE] as const;
 
 type SubagentToolResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 
@@ -30,6 +38,7 @@ export function buildChildAgentTools(tools: readonly MakaTool[]): MakaTool[] {
   const seen = new Set<string>();
   const out: MakaTool[] = [];
   for (const definition of BUILTIN_AGENT_DEFINITIONS) {
+    if (definition.contract.workspace !== AGENT_WORKSPACE_SAME_WORKSPACE) continue;
     for (const tool of buildToolsForAgentDefinition(tools, definition)) {
       if (seen.has(tool.name)) continue;
       seen.add(tool.name);
@@ -55,18 +64,53 @@ export function buildSubagentSpawnTool(): MakaTool<
     parameters: z.object({
       profile: z.enum(BUILTIN_AGENT_PROFILES).describe('Child agent profile.'),
       task: z.string().min(1).max(60_000).describe('Bounded task for the selected child agent.'),
-      write_back: z.enum([AGENT_WRITE_BACK_SUMMARY]).optional()
-        .describe('Requested child write-back mode. Built-in profiles currently support only "summary".'),
-      isolation: z.enum([AGENT_WORKSPACE_SAME_WORKSPACE]).optional()
-        .describe('Requested child workspace isolation. Built-in profiles currently run in the same workspace with isolated context.'),
+      write_back: z.enum(AGENT_SPAWN_WRITE_BACK_MODES).optional()
+        .describe('Requested child write-back mode. Each built-in profile declares its supported modes.'),
+      isolation: z.enum(AGENT_SPAWN_ISOLATION_MODES).optional()
+        .describe('Requested child workspace isolation. Worktree profiles fail closed until a worktree child executor is available.'),
+    }).superRefine((input, ctx) => {
+      const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
+      const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;
+      if (!definition.contract.supportedWriteBack.some((mode) => mode === requestedWriteBack)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['write_back'],
+          message: `Agent profile "${definition.profile}" does not support write_back "${requestedWriteBack}".`,
+        });
+      }
+      const requestedIsolation = input.isolation ?? definition.contract.workspace;
+      if (requestedIsolation !== definition.contract.workspace) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['isolation'],
+          message: `Agent profile "${definition.profile}" requires isolation "${definition.contract.workspace}", not "${requestedIsolation}".`,
+        });
+      }
     }),
     permissionRequired: true,
     categoryHint: 'subagent',
     impl: async (input, ctx) => {
+      const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
+      const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;
+      if (!definition.contract.supportedWriteBack.some((mode) => mode === requestedWriteBack)) {
+        throw new Error(
+          `Agent profile "${definition.profile}" does not support write_back "${requestedWriteBack}".`,
+        );
+      }
+      const requestedIsolation = input.isolation ?? definition.contract.workspace;
+      if (requestedIsolation !== definition.contract.workspace) {
+        throw new Error(
+          `Agent profile "${definition.profile}" requires isolation "${definition.contract.workspace}", not "${requestedIsolation}".`,
+        );
+      }
+      if (requestedIsolation !== AGENT_WORKSPACE_SAME_WORKSPACE) {
+        throw new Error(
+          `Agent profile "${definition.profile}" requires "${requestedIsolation}" workspace isolation, but this runtime does not provide a worktree child executor yet.`,
+        );
+      }
       if (!ctx.spawnChildAgent) {
         throw new Error('spawnChildAgent capability is unavailable in this runtime context');
       }
-      const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
       const result = await ctx.spawnChildAgent({
         spec: {
           id: definition.id,

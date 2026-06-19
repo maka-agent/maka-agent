@@ -10,14 +10,19 @@ export const LOCAL_READ_AGENT_ID = 'local-read';
 export const LOCAL_READ_AGENT_PROFILE = 'local_read';
 export const WEB_RESEARCH_AGENT_ID = 'web-research';
 export const WEB_RESEARCH_AGENT_PROFILE = 'web_research';
+export const IMPLEMENTATION_AGENT_ID = 'implementation';
+export const IMPLEMENTATION_AGENT_PROFILE = 'implementation';
 export const BUILTIN_AGENT_PROFILES = [
   LOCAL_READ_AGENT_PROFILE,
   WEB_RESEARCH_AGENT_PROFILE,
+  IMPLEMENTATION_AGENT_PROFILE,
 ] as const;
 export const AGENT_INVOCATION_FOREGROUND = 'foreground';
 export const AGENT_CONTEXT_ISOLATED = 'isolated';
 export const AGENT_WORKSPACE_SAME_WORKSPACE = 'same_workspace';
+export const AGENT_WORKSPACE_WORKTREE = 'worktree';
 export const AGENT_WRITE_BACK_SUMMARY = 'summary';
+export const AGENT_WRITE_BACK_PATCH = 'patch';
 
 export type AgentProfile = typeof BUILTIN_AGENT_PROFILES[number];
 export type AgentCapability = AgentProfile;
@@ -53,6 +58,12 @@ export type AgentDefinitionAvailability =
       status: 'unavailable';
       reason: 'non_allow_tool_policy';
       blockedTools: Array<{ name: string; category: ToolCategory; decision: PolicyDecision }>;
+    }
+  | {
+      status: 'unavailable';
+      reason: 'workspace_isolation_unavailable';
+      workspace: AgentWorkspaceMode;
+      requiredRuntime: 'worktree_child_executor';
     };
 
 export interface AgentDefinition {
@@ -136,9 +147,39 @@ export const WEB_RESEARCH_AGENT_DEFINITION: AgentDefinition = {
   ].join('\n'),
 };
 
+export const IMPLEMENTATION_AGENT_DEFINITION: AgentDefinition = {
+  id: IMPLEMENTATION_AGENT_ID,
+  profile: IMPLEMENTATION_AGENT_PROFILE,
+  name: 'Implementation',
+  description: 'Code-changing implementation work in an isolated worktree with patch write-back.',
+  contract: {
+    capability: 'implementation',
+    invocation: AGENT_INVOCATION_FOREGROUND,
+    context: AGENT_CONTEXT_ISOLATED,
+    workspace: AGENT_WORKSPACE_WORKTREE,
+    defaultWriteBack: AGENT_WRITE_BACK_PATCH,
+    supportedWriteBack: [AGENT_WRITE_BACK_PATCH],
+  },
+  permissionMode: 'execute',
+  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
+  categoryPolicy: {
+    read: 'allow',
+    file_write: 'allow',
+    shell_unsafe: 'allow',
+  },
+  systemPrompt: [
+    'You are a foreground implementation child agent.',
+    'Run only inside a dedicated worktree child executor when the host provides one.',
+    'Use local file and shell tools only for the assigned implementation task.',
+    'Do not use web, browser, or nested agent tools.',
+    'Return a concise patch-oriented summary with verification results.',
+  ].join('\n'),
+};
+
 export const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   LOCAL_READ_AGENT_DEFINITION,
   WEB_RESEARCH_AGENT_DEFINITION,
+  IMPLEMENTATION_AGENT_DEFINITION,
 ];
 
 const modeRank: Record<PermissionMode, number> = {
@@ -210,6 +251,15 @@ export function evaluateAgentDefinitionAvailability(input: {
   tools: readonly MakaTool[];
 }): AgentDefinitionAvailability {
   const { parentPermissionMode, definition, tools } = input;
+  if (definition.contract.workspace === AGENT_WORKSPACE_WORKTREE) {
+    return {
+      status: 'unavailable',
+      reason: 'workspace_isolation_unavailable',
+      workspace: definition.contract.workspace,
+      requiredRuntime: 'worktree_child_executor',
+    };
+  }
+
   if (modeRank[definition.permissionMode] > modeRank[parentPermissionMode]) {
     return {
       status: 'unavailable',
@@ -276,6 +326,11 @@ export function assertAgentDefinitionRunnable(input: {
   if (availability.reason === 'non_allow_tool_policy') {
     const details = availability.blockedTools.map((item) => `${item.name}:${item.decision}`).join(', ');
     throw new Error(`Agent "${definition.id}" is unavailable: non-allow tool policy: ${details}`);
+  }
+  if (availability.reason === 'workspace_isolation_unavailable') {
+    throw new Error(
+      `Agent "${definition.id}" is unavailable: "${availability.workspace}" workspace isolation requires a worktree child executor.`,
+    );
   }
 }
 

@@ -10,7 +10,12 @@ import {
   AGENT_CONTEXT_ISOLATED,
   AGENT_INVOCATION_FOREGROUND,
   AGENT_WORKSPACE_SAME_WORKSPACE,
+  AGENT_WORKSPACE_WORKTREE,
+  AGENT_WRITE_BACK_PATCH,
   AGENT_WRITE_BACK_SUMMARY,
+  IMPLEMENTATION_AGENT_ID,
+  IMPLEMENTATION_AGENT_DEFINITION,
+  IMPLEMENTATION_AGENT_PROFILE,
   LOCAL_READ_AGENT_ID,
   LOCAL_READ_AGENT_DEFINITION,
   LOCAL_READ_AGENT_PROFILE,
@@ -28,6 +33,7 @@ import {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
+  CHILD_AGENT_TOOL_NAMES,
   buildChildAgentTools,
   buildSubagentListTool,
   buildSubagentOutputTool,
@@ -127,6 +133,7 @@ describe('subagent tools', () => {
     expect(withWebSearch.map((definition) => definition.profile)).toEqual([
       LOCAL_READ_AGENT_PROFILE,
       WEB_RESEARCH_AGENT_PROFILE,
+      IMPLEMENTATION_AGENT_PROFILE,
     ]);
     expect(withWebSearch.find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)).toEqual({
       id: WEB_RESEARCH_AGENT_ID,
@@ -165,6 +172,57 @@ describe('subagent tools', () => {
       parentPermissionMode: 'ask',
       requiredPermissionMode: 'execute',
     });
+  });
+
+  test('built-in catalog exposes implementation as a worktree-only fail-closed contract', async () => {
+    expect(IMPLEMENTATION_AGENT_DEFINITION.id).toBe(IMPLEMENTATION_AGENT_ID);
+    expect(IMPLEMENTATION_AGENT_DEFINITION.profile).toBe(IMPLEMENTATION_AGENT_PROFILE);
+    expect(IMPLEMENTATION_AGENT_DEFINITION.contract).toEqual({
+      capability: 'implementation',
+      invocation: AGENT_INVOCATION_FOREGROUND,
+      context: AGENT_CONTEXT_ISOLATED,
+      workspace: AGENT_WORKSPACE_WORKTREE,
+      defaultWriteBack: AGENT_WRITE_BACK_PATCH,
+      supportedWriteBack: [AGENT_WRITE_BACK_PATCH],
+    });
+    expect(IMPLEMENTATION_AGENT_DEFINITION.permissionMode).toBe('execute');
+    expect([...IMPLEMENTATION_AGENT_DEFINITION.tools]).toEqual(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash']);
+    expect(IMPLEMENTATION_AGENT_DEFINITION.tools.includes('WebSearch')).toBe(false);
+    expect(IMPLEMENTATION_AGENT_DEFINITION.tools.includes('ExploreAgent')).toBe(false);
+
+    const availability = listBuiltinAgentDefinitions({
+      parentPermissionMode: 'execute',
+      tools: [
+        testCatalogTool('Read', 'read'),
+        testCatalogTool('Glob', 'read'),
+        testCatalogTool('Grep', 'read'),
+        testCatalogTool('Write', 'file_write'),
+        testCatalogTool('Edit', 'file_write'),
+        testCatalogTool('Bash', 'shell_unsafe'),
+      ],
+    }).find((definition) => definition.id === IMPLEMENTATION_AGENT_ID)?.availability;
+    expect(availability).toEqual({
+      status: 'unavailable',
+      reason: 'workspace_isolation_unavailable',
+      workspace: AGENT_WORKSPACE_WORKTREE,
+      requiredRuntime: 'worktree_child_executor',
+    });
+
+    await expectRejects(
+      Promise.resolve().then(() => assertAgentDefinitionRunnable({
+        parentPermissionMode: 'execute',
+        definition: IMPLEMENTATION_AGENT_DEFINITION,
+        tools: [
+          testCatalogTool('Read', 'read'),
+          testCatalogTool('Glob', 'read'),
+          testCatalogTool('Grep', 'read'),
+          testCatalogTool('Write', 'file_write'),
+          testCatalogTool('Edit', 'file_write'),
+          testCatalogTool('Bash', 'shell_unsafe'),
+        ],
+      })),
+      /worktree child executor/,
+    );
   });
 
   test('agent definition availability reports missing tools and parent permission mismatches without running', () => {
@@ -264,6 +322,10 @@ describe('subagent tools', () => {
     ]);
 
     expect(tools.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep', 'WebSearch']);
+    expect([...CHILD_AGENT_TOOL_NAMES]).toEqual(['Read', 'Glob', 'Grep', 'WebSearch']);
+    expect(tools.some((tool) => tool.name === 'Bash')).toBe(false);
+    expect(tools.some((tool) => tool.name === 'Write')).toBe(false);
+    expect(tools.some((tool) => tool.name === 'Edit')).toBe(false);
   });
 
   test('child agent toolset enforces explore-mode read-only behavior without prompting', async () => {
@@ -383,7 +445,7 @@ describe('subagent tools', () => {
     });
   });
 
-  test('agent_spawn rejects legacy agent ids and unknown profiles without spawning a child', async () => {
+  test('agent_spawn validates profile contracts and rejects unavailable worktree agents before spawning', async () => {
     const tool = buildSubagentSpawnTool();
     const schema = tool.parameters as {
       safeParse(input: unknown): { success: boolean; data?: unknown };
@@ -391,6 +453,20 @@ describe('subagent tools', () => {
 
     expect(schema.safeParse({ profile: LOCAL_READ_AGENT_PROFILE, task: 'Inspect the repo.' }).success).toBe(true);
     expect(schema.safeParse({ profile: WEB_RESEARCH_AGENT_PROFILE, task: 'Find current sources.' }).success).toBe(true);
+    expect(schema.safeParse({
+      profile: IMPLEMENTATION_AGENT_PROFILE,
+      task: 'Edit the repo.',
+      write_back: AGENT_WRITE_BACK_PATCH,
+      isolation: AGENT_WORKSPACE_WORKTREE,
+    })).toEqual({
+      success: true,
+      data: {
+        profile: IMPLEMENTATION_AGENT_PROFILE,
+        task: 'Edit the repo.',
+        write_back: AGENT_WRITE_BACK_PATCH,
+        isolation: AGENT_WORKSPACE_WORKTREE,
+      },
+    });
     expect(schema.safeParse({
       profile: LOCAL_READ_AGENT_PROFILE,
       task: 'Inspect the repo.',
@@ -415,6 +491,18 @@ describe('subagent tools', () => {
       task: 'Inspect the repo.',
       isolation: 'worktree',
     }).success).toBe(false);
+    expect(schema.safeParse({
+      profile: IMPLEMENTATION_AGENT_PROFILE,
+      task: 'Edit the repo.',
+      write_back: AGENT_WRITE_BACK_SUMMARY,
+      isolation: AGENT_WORKSPACE_WORKTREE,
+    }).success).toBe(false);
+    expect(schema.safeParse({
+      profile: IMPLEMENTATION_AGENT_PROFILE,
+      task: 'Edit the repo.',
+      write_back: AGENT_WRITE_BACK_PATCH,
+      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+    }).success).toBe(false);
     expect(schema.safeParse({ agent: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
     expect(schema.safeParse({ profile: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
     expect(schema.safeParse({ profile: WEB_RESEARCH_AGENT_ID, task: 'Find current sources.' }).success).toBe(false);
@@ -422,8 +510,10 @@ describe('subagent tools', () => {
 
     await expectRejects(
       Promise.resolve(tool.impl({
-        profile: 'implementation',
+        profile: IMPLEMENTATION_AGENT_PROFILE,
         task: 'Edit files.',
+        write_back: AGENT_WRITE_BACK_PATCH,
+        isolation: AGENT_WORKSPACE_WORKTREE,
       }, {
         sessionId: 'session-1',
         turnId: 'parent-turn',
@@ -435,7 +525,7 @@ describe('subagent tools', () => {
           throw new Error('spawn should not be called');
         },
       })),
-      /Unknown agent profile "implementation"/,
+      /worktree child executor/,
     );
   });
 
