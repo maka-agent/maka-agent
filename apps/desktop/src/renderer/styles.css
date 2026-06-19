@@ -5060,7 +5060,7 @@ button:active {
   max-width: 750px;
   margin-inline: auto;
   box-sizing: border-box;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 16px;
   background: var(--background-elevated);
   box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.065);
@@ -5131,15 +5131,15 @@ button:active {
 .maka-composer-role-chip,
 .maka-composer-mode-chip,
 .maka-composer-model-chip {
-  height: 32px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  border: 0;
-  border-radius: 8px;
-  padding: 0 10px;
-  background: transparent;
-  color: var(--foreground-60);
+  gap: 6px;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 999px;
+  padding: 0 11px;
+  background: var(--background);
+  color: var(--foreground-65);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -5192,9 +5192,11 @@ button:active {
   background: transparent;
 }
 
-.maka-composer-mic-button:disabled {
-  color: var(--foreground-55);
-  opacity: 1;
+.maka-composer-tool-button.maka-composer-mic-button {
+  width: 30px;
+  height: 30px;
+  border-color: transparent;
+  background: transparent;
 }
 
 .maka-composer-tool-button:hover:not(:disabled) {
@@ -5207,9 +5209,16 @@ button:active {
   cursor: not-allowed;
 }
 
+.maka-composer-tool-button.maka-composer-mic-button:disabled {
+  border-color: transparent;
+  background: transparent;
+  color: var(--foreground-55);
+  opacity: 1;
+}
+
 .maka-composer-send-button {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   background: #000;
   color: #fff;

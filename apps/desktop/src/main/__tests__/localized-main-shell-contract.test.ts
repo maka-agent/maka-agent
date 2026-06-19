@@ -545,7 +545,8 @@ describe('localized main shell contract', () => {
     const workspacePicker = extractCssRule(styles, '.maka-composer-workspace-picker');
     const workspacePickerHover = extractCssRule(styles, '.maka-composer-workspace-picker:hover');
     const contextButton = extractCssRule(styles, '.maka-composer-context-plus');
-    const disabledMicButton = extractCssRule(styles, '.maka-composer-mic-button:disabled');
+    const micButton = extractCssRule(styles, '.maka-composer-tool-button.maka-composer-mic-button');
+    const disabledMicButton = extractCssRule(styles, '.maka-composer-tool-button.maka-composer-mic-button:disabled');
     const noActiveSessionBlock = components.match(/if \(!props\.activeSession\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const activeSessionBlock = components.match(/const isLocalSimulationBackend[\s\S]*?<\/header>/)?.[0] ?? '';
 
@@ -590,7 +591,7 @@ describe('localized main shell contract', () => {
     assert.match(composerCard, /max-width:\s*750px/);
     assert.match(composerCard, /margin-inline:\s*auto/);
     assert.match(composerCard, /box-sizing:\s*border-box/);
-    assert.match(composerCard, /border-radius:\s*8px/);
+    assert.match(composerCard, /border-radius:\s*12px/);
     assert.match(composerCard, /padding:\s*16px/);
     assert.match(composerCard, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.065\)/);
     assert.match(components, /className="maka-composer-inner composerInner agents-parchment-paper-surface"/);
@@ -612,7 +613,7 @@ describe('localized main shell contract', () => {
     assert.ok(composerTextarea, '.composer textarea rule must exist');
     assert.match(composerTextarea, /min-height:\s*var\(--h-composer-min,\s*84px\)/);
     assert.match(styles, /\.maka-composer-left-controls,\n\.maka-composer-right-controls \{[\s\S]*?gap:\s*12px/);
-    assert.match(styles, /\.maka-composer-role-chip,\n\.maka-composer-mode-chip,\n\.maka-composer-model-chip \{[\s\S]*?height:\s*32px[\s\S]*?border-radius:\s*8px/);
+    assert.match(styles, /\.maka-composer-role-chip,\n\.maka-composer-mode-chip,\n\.maka-composer-model-chip \{[\s\S]*?height:\s*30px[\s\S]*?border:\s*1px solid var\(--color-border-tertiary\)[\s\S]*?border-radius:\s*999px/);
     assert.match(components, /className="maka-composer-tool-button maka-composer-context-plus"[\s\S]*aria-label=\{pendingImportAction === 'file' \? '正在添加上下文' : '添加上下文'\}[\s\S]*<Plus size=\{15\}/);
     assert.ok(contextButton, '.maka-composer-context-plus rule must exist');
     assert.match(contextButton, /width:\s*30px/);
@@ -624,7 +625,14 @@ describe('localized main shell contract', () => {
     assert.match(components, /const modelChipLabel = props\.modelLabel\?\.trim\(\) \|\| '选择模型'/);
     assert.match(components, /className="maka-composer-model-chip"[\s\S]*aria-label=\{`当前模型：\$\{modelChipLabel\}`\}[\s\S]*<span className="maka-composer-model-chip-text">\{modelChipLabel\}<\/span>/);
     assert.match(components, /className="maka-composer-tool-button maka-composer-mic-button"[\s\S]*aria-label="语音输入暂未启用"[\s\S]*<Mic size=\{14\}/);
+    assert.ok(micButton, '.maka-composer-tool-button.maka-composer-mic-button rule must exist');
+    assert.match(micButton, /width:\s*30px/);
+    assert.match(micButton, /height:\s*30px/);
+    assert.match(micButton, /border-color:\s*transparent/);
+    assert.match(micButton, /background:\s*transparent/);
     assert.ok(disabledMicButton, '.maka-composer-mic-button:disabled rule must exist');
+    assert.match(disabledMicButton, /border-color:\s*transparent/);
+    assert.match(disabledMicButton, /background:\s*transparent/);
     assert.match(disabledMicButton, /color:\s*var\(--foreground-55\)/);
     assert.match(disabledMicButton, /opacity:\s*1/);
     assert.doesNotMatch(components, /aria-label=\{pendingImportAction === 'file' \? '正在导入文件内容' : '导入文件内容'\}/);
@@ -634,8 +642,8 @@ describe('localized main shell contract', () => {
     assert.match(components, /className="maka-composer-send-button"[\s\S]*size="icon-sm"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}[\s\S]*<ArrowUp size=\{16\} strokeWidth=\{2\.1\} aria-hidden="true" \/>/);
     const sendButton = extractCssRule(styles, '.maka-composer-send-button');
     assert.ok(sendButton, '.maka-composer-send-button rule must exist');
-    assert.match(sendButton, /width:\s*40px/);
-    assert.match(sendButton, /height:\s*40px/);
+    assert.match(sendButton, /width:\s*36px/);
+    assert.match(sendButton, /height:\s*36px/);
     assert.match(sendButton, /border-radius:\s*999px/);
     assert.match(sendButton, /background:\s*#000/);
     assert.match(sendButton, /color:\s*#fff/);
