@@ -4136,7 +4136,7 @@ button:active {
 .emptyChat h1 {
   margin: 0;
   max-width: 28ch;
-  font-size: clamp(24px, 2.4vw, 32px);
+  font-size: 28px;
   font-weight: 600;
   line-height: 1.12;
   text-wrap: balance;
@@ -4808,11 +4808,11 @@ button:active {
 }
 
 .composer .maka-composer-inner {
-  width: min(640px, 100%);
-  max-width: 640px;
+  width: min(520px, 100%);
+  max-width: 520px;
   margin-inline: auto;
   box-sizing: border-box;
-  border-radius: 14px;
+  border-radius: 8px;
   padding: 16px;
   background: var(--background-elevated);
   box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.065);
@@ -4887,17 +4887,17 @@ button:active {
 }
 
 .maka-composer-send-button {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
-  background: var(--foreground);
-  color: var(--background);
+  background: #000;
+  color: #fff;
   box-shadow: none;
 }
 
 .maka-composer-send-button:hover:not(:disabled) {
-  background: oklch(from var(--foreground) calc(l + 0.08) c h);
-  color: var(--background);
+  background: rgb(0 0 0 / 0.8);
+  color: #fff;
 }
 
 .maka-composer-send-button:disabled {
@@ -4906,12 +4906,11 @@ button:active {
 }
 
 .maka-composer-workspace-row {
-  width: min(640px, 100%);
+  width: min(520px, 100%);
   display: flex;
   justify-content: flex-start;
   box-sizing: border-box;
   margin: 10px auto 0;
-  padding-inline: 16px;
 }
 
 .maka-composer-workspace-picker {
@@ -4922,8 +4921,9 @@ button:active {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 0;
+  padding: 8px 16px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--foreground-55);
   cursor: pointer;
@@ -4936,6 +4936,7 @@ button:active {
 
 .maka-composer-workspace-picker:hover {
   color: var(--foreground-80);
+  background: var(--foreground-3);
 }
 
 .maka-composer-workspace-picker:focus-visible {

@@ -475,8 +475,10 @@ describe('localized main shell contract', () => {
     const composerFocus = extractCssRule(styles, '.composer .maka-composer-inner:focus-within');
     const composerToolbar = extractCssRule(styles, '.composerActions');
     const composerShell = extractCssRule(styles, '.composer');
+    const heroHeadline = extractCssRule(styles, '.maka-hero h1,\n.emptyChat h1');
     const workspaceRow = extractCssRule(styles, '.maka-composer-workspace-row');
     const workspacePicker = extractCssRule(styles, '.maka-composer-workspace-picker');
+    const workspacePickerHover = extractCssRule(styles, '.maka-composer-workspace-picker:hover');
     const noActiveSessionBlock = components.match(/if \(!props\.activeSession\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const activeSessionBlock = components.match(/const isLocalSimulationBackend[\s\S]*?<\/header>/)?.[0] ?? '';
 
@@ -503,12 +505,15 @@ describe('localized main shell contract', () => {
     assert.ok(composerShell, '.composer rule must exist');
     assert.match(composerShell, /display:\s*flex/);
     assert.match(composerShell, /align-items:\s*center/);
+    assert.ok(heroHeadline, '.maka-hero h1 rule must exist');
+    assert.match(heroHeadline, /font-size:\s*28px/);
+    assert.doesNotMatch(heroHeadline, /clamp\(/);
     assert.ok(composerCard, '.composer .maka-composer-inner rule must exist');
-    assert.match(composerCard, /width:\s*min\(640px,\s*100%\)/);
-    assert.match(composerCard, /max-width:\s*640px/);
+    assert.match(composerCard, /width:\s*min\(520px,\s*100%\)/);
+    assert.match(composerCard, /max-width:\s*520px/);
     assert.match(composerCard, /margin-inline:\s*auto/);
     assert.match(composerCard, /box-sizing:\s*border-box/);
-    assert.match(composerCard, /border-radius:\s*14px/);
+    assert.match(composerCard, /border-radius:\s*8px/);
     assert.match(composerCard, /padding:\s*16px/);
     assert.match(composerCard, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.065\)/);
     assert.doesNotMatch(composerCard, /0 2px 8px/);
@@ -527,19 +532,23 @@ describe('localized main shell contract', () => {
     assert.match(components, /className="maka-composer-send-button"[\s\S]*size="icon-sm"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}[\s\S]*<ArrowUp size=\{16\} strokeWidth=\{2\.1\} aria-hidden="true" \/>/);
     const sendButton = extractCssRule(styles, '.maka-composer-send-button');
     assert.ok(sendButton, '.maka-composer-send-button rule must exist');
-    assert.match(sendButton, /width:\s*32px/);
-    assert.match(sendButton, /height:\s*32px/);
+    assert.match(sendButton, /width:\s*40px/);
+    assert.match(sendButton, /height:\s*40px/);
     assert.match(sendButton, /border-radius:\s*999px/);
-    assert.match(sendButton, /background:\s*var\(--foreground\)/);
-    assert.match(sendButton, /color:\s*var\(--background\)/);
+    assert.match(sendButton, /background:\s*#000/);
+    assert.match(sendButton, /color:\s*#fff/);
     assert.match(components, /workspacePicker\?: \{[\s\S]*label\?: string;[\s\S]*branch\?: string \| null;[\s\S]*onOpen\(\): void;[\s\S]*\};/);
     assert.match(components, /className="maka-composer-workspace-picker"[\s\S]*<FolderOpen size=\{13\}[\s\S]*<span>选择工作目录<\/span>[\s\S]*<ChevronDown size=\{12\}/);
     assert.ok(workspaceRow, '.maka-composer-workspace-row rule must exist');
-    assert.match(workspaceRow, /width:\s*min\(640px,\s*100%\)/);
-    assert.match(workspaceRow, /padding-inline:\s*16px/);
+    assert.match(workspaceRow, /width:\s*min\(520px,\s*100%\)/);
+    assert.doesNotMatch(workspaceRow, /padding-inline/);
     assert.ok(workspacePicker, '.maka-composer-workspace-picker rule must exist');
     assert.match(workspacePicker, /font-size:\s*12px/);
     assert.match(workspacePicker, /background:\s*transparent/);
+    assert.match(workspacePicker, /padding:\s*8px 16px/);
+    assert.match(workspacePicker, /border:\s*0/);
+    assert.ok(workspacePickerHover, '.maka-composer-workspace-picker:hover rule must exist');
+    assert.match(workspacePickerHover, /background:\s*var\(--foreground-3\)/);
   });
 
   it('keeps English skill metadata out of the visible skills list copy', async () => {
