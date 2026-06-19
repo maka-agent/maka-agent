@@ -60,6 +60,7 @@ export interface CreateScriptedMetaAgentInput {
 export interface PromptCandidateGit {
   gitRootPath: string;
   systemPromptGitPath: string;
+  assertSystemPromptClean(): Promise<void>;
   changedFiles(): Promise<readonly string[]>;
   commit(message: string): Promise<string>;
   restoreSystemPrompt(): Promise<void>;
@@ -98,6 +99,7 @@ export async function runPromptCandidateRound(
   const newId = input.newId ?? randomId;
   assertHeldInAndHeldOutDisjoint(input.heldInDigests, input.heldOutDigests ?? []);
   await assertRegularSystemPromptFile(input.systemPromptPath, input.git.gitRootPath);
+  await input.git.assertSystemPromptClean();
   const program = await readFile(input.programPath, 'utf8');
   const currentSystemPrompt = await readFile(input.systemPromptPath, 'utf8');
   const resultsTsv = filterResultsTsvForHeldIn(
@@ -285,6 +287,15 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
   return {
     gitRootPath,
     systemPromptGitPath,
+    async assertSystemPromptClean(): Promise<void> {
+      const [worktreeDirty, indexDirty] = await Promise.all([
+        hasGitDiff(gitRootPath, ['diff', '--quiet', '--', systemPromptGitPath]),
+        hasGitDiff(gitRootPath, ['diff', '--cached', '--quiet', '--', systemPromptGitPath]),
+      ]);
+      if (worktreeDirty || indexDirty) {
+        throw new Error('system_prompt.md must be clean before candidate round');
+      }
+    },
     async changedFiles(): Promise<readonly string[]> {
       const { stdout } = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: gitRootPath });
       return stdout
@@ -302,6 +313,15 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], { cwd: gitRootPath });
     },
   };
+}
+
+async function hasGitDiff(cwd: string, args: readonly string[]): Promise<boolean> {
+  try {
+    await execFileAsync('git', [...args], { cwd });
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 function findGitRoot(cwd: string): string {

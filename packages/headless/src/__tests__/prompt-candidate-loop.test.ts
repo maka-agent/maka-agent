@@ -145,6 +145,7 @@ describe('prompt candidate loop', () => {
           git: {
             gitRootPath: dir,
             systemPromptGitPath: 'system_prompt.md',
+            assertSystemPromptClean: async () => {},
             changedFiles: async () => ['system_prompt.md', 'program.md'],
             commit: async () => {
               committed = true;
@@ -223,6 +224,7 @@ describe('prompt candidate loop', () => {
             git: {
               gitRootPath: dir,
               systemPromptGitPath: 'prompts/system_prompt.md',
+              assertSystemPromptClean: async () => {},
               changedFiles: async () => ['prompts/system_prompt.md'],
               commit: async () => 'commit-1',
               restoreSystemPrompt: async () => {
@@ -265,6 +267,7 @@ describe('prompt candidate loop', () => {
           git: {
             gitRootPath: dir,
             systemPromptGitPath: 'prompts/system_prompt.md',
+            assertSystemPromptClean: async () => {},
             changedFiles: async () => ['system_prompt.md'],
             commit: async () => {
               committed = true;
@@ -307,6 +310,7 @@ describe('prompt candidate loop', () => {
           git: {
             gitRootPath: dir,
             systemPromptGitPath: 'system_prompt.md',
+            assertSystemPromptClean: async () => {},
             changedFiles: async () => ['system_prompt.md'],
             commit: async () => {
               throw new Error('commit rejected');
@@ -537,12 +541,54 @@ describe('prompt candidate loop', () => {
       assert.equal(worktree.stdout, '');
     });
   });
+
+  test('CLI git adapter rejects a dirty system prompt before candidate writes', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+      await writeFile(systemPromptPath, 'manual prompt edit\n', 'utf8');
+
+      let called = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInDigests: [],
+          metaAgent: async () => {
+            called = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /system_prompt.md must be clean before candidate round/,
+      );
+
+      assert.equal(called, false);
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'manual prompt edit\n');
+    });
+  });
 });
 
 function gitNoop(gitRootPath = process.cwd()) {
   return {
     gitRootPath,
     systemPromptGitPath: 'system_prompt.md',
+    assertSystemPromptClean: async () => {},
     changedFiles: async () => ['system_prompt.md'],
     commit: async () => 'commit-1',
     restoreSystemPrompt: async () => {},
