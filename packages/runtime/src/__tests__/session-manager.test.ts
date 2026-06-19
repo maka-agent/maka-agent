@@ -30,6 +30,8 @@ import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend, MakaTool } from '../ai-sdk-backend.js';
 import type { InvocationResult } from '../invocation-context.js';
 import {
+  AGENT_WORKSPACE_WORKTREE,
+  IMPLEMENTATION_AGENT_ID,
   LOCAL_READ_AGENT_DEFINITION,
   LOCAL_READ_AGENT_ID,
   WEB_RESEARCH_AGENT_DEFINITION,
@@ -1474,7 +1476,11 @@ describe('SessionManager permission mode updates', () => {
     ]);
 
     const list = await manager.listChildAgents(session.id);
-    expect(list.definitions.map((agent) => agent.id)).toEqual([LOCAL_READ_AGENT_ID, WEB_RESEARCH_AGENT_ID]);
+    expect(list.definitions.map((agent) => agent.id)).toEqual([
+      LOCAL_READ_AGENT_ID,
+      WEB_RESEARCH_AGENT_ID,
+      IMPLEMENTATION_AGENT_ID,
+    ]);
     expect(list.definitions[0]?.availability).toEqual({ status: 'available' });
     expect(list.definitions[0]?.contract.defaultWriteBack).toBe('summary');
     expect(list.definitions[0]?.contract.workspace).toBe('same_workspace');
@@ -1482,6 +1488,12 @@ describe('SessionManager permission mode updates', () => {
       status: 'unavailable',
       reason: 'missing_tools',
       missingTools: ['WebSearch'],
+    });
+    expect(list.definitions[2]?.availability).toEqual({
+      status: 'unavailable',
+      reason: 'workspace_isolation_unavailable',
+      workspace: AGENT_WORKSPACE_WORKTREE,
+      requiredRuntime: 'worktree_child_executor',
     });
     expect(list.runs.map((agent) => agent.runId)).toEqual(['child-run']);
     expect(list.runs[0]?.agentId).toBe(LOCAL_READ_AGENT_ID);
