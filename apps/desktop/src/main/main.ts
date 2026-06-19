@@ -1738,7 +1738,10 @@ function proxyTestFailureMessage(result: TestProxyResult): string {
 }
 
 function registerIpc(): void {
+  let selectedProjectRoot: string | null = null;
+
   async function currentProjectRoot(): Promise<string> {
+    if (selectedProjectRoot) return selectedProjectRoot;
     return resolveProjectRoot([process.cwd(), app.getAppPath()]);
   }
 
@@ -1773,6 +1776,33 @@ function registerIpc(): void {
     if (error) return { ok: false, reason: 'open-failed' };
     return { ok: true, opened: resolved.key };
   });
+  ipcMain.handle(
+    'app:selectProjectDirectory',
+    async (): Promise<
+      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
+      | { ok: false; reason: 'cancelled' | 'missing-selection' }
+    > => {
+      const result = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, {
+            title: '选择工作目录',
+            properties: ['openDirectory'],
+          })
+        : await dialog.showOpenDialog({
+            title: '选择工作目录',
+            properties: ['openDirectory'],
+          });
+      const selectedPath = result.filePaths[0];
+      if (result.canceled) return { ok: false, reason: 'cancelled' };
+      if (!selectedPath) return { ok: false, reason: 'missing-selection' };
+      const projectPath = await resolveProjectRoot([selectedPath]);
+      selectedProjectRoot = projectPath;
+      return {
+        ok: true,
+        projectPath,
+        projectGit: await resolveProjectGitInfo(projectPath),
+      };
+    },
+  );
   ipcMain.handle('memory:getState', async (): Promise<LocalMemoryState> => localMemory.getState());
   ipcMain.handle('memory:listProposals', async () => localMemory.listProposals());
   ipcMain.handle('memory:propose', async (_event, input: unknown) => {

@@ -154,6 +154,11 @@ function appInfoActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。');
 }
 
+function selectProjectDirectoryFailureCopy(reason: 'missing-selection'): string {
+  if (reason === 'missing-selection') return '没有读取到选中的目录，请重新选择。';
+  return '工作目录暂时无法切换，请稍后重试。';
+}
+
 function shellSettingsActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。');
 }
@@ -1582,6 +1587,22 @@ function AppShell() {
     }
   }
 
+  async function selectProjectDirectory() {
+    try {
+      const result = await window.maka.app.selectProjectDirectory();
+      if (!result.ok) {
+        if (result.reason !== 'cancelled') {
+          toastApi.error('选择工作目录失败', selectProjectDirectoryFailureCopy(result.reason));
+        }
+        return;
+      }
+      setAppInfo({ projectPath: result.projectPath, projectGit: result.projectGit });
+      toastApi.success('已切换工作目录', basenameFromPath(result.projectPath));
+    } catch (error) {
+      toastApi.error('选择工作目录失败', appInfoActionErrorMessage(error));
+    }
+  }
+
   async function refreshPlanReminders(options: { shouldShowError?: () => boolean } = {}) {
     try {
       const next = await window.maka.plans.list();
@@ -2963,7 +2984,7 @@ function AppShell() {
                   label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
                   branch: appInfo?.projectGit.branch,
                   onOpen: () => {
-                    void (appInfo ? openProjectFolder() : openWorkspaceFolder());
+                    void selectProjectDirectory();
                   },
                 }}
               />

@@ -63,6 +63,31 @@ describe('project context workspace picker', () => {
     assert.match(globalTypes, /projectGit:\s*\{ isGitRepo: boolean; branch\?: string \};/);
   });
 
+  it('lets the composer picker choose a new project directory instead of only opening Finder', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const preload = await readRepo('apps/desktop/src/preload/preload.ts');
+    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const workspacePickerBlock = renderer.match(/workspacePicker=\{\{[\s\S]*?\n\s*\}\}/)?.[0] ?? '';
+
+    assert.match(main, /let selectedProjectRoot: string \| null = null;/);
+    assert.match(main, /if \(selectedProjectRoot\) return selectedProjectRoot;/);
+    assert.match(main, /ipcMain\.handle\(\s*'app:selectProjectDirectory'/);
+    assert.match(main, /dialog\.showOpenDialog\(mainWindow,\s*\{[\s\S]*title:\s*'选择工作目录'[\s\S]*properties:\s*\['openDirectory'\]/);
+    assert.match(main, /const projectPath = await resolveProjectRoot\(\[selectedPath\]\)/);
+    assert.match(main, /selectedProjectRoot = projectPath;/);
+    assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
+    assert.match(preload, /selectProjectDirectory\(\): Promise</);
+    assert.match(preload, /ipcRenderer\.invoke\('app:selectProjectDirectory'\)/);
+    assert.match(globalTypes, /selectProjectDirectory\(\): Promise</);
+    assert.match(renderer, /async function selectProjectDirectory\(\)/);
+    assert.match(renderer, /window\.maka\.app\.selectProjectDirectory\(\)/);
+    assert.match(renderer, /setAppInfo\(\{ projectPath: result\.projectPath, projectGit: result\.projectGit \}\)/);
+    assert.match(renderer, /toastApi\.success\('已切换工作目录', basenameFromPath\(result\.projectPath\)\)/);
+    assert.match(workspacePickerBlock, /void selectProjectDirectory\(\)/);
+    assert.doesNotMatch(workspacePickerBlock, /openProjectFolder\(\)|openWorkspaceFolder\(\)|openPath\(/);
+  });
+
   it('opens project directory by allowlisted key, not renderer-supplied path', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const guard = await readRepo('apps/desktop/src/main/open-path-guard.ts');
