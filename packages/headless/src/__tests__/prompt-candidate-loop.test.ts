@@ -37,6 +37,7 @@ describe('prompt candidate loop', () => {
         systemPromptPath,
         resultsTsvPath,
         resultsJsonlPath,
+        heldInTaskIds: ['task-a'],
         heldInDigests: [
           {
             taskId: 'task-a',
@@ -86,6 +87,55 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('filters results TSV by held-in tasks independently from trajectory digests', async () => {
+    await withDir(async (dir) => {
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\nheld-out-secret\ttrue\n', 'utf8');
+
+      let seenInput: MetaAgentPromptInput | undefined;
+      await runPromptCandidateRound({
+        runId: 'run-1',
+        roundId: 'round-1',
+        programPath,
+        systemPromptPath,
+        resultsTsvPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        heldInTaskIds: ['passed-task', 'failed-task'],
+        heldInDigests: [
+          {
+            taskId: 'failed-task',
+            errorClass: 'verification_failed',
+            summary: 'missing expected line',
+          },
+        ],
+        heldOutDigests: [
+          {
+            taskId: 'held-out-secret',
+            errorClass: 'verification_failed',
+            summary: 'do not leak this held-out trajectory',
+          },
+        ],
+        metaAgent: async (input): Promise<MetaAgentPromptResult> => {
+          seenInput = input;
+          return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+        },
+        git: gitNoop(dir),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.ok(seenInput);
+      assert.equal(seenInput.resultsTsv, 'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\n');
+      assert.deepEqual(seenInput.heldInDigests.map((digest) => digest.taskId), ['failed-task']);
+      assert.equal(JSON.stringify(seenInput).includes('held-out-secret'), false);
+      assert.equal(JSON.stringify(seenInput).includes('do not leak'), false);
+    });
+  });
+
   test('rejects overlapping held-in and held-out task digests', async () => {
     await withDir(async (dir) => {
       const programPath = join(dir, 'program.md');
@@ -104,6 +154,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: ['task-a'],
           heldInDigests: [{ taskId: 'task-a', summary: 'held-in summary' }],
           heldOutDigests: [{ taskId: 'task-a', summary: 'held-out summary' }],
           metaAgent: async () => {
@@ -139,6 +190,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           heldOutDigests: [],
           metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
@@ -185,6 +237,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
           git: gitNoop(dir),
@@ -219,6 +272,7 @@ describe('prompt candidate loop', () => {
             systemPromptPath,
             resultsTsvPath,
             resultsJsonlPath: join(dir, 'results.jsonl'),
+            heldInTaskIds: [],
             heldInDigests: [],
             metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
             git: {
@@ -262,6 +316,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
           git: {
@@ -310,6 +365,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath: programPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => {
             called = true;
@@ -346,6 +402,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
           git: {
@@ -463,6 +520,7 @@ describe('prompt candidate loop', () => {
         systemPromptPath,
         resultsTsvPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
+        heldInTaskIds: [],
         heldInDigests: [],
         metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
         git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
@@ -503,6 +561,7 @@ describe('prompt candidate loop', () => {
         systemPromptPath: join(dir, 'system_prompt.md'),
         resultsTsvPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
+        heldInTaskIds: [],
         heldInDigests: [],
         metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
         git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath: 'system_prompt.md' }),
@@ -539,6 +598,7 @@ describe('prompt candidate loop', () => {
         systemPromptPath,
         resultsTsvPath,
         resultsJsonlPath: join(packageDir, 'results.jsonl'),
+        heldInTaskIds: [],
         heldInDigests: [],
         metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
         git: createCliPromptCandidateGit({ cwd: packageDir, systemPromptPath: 'system_prompt.md' }),
@@ -577,6 +637,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' }),
           git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
@@ -617,6 +678,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => {
             called = true;
@@ -657,6 +719,7 @@ describe('prompt candidate loop', () => {
           systemPromptPath,
           resultsTsvPath,
           resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
           heldInDigests: [],
           metaAgent: async () => {
             called = true;

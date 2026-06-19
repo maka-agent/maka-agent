@@ -78,6 +78,7 @@ export interface RunPromptCandidateRoundInput {
   systemPromptPath: string;
   resultsTsvPath: string;
   resultsJsonlPath: string;
+  heldInTaskIds: readonly string[];
   heldInDigests: readonly TrajectoryDigest[];
   heldOutDigests?: readonly TrajectoryDigest[];
   metaAgent: MetaAgent;
@@ -97,7 +98,7 @@ export async function runPromptCandidateRound(
 ): Promise<PromptCandidateRoundResult> {
   const now = input.now ?? Date.now;
   const newId = input.newId ?? randomId;
-  assertHeldInAndHeldOutDisjoint(input.heldInDigests, input.heldOutDigests ?? []);
+  assertHeldInAndHeldOutDisjoint(input.heldInTaskIds, input.heldOutDigests ?? []);
   await assertSystemPromptPathMatchesGit(input.systemPromptPath, input.git);
   await assertRegularSystemPromptFile(input.systemPromptPath, input.git.gitRootPath);
   await input.git.assertSystemPromptClean();
@@ -105,7 +106,7 @@ export async function runPromptCandidateRound(
   const currentSystemPrompt = await readFile(input.systemPromptPath, 'utf8');
   const resultsTsv = filterResultsTsvForHeldIn(
     await readFile(input.resultsTsvPath, 'utf8'),
-    input.heldInDigests,
+    input.heldInTaskIds,
   );
   const result = await input.metaAgent({
     runId: input.runId,
@@ -155,11 +156,11 @@ async function assertSystemPromptPathMatchesGit(
 }
 
 function assertHeldInAndHeldOutDisjoint(
-  heldInDigests: readonly TrajectoryDigest[],
+  heldInTaskIds: readonly string[],
   heldOutDigests: readonly TrajectoryDigest[],
 ): void {
-  const heldInTaskIds = new Set(heldInDigests.map((digest) => digest.taskId));
-  const overlap = heldOutDigests.find((digest) => heldInTaskIds.has(digest.taskId));
+  const heldInTasks = new Set(heldInTaskIds);
+  const overlap = heldOutDigests.find((digest) => heldInTasks.has(digest.taskId));
   if (overlap) {
     throw new Error(`held-in and held-out task sets must be disjoint: ${overlap.taskId}`);
   }
@@ -207,7 +208,7 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
 
 export function filterResultsTsvForHeldIn(
   resultsTsv: string,
-  heldInDigests: readonly TrajectoryDigest[],
+  heldInTaskIds: readonly string[],
 ): string {
   const hasTrailingNewline = resultsTsv.endsWith('\n');
   const lines = resultsTsv.split(/\r?\n/);
@@ -220,12 +221,12 @@ export function filterResultsTsvForHeldIn(
     throw new Error('results TSV must include a task_id column');
   }
 
-  const heldInTaskIds = new Set(heldInDigests.map((digest) => digest.taskId));
+  const heldInTasks = new Set(heldInTaskIds);
   const filtered = [
     header,
     ...lines.slice(1).filter((line) => {
       const columns = line.split('\t');
-      return heldInTaskIds.has(columns[taskIdIndex] ?? '');
+      return heldInTasks.has(columns[taskIdIndex] ?? '');
     }),
   ];
   return `${filtered.join('\n')}${hasTrailingNewline ? '\n' : ''}`;
