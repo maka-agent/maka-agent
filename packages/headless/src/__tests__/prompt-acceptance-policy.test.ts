@@ -95,6 +95,63 @@ describe('prompt acceptance policy', () => {
       }),
       /baseline held-in run 1 is incomplete/,
     );
+
+    assert.throws(
+      () => calibratePromptAcceptanceBaseline({
+        heldInTaskIds: ['in-a', 'in-b'],
+        heldOutTaskIds: ['out-a', 'out-b'],
+        baselineRuns: [
+          {
+            heldInEvents: [
+              completed('in-a', true),
+              completed('in-b', false),
+            ],
+            heldOutEvents: [
+              completed('out-a', true),
+            ],
+          },
+        ],
+      }),
+      /baseline held-out run 1 is incomplete/,
+    );
+
+    assert.throws(
+      () => calibratePromptAcceptanceBaseline({
+        heldInTaskIds: ['in-a', 'in-b'],
+        heldOutTaskIds: ['out-a'],
+        baselineRuns: [
+          {
+            heldInEvents: [
+              completed('in-a', true),
+              infraFailed('in-b'),
+            ],
+            heldOutEvents: [
+              completed('out-a', true),
+            ],
+          },
+        ],
+      }),
+      /baseline held-in run 1 is incomplete/,
+    );
+
+    assert.throws(
+      () => calibratePromptAcceptanceBaseline({
+        heldInTaskIds: ['in-a', 'in-b'],
+        heldOutTaskIds: ['out-a'],
+        baselineRuns: [
+          {
+            heldInEvents: [
+              completed('in-a', true),
+              completed('in-b', false, { scored: false, errorClass: 'max_tokens' }),
+            ],
+            heldOutEvents: [
+              completed('out-a', true),
+            ],
+          },
+        ],
+      }),
+      /baseline held-in run 1 is incomplete/,
+    );
   });
 
   test('keeps candidates that improve held-in beyond noise without falling below the held-out original floor', () => {

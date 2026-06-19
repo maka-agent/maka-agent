@@ -171,6 +171,7 @@ function assertCompleteBaselineSummaries(
     if (
       summary.observed !== summary.taskCount
       || summary.missingTaskIds.length > 0
+      || summary.unscoredTaskIds.length > 0
       || summary.infraFailedTaskIds.length > 0
       || summary.plumbingFailedTaskIds.length > 0
     ) {
