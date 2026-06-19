@@ -328,6 +328,7 @@ export async function runTaskOnce(
         workspaceDir: scoringWorkspace.dir,
         submittedSnapshotId: frozen.submittedSnapshot.id,
         scoringWorkspaceId: scoringWorkspace.dir,
+        benchmarkAdapters: deps.benchmarkAdapters,
       });
     } finally {
       await scoringWorkspace.cleanup();
@@ -364,6 +365,8 @@ export async function runTaskOnce(
       passed: finalScore.passed,
       scored: finalScore.scored,
       eligible: finalScore.eligible,
+      ...(finalScore.score !== undefined ? { score: finalScore.score } : {}),
+      ...(finalScore.maxScore !== undefined ? { maxScore: finalScore.maxScore } : {}),
       ...(finalScore.errorClass ? { errorClass: finalScore.errorClass } : {}),
       ...(finalScore.excludedReason ? { excludedReason: finalScore.excludedReason } : {}),
       taxonomy,

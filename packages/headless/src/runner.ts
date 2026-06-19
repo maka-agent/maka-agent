@@ -19,6 +19,7 @@ import { freezeSubmittedWorkspace, prepareScoringWorkspace, prepareWorkspace, re
 import { defaultFinalScorer } from './scorer.js';
 import { buildIsolatedHeadlessTools } from './tools.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
+import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
 
 export interface RunExperimentDeps {
   /**
@@ -40,6 +41,7 @@ export interface RunExperimentDeps {
    * Harbor/Terminal-Bench environment or Docker workspace executor.
    */
   realBackendIsolation?: RealBackendIsolation;
+  benchmarkAdapters?: BenchmarkAdapterRegistry;
   now?: () => number;
   newId?: () => string;
 }
@@ -161,6 +163,7 @@ export async function runExperiment(
         workspaceDir: scoringWorkspace.dir,
         submittedSnapshotId: frozen.submittedSnapshot.id,
         scoringWorkspaceId: scoringWorkspace.dir,
+        benchmarkAdapters: deps.benchmarkAdapters,
       });
       const finalScore = defaultFinalScorer({
         config,

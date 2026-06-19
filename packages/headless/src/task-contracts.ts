@@ -201,6 +201,9 @@ export interface VerifierResult {
   timedOut?: boolean;
   error?: string;
   errorClass?: string;
+  score?: number;
+  maxScore?: number;
+  details?: Record<string, unknown>;
   submittedSnapshotId?: string;
   scoringWorkspaceId?: string;
 }

@@ -3,6 +3,14 @@
 // (backends.ts) are internals the runner owns, not part of the API. Minimal
 // usage is `runExperiment(config, task, { storageRoot })`.
 export type {
+  BenchmarkAdapter,
+  BenchmarkAdapterRegistry,
+  BenchmarkInstanceRef,
+  BenchmarkVerifierInput,
+  BenchmarkVerifierOutput,
+} from './benchmark-adapters.js';
+export { resolveBenchmarkAdapter } from './benchmark-adapters.js';
+export type {
   ArtifactFreezeResult,
   BenchmarkContract,
   CommandVerifierSpec,
@@ -111,8 +119,25 @@ export type {
 export { AutonomousAgentLoop, runAutonomousTask } from './autonomous-agent-loop.js';
 export { runExperiment, type RunExperimentDeps } from './runner.js';
 export { runMatrix, type ExperimentSpec } from './matrix.js';
+export {
+  MATRIX_CELL_SEPARATOR,
+  isRetryableTaxonomy,
+  matrixCellKey,
+  planMatrixRetry,
+  readMatrixPriorRecords,
+  readTaskRunStoreRecords,
+  type MatrixCellDecision,
+  type MatrixRetryPlanOptions,
+} from './matrix-resume.js';
 export { defaultFinalScorer } from './scorer.js';
 export { readResults, summarizeMatrix, writeResults, toComparisonTable, type MatrixSummary } from './results.js';
+export type { TaskRunExport, WriteTaskRunExportOptions, WriteTaskRunExportResult } from './result-export.js';
+export {
+  exportContentHash,
+  renderTaskRunMarkdown,
+  taskRunExportFromProjection,
+  writeTaskRunExport,
+} from './result-export.js';
 export { normalizeVerifier } from './verifier.js';
 export type {
   HeadlessBackendContext,

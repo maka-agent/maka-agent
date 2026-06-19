@@ -79,6 +79,13 @@ export interface TerminalBenchVerifierSpec {
   kind: 'terminal_bench';
   adapter: 'terminal-bench';
   instanceId: string;
+  dataset?: string;
+  datasetPath?: string;
+  taskDir?: string;
+  taskDescriptionKey?: string;
+  testCommand?: string;
+  maxAgentTimeoutSec?: number;
+  maxTestTimeoutSec?: number;
   protectedPaths?: string[];
   adapterOptions?: Record<string, unknown>;
 }

@@ -18,6 +18,8 @@ export interface FinalScore {
   taxonomy: AutonomousResultTaxonomy;
   errorClass?: string;
   excludedReason?: string;
+  score?: number;
+  maxScore?: number;
   details?: Record<string, unknown>;
 }
 
@@ -75,6 +77,9 @@ export const defaultFinalScorer: FinalScorer = (input) => {
     scored: true,
     eligible: true,
     taxonomy: verifier.passed ? 'passed' : 'verification_failed',
+    ...(verifier.score !== undefined ? { score: verifier.score } : {}),
+    ...(verifier.maxScore !== undefined ? { maxScore: verifier.maxScore } : {}),
+    ...(verifier.details ? { details: { benchmark: verifier.details } } : {}),
     ...(verifier.passed ? {} : { errorClass: 'verification_failed' }),
   };
 };
