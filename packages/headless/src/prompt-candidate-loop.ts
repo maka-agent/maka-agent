@@ -98,6 +98,7 @@ export async function runPromptCandidateRound(
   const now = input.now ?? Date.now;
   const newId = input.newId ?? randomId;
   assertHeldInAndHeldOutDisjoint(input.heldInDigests, input.heldOutDigests ?? []);
+  await assertSystemPromptPathMatchesGit(input.systemPromptPath, input.git);
   await assertRegularSystemPromptFile(input.systemPromptPath, input.git.gitRootPath);
   await input.git.assertSystemPromptClean();
   const program = await readFile(input.programPath, 'utf8');
@@ -138,6 +139,19 @@ export async function runPromptCandidateRound(
     summary: result.summary,
     commitSha,
   };
+}
+
+async function assertSystemPromptPathMatchesGit(
+  systemPromptPath: string,
+  git: PromptCandidateGit,
+): Promise<void> {
+  const [inputRealPath, gitRealPath] = await Promise.all([
+    realpath(systemPromptPath),
+    realpath(resolve(git.gitRootPath, git.systemPromptGitPath)),
+  ]);
+  if (inputRealPath !== gitRealPath) {
+    throw new Error('system prompt path must match git prompt path');
+  }
 }
 
 function assertHeldInAndHeldOutDisjoint(

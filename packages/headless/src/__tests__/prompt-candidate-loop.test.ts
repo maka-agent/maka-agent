@@ -287,6 +287,47 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('rejects mismatched input and git system prompt paths before writing', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+
+      let called = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath: programPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInDigests: [],
+          metaAgent: async () => {
+            called = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /system prompt path must match git prompt path/,
+      );
+
+      assert.equal(called, false);
+      assert.equal(await readFile(programPath, 'utf8'), 'Improve the prompt conservatively.\n');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
   test('restores the original prompt when committing the candidate fails', async () => {
     await withDir(async (dir) => {
       const programPath = join(dir, 'program.md');
