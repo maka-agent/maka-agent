@@ -314,7 +314,13 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       }
     },
     async changedFiles(): Promise<readonly string[]> {
-      const { stdout } = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: gitRootPath });
+      const { stdout } = await execFileAsync('git', [
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--',
+        systemPromptGitPath,
+      ], { cwd: gitRootPath });
       return stdout
         .split('\n')
         .map((line) => line.slice(3).trim())
@@ -322,7 +328,7 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
     },
     async commit(message: string): Promise<string> {
       await execFileAsync('git', ['add', '--', systemPromptGitPath], { cwd: gitRootPath });
-      await execFileAsync('git', ['commit', '-m', message], { cwd: gitRootPath });
+      await execFileAsync('git', ['commit', '-m', message, '--', systemPromptGitPath], { cwd: gitRootPath });
       const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRootPath });
       return stdout.trim();
     },

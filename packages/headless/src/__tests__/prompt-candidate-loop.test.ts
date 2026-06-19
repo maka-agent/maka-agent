@@ -452,6 +452,9 @@ describe('prompt candidate loop', () => {
       await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
       await execFileAsync('git', ['add', '.'], { cwd: dir });
       await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+      await writeFile(join(dir, 'notes.md'), 'staged unrelated note\n', 'utf8');
+      await execFileAsync('git', ['add', 'notes.md'], { cwd: dir });
+      await writeFile(join(dir, 'scratch.tmp'), 'untracked unrelated output\n', 'utf8');
 
       const result = await runPromptCandidateRound({
         runId: 'run-1',
@@ -468,7 +471,14 @@ describe('prompt candidate loop', () => {
       });
 
       const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
+      const committedFiles = await execFileAsync('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: dir });
+      const stagedFiles = await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd: dir });
+      const status = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: dir });
       assert.equal(subject.stdout.trim(), 'candidate prompt round-1');
+      assert.deepEqual(committedFiles.stdout.trim().split('\n').filter(Boolean), ['system_prompt.md']);
+      assert.deepEqual(stagedFiles.stdout.trim().split('\n').filter(Boolean), ['notes.md']);
+      assert.match(status.stdout, /^A  notes\.md$/m);
+      assert.match(status.stdout, /^\?\? scratch\.tmp$/m);
       assert.equal(result.commitSha.length, 40);
     });
   });
