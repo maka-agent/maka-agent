@@ -103,8 +103,26 @@ describe('Settings form accessibility labels', () => {
     assert.match(settings, /function SettingsSelect<T extends string>/);
     assert.match(settings, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\}>/);
 
+    // ThemeSettingsPage uses native <button> on purpose for the 3 radio-card
+    // pickers (mode / palette / density): the cards are a custom grid with a
+    // preview tile + label, and the shared <Button>'s baked-in Tailwind
+    // utilities (`h-9 inline-flex bg-primary text-primary-foreground`) collapse
+    // the card to a 36px-tall black pill. See `settings-theme-contract.test.ts`
+    // which pins the inverse direction (radio cards must stay native).
+    // For the general SettingsModal coverage we strip that block out before
+    // asserting `no <button>` so the form-primitive rule still bites everywhere
+    // else (action buttons, header buttons, etc.).
+    const themeBlockRange = (() => {
+      const start = settings.indexOf('function ThemeSettingsPage(');
+      const end = settings.indexOf('function WebSearchSettingsPage(', start);
+      return { start, end };
+    })();
+    assert.ok(themeBlockRange.start >= 0 && themeBlockRange.end > themeBlockRange.start, 'ThemeSettingsPage block must exist for the radio-card exception window');
+    const settingsExceptTheme =
+      settings.slice(0, themeBlockRange.start) + settings.slice(themeBlockRange.end);
+
     for (const [path, source] of [
-      ['SettingsModal.tsx', settings],
+      ['SettingsModal.tsx (outside ThemeSettingsPage)', settingsExceptTheme],
       ['password-input.tsx', passwordInput],
     ] as const) {
       assert.doesNotMatch(source, /<input\b/, `${path} must use the shared Input primitive for Settings text fields`);

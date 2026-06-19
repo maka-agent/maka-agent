@@ -2467,7 +2467,12 @@ function ThemeSettingsPage(props: {
         )}
       >
         {THEME_OPTIONS.map((option) => (
-          <Button
+          // Native <button> on purpose: .settingsThemeOption is a vertically
+          // stacked radio card (preview tile on top, label below). The shared
+          // <Button> primitive bakes in `h-9 inline-flex bg-primary text-white`
+          // utilities that collapse the card to 36px and paint it black —
+          // exactly what WAWQAQ msg 5f75daf6 called out as "稀奇古怪稀巴烂".
+          <button
             key={option.value}
             type="button"
             role="radio"
@@ -2483,7 +2488,7 @@ function ThemeSettingsPage(props: {
               <strong>{option.label}</strong>
               <small>{option.help}</small>
             </span>
-          </Button>
+          </button>
         ))}
       </div>
 
@@ -2508,7 +2513,10 @@ function ThemeSettingsPage(props: {
             )}
           >
             {group.palettes.map((palette) => (
-              <Button
+              // Native <button>: same reason as the mode picker above —
+              // the swatch+label is a custom grid layout that the shared
+              // <Button> primitive fights with its Tailwind utilities.
+              <button
                 key={palette}
                 type="button"
                 role="radio"
@@ -2525,7 +2533,7 @@ function ThemeSettingsPage(props: {
                   <strong>{PALETTE_LABEL[palette]}</strong>
                   <small>{PALETTE_HELP[palette]}</small>
                 </span>
-              </Button>
+              </button>
             ))}
           </div>
         </div>
@@ -2544,7 +2552,8 @@ function ThemeSettingsPage(props: {
         )}
       >
         {DENSITY_OPTIONS.map((option) => (
-          <Button
+          // Native <button>: same reason as the theme/palette pickers above.
+          <button
             key={option.value}
             type="button"
             role="radio"
@@ -2562,7 +2571,7 @@ function ThemeSettingsPage(props: {
               <strong>{option.label}</strong>
               <small>{option.help}</small>
             </span>
-          </Button>
+          </button>
         ))}
       </div>
 

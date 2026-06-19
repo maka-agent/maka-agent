@@ -93,6 +93,40 @@ describe('Settings theme page contract', () => {
     assert.match(segmentedBlock, /data-radio-value=\{value\}[\s\S]*tabIndex=\{radioTabIndex\(value, props\.value, values\)\}/);
   });
 
+  it('keeps theme/palette/density radio cards on native <button>, not <Button>', async () => {
+    // Regression guard for WAWQAQ msg 5f75daf6 — commit b40d097 swapped
+    // these cards onto packages/ui's <Button>, which bakes in
+    // `h-9 inline-flex bg-primary text-primary-foreground` Tailwind
+    // utilities that collapse each card to a 36px-tall black pill and
+    // hide the swatch + label. The radio-card pattern needs the custom
+    // grid layout in `.settingsThemeOption`, so it must stay on
+    // a native <button> element.
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
+    // Source order: each radio-card block opens with `<button` (not `<Button`)
+    // and the className appears later. The `\b` boundary keeps `<button` from
+    // matching `<Button`. Strip `//` line comments and `/* */` block comments
+    // first so the regression-explainer comments don't confuse the count.
+    const themePageNoComments = themePage
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    const lcButtonCount = (themePageNoComments.match(/<button\b/g) ?? []).length;
+    const ucButtonCount = (themePageNoComments.match(/<Button\b/g) ?? []).length;
+    assert.equal(
+      ucButtonCount,
+      0,
+      `Theme/palette/density radio cards must use native <button>, not <Button> from packages/ui (found ${ucButtonCount} <Button> occurrences in the page)`,
+    );
+    assert.equal(
+      lcButtonCount,
+      3,
+      `Expected exactly 3 native <button> elements (mode picker, palette picker, density picker), found ${lcButtonCount}`,
+    );
+    assert.match(themePage, /className="settingsThemeOption settingsThemeOptionPreview"/);
+    assert.match(themePage, /className="settingsThemeOption settingsPaletteOption"/);
+    assert.match(themePage, /className="settingsThemeOption"\s*\n\s*onClick=\{\(\) => void setDensity/);
+  });
+
   it('keeps theme page copy Chinese-first and user-facing', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
