@@ -49,20 +49,21 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.doesNotMatch(src, /providerOAuthHeader/, 'OAuth tab must not carry a second standalone section header');
   });
 
-  it('catalog tabs support keyboard navigation as a real tablist', async () => {
+  it('catalog tabs use the COSS Tabs primitive as a real tablist', async () => {
     const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
-    const handler = src.match(/function onCatalogTabsKeyDown[\s\S]*?\n  \}/)?.[0] ?? '';
-    const tablist = src.match(/<div\s+className="catalogTabs catalogPillTabs"[\s\S]*?\{catalogTab === 'oauth'/)?.[0] ?? '';
+    const tabs = src.match(/<CossTabs\s+className="catalogTabsRoot"[\s\S]*?<\/CossTabs>/)?.[0] ?? '';
 
-    assert.match(handler, /nextRadioId\(catalogTab, visibleTabs, event\.key\)/);
-    assert.match(handler, /event\.preventDefault\(\)/);
-    assert.match(handler, /setCatalogTab\(next\)/);
-    assert.match(handler, /data-catalog-tab="\$\{CSS\.escape\(next\)\}"/);
-    assert.match(handler, /focus\(\{ preventScroll: true \}\)/);
-    assert.match(tablist, /role="tablist"[\s\S]*aria-label="模型供应商分类"[\s\S]*onKeyDown=\{onCatalogTabsKeyDown\}/);
-    assert.match(tablist, /role="tab"[\s\S]*aria-selected=\{catalogTab === tab\.id\}/);
-    assert.match(tablist, /data-catalog-tab=\{tab\.id\}/);
-    assert.match(tablist, /tabIndex=\{catalogTab === tab\.id \? 0 : -1\}/);
+    assert.match(
+      src,
+      /import \{ Button, CossTabs, CossTabsList, CossTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y \} from '@maka\/ui';/,
+      'ProvidersPanel should consume the shared COSS Tabs primitive from @maka/ui',
+    );
+    assert.doesNotMatch(src, /function onCatalogTabsKeyDown/, 'provider catalog tabs should not keep a custom keyboard handler');
+    assert.doesNotMatch(src, /data-catalog-tab="\$\{CSS\.escape/, 'provider catalog tabs should not use manual focus queries');
+    assert.match(tabs, /value=\{catalogTab\}[\s\S]*onValueChange=\{\(value\) => setCatalogTab\(value as CatalogTab\)\}/);
+    assert.match(tabs, /<CossTabsList className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">/);
+    assert.match(tabs, /<CossTabsTrigger[\s\S]*className="catalogTab"[\s\S]*value=\{tab\.id\}/);
+    assert.match(tabs, /data-catalog-tab=\{tab\.id\}/);
   });
 
   it('ProvidersPanel surfaces model connection reload failures instead of sticking on loading', async () => {

@@ -7979,7 +7979,7 @@ button:active {
   gap: 8px;
 }
 
-.catalogTabs button {
+.catalogTab {
   min-height: 58px;
   display: grid;
   gap: 3px;
@@ -7992,11 +7992,11 @@ button:active {
   cursor: pointer;
 }
 
-.catalogTabs button:hover {
+.catalogTab:hover {
   background: var(--foreground-5);
 }
 
-.catalogTabs button[data-active="true"] {
+.catalogTab[data-active="true"] {
   border-color: oklch(from var(--accent) l c h / 0.16);
   background: oklch(from var(--accent) l c h / 0.08);
 }

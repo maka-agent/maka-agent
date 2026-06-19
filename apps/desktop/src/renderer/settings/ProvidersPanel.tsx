@@ -17,7 +17,7 @@ import {
   type SubscriptionAccountState,
   type UpdateConnectionInput,
 } from '@maka/core';
-import { Button, Input, RelativeTime, Textarea, useToast, useModalA11y } from '@maka/ui';
+import { Button, CossTabs, CossTabsList, CossTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y } from '@maka/ui';
 import { formatRelativeTimestamp } from '@maka/core';
 import { PasswordInput } from './password-input';
 
@@ -91,20 +91,6 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const providersPanelMountedRef = useRef(false);
   const providersReloadTicketRef = useRef(0);
   const toast = useToast();
-
-  function onCatalogTabsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const visibleTabs = CATALOG_TABS.map((tab) => tab.id);
-    const next = nextRadioId(catalogTab, visibleTabs, event.key) as CatalogTab | null;
-    if (next === null || next === catalogTab) return;
-    event.preventDefault();
-    setCatalogTab(next);
-    const tablist = event.currentTarget;
-    window.setTimeout(() => {
-      tablist
-        .querySelector<HTMLButtonElement>(`button[data-catalog-tab="${CSS.escape(next)}"]`)
-        ?.focus({ preventScroll: true });
-    }, 0);
-  }
 
   async function reload(): Promise<boolean> {
     const ticket = ++providersReloadTicketRef.current;
@@ -269,28 +255,25 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
           </Button>
         </div>
 
-        <div
-          className="catalogTabs catalogPillTabs"
-          role="tablist"
-          aria-label="模型供应商分类"
-          onKeyDown={onCatalogTabsKeyDown}
+        <CossTabs
+          className="catalogTabsRoot"
+          value={catalogTab}
+          onValueChange={(value) => setCatalogTab(value as CatalogTab)}
         >
-          {CATALOG_TABS.map((tab) => (
-            <Button
-              key={tab.id}
-              type="button"
-              variant="ghost"
-              role="tab"
-              aria-selected={catalogTab === tab.id}
-              data-active={catalogTab === tab.id}
-              data-catalog-tab={tab.id}
-              tabIndex={catalogTab === tab.id ? 0 : -1}
-              onClick={() => setCatalogTab(tab.id)}
-            >
-              <strong>{tab.label}</strong>
-            </Button>
-          ))}
-        </div>
+          <CossTabsList className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">
+            {CATALOG_TABS.map((tab) => (
+              <CossTabsTrigger
+                key={tab.id}
+                className="catalogTab"
+                value={tab.id}
+                data-active={catalogTab === tab.id}
+                data-catalog-tab={tab.id}
+              >
+                <strong>{tab.label}</strong>
+              </CossTabsTrigger>
+            ))}
+          </CossTabsList>
+        </CossTabs>
 
         {catalogTab === 'oauth' ? (
           <ModelOAuthSection onConnectionsChanged={async () => { await reload(); }} />

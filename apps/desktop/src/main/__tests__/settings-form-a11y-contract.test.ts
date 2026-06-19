@@ -43,7 +43,7 @@ describe('Settings form accessibility labels', () => {
     const settingsBadge = styles.match(/\.settingsBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const authContract = styles.match(/\.settingsAuthContract\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerSurfaces = styles.match(/\.providerEmpty,\n\.providerCard,\n\.settingsRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const catalogTabsButton = styles.match(/\.catalogTabs button\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const catalogTabsButton = styles.match(/\.catalogTab\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerCatalogCard = styles.match(/\.providerCatalogCard\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerIcon = styles.match(/\.providerIcon\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerCatalogBadge = styles.match(/\.providerCatalogTitle em,\n\.providerCatalogCount\s*\{[\s\S]*?\}/)?.[0] ?? '';
@@ -99,7 +99,7 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(settings, /SelectItem,[\s\S]*SelectPopup,[\s\S]*SelectPortal,[\s\S]*SelectPositioner,[\s\S]*SelectRoot,[\s\S]*SelectTrigger,[\s\S]*SelectValue,/);
     assert.match(passwordInput, /import \{ Button, Input, useToast \} from '@maka\/ui';/);
-    assert.match(providersPanel, /import \{ Button, Input, RelativeTime, Textarea, useToast, useModalA11y \} from '@maka\/ui';/);
+    assert.match(providersPanel, /import \{ Button, CossTabs, CossTabsList, CossTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y \} from '@maka\/ui';/);
     assert.match(settings, /function SettingsSelect<T extends string>/);
     assert.match(settings, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\}>/);
 

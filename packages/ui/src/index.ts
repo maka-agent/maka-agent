@@ -32,3 +32,11 @@ export * from './coss/drawer.js';
 export * from './coss/command.js';
 export * from './coss/table.js';
 export * from './coss/toolbar.js';
+export {
+  Tabs as CossTabs,
+  TabsList as CossTabsList,
+  TabsTrigger as CossTabsTrigger,
+  TabsPanel as CossTabsPanel,
+  TabsContent as CossTabsContent,
+  TabsPrimitive as CossTabsPrimitive,
+} from './coss/tabs.js';
