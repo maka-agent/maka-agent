@@ -114,9 +114,13 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
     assert.ok(sessionPanel, '.maka-session-panel rule must exist');
     assert.ok(resizeHandle, '.maka-resize-handle rule must exist');
 
-    assert.match(listPanel, /background:\s*var\(--background\);/, 'sidebar panel must not use a darker wash that reads as a left-menu shadow');
-    assert.match(sessionPanel, /background:\s*var\(--background\);/, 'session panel content must stay on the same flat background as the shell');
+    assert.match(listPanel, /background:\s*transparent;/, 'sidebar panel must sit flat on the shell canvas, not as its own card');
+    assert.match(listPanel, /border-right:\s*0;/, 'sidebar must not draw a divider; the content surface edge supplies separation');
+    assert.match(sessionPanel, /background:\s*transparent;/, 'session panel content must stay on the same flat canvas as the shell');
     assert.match(resizeHandle, /background:\s*transparent;/, 'resize hitbox must not paint an 8px gray gutter between sidebar and main');
+    assert.match(resizeHandle, /box-sizing:\s*content-box;/, 'zero-width resize handle must keep an overflow hitbox instead of consuming layout gutter');
+    assert.match(resizeHandle, /padding-inline:\s*4px;/, 'resize handle should preserve an 8px transparent mouse target');
+    assert.match(resizeHandle, /margin-inline:\s*-4px;/, 'resize handle mouse target must not add visible or layout width');
     assert.doesNotMatch(listPanel + sessionPanel + resizeHandle, /box-shadow:/, 'sidebar shell and resize gutter must not add drop shadows');
     assert.doesNotMatch(listPanel + sessionPanel, /calc\(l - 0\.015\)/, 'sidebar shell must not reintroduce the darker wash');
   });

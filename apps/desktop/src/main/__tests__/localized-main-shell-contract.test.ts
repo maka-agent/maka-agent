@@ -441,7 +441,7 @@ describe('localized main shell contract', () => {
     assert.match(main, /data-sidebar-state=\{sessionListCollapsed \? 'collapsed' : 'expanded'\}/);
     assert.match(main, /const SESSION_LIST_COLLAPSED_WIDTH = 0;/);
     assert.match(main, /'--maka-session-list-width': `\$\{sessionListCollapsed \? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth\}px`/);
-    assert.match(main, /'--maka-resize-handle-width': sessionListCollapsed \? '0px' : '8px'/);
+    assert.match(main, /'--maka-resize-handle-width': '0px'/);
     assert.match(main, /className="maka-panel maka-panel-list maka-floating-panel"[\s\S]*aria-hidden=\{sessionListCollapsed \? 'true' : undefined\}[\s\S]*inert=\{sessionListCollapsed \? true : undefined\}/);
     assert.match(main, /className="maka-panel maka-panel-detail maka-floating-panel agents-content-area agents-parchment-paper-surface"[\s\S]*data-sidebar-state=\{sessionListCollapsed \? 'collapsed' : 'expanded'\}/);
     assert.match(main, /data-agents-view=\{[\s\S]*navSelection\.section === 'automations'[\s\S]*\? 'cron'/);
@@ -473,11 +473,11 @@ describe('localized main shell contract', () => {
     assert.match(floatingPanel, /box-shadow:\s*none/);
     const listPanel = extractCssRule(styles, '.maka-panel-list.maka-floating-panel');
     assert.ok(listPanel, '.maka-panel-list.maka-floating-panel rule must exist');
-    assert.match(listPanel, /border-right:\s*1px solid var\(--border\)/);
-    // WAWQAQ msg 4b16e5c1: sidebar must not carry a gray tint that reads as a shadow.
-    // QoderWork's .agents-sidebar is transparent on the window background — only the
-    // 1px border-right separates it from the main pane.
-    assert.match(listPanel, /background:\s*var\(--background\)/);
+    assert.match(listPanel, /border-right:\s*0/);
+    // WAWQAQ msg ef6b2852: sidebar must read as one flat strip on the shell
+    // canvas. The right content surface supplies separation through its
+    // own 4px margin + hairline, not a sidebar card or divider.
+    assert.match(listPanel, /background:\s*transparent/);
     assert.doesNotMatch(listPanel, /calc\(l - 0\.015\)/);
     assert.match(styles, /\.maka-shell-2col\[data-sidebar-state="collapsed"\] \.maka-panel-list\.maka-floating-panel \{[\s\S]*?border-right:\s*0/);
     const detailPanel = extractCssRule(styles, '.maka-panel-detail.maka-floating-panel');
@@ -492,6 +492,8 @@ describe('localized main shell contract', () => {
     assert.match(detailPanel, /flex-direction:\s*column/);
     assert.doesNotMatch(detailPanel, /background-image:\s*radial-gradient/);
     assert.match(qoderworkShell, /\.agents-layout-root\s*\{[\s\S]*?height:\s*100dvh/);
+    assert.match(qoderworkShell, /--agents-content-area-gap:\s*4px/);
+    assert.match(qoderworkShell, /--agents-content-area-radius:\s*6px/);
     assert.match(qoderworkShell, /\.agents-sidebar\s*\{[\s\S]*?contain:\s*layout paint style/);
     assert.match(qoderworkShell, /\.maka-panel-detail\.maka-floating-panel\.agents-content-area\s*\{[\s\S]*?border:\s*1px solid var\(--color-border-tertiary\)/);
     assert.match(qoderworkShell, /\.agents-parchment-paper-surface\s*\{[\s\S]*?border:\s*1px solid var\(--color-border-tertiary\)/);

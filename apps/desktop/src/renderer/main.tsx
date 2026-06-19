@@ -2702,7 +2702,7 @@ function AppShell() {
         data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
         style={{
           '--maka-session-list-width': `${sessionListCollapsed ? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth}px`,
-          '--maka-resize-handle-width': sessionListCollapsed ? '0px' : '8px',
+          '--maka-resize-handle-width': '0px',
         } as CSSProperties}
       >
         <div

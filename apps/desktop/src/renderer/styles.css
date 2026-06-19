@@ -178,10 +178,7 @@ button:active {
 
 .appFrame {
   height: 100dvh;
-  /* PR-UI-LAYOUT-1: tightened 12 → 10 to match the reference design screenshot 1
-   * where the floating panels sit closer to the window edge. Same
-   * value all sides keeps the gap visually consistent. */
-  padding: 10px;
+  padding: 0;
   /* PR-UI-LAYOUT-1: shell canvas is now the warm-cream
    * `--surface-canvas` (defined in maka-tokens.css). Sidebar + main
    * floating panels use `--background` which is slightly lighter so
@@ -202,12 +199,12 @@ button:active {
   display: grid;
   grid-template-columns:
     var(--maka-session-list-width, var(--w-sessionlist))
-    var(--maka-resize-handle-width, 8px)
+    var(--maka-resize-handle-width, 0px)
     minmax(0, 1fr);
   align-items: stretch;
   gap: 0;
   overflow: hidden;
-  background: var(--background);
+  background: var(--surface-canvas);
 }
 
 .maka-panel {
@@ -224,8 +221,8 @@ button:active {
 }
 
 .maka-panel-list.maka-floating-panel {
-  border-right: 1px solid var(--border);
-  background: var(--background);
+  border-right: 0;
+  background: transparent;
 }
 
 .maka-panel-detail.maka-floating-panel {
@@ -273,7 +270,10 @@ button:active {
 
 .maka-resize-handle {
   position: relative;
-  width: var(--maka-resize-handle-width, 8px);
+  width: var(--maka-resize-handle-width, 0px);
+  box-sizing: content-box;
+  padding-inline: 4px;
+  margin-inline: -4px;
   outline: none;
   cursor: col-resize;
   user-select: none;
@@ -293,7 +293,7 @@ button:active {
 .maka-resize-handle::after {
   content: "";
   position: absolute;
-  left: 3px;
+  left: 4px;
   top: 14px;
   bottom: 14px;
   width: 1px;
@@ -312,8 +312,8 @@ button:active {
    overrides via cascade order. */
 .maka-resize-handle:focus-visible::after {
   background: var(--ring);
-  width: 2px;
-  left: 3px;
+  width: 1px;
+  left: 4px;
 }
 
 .isResizingColumns {
@@ -404,7 +404,7 @@ button:active {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
-  background: var(--background);
+  background: transparent;
 }
 
 .maka-session-panel[data-collapsed="true"] {
@@ -676,7 +676,7 @@ button:active {
 
 .maka-sidebar-search-button:hover,
 .maka-sidebar-toggle:hover {
-  background: var(--foreground-5);
+  background: var(--foreground-3);
   color: var(--foreground);
 }
 
@@ -744,7 +744,7 @@ button:active {
   min-height: 0;
   position: relative;
   overflow: hidden;
-  border-top: 1px solid var(--border);
+  border-top: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
 }
@@ -811,7 +811,7 @@ button:active {
 
 .maka-sidebar-account:hover,
 .maka-sidebar-account-settings:hover {
-  background: var(--foreground-3);
+  background: var(--foreground-2);
 }
 
 .maka-sidebar-account-avatar {
@@ -920,7 +920,7 @@ button:active {
 }
 
 .maka-nav-primary:hover {
-  background: var(--foreground-3);
+  background: var(--foreground-2);
   border-color: transparent;
 }
 
@@ -963,13 +963,13 @@ button:active {
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-row[data-active="true"] {
-  background: var(--accent);
+  background: var(--foreground-5);
   box-shadow: none;
-  color: white;
+  color: var(--foreground);
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-row[data-active="true"] .maka-nav-icon {
-  color: white;
+  color: var(--foreground-70);
 }
 
 .maka-nav-section {
@@ -1034,7 +1034,7 @@ button:active {
   /* Slightly stronger hover tint so the affordance is visible at a
      glance — the previous 0.03 was visible only in a perfectly lit
      monitor at 100% brightness. */
-  background: oklch(from var(--foreground) l c h / 0.05);
+  background: var(--foreground-3);
   color: var(--foreground);
 }
 
@@ -1047,13 +1047,13 @@ button:active {
 
      Matches the settings nav active state (PR-UI-LAYOUT-6) so
      navigation feels coherent across surfaces. */
-  background: oklch(from var(--accent) l c h / 0.08);
+  background: var(--foreground-5);
   color: var(--foreground);
   font-weight: 500;
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: none;
 }
 .maka-nav-row[data-active="true"] .maka-nav-icon {
-  color: var(--accent);
+  color: var(--foreground-70);
 }
 
 /* PR-SIDEBAR-IA-0 Phase 2: aria-disabled nav rows render dimmed and
@@ -1093,8 +1093,8 @@ button:active {
 }
 
 .maka-nav-row[data-active="true"] .maka-nav-count {
-  background: oklch(from var(--accent) l c h / 0.12);
-  color: var(--accent);
+  background: oklch(from var(--foreground) l c h / 0.08);
+  color: var(--foreground-70);
 }
 
 .maka-nav-row-sub {
