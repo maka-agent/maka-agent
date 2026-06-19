@@ -10,6 +10,7 @@ import {
   BookOpen,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleCheckBig,
   Clock,
@@ -334,12 +335,6 @@ export function SessionListPanel(props: {
   sessionCounts: Record<SessionFilter, number>;
   sessions: SessionSummary[];
   activeId?: string;
-  projectBadge?: {
-    label: string;
-    path: string;
-    branch?: string;
-    onOpen(): void;
-  };
   skills?: SkillEntry[];
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
@@ -554,20 +549,6 @@ export function SessionListPanel(props: {
           <SquarePen className="maka-nav-primary-icon" strokeWidth={1.5} />
           <span>新建对话</span>
         </button>
-        {props.projectBadge && (
-          <button
-            type="button"
-            className="maka-project-badge"
-            onClick={props.projectBadge.onOpen}
-            title={props.projectBadge.branch ? `打开项目目录 · ${props.projectBadge.branch}` : '打开项目目录'}
-            aria-label={props.projectBadge.branch
-              ? `打开项目目录：${props.projectBadge.label}，当前分支 ${props.projectBadge.branch}`
-              : `打开项目目录：${props.projectBadge.label}`}
-          >
-            <FolderOpen size={14} strokeWidth={1.6} aria-hidden="true" />
-            <span>项目 · {props.projectBadge.label}{props.projectBadge.branch ? ` · ${props.projectBadge.branch}` : ''}</span>
-          </button>
-        )}
       </header>
 
       {/*
@@ -5764,6 +5745,11 @@ export const Composer = forwardRef<
     onImportTextFile?(): void | Promise<void>;
     onImportFolderOutline?(): void | Promise<void>;
     onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
+    workspacePicker?: {
+      label?: string;
+      branch?: string | null;
+      onOpen(): void;
+    };
   }
 >(function Composer(props, ref) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -6154,6 +6140,26 @@ export const Composer = forwardRef<
           </div>
         </div>
       </div>
+      {props.workspacePicker && (
+        <div className="maka-composer-workspace-row">
+          <button
+            type="button"
+            className="maka-composer-workspace-picker"
+            onClick={props.workspacePicker.onOpen}
+            title={props.workspacePicker.branch ? `选择工作目录 · ${props.workspacePicker.branch}` : '选择工作目录'}
+            aria-label={props.workspacePicker.branch
+              ? `选择工作目录：${props.workspacePicker.label ?? '当前工作目录'}，当前分支 ${props.workspacePicker.branch}`
+              : `选择工作目录：${props.workspacePicker.label ?? '当前工作目录'}`}
+          >
+            <FolderOpen size={13} strokeWidth={1.7} aria-hidden="true" />
+            <span>选择工作目录</span>
+            {props.workspacePicker.label && (
+              <span className="maka-composer-workspace-current">{props.workspacePicker.label}</span>
+            )}
+            <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </form>
   );
 });

@@ -260,19 +260,19 @@ describe('localized main shell contract', () => {
     );
   });
 
-  it('keeps the project badge accessibility help concise instead of exposing the absolute workspace path', async () => {
+  it('keeps the composer workspace picker concise instead of exposing absolute paths', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
-    const projectBadge = components.match(/className="maka-project-badge"[\s\S]*?aria-label=\{props\.projectBadge\.branch[\s\S]*?>/)?.[0] ?? '';
+    const workspacePicker = components.match(/className="maka-composer-workspace-picker"[\s\S]*?aria-label=\{props\.workspacePicker\.branch[\s\S]*?>/)?.[0] ?? '';
 
     assert.match(
-      projectBadge,
-      /title=\{props\.projectBadge\.branch \? `打开项目目录 · \$\{props\.projectBadge\.branch\}` : '打开项目目录'\}/,
-      'project badge title should stay concise because native title is exposed as Accessibility Help',
+      workspacePicker,
+      /title=\{props\.workspacePicker\.branch \? `选择工作目录 · \$\{props\.workspacePicker\.branch\}` : '选择工作目录'\}/,
+      'workspace picker title should stay concise because native title is exposed as Accessibility Help',
     );
     assert.doesNotMatch(
-      projectBadge,
-      /title=\{props\.projectBadge\.branch \? `\$\{props\.projectBadge\.path\}/,
-      'project badge must not expose absolute workspace paths through native title / AX Help',
+      workspacePicker,
+      /workspacePicker\.path|projectPath|title=\{[^}]*path/,
+      'composer workspace picker must not expose absolute workspace paths through native title / AX Help',
     );
   });
 
@@ -461,7 +461,7 @@ describe('localized main shell contract', () => {
     assert.ok(sidebarTopBar, '.maka-sidebar-drag-strip rule must exist');
     assert.match(sidebarTopBar, /justify-content:\s*space-between/);
     assert.match(styles, /\.maka-sidebar-search-button,\n\.maka-sidebar-toggle \{/);
-    const collapsedNav = extractCssRule(styles, '.maka-session-panel[data-collapsed="true"] .maka-nav-primary,\n.maka-session-panel[data-collapsed="true"] .maka-project-badge,\n.maka-session-panel[data-collapsed="true"] .maka-nav-row');
+    const collapsedNav = extractCssRule(styles, '.maka-session-panel[data-collapsed="true"] .maka-nav-primary,\n.maka-session-panel[data-collapsed="true"] .maka-nav-row');
     assert.ok(collapsedNav, 'collapsed nav sizing rule must exist');
     assert.match(collapsedNav, /width:\s*34px/);
     assert.match(collapsedNav, /grid-template-columns:\s*1fr/);
@@ -476,13 +476,22 @@ describe('localized main shell contract', () => {
     const emptyHero = components.match(/function EmptyChatHero[\s\S]*?function DeepResearchEmptyHero/)?.[0] ?? '';
     const composerCard = extractCssRule(styles, '.composer .maka-composer-inner');
     const composerFocus = extractCssRule(styles, '.composer .maka-composer-inner:focus-within');
+    const composerShell = extractCssRule(styles, '.composer');
+    const workspaceRow = extractCssRule(styles, '.maka-composer-workspace-row');
+    const workspacePicker = extractCssRule(styles, '.maka-composer-workspace-picker');
 
     assert.ok(emptyHero, 'EmptyChatHero source must be discoverable');
     assert.doesNotMatch(emptyHero, /maka-prompt-suggestions/);
     assert.doesNotMatch(emptyHero, /maka-prompt-chip/);
     assert.doesNotMatch(emptyHero, /getPromptSuggestions\(locale\)/);
+    assert.ok(composerShell, '.composer rule must exist');
+    assert.match(composerShell, /display:\s*flex/);
+    assert.match(composerShell, /align-items:\s*center/);
     assert.ok(composerCard, '.composer .maka-composer-inner rule must exist');
+    assert.match(composerCard, /width:\s*min\(640px,\s*100%\)/);
     assert.match(composerCard, /max-width:\s*640px/);
+    assert.match(composerCard, /margin-inline:\s*auto/);
+    assert.match(composerCard, /box-sizing:\s*border-box/);
     assert.match(composerCard, /border-radius:\s*14px/);
     assert.match(composerCard, /padding:\s*16px/);
     assert.match(composerCard, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.065\)/);
@@ -500,6 +509,14 @@ describe('localized main shell contract', () => {
     assert.match(sendButton, /border-radius:\s*999px/);
     assert.match(sendButton, /background:\s*var\(--foreground\)/);
     assert.match(sendButton, /color:\s*var\(--background\)/);
+    assert.match(components, /workspacePicker\?: \{[\s\S]*label\?: string;[\s\S]*branch\?: string \| null;[\s\S]*onOpen\(\): void;[\s\S]*\};/);
+    assert.match(components, /className="maka-composer-workspace-picker"[\s\S]*<FolderOpen size=\{13\}[\s\S]*<span>选择工作目录<\/span>[\s\S]*<ChevronDown size=\{12\}/);
+    assert.ok(workspaceRow, '.maka-composer-workspace-row rule must exist');
+    assert.match(workspaceRow, /width:\s*min\(640px,\s*100%\)/);
+    assert.match(workspaceRow, /padding-inline:\s*16px/);
+    assert.ok(workspacePicker, '.maka-composer-workspace-picker rule must exist');
+    assert.match(workspacePicker, /font-size:\s*12px/);
+    assert.match(workspacePicker, /background:\s*transparent/);
   });
 
   it('keeps English skill metadata out of the visible skills list copy', async () => {

@@ -723,7 +723,6 @@ button:active {
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-primary,
-.maka-session-panel[data-collapsed="true"] .maka-project-badge,
 .maka-session-panel[data-collapsed="true"] .maka-nav-row {
   width: 34px;
   min-width: 34px;
@@ -739,7 +738,6 @@ button:active {
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-primary span,
-.maka-session-panel[data-collapsed="true"] .maka-project-badge span,
 .maka-session-panel[data-collapsed="true"] .maka-nav-row span:nth-child(2),
 .maka-session-panel[data-collapsed="true"] .maka-nav-row small {
   display: none;
@@ -757,51 +755,6 @@ button:active {
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-row[data-active="true"] .maka-nav-icon {
   color: white;
-}
-
-.maka-project-badge {
-  -webkit-app-region: no-drag;
-  appearance: none;
-  min-width: 0;
-  width: 100%;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--foreground-55);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.maka-project-badge:hover {
-  background: var(--foreground-3);
-  color: var(--foreground-80);
-  border-color: var(--foreground-8);
-}
-
-.maka-project-badge:focus-visible {
-  outline: none;
-  border-color: oklch(from var(--accent) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.12);
-}
-
-.maka-project-badge svg {
-  flex: 0 0 auto;
-}
-
-.maka-project-badge span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .maka-nav-section {
@@ -4889,6 +4842,9 @@ button:active {
 
 .composer {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding: 12px 24px 16px;
   background:
     linear-gradient(180deg, transparent, var(--background) 32%),
@@ -4896,7 +4852,10 @@ button:active {
 }
 
 .composer .maka-composer-inner {
+  width: min(640px, 100%);
   max-width: 640px;
+  margin-inline: auto;
+  box-sizing: border-box;
   border-radius: 14px;
   padding: 16px;
   background: var(--background-elevated);
@@ -4986,6 +4945,58 @@ button:active {
 .maka-composer-send-button:disabled {
   opacity: 0.38;
   cursor: not-allowed;
+}
+
+.maka-composer-workspace-row {
+  width: min(640px, 100%);
+  display: flex;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  margin: 10px auto 0;
+  padding-inline: 16px;
+}
+
+.maka-composer-workspace-picker {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  min-width: 0;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground-55);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  transition: color 120ms ease;
+}
+
+.maka-composer-workspace-picker:hover {
+  color: var(--foreground-80);
+}
+
+.maka-composer-workspace-picker:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+
+.maka-composer-workspace-picker svg {
+  flex: 0 0 auto;
+}
+
+.maka-composer-workspace-current {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--foreground-45);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Composer streaming hint — replaces the Enter/Shift+Enter help text while

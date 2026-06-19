@@ -1792,6 +1792,17 @@ function AppShell() {
     }
   }
 
+  async function openWorkspaceFolder() {
+    try {
+      const result = await window.maka.app.openPath('workspace');
+      if (!result.ok) {
+        toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+      }
+    } catch (error) {
+      toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathActionErrorMessage(error, 'workspace'));
+    }
+  }
+
   function createSkillFailureCopy(reason: 'blocked_path' | 'already_exists' | 'write_failed'): string {
     if (reason === 'blocked_path') return 'skills 目录不是普通工作区目录，已阻止写入。';
     if (reason === 'already_exists') return '示例技能编号已占满，请先整理 skills 目录。';
@@ -2666,16 +2677,6 @@ function AppShell() {
             sessionCounts={sessionCounts}
             sessions={visibleSessions}
             activeId={activeId}
-            projectBadge={
-              appInfo
-                ? {
-                    label: basenameFromPath(appInfo.projectPath),
-                    path: appInfo.projectPath,
-                    branch: appInfo.projectGit.branch,
-                    onOpen: () => void openProjectFolder(),
-                  }
-                : undefined
-            }
             skills={skills}
             onRefreshSkills={() => refreshSkills()}
             onCreateSkillTemplate={() => createSkillTemplate()}
@@ -2889,6 +2890,13 @@ function AppShell() {
                 onImportTextFile={importTextFileIntoComposer}
                 onImportDroppedTextFiles={importDroppedTextFilesIntoComposer}
                 onImportFolderOutline={importFolderOutlineIntoComposer}
+                workspacePicker={{
+                  label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
+                  branch: appInfo?.projectGit.branch,
+                  onOpen: () => {
+                    void (appInfo ? openProjectFolder() : openWorkspaceFolder());
+                  },
+                }}
               />
             </div>
             {activeId && liveBrowserSessionIds.includes(activeId) && (
@@ -3020,14 +3028,7 @@ function AppShell() {
               }
             },
             onOpenWorkspace: async () => {
-              try {
-                const result = await window.maka.app.openPath('workspace');
-                if (!result.ok) {
-                  toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
-                }
-              } catch (error) {
-                toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathActionErrorMessage(error, 'workspace'));
-              }
+              await openWorkspaceFolder();
             },
             onOpenProjectFolder: () => openProjectFolder(),
             onOpenSkillsFolder: () => openSkillsFolder(),
