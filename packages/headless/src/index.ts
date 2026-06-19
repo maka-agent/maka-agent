@@ -3,6 +3,17 @@
 // (backends.ts) are internals the runner owns, not part of the API. Minimal
 // usage is `runExperiment(config, task, { storageRoot })`.
 export type {
+  HarborCellOutput,
+  HarborCellRuntimeRefs,
+  HarborCellTokenSummary,
+} from './cell-output.js';
+export {
+  HARBOR_CELL_OUTPUT_SCHEMA_VERSION,
+  buildHarborCellOutput,
+  summarizeCellTokens,
+  validateHarborCellOutput,
+} from './cell-output.js';
+export type {
   BenchmarkAdapter,
   BenchmarkAdapterRegistry,
   BenchmarkInstanceRef,
