@@ -4900,16 +4900,13 @@ button:active {
   border-radius: 14px;
   padding: 16px;
   background: var(--background-elevated);
-  box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / 0.035),
-    0 2px 8px oklch(from var(--foreground) l c h / 0.045);
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.065);
 }
 
 .composer .maka-composer-inner:focus-within {
   box-shadow:
     0 0 0 1px oklch(from var(--accent) l c h / 0.20),
-    0 0 0 3px oklch(from var(--accent) l c h / 0.10),
-    0 2px 8px oklch(from var(--foreground) l c h / 0.045);
+    0 0 0 3px oklch(from var(--accent) l c h / 0.10);
 }
 
 .composer textarea {
@@ -4933,6 +4930,14 @@ button:active {
   padding: 1px 5px;
   background: var(--foreground-3);
   border: 1px solid var(--border);
+}
+
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
 }
 
 .composerActions > div {
@@ -4961,6 +4966,25 @@ button:active {
 
 .maka-composer-tool-button:disabled {
   opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.maka-composer-send-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  box-shadow: none;
+}
+
+.maka-composer-send-button:hover:not(:disabled) {
+  background: oklch(from var(--foreground) calc(l + 0.08) c h);
+  color: var(--background);
+}
+
+.maka-composer-send-button:disabled {
+  opacity: 0.38;
   cursor: not-allowed;
 }
 

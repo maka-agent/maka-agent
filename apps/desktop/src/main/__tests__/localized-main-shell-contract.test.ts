@@ -20,7 +20,7 @@ describe('localized main shell contract', () => {
     const settings = await readFile(join(process.cwd(), 'src', 'renderer', 'settings', 'SettingsModal.tsx'), 'utf8');
     const providers = await readFile(join(process.cwd(), 'src', 'renderer', 'settings', 'ProvidersPanel.tsx'), 'utf8');
     const commandPalette = await readFile(join(process.cwd(), 'src', 'renderer', 'command-palette.tsx'), 'utf8');
-    const zhComposerBlock = components.match(/zh: \{\n\s*placeholder: '给 Maka 发消息…'[\s\S]*?\n\s*\},\n\s*en:/)?.[0] ?? '';
+    const zhComposerBlock = components.match(/zh: \{\n\s*placeholder: '描述任务，\/ 快捷调用，@ 添加上下文…'[\s\S]*?\n\s*\},\n\s*en:/)?.[0] ?? '';
 
     assert.match(components, /aria-label=\{session\.isFlagged \? '取消置顶对话' : '置顶对话'\}/);
     assert.doesNotMatch(components, /aria-label=\{session\.isFlagged \? 'Unpin chat' : 'Pin chat'\}/);
@@ -485,10 +485,21 @@ describe('localized main shell contract', () => {
     assert.match(composerCard, /max-width:\s*640px/);
     assert.match(composerCard, /border-radius:\s*14px/);
     assert.match(composerCard, /padding:\s*16px/);
-    assert.match(composerCard, /0 2px 8px oklch\(from var\(--foreground\) l c h \/ 0\.045\)/);
+    assert.match(composerCard, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.065\)/);
+    assert.doesNotMatch(composerCard, /0 2px 8px/);
     assert.doesNotMatch(composerCard, /var\(--shadow-medium\)/);
     assert.ok(composerFocus, '.composer .maka-composer-inner:focus-within rule must exist');
+    assert.doesNotMatch(composerFocus, /0 2px 8px/);
     assert.doesNotMatch(composerFocus, /var\(--shadow-medium\)/);
+    assert.match(components, /import \{[\s\S]*ArrowUp,[\s\S]*\} from 'lucide-react';/);
+    assert.match(components, /className="maka-composer-send-button"[\s\S]*size="icon-sm"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}[\s\S]*<ArrowUp size=\{16\} strokeWidth=\{2\.1\} aria-hidden="true" \/>/);
+    const sendButton = extractCssRule(styles, '.maka-composer-send-button');
+    assert.ok(sendButton, '.maka-composer-send-button rule must exist');
+    assert.match(sendButton, /width:\s*32px/);
+    assert.match(sendButton, /height:\s*32px/);
+    assert.match(sendButton, /border-radius:\s*999px/);
+    assert.match(sendButton, /background:\s*var\(--foreground\)/);
+    assert.match(sendButton, /color:\s*var\(--background\)/);
   });
 
   it('keeps English skill metadata out of the visible skills list copy', async () => {

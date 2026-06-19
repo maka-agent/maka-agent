@@ -5,6 +5,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowDown,
+  ArrowUp,
   Ban,
   BookOpen,
   CalendarDays,
@@ -5611,7 +5612,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   streamingHintInterrupt: string;
 }> = {
   zh: {
-    placeholder: '给 Maka 发消息…',
+    placeholder: '描述任务，/ 快捷调用，@ 添加上下文…',
     textareaAriaLabel: '消息输入框',
     awaitingPermission: '等待你确认权限…',
     sending: '正在发送…',
@@ -5624,7 +5625,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     streamingHintInterrupt: '或点停止中断',
   },
   en: {
-    placeholder: 'Message Maka…',
+    placeholder: 'Describe a task, / for commands, @ for context…',
     textareaAriaLabel: 'Message input',
     awaitingPermission: 'Waiting for your permission decision…',
     sending: 'Sending…',
@@ -6136,8 +6137,18 @@ export const Composer = forwardRef<
                 {props.stopPending ? '停止中…' : buttonCopy.stopLabel}
               </UiButton>
             ) : (
-              <UiButton className="maka-button" variant="default" type="submit" disabled={sendDisabled}>
-                {buttonCopy.sendLabel}
+              <UiButton
+                className="maka-composer-send-button"
+                variant="default"
+                size="icon-sm"
+                type="submit"
+                disabled={sendDisabled}
+                aria-label={buttonCopy.sendLabel}
+                aria-busy={sendPending ? 'true' : undefined}
+                data-pending={sendPending ? 'true' : undefined}
+                title={buttonCopy.sendLabel}
+              >
+                <ArrowUp size={16} strokeWidth={2.1} aria-hidden="true" />
               </UiButton>
             )}
           </div>
