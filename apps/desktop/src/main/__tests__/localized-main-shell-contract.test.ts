@@ -403,11 +403,19 @@ describe('localized main shell contract', () => {
     const keyBlock = main.slice(main.indexOf('function onResizeHandleKeyDown'), main.indexOf('const hasModalOpen'));
     const readBlock = main.slice(main.indexOf('function readSessionListWidth'), main.indexOf('function isNoRealConnectionError'));
 
-    assert.match(main, /function clampSessionListWidth\(value: number\): number \{\s*return Math\.round\(clamp\(value, 240, 420\)\);\s*\}/m);
+    assert.match(main, /const SESSION_LIST_EXPANDED_DEFAULT_WIDTH = 210;/);
+    assert.match(main, /const SESSION_LIST_EXPANDED_MIN_WIDTH = 210;/);
+    assert.match(main, /const SESSION_LIST_EXPANDED_MAX_WIDTH = 280;/);
+    assert.match(main, /function clampSessionListWidth\(value: number\): number \{\s*return Math\.round\(clamp\(value, SESSION_LIST_EXPANDED_MIN_WIDTH, SESSION_LIST_EXPANDED_MAX_WIDTH\)\);\s*\}/m);
     assert.match(resizeBlock, /setSessionListWidth\(clampSessionListWidth\(start \+ delta\)\)/);
     assert.match(keyBlock, /setSessionListWidth\(clampSessionListWidth\(next\)\)/);
+    assert.match(keyBlock, /next = SESSION_LIST_EXPANDED_MIN_WIDTH;/);
+    assert.match(keyBlock, /next = SESSION_LIST_EXPANDED_MAX_WIDTH;/);
     assert.match(readBlock, /return clampSessionListWidth\(stored\);/);
+    assert.match(readBlock, /return SESSION_LIST_EXPANDED_DEFAULT_WIDTH;/);
     assert.match(main, /aria-valuenow=\{sessionListWidth\}/, 'splitter aria-valuenow should receive the normalized integer state');
+    assert.match(main, /aria-valuemin=\{SESSION_LIST_EXPANDED_MIN_WIDTH\}/);
+    assert.match(main, /aria-valuemax=\{SESSION_LIST_EXPANDED_MAX_WIDTH\}/);
     assert.match(persistBlock, /try \{[\s\S]*localStorage\.setItem\('maka-chat-list-width-v1', String\(sessionListWidth\)\);[\s\S]*\} catch \{/, 'width persistence must not crash when localStorage is unavailable');
     assert.match(readBlock, /try \{[\s\S]*localStorage\.getItem\('maka-chat-list-width-v1'\)[\s\S]*\} catch \{/, 'width restore must not crash when localStorage is unavailable');
     assert.match(resizeBlock, /setPointerCapture\(event\.pointerId\)/, 'dragging the splitter should capture pointer events while resizing');
@@ -431,7 +439,8 @@ describe('localized main shell contract', () => {
     assert.match(main, /const \[sessionListCollapsed, setSessionListCollapsed\] = useState\(\(\) => readSessionListCollapsed\(\)\);/);
     assert.match(main, /localStorage\.setItem\('maka-chat-list-collapsed-v1', sessionListCollapsed \? 'true' : 'false'\)/);
     assert.match(main, /data-sidebar-state=\{sessionListCollapsed \? 'collapsed' : 'expanded'\}/);
-    assert.match(main, /'--maka-session-list-width': `\$\{sessionListCollapsed \? 60 : sessionListWidth\}px`/);
+    assert.match(main, /const SESSION_LIST_COLLAPSED_WIDTH = 60;/);
+    assert.match(main, /'--maka-session-list-width': `\$\{sessionListCollapsed \? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth\}px`/);
     assert.match(main, /'--maka-resize-handle-width': sessionListCollapsed \? '0px' : '8px'/);
     assert.match(main, /if \(sessionListCollapsed\) return;[\s\S]*function onResizeHandleKeyDown/);
     assert.match(main, /aria-hidden=\{sessionListCollapsed \? 'true' : undefined\}/);
@@ -453,6 +462,7 @@ describe('localized main shell contract', () => {
     assert.match(collapsedNav, /grid-template-columns:\s*1fr/);
     assert.match(styles, /\.maka-session-panel\[data-collapsed="true"\] \.maka-session-list-title,\n\.maka-session-panel\[data-collapsed="true"\] \.maka-list-stack,\n\.maka-session-panel\[data-collapsed="true"\] \.maka-sidebar-module-hint,\n\.maka-session-panel\[data-collapsed="true"\] \.maka-empty-state \{[\s\S]*?display:\s*none/);
     assert.match(styles, /\.maka-session-panel\[data-collapsed="true"\] \.maka-nav-row\[data-active="true"\] \.maka-nav-icon \{[\s\S]*?color:\s*white/);
+    assert.match(styles, /--w-sessionlist:\s*210px;/);
   });
 
   it('keeps the chat composer as the only main card with a narrow QoderWork-like frame', async () => {

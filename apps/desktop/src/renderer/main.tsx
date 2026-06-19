@@ -103,6 +103,10 @@ const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
 const USER_MESSAGE_VISIBLE_TIMEOUT_MS = 1_200;
 const USER_MESSAGE_VISIBLE_POLL_MS = 40;
+const SESSION_LIST_COLLAPSED_WIDTH = 60;
+const SESSION_LIST_EXPANDED_DEFAULT_WIDTH = 210;
+const SESSION_LIST_EXPANDED_MIN_WIDTH = 210;
+const SESSION_LIST_EXPANDED_MAX_WIDTH = 280;
 
 interface RendererAppInfo {
   projectPath: string;
@@ -2614,8 +2618,6 @@ function AppShell() {
     //   Shift+Arrow → ±50 px       Home → min       End → max
     const SMALL = 10;
     const LARGE = 50;
-    const MIN = 240;
-    const MAX = 420;
     let next = sessionListWidth;
     switch (event.key) {
       case 'ArrowLeft':
@@ -2625,10 +2627,10 @@ function AppShell() {
         next = sessionListWidth + (event.shiftKey ? LARGE : SMALL);
         break;
       case 'Home':
-        next = MIN;
+        next = SESSION_LIST_EXPANDED_MIN_WIDTH;
         break;
       case 'End':
-        next = MAX;
+        next = SESSION_LIST_EXPANDED_MAX_WIDTH;
         break;
       default:
         return;
@@ -2654,7 +2656,7 @@ function AppShell() {
         data-modal-background-hidden={hasModalOpen ? 'true' : undefined}
         data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
         style={{
-          '--maka-session-list-width': `${sessionListCollapsed ? 60 : sessionListWidth}px`,
+          '--maka-session-list-width': `${sessionListCollapsed ? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth}px`,
           '--maka-resize-handle-width': sessionListCollapsed ? '0px' : '8px',
         } as CSSProperties}
       >
@@ -2731,8 +2733,8 @@ function AppShell() {
           role="separator"
           aria-label={sessionListCollapsed ? '侧边栏已收起' : '调整对话列表宽度'}
           aria-orientation="vertical"
-          aria-valuemin={240}
-          aria-valuemax={420}
+          aria-valuemin={SESSION_LIST_EXPANDED_MIN_WIDTH}
+          aria-valuemax={SESSION_LIST_EXPANDED_MAX_WIDTH}
           aria-valuenow={sessionListWidth}
           aria-hidden={sessionListCollapsed ? 'true' : undefined}
           tabIndex={sessionListCollapsed ? -1 : 0}
@@ -3359,7 +3361,7 @@ function readSessionListWidth(): number {
   } catch {
     /* localStorage unavailable */
   }
-  return 320;
+  return SESSION_LIST_EXPANDED_DEFAULT_WIDTH;
 }
 
 function readSessionListCollapsed(): boolean {
@@ -3498,7 +3500,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function clampSessionListWidth(value: number): number {
-  return Math.round(clamp(value, 240, 420));
+  return Math.round(clamp(value, SESSION_LIST_EXPANDED_MIN_WIDTH, SESSION_LIST_EXPANDED_MAX_WIDTH));
 }
 
 function filterSessions(sessions: SessionSummary[], selection: NavSelection): SessionSummary[] {
