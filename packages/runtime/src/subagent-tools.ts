@@ -4,8 +4,8 @@ import type { MakaTool } from './tool-runtime.js';
 import {
   AGENT_WORKSPACE_SAME_WORKSPACE,
   AGENT_WRITE_BACK_SUMMARY,
-  LOCAL_READ_AGENT_DEFINITION,
-  LOCAL_READ_AGENT_PROFILE,
+  BUILTIN_AGENT_DEFINITIONS,
+  BUILTIN_AGENT_PROFILES,
   buildToolsForAgentDefinition,
   requireBuiltinAgentDefinitionByProfile,
 } from './agent-catalog.js';
@@ -20,12 +20,23 @@ export const AGENT_TOOL_NAMES = [
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
 ] as const;
-export const CHILD_AGENT_TOOL_NAMES = LOCAL_READ_AGENT_DEFINITION.tools;
+export const CHILD_AGENT_TOOL_NAMES = [
+  ...new Set(BUILTIN_AGENT_DEFINITIONS.flatMap((definition) => definition.tools)),
+] as readonly string[];
 
 type SubagentToolResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 
 export function buildChildAgentTools(tools: readonly MakaTool[]): MakaTool[] {
-  return buildToolsForAgentDefinition(tools, LOCAL_READ_AGENT_DEFINITION);
+  const seen = new Set<string>();
+  const out: MakaTool[] = [];
+  for (const definition of BUILTIN_AGENT_DEFINITIONS) {
+    for (const tool of buildToolsForAgentDefinition(tools, definition)) {
+      if (seen.has(tool.name)) continue;
+      seen.add(tool.name);
+      out.push(tool);
+    }
+  }
+  return out;
 }
 
 export function buildSubagentSpawnTool(): MakaTool<
@@ -42,12 +53,12 @@ export function buildSubagentSpawnTool(): MakaTool<
     displayName: 'Agent',
     description: 'Run a foreground catalog child agent for a bounded task and return its explicit result.',
     parameters: z.object({
-      profile: z.enum([LOCAL_READ_AGENT_PROFILE]).describe('Child agent profile, currently "local_read".'),
+      profile: z.enum(BUILTIN_AGENT_PROFILES).describe('Child agent profile.'),
       task: z.string().min(1).max(60_000).describe('Bounded task for the selected child agent.'),
       write_back: z.enum([AGENT_WRITE_BACK_SUMMARY]).optional()
-        .describe('Requested child write-back mode. local_read currently supports only "summary".'),
+        .describe('Requested child write-back mode. Built-in profiles currently support only "summary".'),
       isolation: z.enum([AGENT_WORKSPACE_SAME_WORKSPACE]).optional()
-        .describe('Requested child workspace isolation. local_read currently runs in the same workspace with isolated context.'),
+        .describe('Requested child workspace isolation. Built-in profiles currently run in the same workspace with isolated context.'),
     }),
     permissionRequired: true,
     categoryHint: 'subagent',

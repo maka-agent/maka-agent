@@ -14,6 +14,9 @@ import {
   LOCAL_READ_AGENT_ID,
   LOCAL_READ_AGENT_DEFINITION,
   LOCAL_READ_AGENT_PROFILE,
+  WEB_RESEARCH_AGENT_ID,
+  WEB_RESEARCH_AGENT_DEFINITION,
+  WEB_RESEARCH_AGENT_PROFILE,
   assertAgentDefinitionRunnable,
   evaluateAgentDefinitionAvailability,
   evaluateAgentDefinitionToolAccess,
@@ -73,14 +76,16 @@ describe('subagent tools', () => {
     expect(LOCAL_READ_AGENT_DEFINITION.tools.includes('WebFetch')).toBe(false);
     expect(LOCAL_READ_AGENT_DEFINITION.tools.includes('ExploreAgent')).toBe(false);
 
-    expect(listBuiltinAgentDefinitions({
+    const definitions = listBuiltinAgentDefinitions({
       parentPermissionMode: 'ask',
       tools: [
         testCatalogTool('Read', 'read'),
         testCatalogTool('Glob', 'read'),
         testCatalogTool('Grep', 'read'),
+        testCatalogTool('WebSearch', 'web_read'),
       ],
-    })).toEqual([{
+    });
+    expect(definitions.find((definition) => definition.id === LOCAL_READ_AGENT_ID)).toEqual({
       id: LOCAL_READ_AGENT_ID,
       profile: LOCAL_READ_AGENT_PROFILE,
       name: 'Local Read',
@@ -89,7 +94,77 @@ describe('subagent tools', () => {
       tools: ['Read', 'Glob', 'Grep'],
       contract: LOCAL_READ_AGENT_DEFINITION.contract,
       availability: { status: 'available' },
-    }]);
+    });
+  });
+
+  test('built-in catalog exposes web-research with only WebSearch and no local or write tools', () => {
+    expect(WEB_RESEARCH_AGENT_DEFINITION.id).toBe(WEB_RESEARCH_AGENT_ID);
+    expect(WEB_RESEARCH_AGENT_DEFINITION.profile).toBe(WEB_RESEARCH_AGENT_PROFILE);
+    expect(WEB_RESEARCH_AGENT_DEFINITION.contract).toEqual({
+      capability: 'web_research',
+      invocation: AGENT_INVOCATION_FOREGROUND,
+      context: AGENT_CONTEXT_ISOLATED,
+      workspace: AGENT_WORKSPACE_SAME_WORKSPACE,
+      defaultWriteBack: AGENT_WRITE_BACK_SUMMARY,
+      supportedWriteBack: [AGENT_WRITE_BACK_SUMMARY],
+    });
+    expect(WEB_RESEARCH_AGENT_DEFINITION.permissionMode).toBe('execute');
+    expect([...WEB_RESEARCH_AGENT_DEFINITION.tools]).toEqual(['WebSearch']);
+    expect(WEB_RESEARCH_AGENT_DEFINITION.tools.includes('Read')).toBe(false);
+    expect(WEB_RESEARCH_AGENT_DEFINITION.tools.includes('Bash')).toBe(false);
+    expect(WEB_RESEARCH_AGENT_DEFINITION.tools.includes('Write')).toBe(false);
+    expect(WEB_RESEARCH_AGENT_DEFINITION.tools.includes('ExploreAgent')).toBe(false);
+
+    const withWebSearch = listBuiltinAgentDefinitions({
+      parentPermissionMode: 'execute',
+      tools: [
+        testCatalogTool('Read', 'read'),
+        testCatalogTool('Glob', 'read'),
+        testCatalogTool('Grep', 'read'),
+        testCatalogTool('WebSearch', undefined),
+      ],
+    });
+    expect(withWebSearch.map((definition) => definition.profile)).toEqual([
+      LOCAL_READ_AGENT_PROFILE,
+      WEB_RESEARCH_AGENT_PROFILE,
+    ]);
+    expect(withWebSearch.find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)).toEqual({
+      id: WEB_RESEARCH_AGENT_ID,
+      profile: WEB_RESEARCH_AGENT_PROFILE,
+      name: 'Web Research',
+      description: 'Network-backed web research with WebSearch only.',
+      permissionMode: 'execute',
+      tools: ['WebSearch'],
+      contract: WEB_RESEARCH_AGENT_DEFINITION.contract,
+      availability: { status: 'available' },
+    });
+
+    expect(listBuiltinAgentDefinitions({
+      parentPermissionMode: 'execute',
+      tools: [
+        testCatalogTool('Read', 'read'),
+        testCatalogTool('Glob', 'read'),
+        testCatalogTool('Grep', 'read'),
+      ],
+    }).find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability).toEqual({
+      status: 'unavailable',
+      reason: 'missing_tools',
+      missingTools: ['WebSearch'],
+    });
+    expect(listBuiltinAgentDefinitions({
+      parentPermissionMode: 'ask',
+      tools: [
+        testCatalogTool('Read', 'read'),
+        testCatalogTool('Glob', 'read'),
+        testCatalogTool('Grep', 'read'),
+        testCatalogTool('WebSearch', 'web_read'),
+      ],
+    }).find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability).toEqual({
+      status: 'unavailable',
+      reason: 'parent_permission_mode',
+      parentPermissionMode: 'ask',
+      requiredPermissionMode: 'execute',
+    });
   });
 
   test('agent definition availability reports missing tools and parent permission mismatches without running', () => {
@@ -162,7 +237,7 @@ describe('subagent tools', () => {
     );
   });
 
-  test('child agent toolset keeps only local-read allowlisted tools', () => {
+  test('child agent toolset keeps only built-in profile allowlisted tools', () => {
     const tools = buildChildAgentTools([
       ...buildBuiltinTools(),
       {
@@ -188,7 +263,7 @@ describe('subagent tools', () => {
       },
     ]);
 
-    expect(tools.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep']);
+    expect(tools.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep', 'WebSearch']);
   });
 
   test('child agent toolset enforces explore-mode read-only behavior without prompting', async () => {
@@ -262,6 +337,52 @@ describe('subagent tools', () => {
     });
   });
 
+  test('agent_spawn delegates web_research through the catalog definition', async () => {
+    const tool = buildSubagentSpawnTool();
+    const calls: unknown[] = [];
+
+    const result = await tool.impl({
+      profile: WEB_RESEARCH_AGENT_PROFILE,
+      task: 'Find current sources.',
+      write_back: AGENT_WRITE_BACK_SUMMARY,
+      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+    }, {
+      sessionId: 'session-1',
+      turnId: 'parent-turn',
+      cwd: '/tmp/cwd',
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+      spawnChildAgent: async (input) => {
+        calls.push(input);
+        return {
+          agentId: input.spec.id,
+          agentName: input.spec.name,
+          turnId: 'child-turn',
+          status: 'completed',
+          permissionMode: 'execute',
+          summary: 'done',
+          artifactIds: [],
+        };
+      },
+    });
+
+    expect(calls).toEqual([{
+      spec: {
+        id: WEB_RESEARCH_AGENT_ID,
+        name: 'Web Research',
+        systemPrompt: WEB_RESEARCH_AGENT_DEFINITION.systemPrompt,
+      },
+      prompt: 'Find current sources.',
+    }]);
+    expect(result).toMatchObject({
+      kind: 'subagent',
+      agentId: WEB_RESEARCH_AGENT_ID,
+      agentName: 'Web Research',
+      permissionMode: 'execute',
+    });
+  });
+
   test('agent_spawn rejects legacy agent ids and unknown profiles without spawning a child', async () => {
     const tool = buildSubagentSpawnTool();
     const schema = tool.parameters as {
@@ -269,6 +390,7 @@ describe('subagent tools', () => {
     };
 
     expect(schema.safeParse({ profile: LOCAL_READ_AGENT_PROFILE, task: 'Inspect the repo.' }).success).toBe(true);
+    expect(schema.safeParse({ profile: WEB_RESEARCH_AGENT_PROFILE, task: 'Find current sources.' }).success).toBe(true);
     expect(schema.safeParse({
       profile: LOCAL_READ_AGENT_PROFILE,
       task: 'Inspect the repo.',
@@ -295,6 +417,7 @@ describe('subagent tools', () => {
     }).success).toBe(false);
     expect(schema.safeParse({ agent: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
     expect(schema.safeParse({ profile: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
+    expect(schema.safeParse({ profile: WEB_RESEARCH_AGENT_ID, task: 'Find current sources.' }).success).toBe(false);
     expect(schema.safeParse({ agent_name: 'Researcher', instructions: 'Read only.', prompt: 'Inspect.' }).success).toBe(false);
 
     await expectRejects(

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
-import { buildChildAgentTools, LOAD_TOOLS_NAME, ToolAvailabilityRuntime } from '@maka/runtime';
+import {
+  buildChildAgentTools,
+  listBuiltinAgentDefinitions,
+  LOAD_TOOLS_NAME,
+  WEB_RESEARCH_AGENT_ID,
+  ToolAvailabilityRuntime,
+} from '@maka/runtime';
 import { buildIsolatedBashTool, buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from '../tools.js';
 
 describe('isolated headless tools', () => {
@@ -57,6 +63,15 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('agent_output'));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
+    const definitions = listBuiltinAgentDefinitions({
+      parentPermissionMode: 'execute',
+      tools: buildChildAgentTools(tools),
+    });
+    assert.deepEqual(definitions.find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability, {
+      status: 'unavailable',
+      reason: 'missing_tools',
+      missingTools: ['WebSearch'],
+    });
   });
 
   test('standard isolated tool availability defers parent-facing agent tools', () => {

@@ -8,13 +8,19 @@ import type { MakaTool } from './tool-runtime.js';
 
 export const LOCAL_READ_AGENT_ID = 'local-read';
 export const LOCAL_READ_AGENT_PROFILE = 'local_read';
+export const WEB_RESEARCH_AGENT_ID = 'web-research';
+export const WEB_RESEARCH_AGENT_PROFILE = 'web_research';
+export const BUILTIN_AGENT_PROFILES = [
+  LOCAL_READ_AGENT_PROFILE,
+  WEB_RESEARCH_AGENT_PROFILE,
+] as const;
 export const AGENT_INVOCATION_FOREGROUND = 'foreground';
 export const AGENT_CONTEXT_ISOLATED = 'isolated';
 export const AGENT_WORKSPACE_SAME_WORKSPACE = 'same_workspace';
 export const AGENT_WRITE_BACK_SUMMARY = 'summary';
 
-export type AgentProfile = typeof LOCAL_READ_AGENT_PROFILE;
-export type AgentCapability = 'local_read';
+export type AgentProfile = typeof BUILTIN_AGENT_PROFILES[number];
+export type AgentCapability = AgentProfile;
 export type AgentInvocationMode = typeof AGENT_INVOCATION_FOREGROUND;
 export type AgentContextMode = typeof AGENT_CONTEXT_ISOLATED;
 export type AgentWorkspaceMode = typeof AGENT_WORKSPACE_SAME_WORKSPACE | 'worktree' | 'sandbox';
@@ -103,8 +109,36 @@ export const LOCAL_READ_AGENT_DEFINITION: AgentDefinition = {
   ].join('\n'),
 };
 
+export const WEB_RESEARCH_AGENT_DEFINITION: AgentDefinition = {
+  id: WEB_RESEARCH_AGENT_ID,
+  profile: WEB_RESEARCH_AGENT_PROFILE,
+  name: 'Web Research',
+  description: 'Network-backed web research with WebSearch only.',
+  contract: {
+    capability: 'web_research',
+    invocation: AGENT_INVOCATION_FOREGROUND,
+    context: AGENT_CONTEXT_ISOLATED,
+    workspace: AGENT_WORKSPACE_SAME_WORKSPACE,
+    defaultWriteBack: AGENT_WRITE_BACK_SUMMARY,
+    supportedWriteBack: [AGENT_WRITE_BACK_SUMMARY],
+  },
+  permissionMode: 'execute',
+  tools: ['WebSearch'],
+  categoryPolicy: {
+    web_read: 'allow',
+  },
+  systemPrompt: [
+    'You are a foreground web-research child agent.',
+    'Use only the provided WebSearch tool.',
+    'Do not read local files, use shell, browser, write, or nested agent tools.',
+    'Return concise findings with source titles and URLs for every external claim.',
+    'Separate sourced facts from your own inference.',
+  ].join('\n'),
+};
+
 export const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   LOCAL_READ_AGENT_DEFINITION,
+  WEB_RESEARCH_AGENT_DEFINITION,
 ];
 
 const modeRank: Record<PermissionMode, number> = {

@@ -32,6 +32,8 @@ import type { InvocationResult } from '../invocation-context.js';
 import {
   LOCAL_READ_AGENT_DEFINITION,
   LOCAL_READ_AGENT_ID,
+  WEB_RESEARCH_AGENT_DEFINITION,
+  WEB_RESEARCH_AGENT_ID,
 } from '../agent-catalog.js';
 
 describe('SessionManager permission mode updates', () => {
@@ -1186,6 +1188,56 @@ describe('SessionManager permission mode updates', () => {
     expect(childMessages).toEqual([]);
   });
 
+  test('startChildTurn uses only WebSearch for the web research child definition', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const contexts: BackendFactoryContext[] = [];
+    backends.register('fake', (ctx) => {
+      contexts.push(ctx);
+      return new TestBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      childTools: [
+        testTool('Read'),
+        testTool('Glob'),
+        testTool('Grep'),
+        testTool('WebSearch'),
+        testTool('Bash'),
+      ],
+      newId: nextId(),
+      now: nextNow(6_841),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'execute' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    await drain(manager.startChildTurn(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: {
+        id: WEB_RESEARCH_AGENT_ID,
+        name: 'Injected Name',
+        systemPrompt: 'Injected child prompt.',
+      },
+      prompt: 'search the web',
+    }));
+
+    expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['execute', 'execute']);
+    expect(contexts[1]?.systemPrompt).toBe(WEB_RESEARCH_AGENT_DEFINITION.systemPrompt);
+    expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual(['WebSearch']);
+
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    expect(childRun?.agentId).toBe(WEB_RESEARCH_AGENT_ID);
+    expect(childRun?.agentName).toBe(WEB_RESEARCH_AGENT_DEFINITION.name);
+    expect(childRun?.permissionMode).toBe('execute');
+  });
+
   test('spawnChildAgent returns artifacts recorded for the child turn', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1325,7 +1377,7 @@ describe('SessionManager permission mode updates', () => {
       now: nextNow(6_847),
       runtimeSource: 'test',
     });
-    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const session = await manager.createSession(makeInput({ permissionMode: 'execute' }));
     await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
     const [parentRun] = await runStore.listSessionRuns(session.id);
     if (!parentRun) throw new Error('parent run was not recorded');
@@ -1346,6 +1398,22 @@ describe('SessionManager permission mode updates', () => {
 
     expect(backendInstances).toHaveLength(1);
     expect((await runStore.listSessionRuns(session.id)).some((run) => run.turnId === 'child-turn')).toBe(false);
+
+    await expectRejects(
+      manager.spawnChildAgent(session.id, {
+        turnId: 'web-child-turn',
+        parentRunId: parentRun.runId,
+        spec: {
+          id: WEB_RESEARCH_AGENT_ID,
+          name: WEB_RESEARCH_AGENT_DEFINITION.name,
+          systemPrompt: WEB_RESEARCH_AGENT_DEFINITION.systemPrompt,
+        },
+        prompt: 'search',
+      }),
+      /Agent "web-research" is unavailable: missing tools: WebSearch/,
+    );
+    expect(backendInstances).toHaveLength(1);
+    expect((await runStore.listSessionRuns(session.id)).some((run) => run.turnId === 'web-child-turn')).toBe(false);
   });
 
   test('agent projections list catalog definitions separately from child runs and read output artifacts by child turn', async () => {
@@ -1374,7 +1442,7 @@ describe('SessionManager permission mode updates', () => {
       now: nextNow(6_848),
       runtimeSource: 'test',
     });
-    const session = await manager.createSession(makeInput());
+    const session = await manager.createSession(makeInput({ permissionMode: 'execute' }));
     await seedRuntimeRun(runStore, makeRunHeader({
       sessionId: session.id,
       runId: 'parent-run',
@@ -1406,10 +1474,15 @@ describe('SessionManager permission mode updates', () => {
     ]);
 
     const list = await manager.listChildAgents(session.id);
-    expect(list.definitions.map((agent) => agent.id)).toEqual([LOCAL_READ_AGENT_ID]);
+    expect(list.definitions.map((agent) => agent.id)).toEqual([LOCAL_READ_AGENT_ID, WEB_RESEARCH_AGENT_ID]);
     expect(list.definitions[0]?.availability).toEqual({ status: 'available' });
     expect(list.definitions[0]?.contract.defaultWriteBack).toBe('summary');
     expect(list.definitions[0]?.contract.workspace).toBe('same_workspace');
+    expect(list.definitions[1]?.availability).toEqual({
+      status: 'unavailable',
+      reason: 'missing_tools',
+      missingTools: ['WebSearch'],
+    });
     expect(list.runs.map((agent) => agent.runId)).toEqual(['child-run']);
     expect(list.runs[0]?.agentId).toBe(LOCAL_READ_AGENT_ID);
     expect(list.runs[0]?.agentName).toBe('Researcher');
