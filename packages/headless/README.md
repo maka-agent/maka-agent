@@ -50,6 +50,7 @@ Programmatic sketch:
 
 ```ts
 import {
+  buildIsolatedHeadlessToolAvailability,
   buildIsolatedHeadlessTools,
   runExperiment,
   type IsolatedToolExecutor,
@@ -72,7 +73,8 @@ await runExperiment(config, task, {
   registerBackends(registry, context) {
     registry.register('ai-sdk', (ctx) => createAiSdkBackend({
       ...ctx,
-      tools: buildIsolatedHeadlessTools(context.toolExecutor!),
+      tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],
+      toolAvailability: buildIsolatedHeadlessToolAvailability(),
     }));
   },
 });

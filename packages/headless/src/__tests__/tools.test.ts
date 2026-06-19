@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
-import { buildChildAgentTools } from '@maka/runtime';
-import { buildIsolatedBashTool, buildIsolatedHeadlessTools } from '../tools.js';
+import { buildChildAgentTools, LOAD_TOOLS_NAME, ToolAvailabilityRuntime } from '@maka/runtime';
+import { buildIsolatedBashTool, buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from '../tools.js';
 
 describe('isolated headless tools', () => {
   test('Bash delegates execution to the isolated executor', async () => {
@@ -56,5 +57,59 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('agent_output'));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
+  });
+
+  test('standard isolated tool availability defers parent-facing agent tools', () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    const plan = new ToolAvailabilityRuntime(
+      tools,
+      buildIsolatedHeadlessToolAvailability(),
+      { name: 'invalid', description: 'invalid', parameters: {}, impl: () => ({}) },
+    ).prepare([]);
+
+    assert.ok(plan.activeTools.includes('Bash'));
+    assert.ok(plan.activeTools.includes('Read'));
+    assert.ok(plan.activeTools.includes(LOAD_TOOLS_NAME));
+    assert.ok(!plan.activeTools.includes('agent_spawn'));
+    assert.ok(!plan.activeTools.includes('agent_list'));
+    assert.ok(!plan.activeTools.includes('agent_output'));
+
+    const loaded = plan.prepareStep!({
+      steps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: { group: 'agent' } }] }],
+    }).activeTools;
+    assert.ok(loaded.includes('agent_spawn'));
+    assert.ok(loaded.includes('agent_list'));
+    assert.ok(loaded.includes('agent_output'));
+  });
+
+  test('standard isolated tool availability does not reintroduce agent tools into local-read children', () => {
+    const parentTools = buildIsolatedHeadlessTools({
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    const childTools = buildChildAgentTools(parentTools);
+    const plan = new ToolAvailabilityRuntime(
+      childTools,
+      buildIsolatedHeadlessToolAvailability(),
+      { name: 'invalid', description: 'invalid', parameters: {}, impl: () => ({}) },
+    ).prepare([]);
+
+    assert.deepEqual([...plan.activeTools].sort(), ['Glob', 'Grep', 'Read']);
+    assert.equal(plan.prepareStep, undefined);
+    assert.ok(!plan.activeTools.includes(LOAD_TOOLS_NAME));
+    assert.ok(!plan.activeTools.includes('agent_spawn'));
+  });
+
+  test('README real-backend sketch preserves child tool overrides', async () => {
+    const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8');
+
+    assert.ok(
+      readme.includes('tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],'),
+    );
   });
 });

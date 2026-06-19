@@ -6,10 +6,17 @@ import {
   buildToolsForAgentDefinition,
   requireBuiltinAgentDefinition,
 } from './agent-catalog.js';
+import type { ToolGroup } from './tool-availability.js';
 
 export const AGENT_SPAWN_TOOL_NAME = 'agent_spawn';
 export const AGENT_LIST_TOOL_NAME = 'agent_list';
 export const AGENT_OUTPUT_TOOL_NAME = 'agent_output';
+export const AGENT_TOOL_GROUP_ID = 'agent';
+export const AGENT_TOOL_NAMES = [
+  AGENT_SPAWN_TOOL_NAME,
+  AGENT_LIST_TOOL_NAME,
+  AGENT_OUTPUT_TOOL_NAME,
+] as const;
 export const CHILD_AGENT_TOOL_NAMES = LOCAL_READ_AGENT_DEFINITION.tools;
 
 type SubagentToolResult = Extract<ToolResultContent, { kind: 'subagent' }>;
@@ -109,4 +116,13 @@ export function buildSubagentOutputTool(): MakaTool<
 
 export function buildSubagentProjectionTools(): MakaTool[] {
   return [buildSubagentListTool(), buildSubagentOutputTool()];
+}
+
+export function buildSubagentToolGroup(): ToolGroup {
+  return {
+    id: AGENT_TOOL_GROUP_ID,
+    label: 'Agent',
+    description: 'Spawn and inspect foreground child agents.',
+    toolNames: AGENT_TOOL_NAMES,
+  };
 }

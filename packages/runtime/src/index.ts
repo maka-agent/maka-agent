@@ -85,12 +85,15 @@ export {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
+  AGENT_TOOL_GROUP_ID,
+  AGENT_TOOL_NAMES,
   CHILD_AGENT_TOOL_NAMES,
   buildChildAgentTools,
   buildSubagentListTool,
   buildSubagentOutputTool,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
+  buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
   deriveToolArtifactCandidates,

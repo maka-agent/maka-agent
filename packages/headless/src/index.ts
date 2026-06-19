@@ -121,4 +121,8 @@ export type {
   IsolatedToolExecutor,
   RealBackendIsolation,
 } from './isolation.js';
-export { buildIsolatedBashTool, buildIsolatedHeadlessTools } from './tools.js';
+export {
+  buildIsolatedBashTool,
+  buildIsolatedHeadlessToolAvailability,
+  buildIsolatedHeadlessTools,
+} from './tools.js';

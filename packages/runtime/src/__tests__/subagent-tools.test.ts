@@ -13,6 +13,8 @@ import {
   evaluateAgentDefinitionToolAccess,
 } from '../agent-catalog.js';
 import {
+  AGENT_TOOL_GROUP_ID,
+  AGENT_TOOL_NAMES,
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
@@ -20,11 +22,32 @@ import {
   buildSubagentListTool,
   buildSubagentOutputTool,
   buildSubagentSpawnTool,
+  buildSubagentToolGroup,
 } from '../subagent-tools.js';
 import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
 import { expect } from '../test-helpers.js';
 
 describe('subagent tools', () => {
+  test('agent deferred group declares the parent-facing agent tools only', () => {
+    const group = buildSubagentToolGroup();
+
+    expect(group.id).toBe(AGENT_TOOL_GROUP_ID);
+    expect(group.label).toBe('Agent');
+    expect([...group.toolNames]).toEqual([...AGENT_TOOL_NAMES]);
+    expect([...group.toolNames]).toEqual([
+      AGENT_SPAWN_TOOL_NAME,
+      AGENT_LIST_TOOL_NAME,
+      AGENT_OUTPUT_TOOL_NAME,
+    ]);
+    expect(group.description).toMatch(/Spawn and inspect/);
+
+    const spawnTool = buildSubagentSpawnTool();
+    expect(spawnTool.permissionRequired).toBe(true);
+    expect(spawnTool.categoryHint).toBe('subagent');
+    expect(buildSubagentListTool().permissionRequired).toBe(false);
+    expect(buildSubagentOutputTool().permissionRequired).toBe(false);
+  });
+
   test('built-in catalog exposes local-read without shell, web, nested, or write tools', () => {
     expect(LOCAL_READ_AGENT_DEFINITION.id).toBe(LOCAL_READ_AGENT_ID);
     expect(LOCAL_READ_AGENT_DEFINITION.permissionMode).toBe('explore');

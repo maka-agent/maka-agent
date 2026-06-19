@@ -1,6 +1,7 @@
-import type { MakaTool } from '@maka/runtime';
+import type { MakaTool, ToolAvailabilityConfig } from '@maka/runtime';
 import {
   buildBuiltinTools,
+  buildSubagentToolGroup,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
 } from '@maka/runtime';
@@ -22,6 +23,13 @@ export function buildIsolatedHeadlessTools(executor: IsolatedToolExecutor): Maka
     buildSubagentSpawnTool(),
     ...buildSubagentProjectionTools(),
   ];
+}
+
+export function buildIsolatedHeadlessToolAvailability(): ToolAvailabilityConfig {
+  return {
+    economy: true,
+    groups: [buildSubagentToolGroup()],
+  };
 }
 
 export function buildIsolatedBashTool(executor: IsolatedToolExecutor): MakaTool {

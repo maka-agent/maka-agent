@@ -132,6 +132,7 @@ import {
   buildChildAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
+  buildSubagentToolGroup,
   fetchProviderModels,
   getAIModel,
   buildProviderOptions,
@@ -561,8 +562,8 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
-// Unified tool availability (issue #37). The heavy-schema families (Rive,
-// Office, the embedded browser) form capability groups withheld from the
+// Unified tool availability (issue #37). Deferred capability groups (Rive,
+// Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
 // off the wire until needed. Everything else (ungrouped) stays always-on.
 // Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
@@ -574,19 +575,19 @@ const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools = buildBrowserTools();
-const heavyTools = [...riveTools, ...officeTools, ...browserTools];
+const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
     { id: 'rive', label: 'Rive', description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
     { id: 'office', label: 'Office', description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
     { id: 'browser', label: 'Browser', description: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
+    buildSubagentToolGroup(),
   ],
 };
 const builtinTools = [
   ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
-  buildSubagentSpawnTool(),
-  ...buildSubagentProjectionTools(),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -603,9 +604,9 @@ const builtinTools = [
     settingsStore,
     getPrivacyContext: getWorkspacePrivacyContext,
   }),
-  // The `load_tools` connector is built by ToolAvailabilityRuntime; the heavy
+  // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
-  ...heavyTools,
+  ...deferredTools,
 ];
 const childAgentTools = buildChildAgentTools(builtinTools);
 let lookupPricing = buildPricingLookup();
