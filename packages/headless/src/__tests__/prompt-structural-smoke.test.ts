@@ -5,6 +5,7 @@ import {
   promptStructuralSmokeReport,
   renderPromptStructuralSmokeMarkdown,
 } from '../prompt-structural-smoke.js';
+import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('prompt structural smoke report', () => {
   test('passes after ten unattended discard decisions under budget', () => {
@@ -474,7 +475,7 @@ function completedEvent(
     scored: true,
     eligible: true,
     promptHash,
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${roundId}/${taskId}.jsonl`,
@@ -501,7 +502,7 @@ function plumbingFailedEvent(roundId: string, taskId: string): FixedPromptWalEve
     eligible: false,
     errorClass: 'prompt_hash_mismatch',
     error: 'prompt hash mismatch',
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd: 1 },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 1 }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${roundId}/${taskId}.jsonl`,
