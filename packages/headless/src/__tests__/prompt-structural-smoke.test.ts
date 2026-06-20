@@ -156,6 +156,29 @@ describe('prompt structural smoke report', () => {
     assert.deepEqual(report.failures, ['task_evidence_missing']);
   });
 
+  test('fails when decision rounds span multiple runs', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 5; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-a', { decision: 'clean' }));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-a'));
+    }
+    for (let index = 6; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-b', { decision: 'clean' }));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-b'));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.failures, ['multiple_runs_present']);
+  });
+
   test('fails when decision rounds have no reward-hack scan evidence', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
@@ -172,6 +195,27 @@ describe('prompt structural smoke report', () => {
 
     assert.equal(report.status, 'fail');
     assert.deepEqual(report.failures, ['reward_hack_scan_missing']);
+  });
+
+  test('fails when reward-hack scan quarantines despite a mismatched reason', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
+        decision: 'quarantine',
+        reason: 'verifier_pattern',
+      }));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
   });
 });
 

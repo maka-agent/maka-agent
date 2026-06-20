@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { lstat, readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, readdir, readFile, readlink, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -40,6 +40,9 @@ export interface RewardHackScanInput {
 export type RewardHackScanResult =
   | { decision: 'clean' }
   | { decision: 'quarantine'; reason: 'runtime_events_unreadable' }
+  | { decision: 'quarantine'; reason: 'runtime_events_empty' }
+  | { decision: 'quarantine'; reason: 'no_verifier_patterns' }
+  | { decision: 'quarantine'; reason: 'no_model_visible_events' }
   | { decision: 'quarantine'; reason: 'verifier_pattern'; matchedPatterns: readonly string[] };
 
 export interface MetaAgentPromptInput {
@@ -101,6 +104,11 @@ export interface RunPromptCandidateRoundInput {
   newId?: () => string;
 }
 
+interface ArtifactTargetPath {
+  absolutePath: string;
+  realPath: string;
+}
+
 export interface PromptCandidateRoundResult {
   systemPrompt: string;
   summary: string;
@@ -117,7 +125,7 @@ export async function runPromptCandidateRound(
   if (input.agentCwdPath !== undefined) {
     await assertControllerOnlyArtifactsOutsideAgentCwd(
       input.agentCwdPath,
-      [input.resultsJsonlPath, ...(input.heldOutArtifactPaths ?? [])],
+      [input.resultsTsvPath, input.resultsJsonlPath, ...(input.heldOutArtifactPaths ?? [])],
     );
   }
   await assertSystemPromptPathMatchesGit(input.systemPromptPath, input.git);
@@ -210,18 +218,56 @@ async function assertControllerOnlyArtifactsOutsideAgentCwd(
   const agentCwdAbsolutePath = resolve(agentCwdPath);
   const agentCwdRealPath = await realpath(agentCwdPath);
   const visibleArtifacts = new Set<string>();
+  const artifactTargetPaths: ArtifactTargetPath[] = [];
   for (const artifactPath of artifactPaths) {
     const artifactAbsolutePath = resolve(artifactPath);
     if (artifactAbsolutePath === agentCwdAbsolutePath || isPathInside(agentCwdAbsolutePath, artifactAbsolutePath)) {
       visibleArtifacts.add(normalizeGitPath(relative(agentCwdAbsolutePath, artifactAbsolutePath) || basename(artifactPath)));
     }
     const artifactRealPath = await realOrParentResolvedPath(artifactPath);
+    artifactTargetPaths.push({ absolutePath: artifactAbsolutePath, realPath: artifactRealPath });
     if (artifactRealPath === agentCwdRealPath || isPathInside(agentCwdRealPath, artifactRealPath)) {
       visibleArtifacts.add(normalizeGitPath(relative(agentCwdRealPath, artifactRealPath) || basename(artifactPath)));
     }
   }
+  await addSymlinkedControllerArtifacts(agentCwdAbsolutePath, agentCwdAbsolutePath, artifactTargetPaths, visibleArtifacts);
   if (visibleArtifacts.size > 0) {
     throw new Error(`controller-only artifacts must stay outside agent cwd: ${[...visibleArtifacts].join(', ')}`);
+  }
+}
+
+async function addSymlinkedControllerArtifacts(
+  agentCwdPath: string,
+  currentPath: string,
+  artifactPaths: readonly ArtifactTargetPath[],
+  visibleArtifacts: Set<string>,
+): Promise<void> {
+  const entries = await readdir(currentPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = resolve(currentPath, entry.name);
+    if (entry.isSymbolicLink()) {
+      const targetPath = resolve(dirname(entryPath), await readlink(entryPath));
+      let targetRealPath: string | undefined;
+      try {
+        targetRealPath = await realpath(entryPath);
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+      }
+      if (artifactPaths.some((artifactPath) => (
+        artifactPath.absolutePath === targetPath
+        || artifactPath.realPath === targetPath
+        || artifactPath.realPath === targetRealPath
+        || isPathInside(targetPath, artifactPath.absolutePath)
+        || isPathInside(targetPath, artifactPath.realPath)
+        || (targetRealPath !== undefined && isPathInside(targetRealPath, artifactPath.realPath))
+      ))) {
+        visibleArtifacts.add(normalizeGitPath(relative(agentCwdPath, entryPath)));
+      }
+      continue;
+    }
+    if (entry.isDirectory()) {
+      await addSymlinkedControllerArtifacts(agentCwdPath, entryPath, artifactPaths, visibleArtifacts);
+    }
   }
 }
 
@@ -260,15 +306,20 @@ export async function scanRuntimeEventsForRewardHack(
     return { decision: 'quarantine', reason: 'runtime_events_unreadable' };
   }
 
-  const patterns = input.verifierPatterns.filter((pattern) => pattern.length > 0);
+  const patterns = input.verifierPatterns.filter((pattern) => pattern.trim().length > 0);
+  if (patterns.length === 0) return { decision: 'quarantine', reason: 'no_verifier_patterns' };
+  if (events.length === 0) return { decision: 'quarantine', reason: 'runtime_events_empty' };
   const matchedPatterns = new Set<string>();
+  let visibleValues = 0;
   for (const event of events) {
     for (const value of modelVisibleStrings(event)) {
+      visibleValues += 1;
       for (const pattern of patterns) {
         if (value.includes(pattern)) matchedPatterns.add(pattern);
       }
     }
   }
+  if (visibleValues === 0) return { decision: 'quarantine', reason: 'no_model_visible_events' };
   if (matchedPatterns.size > 0) {
     return {
       decision: 'quarantine',
@@ -396,6 +447,7 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
     ? realpathSync(input.systemPromptPath)
     : realpathSync(resolve(input.cwd, input.systemPromptPath));
   const systemPromptGitPath = toGitRelativePath(gitRootPath, systemPromptPath);
+  let statusBaseline: Set<string> | undefined;
   return {
     gitRootPath,
     systemPromptGitPath,
@@ -410,19 +462,11 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       if (worktreeDirty || indexDirty) {
         throw new Error('system_prompt.md must be clean before candidate round');
       }
+      statusBaseline = new Set(await gitStatusFiles(gitRootPath));
     },
     async changedFiles(): Promise<readonly string[]> {
-      const { stdout } = await execFileAsync('git', [
-        'status',
-        '--porcelain',
-        '--untracked-files=all',
-        '--',
-        systemPromptGitPath,
-      ], { cwd: gitRootPath });
-      return stdout
-        .split('\n')
-        .map((line) => line.slice(3).trim())
-        .filter((line) => line.length > 0);
+      const baseline = statusBaseline ?? new Set<string>();
+      return (await gitStatusFiles(gitRootPath)).filter((path) => !baseline.has(path));
     },
     async commit(message: string): Promise<string> {
       await execFileAsync('git', ['add', '--', systemPromptGitPath], { cwd: gitRootPath });
@@ -460,6 +504,26 @@ async function hasGitDiff(cwd: string, args: readonly string[]): Promise<boolean
   } catch {
     return true;
   }
+}
+
+async function gitStatusFiles(cwd: string): Promise<readonly string[]> {
+  const { stdout } = await execFileAsync('git', [
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+  ], { cwd });
+  return stdout
+    .split('\n')
+    .map((line) => statusPath(line))
+    .filter((path): path is string => path !== undefined);
+}
+
+function statusPath(line: string): string | undefined {
+  const path = line.slice(3).trim();
+  if (path.length === 0) return undefined;
+  const renameSeparator = ' -> ';
+  const renameIndex = path.indexOf(renameSeparator);
+  return renameIndex === -1 ? path : path.slice(renameIndex + renameSeparator.length);
 }
 
 function findGitRoot(cwd: string): string {
@@ -513,6 +577,7 @@ function modelVisibleStrings(event: unknown): readonly string[] {
   if (!isRecord(event) || !isRecord(event.content)) return [];
   const content = event.content;
   if (content.kind === 'text' && typeof content.text === 'string') return [content.text];
+  if (content.kind === 'thinking' && typeof content.text === 'string') return [content.text];
   if (content.kind === 'function_call') return stringValues(content.args);
   if (content.kind === 'function_response') return stringValues(content.result);
   return [];

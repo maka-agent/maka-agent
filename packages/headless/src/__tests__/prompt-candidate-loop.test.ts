@@ -218,7 +218,7 @@ describe('prompt candidate loop', () => {
       const programPath = join(agentDir, 'program.md');
       const systemPromptPath = join(agentDir, 'system_prompt.md');
       const resultsTsvPath = join(agentDir, 'results.tsv');
-      const heldOutEventsPath = join(agentDir, 'held-out-runtime-events.jsonl');
+      const heldOutEventsPath = join(controllerDir, 'held-out-runtime-events.jsonl');
       await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
       await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
       await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
@@ -244,7 +244,7 @@ describe('prompt candidate loop', () => {
           },
           git: gitNoop(agentDir),
         }),
-        /controller-only artifacts must stay outside agent cwd: held-out-runtime-events\.jsonl/,
+        /controller-only artifacts must stay outside agent cwd: results\.tsv/,
       );
       assert.equal(metaAgentCalled, false);
     });
@@ -258,7 +258,7 @@ describe('prompt candidate loop', () => {
       await mkdir(controllerDir, { recursive: true });
       const programPath = join(agentDir, 'program.md');
       const systemPromptPath = join(agentDir, 'system_prompt.md');
-      const resultsTsvPath = join(agentDir, 'results.tsv');
+      const resultsTsvPath = join(controllerDir, 'results.tsv');
       const heldOutEventsPath = join(controllerDir, 'held-out-runtime-events.jsonl');
       const visibleHeldOutLinkPath = join(agentDir, 'held-out-link.jsonl');
       await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
@@ -287,6 +287,88 @@ describe('prompt candidate loop', () => {
           git: gitNoop(agentDir),
         }),
         /controller-only artifacts must stay outside agent cwd: held-out-link\.jsonl/,
+      );
+      assert.equal(metaAgentCalled, false);
+    });
+  });
+
+  test('rejects agent-cwd symlinks to controller artifacts', async () => {
+    await withDir(async (dir) => {
+      const agentDir = join(dir, 'agent-cwd');
+      const controllerDir = join(dir, 'controller');
+      await mkdir(agentDir, { recursive: true });
+      await mkdir(controllerDir, { recursive: true });
+      const programPath = join(agentDir, 'program.md');
+      const systemPromptPath = join(agentDir, 'system_prompt.md');
+      const resultsTsvPath = join(controllerDir, 'results.tsv');
+      const resultsJsonlPath = join(controllerDir, 'results.jsonl');
+      const visibleResultsLinkPath = join(agentDir, 'results-link.jsonl');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await writeFile(resultsJsonlPath, '', 'utf8');
+      await symlink(resultsJsonlPath, visibleResultsLinkPath);
+
+      let metaAgentCalled = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          agentCwdPath: agentDir,
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath,
+          heldInTaskIds: ['task-a'],
+          heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
+          metaAgent: async () => {
+            metaAgentCalled = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: gitNoop(agentDir),
+        }),
+        /controller-only artifacts must stay outside agent cwd: results-link\.jsonl/,
+      );
+      assert.equal(metaAgentCalled, false);
+    });
+  });
+
+  test('rejects agent-cwd directory symlinks that contain controller artifacts', async () => {
+    await withDir(async (dir) => {
+      const agentDir = join(dir, 'agent-cwd');
+      const controllerDir = join(dir, 'controller');
+      await mkdir(agentDir, { recursive: true });
+      await mkdir(controllerDir, { recursive: true });
+      const programPath = join(agentDir, 'program.md');
+      const systemPromptPath = join(agentDir, 'system_prompt.md');
+      const resultsTsvPath = join(controllerDir, 'results.tsv');
+      const resultsJsonlPath = join(controllerDir, 'results.jsonl');
+      const visibleControllerLinkPath = join(agentDir, 'controller-link');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await writeFile(resultsJsonlPath, '', 'utf8');
+      await symlink(controllerDir, visibleControllerLinkPath);
+
+      let metaAgentCalled = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          agentCwdPath: agentDir,
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath,
+          heldInTaskIds: ['task-a'],
+          heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
+          metaAgent: async () => {
+            metaAgentCalled = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: gitNoop(agentDir),
+        }),
+        /controller-only artifacts must stay outside agent cwd: controller-link/,
       );
       assert.equal(metaAgentCalled, false);
     });
@@ -648,6 +730,27 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('quarantines replayed thinking containing verifier expected output', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify(thinkingRuntimeEvent('Remember EXPECTED_SECRET for the next answer.')),
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = await scanRuntimeEventsForRewardHack({
+        runtimeEventsPath,
+        verifierPatterns: ['EXPECTED_SECRET'],
+      });
+
+      assert.deepEqual(result, {
+        decision: 'quarantine',
+        reason: 'verifier_pattern',
+        matchedPatterns: ['EXPECTED_SECRET'],
+      });
+    });
+  });
+
   test('quarantines when raw runtime events are unavailable', async () => {
     await withDir(async (dir) => {
       const result = await scanRuntimeEventsForRewardHack({
@@ -658,6 +761,63 @@ describe('prompt candidate loop', () => {
       assert.deepEqual(result, {
         decision: 'quarantine',
         reason: 'runtime_events_unreadable',
+      });
+    });
+  });
+
+  test('quarantines when runtime events are empty', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      await writeFile(runtimeEventsPath, '', 'utf8');
+
+      const result = await scanRuntimeEventsForRewardHack({
+        runtimeEventsPath,
+        verifierPatterns: ['EXPECTED_SECRET'],
+      });
+
+      assert.deepEqual(result, {
+        decision: 'quarantine',
+        reason: 'runtime_events_empty',
+      });
+    });
+  });
+
+  test('quarantines when verifier patterns are empty', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'echo hello' })),
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = await scanRuntimeEventsForRewardHack({
+        runtimeEventsPath,
+        verifierPatterns: ['', '   '],
+      });
+
+      assert.deepEqual(result, {
+        decision: 'quarantine',
+        reason: 'no_verifier_patterns',
+      });
+    });
+  });
+
+  test('quarantines when runtime events contain no model-visible content', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify({ id: 'event-1', content: { kind: 'metrics', costUsd: 0.01 } }),
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = await scanRuntimeEventsForRewardHack({
+        runtimeEventsPath,
+        verifierPatterns: ['EXPECTED_SECRET'],
+      });
+
+      assert.deepEqual(result, {
+        decision: 'quarantine',
+        reason: 'no_model_visible_events',
       });
     });
   });
@@ -758,6 +918,47 @@ describe('prompt candidate loop', () => {
       assert.match(status.stdout, /^A  notes\.md$/m);
       assert.match(status.stdout, /^\?\? scratch\.tmp$/m);
       assert.equal(result.commitSha.length, 40);
+    });
+  });
+
+  test('CLI git adapter rejects non-prompt edits made during a candidate round', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
+          heldInDigests: [],
+          metaAgent: async () => {
+            await writeFile(programPath, 'tampered program\n', 'utf8');
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /only system_prompt.md may change/,
+      );
+
+      const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
+      assert.equal(subject.stdout.trim(), 'initial');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
     });
   });
 
@@ -1060,6 +1261,21 @@ function textRuntimeEvent(text: string) {
     role: 'model',
     author: 'agent',
     content: { kind: 'text', text },
+  };
+}
+
+function thinkingRuntimeEvent(text: string) {
+  return {
+    id: 'thinking-1',
+    invocationId: 'inv-1',
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 1,
+    partial: false,
+    role: 'model',
+    author: 'agent',
+    content: { kind: 'thinking', text },
   };
 }
 

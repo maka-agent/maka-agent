@@ -193,7 +193,7 @@ export async function runFixedPromptController(
     maxInfraFailureRate: input.maxInfraFailureRate,
     costCeilingUsd: input.costCeilingUsd,
   });
-  const maxConcurrency = normalizeMaxConcurrency(input.maxConcurrency);
+  const maxConcurrency = hasStopGuard(input) ? 1 : normalizeMaxConcurrency(input.maxConcurrency);
 
   for (let index = 0; index < input.tasks.length;) {
     if (stopReason) break;
@@ -565,10 +565,14 @@ function controllerStopReason(input: {
   ) {
     return 'infra_failure_rate_exceeded';
   }
-  if (input.costCeilingUsd !== undefined && taskEventsCostUsd(input.events) > input.costCeilingUsd) {
+  if (input.costCeilingUsd !== undefined && taskEventsCostUsd(input.events) >= input.costCeilingUsd) {
     return 'cost_ceiling_exceeded';
   }
   return undefined;
+}
+
+function hasStopGuard(input: RunFixedPromptControllerInput): boolean {
+  return input.maxInfraFailureRate !== undefined || input.costCeilingUsd !== undefined;
 }
 
 function infraFailureRate(events: readonly FixedPromptTaskWalEvent[], taskCount: number): number {
