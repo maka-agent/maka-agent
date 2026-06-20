@@ -9860,28 +9860,26 @@ button:active {
 
 .maka-artifact-pane {
   flex: 0 0 auto;
-  width: 360px;
+  width: 320px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   border-left: 1px solid var(--border);
   background: var(--background);
   overflow: hidden;
-  /* No animation on width — instant collapse feels more responsive than a
-     fly-out for a layout primitive the user toggles deliberately. */
 }
 
 .maka-artifact-pane[data-collapsed="true"] {
-  width: 32px;
+  width: 28px;
   grid-template-rows: auto;
 }
 
 .maka-artifact-pane-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border);
-  min-height: 36px;
+  min-height: 28px;
 }
 
 .maka-artifact-pane[data-collapsed="true"] .maka-artifact-pane-header {
@@ -9890,22 +9888,18 @@ button:active {
 
 .maka-artifact-pane-collapse {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: 0;
   background: transparent;
   color: var(--foreground-70);
-  /* PR-UI-LAYOUT-18: bumped 22→24 (more comfortable target) and
-   * radius 6→8 to join the card family. Background drops to
-   * transparent so the toggle sits lightly on the panel; hover
-   * tints subtly. Focus ring added. */
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   padding: 0;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 
 .maka-artifact-pane-collapse:hover {
@@ -9921,19 +9915,19 @@ button:active {
 }
 
 .maka-artifact-pane-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--foreground);
 }
 
 .maka-artifact-pane-count {
-  font-size: 11px;
-  padding: 1px 7px;
+  font-size: 10px;
+  padding: 0 5px;
   border-radius: 999px;
-  background: oklch(from var(--accent) l c h / 0.12);
-  color: var(--accent);
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-60);
   font-variant-numeric: tabular-nums;
 }
 
