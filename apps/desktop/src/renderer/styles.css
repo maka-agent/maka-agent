@@ -6386,7 +6386,7 @@ button:active {
 .settingsFeatureStatusPage {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 10px;
 }
 
 /* Status banner at the top of feature settings pages. */
@@ -6419,48 +6419,48 @@ button:active {
 
 .settingsFeatureStatusHero {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   align-items: start;
-  gap: 16px;
-  padding: 18px;
+  gap: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--foreground-3);
 }
 
 .settingsFeatureStatusIcon {
-  width: 56px;
-  height: 56px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 8px;
   background: oklch(from var(--accent) l c h / 0.08);
   color: var(--accent);
 }
 
 .settingsFeatureStatusHero h3 {
-  margin: 0 0 6px;
+  margin: 0 0 3px;
   color: var(--foreground);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .settingsFeatureStatusHero p {
   margin: 0;
   max-width: 56ch;
   color: var(--foreground-70);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .settingsFeatureStatusList {
   margin: 0;
-  padding: 0 0 0 18px;
+  padding: 0 0 0 14px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
   color: var(--foreground-70);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .settingsFeatureStatusList li::marker {
@@ -7942,7 +7942,7 @@ button:active {
 .settingsStatsTable td {
   border-bottom: 1px solid var(--border);
   color: var(--foreground-60);
-  padding: 11px 12px;
+  padding: 5px 8px;
   text-align: left;
 }
 
