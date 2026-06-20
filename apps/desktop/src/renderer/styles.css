@@ -2577,36 +2577,36 @@ button:active {
 .maka-plan-heading p:last-child {
   margin: 0;
   color: var(--foreground-60);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .maka-plan-top-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .maka-plan-create-through {
-  gap: 6px;
+  gap: 4px;
   background: var(--foreground-3);
   color: var(--foreground);
   border-color: transparent;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .maka-plan-new-task-button {
-  gap: 6px;
+  gap: 4px;
   border-color: #000;
   border-radius: 999px;
   background: #000;
   color: #fff;
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .maka-plan-new-task-button:hover {
@@ -2648,8 +2648,8 @@ button:active {
 
 .maka-plan-template-icon {
   display: inline-flex;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   align-items: center;
   justify-content: center;
   border-radius: 4px;
@@ -2660,14 +2660,14 @@ button:active {
 .maka-plan-template-main {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .maka-plan-template-title {
   color: var(--foreground);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
 }
 
 .maka-plan-template-note {
@@ -2675,24 +2675,24 @@ button:active {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .maka-plan-template-schedule {
   display: inline-flex;
   align-self: start;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--foreground-2);
   color: var(--foreground-55);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 10px;
+  font-weight: 600;
   line-height: 1;
-  padding: 6px 8px;
+  padding: 3px 6px;
   white-space: nowrap;
 }
 
