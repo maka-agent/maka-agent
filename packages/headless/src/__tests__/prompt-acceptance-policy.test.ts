@@ -17,6 +17,7 @@ import type {
   FixedPromptTaskCompletedEvent,
   FixedPromptTaskWalEvent,
 } from '../fixed-prompt-controller.js';
+import type { HarborCellTokenSummary } from '../cell-output.js';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
 
 describe('prompt acceptance policy', () => {
@@ -677,7 +678,7 @@ function completed(
     passed,
     scored: true,
     eligible: true,
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${taskId}.jsonl`,
@@ -721,7 +722,7 @@ function plumbingFailed(taskId: string): FixedPromptTaskWalEvent {
     error: 'prompt hash mismatch',
     promptHash: 'actual',
     expectedPromptHash: 'expected',
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${taskId}.jsonl`,
@@ -736,4 +737,18 @@ async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+function tokenSummary(
+  input: Pick<HarborCellTokenSummary, 'input' | 'output' | 'reasoning' | 'total' | 'costUsd'>,
+): HarborCellTokenSummary {
+  return {
+    ...input,
+    cachedInput: 0,
+    cacheHitInput: 0,
+    cacheMissInput: input.input,
+    cacheWriteInput: 0,
+    cacheMissInputSource: 'derived',
+    pricingSource: 'runtime',
+  };
 }

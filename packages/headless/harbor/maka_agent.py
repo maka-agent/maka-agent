@@ -203,6 +203,7 @@ class MakaAgent(BaseInstalledAgent):
         if isinstance(token_summary, dict):
             context.n_input_tokens = int(token_summary.get("input") or 0)
             context.n_output_tokens = int(token_summary.get("output") or 0)
+            context.n_cache_tokens = int(token_summary.get("cachedInput") or token_summary.get("cacheHitInput") or 0)
             context.cost_usd = float(token_summary.get("costUsd") or 0)
 
         context.metadata = {
@@ -212,6 +213,12 @@ class MakaAgent(BaseInstalledAgent):
             "maka_prompt_hash": output.get("promptHash"),
             "maka_cell_output": str(self.logs_dir / self._CELL_OUTPUT_FILENAME),
             "maka_runtime_events": output.get("runtimeEventsPath"),
+            "maka_cached_input_tokens": _optional_int(token_summary, "cachedInput"),
+            "maka_cache_hit_input_tokens": _optional_int(token_summary, "cacheHitInput"),
+            "maka_cache_miss_input_tokens": _optional_int(token_summary, "cacheMissInput"),
+            "maka_cache_write_input_tokens": _optional_int(token_summary, "cacheWriteInput"),
+            "maka_estimated_cost_usd": _optional_float(token_summary, "costUsd"),
+            "maka_pricing_source": token_summary.get("pricingSource") if isinstance(token_summary, dict) else None,
         }
         self._write_trajectory(output)
 
@@ -227,6 +234,12 @@ class MakaAgent(BaseInstalledAgent):
                 "maka_error_class": output.get("errorClass"),
                 "maka_prompt_hash": output.get("promptHash"),
                 "runtime_events_path": output.get("runtimeEventsPath"),
+                "cached_input_tokens": _optional_int(token_summary, "cachedInput"),
+                "cache_hit_input_tokens": _optional_int(token_summary, "cacheHitInput"),
+                "cache_miss_input_tokens": _optional_int(token_summary, "cacheMissInput"),
+                "cache_write_input_tokens": _optional_int(token_summary, "cacheWriteInput"),
+                "estimated_cost_usd": _optional_float(token_summary, "costUsd"),
+                "pricing_source": token_summary.get("pricingSource") if isinstance(token_summary, dict) else None,
             },
         )
         trajectory = Trajectory(

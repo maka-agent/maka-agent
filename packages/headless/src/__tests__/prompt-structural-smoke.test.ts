@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import type { HarborCellTokenSummary } from '../cell-output.js';
 import type { FixedPromptWalEvent, PromptCandidateRewardHackScan } from '../fixed-prompt-controller.js';
 import {
   promptStructuralSmokeReport,
@@ -474,7 +475,7 @@ function completedEvent(
     scored: true,
     eligible: true,
     promptHash,
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${roundId}/${taskId}.jsonl`,
@@ -501,7 +502,7 @@ function plumbingFailedEvent(roundId: string, taskId: string): FixedPromptWalEve
     eligible: false,
     errorClass: 'prompt_hash_mismatch',
     error: 'prompt hash mismatch',
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd: 1 },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 1 }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${roundId}/${taskId}.jsonl`,
@@ -524,5 +525,19 @@ function infraFailedEvent(roundId: string, taskId: string): FixedPromptWalEvent 
     eligible: false,
     errorClass: 'infra_error',
     error: 'container crashed',
+  };
+}
+
+function tokenSummary(
+  input: Pick<HarborCellTokenSummary, 'input' | 'output' | 'reasoning' | 'total' | 'costUsd'>,
+): HarborCellTokenSummary {
+  return {
+    ...input,
+    cachedInput: 0,
+    cacheHitInput: 0,
+    cacheMissInput: input.input,
+    cacheWriteInput: 0,
+    cacheMissInputSource: 'derived',
+    pricingSource: 'runtime',
   };
 }
