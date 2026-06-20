@@ -71,18 +71,28 @@ class MakaAgent(BaseInstalledAgent):
                 "if [ \"$NODE_MAJOR\" -lt 22 ]; then "
                 "  if command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y curl ca-certificates; "
                 "  elif command -v yum >/dev/null 2>&1; then yum install -y curl ca-certificates; "
+                "  elif command -v apk >/dev/null 2>&1; then apk add --no-cache curl ca-certificates; "
                 "  fi; "
-                "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash; "
-                "  export NVM_DIR=\"$HOME/.nvm\"; "
+                "  export NVM_DIR=\"/usr/local/nvm\"; "
+                "  mkdir -p \"$NVM_DIR\"; "
+                "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | PROFILE=/dev/null bash; "
                 "  . \"$NVM_DIR/nvm.sh\"; "
                 "  nvm install 22; "
                 "  nvm alias default 22; "
+                "  chmod -R a+rX \"$NVM_DIR\"; "
                 "  for bin in node npm npx; do "
                 "    BIN_PATH=\"$(. \"$NVM_DIR/nvm.sh\" && which \"$bin\")\"; "
                 "    ln -sf \"$BIN_PATH\" \"/usr/local/bin/$bin\"; "
                 "  done; "
-                "fi; "
+                "fi"
+            ),
+        )
+        await self.exec_as_agent(
+            environment,
+            command=(
                 "node --version && "
+                "NODE_MAJOR=$(node -p 'process.versions.node.split(\".\")[0]') && "
+                "test \"$NODE_MAJOR\" -ge 22 && "
                 f"test -f {shlex.quote(str(run_cell))} && "
                 f"test -f {shlex.quote(str(dist_index))}"
             ),

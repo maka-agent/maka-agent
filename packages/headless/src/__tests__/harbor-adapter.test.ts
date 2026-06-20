@@ -167,8 +167,14 @@ with tempfile.TemporaryDirectory() as tmp:
     asyncio.run(install_agent.install(fake_environment))
     install_command = "\n".join(fake_environment.root_commands)
     assert "nvm install 22" in install_command, install_command
+    assert "/usr/local/nvm" in install_command, install_command
     assert "nvm.sh" in install_command, install_command
-    assert fake_environment.agent_commands == [], fake_environment.agent_commands
+    assert "chmod -R a+rX" in install_command, install_command
+    agent_probe_command = "\n".join(fake_environment.agent_commands)
+    assert "node --version" in agent_probe_command, agent_probe_command
+    assert "NODE_MAJOR" in agent_probe_command, agent_probe_command
+    assert "test -f /opt/maka-agent/packages/headless/harbor/run-cell.mjs" in agent_probe_command, agent_probe_command
+    assert "test -f /opt/maka-agent/packages/headless/dist/index.js" in agent_probe_command, agent_probe_command
 
     agent = MakaAgent(Path(tmp))
     context = AgentContext()

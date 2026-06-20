@@ -134,6 +134,32 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('env entrypoint defaults to the process cwd when MAKA_WORKDIR is absent', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const instructionFile = join(outputDir, 'instruction.txt');
+      await writeFile(instructionFile, 'solve from current cwd\n', 'utf8');
+
+      const originalCwd = process.cwd();
+      process.chdir(workspaceDir);
+      try {
+        const result = await runHarborCellFromEnv({
+          MAKA_BACKEND: 'fake',
+          MAKA_INSTRUCTION_FILE: instructionFile,
+          MAKA_OUTPUT_DIR: outputDir,
+          MAKA_STORAGE_ROOT: storageRoot,
+          MAKA_SYSTEM_PROMPT: config.systemPrompt!,
+        }, {
+          registerBackends: registerCellBackend,
+        });
+
+        assert.equal(result.output.status, 'completed');
+        assert.equal(await readFile(join(workspaceDir, 'cell-proof.txt'), 'utf8'), 'ran in place\n');
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
+  });
+
   test('writes a failed cell artifact when the backend stream throws', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const result = await runHarborCell({
