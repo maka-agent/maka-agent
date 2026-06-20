@@ -5515,21 +5515,15 @@ button:active {
 }
 
 .composer .maka-composer-inner {
-  --h-composer-min: 88px;
-  /* PR-PARCHMENT-HOME-2: width 680 (reference implementation hero composer measure).
-     PR-GRAY-CARD-LIFT-1 (WAWQAQ msg `053ca971` 2026-06-20):
-     background changed from `--background-elevated` (slightly
-     off-white) to `--background` (pure white) so the card visibly
-     lifts off the new gray plate, matching "content surface 白色" +
-     the reference implementation `--color-bg-container: #fff` pattern. */
+  --h-composer-min: 72px;
   width: min(680px, 80vw);
   max-width: 680px;
   margin-inline: auto;
   box-sizing: border-box;
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 10px;
+  padding: 10px 12px;
   background: var(--background);
-  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.065);
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.07);
 }
 
 .composer .maka-composer-inner:focus-within {
@@ -5565,10 +5559,10 @@ button:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid oklch(from var(--foreground) l c h / 0.055);
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.05);
 }
 
 .maka-composer-left-controls,
@@ -5604,16 +5598,16 @@ button:active {
 .maka-composer-role-chip,
 .maka-composer-mode-chip,
 .maka-composer-model-chip {
-  height: 30px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   border: 1px solid var(--color-border-tertiary);
   border-radius: 999px;
-  padding: 0 11px;
+  padding: 0 8px;
   background: var(--background);
   color: var(--foreground-65);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -5648,27 +5642,27 @@ button:active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--foreground-3);
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--foreground-60);
   cursor: pointer;
 }
 
 .maka-composer-context-plus {
-  width: 30px;
-  height: 30px;
-  border-color: var(--foreground-20);
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--foreground-20);
   border-radius: 999px;
   background: transparent;
 }
 
 .maka-composer-tool-button.maka-composer-mic-button {
-  width: 30px;
-  height: 30px;
-  border-color: transparent;
+  width: 24px;
+  height: 24px;
+  border: 0;
   background: transparent;
 }
 
@@ -5683,15 +5677,15 @@ button:active {
 }
 
 .maka-composer-tool-button.maka-composer-mic-button:disabled {
-  border-color: transparent;
+  border: 0;
   background: transparent;
   color: var(--foreground-55);
   opacity: 1;
 }
 
 .maka-composer-send-button {
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   background: #000;
   color: #fff;
