@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { lstat, readdir, readFile, readlink, realpath, writeFile } from 'node:fs/promises';
@@ -89,7 +89,7 @@ export interface CreateCliPromptCandidateGitInput {
 export interface RunPromptCandidateRoundInput {
   runId: string;
   roundId: string;
-  agentCwdPath?: string;
+  agentCwdPath: string;
   programPath: string;
   systemPromptPath: string;
   resultsTsvPath: string;
@@ -122,12 +122,14 @@ export async function runPromptCandidateRound(
   const newId = input.newId ?? randomId;
   assertHeldInDigestsBelongToHeldInTasks(input.heldInTaskIds, input.heldInDigests);
   assertHeldInAndHeldOutDisjoint(input.heldInTaskIds, input.heldOutDigests ?? []);
-  if (input.agentCwdPath !== undefined) {
-    await assertControllerOnlyArtifactsOutsideAgentCwd(
-      input.agentCwdPath,
-      [input.resultsTsvPath, input.resultsJsonlPath, ...(input.heldOutArtifactPaths ?? [])],
-    );
+  const heldOutArtifactPaths = input.heldOutArtifactPaths ?? [];
+  if (input.agentCwdPath === undefined) {
+    throw new Error('agentCwdPath is required before exposing controller artifacts');
   }
+  await assertControllerOnlyArtifactsOutsideAgentCwd(
+    input.agentCwdPath,
+    [input.resultsTsvPath, input.resultsJsonlPath, ...heldOutArtifactPaths],
+  );
   await assertSystemPromptPathMatchesGit(input.systemPromptPath, input.git);
   await assertRegularSystemPromptFile(input.systemPromptPath, input.git.gitRootPath);
   await input.git.assertSystemPromptClean();
@@ -447,7 +449,8 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
     ? realpathSync(input.systemPromptPath)
     : realpathSync(resolve(input.cwd, input.systemPromptPath));
   const systemPromptGitPath = toGitRelativePath(gitRootPath, systemPromptPath);
-  let statusBaseline: Set<string> | undefined;
+  let statusBaseline: ReadonlyMap<string, string> | undefined;
+  let headBaseline: string | undefined;
   return {
     gitRootPath,
     systemPromptGitPath,
@@ -462,13 +465,22 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       if (worktreeDirty || indexDirty) {
         throw new Error('system_prompt.md must be clean before candidate round');
       }
-      statusBaseline = new Set(await gitStatusFiles(gitRootPath));
+      [statusBaseline, headBaseline] = await Promise.all([
+        gitStatusSnapshot(gitRootPath),
+        gitHeadSha(gitRootPath),
+      ]);
     },
     async changedFiles(): Promise<readonly string[]> {
-      const baseline = statusBaseline ?? new Set<string>();
-      return (await gitStatusFiles(gitRootPath)).filter((path) => !baseline.has(path));
+      await assertGitHeadUnchanged(gitRootPath, headBaseline);
+      const baseline = statusBaseline ?? new Map<string, string>();
+      const current = await gitStatusSnapshot(gitRootPath);
+      const paths = new Set([...baseline.keys(), ...current.keys()]);
+      return [...paths].filter((path) => (
+        baseline.get(path) !== current.get(path)
+      ));
     },
     async commit(message: string): Promise<string> {
+      await assertGitHeadUnchanged(gitRootPath, headBaseline);
       await execFileAsync('git', ['add', '--', systemPromptGitPath], { cwd: gitRootPath });
       await execFileAsync('git', ['commit', '-m', message, '--', systemPromptGitPath], { cwd: gitRootPath });
       const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRootPath });
@@ -486,6 +498,19 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], { cwd: gitRootPath });
     },
   };
+}
+
+async function assertGitHeadUnchanged(cwd: string, baseline: string | undefined): Promise<void> {
+  if (baseline === undefined) return;
+  const current = await gitHeadSha(cwd);
+  if (current !== baseline) {
+    throw new Error('candidate round HEAD moved before prompt commit');
+  }
+}
+
+async function gitHeadSha(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd });
+  return stdout.trim();
 }
 
 async function isGitTracked(cwd: string, path: string): Promise<boolean> {
@@ -516,6 +541,38 @@ async function gitStatusFiles(cwd: string): Promise<readonly string[]> {
     .split('\n')
     .map((line) => statusPath(line))
     .filter((path): path is string => path !== undefined);
+}
+
+async function gitStatusSnapshot(cwd: string): Promise<ReadonlyMap<string, string>> {
+  const snapshot = new Map<string, string>();
+  for (const path of await gitStatusFiles(cwd)) {
+    snapshot.set(path, await gitStatusFingerprint(cwd, path));
+  }
+  return snapshot;
+}
+
+async function gitStatusFingerprint(cwd: string, path: string): Promise<string> {
+  const [fileHash, worktreeDiff, indexDiff] = await Promise.all([
+    fileFingerprint(resolve(cwd, path)),
+    gitDiffFingerprint(cwd, ['diff', '--binary', '--', path]),
+    gitDiffFingerprint(cwd, ['diff', '--cached', '--binary', '--', path]),
+  ]);
+  return [fileHash, worktreeDiff, indexDiff].join('\0');
+}
+
+async function fileFingerprint(path: string): Promise<string> {
+  try {
+    const content = await readFile(path);
+    return createHash('sha256').update(content).digest('hex');
+  } catch (error) {
+    if (isNotFound(error)) return 'missing';
+    throw error;
+  }
+}
+
+async function gitDiffFingerprint(cwd: string, args: readonly string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', [...args], { cwd, encoding: 'buffer' });
+  return createHash('sha256').update(stdout).digest('hex');
 }
 
 function statusPath(line: string): string | undefined {
@@ -580,6 +637,7 @@ function modelVisibleStrings(event: unknown): readonly string[] {
   if (content.kind === 'thinking' && typeof content.text === 'string') return [content.text];
   if (content.kind === 'function_call') return stringValues(content.args);
   if (content.kind === 'function_response') return stringValues(content.result);
+  if (content.kind === 'error') return stringValues([content.message, content.details]);
   return [];
 }
 

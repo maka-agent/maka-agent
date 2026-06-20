@@ -10,8 +10,10 @@ describe('prompt structural smoke report', () => {
   test('passes after ten unattended discard decisions under budget', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
-      events.push(decisionEvent(`round-${index}`, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
-      events.push(completedEvent(`round-${index}`, `task-${index}`, 0.1));
+      const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
     }
 
     const report = promptStructuralSmokeReport({
@@ -37,14 +39,17 @@ describe('prompt structural smoke report', () => {
   test('fails when structural smoke evidence is incomplete or unsafe', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 8; index += 1) {
-      events.push(decisionEvent(`round-${index}`, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
-      events.push(completedEvent(`round-${index}`, `task-${index}`, 4));
+      const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(completedEvent(roundId, `task-${index}`, 4));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
     }
+    events.push(committedEvent('round-9'));
+    events.push(completedEvent('round-9', 'task-9', 4));
     events.push(decisionEvent('round-9', 'discard', 'reward_hack_quarantined', 'run-1', {
       decision: 'quarantine',
       reason: 'verifier_pattern',
     }));
-    events.push(completedEvent('round-9', 'task-9', 4));
     events.push(plumbingFailedEvent('round-9', 'task-9'));
 
     const report = promptStructuralSmokeReport({
@@ -100,6 +105,7 @@ describe('prompt structural smoke report', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
       events.push(decisionEvent(roundId, 'discard', 'coverage_regressed', 'run-1', { decision: 'clean' }));
       events.push(infraFailedEvent(roundId, `task-${index}`));
     }
@@ -130,6 +136,7 @@ describe('prompt structural smoke report', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
+      events.push(committedEvent(roundId, 'run-current'));
       events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-old'));
       events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-current', { decision: 'clean' }));
     }
@@ -160,13 +167,15 @@ describe('prompt structural smoke report', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 5; index += 1) {
       const roundId = `round-${index}`;
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-a', { decision: 'clean' }));
+      events.push(committedEvent(roundId, 'run-a'));
       events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-a'));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-a', { decision: 'clean' }));
     }
     for (let index = 6; index <= 10; index += 1) {
       const roundId = `round-${index}`;
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-b', { decision: 'clean' }));
+      events.push(committedEvent(roundId, 'run-b'));
       events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-b'));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-b', { decision: 'clean' }));
     }
 
     const report = promptStructuralSmokeReport({
@@ -183,8 +192,9 @@ describe('prompt structural smoke report', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise'));
+      events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise'));
     }
 
     const report = promptStructuralSmokeReport({
@@ -201,11 +211,12 @@ describe('prompt structural smoke report', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
       events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
         decision: 'quarantine',
         reason: 'verifier_pattern',
       }));
-      events.push(completedEvent(roundId, `task-${index}`, 0.1));
     }
 
     const report = promptStructuralSmokeReport({
@@ -217,7 +228,201 @@ describe('prompt structural smoke report', () => {
     assert.equal(report.status, 'fail');
     assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
   });
+
+  test('fails when reward-hack scan has an unknown decision', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
+        decision: 'skipped',
+      } as unknown as PromptCandidateRewardHackScan));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.equal(report.quarantineCount, 10);
+    assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
+  });
+
+  test('fails when reward-hack scan evidence is null', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+      const event = decisionEvent(
+        roundId,
+        'discard',
+        'held_in_within_noise',
+        'run-1',
+        { decision: 'clean' },
+      );
+      (event as { rewardHackScan: unknown }).rewardHackScan = null;
+      events.push(event);
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.equal(report.quarantineCount, 10);
+    assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
+  });
+
+  test('fails when task evidence is appended after decision rounds', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+    }
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.roundsWithoutTaskEvidence, [
+      'round-1',
+      'round-2',
+      'round-3',
+      'round-4',
+      'round-5',
+      'round-6',
+      'round-7',
+      'round-8',
+      'round-9',
+      'round-10',
+    ]);
+    assert.deepEqual(report.failures, ['task_evidence_missing']);
+  });
+
+  test('fails when task evidence uses a different prompt hash from the committed candidate', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(committedEvent(roundId));
+      events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-1', `sha256:stale-${roundId}`));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.roundsWithoutTaskEvidence, [
+      'round-1',
+      'round-2',
+      'round-3',
+      'round-4',
+      'round-5',
+      'round-6',
+      'round-7',
+      'round-8',
+      'round-9',
+      'round-10',
+    ]);
+    assert.deepEqual(report.failures, ['task_evidence_missing']);
+  });
+
+  test('fails when matching task evidence has no prior candidate commit', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.roundsWithoutTaskEvidence, [
+      'round-1',
+      'round-2',
+      'round-3',
+      'round-4',
+      'round-5',
+      'round-6',
+      'round-7',
+      'round-8',
+      'round-9',
+      'round-10',
+    ]);
+    assert.deepEqual(report.failures, ['task_evidence_missing']);
+  });
+
+  test('fails when matching task evidence predates the candidate commit', () => {
+    const events: FixedPromptWalEvent[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const roundId = `round-${index}`;
+      events.push(completedEvent(roundId, `task-${index}`, 0.1));
+      events.push(committedEvent(roundId));
+      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+    }
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 10,
+      costCeilingUsd: 30,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.roundsWithoutTaskEvidence, [
+      'round-1',
+      'round-2',
+      'round-3',
+      'round-4',
+      'round-5',
+      'round-6',
+      'round-7',
+      'round-8',
+      'round-9',
+      'round-10',
+    ]);
+    assert.deepEqual(report.failures, ['task_evidence_missing']);
+  });
 });
+
+function committedEvent(
+  roundId: string,
+  runId = 'run-1',
+  promptHash = promptHashForRound(roundId),
+): FixedPromptWalEvent {
+  return {
+    schemaVersion: 1,
+    type: 'prompt_candidate_committed',
+    id: `commit-${roundId}`,
+    ts: 1,
+    runId,
+    roundId,
+    commitSha: `candidate-${roundId}`,
+    summary: `candidate ${roundId}`,
+    promptHash,
+  };
+}
 
 function decisionEvent(
   roundId: string,
@@ -254,6 +459,7 @@ function completedEvent(
   taskId: string,
   costUsd: number,
   runId = 'run-1',
+  promptHash = promptHashForRound(roundId),
 ): FixedPromptWalEvent {
   return {
     schemaVersion: 1,
@@ -267,12 +473,17 @@ function completedEvent(
     passed: false,
     scored: true,
     eligible: true,
+    promptHash,
     tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd },
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${roundId}/${taskId}.jsonl`,
     harbor: { reward: 0 },
   };
+}
+
+function promptHashForRound(roundId: string): string {
+  return `sha256:${roundId}`;
 }
 
 function plumbingFailedEvent(roundId: string, taskId: string): FixedPromptWalEvent {

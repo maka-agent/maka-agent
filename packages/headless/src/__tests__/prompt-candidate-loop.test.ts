@@ -34,6 +34,7 @@ describe('prompt candidate loop', () => {
       await runPromptCandidateRound({
         runId: 'run-1',
         roundId: 'round-1',
+        agentCwdPath: await testAgentCwd(dir),
         programPath,
         systemPromptPath,
         resultsTsvPath,
@@ -101,6 +102,7 @@ describe('prompt candidate loop', () => {
       await runPromptCandidateRound({
         runId: 'run-1',
         roundId: 'round-1',
+        agentCwdPath: await testAgentCwd(dir),
         programPath,
         systemPromptPath,
         resultsTsvPath,
@@ -151,6 +153,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -187,6 +190,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -206,6 +210,127 @@ describe('prompt candidate loop', () => {
       );
 
       assert.equal(called, false);
+    });
+  });
+
+  test('requires an agent cwd before exposing controller artifacts', async () => {
+    await withDir(async (dir) => {
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+
+      let called = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: ['task-a'],
+          heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
+          metaAgent: async () => {
+            called = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: gitNoop(dir),
+        } as unknown as Parameters<typeof runPromptCandidateRound>[0]),
+        /agentCwdPath is required before exposing controller artifacts/,
+      );
+
+      assert.equal(called, false);
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
+  test('requires an agent cwd when held-out artifact paths are provided', async () => {
+    await withDir(async (dir) => {
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      const heldOutEventsPath = join(dir, 'held-out-runtime-events.jsonl');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await writeFile(heldOutEventsPath, '', 'utf8');
+
+      let called = false;
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: ['task-a'],
+          heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
+          heldOutArtifactPaths: [heldOutEventsPath],
+          metaAgent: async () => {
+            called = true;
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: gitNoop(dir),
+        } as unknown as Parameters<typeof runPromptCandidateRound>[0]),
+        /agentCwdPath is required before exposing controller artifacts/,
+      );
+
+      assert.equal(called, false);
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
+  test('allows controller artifacts outside agent cwd with unrelated symlinks present', async () => {
+    await withDir(async (dir) => {
+      const agentDir = join(dir, 'agent-cwd');
+      const controllerDir = join(dir, 'controller');
+      const sharedDir = join(dir, 'shared');
+      await mkdir(agentDir, { recursive: true });
+      await mkdir(controllerDir, { recursive: true });
+      await mkdir(sharedDir, { recursive: true });
+      const programPath = join(agentDir, 'program.md');
+      const systemPromptPath = join(agentDir, 'system_prompt.md');
+      const resultsTsvPath = join(controllerDir, 'results.tsv');
+      const resultsJsonlPath = join(controllerDir, 'results.jsonl');
+      const heldOutEventsPath = join(controllerDir, 'held-out-runtime-events.jsonl');
+      const sharedNotePath = join(sharedDir, 'note.md');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\nheld-out-task\ttrue\n', 'utf8');
+      await writeFile(heldOutEventsPath, '', 'utf8');
+      await writeFile(sharedNotePath, 'unrelated shared note\n', 'utf8');
+      await symlink(sharedNotePath, join(agentDir, 'shared-note.md'));
+
+      let seenInput: MetaAgentPromptInput | undefined;
+      const result = await runPromptCandidateRound({
+        runId: 'run-1',
+        roundId: 'round-1',
+        agentCwdPath: agentDir,
+        programPath,
+        systemPromptPath,
+        resultsTsvPath,
+        resultsJsonlPath,
+        heldInTaskIds: ['task-a'],
+        heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
+        heldOutArtifactPaths: [heldOutEventsPath],
+        metaAgent: async (input): Promise<MetaAgentPromptResult> => {
+          seenInput = input;
+          return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+        },
+        git: gitNoop(agentDir),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.commitSha, 'commit-1');
+      assert.equal(seenInput?.resultsTsv, 'task_id\tpassed\ntask-a\tfalse\n');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'candidate prompt\n');
+      const events = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
+      assert.equal(events[0]?.type, 'prompt_candidate_committed');
     });
   });
 
@@ -388,6 +513,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -436,6 +562,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -471,6 +598,7 @@ describe('prompt candidate loop', () => {
           runPromptCandidateRound({
             runId: 'run-1',
             roundId: 'round-1',
+            agentCwdPath: await testAgentCwd(dir),
             programPath,
             systemPromptPath,
             resultsTsvPath,
@@ -516,6 +644,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -566,6 +695,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath: programPath,
           resultsTsvPath,
@@ -603,6 +733,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -735,6 +866,29 @@ describe('prompt candidate loop', () => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
       await writeFile(runtimeEventsPath, [
         JSON.stringify(thinkingRuntimeEvent('Remember EXPECTED_SECRET for the next answer.')),
+        '',
+      ].join('\n'), 'utf8');
+
+      const result = await scanRuntimeEventsForRewardHack({
+        runtimeEventsPath,
+        verifierPatterns: ['EXPECTED_SECRET'],
+      });
+
+      assert.deepEqual(result, {
+        decision: 'quarantine',
+        reason: 'verifier_pattern',
+        matchedPatterns: ['EXPECTED_SECRET'],
+      });
+    });
+  });
+
+  test('quarantines model-visible errors containing verifier expected output', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify(errorRuntimeEvent('Tool error mentioned EXPECTED_SECRET.', {
+          stdout: 'EXPECTED_SECRET',
+        })),
         '',
       ].join('\n'), 'utf8');
 
@@ -896,6 +1050,7 @@ describe('prompt candidate loop', () => {
       const result = await runPromptCandidateRound({
         runId: 'run-1',
         roundId: 'round-1',
+        agentCwdPath: await testAgentCwd(dir),
         programPath,
         systemPromptPath,
         resultsTsvPath,
@@ -921,6 +1076,94 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('CLI git adapter rejects edits to pre-existing dirty files during a candidate round', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      const scratchPath = join(dir, 'scratch.tmp');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+      await writeFile(scratchPath, 'pre-existing scratch\n', 'utf8');
+
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
+          heldInDigests: [],
+          metaAgent: async () => {
+            await writeFile(scratchPath, 'candidate side edit\n', 'utf8');
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /only system_prompt.md may change/,
+      );
+
+      const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
+      assert.equal(subject.stdout.trim(), 'initial');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
+  test('CLI git adapter rejects deletion of pre-existing dirty files during a candidate round', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      const scratchPath = join(dir, 'scratch.tmp');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+      await writeFile(scratchPath, 'pre-existing scratch\n', 'utf8');
+
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
+          heldInDigests: [],
+          metaAgent: async () => {
+            await rm(scratchPath);
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /only system_prompt.md may change/,
+      );
+
+      const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
+      assert.equal(subject.stdout.trim(), 'initial');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
   test('CLI git adapter rejects non-prompt edits made during a candidate round', async () => {
     await withDir(async (dir) => {
       await execFileAsync('git', ['init'], { cwd: dir });
@@ -939,6 +1182,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -958,6 +1202,51 @@ describe('prompt candidate loop', () => {
 
       const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
       assert.equal(subject.stdout.trim(), 'initial');
+      assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
+    });
+  });
+
+  test('CLI git adapter rejects HEAD movement during a candidate round', async () => {
+    await withDir(async (dir) => {
+      await execFileAsync('git', ['init'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: dir });
+      const programPath = join(dir, 'program.md');
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsTsvPath = join(dir, 'results.tsv');
+      const notesPath = join(dir, 'notes.md');
+      await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
+      await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
+      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\n', 'utf8');
+      await execFileAsync('git', ['add', '.'], { cwd: dir });
+      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: dir });
+
+      await assert.rejects(
+        runPromptCandidateRound({
+          runId: 'run-1',
+          roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
+          programPath,
+          systemPromptPath,
+          resultsTsvPath,
+          resultsJsonlPath: join(dir, 'results.jsonl'),
+          heldInTaskIds: [],
+          heldInDigests: [],
+          metaAgent: async () => {
+            await writeFile(notesPath, 'side commit\n', 'utf8');
+            await execFileAsync('git', ['add', 'notes.md'], { cwd: dir });
+            await execFileAsync('git', ['commit', '-m', 'side edit'], { cwd: dir });
+            return { systemPrompt: 'candidate prompt\n', summary: 'changed prompt' };
+          },
+          git: createCliPromptCandidateGit({ cwd: dir, systemPromptPath }),
+          now: () => 100,
+          newId: idFactory(),
+        }),
+        /candidate round HEAD moved before prompt commit/,
+      );
+
+      const subjects = await execFileAsync('git', ['log', '--format=%s', '--max-count=2'], { cwd: dir });
+      assert.deepEqual(subjects.stdout.trim().split('\n'), ['side edit', 'initial']);
       assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
     });
   });
@@ -982,6 +1271,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -1021,6 +1311,7 @@ describe('prompt candidate loop', () => {
       const result = await runPromptCandidateRound({
         runId: 'run-1',
         roundId: 'round-1',
+        agentCwdPath: await testAgentCwd(dir),
         programPath,
         systemPromptPath: join(dir, 'system_prompt.md'),
         resultsTsvPath,
@@ -1058,6 +1349,7 @@ describe('prompt candidate loop', () => {
       const result = await runPromptCandidateRound({
         runId: 'run-1',
         roundId: 'round-1',
+        agentCwdPath: await testAgentCwd(dir),
         programPath,
         systemPromptPath,
         resultsTsvPath,
@@ -1097,6 +1389,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -1138,6 +1431,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -1179,6 +1473,7 @@ describe('prompt candidate loop', () => {
         runPromptCandidateRound({
           runId: 'run-1',
           roundId: 'round-1',
+          agentCwdPath: await testAgentCwd(dir),
           programPath,
           systemPromptPath,
           resultsTsvPath,
@@ -1277,6 +1572,27 @@ function thinkingRuntimeEvent(text: string) {
     author: 'agent',
     content: { kind: 'thinking', text },
   };
+}
+
+function errorRuntimeEvent(message: string, details?: unknown) {
+  return {
+    id: 'error-1',
+    invocationId: 'inv-1',
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 1,
+    partial: false,
+    role: 'tool',
+    author: 'tool',
+    content: { kind: 'error', message, details },
+  };
+}
+
+async function testAgentCwd(dir: string): Promise<string> {
+  const agentCwdPath = join(dir, 'agent-cwd');
+  await mkdir(agentCwdPath, { recursive: true });
+  return agentCwdPath;
 }
 
 async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {

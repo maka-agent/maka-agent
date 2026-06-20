@@ -46,11 +46,7 @@ export function promptStructuralSmokeReport(
   const completedTaskEvents = taskEvents.filter((event) => event.type === 'task_completed');
   const observedRounds = new Set(decisionEvents.map((event) => event.roundId)).size;
   const observedRunCount = new Set(decisionEvents.map((event) => event.runId)).size;
-  const taskEvidenceRounds = new Set(completedTaskEvents.map(roundEvidenceKey));
-  const decisionRounds = new Map(decisionEvents.map((event) => [roundEvidenceKey(event), event.roundId]));
-  const roundsWithoutTaskEvidence = [...decisionRounds]
-    .filter(([key]) => !taskEvidenceRounds.has(key))
-    .map(([, roundId]) => roundId)
+  const roundsWithoutTaskEvidence = roundsWithoutPriorTaskEvidence(input.events)
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const quarantineCount = decisionEvents.filter((event) => isQuarantineDecision(event)).length;
   const missingRewardHackScanCount = decisionEvents.filter((event) => event.rewardHackScan === undefined).length;
@@ -121,9 +117,59 @@ function roundEvidenceKey(event: { runId: string; roundId: string }): string {
   return `${event.runId}\0${event.roundId}`;
 }
 
-function isQuarantineDecision(event: { reason: string; rewardHackScan?: { decision: string } }): boolean {
+function roundsWithoutPriorTaskEvidence(events: readonly FixedPromptWalEvent[]): string[] {
+  const candidatePromptHashes = new Map<string, string>();
+  const candidateKeysByRoundAndPromptHash = new Map<string, Set<string>>();
+  const taskEvidenceCandidates = new Set<string>();
+  const missingRounds = new Map<string, string>();
+  for (const event of events) {
+    const roundKey = roundEvidenceKey(event);
+    if (event.type === 'prompt_candidate_committed') {
+      const candidateKey = candidateEvidenceKey(event);
+      candidatePromptHashes.set(candidateKey, event.promptHash);
+      const roundPromptHashKey = roundPromptHashEvidenceKey(event, event.promptHash);
+      const candidateKeys = candidateKeysByRoundAndPromptHash.get(roundPromptHashKey) ?? new Set<string>();
+      candidateKeys.add(candidateKey);
+      candidateKeysByRoundAndPromptHash.set(roundPromptHashKey, candidateKeys);
+    }
+    if (event.type === 'task_completed' && event.promptHash !== undefined) {
+      const candidateKeys = candidateKeysByRoundAndPromptHash.get(roundPromptHashEvidenceKey(event, event.promptHash));
+      for (const candidateKey of candidateKeys ?? []) {
+        taskEvidenceCandidates.add(candidateKey);
+      }
+    }
+    if (event.type === 'prompt_candidate_decided') {
+      const candidateKey = decisionCandidateEvidenceKey(event);
+      if (!candidatePromptHashes.has(candidateKey) || !taskEvidenceCandidates.has(candidateKey)) {
+        missingRounds.set(roundKey, event.roundId);
+      }
+    }
+  }
+  return [...missingRounds.values()];
+}
+
+function candidateEvidenceKey(event: { runId: string; roundId: string; commitSha: string }): string {
+  return `${event.runId}\0${event.roundId}\0${event.commitSha}`;
+}
+
+function decisionCandidateEvidenceKey(event: { runId: string; roundId: string; candidateCommitSha: string }): string {
+  return `${event.runId}\0${event.roundId}\0${event.candidateCommitSha}`;
+}
+
+function roundPromptHashEvidenceKey(event: { runId: string; roundId: string }, promptHash: string): string {
+  return `${roundEvidenceKey(event)}\0${promptHash}`;
+}
+
+function isQuarantineDecision(event: { reason: string; rewardHackScan?: unknown }): boolean {
   return event.reason === PROMPT_REWARD_HACK_QUARANTINE_REASON
-    || event.rewardHackScan?.decision === 'quarantine';
+    || (event.rewardHackScan !== undefined && !isCleanRewardHackScan(event.rewardHackScan));
+}
+
+function isCleanRewardHackScan(scan: unknown): boolean {
+  return typeof scan === 'object'
+    && scan !== null
+    && 'decision' in scan
+    && scan.decision === 'clean';
 }
 
 function taskEventsSummary(report: PromptStructuralSmokeReport): string {
