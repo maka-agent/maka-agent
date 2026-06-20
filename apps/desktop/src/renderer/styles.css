@@ -128,13 +128,11 @@ select {
 }
 
 button {
-  /* Skip animating `color` (paint property) — keep compositor-friendly props
-     only per baseline-ui. Scale-on-press feedback matches the
-     emil-design-eng 100–160ms tactile envelope. */
   transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    transform 140ms var(--ease-out-strong);
+    background 150ms ease-out,
+    border-color 150ms ease-out,
+    color 150ms ease-out,
+    transform 150ms ease-out;
 }
 
 button:active {
@@ -400,9 +398,6 @@ button:active {
 }
 
 .maka-session-panel {
-  /* Sidebar is a compact app directory: header, module nav, session
-   * list, footer. Only the session list owns the flexible row.
-   */
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -410,6 +405,7 @@ button:active {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: transparent;
+  contain: layout paint style;
 }
 
 .maka-session-panel[data-collapsed="true"] {
@@ -969,9 +965,8 @@ button:active {
   font-size: 13px;
   line-height: 1.25;
   transition:
-    background 140ms var(--ease-out, ease-out),
-    color 140ms var(--ease-out, ease-out),
-    box-shadow 140ms var(--ease-out, ease-out);
+    background 150ms ease-out,
+    color 150ms ease-out;
 }
 
 .maka-nav-row-parent {
@@ -1208,8 +1203,7 @@ button:active {
   background: transparent;
   color: var(--foreground);
   overflow: hidden;
-  transition:
-    background-color 120ms ease;
+  transition: background-color 150ms ease-out;
 }
 
 .maka-list-row:hover {
