@@ -63,7 +63,7 @@ class MakaAgent(BaseInstalledAgent):
         maka_repo = self._resolved_flags.get("maka_repo", "/opt/maka-agent")
         run_cell = Path(maka_repo) / "packages" / "headless" / "harbor" / "run-cell.mjs"
         dist_index = Path(maka_repo) / "packages" / "headless" / "dist" / "index.js"
-        await self.exec_as_agent(
+        await self.exec_as_root(
             environment,
             command=(
                 "set -euo pipefail; "

@@ -10,10 +10,12 @@ const repoRoot = resolve(fileURLToPath(new URL('../../../..', import.meta.url)))
 describe('Harbor adapter contract', () => {
   test('run-cell.mjs delegates to the shared env entrypoint', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-cell.mjs');
+    const cellSource = await readRepoFile('packages/headless/src/harbor-cell.ts');
 
     assert.match(source, /^#!\/usr\/bin\/env node/);
     assert.match(source, /runHarborCellFromEnv/);
     assert.match(source, /process\.env/);
+    assert.match(cellSource, /env\.MAKA_WORKDIR \?\? process\.cwd\(\)/);
   });
 
   test('maka_agent.py invokes run-cell with the shared artifact contract', async () => {
@@ -91,8 +93,12 @@ class BaseInstalledAgent:
     def version(self):
         return "test"
 
+    async def exec_as_root(self, environment, command, **kwargs):
+        environment.root_commands.append(command)
+        return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
+
     async def exec_as_agent(self, environment, command, **kwargs):
-        environment.commands.append(command)
+        environment.agent_commands.append(command)
         return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
 
 class CliFlag:
@@ -157,11 +163,12 @@ import asyncio
 with tempfile.TemporaryDirectory() as tmp:
     install_agent = MakaAgent(Path(tmp))
     install_agent._resolved_flags = {"maka_repo": "/opt/maka-agent"}
-    fake_environment = types.SimpleNamespace(commands=[])
+    fake_environment = types.SimpleNamespace(root_commands=[], agent_commands=[])
     asyncio.run(install_agent.install(fake_environment))
-    install_command = "\n".join(fake_environment.commands)
+    install_command = "\n".join(fake_environment.root_commands)
     assert "nvm install 22" in install_command, install_command
     assert "nvm.sh" in install_command, install_command
+    assert fake_environment.agent_commands == [], fake_environment.agent_commands
 
     agent = MakaAgent(Path(tmp))
     context = AgentContext()
