@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +67,39 @@ describe('Harbor adapter contract', () => {
     }
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /opencode_estimated_cost_usd/);
+  });
+
+  test('opencode stop runner exits after a stop event even when the child stays alive', () => {
+    const tmp = mkdtempSync(resolve(tmpdir(), 'maka-opencode-runner-'));
+    try {
+      const outputPath = resolve(tmp, 'opencode.txt');
+      const started = Date.now();
+      const result = spawnSync(
+        process.execPath,
+        [
+          resolve(repoRoot, 'packages/headless/harbor/opencode-stop-runner.mjs'),
+          '--output',
+          outputPath,
+          '--grace-ms',
+          '50',
+          '--',
+          process.execPath,
+          '-e',
+          [
+            'console.log(JSON.stringify({ type: "step_finish", part: { reason: "stop" } }))',
+            'setInterval(() => {}, 1000)',
+          ].join(';'),
+        ],
+        { encoding: 'utf8', timeout: 2000 },
+      );
+      const elapsed = Date.now() - started;
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.ok(elapsed < 1500, `runner should stop promptly, took ${elapsed}ms`);
+      assert.match(result.stdout, /"reason":"stop"/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
@@ -286,7 +321,7 @@ class OpenCode:
         self.logs_dir = Path(logs_dir)
         self._extra_env = kwargs.get("extra_env") or {}
         self.model_name = kwargs.get("model_name") or "openai/mimo-v2.5-pro"
-        self.seen_env = {}
+        self._instruction = None
 
     @staticmethod
     def name():
@@ -295,11 +330,20 @@ class OpenCode:
     def _get_env(self, key):
         return self._extra_env.get(key) or os.environ.get(key)
 
+    def _build_register_skills_command(self):
+        return None
+
+    def _build_register_config_command(self):
+        return None
+
+    def build_cli_flags(self):
+        return ""
+
+    def _error_messages(self):
+        return []
+
     async def run(self, instruction, environment, context):
-        self.seen_env = {
-            "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
-            "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL"),
-        }
+        raise AssertionError("MakaOpenCodeAgent should use its stop-sentinel run path")
 
     def populate_context_post_run(self, context):
         context.n_input_tokens = 100
@@ -340,9 +384,18 @@ try:
             "MAKA_TRIAL_PRICING_SOURCE": "xiaomi-env",
         })
         context = AgentContext()
-        asyncio.run(agent.run("hi", BaseEnvironment(), context))
-        assert agent.seen_env["OPENAI_API_KEY"] == "test-key", agent.seen_env
-        assert agent.seen_env["OPENAI_BASE_URL"] == "https://api.xiaomimimo.com/v1", agent.seen_env
+        environment = types.SimpleNamespace(agent_commands=[])
+        async def exec_as_agent(environment, command, env=None, **kwargs):
+            environment.agent_commands.append((command, env or {}))
+        agent.exec_as_agent = exec_as_agent
+
+        asyncio.run(agent.run("hi", environment, context))
+        command, env = environment.agent_commands[-1]
+        assert "opencode-stop-runner.mjs" in command, command
+        assert "--output /logs/agent/opencode.txt" in command, command
+        assert "opencode --model=openai/mimo-v2.5-pro run --format=json" in command, command
+        assert env["OPENAI_API_KEY"] == "test-key", env
+        assert env["OPENAI_BASE_URL"] == "https://api.xiaomimimo.com/v1", env
         assert os.environ.get("OPENAI_API_KEY") is None
         assert os.environ.get("OPENAI_BASE_URL") is None
 
