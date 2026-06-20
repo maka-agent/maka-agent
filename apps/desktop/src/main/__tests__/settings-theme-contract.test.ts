@@ -154,12 +154,12 @@ describe('Settings theme page contract', () => {
 
     assert.match(
       css,
-      /\.settingsThemeOption \{[\s\S]*height:\s*auto;[\s\S]*min-height:\s*66px;[\s\S]*justify-content:\s*stretch;[\s\S]*overflow:\s*hidden;[\s\S]*white-space:\s*normal;/,
+      /\.settingsThemeOption \{[\s\S]*height:\s*auto;[\s\S]*min-height:\s*48px;[\s\S]*justify-content:\s*stretch;[\s\S]*overflow:\s*hidden;[\s\S]*white-space:\s*normal;/,
       'Theme option cards must reset shared Button defaults instead of inheriting h-9/centered chrome',
     );
     assert.match(
       css,
-      /\.settingsThemeOptionPreview \{[\s\S]*align-items:\s*stretch;[\s\S]*min-height:\s*142px;/,
+      /\.settingsThemeOptionPreview \{[\s\S]*align-items:\s*stretch;[\s\S]*min-height:\s*116px;/,
       'Theme preview cards must reserve enough vertical space for preview plus label',
     );
     assert.match(

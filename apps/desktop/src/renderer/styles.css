@@ -4192,14 +4192,14 @@ button:active {
 }
 
 .modePill {
-  height: 22px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
-  padding: 0 8px;
-  font-size: 12px;
+  padding: 0 6px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -4280,44 +4280,44 @@ button:active {
 
 .maka-error-card {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr);
   align-items: start;
-  gap: 18px;
-  max-width: 640px;
-  padding: 22px 24px;
+  gap: 12px;
+  max-width: 520px;
+  padding: 14px 16px;
   border: 1px solid oklch(from var(--destructive) l c h / 0.3);
-  border-radius: 16px;
+  border-radius: 10px;
   background: var(--background-elevated);
   box-shadow: var(--shadow-modal);
 }
 
 .maka-error-icon {
-  width: 48px;
-  height: 48px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 8px;
   background: oklch(from var(--destructive) l c h / 0.10);
   color: var(--destructive-text);
 }
 
 .maka-error-copy {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .maka-error-copy h2 {
   margin: 0;
   color: var(--foreground);
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .maka-error-copy p {
   margin: 0;
   color: var(--foreground-70);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.45;
   max-width: 56ch;
 }
 
@@ -6943,37 +6943,35 @@ button:active {
 .settingsThemeOptions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 .settingsThemeOption {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   height: auto;
-  min-height: 66px;
+  min-height: 48px;
   justify-content: stretch;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--background-elevated);
   color: var(--foreground);
   cursor: pointer;
   overflow: hidden;
-  padding: 12px;
+  padding: 8px;
   text-align: left;
   white-space: normal;
 }
 
-/* Preview variant: tile stacks vertically (mock on top, label below) and
- * gives the mock more room. Used by the theme picker, not the density picker. */
 .settingsThemeOptionPreview {
   grid-template-columns: 1fr;
   grid-template-rows: auto auto;
   align-items: stretch;
-  gap: 10px;
-  min-height: 142px;
+  gap: 8px;
+  min-height: 116px;
 }
 
 /* Mini chat-surface mock rendered inside each theme tile. Hardcodes colors
