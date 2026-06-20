@@ -5992,24 +5992,24 @@ button:active {
 
 .maka-permission-diff {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .maka-permission-diff > div {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .maka-permission-diff-tag {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 1px 7px;
+  padding: 0 5px;
   border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .maka-permission-diff-tag[data-side="old"] {
@@ -6024,16 +6024,16 @@ button:active {
 
 .maka-permission-raw {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--foreground-2);
 }
 
 .maka-permission-raw > summary {
   cursor: pointer;
   list-style: none;
-  padding: 8px 12px;
+  padding: 5px 10px;
   color: var(--foreground-60);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .maka-permission-raw > summary::-webkit-details-marker { display: none; }
@@ -6046,9 +6046,9 @@ button:active {
 .maka-permission-raw .maka-code {
   margin: 0;
   border: 0;
-  border-radius: 0 0 10px 10px;
+  border-radius: 0 0 6px 6px;
   background: var(--foreground-2);
-  max-height: 220px;
+  max-height: 180px;
   overflow: auto;
 }
 
@@ -10162,7 +10162,7 @@ button:active {
 .maka-artifact-preview {
   position: relative;
   overflow: auto;
-  padding: 10px 12px;
+  padding: 6px 10px;
   background: var(--background);
   min-height: 0;
 }
@@ -10172,24 +10172,24 @@ button:active {
   align-items: center;
   justify-content: center;
   color: oklch(from var(--foreground) l c h / 0.5);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .maka-artifact-preview-empty {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .maka-artifact-preview-file {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .maka-artifact-preview-diff {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .maka-artifact-preview-html {
@@ -10210,9 +10210,9 @@ button:active {
 }
 
 .maka-artifact-preview-external-links-bar {
-  font-size: 11px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  font-size: 10px;
+  padding: 4px 6px;
+  border-radius: 5px;
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   border: 1px solid oklch(from var(--info) l c h / 0.20);
