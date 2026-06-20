@@ -53,6 +53,19 @@ describe('Harbor adapter contract', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /maka-cell-output\.json/);
   });
+
+  test('opencode_agent.py bridges credentials and estimates trial cost without Harbor installed', (t: TestContext) => {
+    const result = spawnSync('python3', ['-c', pythonOpenCodeAdapterSmokeScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('python3 is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /opencode_estimated_cost_usd/);
+  });
 });
 
 async function readRepoFile(path: string): Promise<string> {
@@ -206,6 +219,36 @@ with tempfile.TemporaryDirectory() as tmp:
     assert context.metadata["maka_pricing_source"] == "runtime", context.metadata
     print(context.metadata["maka_cell_output"])
 
+    priced_agent = MakaAgent(Path(tmp), extra_env={
+        "MAKA_TRIAL_INPUT_USD_PER_1M": "2",
+        "MAKA_TRIAL_OUTPUT_USD_PER_1M": "10",
+        "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
+        "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M": "3",
+        "MAKA_TRIAL_PRICING_SOURCE": "smoke-env",
+    })
+    priced_context = AgentContext()
+    priced_agent._apply_cell_output(priced_context, {
+        "status": "completed",
+        "runtimeEventsPath": "/logs/agent/runtime-events.jsonl",
+        "promptHash": "sha256:test",
+        "tokenSummary": {
+            "input": 100,
+            "output": 20,
+            "cachedInput": 40,
+            "cacheHitInput": 40,
+            "cacheMissInput": 60,
+            "cacheWriteInput": 0,
+            "costUsd": 0,
+            "pricingSource": "runtime",
+        },
+        "steps": 1,
+        "runtimeRefs": {"sessionId": "session-1"},
+    })
+    expected_cost = (60 / 1_000_000 * 2) + (20 / 1_000_000 * 10) + (40 / 1_000_000 * 0.5)
+    assert abs(priced_context.cost_usd - expected_cost) < 1e-12, priced_context.cost_usd
+    assert priced_context.metadata["maka_estimated_cost_usd"] == priced_context.cost_usd, priced_context.metadata
+    assert priced_context.metadata["maka_pricing_source"] == "smoke-env", priced_context.metadata
+
     gateway_agent = MakaAgent(Path(tmp), extra_env={
         "MAKA_PROVIDER": "openai-compatible",
         "MAKA_MODEL": "anthropic/claude-sonnet-4-5",
@@ -214,5 +257,110 @@ with tempfile.TemporaryDirectory() as tmp:
     assert gateway_env["MAKA_PROVIDER"] == "openai-compatible", gateway_env
     assert gateway_env["MAKA_MODEL"] == "anthropic/claude-sonnet-4-5", gateway_env
     assert "MAKA_WORKDIR" not in gateway_env, gateway_env
+`;
+}
+
+function pythonOpenCodeAdapterSmokeScript(root: string): string {
+  return String.raw`
+import asyncio
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+
+def module(name):
+    mod = types.ModuleType(name)
+    sys.modules[name] = mod
+    return mod
+
+module("harbor")
+module("harbor.agents")
+module("harbor.agents.installed")
+opencode_mod = module("harbor.agents.installed.opencode")
+
+class OpenCode:
+    def __init__(self, logs_dir, *args, **kwargs):
+        self.logs_dir = Path(logs_dir)
+        self._extra_env = kwargs.get("extra_env") or {}
+        self.model_name = kwargs.get("model_name") or "openai/mimo-v2.5-pro"
+        self.seen_env = {}
+
+    @staticmethod
+    def name():
+        return "opencode"
+
+    def _get_env(self, key):
+        return self._extra_env.get(key) or os.environ.get(key)
+
+    async def run(self, instruction, environment, context):
+        self.seen_env = {
+            "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+            "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL"),
+        }
+
+    def populate_context_post_run(self, context):
+        context.n_input_tokens = 100
+        context.n_output_tokens = 20
+        context.n_cache_tokens = 40
+        context.cost_usd = None
+
+opencode_mod.OpenCode = OpenCode
+
+module("harbor.environments")
+env_mod = module("harbor.environments.base")
+class BaseEnvironment:
+    pass
+env_mod.BaseEnvironment = BaseEnvironment
+
+module("harbor.models")
+module("harbor.models.agent")
+context_mod = module("harbor.models.agent.context")
+class AgentContext:
+    def __init__(self):
+        self.metadata = {}
+context_mod.AgentContext = AgentContext
+
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+from opencode_agent import MakaOpenCodeAgent
+
+old_key = os.environ.pop("OPENAI_API_KEY", None)
+old_base = os.environ.pop("OPENAI_BASE_URL", None)
+try:
+    with tempfile.TemporaryDirectory() as tmp:
+        agent = MakaOpenCodeAgent(Path(tmp), extra_env={
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_BASE_URL": "https://api.xiaomimimo.com/v1",
+            "MAKA_TRIAL_INPUT_USD_PER_1M": "2",
+            "MAKA_TRIAL_OUTPUT_USD_PER_1M": "10",
+            "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.5",
+            "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M": "3",
+            "MAKA_TRIAL_PRICING_SOURCE": "xiaomi-env",
+        })
+        context = AgentContext()
+        asyncio.run(agent.run("hi", BaseEnvironment(), context))
+        assert agent.seen_env["OPENAI_API_KEY"] == "test-key", agent.seen_env
+        assert agent.seen_env["OPENAI_BASE_URL"] == "https://api.xiaomimimo.com/v1", agent.seen_env
+        assert os.environ.get("OPENAI_API_KEY") is None
+        assert os.environ.get("OPENAI_BASE_URL") is None
+
+        agent.populate_context_post_run(context)
+        expected = (60 / 1_000_000 * 2) + (20 / 1_000_000 * 10) + (40 / 1_000_000 * 0.5)
+        assert abs(context.cost_usd - expected) < 1e-12, context.cost_usd
+        assert context.metadata["opencode_input_tokens"] == 100, context.metadata
+        assert context.metadata["opencode_output_tokens"] == 20, context.metadata
+        assert context.metadata["opencode_cached_input_tokens"] == 40, context.metadata
+        assert context.metadata["opencode_cache_miss_input_tokens"] == 60, context.metadata
+        assert context.metadata["opencode_cache_write_input_tokens"] == 0, context.metadata
+        assert context.metadata["opencode_estimated_cost_usd"] == context.cost_usd, context.metadata
+        assert context.metadata["opencode_pricing_source"] == "xiaomi-env", context.metadata
+        print("opencode_estimated_cost_usd", context.cost_usd)
+finally:
+    if old_key is not None:
+        os.environ["OPENAI_API_KEY"] = old_key
+    if old_base is not None:
+        os.environ["OPENAI_BASE_URL"] = old_base
 `;
 }

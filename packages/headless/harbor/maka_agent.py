@@ -201,9 +201,14 @@ class MakaAgent(BaseInstalledAgent):
 
         token_summary = output.get("tokenSummary")
         if isinstance(token_summary, dict):
+            _apply_trial_pricing(self, token_summary)
             context.n_input_tokens = int(token_summary.get("input") or 0)
             context.n_output_tokens = int(token_summary.get("output") or 0)
-            context.n_cache_tokens = int(token_summary.get("cachedInput") or token_summary.get("cacheHitInput") or 0)
+            context.n_cache_tokens = int(
+                token_summary.get("cachedInput")
+                or token_summary.get("cacheHitInput")
+                or 0
+            )
             context.cost_usd = float(token_summary.get("costUsd") or 0)
 
         context.metadata = {
@@ -270,3 +275,57 @@ def _optional_float(value: Any, key: str) -> float | None:
         return None
     raw = value.get(key)
     return float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
+
+
+def _apply_trial_pricing(agent: MakaAgent, token_summary: dict[str, Any]) -> None:
+    if _optional_float(token_summary, "costUsd"):
+        return
+    if not (token_summary.get("input") or token_summary.get("output")):
+        return
+
+    pricing = _pricing_from_env(agent)
+    if pricing is None:
+        return
+
+    input_tokens = _optional_int(token_summary, "input") or 0
+    output_tokens = _optional_int(token_summary, "output") or 0
+    cache_read = (
+        _optional_int(token_summary, "cachedInput")
+        or _optional_int(token_summary, "cacheHitInput")
+        or 0
+    )
+    cache_write = _optional_int(token_summary, "cacheWriteInput") or 0
+    cache_miss = _optional_int(token_summary, "cacheMissInput")
+    if cache_miss is None:
+        cache_miss = max(0, input_tokens - cache_read - cache_write)
+
+    token_summary["costUsd"] = (
+        cache_miss / 1_000_000 * pricing["input"]
+        + output_tokens / 1_000_000 * pricing["output"]
+        + cache_read / 1_000_000 * pricing["cache_read"]
+        + cache_write / 1_000_000 * pricing["cache_write"]
+    )
+    token_summary["pricingSource"] = agent._get_env("MAKA_TRIAL_PRICING_SOURCE") or "env"
+
+
+def _pricing_from_env(agent: MakaAgent) -> dict[str, float] | None:
+    input_rate = _env_float(agent, "MAKA_TRIAL_INPUT_USD_PER_1M")
+    output_rate = _env_float(agent, "MAKA_TRIAL_OUTPUT_USD_PER_1M")
+    if input_rate is None or output_rate is None:
+        return None
+    return {
+        "input": input_rate,
+        "output": output_rate,
+        "cache_read": _env_float(agent, "MAKA_TRIAL_CACHE_READ_USD_PER_1M") or 0.0,
+        "cache_write": _env_float(agent, "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M") or 0.0,
+    }
+
+
+def _env_float(agent: MakaAgent, key: str) -> float | None:
+    value = agent._get_env(key)
+    if isinstance(value, str) and value.strip():
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
