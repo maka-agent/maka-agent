@@ -643,15 +643,14 @@ describe('localized main shell contract', () => {
     assert.match(composerCard, /box-sizing:\s*border-box/);
     assert.match(composerCard, /border-radius:\s*10px/);
     assert.match(composerCard, /padding:\s*10px 12px/);
-    assert.match(composerCard, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.07\)/);
+    assert.match(composerCard, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.06\)/);
     assert.match(components, /className="maka-composer-inner composerInner agents-parchment-paper-surface"/);
     assert.match(referenceShell, /\.composer \.maka-composer-inner\.agents-parchment-paper-surface\s*\{[\s\S]*?border:\s*1px solid var\(--color-border-tertiary\)[\s\S]*?box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\)/);
     assert.doesNotMatch(referenceShell, /0 18px 46px/);
     assert.doesNotMatch(composerCard, /0 2px 8px/);
     assert.doesNotMatch(composerCard, /var\(--shadow-medium\)/);
     assert.ok(composerFocus, '.composer .maka-composer-inner:focus-within rule must exist');
-    assert.match(composerFocus, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.12\)/);
-    assert.match(composerFocus, /0 0 0 3px oklch\(from var\(--foreground\) l c h \/ 0\.035\)/);
+    assert.match(composerFocus, /0 0 0 1px oklch\(from var\(--foreground\) l c h \/ 0\.16\)/);
     assert.doesNotMatch(composerFocus, /var\(--accent\)/);
     assert.doesNotMatch(composerFocus, /0 2px 8px/);
     assert.doesNotMatch(composerFocus, /var\(--shadow-medium\)/);
