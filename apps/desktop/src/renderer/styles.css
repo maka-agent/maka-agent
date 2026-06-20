@@ -3331,8 +3331,8 @@ button:active {
 .maka-module-main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 16px;
-  padding: 20px;
+  gap: 10px;
+  padding: 12px;
   overflow: auto;
 }
 
@@ -3340,24 +3340,24 @@ button:active {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 14px;
+  gap: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 
 .maka-module-main-header h2 {
   margin: 0;
   color: var(--foreground);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 650;
   letter-spacing: 0;
 }
 
 .maka-module-main-header p {
-  margin: 5px 0 0;
+  margin: 2px 0 0;
   color: var(--foreground-60);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .maka-module-main-actions {
@@ -3390,32 +3390,32 @@ button:active {
 .maka-skill-workbench-summary {
   min-width: 0;
   display: grid;
-  gap: 5px;
-  padding: 12px;
+  gap: 3px;
+  padding: 8px 10px;
   border: 1px solid var(--foreground-8);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--foreground-2);
 }
 
 .maka-skill-workbench-summary strong {
   min-width: 0;
   color: var(--foreground);
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.25;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .maka-skill-workbench-summary span:not(.maka-skill-section-label) {
   min-width: 0;
   color: var(--foreground-55);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .maka-skill-examples,
 .maka-skill-installed {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -3424,9 +3424,9 @@ button:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   color: var(--foreground-55);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
