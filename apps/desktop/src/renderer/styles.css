@@ -6763,7 +6763,7 @@ button:active {
 .settingsField,
 .settingsFormGrid label {
   display: grid;
-  gap: 7px;
+  gap: 4px;
 }
 
 .settingsField input,
@@ -6773,27 +6773,23 @@ button:active {
 .settingsUsageFilters input,
 .settingsUsageFilters select {
   min-width: 0;
-  min-height: 34px;
+  min-height: 26px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--background);
   color: var(--foreground);
-  padding: 0 12px;
+  padding: 0 8px;
+  font-size: 12px;
   outline: none;
-  /* PR-UI-LAYOUT-21: smooth focus transition for the halo below. */
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
-/* PR-UI-LAYOUT-23: textarea needs different chrome from input
- * since it's multi-line. Override radius (999 pill→12 rounded
- * rect), padding (0 12→10 12 for top/bottom breathing), and
- * line-height. The focus halo selector below catches it. */
 .settingsField textarea {
-  border-radius: 12px;
-  padding: 10px 12px;
-  line-height: 1.5;
+  border-radius: 6px;
+  padding: 6px 8px;
+  line-height: 1.45;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .settingsField input:focus,
@@ -7868,7 +7864,7 @@ button:active {
 .settingsUsagePage {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 10px;
 }
 
 .settingsUsageToolbar,
@@ -7876,7 +7872,7 @@ button:active {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 9px;
+  gap: 6px;
 }
 
 .settingsSegmented {
@@ -7891,14 +7887,14 @@ button:active {
 }
 
 .settingsSegmented button {
-  min-height: 26px;
+  min-height: 22px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--foreground-60);
   cursor: pointer;
-  padding: 0 11px;
-  font-size: 12px;
+  padding: 0 8px;
+  font-size: 11px;
 }
 
 .settingsSegmented button[data-active="true"] {
@@ -7910,27 +7906,27 @@ button:active {
 .settingsUsageSummary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 6px;
 }
 
 .settingsMetricCard {
-  min-height: 76px;
+  min-height: 52px;
   display: grid;
   align-content: center;
-  gap: 4px;
-  border-radius: 14px;
+  gap: 2px;
+  border-radius: 8px;
   background: var(--foreground-5);
-  padding: 12px;
+  padding: 6px 10px;
 }
 
 .settingsMetricCard small,
 .settingsMetricCard span {
   color: var(--foreground-50);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .settingsMetricCard strong {
-  font-size: 18px;
+  font-size: 14px;
 }
 
 .settingsStatsTable {
@@ -7938,8 +7934,8 @@ button:active {
   border-collapse: collapse;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  font-size: 12px;
+  border-radius: 8px;
+  font-size: 11px;
 }
 
 .settingsStatsTable th,
