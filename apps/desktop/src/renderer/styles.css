@@ -4542,8 +4542,8 @@ button:active {
 }
 
 .maka-palette-modal {
-  width: min(620px, calc(100vw - 48px));
-  max-height: 70vh;
+  width: min(560px, calc(100vw - 48px));
+  max-height: 64vh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -4551,15 +4551,15 @@ button:active {
 
 .maka-palette-input-wrap {
   width: auto;
-  min-height: 42px;
-  margin: 12px 14px;
+  min-height: 32px;
+  margin: 8px 10px;
   border-color: var(--border);
   background: var(--surface);
 }
 
 .maka-palette-input {
   color: var(--foreground);
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1.4;
 }
 
@@ -4622,28 +4622,28 @@ button:active {
 }
 
 .maka-palette-group-label {
-  padding: 8px 10px 4px;
+  padding: 4px 8px 2px;
   color: var(--foreground-50);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .maka-palette-item {
   width: 100%;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--foreground);
   cursor: pointer;
-  padding: 8px 10px;
+  padding: 4px 8px;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 12px;
 }
 
 .maka-palette-item[data-active="true"] {
@@ -4684,7 +4684,7 @@ button:active {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 4px 10px;
   border-top: 1px solid var(--border);
   background: var(--foreground-2);
   color: var(--foreground-50);
