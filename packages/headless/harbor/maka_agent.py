@@ -12,6 +12,8 @@ from harbor.models.trajectories import Agent, FinalMetrics, Step, Trajectory
 from harbor.models.trial.paths import EnvironmentPaths
 from harbor.utils.trajectory_utils import format_trajectory_json
 
+from trial_pricing import estimate_cost, pricing_from_env
+
 
 class MakaAgent(BaseInstalledAgent):
     """Run Maka inside the Harbor task container and expose the shared cell output."""
@@ -201,8 +203,14 @@ class MakaAgent(BaseInstalledAgent):
 
         token_summary = output.get("tokenSummary")
         if isinstance(token_summary, dict):
+            _apply_trial_pricing(self, token_summary)
             context.n_input_tokens = int(token_summary.get("input") or 0)
             context.n_output_tokens = int(token_summary.get("output") or 0)
+            context.n_cache_tokens = int(
+                token_summary.get("cachedInput")
+                or token_summary.get("cacheHitInput")
+                or 0
+            )
             context.cost_usd = float(token_summary.get("costUsd") or 0)
 
         context.metadata = {
@@ -212,6 +220,12 @@ class MakaAgent(BaseInstalledAgent):
             "maka_prompt_hash": output.get("promptHash"),
             "maka_cell_output": str(self.logs_dir / self._CELL_OUTPUT_FILENAME),
             "maka_runtime_events": output.get("runtimeEventsPath"),
+            "maka_cached_input_tokens": _optional_int(token_summary, "cachedInput"),
+            "maka_cache_hit_input_tokens": _optional_int(token_summary, "cacheHitInput"),
+            "maka_cache_miss_input_tokens": _optional_int(token_summary, "cacheMissInput"),
+            "maka_cache_write_input_tokens": _optional_int(token_summary, "cacheWriteInput"),
+            "maka_estimated_cost_usd": _optional_float(token_summary, "costUsd"),
+            "maka_pricing_source": token_summary.get("pricingSource") if isinstance(token_summary, dict) else None,
         }
         self._write_trajectory(output)
 
@@ -227,6 +241,12 @@ class MakaAgent(BaseInstalledAgent):
                 "maka_error_class": output.get("errorClass"),
                 "maka_prompt_hash": output.get("promptHash"),
                 "runtime_events_path": output.get("runtimeEventsPath"),
+                "cached_input_tokens": _optional_int(token_summary, "cachedInput"),
+                "cache_hit_input_tokens": _optional_int(token_summary, "cacheHitInput"),
+                "cache_miss_input_tokens": _optional_int(token_summary, "cacheMissInput"),
+                "cache_write_input_tokens": _optional_int(token_summary, "cacheWriteInput"),
+                "estimated_cost_usd": _optional_float(token_summary, "costUsd"),
+                "pricing_source": token_summary.get("pricingSource") if isinstance(token_summary, dict) else None,
             },
         )
         trajectory = Trajectory(
@@ -257,3 +277,33 @@ def _optional_float(value: Any, key: str) -> float | None:
         return None
     raw = value.get(key)
     return float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
+
+
+def _apply_trial_pricing(agent: MakaAgent, token_summary: dict[str, Any]) -> None:
+    pricing = pricing_from_env(agent._get_env)
+    if pricing is None:
+        return
+
+    input_tokens = _optional_int(token_summary, "input") or 0
+    output_tokens = _optional_int(token_summary, "output") or 0
+    cache_read = (
+        _optional_int(token_summary, "cachedInput")
+        or _optional_int(token_summary, "cacheHitInput")
+        or 0
+    )
+    cache_write = _optional_int(token_summary, "cacheWriteInput") or 0
+    cache_miss = _optional_int(token_summary, "cacheMissInput")
+    if cache_miss is None:
+        cache_miss = max(0, input_tokens - cache_read - cache_write)
+
+    token_summary["costUsd"] = estimate_cost(
+        {
+            "input": input_tokens,
+            "output": output_tokens,
+            "cache_read": cache_read,
+            "cache_write": cache_write,
+            "cache_miss": cache_miss,
+        },
+        pricing,
+    )
+    token_summary["pricingSource"] = agent._get_env("MAKA_TRIAL_PRICING_SOURCE") or "env"

@@ -18,6 +18,7 @@ import type {
   FixedPromptTaskWalEvent,
 } from '../fixed-prompt-controller.js';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
+import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('prompt acceptance policy', () => {
   test('calibrates separate held-in and held-out noise bands from baseline runs', () => {
@@ -677,7 +678,7 @@ function completed(
     passed,
     scored: true,
     eligible: true,
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${taskId}.jsonl`,
@@ -721,7 +722,7 @@ function plumbingFailed(taskId: string): FixedPromptTaskWalEvent {
     error: 'prompt hash mismatch',
     promptHash: 'actual',
     expectedPromptHash: 'expected',
-    tokenSummary: { input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 },
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
     steps: 1,
     durationMs: 10,
     runtimeEventsPath: `/logs/${taskId}.jsonl`,

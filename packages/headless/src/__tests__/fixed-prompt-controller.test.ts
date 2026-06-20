@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { Config } from '../contracts.js';
+import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import {
   hashSystemPrompt,
   readHarborTaskRunOutput,
@@ -384,7 +385,7 @@ describe('fixed prompt controller', () => {
           calls.push(task.id);
           return harborOutput({
             taskId: task.id,
-            tokenSummary: { input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 },
+            tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
           });
         },
         now: () => 100,
@@ -429,7 +430,7 @@ describe('fixed prompt controller', () => {
           inFlight -= 1;
           return harborOutput({
             taskId: task.id,
-            tokenSummary: { input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 },
+            tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
           });
         },
         now: () => 100,
@@ -575,7 +576,7 @@ describe('fixed prompt controller', () => {
         harborRunner: async () =>
           harborOutput({
             taskId: 'task-a',
-            tokenSummary: { input: 2, output: 1, reasoning: 0, total: 3, costUsd: 0 },
+            tokenSummary: tokenSummary({ input: 2, output: 1, reasoning: 0, total: 3, costUsd: 0 }),
           }),
         now: () => 100,
         newId: idFactory(),
@@ -632,7 +633,7 @@ describe('fixed prompt controller', () => {
           harborOutput({
             taskId: 'task-a',
             omitPromptHash: true,
-            tokenSummary: { input: 0, output: 0, reasoning: 0, total: 0, costUsd: 0 },
+            tokenSummary: tokenSummary({ input: 0, output: 0, reasoning: 0, total: 0, costUsd: 0 }),
           }),
         now: () => 100,
         newId: idFactory(),
@@ -659,7 +660,7 @@ function taskCompletedEvent(input: { taskId: string; promptHash?: string }): Fix
     scored: true,
     eligible: true,
     promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n'),
-    tokenSummary: { input: 2, output: 3, reasoning: 0, total: 5, costUsd: 0.01 },
+    tokenSummary: tokenSummary({ input: 2, output: 3, reasoning: 0, total: 5, costUsd: 0.01 }),
     steps: 4,
     durationMs: 50,
     runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
@@ -699,7 +700,7 @@ function harborOutput(input: {
       status: 'completed',
       runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
-      tokenSummary: input.tokenSummary ?? { input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 },
+      tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
       steps: 2,
       durationMs: 40,
       startedAt: 20,
