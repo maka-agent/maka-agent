@@ -3,7 +3,6 @@ import { expect } from '../test-helpers.js';
 import {
   RuntimeRunner,
   runtimeGateFromCallback,
-  type AgentFlowLike,
   type RuntimeGate,
 } from '../runtime-runner.js';
 import type { AttachmentRef } from '@maka/core/events';
@@ -16,7 +15,7 @@ import type {
   RuntimeEvent,
   RuntimeEventStatus,
 } from '@maka/core/runtime-event';
-import type { AgentFlow } from '../agent-flow.js';
+import type { AgentFlow, FlowInput, RunnableAgentFlow } from '../agent-flow.js';
 
 // ============================================================================
 // Test fakes / helpers
@@ -60,15 +59,17 @@ void _flowContextIsCanonicalContext;
  * Fake flow that runs a script to produce its events. The script receives
  * the InvocationContext so events can line up with the invocation spine.
  */
-class ScriptFlow implements AgentFlowLike {
+class ScriptFlow implements RunnableAgentFlow {
   readonly seen: InvocationContext[] = [];
+  readonly seenInputs: FlowInput[] = [];
   constructor(
     private readonly script: (ctx: InvocationContext) =>
       RuntimeEvent[] | Promise<RuntimeEvent[]>,
   ) {}
 
-  async *run(ctx: InvocationContext): AsyncIterable<RuntimeEvent> {
+  async *run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent> {
     this.seen.push(ctx);
+    this.seenInputs.push(input);
     for (const ev of await this.script(ctx)) {
       yield ev;
     }
@@ -76,7 +77,7 @@ class ScriptFlow implements AgentFlowLike {
 }
 
 /** Flow that throws on first iteration. */
-class ThrowingFlow implements AgentFlowLike {
+class ThrowingFlow implements RunnableAgentFlow {
   ran = false;
   constructor(private readonly error: unknown) {}
   async *run(): AsyncIterable<RuntimeEvent> {
@@ -411,8 +412,45 @@ describe('RuntimeRunner', () => {
     const result = await runner.run(makeRequest());
 
     expect(result.status).toBe('failed');
-    expect(result.failure?.class).toBe('failed');
+    // No reason/code on the error content → classifies as runtime_error
+    // (not the bare 'failed'), message still surfaces.
+    expect(result.failure?.class).toBe('runtime_error');
     expect(result.failure?.message).toBe('provider 500');
+    expect(result.failure?.terminalStatus).toBe('failed');
+  });
+
+  test('a failed terminal event with a reason code uses that code as the class', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [
+      {
+        ...flowTerminalEvent(ctx, 'failed'),
+        content: { kind: 'error', reason: 'tool_failed', message: 'Tool execution failed' },
+      },
+    ]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('tool_failed');
+    expect(result.failure?.message).toBe('Tool execution failed');
+    expect(result.failure?.terminalStatus).toBe('failed');
+  });
+
+  test('a failed terminal event with no error content classifies as runtime_error not failed', async () => {
+    // Reproduces complete(stopReason=error) with no preceding error event:
+    // the terminal RuntimeEvent has status='failed' but no error content.
+    // Previously this returned class='failed', indistinguishable from other
+    // failures; now it returns 'runtime_error' so benchmark scoring can
+    // distinguish runtime failures from max_tokens / incomplete_tool_calls.
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTerminalEvent(ctx, 'failed')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('runtime_error');
     expect(result.failure?.terminalStatus).toBe('failed');
   });
 
@@ -433,7 +471,7 @@ describe('RuntimeRunner', () => {
   test('runtimeGateFromCallback adapts a sync callback', async () => {
     const providers = makeProviders();
     let flowCalled = false;
-    const flow: AgentFlowLike = {
+    const flow: RunnableAgentFlow = {
       async *run(): AsyncIterable<RuntimeEvent> {
         flowCalled = true;
       },
@@ -531,8 +569,8 @@ describe('RuntimeRunner', () => {
         content: { kind: 'text', text: 'previous' },
       },
     ];
-    let seenInput: Parameters<AgentFlowLike['run']>[1] | undefined;
-    const flow: AgentFlowLike = {
+    let seenInput: Parameters<RunnableAgentFlow['run']>[1] | undefined;
+    const flow: RunnableAgentFlow = {
       async *run(ctx, input) {
         seenInput = input;
         yield flowTerminalEvent(ctx, 'completed');
@@ -560,8 +598,8 @@ describe('RuntimeRunner', () => {
 
   test('flow input context defaults to an empty array', async () => {
     const providers = makeProviders();
-    let seenInput: Parameters<AgentFlowLike['run']>[1] | undefined;
-    const flow: AgentFlowLike = {
+    let seenInput: Parameters<RunnableAgentFlow['run']>[1] | undefined;
+    const flow: RunnableAgentFlow = {
       async *run(ctx, input) {
         seenInput = input;
         yield flowTerminalEvent(ctx, 'completed');
@@ -572,5 +610,17 @@ describe('RuntimeRunner', () => {
     await runner.run(makeRequest());
 
     expect(seenInput?.context).toEqual([]);
+  });
+
+  test('flow input carries parentRunId from invocation lineage', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTerminalEvent(ctx, 'completed')]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    await runner.run(makeRequest({
+      lineage: { parentRunId: 'parent-run-1' },
+    }));
+
+    expect(flow.seenInputs[0]?.parentRunId).toBe('parent-run-1');
   });
 });

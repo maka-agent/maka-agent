@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { computeCost } from '../telemetry/cost.js';
+import { recordLlmCall } from '../telemetry/record-llm-call.js';
+import type { PersistedLlmCallRecord } from '../telemetry/types.js';
 
 describe('computeCost', () => {
   test('charges full input price only for cache-miss input', () => {
@@ -69,5 +71,40 @@ describe('computeCost', () => {
     assert.equal(cost.inputCost, 0.0001);
     assert.equal(cost.cacheReadCost, 0);
     assert.equal(cost.totalCost, 0.0001);
+  });
+});
+
+describe('recordLlmCall', () => {
+  test('preserves a runtime-provided cost fact instead of recomputing it', async () => {
+    const inserted: PersistedLlmCallRecord[] = [];
+
+    recordLlmCall(
+      {
+        repo: {
+          insertLlmCall: (record) => {
+            inserted.push(record);
+          },
+          insertToolInvocation: () => {},
+        },
+        lookupPricing: () => {
+          throw new Error('lookup should not run when costUsd is already present');
+        },
+      },
+      {
+        turnId: 'turn-1',
+        providerId: 'deepseek',
+        modelId: 'deepseek-chat',
+        inputTokens: 10,
+        outputTokens: 5,
+        costUsd: 0.123,
+        latencyMs: 7,
+        status: 'success',
+        startedAt: 100,
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(inserted[0]?.costUsd, 0.123);
   });
 });

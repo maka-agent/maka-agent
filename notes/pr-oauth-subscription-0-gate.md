@@ -29,6 +29,6 @@ PR-OAUTH-SUBSCRIPTION-0 requires local clear:
 - Clear in-memory tokens, profile, quota, pending authorizations, and diagnostic state.
 - If local deletion fails, return `storage_failed`; UI must not show logout success.
 
-Remote OAuth revocation is not required for this PR because Anthropic does not expose a public RFC 7009 revocation endpoint as of 2026-05-28. Reference app's `ld.logout` path also local-clears only (`~/Downloads/reference-source/readable/main.js:16280-16295`). Do not call non-public or guessed revocation endpoints.
+Remote OAuth revocation is not required for this PR because Anthropic does not expose a public RFC 7009 revocation endpoint as of 2026-05-28. reference implementation's `ld.logout` path also local-clears only (local reference excerpt). Do not call non-public or guessed revocation endpoints.
 
 If Anthropic publishes a revocation endpoint, add `PR-OAUTH-SUBSCRIPTION-LOGOUT-REVOKE-0` with remote revoke, local clear fallback semantics, and negative tests.

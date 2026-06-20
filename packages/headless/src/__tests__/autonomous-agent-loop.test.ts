@@ -223,6 +223,31 @@ describe('runAutonomousTask', () => {
     });
   });
 
+  test('maxRuntimeSteps can park for budget extension in desktop mode', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const task: Task = {
+        id: 'runtime-step-cap-park',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f missing.txt', protectedPaths: [] },
+      };
+
+      const result = await runAutonomousTask(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerFakeBackend,
+        budget: { maxAttempts: 3, maxRuntimeSteps: 1 },
+        interventionPolicy: { mode: 'park', allowBudgetExtensionRequests: true },
+        newId: idFactory(),
+      });
+
+      assert.equal(result.attempts.length, 1);
+      assert.equal(result.projection.status, 'needs_approval');
+      assert.equal(result.projection.parked?.reason, 'budget_extension');
+      assert.equal(result.projection.inboxItems[0]?.kind, 'budget_extension');
+      assert.equal(result.projection.events.some((event) => event.type === 'task_run_budget_exhausted'), false);
+    });
+  });
+
   test('maxWallTimeMs fails closed before starting another attempt', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const task: Task = {

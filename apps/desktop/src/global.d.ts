@@ -387,6 +387,10 @@ declare global {
                 | 'open-failed';
             }
         >;
+        selectProjectDirectory(): Promise<
+          | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+          | { ok: false; reason: 'cancelled' | 'missing-selection' }
+        >;
         openArtifactPath(
           artifactId: string,
         ): Promise<

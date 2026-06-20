@@ -85,6 +85,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // modal at mount. Captures the SearchModal shell deterministically
   // so xuan's Phase 2 modal gate has a baseline.
   'sidebar-search-modal-open',
+  // PR-shared primitive-COMMAND-INPUT-0: same 60-session seed; differs only in
+  // `paletteOpen: true`, which auto-opens CommandPalette so shared primitive
+  // InputGroup changes to the command input shell have a baseline.
+  'command-palette-open',
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
   // kenji `b3d156e9`): same 60-session seed; differs in
   // `focusActiveRow: true`, which programmatically focuses the
@@ -335,9 +339,9 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'settings-daily-review':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'daily-review' };
     case 'module-skills':
-      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills' };
+      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
     case 'module-daily-review':
-      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'daily-review' };
+      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'daily-review', sidebarCollapsed: false };
     case 'workstation-statuses':
       // Active session is the running one so the chat header status
       // badge ("进行中") is visible in the screenshot alongside the
@@ -349,7 +353,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // Open the 计划 module directly so the visual-smoke baseline
       // captures the real local reminder MVP: create form + persisted
       // scheduled / paused / completed reminders.
-      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'automations' };
+      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'automations', sidebarCollapsed: false };
     case 'turn-control-history':
       // Active = primary so the chat surface shows every turn control
       // variant in one screenshot: completed baseline, retried pair
@@ -378,7 +382,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // bottom of the sidebar. If the scroll fix regresses, the footer
       // gets pushed off-screen and the regression is obvious in
       // baseline diff.
-      return { ...state, activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00' };
+      return { ...state, activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00', sidebarCollapsed: false };
     case 'sidebar-search-modal-open':
       // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2):
       // shares the sidebar-long-sessions seed (60 sessions) so the
@@ -390,7 +394,18 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
+        sidebarCollapsed: false,
         searchModalOpen: true,
+      };
+    case 'command-palette-open':
+      // PR-shared primitive-COMMAND-INPUT-0: same 60-session seed as the sidebar
+      // baselines; `paletteOpen: true` is the only differentiator so
+      // the command palette shell is visible for screenshot review.
+      return {
+        ...state,
+        activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
+        sidebarCollapsed: false,
+        paletteOpen: true,
       };
     case 'sidebar-row-actions-visible':
       // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`):
@@ -401,6 +416,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
+        sidebarCollapsed: false,
         focusActiveRow: true,
       };
     case 'all':
@@ -497,6 +513,7 @@ export async function seedVisualSmokeFixture(input: {
 const LONG_SIDEBAR_SCENARIOS = new Set<VisualSmokeScenario>([
   'sidebar-long-sessions',
   'sidebar-search-modal-open',
+  'command-palette-open',
   'sidebar-row-actions-visible',
 ]);
 

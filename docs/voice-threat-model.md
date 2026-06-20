@@ -42,9 +42,9 @@ The first Voice contract locks the safe shape before runtime work exists:
 | Bot platform voice send | wrong target/token leak | future platform contract; no shell `curl` |
 | Health/Settings -> renderer | fake readiness | canonical `VoiceCapabilitySnapshot`; renderer presentation only |
 
-## No-Copy List From Reference app
+## No-Copy List From reference implementation
 
-Do not copy these Reference app behaviors:
+Do not copy these reference implementation behaviors:
 
 - defaultSession microphone/media auto-grant;
 - shell `curl` for STT/TTS/provider/platform sends;

@@ -1,0 +1,135 @@
+/* target-layout shell rebuild.
+   Hand-authored from notes/reference-css-extract-2026-06-19.md; do not paste
+   reference implementation compiled CSS or brand assets here. */
+
+:root {
+  --color-bg-base: var(--background);
+  --color-bg-container: var(--background);
+  --color-bg-elevated: var(--background-elevated);
+  --color-bg-layout: var(--surface-canvas);
+  --color-bg-spotlight: oklch(from var(--background) calc(l - 0.03) c h);
+  --color-text-base: var(--foreground);
+  --color-text: var(--foreground);
+  --color-text-secondary: var(--foreground-70);
+  --color-text-tertiary: var(--foreground-55);
+  --color-text-quaternary: var(--foreground-40);
+  --color-text-on-primary: #fff;
+  --color-border: var(--border);
+  --color-border-secondary: var(--border);
+  --color-border-tertiary: color-mix(in srgb, var(--border) 60%, transparent);
+  --agents-content-area-bg: var(--color-bg-container);
+  /* reference layout-derived values (2026-06-20 WAWQAQ ef6b2852).
+     The original 8px/12px we shipped at 7013f0f read too loose vs the
+     real bundle's 4px gap + 6px radius. */
+  --agents-content-area-gap: 4px;
+  --agents-content-area-radius: 6px;
+}
+
+.agents-layout-root {
+  height: 100dvh;
+  background: var(--color-bg-layout);
+}
+
+.agents-layout-body {
+  min-height: 0;
+}
+
+.agents-sidebar {
+  background: transparent !important;
+  contain: layout paint style;
+  flex-shrink: 0;
+}
+
+.agents-sidebar[data-collapsed="true"] {
+  width: 0;
+}
+
+.agents-sidebar[data-resizing="true"] {
+  box-shadow: none !important;
+}
+
+.maka-session-panel.agents-sidebar {
+  background: transparent !important;
+  contain: layout paint style;
+}
+
+.agents-content-area {
+  flex: 1 1 auto;
+  margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
+  border-radius: var(--agents-content-area-radius);
+  background: var(--agents-content-area-bg);
+  transition: margin-left 150ms ease-out;
+}
+
+.maka-panel-detail.maka-floating-panel.agents-content-area {
+  position: relative;
+  margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: var(--agents-content-area-radius);
+  background: var(--agents-content-area-bg);
+  box-shadow: none;
+}
+
+.agents-parchment-paper-surface {
+  border: 1px solid var(--color-border-tertiary);
+  background-color: var(--agents-content-area-bg);
+  box-shadow: none;
+}
+
+.composer .maka-composer-inner.agents-parchment-paper-surface {
+  border: 1px solid var(--color-border-tertiary);
+  background-color: var(--agents-content-area-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.composer .maka-composer-inner.agents-parchment-paper-surface:focus-within {
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+  box-shadow:
+    0 0 0 1px oklch(from var(--foreground) l c h / 0.055),
+    0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.agents-chat-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.agents-chat-view-root {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.agents-chat-split-row {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+}
+
+.agents-inner-view-clamp {
+  width: min(100%, 1024px);
+  margin-inline: auto;
+}
+
+.agents-settings-wide-content {
+  width: min(100%, 1120px);
+  margin-inline: auto;
+}
+
+.agents-dual-card-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 990px) {
+  .agents-dual-card-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

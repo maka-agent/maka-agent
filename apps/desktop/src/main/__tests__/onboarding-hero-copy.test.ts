@@ -98,7 +98,7 @@ describe('getOnboardingHeroCopy — per-variant mapping', () => {
     assert.match(copy.cta.label, /开始对话/);
   });
 
-  it('blocked: all_connections_unhealthy is labeled, routes to settings · account, warning tone', () => {
+  it('blocked: all_connections_unhealthy is labeled, routes to settings · account, destructive tone', () => {
     // @kenji PR110c review gate: blocked must NOT fall through a
     // generic default. The branch is labeled and routes to account
     // (where lastTestStatus / re-test surfaces live), not models.
@@ -108,7 +108,7 @@ describe('getOnboardingHeroCopy — per-variant mapping', () => {
     } as OnboardingState);
     assert.ok(copy);
     assert.equal(copy.kind, 'blocked');
-    assert.equal(copy.tone, 'warning');
+    assert.equal(copy.tone, 'destructive');
     assert.equal(copy.cta.settingsSection, 'account');
     assert.match(copy.eyebrow, /等待恢复模型连接/);
     assert.match(copy.title, /没有通过验证/);
@@ -207,14 +207,14 @@ describe('getOnboardingHeroCopy — invariants', () => {
     }
   });
 
-  it('only blocked carries warning tone', () => {
+  it('only blocked carries destructive tone', () => {
     for (const variant of ALL_VARIANTS) {
       const copy = getOnboardingHeroCopy(variant);
       assert.ok(copy);
       if (variant.kind === 'blocked') {
-        assert.equal(copy.tone, 'warning');
+        assert.equal(copy.tone, 'destructive');
       } else {
-        assert.equal(copy.tone, undefined, `${variant.kind} must not have warning tone`);
+        assert.equal(copy.tone, undefined, `${variant.kind} must not have destructive tone`);
       }
     }
   });
@@ -305,9 +305,68 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
     assert.match(styles, /\.maka-onboarding-setup-steps > li\[data-state="active"\]/);
     assert.match(styles, /@media \(max-width: 620px\)[\s\S]*\.maka-onboarding-setup-step-state/);
   });
+
+  it('keeps default-connection setup recoverable after external Settings changes', async () => {
+    const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+    const switchBlock = hero.match(/switch \(state\.kind\) \{[\s\S]*?case 'needs_connection_credentials':/)?.[0] ?? '';
+    const defaultConnectionBlock = hero.match(/function NeedsDefaultConnectionHero[\s\S]*?function NeedsConnectionCredentialsHero/)?.[0] ?? '';
+
+    assert.match(switchBlock, /case 'needs_default_connection':[\s\S]*onRefreshConnections=\{props\.onRefreshConnections \? runRefreshConnections : undefined\}/);
+    assert.match(switchBlock, /case 'needs_default_connection':[\s\S]*refreshConnectionsPending=\{refreshConnectionsPending\}/);
+    assert.match(defaultConnectionBlock, /onRefreshConnections\?: \(\) => void/);
+    assert.match(defaultConnectionBlock, /label: props\.refreshConnectionsPending === true \? '刷新中…' : '已经设好了？刷新检测'/);
+    assert.match(defaultConnectionBlock, /disabled: props\.refreshConnectionsPending === true/);
+    assert.match(defaultConnectionBlock, /busy: props\.refreshConnectionsPending === true/);
+  });
+
+  it('keeps the blocked hero action aligned with account-status recovery', async () => {
+    const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+    const blockedBlock = hero.match(/function BlockedHero[\s\S]*?function ReadyEmptyHero/)?.[0] ?? '';
+
+    assert.match(blockedBlock, /title="当前没有通过验证的模型连接。"/);
+    assert.match(blockedBlock, /设置 · 账号/);
+    assert.match(blockedBlock, /primaryCta=\{\{ label: '打开设置 · 账号', onClick: \(\) => props\.onOpenSettings\('account'\) \}\}/);
+    assert.match(blockedBlock, /tone="destructive"/);
+    assert.doesNotMatch(
+      blockedBlock,
+      /primaryCta=\{\{ label: '打开设置 · 模型', onClick: \(\) => props\.onOpenSettings\('models'\) \}\}/,
+      'Blocked first-run recovery should open account status, not the model picker',
+    );
+    assert.doesNotMatch(
+      blockedBlock,
+      /tone="warning"/,
+      'All-connections-unhealthy should keep destructive gravity in the rendered hero',
+    );
+  });
+
+  it('keeps provider setup card hover neutral on the gray plate', async () => {
+    const styles = await readFile(new URL('../../../src/renderer/styles.css', import.meta.url), 'utf8');
+    const hoverRule = styles.match(/\.maka-onboarding-card:hover\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(hoverRule, /border-color:\s*var\(--border-strong\)/);
+    assert.match(hoverRule, /background:\s*var\(--foreground-3\)/);
+    assert.match(hoverRule, /0 8px 18px oklch\(from var\(--foreground\) l c h \/ 0\.055\)/);
+    assert.doesNotMatch(
+      hoverRule,
+      /var\(--accent\)/,
+      'Provider setup cards should keep neutral target-layout style hover chrome; semantic accent belongs to active setup rows',
+    );
+  });
 });
 
 describe('OnboardingHero Quick Chat draft lifecycle', () => {
+  it('keeps first-run form controls on shared UI primitives', async () => {
+    const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+    const checklist = await readFile(new URL('../../../src/renderer/FirstRunChecklist.tsx', import.meta.url), 'utf8');
+
+    assert.match(hero, /import \{ Button, Textarea, appendPromptContextDraft,/);
+    assert.match(checklist, /import \{[^}]*\bButton\b[^}]*\buseToast\b[^}]*\} from '@maka\/ui';/);
+    assert.doesNotMatch(hero, /<button\b/, 'OnboardingHero actions must use the shared Button primitive');
+    assert.doesNotMatch(hero, /<textarea\b/, 'OnboardingHero quick chat must use the shared Textarea primitive');
+    assert.doesNotMatch(hero, /className="maka-button/, 'OnboardingHero must not keep legacy maka-button styling on migrated actions');
+    assert.doesNotMatch(checklist, /<button\b/, 'FirstRunChecklist actions must use the shared Button primitive');
+  });
+
   it('keeps the first prompt when quick chat submission fails', async () => {
     const source = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
     const propsBlock = source.match(/export interface OnboardingHeroProps \{[\s\S]*?\n\}/)?.[0] ?? '';
@@ -360,5 +419,20 @@ describe('OnboardingHero Quick Chat draft lifecycle', () => {
     assert.match(source, /window\.removeEventListener\('blur', clearDragActive\)/);
     assert.match(source, /window\.removeEventListener\('dragend', clearDragActive\)/);
     assert.match(source, /window\.removeEventListener\('drop', clearDragActive\)/);
+  });
+
+  it('shows an inline pending status while first-run file imports run', async () => {
+    const source = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
+    const readyBlock = source.match(/function ReadyEmptyHero[\s\S]*?interface SetupHeroProps/)?.[0] ?? '';
+
+    assert.match(
+      readyBlock,
+      /const importStatusText = pendingImportAction === null[\s\S]*\? '正在导入文件夹目录…'[\s\S]*: '正在导入文件内容…';/,
+      'file/folder/drop/paste imports need visible pending copy, not only disabled controls',
+    );
+    assert.match(readyBlock, /data-pending=\{importStatusText \? 'true' : undefined\}/);
+    assert.match(readyBlock, /aria-hidden=\{importStatusText \? undefined : 'true'\}/);
+    assert.match(readyBlock, /aria-live=\{importStatusText \? 'polite' : undefined\}/);
+    assert.match(readyBlock, /\{importStatusText \?\? copy\.quickChatExample\}/);
   });
 });

@@ -10,6 +10,17 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('OpenGateway SSE abuse hardening contract', () => {
+  it('serializes settings sync mutations so rapid saves cannot race listener state', async () => {
+    const source = await readRepo('apps/desktop/src/main/open-gateway.ts');
+    const syncBlock = source.match(/async sync\(settings: OpenGatewaySettings\): Promise<OpenGatewayStatus> \{[\s\S]*?\n  \}/)?.[0] ?? '';
+
+    assert.match(source, /private syncQueue: Promise<void> = Promise\.resolve\(\);/);
+    assert.match(syncBlock, /const next = this\.syncQueue\.then\(run, run\);/);
+    assert.match(syncBlock, /this\.syncQueue = next\.catch\(\(\) => \{\}\);/);
+    assert.match(syncBlock, /await next;[\s\S]*return this\.getStatus\(\);/);
+    assert.match(source, /private async syncNow\(settings: OpenGatewaySettings\): Promise<void> \{/);
+  });
+
   it('keeps stream limits closed and rejects before SSE headers are written', async () => {
     const source = await readRepo('apps/desktop/src/main/open-gateway.ts');
     const openStream = source.match(/private openSessionEventStream\([^]*?\n  private removeEventClient/);

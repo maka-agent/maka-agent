@@ -40,12 +40,13 @@ export function runVerification(
   command: string,
   cwd: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  env?: Record<string, string>,
 ): Promise<EvaluationResult> {
   return new Promise((resolve) => {
     // detached: the shell becomes its own process-group leader so a
     // timeout can kill the WHOLE tree (backgrounded grandchildren
     // included), not just the shell.
-    const child = spawn(command, { cwd, shell: true, detached: true });
+    const child = spawn(command, { cwd, shell: true, detached: true, env: env ? { ...process.env, ...env } : undefined });
     let stdout = '';
     let stderr = '';
     let timedOut = false;

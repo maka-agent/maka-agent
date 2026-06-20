@@ -4,12 +4,12 @@
  * xuan tightening `2d4526b5`).
  *
  * Phase 3 ships:
- *   - Default row 32px tall (single line: name + time / unread).
+ *   - Default row 30px tall (single line: name + time / unread).
  *   - Flat list (no card border/radius/shadow on the row itself).
  *   - Snippet (`lastMessagePreview`) NOT rendered in the default
  *     row DOM and NOT exposed via native `title=` tooltip.
- *   - Active row keeps the 32px height — selected state is a 3px
- *     left rail + light accent bg, NOT an inflated card.
+ *   - Active row keeps the 30px height and uses a neutral flat fill,
+ *     not a left rail or inflated card.
  *   - Row actions reveal on `:hover` AND `:focus-within` so keyboard
  *     users can reach them.
  *
@@ -32,14 +32,59 @@ const STYLES_PATH = join(process.cwd(), 'src', 'renderer', 'styles.css');
 const UI_COMPONENTS_PATH = join(process.cwd(), '../../packages/ui/src/components.tsx');
 
 describe('sidebar session row density CSS contract (PR-SIDEBAR-IA-0 Phase 3)', () => {
-  it('.maka-list-row is 32px tall (single-line slim row, not a 56px card)', async () => {
+  it('module nav rows stay inset and slim instead of full-width chunky pills', async () => {
+    // task #98: WAWQAQ caught the restored module nav rows reading
+    // as oversized full-width pills on the 210px gray plate. The
+    // row itself should be visually inset and slim; the sidebar
+    // remains the hit/scan region, but active fill must not paint
+    // the full rail width.
+    const css = await readFile(STYLES_PATH, 'utf8');
+    const modules = extractRuleBody(css, '.maka-sidebar-modules');
+    const panel = extractRuleBody(css, '.maka-session-panel');
+    const row = extractRuleBody(css, '.maka-nav-row');
+    const active = extractRuleBody(css, '.maka-nav-row[data-active="true"]');
+    const count = extractRuleBody(css, '.maka-nav-count');
+
+    assert.ok(panel, '.maka-session-panel rule must exist');
+    assert.ok(modules, '.maka-sidebar-modules rule must exist');
+    assert.ok(row, '.maka-nav-row rule must exist');
+    assert.ok(active, '.maka-nav-row[data-active="true"] rule must exist');
+    assert.ok(count, '.maka-nav-count rule must exist');
+    assert.match(
+      panel,
+      /grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\)\s+auto/,
+      'module nav must be its own auto row; only the session list may consume flexible height',
+    );
+    assert.match(modules, /align-self:\s*start/);
+    assert.match(modules, /align-content:\s*start/);
+    assert.match(modules, /padding:\s*4px 6px/);
+    assert.match(row, /width:\s*calc\(100% - 12px\)/);
+    assert.match(row, /margin-inline:\s*6px/);
+    assert.match(row, /padding:\s*3px 6px/);
+    assert.match(row, /border-radius:\s*6px/);
+    assert.match(row, /line-height:\s*1\.25/);
+    assert.match(active, /background:\s*oklch\(from var\(--foreground\) l c h \/ 0\.07\)/);
+    assert.match(count, /height:\s*16px/);
+    assert.doesNotMatch(
+      row,
+      /width:\s*100%/,
+      'module nav row must not return to full-width active/hover pills',
+    );
+    assert.doesNotMatch(
+      active,
+      /\/ 0\.10\)/,
+      'module nav active fill must not return to the heavy 0.10 overlay',
+    );
+  });
+
+  it('.maka-list-row is 30px tall (single-line slim row, not a 56px card)', async () => {
     const css = await readFile(STYLES_PATH, 'utf8');
     const ruleBody = extractRuleBody(css, '.maka-list-row');
     assert.ok(ruleBody, '.maka-list-row rule must exist');
     assert.match(
       ruleBody,
-      /min-height:\s*32px/,
-      '.maka-list-row must declare min-height: 32px so 60 sessions fit in the sidebar without scrolling away the footer',
+      /min-height:\s*30px/,
+      '.maka-list-row must declare min-height: 30px so 60 sessions fit in the sidebar without scrolling away the footer',
     );
   });
 
@@ -74,11 +119,9 @@ describe('sidebar session row density CSS contract (PR-SIDEBAR-IA-0 Phase 3)', (
   });
 
   it('.maka-list-row[data-active="true"] keeps min-height untouched (active row does NOT inflate)', async () => {
-    // The selected row's only visual differentiation is a 3px
-    // left rail (::before) + light accent bg. It must NOT change
-    // the row height — that would create a layout shift as the
-    // user clicks between rows and is the original "fat row"
-    // problem in disguise.
+    // The selected row must NOT change height — that would create
+    // a layout shift as the user clicks between rows and is the
+    // original "fat row" problem in disguise.
     const css = await readFile(STYLES_PATH, 'utf8');
     const ruleBody = extractRuleBody(css, '.maka-list-row[data-active="true"]');
     assert.ok(ruleBody, '.maka-list-row[data-active="true"] rule must exist');
@@ -89,18 +132,18 @@ describe('sidebar session row density CSS contract (PR-SIDEBAR-IA-0 Phase 3)', (
     );
   });
 
-  it('.maka-list-row[data-active="true"]::before declares a left rail (subtle selected affordance)', async () => {
-    // The 3px left accent bar is the entire selected-state
-    // indicator (paired with a light accent bg). Removing it
-    // would leave the active row indistinguishable from hover.
+  it('.maka-list-row[data-active="true"] stays flat without an accent left rail', async () => {
+    // WAWQAQ called out that the left rail still carried too much
+    // old Maka/Slack-style chrome. The active row now follows the
+    // reference-style flat list: neutral fill, no ::before
+    // rail, and no accent stripe.
     const css = await readFile(STYLES_PATH, 'utf8');
     const ruleBody = extractRuleBody(css, '.maka-list-row[data-active="true"]::before');
-    assert.ok(ruleBody, '.maka-list-row[data-active="true"]::before rule must exist');
-    assert.match(ruleBody, /width:\s*3px/, 'active row ::before must declare width: 3px');
+    assert.equal(ruleBody, undefined, 'active row must not render an accent ::before rail');
     assert.match(
-      ruleBody,
-      /background:\s*var\(--accent\)/,
-      'active row ::before must declare background: var(--accent)',
+      extractRuleBody(css, '.maka-list-row[data-active="true"]') ?? '',
+      /background:\s*var\(--foreground-4\)/,
+      'active row should use neutral flat fill instead of accent tint',
     );
   });
 

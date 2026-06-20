@@ -299,16 +299,22 @@ name: Writer
 
     assert.match(ui, /onRefreshSkills\?\(\): void \| Promise<void>/);
     assert.match(ui, /onCreateSkillTemplate\?\(\): void \| Promise<void>/);
+    assert.match(ui, /onOpenSkillsFolder\?\(\): void \| Promise<void>/);
     assert.match(ui, /'创建示例技能'/);
     assert.match(ui, /'刷新技能'/);
     assert.match(ui, /'创建中…'/);
     assert.match(ui, /'刷新中…'/);
+    assert.match(ui, />\s*打开目录\s*</);
+    assert.match(ui, />推荐模板</);
+    assert.match(ui, /title: '文档处理流'/);
+    assert.match(ui, /title: '演示资料流'/);
     assert.doesNotMatch(ui, /重启 Maka 后会出现在这里/);
     assert.match(renderer, /async function refreshSkills\(options: \{ shouldShowError\?: \(\) => boolean \} = \{\}\)/);
     assert.match(renderer, /async function createSkillTemplate\(\)/);
     assert.match(renderer, /onRefreshSkills=\{\(\) => refreshSkills\(\)\}/);
     assert.match(renderer, /onCreateSkillTemplate=\{\(\) => createSkillTemplate\(\)\}/);
     assert.match(renderer, /onOpenSkill=\{\(skillId\) => openSkill\(skillId\)\}/);
+    assert.match(renderer, /onOpenSkillsFolder=\{\(\) => openSkillsFolder\(\)\}/);
     assert.match(preload, /createStarter\(\)/);
     assert.match(preload, /open\(id: string, target: 'file' \| 'directory' = 'file'\)/);
     assert.match(main, /ipcMain\.handle\('skills:createStarter'/);
@@ -324,7 +330,7 @@ name: Writer
     const chatView = ui.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
     const skillsModuleMain = ui.match(/function SkillsModuleMain\([\s\S]*?function DailyReviewPanel/)?.[0] ?? '';
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function formatSkillLibraryDescription/)?.[0] ?? '';
-    const emptyState = ui.match(/export interface EmptyStateProps[\s\S]*?function SidebarModuleHint/)?.[0] ?? '';
+    const emptyState = ui.match(/export interface EmptyStateProps[\s\S]*?function SkillLibraryPanel/)?.[0] ?? '';
 
     assert.match(chatView, /if \(props\.mode === 'skills'\) \{[\s\S]*<SkillsModuleMain/, 'Skills mode must mount its own main surface component');
     assert.match(skillsModuleMain, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
@@ -339,14 +345,23 @@ name: Writer
     assert.match(skillsModuleMain, /if \(!action \|\| pendingSkillActionRef\.current !== null\) return;/, 'Skills actions must reject duplicate clicks immediately');
     assert.match(skillsModuleMain, /pendingSkillActionRef\.current = actionKey[\s\S]*setPendingSkillAction\(actionKey\)[\s\S]*await action\(\)/, 'Skills actions must show pending state while waiting for renderer IPC');
     assert.match(skillsModuleMain, /pendingSkillActionRef\.current = null[\s\S]*if \(skillActionMountedRef\.current\) setPendingSkillAction\(null\)/, 'Skills actions must not clear pending UI state after unmount');
+    assert.match(skillsModuleMain, /className="maka-module-main-actions" role="group" aria-label="技能操作"/);
+    assert.match(skillsModuleMain, /disabled=\{!props\.onOpenSkillsFolder \|\| skillActionBusy\}/, 'open folder button must be disabled while any Skills action is pending');
     assert.match(skillsModuleMain, /disabled=\{!props\.onRefreshSkills \|\| skillActionBusy\}/, 'top refresh button must be disabled while any Skills action is pending');
     assert.match(skillsModuleMain, /pendingSkillAction === 'refresh' \? '刷新中…' : '刷新'/);
+    assert.match(skillsModuleMain, /pendingSkillAction === 'create' \? '创建中…' : '创建示例'/);
+    assert.match(skillsModuleMain, /onClick=\{\(\) => void runSkillAction\('folder', props\.onOpenSkillsFolder\)\}/);
     assert.match(skillsModuleMain, /onCreateSkillTemplate=\{props\.onCreateSkillTemplate \? \(\) => runSkillAction\('create', props\.onCreateSkillTemplate\) : undefined\}/);
     assert.match(skillsModuleMain, /onOpenSkill=\{props\.onOpenSkill \? \(skillId\) => runSkillAction\(`open:\$\{skillId\}`, \(\) => props\.onOpenSkill\?\.\(skillId\)\) : undefined\}/);
 
     assert.match(skillPanel, /actionBusy\?: boolean/);
     assert.match(skillPanel, /createPending\?: boolean/);
     assert.match(skillPanel, /openingSkillId\?: string \| null/);
+    assert.match(skillPanel, /<section className="maka-skill-examples" aria-label="技能示例">/);
+    assert.match(skillPanel, /<ul className="maka-skill-example-grid" aria-label="技能模板示例">/);
+    assert.match(skillPanel, /<section className="maka-skill-installed" aria-label="已安装技能">/);
+    assert.match(skillPanel, /<div className="maka-skill-library" aria-busy=\{props\.actionBusy \? 'true' : undefined\}>/);
+    assert.match(skillPanel, /<ul className="maka-skill-library-list" aria-label="技能列表">/);
     assert.match(skillPanel, /label: props\.createPending \? '创建中…' : '创建示例技能'/);
     assert.match(skillPanel, /label: props\.refreshPending \? '刷新中…' : '刷新技能'/);
     assert.match(skillPanel, /disabled: props\.actionBusy/);

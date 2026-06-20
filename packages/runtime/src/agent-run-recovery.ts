@@ -10,7 +10,7 @@ export interface AgentRunRecoveryDecision {
   diagnostic?: Record<string, unknown>;
   lineage: Partial<Pick<
     UserMessageInput,
-    'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
+    'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
   >>;
 }
 
@@ -112,8 +112,9 @@ function diagnostic(
 
 function headerLineage(
   header: AgentRunHeader,
-): Partial<Pick<UserMessageInput, 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'>> {
+): Partial<Pick<UserMessageInput, 'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'>> {
   return {
+    ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
     ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),

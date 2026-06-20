@@ -75,6 +75,11 @@ export type VisualSmokeScenario =
   // `VisualSmokeState.searchModalOpen=true`; real users never
   // receive a visual smoke state.
   | 'sidebar-search-modal-open'
+  // PR-shared primitive-COMMAND-INPUT-0: reuse the long sidebar seed and
+  // auto-open the command palette so screenshots can baseline the
+  // shared primitive InputGroup command input shell without requiring a key
+  // chord.
+  | 'command-palette-open'
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
   // kenji `b3d156e9`): seed the same 60-session sidebar and
   // programmatically focus the active row's button after mount
@@ -190,6 +195,13 @@ export interface VisualSmokeState {
    */
   searchModalOpen?: boolean;
   /**
+   * PR-shared primitive-COMMAND-INPUT-0: when `true`, the renderer auto-opens
+   * the command palette at mount so the screenshot pipeline can
+   * capture the command input shell deterministically. Currently set
+   * only by `command-palette-open`.
+   */
+  paletteOpen?: boolean;
+  /**
    * PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
    * kenji `b3d156e9`): when `true`, the renderer focuses the
    * active row's `.maka-list-row-main` button after mount so the
@@ -210,4 +222,13 @@ export interface VisualSmokeState {
    * router path.
    */
   sidebarSection?: 'sessions' | 'automations' | 'skills' | 'daily-review';
+  /**
+   * Fixture-only sidebar collapsed override. Screenshot runs use a
+   * fresh userData dir, while the real app defaults to the collapsed
+   * target-layout like rail when no local preference exists. Sidebar
+   * visual gates must opt into the expanded panel explicitly so their
+   * captures prove the rows, counts, groups, and footer instead of
+   * only the top-left icon rail.
+   */
+  sidebarCollapsed?: boolean;
 }

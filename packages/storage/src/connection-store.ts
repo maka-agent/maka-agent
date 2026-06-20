@@ -192,9 +192,10 @@ class FileConnectionStore implements ConnectionStore {
   private async readUnlocked(): Promise<ConnectionsFile> {
     try {
       const raw = JSON.parse(await readFile(this.path, 'utf8')) as ConnectionsFile;
+      const connections = (raw.connections ?? []).map((connection) => migrateConnectionV1ToV2(connection));
       return {
-        defaultSlug: raw.defaultSlug ?? null,
-        connections: (raw.connections ?? []).map((connection) => migrateConnectionV1ToV2(connection)),
+        defaultSlug: normalizeDefaultSlug(raw.defaultSlug, connections),
+        connections,
       };
     } catch (error) {
       if ((error as { code?: string }).code === 'ENOENT') return emptyConnectionsFile();
@@ -214,4 +215,10 @@ class FileConnectionStore implements ConnectionStore {
     this.queue = next.catch(() => {});
     return next;
   }
+}
+
+function normalizeDefaultSlug(defaultSlug: string | null | undefined, connections: LlmConnection[]): string | null {
+  if (!defaultSlug) return null;
+  const connection = connections.find((item) => item.slug === defaultSlug);
+  return connection && connection.enabled !== false ? connection.slug : null;
 }

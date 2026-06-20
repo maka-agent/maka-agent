@@ -15,6 +15,7 @@ const task: Task = {
   workspaceDir: '/tmp/fixture',
   verification: { command: 'npm test', timeoutMs: 5000, protectedPaths: ['test.mjs'] },
 };
+const legacyVerification = task.verification!;
 
 function record(extra: Partial<ResultRecord> = {}): ResultRecord {
   return {
@@ -47,7 +48,7 @@ describe('taskDefinitionFromTask', () => {
       workspaceDir: '/tmp/fixture',
       verification: { command: 'npm test', timeoutMs: 5000, protectedPaths: ['test.mjs'] },
     });
-    assert.notEqual(definition.verification.protectedPaths, task.verification.protectedPaths);
+    assert.notEqual(definition.verification.protectedPaths, legacyVerification.protectedPaths);
   });
 });
 

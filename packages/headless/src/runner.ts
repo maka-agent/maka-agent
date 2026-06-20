@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { isAbsolute } from 'node:path';
 import type { BackendKind } from '@maka/core';
 import {
   BackendRegistry,
   SessionManager,
+  buildChildAgentTools,
   type InvocationResult,
 } from '@maka/runtime';
 import {
@@ -15,8 +15,11 @@ import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
-import { prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
-import { runVerification } from './evaluator.js';
+import { freezeSubmittedWorkspace, prepareScoringWorkspace, prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
+import { defaultFinalScorer } from './scorer.js';
+import { buildIsolatedHeadlessTools } from './tools.js';
+import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
+import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
 
 export interface RunExperimentDeps {
   /**
@@ -38,6 +41,7 @@ export interface RunExperimentDeps {
    * Harbor/Terminal-Bench environment or Docker workspace executor.
    */
   realBackendIsolation?: RealBackendIsolation;
+  benchmarkAdapters?: BenchmarkAdapterRegistry;
   now?: () => number;
   newId?: () => string;
 }
@@ -63,17 +67,7 @@ export function backendNeedsIsolation(backend: BackendKind): boolean {
  * field. The CLI reuses this; there is no second, divergent check.
  */
 export function validateTaskVerification(task: Task): void {
-  const protectedPaths = task.verification?.protectedPaths;
-  if (!Array.isArray(protectedPaths)) {
-    throw new Error(
-      `task "${task.id}": verification.protectedPaths is required (an array; use [] when the verification reads nothing the agent can forge)`,
-    );
-  }
-  for (const rel of protectedPaths) {
-    if (typeof rel !== 'string' || isAbsolute(rel) || rel.split(/[\\/]+/).includes('..')) {
-      throw new Error(`task "${task.id}": protectedPaths entry must be a workspace-relative path: ${String(rel)}`);
-    }
-  }
+  normalizeVerifier(task);
 }
 
 /**
@@ -102,6 +96,7 @@ export async function runExperiment(
 
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
+    const verifier = normalizeVerifier(task);
     const backends = new BackendRegistry();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
@@ -120,6 +115,9 @@ export async function runExperiment(
       runStore: createAgentRunStore(deps.storageRoot),
       runtimeEventStore: createRuntimeEventStore(deps.storageRoot),
       backends,
+      ...(deps.realBackendIsolation?.toolExecutor
+        ? { childTools: buildChildAgentTools(buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor)) }
+        : {}),
       newId,
       now,
       runtimeSource: 'test',
@@ -150,44 +148,68 @@ export async function runExperiment(
       }
     }
 
-    // Clean-room grading: restore the verification assets from the pristine
-    // fixture so anything the agent wrote over its own test is reverted
-    // before it is graded.
-    await restoreProtectedPaths(task.workspaceDir, workspace.dir, task.verification.protectedPaths);
-
-    const evaluation = await runVerification(
-      task.verification.command,
-      workspace.dir,
-      task.verification.timeoutMs,
-    );
-    const finishedAt = now();
     const status = invocation?.status ?? 'failed';
+    const runnerCompleted = status === 'completed';
+    const frozen = await freezeSubmittedWorkspace({ workspaceDir: workspace.dir, now, newId });
+    const scoringWorkspace = await prepareScoringWorkspace(frozen.submittedSnapshot);
+    try {
+      await restoreProtectedPaths(task.workspaceDir, scoringWorkspace.dir, verifierProtectedPaths(verifier));
+      const verifierStartedAt = now();
+      const verifierResult = await runVerifier({
+        verifier,
+        taskRunId: invocation?.runId ?? turnId,
+        ts: verifierStartedAt,
+        id: newId(),
+        workspaceDir: scoringWorkspace.dir,
+        submittedSnapshotId: frozen.submittedSnapshot.id,
+        scoringWorkspaceId: scoringWorkspace.dir,
+        benchmarkAdapters: deps.benchmarkAdapters,
+      });
+      const finalScore = defaultFinalScorer({
+        config,
+        task,
+        runnerCompleted,
+        runnerStatus: status,
+        invocationFailure: invocation?.failure,
+        submittedSnapshot: frozen.submittedSnapshot,
+        verifierResult,
+      });
+      const finishedAt = now();
 
-    return {
-      taskId: task.id,
-      configId: config.id,
-      sessionId: session.id,
-      runId: invocation?.runId ?? turnId,
-      status,
-      // Only a completed run can "pass" — a crashed/errored run that happens
-      // to leave a green fixture must not read as a pass.
-      passed: status === 'completed' && evaluation.passed,
-      exitCode: evaluation.exitCode,
-      steps: invocation?.events.length ?? 0,
-      durationMs: finishedAt - startedAt,
-      startedAt,
-      finishedAt,
-      // A failed invocation (the backend reported failure without throwing, or
-      // no result was captured) must carry an `error` so the comparison table
-      // (⚠️) and the CLI exit code agree it was not a trustworthy run — not a
-      // silent ⚠️-but-exit-0 that automation reads as success.
-      ...(status === 'failed'
-        ? {
-            error: invocation?.failure?.message ?? invocation?.failure?.class ?? 'run did not complete',
-            ...(invocation?.failure?.class ? { errorClass: invocation.failure.class } : {}),
-          }
-        : {}),
-    };
+      return {
+        taskId: task.id,
+        configId: config.id,
+        sessionId: session.id,
+        runId: invocation?.runId ?? turnId,
+        status,
+        runnerCompleted,
+        passed: finalScore.passed,
+        scored: finalScore.scored,
+        eligible: finalScore.eligible,
+        ...(finalScore.excludedReason ? { excludedReason: finalScore.excludedReason } : {}),
+        verifierKind: verifierResult.kind,
+        verifierResultId: verifierResult.id,
+        scoreResultId: newId(),
+        submittedSnapshotId: frozen.submittedSnapshot.id,
+        exitCode: verifierResult.exitCode ?? null,
+        steps: invocation?.events.length ?? 0,
+        durationMs: finishedAt - startedAt,
+        startedAt,
+        finishedAt,
+        ...(!finalScore.scored && finalScore.errorClass
+          ? { error: finalScore.excludedReason ?? invocation?.failure?.message ?? finalScore.errorClass }
+          : status === 'failed'
+            ? { error: invocation?.failure?.message ?? invocation?.failure?.class ?? 'run did not complete' }
+            : {}),
+        ...(finalScore.errorClass
+          ? { errorClass: finalScore.errorClass }
+          : invocation?.failure?.class
+            ? { errorClass: invocation.failure.class }
+            : {}),
+      };
+    } finally {
+      await scoringWorkspace.cleanup();
+    }
   } finally {
     await workspace.cleanup();
   }

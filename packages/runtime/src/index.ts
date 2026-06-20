@@ -19,6 +19,12 @@ export type {
   SessionStore,
   BackendFactory,
   BackendFactoryContext,
+  SpawnChildAgentInput,
+  SpawnChildAgentResult,
+  AgentListItem,
+  AgentListResult,
+  AgentOutputInput,
+  AgentOutputResult,
 } from './session-manager.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
@@ -60,6 +66,61 @@ export type {
 
 export { buildBuiltinTools } from './builtin-tools.js';
 export type { MakaTool as BuiltinMakaTool, MakaToolContext as BuiltinMakaToolContext } from './builtin-tools.js';
+export {
+  AGENT_CONTEXT_ISOLATED,
+  AGENT_INVOCATION_FOREGROUND,
+  AGENT_WORKSPACE_SAME_WORKSPACE,
+  AGENT_WORKSPACE_WORKTREE,
+  AGENT_WRITE_BACK_PATCH,
+  AGENT_WRITE_BACK_SUMMARY,
+  BUILTIN_AGENT_DEFINITIONS,
+  BUILTIN_AGENT_PROFILES,
+  IMPLEMENTATION_AGENT_DEFINITION,
+  IMPLEMENTATION_AGENT_ID,
+  IMPLEMENTATION_AGENT_PROFILE,
+  LOCAL_READ_AGENT_DEFINITION,
+  LOCAL_READ_AGENT_ID,
+  LOCAL_READ_AGENT_PROFILE,
+  WEB_RESEARCH_AGENT_DEFINITION,
+  WEB_RESEARCH_AGENT_ID,
+  WEB_RESEARCH_AGENT_PROFILE,
+  assertAgentDefinitionRunnable,
+  buildToolsForAgentDefinition,
+  evaluateAgentDefinitionAvailability,
+  evaluateAgentDefinitionToolAccess,
+  getBuiltinAgentDefinition,
+  getBuiltinAgentDefinitionByProfile,
+  listBuiltinAgentDefinitions,
+  requireBuiltinAgentDefinition,
+  requireBuiltinAgentDefinitionByProfile,
+} from './agent-catalog.js';
+export type {
+  AgentCapability,
+  AgentDefinition,
+  AgentDefinitionAvailability,
+  AgentDefinitionListItem,
+  AgentDefinitionListOptions,
+  AgentContextMode,
+  AgentInvocationMode,
+  AgentProfile,
+  AgentProfileContract,
+  AgentWorkspaceMode,
+  AgentWriteBackMode,
+} from './agent-catalog.js';
+export {
+  AGENT_LIST_TOOL_NAME,
+  AGENT_OUTPUT_TOOL_NAME,
+  AGENT_SPAWN_TOOL_NAME,
+  AGENT_TOOL_GROUP_ID,
+  AGENT_TOOL_NAMES,
+  CHILD_AGENT_TOOL_NAMES,
+  buildChildAgentTools,
+  buildSubagentListTool,
+  buildSubagentOutputTool,
+  buildSubagentProjectionTools,
+  buildSubagentSpawnTool,
+  buildSubagentToolGroup,
+} from './subagent-tools.js';
 export {
   deriveToolArtifactCandidates,
   extractStdoutRedirectPath,
@@ -305,6 +366,7 @@ export type {
   AgentFlow,
   AgentFlowControl,
   FlowInput,
+  RunnableAgentFlow,
 } from './agent-flow.js';
 export { flowSupportsControl } from './agent-flow.js';
 

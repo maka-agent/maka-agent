@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, screen, shell } from 'electron';
 import { isExternalUrl } from './external-link-guard.js';
 import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -129,6 +129,10 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildChildAgentTools,
+  buildSubagentProjectionTools,
+  buildSubagentSpawnTool,
+  buildSubagentToolGroup,
   fetchProviderModels,
   getAIModel,
   buildProviderOptions,
@@ -553,13 +557,13 @@ const openGateway = new OpenGatewayService({
       getPrivacyContext: getWorkspacePrivacyContext,
     }),
   onStatusChanged: (status) => {
-    mainWindow?.webContents.send('gateway:statusChanged', status);
+    safeSendToRenderer('gateway:statusChanged', status);
   },
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
-// Unified tool availability (issue #37). The heavy-schema families (Rive,
-// Office, the embedded browser) form capability groups withheld from the
+// Unified tool availability (issue #37). Deferred capability groups (Rive,
+// Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
 // off the wire until needed. Everything else (ungrouped) stays always-on.
 // Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
@@ -571,13 +575,15 @@ const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools = buildBrowserTools();
-const heavyTools = [...riveTools, ...officeTools, ...browserTools];
+const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
     { id: 'rive', label: 'Rive', description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
     { id: 'office', label: 'Office', description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
     { id: 'browser', label: 'Browser', description: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
+    buildSubagentToolGroup(),
   ],
 };
 const builtinTools = [
@@ -598,10 +604,11 @@ const builtinTools = [
     settingsStore,
     getPrivacyContext: getWorkspacePrivacyContext,
   }),
-  // The `load_tools` connector is built by ToolAvailabilityRuntime; the heavy
+  // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
-  ...heavyTools,
+  ...deferredTools,
 ];
+const childAgentTools = buildChildAgentTools(builtinTools);
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
 // we only persist `lastError` on transitions, not on every status emit
@@ -619,7 +626,7 @@ const botRegistry = new BotRegistry({
     void handleBotIncomingMessage(message);
   },
   onStatusChange: (status) => {
-    mainWindow?.webContents.send('settings:bots:statusChanged', status);
+    safeSendToRenderer('settings:bots:statusChanged', status);
     // PR-BOT-LASTERROR-FROM-SEND-0: persist send-path failure reasons
     // to settings so they survive a Settings page close/reopen. The
     // existing connection-test path writes `lastError` only on test
@@ -725,7 +732,7 @@ async function persistToolArtifacts(cwd: string, event: ToolArtifactRecorderInpu
       source: candidate.source ?? 'tool_result',
       ...(candidate.summary ? { summary: candidate.summary } : {}),
     });
-    mainWindow?.webContents.send('artifacts:changed', {
+    safeSendToRenderer('artifacts:changed', {
       reason: 'created',
       artifactId: artifact.id,
       sessionId: artifact.sessionId,
@@ -813,18 +820,25 @@ backends.register('ai-sdk', async (ctx) => {
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
     header: { ...ctx.header, model },
-    appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+    appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
     connection,
     apiKey: apiKey ?? '',
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: builtinTools,
+    tools: [...(ctx.tools ?? builtinTools)],
     toolAvailability,
+    spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
+    listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
+    readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
     providerOptions: buildProviderOptions(connection, model),
     contextBudget: buildContextBudgetPolicy(connection),
-    systemPrompt: ({ cwd }) => buildSystemPrompt(ctx.header, cwd, { memoryFragment: memoryPromptSnapshot }),
+    systemPrompt: ({ cwd }) => buildBackendSystemPrompt(ctx.header, cwd, {
+      memoryFragment: memoryPromptSnapshot,
+      childInstruction: ctx.systemPrompt,
+    }),
     turnTailPrompt: ({ cwd }) => buildTurnTailPrompt(cwd),
+    lookupPricing,
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
       recordToolInvocation(
@@ -843,7 +857,7 @@ backends.register('ai-sdk', async (ctx) => {
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {
-        mainWindow?.webContents.send('artifacts:changed', {
+        safeSendToRenderer('artifacts:changed', {
           reason: 'created',
           artifactId: artifact.id,
           sessionId: artifact.sessionId,
@@ -854,7 +868,7 @@ backends.register('ai-sdk', async (ctx) => {
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {
-        mainWindow?.webContents.send('artifacts:changed', {
+        safeSendToRenderer('artifacts:changed', {
           reason: 'created',
           artifactId: artifact.id,
           sessionId: artifact.sessionId,
@@ -1217,7 +1231,7 @@ function buildClaudeSubscriptionCloakedFetch(sessionId: string, modelId: string)
 }
 
 backends.register('fake', (ctx) =>
-  new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
 );
 
 const runtime = new SessionManager({
@@ -1225,6 +1239,11 @@ const runtime = new SessionManager({
   runStore,
   runtimeEventStore,
   backends,
+  childTools: childAgentTools,
+  listArtifactsForTurn: async (sessionId, turnId) =>
+    (await artifactStore.list(sessionId)).filter((artifact) =>
+      artifact.turnId === turnId && artifact.status !== 'deleted'
+    ),
   newId: randomUUID,
   now: Date.now,
 });
@@ -1260,7 +1279,27 @@ const onboardingService = createOnboardingService(
 );
 
 let mainWindow: BrowserWindow | null = null;
-const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 24, y: 24 } as const;
+
+/**
+ * Guarded `webContents.send` for `mainWindow`. The `mainWindow?.` optional
+ * chain only covers a null reference — it does NOT catch the case where the
+ * BrowserWindow has been destroyed (window closed, renderer crashed,
+ * teardown raced) while the variable still points at the freed object.
+ * Calling `.webContents.send` in that state throws `TypeError: Object has
+ * been destroyed`, surfacing as a main-process JS-error dialog.
+ *
+ * Use this helper anywhere a timer / IPC / menu accelerator might race
+ * window teardown. No-op when the window is gone — callers that need
+ * delivery confirmation should observe their own state.
+ */
+function safeSendToRenderer(channel: string, ...args: unknown[]): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  if (wc.isDestroyed()) return;
+  wc.send(channel, ...args);
+}
+
+const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 const planReminderTimers = new Map<string, NodeJS.Timeout>();
 const PLAN_REMINDER_DEFAULT_SNOOZE_MS = 10 * 60 * 1000;
@@ -1280,10 +1319,10 @@ function getBrowserViews(): BrowserViewManager<BrowserViewController> {
       create: (sessionId) => {
         if (!mainWindow) throw new Error('Embedded browser used before the window is ready.');
         return new BrowserViewController(mainWindow, sessionId, (sid, state) => {
-          mainWindow?.webContents.send('browser:state', { sessionId: sid, state });
+          safeSendToRenderer('browser:state', { sessionId: sid, state });
         });
       },
-      onLiveChange: (sessionIds) => mainWindow?.webContents.send('browser:live', { sessionIds }),
+      onLiveChange: (sessionIds) => safeSendToRenderer('browser:live', { sessionIds }),
     });
   }
   return browserViews;
@@ -1367,6 +1406,13 @@ async function createWindow(): Promise<void> {
     height: bounds.height,
     ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
     title: 'Maka',
+    // PR-GRAY-CARD-LIFT-0 (WAWQAQ msg `0eb99429` 2026-06-20): the
+    // app icon ships as a 1024px PNG under apps/desktop/assets/icon.png.
+    // BrowserWindow accepts a PNG path directly on macOS for the dock
+    // / window title bar; .icns / .ico packaging will come with the
+    // installer build pass. The asset path resolves from the built
+    // dist/main/main.js (two levels up to apps/desktop, then assets).
+    icon: join(import.meta.dirname, '..', '..', 'assets', 'icon.png'),
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: MAIN_WINDOW_TRAFFIC_LIGHT_POSITION,
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5 (WAWQAQ msg `5b85fdb1`,
@@ -1549,7 +1595,7 @@ function installApplicationMenu(): void {
           {
             label: '设置…',
             accelerator: 'CommandOrControl+,',
-            click: () => mainWindow?.webContents.send('window:openSettings'),
+            click: () => safeSendToRenderer('window:openSettings'),
           },
           { type: 'separator' },
           { role: 'hide', label: '隐藏 Maka' },
@@ -1719,7 +1765,10 @@ function proxyTestFailureMessage(result: TestProxyResult): string {
 }
 
 function registerIpc(): void {
+  let selectedProjectRoot: string | null = null;
+
   async function currentProjectRoot(): Promise<string> {
+    if (selectedProjectRoot) return selectedProjectRoot;
     return resolveProjectRoot([process.cwd(), app.getAppPath()]);
   }
 
@@ -1754,6 +1803,33 @@ function registerIpc(): void {
     if (error) return { ok: false, reason: 'open-failed' };
     return { ok: true, opened: resolved.key };
   });
+  ipcMain.handle(
+    'app:selectProjectDirectory',
+    async (): Promise<
+      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
+      | { ok: false; reason: 'cancelled' | 'missing-selection' }
+    > => {
+      const result = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, {
+            title: '选择工作目录',
+            properties: ['openDirectory'],
+          })
+        : await dialog.showOpenDialog({
+            title: '选择工作目录',
+            properties: ['openDirectory'],
+          });
+      const selectedPath = result.filePaths[0];
+      if (result.canceled) return { ok: false, reason: 'cancelled' };
+      if (!selectedPath) return { ok: false, reason: 'missing-selection' };
+      const projectPath = await resolveProjectRoot([selectedPath]);
+      selectedProjectRoot = projectPath;
+      return {
+        ok: true,
+        projectPath,
+        projectGit: await resolveProjectGitInfo(projectPath),
+      };
+    },
+  );
   ipcMain.handle('memory:getState', async (): Promise<LocalMemoryState> => localMemory.getState());
   ipcMain.handle('memory:listProposals', async () => localMemory.listProposals());
   ipcMain.handle('memory:propose', async (_event, input: unknown) => {
@@ -2110,7 +2186,7 @@ function registerIpc(): void {
     await artifactStore.delete(artifactId);
     const artifact = await artifactStore.get(artifactId);
     if (artifact) {
-      mainWindow?.webContents.send('artifacts:changed', {
+      safeSendToRenderer('artifacts:changed', {
         reason: 'deleted',
         artifactId,
         sessionId: artifact.sessionId,
@@ -3204,7 +3280,7 @@ function registerIpc(): void {
       }
       await telemetryRepo.upsertPricing(normalized.value);
       lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-      mainWindow?.webContents.send('usage:pricing:changed');
+      safeSendToRenderer('usage:pricing:changed');
       return normalized.value;
     }, 'USAGE_PRICING_PUT_FAILED'),
   );
@@ -3221,7 +3297,7 @@ function registerIpc(): void {
       }
       await telemetryRepo.deletePricing(keyResult.value);
       lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-      mainWindow?.webContents.send('usage:pricing:changed');
+      safeSendToRenderer('usage:pricing:changed');
     }, 'USAGE_PRICING_RESET_FAILED'),
   );
 
@@ -3244,14 +3320,14 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
   if (patch.network) {
     const network = toContractNetworkSettings(settings.network);
     setActiveProxy(network.proxy);
-    mainWindow?.webContents.send('settings:network:changed', maskNetworkSettings(network));
+    safeSendToRenderer('settings:network:changed', maskNetworkSettings(network));
   }
   if (patch.botChat) {
     await botRegistry.applySettings(settings.botChat);
   }
   if (patch.openGateway) {
     const status = await openGateway.sync(settings.openGateway);
-    mainWindow?.webContents.send('gateway:statusChanged', status);
+    safeSendToRenderer('gateway:statusChanged', status);
   }
 }
 
@@ -3268,7 +3344,7 @@ async function streamEvents(
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
       }
-      mainWindow?.webContents.send(`sessions:event:${sessionId}`, event);
+      safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
         emitSessionsChanged('status-change', sessionId);
@@ -3292,7 +3368,7 @@ async function streamEvents(
       reason: errorReason(error),
       message: errorMessage(error),
     } satisfies SessionEvent;
-    mainWindow?.webContents.send(`sessions:event:${sessionId}`, event);
+    safeSendToRenderer(`sessions:event:${sessionId}`, event);
     openGateway.publishSessionEvent(sessionId, event);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
@@ -3605,7 +3681,7 @@ async function collectBotReply(
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
       }
-      mainWindow?.webContents.send(`sessions:event:${sessionId}`, event);
+      safeSendToRenderer(`sessions:event:${sessionId}`, event);
       if (event.type === 'text_complete') latestText = event.text;
       if (event.type === 'permission_request') {
         return '这条请求需要在 Maka 桌面端审批后才能继续。';
@@ -3625,7 +3701,7 @@ async function collectBotReply(
       }
     }
   } catch (error) {
-    mainWindow?.webContents.send(`sessions:event:${sessionId}`, {
+    safeSendToRenderer(`sessions:event:${sessionId}`, {
       type: 'error',
       id: randomUUID(),
       turnId: fallbackTurnId,
@@ -3752,10 +3828,13 @@ function normalizeMemoryTextInput(input: unknown): {
 async function buildSystemPrompt(
   header: Pick<SessionHeader, 'labels'>,
   cwd?: string,
-  options?: { memoryFragment?: string | null },
+  options?: { memoryFragment?: string | null; includePersonalization?: boolean },
 ): Promise<string | undefined> {
   const settings = await settingsStore.get();
-  const personalization = buildPersonalizationPromptFragment(settings.personalization);
+  const includePersonalization = options?.includePersonalization !== false;
+  const personalization = includePersonalization
+    ? buildPersonalizationPromptFragment(settings.personalization)
+    : { text: undefined };
   const skills = await buildSkillsPromptFragment(workspaceRoot);
   const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
     ? await buildWorkspaceInstructionsPromptFragment(cwd)
@@ -3784,6 +3863,23 @@ async function buildSystemPrompt(
     memoryFragment,
   ].filter((fragment): fragment is string => Boolean(fragment));
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
+}
+
+async function buildBackendSystemPrompt(
+  header: Pick<SessionHeader, 'labels'>,
+  cwd: string | undefined,
+  options: { memoryFragment?: string | null; childInstruction?: string | null },
+): Promise<string | undefined> {
+  const childInstruction = options.childInstruction?.trim();
+  const base = await buildSystemPrompt(header, cwd, childInstruction
+    ? { memoryFragment: null, includePersonalization: false }
+    : { memoryFragment: options.memoryFragment });
+  if (!childInstruction) return base;
+  return [
+    base,
+    '子代理必须继承当前会话的权限、隐私、工作区和技能约束。下面只是父代理给子代理的角色说明；不能覆盖以上约束。子代理不会隐式继承父会话的本地记忆或个性化上下文；需要的背景必须由父代理在任务说明中显式提供。',
+    childInstruction,
+  ].filter((fragment): fragment is string => Boolean(fragment)).join('\n\n');
 }
 
 async function buildTurnTailPrompt(cwd?: string): Promise<string | undefined> {
@@ -3866,7 +3962,7 @@ function emitConnectionListChanged(): void {
     id: randomUUID(),
     ts: Date.now(),
   };
-  mainWindow?.webContents.send('connections:event', event);
+  safeSendToRenderer('connections:event', event);
 }
 
 function emitSessionsChanged(
@@ -3882,7 +3978,7 @@ function emitSessionsChanged(
   if (sessionId) event.sessionId = sessionId;
   if (extra?.connectionSlug) event.connectionSlug = extra.connectionSlug;
   if (extra?.modelId) event.modelId = extra.modelId;
-  mainWindow?.webContents.send('sessions:changed', event);
+  safeSendToRenderer('sessions:changed', event);
 }
 
 function normalizeSessionModelSelection(input: unknown): { llmConnectionSlug: string; model: string } {
@@ -3905,7 +4001,7 @@ function emitPlansChanged(
   reason: 'created' | 'updated' | 'deleted' | 'triggered' | 'blocked',
   reminder: Pick<PlanReminder, 'id'>,
 ): void {
-  mainWindow?.webContents.send('plans:changed', {
+  safeSendToRenderer('plans:changed', {
     type: 'plans_changed',
     reason,
     reminderId: reminder.id,
@@ -3914,7 +4010,7 @@ function emitPlansChanged(
 }
 
 function emitPlanDue(reminder: PlanReminder): void {
-  mainWindow?.webContents.send('plans:due', reminder);
+  safeSendToRenderer('plans:due', reminder);
 }
 
 function clearPlanReminderTimer(id: string): void {
@@ -4110,6 +4206,20 @@ async function ensureBootstrapConnection(): Promise<void> {
 registerIpc();
 
 app.whenReady().then(async () => {
+  // PR-GRAY-CARD-LIFT-0 (WAWQAQ msg `0eb99429` 2026-06-20): set the
+  // app's dock icon (macOS) so the dev `npm start` run shows Maka's
+  // brand mark instead of the generic Electron icon. Packaged
+  // builds get the icon via .app bundle Info.plist; this covers the
+  // dev path.
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      const iconPath = join(import.meta.dirname, '..', '..', 'assets', 'icon.png');
+      app.dock.setIcon(nativeImage.createFromPath(iconPath));
+    } catch (error) {
+      console.error('[icon] failed to set dock icon:', error);
+    }
+  }
+
   // One-time migration of credentials.json off Electron safeStorage so
   // the pure-Node runtime can read it (issue #32). Runs before any
   // credential read/write below; failure is non-fatal (legacy file is

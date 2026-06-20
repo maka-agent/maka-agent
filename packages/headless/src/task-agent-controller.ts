@@ -25,9 +25,21 @@ import {
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
 import type { HeadlessBackendContext } from './isolation.js';
-import { validateRealBackendIsolation } from './isolation.js';
-import { prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
-import { runVerification } from './evaluator.js';
+import {
+  taskIsolationFacts,
+  toolExecutorIdentity,
+  validateRealBackendIsolation,
+} from './isolation.js';
+import {
+  commandResourceScope,
+  hashNormalizedArgs,
+  matchPermissionGrant,
+  permissionPreview,
+} from './permission-grants.js';
+import { freezeSubmittedWorkspace, prepareScoringWorkspace, prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
+import { defaultFinalScorer } from './scorer.js';
+import { approvalRequestInboxItem } from './task-inbox.js';
+import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
 import {
   backendNeedsIsolation,
   type RunExperimentDeps,
@@ -37,9 +49,13 @@ import {
   taxonomyFromResultRecord,
   type AutonomousResultTaxonomy,
   type FeedbackObservation,
+  type PermissionResourceScope,
   type ScoreResult,
   type TaskAttemptStatus,
   type TaskEvent,
+  type TaskInterventionPolicy,
+  type TaskPermissionGrant,
+  type TaskPermissionRequest,
   type TaskRunError,
   type TaskRunResult,
   type VerifierResult,
@@ -62,6 +78,8 @@ export interface RunTaskOnceDeps extends RunExperimentDeps {
   closeTaskRun?: boolean;
   instructionOverride?: string;
   permissionMode?: 'execute';
+  interventionPolicy?: TaskInterventionPolicy;
+  permissionGrants?: readonly TaskPermissionGrant[];
 }
 
 export interface RunTaskOnceResult {
@@ -85,7 +103,8 @@ export async function runTaskOnce(
   task: Task,
   deps: RunTaskOnceDeps,
 ): Promise<RunTaskOnceResult> {
-  if (backendNeedsIsolation(config.backend)) {
+  const isolationRequired = backendNeedsIsolation(config.backend);
+  if (isolationRequired) {
     validateRealBackendIsolation(deps.realBackendIsolation);
     if (!deps.registerBackends) {
       throw new Error(
@@ -102,11 +121,13 @@ export async function runTaskOnce(
   const instruction = deps.instructionOverride ?? task.instruction;
   const createTaskRun = deps.createTaskRun ?? true;
   const closeTaskRun = deps.closeTaskRun ?? true;
+  const interventionPolicy = deps.interventionPolicy ?? DEFAULT_INTERVENTION_POLICY;
   const taskRunStore = deps.taskRunStore ?? createTaskRunStore(deps.storageRoot);
   const sessionStore = deps.sessionStore ?? createSessionStore(deps.storageRoot);
   const agentRunStore = deps.agentRunStore ?? createAgentRunStore(deps.storageRoot);
   const runtimeEventStore = deps.runtimeEventStore ?? createRuntimeEventStore(deps.storageRoot);
   const startedAt = now();
+  const verifier = normalizeVerifier(task);
 
   if (createTaskRun) {
     await appendTaskEvent(taskRunStore, taskRunId, {
@@ -128,9 +149,62 @@ export async function runTaskOnce(
       taskDefinition: taskDefinitionFromTask(task),
     });
   }
+  await appendTaskEvent(taskRunStore, taskRunId, {
+    type: 'isolation_policy_recorded',
+    id: newId(),
+    taskRunId,
+    ts: now(),
+    facts: taskIsolationFacts({
+      backendKind: config.backend,
+      required: isolationRequired,
+      isolation: deps.realBackendIsolation,
+      validatedAt: now(),
+    }),
+  });
+  for (const grant of deps.permissionGrants ?? []) {
+    if (grant.taskRunId !== taskRunId) continue;
+    await appendTaskEvent(taskRunStore, taskRunId, {
+      type: 'permission_grant_recorded',
+      id: newId(),
+      taskRunId,
+      ts: now(),
+      grant,
+    });
+  }
 
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
+    await appendTaskEvent(taskRunStore, taskRunId, {
+      type: 'workspace_lease_recorded',
+      id: newId(),
+      taskRunId,
+      ts: now(),
+      lease: {
+        schemaVersion: 1,
+        leaseId: newId(),
+        taskRunId,
+        attemptId,
+        sourceWorkspaceDir: task.workspaceDir,
+        workspaceDir: workspace.dir,
+        leaseKind: 'throwaway_copy',
+        writable: true,
+        cleanupPolicy: 'cleanup_on_finally',
+        createdAt: now(),
+      },
+    });
+    await appendTaskEvent(taskRunStore, taskRunId, {
+      type: 'tool_executor_identity_recorded',
+      id: newId(),
+      taskRunId,
+      ts: now(),
+      identity: toolExecutorIdentity({
+        executorId: newId(),
+        taskRunId,
+        attemptId,
+        isolation: deps.realBackendIsolation,
+        toolNames: deps.realBackendIsolation?.toolExecutor ? ['Bash'] : ['registered_backend'],
+      }),
+    });
     const backends = new BackendRegistry();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
@@ -198,7 +272,30 @@ export async function runTaskOnce(
     } finally {
       await active.dispose();
     }
-    const invocation = normalizeHeadlessInvocation(runtimeInvocation);
+    const permissionHandling = await handlePermissionIntervention({
+      invocation: runtimeInvocation,
+      store: taskRunStore,
+      taskRunId,
+      attemptId,
+      now,
+      newId,
+      policy: interventionPolicy,
+      config,
+      task,
+      sessionId: header.id,
+      startedAt,
+      closeTaskRun,
+    });
+    if (permissionHandling.parked) {
+      return {
+        taskRunId,
+        attemptId,
+        resultRecord: permissionHandling.resultRecord,
+        projection: await taskRunStore.project(taskRunId),
+        invocation: permissionHandling.invocation,
+      };
+    }
+    const invocation = permissionHandling.invocation;
 
     const runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
@@ -210,51 +307,81 @@ export async function runTaskOnce(
       ts: now(),
       startedAt: now(),
     });
-    await restoreProtectedPaths(task.workspaceDir, workspace.dir, task.verification.protectedPaths);
-    const evaluation = await runVerification(
-      task.verification.command,
-      workspace.dir,
-      task.verification.timeoutMs,
-    );
-
+    const runnerCompleted = invocation.status === 'completed';
+    const frozen = await freezeSubmittedWorkspace({
+      workspaceDir: workspace.dir,
+      artifactRefs: runtimeSummary.artifactRefs,
+      now,
+      newId,
+    });
+    const scoringWorkspace = await prepareScoringWorkspace(frozen.submittedSnapshot);
+    let verifierResult: VerifierResult;
+    try {
+      await restoreProtectedPaths(task.workspaceDir, scoringWorkspace.dir, verifierProtectedPaths(verifier));
+      const verifierStartedAt = now();
+      verifierResult = await runVerifier({
+        verifier,
+        taskRunId,
+        attemptId,
+        ts: verifierStartedAt,
+        id: newId(),
+        workspaceDir: scoringWorkspace.dir,
+        submittedSnapshotId: frozen.submittedSnapshot.id,
+        scoringWorkspaceId: scoringWorkspace.dir,
+        benchmarkAdapters: deps.benchmarkAdapters,
+      });
+    } finally {
+      await scoringWorkspace.cleanup();
+    }
+    const finalScore = defaultFinalScorer({
+      config,
+      task,
+      runnerCompleted,
+      runnerStatus: invocation.status,
+      invocationFailure: invocation.failure,
+      submittedSnapshot: frozen.submittedSnapshot,
+      verifierResult,
+    });
     const finishedAt = now();
+    const scoreResultId = newId();
     const resultRecord = resultRecordFromInvocation({
       config,
       task,
       sessionId: header.id,
       invocation,
-      evaluation,
+      verifierResult,
+      finalScore,
+      submittedSnapshotId: frozen.submittedSnapshot.id,
+      scoreResultId,
       startedAt,
       finishedAt,
     });
-    const taxonomy = taxonomyFromResultRecord(resultRecord);
-    const verifierResult: VerifierResult = {
-      id: newId(),
-      taskRunId,
-      attemptId,
-      ts: finishedAt,
-      kind: 'command',
-      passed: resultRecord.status === 'completed' && evaluation.passed,
-      exitCode: evaluation.exitCode,
-      command: task.verification.command,
-      ...(evaluation.timedOut ? { error: 'verification timed out' } : {}),
-    };
+    const taxonomy = finalScore.taxonomy;
     const scoreResult: ScoreResult = {
-      id: newId(),
+      id: scoreResultId,
       taskRunId,
       attemptId,
       ts: finishedAt,
-      passed: resultRecord.status === 'completed' && evaluation.passed,
+      passed: finalScore.passed,
+      scored: finalScore.scored,
+      eligible: finalScore.eligible,
+      ...(finalScore.score !== undefined ? { score: finalScore.score } : {}),
+      ...(finalScore.maxScore !== undefined ? { maxScore: finalScore.maxScore } : {}),
+      ...(finalScore.errorClass ? { errorClass: finalScore.errorClass } : {}),
+      ...(finalScore.excludedReason ? { excludedReason: finalScore.excludedReason } : {}),
       taxonomy,
       details: {
         steps: resultRecord.steps,
         invocationStatus: invocation.status,
         ...(invocation.failure?.class ? { runtimeFailureClass: invocation.failure.class } : {}),
-        verifierExitCode: evaluation.exitCode,
+        verifierExitCode: verifierResult.exitCode ?? null,
         runtimeRefs: runtimeSummary.runtimeRefs,
         artifactRefs: runtimeSummary.artifactRefs,
+        submittedSnapshot: frozen.submittedSnapshot,
+        scoringWorkspaceContract: 'v1_copy_snapshot_then_restore_protected_paths_in_disposable_scoring_workspace',
         isolation: runtimeSummary.isolation,
         budget: runtimeSummary.budget,
+        ...(finalScore.details ? { finalScore: finalScore.details } : {}),
       },
     };
     const runResult: TaskRunResult = {
@@ -306,6 +433,213 @@ export async function runTaskOnce(
   } finally {
     await workspace.cleanup();
   }
+}
+
+const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };
+const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+interface PermissionInterventionInput {
+  invocation: InvocationResult;
+  store: TaskRunStore;
+  taskRunId: string;
+  attemptId: string;
+  now: () => number;
+  newId: () => string;
+  policy: TaskInterventionPolicy;
+  config: Config;
+  task: Task;
+  sessionId: string;
+  startedAt: number;
+  closeTaskRun: boolean;
+}
+
+type PermissionInterventionResult =
+  | { parked: false; invocation: InvocationResult }
+  | { parked: true; invocation: InvocationResult; resultRecord: ResultRecord };
+
+async function handlePermissionIntervention(input: PermissionInterventionInput): Promise<PermissionInterventionResult> {
+  const permissionRequestEvent = input.invocation.events.find((event) => event.actions?.permissionRequest);
+  const rawRequest = permissionRequestEvent?.actions?.permissionRequest;
+  if (!rawRequest) {
+    return { parked: false, invocation: input.invocation };
+  }
+
+  const requestedAt = input.now();
+  const request = permissionRequestFromRuntime({
+    rawRequest,
+    taskRunId: input.taskRunId,
+    attemptId: input.attemptId,
+    requestedAt,
+    expiresAt: requestedAt + (input.policy.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS),
+  });
+  await appendTaskEvent(input.store, input.taskRunId, {
+    type: 'permission_request_recorded',
+    id: input.newId(),
+    taskRunId: input.taskRunId,
+    ts: requestedAt,
+    request,
+  });
+
+  const projection = await input.store.project(input.taskRunId);
+  const postHocGrant = matchPermissionGrant(request, projection.permissionGrants, requestedAt);
+  const failClosedDenyReason = postHocGrant
+    ? 'matching permission grant was observed only after runtime emitted a permission handoff; headless cannot safely resume post-hoc permission requests'
+    : 'headless fail-closed policy denied interactive permission request';
+
+  const inboxItem = approvalRequestInboxItem({
+    inboxItemId: input.newId(),
+    request,
+    createdAt: requestedAt,
+  });
+  await appendTaskEvent(input.store, input.taskRunId, {
+    type: 'task_inbox_item_recorded',
+    id: input.newId(),
+    taskRunId: input.taskRunId,
+    ts: requestedAt,
+    item: inboxItem,
+  });
+
+  if (input.policy.mode === 'park') {
+    await appendTaskEvent(input.store, input.taskRunId, {
+      type: 'task_attempt_completed',
+      id: input.newId(),
+      taskRunId: input.taskRunId,
+      ts: requestedAt,
+      attemptId: input.attemptId,
+      finishedAt: requestedAt,
+      status: 'needs_approval',
+      error: {
+        message: `task run needs approval for ${request.toolName}`,
+        class: 'needs_approval',
+      },
+    });
+    if (input.closeTaskRun) {
+      await appendTaskEvent(input.store, input.taskRunId, {
+        type: 'task_run_needs_approval',
+        id: input.newId(),
+        taskRunId: input.taskRunId,
+        ts: requestedAt,
+        attemptId: input.attemptId,
+        reason: 'approval',
+        inboxItemId: inboxItem.inboxItemId,
+      });
+    }
+    return {
+      parked: true,
+      invocation: input.invocation,
+      resultRecord: syntheticPermissionResultRecord({
+        config: input.config,
+        task: input.task,
+        sessionId: input.sessionId,
+        runId: input.invocation.runId,
+        startedAt: input.startedAt,
+        finishedAt: requestedAt,
+        steps: input.invocation.events.length,
+        errorClass: 'needs_approval',
+        error: `task run needs approval for ${request.toolName}`,
+      }),
+    };
+  }
+
+  await appendTaskEvent(input.store, input.taskRunId, {
+    type: 'permission_decision_recorded',
+    id: input.newId(),
+    taskRunId: input.taskRunId,
+    ts: requestedAt,
+    requestId: request.requestId,
+    decision: 'deny',
+    source: 'ci_policy',
+    decidedAt: requestedAt,
+    reason: failClosedDenyReason,
+  });
+  await appendTaskEvent(input.store, input.taskRunId, {
+    type: 'task_inbox_item_resolved',
+    id: input.newId(),
+    taskRunId: input.taskRunId,
+    ts: requestedAt,
+    inboxItemId: inboxItem.inboxItemId,
+    status: 'resolved',
+    resolution: {
+      decision: 'deny',
+      actorId: 'ci_policy',
+      resolvedAt: requestedAt,
+      reason: failClosedDenyReason,
+    },
+  });
+
+  return { parked: false, invocation: normalizeHeadlessInvocation(input.invocation) };
+}
+
+function permissionRequestFromRuntime(input: {
+  rawRequest: {
+    requestId?: string;
+    toolUseId?: string;
+    toolName?: string;
+    reason?: string;
+    category?: string;
+    args?: unknown;
+  };
+  taskRunId: string;
+  attemptId: string;
+  requestedAt: number;
+  expiresAt: number;
+}): TaskPermissionRequest {
+  const args = input.rawRequest.args;
+  const toolName = input.rawRequest.toolName ?? 'unknown_tool';
+  const toolCallId = input.rawRequest.toolUseId ?? input.rawRequest.requestId ?? 'unknown_tool_call';
+  return {
+    schemaVersion: 1,
+    requestId: input.rawRequest.requestId ?? `${input.taskRunId}:${input.attemptId}:${toolCallId}`,
+    taskRunId: input.taskRunId,
+    attemptId: input.attemptId,
+    toolCallId,
+    toolName,
+    normalizedArgsHash: hashNormalizedArgs(args),
+    resourceScope: permissionScope(toolName, args),
+    reason: input.rawRequest.reason ?? input.rawRequest.category ?? 'permission required',
+    preview: permissionPreview(args),
+    requestedAt: input.requestedAt,
+    expiresAt: input.expiresAt,
+  };
+}
+
+function permissionScope(toolName: string, args: unknown): PermissionResourceScope {
+  if (toolName.toLowerCase() === 'bash' && isRecord(args) && typeof args.command === 'string') {
+    return commandResourceScope(args.command);
+  }
+  return { kind: 'tool', value: toolName, mode: 'execute' };
+}
+
+function syntheticPermissionResultRecord(input: {
+  config: Config;
+  task: Task;
+  sessionId: string;
+  runId: string;
+  startedAt: number;
+  finishedAt: number;
+  steps: number;
+  errorClass: string;
+  error: string;
+}): ResultRecord {
+  return {
+    taskId: input.task.id,
+    configId: input.config.id,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    status: 'failed',
+    runnerCompleted: false,
+    passed: false,
+    scored: false,
+    eligible: false,
+    excludedReason: input.error,
+    exitCode: null,
+    steps: input.steps,
+    durationMs: input.finishedAt - input.startedAt,
+    startedAt: input.startedAt,
+    finishedAt: input.finishedAt,
+    error: input.error,
+    errorClass: input.errorClass,
+  };
 }
 
 interface RunRuntimeAttemptInput {
@@ -471,7 +805,10 @@ function resultRecordFromInvocation(input: {
   task: Task;
   sessionId: string;
   invocation: InvocationResult;
-  evaluation: Awaited<ReturnType<typeof runVerification>>;
+  verifierResult: VerifierResult;
+  finalScore: ReturnType<typeof defaultFinalScorer>;
+  submittedSnapshotId: string;
+  scoreResultId: string;
   startedAt: number;
   finishedAt: number;
 }): ResultRecord {
@@ -482,16 +819,26 @@ function resultRecordFromInvocation(input: {
     sessionId: input.sessionId,
     runId: input.invocation.runId,
     status,
-    passed: status === 'completed' && input.evaluation.passed,
-    exitCode: input.evaluation.exitCode,
+    runnerCompleted: status === 'completed',
+    passed: input.finalScore.passed,
+    scored: input.finalScore.scored,
+    eligible: input.finalScore.eligible,
+    ...(input.finalScore.excludedReason ? { excludedReason: input.finalScore.excludedReason } : {}),
+    verifierKind: input.verifierResult.kind,
+    verifierResultId: input.verifierResult.id,
+    scoreResultId: input.scoreResultId,
+    submittedSnapshotId: input.submittedSnapshotId,
+    exitCode: input.verifierResult.exitCode ?? null,
     steps: input.invocation.events.length,
     durationMs: input.finishedAt - input.startedAt,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
-    ...(status === 'failed'
+    ...(input.finalScore.errorClass ? { errorClass: input.finalScore.errorClass } : {}),
+    ...(!input.finalScore.scored && input.finalScore.errorClass
+      ? { error: input.finalScore.excludedReason ?? input.invocation.failure?.message ?? input.finalScore.errorClass }
+      : status === 'failed'
       ? {
           error: input.invocation.failure?.message ?? input.invocation.failure?.class ?? 'run did not complete',
-          ...(input.invocation.failure?.class ? { errorClass: input.invocation.failure.class } : {}),
         }
       : {}),
   };
@@ -641,6 +988,9 @@ function attemptStatusFromResult(
     case 'verification_failed':
     case 'verification_error':
     case 'agent_failed':
+    case 'invalid_setup':
+    case 'unsupported_adapter':
+    case 'isolation_required':
     case 'setup_failed':
     case 'infra_failed':
       return 'failed';
@@ -677,6 +1027,9 @@ function terminalEventFromResult(
     case 'verification_failed':
     case 'verification_error':
     case 'agent_failed':
+    case 'invalid_setup':
+    case 'unsupported_adapter':
+    case 'isolation_required':
     case 'setup_failed':
     case 'infra_failed':
       return { type: 'task_run_failed', ...base, error };
@@ -696,6 +1049,12 @@ function errorMessageFromTaxonomy(taxonomy: AutonomousResultTaxonomy): string {
       return 'agent run failed';
     case 'agent_incomplete':
       return 'agent run incomplete';
+    case 'invalid_setup':
+      return 'invalid setup';
+    case 'unsupported_adapter':
+      return 'unsupported verifier adapter';
+    case 'isolation_required':
+      return 'isolated executor required';
     case 'setup_failed':
       return 'task setup failed';
     case 'infra_failed':

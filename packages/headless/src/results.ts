@@ -1,6 +1,21 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ResultRecord } from './contracts.js';
+import { taxonomyFromResultRecord, type AutonomousResultTaxonomy } from './task-contracts.js';
+
+export interface MatrixSummary {
+  total: number;
+  eligible: number;
+  scored: number;
+  pass: number;
+  fail: number;
+  error: number;
+  excluded: number;
+  officialPassRate: number | null;
+  coverageRate: number | null;
+  byErrorClass: Record<string, number>;
+  byTaxonomy: Record<AutonomousResultTaxonomy | string, number>;
+}
 
 /**
  * ResultRecord JSONL is the canonical truth — one record per line. Every
@@ -51,6 +66,70 @@ export function toComparisonTable(records: ResultRecord[]): string {
   const footer = `| **pass rate** | ${passRate.join(' | ')} |`;
 
   return [header, divider, ...rows, footer].join('\n') + '\n';
+}
+
+export function summarizeMatrix(records: ResultRecord[]): MatrixSummary {
+  const summary: MatrixSummary = {
+    total: records.length,
+    eligible: 0,
+    scored: 0,
+    pass: 0,
+    fail: 0,
+    error: 0,
+    excluded: 0,
+    officialPassRate: null,
+    coverageRate: null,
+    byErrorClass: {},
+    byTaxonomy: {},
+  };
+
+  for (const record of records) {
+    const normalized = normalizeForSummary(record);
+    if (normalized.eligible) summary.eligible += 1;
+    else summary.excluded += 1;
+
+    if (normalized.scored) {
+      summary.scored += 1;
+      if (record.passed) summary.pass += 1;
+      else summary.fail += 1;
+    } else if (normalized.eligible) {
+      summary.error += 1;
+    }
+
+    if (normalized.errorClass) increment(summary.byErrorClass, normalized.errorClass);
+    increment(summary.byTaxonomy, normalized.taxonomy);
+  }
+
+  summary.officialPassRate = summary.scored > 0 ? summary.pass / summary.scored : null;
+  summary.coverageRate = summary.eligible > 0 ? summary.scored / summary.eligible : null;
+  return summary;
+}
+
+function normalizeForSummary(record: ResultRecord): {
+  eligible: boolean;
+  scored: boolean;
+  errorClass?: string;
+  taxonomy: string;
+} {
+  const taxonomy = taxonomyFromResultRecord(record);
+  const eligible = record.eligible ?? !record.excludedReason;
+  const scored = record.scored ?? legacyScored(record);
+  return {
+    eligible,
+    scored,
+    errorClass: record.errorClass,
+    taxonomy,
+  };
+}
+
+function legacyScored(record: ResultRecord): boolean {
+  if (record.status !== 'completed') return false;
+  if (record.exitCode === null) return false;
+  return !record.error;
+}
+
+function increment(target: Record<string, number>, key: string): void {
+  target[key] = (target[key] ?? 0) + 1;
 }
 
 function cell(record: ResultRecord | undefined): string {

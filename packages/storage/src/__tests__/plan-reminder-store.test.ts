@@ -173,6 +173,55 @@ describe('PlanReminderStore', () => {
     assert.equal(updated.nextRunAt, nextRunAt);
   });
 
+  it('rejects impossible cron schedule edits even when the reminder is paused', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const store = createPlanReminderStore(root);
+    const runAt = Date.now() + 60_000;
+    const reminder = await store.create({ title: '每周同步', runAt, recurrence: 'weekly' });
+    await store.setEnabled(reminder.id, false);
+
+    await assert.rejects(
+      () => store.update(reminder.id, {
+        recurrence: 'cron',
+        cronExpression: '0 9 31 2 *',
+      }),
+      /schedule has no run within one year/,
+    );
+
+    const persisted = (await store.list()).find((entry) => entry.id === reminder.id);
+    assert.equal(persisted?.schedule.kind, 'recurring');
+    assert.equal(persisted?.status, 'paused');
+  });
+
+  it('rejects enabling legacy paused cron reminders that have no future run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
+    const runAt = Date.now() + 60_000;
+    await writeFile(join(root, 'plan-reminders.json'), JSON.stringify([{
+      id: 'legacy-impossible-cron',
+      title: '坏 cron',
+      note: '',
+      schedule: { kind: 'cron', startAt: runAt, expression: '0 9 31 2 *' },
+      delivery: { channel: 'local' },
+      status: 'paused',
+      enabled: false,
+      createdAt: runAt - 1000,
+      updatedAt: runAt - 1000,
+      runs: [],
+      runCount: 0,
+    }]), 'utf8');
+
+    const store = createPlanReminderStore(root);
+    await assert.rejects(
+      () => store.setEnabled('legacy-impossible-cron', true),
+      /schedule has no run within one year/,
+    );
+
+    const persisted = (await store.list()).find((entry) => entry.id === 'legacy-impossible-cron');
+    assert.equal(persisted?.status, 'paused');
+    assert.equal(persisted?.enabled, false);
+    assert.equal(persisted?.nextRunAt, undefined);
+  });
+
   it('resumes paused recurring reminders at the next future occurrence', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const store = createPlanReminderStore(root);

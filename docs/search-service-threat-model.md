@@ -49,7 +49,7 @@ Local private sources (`thread`, `memory`, `activity`) must not be silently mixe
 - Browser mode must use isolated partitions by default; no defaultSession cookie reuse.
 - CAPTCHA/challenge returns `needs_human_browser`, not indefinite hidden-browser waiting.
 
-## What Not To Copy From Reference app
+## What Not To Copy From reference implementation
 
 - Hidden Google scraping as the default Search Service.
 - `defaultSession` browser/cookie reuse.

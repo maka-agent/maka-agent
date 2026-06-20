@@ -15,6 +15,15 @@ import {
   type ToolAvailabilityConfig,
 } from '../tool-availability.js';
 import { toolSchemaCharsForDiagnostics } from '../request-shape.js';
+import { LOCAL_READ_AGENT_ID, LOCAL_READ_AGENT_PROFILE } from '../agent-catalog.js';
+import {
+  AGENT_LIST_TOOL_NAME,
+  AGENT_OUTPUT_TOOL_NAME,
+  AGENT_SPAWN_TOOL_NAME,
+  buildSubagentProjectionTools,
+  buildSubagentSpawnTool,
+  buildSubagentToolGroup,
+} from '../subagent-tools.js';
 
 // End-to-end through the live AiSdkBackend: the availability config drives the
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
@@ -28,6 +37,11 @@ const ZERO_USAGE: LanguageModelV3Usage = {
 const config: ToolAvailabilityConfig = {
   economy: true,
   groups: [{ id: 'browser', toolNames: ['browser_click'], label: 'Browser automation' }],
+};
+
+const agentConfig: ToolAvailabilityConfig = {
+  economy: true,
+  groups: [buildSubagentToolGroup()],
 };
 
 function tools(implCalls: string[]): MakaTool[] {
@@ -63,6 +77,48 @@ function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendO
     modelFactory: () => model,
     tools: tools(implCalls),
     ...(resolved ? { toolAvailability: resolved } : {}),
+    ...(opts.recordLlmCall ? { recordLlmCall: opts.recordLlmCall } : {}),
+    newId: () => `id-${++n}`,
+    now: () => 1,
+  });
+}
+
+function agentBackend(
+  model: MockLanguageModelV3,
+  spawnCalls: unknown[],
+  opts: BackendOpts & { permissionMode?: SessionHeader['permissionMode'] } = {},
+): AiSdkBackend {
+  let n = 0;
+  const resolved = opts.toolAvailability === null ? undefined : opts.toolAvailability ?? agentConfig;
+  return new AiSdkBackend({
+    sessionId: 'session-1',
+    header: header(opts.permissionMode),
+    appendMessage: async () => {},
+    connection: connection(),
+    apiKey: 'sk-test',
+    modelId: 'mock-model-id',
+    permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
+    modelFactory: () => model,
+    tools: [
+      buildSubagentSpawnTool(),
+      ...buildSubagentProjectionTools(),
+    ],
+    ...(resolved ? { toolAvailability: resolved } : {}),
+    spawnChildAgent: async (input) => {
+      spawnCalls.push(input);
+      return {
+        agentId: input.spec.id,
+        agentName: input.spec.name,
+        runId: 'child-run',
+        turnId: 'child-turn',
+        status: 'completed',
+        permissionMode: 'explore',
+        summary: 'done',
+        artifactIds: [],
+      };
+    },
+    listChildAgents: async () => ({ definitions: [], runs: [] }),
+    readChildAgentOutput: async (input) => ({ requested: input }),
     ...(opts.recordLlmCall ? { recordLlmCall: opts.recordLlmCall } : {}),
     newId: () => `id-${++n}`,
     now: () => 1,
@@ -205,6 +261,71 @@ describe('AiSdkBackend deferred tool loading', () => {
   });
 });
 
+describe('AiSdkBackend deferred agent tools', () => {
+  test('agent tools are hidden by default and visible after load_tools(agent)', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    await drain(agentBackend(loadAgentThenFinishModel(captured), spawnCalls).send({
+      turnId: 'turn-1',
+      text: 'load agents',
+      context: [],
+      runId: 'parent-run',
+    }));
+
+    assert.ok(captured[0].includes(LOAD_TOOLS_NAME), 'load_tools advertised');
+    assert.ok(!captured[0].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn hidden at step 0');
+    assert.ok(!captured[0].includes(AGENT_LIST_TOOL_NAME), 'agent_list hidden at step 0');
+    assert.ok(!captured[0].includes(AGENT_OUTPUT_TOOL_NAME), 'agent_output hidden at step 0');
+
+    assert.ok(captured[1].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn visible after loading the agent group');
+    assert.ok(captured[1].includes(AGENT_LIST_TOOL_NAME), 'agent_list visible after loading the agent group');
+    assert.ok(captured[1].includes(AGENT_OUTPUT_TOOL_NAME), 'agent_output visible after loading the agent group');
+  });
+
+  test('guard rejects same-step load_tools(agent)+agent_spawn before spawning a child', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    await drain(agentBackend(parallelLoadAgentAndSpawnModel(captured), spawnCalls).send({
+      turnId: 'turn-1',
+      text: 'load and spawn in one step',
+      context: [],
+      runId: 'parent-run',
+    }));
+
+    assert.ok(!captured[0].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn is not advertised at step 0');
+    assert.deepEqual(spawnCalls, [], 'agent_spawn must not run before the agent group is active');
+  });
+
+  test('deferred agent group is prompt economy only: loaded agent_spawn still uses its permission model', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    await drain(agentBackend(loadAgentThenSpawnModel(captured), spawnCalls, { permissionMode: 'execute' }).send({
+      turnId: 'turn-1',
+      text: 'load then spawn',
+      context: [],
+      runId: 'parent-run',
+    }));
+
+    assert.ok(captured[1].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn is provider-visible only after load');
+    assert.equal(spawnCalls.length, 1, 'execute-mode permission still allows the loaded subagent tool to run');
+    assert.deepEqual(spawnCalls[0], {
+      parentRunId: 'parent-run',
+      spec: {
+        id: LOCAL_READ_AGENT_ID,
+        name: 'Local Read',
+        systemPrompt: [
+          'You are a foreground local-read child agent.',
+          'Use only the provided Read, Glob, and Grep tools.',
+          'Do not use shell, web, browser, write, or nested agent tools.',
+          'Return a concise answer with concrete file or symbol evidence.',
+        ].join('\n'),
+      },
+      prompt: 'Inspect the runtime tests.',
+      abortSignal: assertAbortSignal(spawnCalls[0]),
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Mock models
 // ---------------------------------------------------------------------------
@@ -305,6 +426,92 @@ function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV3 {
   });
 }
 
+function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const first = captured.length === 1;
+      const parts: LanguageModelV3StreamPart[] = first
+        ? [
+            { type: 'stream-start', warnings: [] },
+            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
+            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+          ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
+function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const first = captured.length === 1;
+      const parts: LanguageModelV3StreamPart[] = first
+        ? [
+            { type: 'stream-start', warnings: [] },
+            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
+            { type: 'tool-call', toolCallId: 'tc-spawn', toolName: AGENT_SPAWN_TOOL_NAME, input: agentSpawnInput() },
+            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+          ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
+function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const step = captured.length;
+      const parts: LanguageModelV3StreamPart[] =
+        step === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
+              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+            ]
+          : step === 2
+            ? [
+                { type: 'stream-start', warnings: [] },
+                { type: 'tool-call', toolCallId: 'tc-spawn', toolName: AGENT_SPAWN_TOOL_NAME, input: agentSpawnInput() },
+                { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+              ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
+function agentSpawnInput(): string {
+  return JSON.stringify({
+    profile: LOCAL_READ_AGENT_PROFILE,
+    task: 'Inspect the runtime tests.',
+  });
+}
+
+function assertAbortSignal(value: unknown): AbortSignal {
+  assert.ok(
+    value &&
+      typeof value === 'object' &&
+      'abortSignal' in value &&
+      value.abortSignal instanceof AbortSignal,
+    'spawn input carries an AbortSignal',
+  );
+  return value.abortSignal;
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -326,7 +533,7 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   }
 }
 
-function header(): SessionHeader {
+function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): SessionHeader {
   return {
     id: 'session-1',
     workspaceRoot: '/tmp/maka',
@@ -344,7 +551,7 @@ function header(): SessionHeader {
     llmConnectionSlug: 'c',
     connectionLocked: true,
     model: 'm',
-    permissionMode: 'ask',
+    permissionMode,
     schemaVersion: 1,
   };
 }

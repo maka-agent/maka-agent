@@ -82,9 +82,14 @@ class FilePlanReminderStore implements PlanReminderStore {
       const nextRecurrence = normalized.value.recurrence ??
         (reminder.schedule.kind === 'recurring' ? reminder.schedule.recurrence : reminder.schedule.kind === 'cron' ? 'cron' : 'none');
       const nextCronExpression = normalized.value.cronExpression ?? (reminder.schedule.kind === 'cron' ? reminder.schedule.expression : undefined);
+      const scheduleChanged = normalized.value.runAt !== undefined ||
+        normalized.value.recurrence !== undefined ||
+        normalized.value.cronExpression !== undefined;
       const nextSchedule = createPlanReminderSchedule(nextRunAt, nextRecurrence, nextCronExpression);
       const nextScheduledRunAt = nextPlanReminderRunAtAfter(nextSchedule, now);
-      if (nextEnabled && typeof nextScheduledRunAt !== 'number') throw new Error('Plan reminder cron expression has no run within one year');
+      if ((nextEnabled || scheduleChanged) && typeof nextScheduledRunAt !== 'number') {
+        throw new Error('Plan reminder schedule has no run within one year');
+      }
       updated = {
         ...reminder,
         ...(normalized.value.title !== undefined ? { title: normalized.value.title } : {}),
@@ -112,13 +117,15 @@ class FilePlanReminderStore implements PlanReminderStore {
         updated = reminder;
         return reminder;
       }
+      const nextRunAt = enabled ? nextPlanReminderResumeRunAt(reminder.schedule, now) : undefined;
+      if (enabled && typeof nextRunAt !== 'number') {
+        throw new Error('Plan reminder schedule has no run within one year');
+      }
       updated = {
         ...reminder,
         enabled,
         status: enabled ? 'scheduled' : 'paused',
-        nextRunAt: enabled
-          ? (nextPlanReminderRunAtAfter(reminder.schedule, now) ?? planReminderScheduleStartAt(reminder.schedule))
-          : undefined,
+        nextRunAt,
         updatedAt: now,
       };
       return updated;
@@ -273,6 +280,13 @@ function planReminderListPriority(reminder: PlanReminder): number {
   if (reminder.status === 'scheduled') return 0;
   if (reminder.status === 'paused') return 1;
   return 2;
+}
+
+function nextPlanReminderResumeRunAt(schedule: PlanReminder['schedule'], now: number): number | undefined {
+  const nextRunAt = nextPlanReminderRunAtAfter(schedule, now);
+  if (typeof nextRunAt === 'number') return nextRunAt;
+  if (schedule.kind === 'once') return schedule.runAt;
+  return undefined;
 }
 
 function normalizePersistedPlanReminder(value: unknown): PlanReminder | null {

@@ -7,7 +7,8 @@ test('renderer error boundary exposes a redacted copyable diagnostic report', as
   const source = await readFile(join(process.cwd(), 'src/renderer/error-boundary.tsx'), 'utf8');
   const css = await readFile(join(process.cwd(), 'src/renderer/styles.css'), 'utf8');
 
-  assert.match(source, /import\s+\{\s*redactSecrets\s*\}\s+from\s+'@maka\/ui'/);
+  assert.match(source, /import\s+\{[^}]*\bredactSecrets\b[^}]*\}\s+from\s+'@maka\/ui'/);
+  assert.match(source, /import\s+\{[^}]*\bButton as UiButton\b[^}]*\}\s+from\s+'@maka\/ui'/);
   assert.match(source, /export function formatRendererErrorReport/);
   assert.match(source, /return redactSecrets\(lines\.join\('\\n'\)\)/);
   assert.match(source, /const safeStack = redactSecrets\(/);
@@ -31,9 +32,15 @@ test('renderer error boundary exposes a redacted copyable diagnostic report', as
   assert.match(source, /disabled=\{copyPending\}/);
   assert.match(source, /aria-busy=\{copyPending \? 'true' : undefined\}/);
   assert.match(source, /data-copy-state=\{copyState\}/);
+  assert.match(source, /variant="outline"[\s\S]*className="maka-error-copy-action"/);
+  assert.match(source, /<UiButton type="button" variant="secondary" onClick=\{this\.handleReset\}>/);
+  assert.match(source, /<UiButton[\s\S]*variant="default"[\s\S]*onClick=\{this\.handleReload\}/);
+  assert.doesNotMatch(source, /className="maka-button/);
+  assert.doesNotMatch(source, /data-variant="primary"/);
   assert.match(source, /复制诊断信息/);
   assert.match(source, /剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。/);
   assert.match(css, /\.maka-error-copy-status/);
   assert.match(css, /\.maka-error-copy-action\[data-copy-state="pending"\]/);
   assert.match(css, /\.maka-error-copy-action\[data-copy-state="failed"\]/);
+  assert.doesNotMatch(css, /\.maka-error-actions \.maka-button/);
 });

@@ -11,7 +11,7 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createSettingsStore } from '../settings-store.js';
@@ -199,6 +199,38 @@ describe('SettingsStore.clearOnboardingMilestone', () => {
             .call(store, 'not_a_milestone'),
         /invalid onboarding milestone id/,
       );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SettingsStore.get file recovery', () => {
+  it('creates defaults only when settings.json is missing', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-defaults-'));
+    try {
+      const store = createSettingsStore(workspaceRoot);
+
+      const settings = await store.get();
+      const raw = await readFile(join(workspaceRoot, 'settings.json'), 'utf8');
+
+      assert.equal(settings.schemaVersion, 1);
+      assert.match(raw, /"schemaVersion": 1/);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects corrupt settings.json without overwriting user settings bytes', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-corrupt-'));
+    try {
+      const store = createSettingsStore(workspaceRoot);
+      const settingsPath = join(workspaceRoot, 'settings.json');
+      const corrupt = '{"appearance":{"theme":"dark"}';
+      await writeFile(settingsPath, corrupt, 'utf8');
+
+      await assert.rejects(() => store.get(), SyntaxError);
+      assert.equal(await readFile(settingsPath, 'utf8'), corrupt);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

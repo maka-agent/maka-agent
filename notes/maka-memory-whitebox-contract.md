@@ -175,7 +175,7 @@ settled.
 ### Provider abstraction
 
 external reference ships `plugins/memory/{honcho,mem0,supermemory}`. PilotDeck
-has `EdgeClawMemoryProvider`. Reference app is built-in `MemoryService` +
+has `EdgeClawMemoryProvider`. reference implementation is built-in `MemoryService` +
 sqlite-vec. **Three-way convergence is NOT present** — kenji's
 finding `7749c411` #3. Defer abstraction until a real external
 backend lands (a paying user wants Honcho or a vector store).
@@ -187,7 +187,7 @@ If we adopt:
 
 ### Vector search
 
-Embedding generation is a separate provider lane (reference app's
+Embedding generation is a separate provider lane (reference implementation's
 `__local__` / OpenAI / aihubmix / openrouter / Google selector).
 Independent of the memory storage backend. Defer.
 

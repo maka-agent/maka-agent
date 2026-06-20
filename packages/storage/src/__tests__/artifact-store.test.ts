@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
@@ -65,6 +65,95 @@ describe('FileArtifactStore', () => {
       assert.equal((await second.get('artifact-1'))?.relativePath, 'session-1/artifact-1-report.html');
       assert.deepEqual(await second.readText('artifact-1'), { ok: true, text: '<h1>Report</h1>' });
     });
+  });
+
+  test('serializes concurrent first-load creates without dropping metadata', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const seed = createArtifactStore(workspaceRoot);
+      await seed.create({
+        id: 'seed',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'seed.txt',
+        kind: 'file',
+        content: 'seed',
+        now: 1,
+      });
+
+      const store = createArtifactStore(workspaceRoot);
+      const ids = Array.from({ length: 12 }, (_, index) => `artifact-${index}`);
+      await Promise.all(ids.map((id, index) => store.create({
+        id,
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: `${id}.txt`,
+        kind: 'file',
+        content: id,
+        now: 10 + index,
+      })));
+
+      const reloaded = createArtifactStore(workspaceRoot);
+      const rows = await reloaded.list('session-1', { includeDeleted: true });
+      assert.deepEqual(
+        rows.map((record) => record.id).sort(),
+        ['seed', ...ids].sort(),
+      );
+
+      const metadata = await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8');
+      for (const id of ['seed', ...ids]) {
+        assert.match(metadata, new RegExp(`"id":"${id}"`));
+      }
+    });
+  });
+
+  test('recovers valid metadata rows without rewriting a corrupt index on read', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const seed = createArtifactStore(workspaceRoot);
+      await seed.create({
+        id: 'artifact-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'one.txt',
+        kind: 'file',
+        content: 'one',
+        now: 100,
+      });
+      await seed.create({
+        id: 'artifact-2',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'two.txt',
+        kind: 'file',
+        content: 'two',
+        now: 200,
+      });
+
+      const metadataPath = join(workspaceRoot, 'artifacts', 'metadata.jsonl');
+      const before = await readFile(metadataPath, 'utf8');
+      await writeFile(
+        metadataPath,
+        before.split('\n').filter(Boolean).join('\n{not valid json}\n') + '\n',
+        'utf8',
+      );
+
+      const store = createArtifactStore(workspaceRoot);
+      const rows = await store.list('session-1', { includeDeleted: true });
+      assert.deepEqual(rows.map((record) => record.id), ['artifact-2', 'artifact-1']);
+      assert.deepEqual(await store.readText('artifact-1'), { ok: true, text: 'one' });
+
+      const afterReadOnlyLoad = await readFile(metadataPath, 'utf8');
+      assert.match(afterReadOnlyLoad, /\{not valid json\}/);
+    });
+  });
+
+  test('guards first metadata load with one shared in-flight promise', async () => {
+    const source = await readFile(join(process.cwd(), 'src/artifact-store.ts'), 'utf8');
+    assert.match(source, /private loadPromise: Promise<void> \| null = null;/);
+    assert.match(source, /if \(this\.loadPromise\) \{\s*await this\.loadPromise;/);
+    assert.match(source, /this\.loadPromise = \(async \(\) => \{/);
+    assert.match(source, /finally \{\s*this\.loadPromise = null;/);
+    assert.match(source, /function parseArtifactMetadata\(text: string\): ArtifactRecord\[\] \{/);
+    assert.match(source, /records\.push\(normalizeRecord\(JSON\.parse\(line\) as ArtifactRecord\)\);/);
   });
 
   test('persists archived tool-result artifacts by id', async () => {
@@ -181,6 +270,44 @@ describe('FileArtifactStore', () => {
       await rm(workspaceRoot, { recursive: true, force: true });
       await rm(outsideRoot, { recursive: true, force: true });
     }
+  });
+
+  test('create validates generated relative path before writing file bytes', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const store = createArtifactStore(workspaceRoot);
+
+      await assert.rejects(
+        () => store.create({
+          id: 'escaped',
+          sessionId: '../escape',
+          turnId: 'turn-1',
+          name: 'bad.txt',
+          kind: 'file',
+          content: 'should not write',
+        }),
+        /Artifact relativePath must be artifact-root-relative/,
+      );
+      await assert.rejects(
+        () => readFile(join(workspaceRoot, 'escape', 'escaped-bad.txt'), 'utf8'),
+        { code: 'ENOENT' },
+      );
+
+      await assert.rejects(
+        () => store.create({
+          id: '../escaped',
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          name: 'bad.txt',
+          kind: 'file',
+          content: 'should not write either',
+        }),
+        /Artifact relativePath must be artifact-root-relative/,
+      );
+      await assert.rejects(
+        () => readFile(join(workspaceRoot, 'artifacts', 'escaped-bad.txt'), 'utf8'),
+        { code: 'ENOENT' },
+      );
+    });
   });
 
   test('sanitizes unsafe artifact names for file-backed storage', () => {

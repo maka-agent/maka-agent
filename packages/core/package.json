@@ -43,8 +43,9 @@
     "./usage-stats/pricing": "./dist/usage-stats/pricing.js"
   },
   "scripts": {
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run clean && npm run build && node --test \"dist/**/*.test.js\""
   }
 }

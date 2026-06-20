@@ -57,6 +57,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
     const renderer = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const uiPrimitives = await readFile(resolve(REPO_ROOT, 'packages/ui/src/ui.tsx'), 'utf8');
     const styles = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles.css'), 'utf8');
 
     assert.match(main, /ipcMain\.handle\('sessions:setModel'[\s\S]*normalizeSessionModelSelection\(input\)/);
@@ -133,10 +134,19 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);
     assert.match(ui, /data-pending=\{pending \? 'true' : undefined\}/);
+    assert.match(ui, /<SelectRoot<string>[\s\S]*items=\{modelSelectItems\}[\s\S]*value=\{currentValue\}[\s\S]*onValueChange=\{\(value\) => \{/);
+    assert.match(ui, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{8\}/);
+    assert.match(ui, /<SelectList>/);
+    assert.match(ui, /<SelectGroup key=\{group\.connectionSlug\}>/);
+    assert.match(uiPrimitives, /<span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">[\s\S]*<BaseSelect\.ItemIndicator>/);
+    assert.match(uiPrimitives, /<span className="min-w-0">[\s\S]*<BaseSelect\.ItemText>\{children\}<\/BaseSelect\.ItemText>/);
+    assert.doesNotMatch(ui, /<select\b[\s\S]*aria-label="切换当前会话模型"/);
     assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
     assert.match(styles, /\.maka-model-switcher\s*\{/);
     assert.match(styles, /\.maka-model-switcher\[data-pending="true"\]\s*\{[\s\S]*cursor: progress;[\s\S]*\}/);
-    assert.match(styles, /\.maka-model-switcher-select:focus-visible\s*\{/);
+    assert.match(styles, /\.maka-model-switcher-trigger\s*\{/);
+    assert.match(styles, /\.maka-model-switcher-positioner\s*\{[\s\S]*z-index: var\(--z-dropdown\);[\s\S]*\}/);
+    assert.match(styles, /\.maka-model-switcher-popup\s*\{/);
   });
 
   it('flags per-turn model departures against the session sticky model', async () => {

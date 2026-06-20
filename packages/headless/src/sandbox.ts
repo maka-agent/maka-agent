@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { cp, lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import type { ArtifactFreezeResult, SubmittedSnapshot } from './contracts.js';
 
 /**
  * A throwaway copy of a task fixture. The copy keeps a run from mutating
@@ -35,6 +37,45 @@ export async function prepareWorkspace(fixtureDir: string): Promise<PreparedWork
   } catch (error) {
     // mkdtemp already created the dir, but the runner only registers its
     // cleanup after we return — so clean up here if the copy fails.
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    dir,
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  };
+}
+
+export async function freezeSubmittedWorkspace(input: {
+  workspaceDir: string;
+  artifactRefs?: Array<Record<string, unknown>>;
+  now?: () => number;
+  newId?: () => string;
+}): Promise<ArtifactFreezeResult> {
+  const id = input.newId?.() ?? randomUUID();
+  const snapshotPath = await mkdtemp(join(tmpdir(), 'maka-headless-submitted-'));
+  try {
+    await cp(await realpath(input.workspaceDir), snapshotPath, { recursive: true });
+  } catch (error) {
+    await rm(snapshotPath, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    submittedSnapshot: {
+      id,
+      workspaceRoot: input.workspaceDir,
+      snapshotPath,
+      artifactRefs: input.artifactRefs ? [...input.artifactRefs] : [],
+      createdAt: input.now?.() ?? Date.now(),
+    },
+  };
+}
+
+export async function prepareScoringWorkspace(snapshot: SubmittedSnapshot): Promise<PreparedWorkspace> {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-headless-score-'));
+  try {
+    await cp(await realpath(snapshot.snapshotPath), dir, { recursive: true });
+  } catch (error) {
     await rm(dir, { recursive: true, force: true });
     throw error;
   }

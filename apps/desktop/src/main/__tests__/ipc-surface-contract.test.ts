@@ -66,7 +66,11 @@ describe('IPC surface contract', () => {
     assert.doesNotMatch(main, /defaultWorkspacePrivacyContext/);
 
     assert.match(main, /const memoryPromptSnapshot = await buildLocalMemoryPromptFragment\(\)/);
-    assert.match(main, /buildSystemPrompt\(ctx\.header, cwd, \{ memoryFragment: memoryPromptSnapshot \}\)/);
+    assert.match(main, /systemPrompt: \(\{ cwd \}\) => buildBackendSystemPrompt\(ctx\.header, cwd, \{[\s\S]*childInstruction: ctx\.systemPrompt/);
+    assert.match(main, /function buildBackendSystemPrompt/);
+    assert.match(main, /childInstruction[\s\S]*memoryFragment: null, includePersonalization: false/);
+    assert.match(main, /子代理必须继承当前会话的权限、隐私、工作区和技能约束/);
+    assert.match(main, /子代理不会隐式继承父会话的本地记忆或个性化上下文/);
     assert.match(main, /consumePendingPromptUpdates\(\)/);
     assert.match(main, /<memory-update>/);
   });

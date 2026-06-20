@@ -132,7 +132,7 @@ describe('Settings app-info loading contract', () => {
     assert.match(aboutBlock, /const envSummaryHelpId = useId\(\)/);
     assert.match(
       aboutBlock,
-      /<Button type="button" className="maka-button" disabled=\{copyingEnvSummary\} aria-describedby=\{envSummaryHelpId\}/,
+      /<Button type="button" disabled=\{copyingEnvSummary\} aria-describedby=\{envSummaryHelpId\}/,
       'About page copy button must be programmatically described by the privacy note',
     );
     assert.match(

@@ -64,6 +64,24 @@ describe('OpenGatewayService', () => {
     assert.doesNotMatch(JSON.stringify(secondStatus), /EADDRINUSE|listen|address already in use/i);
   });
 
+  test('serializes overlapping sync calls so the latest settings state wins', async () => {
+    const service = makeService();
+    activeServices.push(service);
+
+    const enable = createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway;
+    const disable = createGatewaySettings({ enabled: false, port: 0, token: 'dev-token' }).openGateway;
+    await Promise.all([
+      service.sync(enable),
+      service.sync(disable),
+    ]);
+
+    const status = service.getStatus();
+    assert.equal(status.enabled, false);
+    assert.equal(status.running, false);
+    assert.equal(status.baseUrl, null);
+    assert.equal(status.tokenConfigured, true);
+  });
+
   test('serves health without auth and protects v1 endpoints with bearer token', async () => {
     const service = makeService();
     activeServices.push(service);

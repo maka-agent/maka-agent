@@ -36,6 +36,7 @@ import type {
   ArtifactRecord,
   ArtifactTextReadResult,
 } from '@maka/core';
+import { Spinner } from '@maka/ui';
 import { RegistryArtifactPreview } from './artifact-preview-registry-shell';
 
 export function ArtifactPreview(props: { record: ArtifactRecord; onShowInFolder?: () => void }) {
@@ -169,7 +170,7 @@ function PdfPreview(props: { record: ArtifactRecord }) {
 function PreviewLoading(props: { label: string }) {
   return (
     <div className="maka-artifact-preview-loading" role="status" aria-live="polite">
-      <span className="maka-artifact-preview-spinner" aria-hidden="true" />
+      <Spinner className="maka-artifact-preview-spinner" aria-hidden="true" role="presentation" />
       <span>{props.label}</span>
     </div>
   );

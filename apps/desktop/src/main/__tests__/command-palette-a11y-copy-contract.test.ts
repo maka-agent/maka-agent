@@ -26,6 +26,57 @@ describe('Command palette accessibility and visible copy', () => {
     );
   });
 
+  it('uses shared primitive InputGroup for the palette input shell without restoring the old flex wrapper', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const styles = await readRepo('apps/desktop/src/renderer/styles.css');
+    const inputWrapStyle = styles.match(/\.maka-palette-input-wrap\s*\{[\s\S]*?\}/)?.[0] ?? '';
+
+    assert.match(
+      src,
+      /import \{[^}]*\bButton\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\buseModalA11y\b[^}]*\} from '@maka\/ui';/,
+      'CommandPalette must consume shared primitive InputGroup primitives from @maka/ui',
+    );
+    assert.match(
+      src,
+      /<InputGroup className="maka-palette-input-wrap" aria-label="命令面板搜索">[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"[\s\S]*<InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">/,
+      'CommandPalette input shell must be shared primitive InputGroup with an accessible input label and trailing hint addon',
+    );
+    assert.doesNotMatch(
+      src,
+      /<div className="maka-palette-input-wrap"/,
+      'CommandPalette must not regress to the previous hand-rolled input wrapper',
+    );
+    assert.doesNotMatch(
+      inputWrapStyle,
+      /display:\s*flex/,
+      'Palette input wrapper styling must not restore the old flex shell over shared primitive InputGroup',
+    );
+    assert.match(
+      inputWrapStyle,
+      /margin:\s*12px 14px;/,
+      'Palette InputGroup should preserve the compact command-modal inset spacing',
+    );
+    assert.match(
+      styles,
+      /@media \(max-width: 560px\) \{[\s\S]*\.maka-palette-input-hint-addon \{[\s\S]*display:\s*none;/,
+      'Palette trailing key hint must collapse on narrow widths instead of squeezing the input',
+    );
+  });
+
+  it('has a visual-smoke opener for the command palette input shell', async () => {
+    const main = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const core = await readRepo('packages/core/src/visual-smoke.ts');
+    const fixture = await readRepo('apps/desktop/src/main/visual-smoke-fixture.ts');
+    const screenshotDriver = await readRepo('scripts/capture-screenshots.mjs');
+
+    assert.match(core, /\| 'command-palette-open'/, 'VisualSmokeScenario must include command-palette-open');
+    assert.match(core, /paletteOpen\?: boolean;/, 'VisualSmokeState must expose the paletteOpen hint');
+    assert.match(fixture, /'command-palette-open'/, 'visual smoke fixture resolver must accept command-palette-open');
+    assert.match(fixture, /case 'command-palette-open':[\s\S]*paletteOpen: true/, 'command-palette-open must auto-open the palette');
+    assert.match(main, /if \(state\.paletteOpen\) \{\s*openPalette\(\);\s*\}/, 'renderer must consume paletteOpen and open CommandPalette');
+    assert.match(screenshotDriver, /'command-palette-open'/, 'screenshot driver must capture command-palette-open');
+  });
+
   it('keeps the primary command hints in Chinese product copy', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
     assert.match(src, /label: '新建对话',[^\n]*\n\s*hint: '开始新的会话',/);

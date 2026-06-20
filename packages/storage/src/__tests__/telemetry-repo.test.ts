@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, test } from 'node:test';
@@ -44,6 +44,7 @@ describe('FileTelemetryRepo', () => {
       await repo.load();
       repo.insertLlmCall(llmRecord({
         id: 'usage_diag',
+        systemPromptHash: 'sys-hash',
         toolSchemaChangeReason: 'tool_source_enabled',
         toolAvailability: {
           mode: 'economy',
@@ -57,6 +58,7 @@ describe('FileTelemetryRepo', () => {
       await flushWrites();
 
       const row = repo.logs({ range: 'all' }).rows[0];
+      assert.equal(row?.systemPromptHash, 'sys-hash');
       assert.equal(row?.toolSchemaChangeReason, 'tool_source_enabled');
       assert.equal(row?.toolAvailability?.mode, 'economy');
       assert.deepEqual(row?.toolAvailability?.enabledSourceIds, ['office']);
@@ -155,6 +157,38 @@ describe('FileTelemetryRepo', () => {
       assert.deepEqual(second.listPricingOverrides(), [
         { modelKey: 'openai:gpt-4o', inputUsdPer1M: 2.5, outputUsdPer1M: 10 },
       ]);
+    } finally {
+      await flushWrites();
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  test('load creates an empty telemetry file only when missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-telemetry-missing-'));
+    try {
+      const repo = createTelemetryRepo(root);
+
+      await repo.load();
+      const raw = await readFile(join(root, 'telemetry.json'), 'utf8');
+
+      assert.deepEqual(repo.logs({ range: 'all' }), { rows: [], total: 0 });
+      assert.match(raw, /"usageRecords": \[\]/);
+      assert.match(raw, /"toolInvocations": \[\]/);
+    } finally {
+      await flushWrites();
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  test('load rejects corrupt telemetry.json without overwriting usage history bytes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-telemetry-corrupt-'));
+    try {
+      const corrupt = '{"usageRecords":[{"id":"usage_1"}]';
+      await writeFile(join(root, 'telemetry.json'), corrupt, 'utf8');
+      const repo = createTelemetryRepo(root);
+
+      await assert.rejects(() => repo.load(), SyntaxError);
+      assert.equal(await readFile(join(root, 'telemetry.json'), 'utf8'), corrupt);
     } finally {
       await flushWrites();
       await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

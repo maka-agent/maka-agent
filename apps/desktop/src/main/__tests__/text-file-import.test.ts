@@ -397,8 +397,9 @@ describe('text file context import', () => {
     assert.match(onboardingSource, /onPaste=\{handlePaste\}/);
     assert.doesNotMatch(onboardingSource, /导入文本文件/);
     assert.doesNotMatch(uiSource, /aria-label="导入文本文件"/);
-    assert.match(uiSource, /aria-label=\{pendingImportAction === 'file' \? '正在导入文件内容' : '导入文件内容'\}/);
-    assert.match(uiSource, /aria-label=\{pendingImportAction === 'folder' \? '正在导入文件夹目录' : '导入文件夹目录'\}/);
+    assert.match(uiSource, /aria-label=\{pendingImportAction === 'file' \? '正在添加上下文' : '添加上下文'\}/);
+    assert.doesNotMatch(uiSource, /aria-label=\{pendingImportAction === 'file' \? '正在导入文件内容' : '导入文件内容'\}/);
+    assert.doesNotMatch(uiSource, /aria-label=\{pendingImportAction === 'folder' \? '正在导入文件夹目录' : '导入文件夹目录'\}/);
     assert.match(uiSource, /onDrop=\{onComposerDrop\}/);
     assert.match(uiSource, /onPaste=\{onTextareaPaste\}/);
     assert.match(uiSource, /event\.clipboardData\.files/);
@@ -417,9 +418,9 @@ describe('text file context import', () => {
     assert.match(uiSource, /void runImportAction\('drop', \(\) => props\.onImportDroppedTextFiles\?\.\(files\)\);/);
     assert.match(uiSource, /void runImportAction\('paste', \(\) => props\.onImportDroppedTextFiles\?\.\(files\)\);/);
     assert.match(uiSource, /onClick=\{\(\) => void runImportAction\('file', props\.onImportTextFile\)\}/);
-    assert.match(uiSource, /onClick=\{\(\) => void runImportAction\('folder', props\.onImportFolderOutline\)\}/);
     assert.match(uiSource, /aria-busy=\{pendingImportAction === 'file' \? 'true' : undefined\}/);
-    assert.match(uiSource, /data-pending=\{pendingImportAction === 'folder' \? 'true' : undefined\}/);
+    assert.match(uiSource, /onClick=\{\(\) => void runImportAction\('folder', props\.onImportFolderOutline\)\}/);
+    assert.doesNotMatch(uiSource, /data-pending=\{pendingImportAction === 'folder' \? 'true' : undefined\}/);
     assert.match(uiSource, /importActionBusy \? \(\s*'正在导入…'\s*\)/);
     assert.match(cssSource, /\.maka-composer\[data-drag-active="true"\]/);
     assert.match(stylesSource, /\.maka-onboarding-quickchat\[data-drag-active="true"\]/);

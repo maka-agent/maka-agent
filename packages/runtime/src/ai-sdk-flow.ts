@@ -318,6 +318,7 @@ export function mapSessionEventToRuntimeEvent(
             ...(event.contextRemaining !== undefined
               ? { contextRemaining: event.contextRemaining }
               : {}),
+            ...(event.systemPromptHash !== undefined ? { systemPromptHash: event.systemPromptHash } : {}),
             ...(event.prefixHash !== undefined ? { prefixHash: event.prefixHash } : {}),
             ...(event.prefixChangeReason !== undefined
               ? { prefixChangeReason: event.prefixChangeReason }
@@ -473,6 +474,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
     let terminalEmitted = false;
     try {
       for await (const sessionEvent of this.backend.send({
+        runId: ctx.runId,
         turnId: ctx.turnId,
         text: input.text,
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),

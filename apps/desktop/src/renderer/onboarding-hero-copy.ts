@@ -45,7 +45,7 @@ export interface OnboardingHeroCopy {
     label: string;
     settingsSection: SettingsSection;
   };
-  tone?: 'warning';
+  tone?: 'warning' | 'destructive';
   /**
    * Whether the hero should render the Quick Chat composer rather
    * than a setup CTA. Only true for `ready_empty`.
@@ -66,9 +66,13 @@ export function getOnboardingHeroCopy(state: OnboardingState): OnboardingHeroCop
     case 'needs_connection':
       return {
         kind: state.kind,
+        // PR-PARCHMENT-DEFAULT-0: tightened to reference implementation's punchier
+        // hero rhythm (WAWQAQ msg `00dcaf3a`). See OnboardingHero.tsx
+        // for the rendered structure + the boundary against direct
+        // reference implementation copy lifting.
         eyebrow: '欢迎使用 Maka',
-        title: '把一个真实的 LLM 接进来，再开始第一条对话。',
-        body: 'Maka 只跑在你电脑上 —— 模型走你自己的 API key。点常见接入卡片进入「设置 · 模型」添加它的 key。',
+        title: '不只是聊天，搞定真事。',
+        body: '本地运行、走你自己的 API key、对每一步可见可控。点常见接入卡片进入「设置 · 模型」添加它的 key。',
         cta: { label: '打开设置 · 模型', settingsSection: 'models' },
       };
     case 'needs_default_connection':
@@ -122,7 +126,7 @@ export function getOnboardingHeroCopy(state: OnboardingState): OnboardingHeroCop
         title: '当前没有通过验证的模型连接。',
         body: '请到「设置 · 账号」查看每个连接的状态，重新测试或重新登录后再开始对话。',
         cta: { label: '打开设置 · 账号', settingsSection: 'account' },
-        tone: 'warning',
+        tone: 'destructive',
       };
     case 'ready_with_history':
       // The renderer caller decides which surface to mount; this

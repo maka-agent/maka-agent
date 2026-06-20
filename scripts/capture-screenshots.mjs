@@ -113,6 +113,9 @@ const ALL_SCENARIOS = [
   // there is no screenshot evidence that 搜索 opens a modal (the
   // default sidebar capture only shows the nav row).
   'sidebar-search-modal-open',
+  // PR-shared primitive-COMMAND-INPUT-0: baseline for CommandPalette's shared primitive
+  // InputGroup input shell; reuses the 60-session sidebar seed.
+  'command-palette-open',
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
   // kenji `b3d156e9`): baseline gate proving the row action overlay
   // does NOT overlap the time meta / unread dot on the focused

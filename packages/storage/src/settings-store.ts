@@ -66,7 +66,8 @@ class FileSettingsStore implements SettingsStore {
     try {
       const text = await readFile(this.settingsPath, 'utf8');
       return normalizeSettings(JSON.parse(text));
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       const settings = createDefaultSettings();
       await this.write(settings);
       return settings;

@@ -138,7 +138,13 @@ describe('AiSdkFlow seam', () => {
         ev({ type: 'text_delta', messageId: 'm1', text: 'Hel' }),
         ev({ type: 'text_delta', messageId: 'm1', text: 'lo' }),
         ev({ type: 'text_complete', messageId: 'm1', text: 'Hello' }),
-        ev({ type: 'token_usage', input: 10, output: 5 }),
+        ev({
+          type: 'token_usage',
+          input: 10,
+          output: 5,
+          costUsd: 0.001,
+          systemPromptHash: 'sys-hash',
+        }),
         ev({ type: 'complete', stopReason: 'end_turn' }),
       ],
     });
@@ -163,7 +169,12 @@ describe('AiSdkFlow seam', () => {
     // id reused from source for 1:1 dedup linkage.
     assert.equal(out[0].id, 'evt-1');
     // Token usage carried as an action.
-    assert.deepEqual(out[3].actions?.tokenUsage, { input: 10, output: 5 });
+    assert.deepEqual(out[3].actions?.tokenUsage, {
+      input: 10,
+      output: 5,
+      costUsd: 0.001,
+      systemPromptHash: 'sys-hash',
+    });
     // Stream closes with a terminal event.
     assert.equal(isTerminalRuntimeEvent(out[out.length - 1]), true);
     assert.equal(out[out.length - 1].status, 'completed');
@@ -229,6 +240,7 @@ describe('AiSdkFlow seam', () => {
     assert.equal(result.status, 'completed');
     assert.equal(backend.sendInputs.length, 1);
     assert.deepEqual(backend.sendInputs[0], {
+      runId: 'rt-2',
       turnId: 'turn-1',
       text: 'hi',
       attachments: [attachment],

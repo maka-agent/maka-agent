@@ -370,6 +370,77 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('summary lastMessageAt derives from visible messages when header timestamp is missing or stale', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const missingId = 'missing-last-message-at';
+      await mkdir(join(workspaceRoot, 'sessions', missingId), { recursive: true });
+      await writeFile(
+        join(workspaceRoot, 'sessions', missingId, 'session.jsonl'),
+        [
+          JSON.stringify(makeRawHeader({ id: missingId, workspaceRoot, name: 'Missing timestamp' })),
+          JSON.stringify({ type: 'user', id: 'u1', turnId: 't1', ts: 20, text: 'new visible user text' }),
+          JSON.stringify({ type: 'system_note', id: 'sys-1', ts: 30, kind: 'session_resume' }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const staleId = 'stale-last-message-at';
+      await mkdir(join(workspaceRoot, 'sessions', staleId), { recursive: true });
+      await writeFile(
+        join(workspaceRoot, 'sessions', staleId, 'session.jsonl'),
+        [
+          JSON.stringify(makeRawHeader({
+            id: staleId,
+            workspaceRoot,
+            name: 'Stale timestamp',
+            lastMessageAt: 5,
+          })),
+          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 40, text: 'new visible assistant text', modelId: 'fake' }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const summaries = await store.list();
+      const missing = summaries.find((summary) => summary.id === missingId);
+      const stale = summaries.find((summary) => summary.id === staleId);
+
+      assert.equal(missing?.lastMessageAt, 20);
+      assert.equal(missing?.lastMessagePreview, 'new visible user text');
+      assert.equal(stale?.lastMessageAt, 40);
+      assert.equal(stale?.lastMessagePreview, 'new visible assistant text');
+      assert.deepEqual(summaries.slice(0, 2).map((summary) => summary.id), [staleId, missingId]);
+    });
+  });
+
+  test('summary lastMessageAt does not move backwards when copying older visible messages', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'newer-header-with-old-copy';
+      await mkdir(join(workspaceRoot, 'sessions', sessionId), { recursive: true });
+      await writeFile(
+        join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'),
+        [
+          JSON.stringify(makeRawHeader({
+            id: sessionId,
+            workspaceRoot,
+            name: 'Newer header',
+            lastMessageAt: 100,
+          })),
+          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 40, text: 'old copied text', modelId: 'fake' }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const [summary] = await store.list();
+
+      assert.equal(summary?.id, sessionId);
+      assert.equal(summary?.lastMessageAt, 100);
+      assert.equal(summary?.lastMessagePreview, 'old copied text');
+    });
+  });
+
   test('listTurns derives latest persisted turn states and lineage', async () => {
     await withStore(async (store) => {
       const header = await store.create(makeInput({ name: 'Turns' }));

@@ -9,7 +9,7 @@ must not surface as user-visible copy.
 
 ## Source Anchors
 
-Reference app source: an upstream desktop agent's ACP / `pi-acp`
+reference implementation source: an upstream desktop agent's ACP / `pi-acp`
 coding-agent path was inspected offline. Specific paths are held
 out of this repo. The findings used in this plan are summarized
 in §"Reference Loop Findings" below — no upstream file paths are
@@ -52,7 +52,7 @@ Important current constraints:
 
 ## Reference Loop Findings
 
-The reference app has two distinct agent layers.
+The reference implementation has two distinct agent layers.
 
 ### Main Chat Loop
 
@@ -74,7 +74,7 @@ normalization, tool-output deltas, permission parking, and step cap grace copy.
 
 ### Coding Agent / Pi Layer
 
-The reference app's coding-agent path uses ACP:
+The reference implementation's coding-agent path uses ACP:
 
 - `acpx` can launch `pi` through `npx pi-acp`.
 - Configurable ACP providers are process-backed sessions.
@@ -284,7 +284,7 @@ Exit criteria:
 
 ## Explicit Non-Goals
 
-- Do not port the reference app's auto-approve child-agent mode as default.
+- Do not port the reference implementation's auto-approve child-agent mode as default.
 - Do not add arbitrary MCP forwarding in PR-PI-0.
 - Do not expose raw pi/ACP frames to renderer or storage.
 - Do not change Claude/OAuth subscription behavior in this PR.

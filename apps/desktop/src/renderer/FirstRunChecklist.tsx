@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BookOpen, CalendarDays, Check, Clock, FileText, Mic, RefreshCcw, Search, Sparkles, User } from 'lucide-react';
 import { generalizedErrorMessageChinese, type AppSettings, type PlanReminder, type SettingsSection } from '@maka/core';
-import { useToast } from '@maka/ui';
+import { Alert, AlertAction, AlertDescription, Button, useToast } from '@maka/ui';
 
 interface ChecklistItem {
   id: string;
@@ -233,19 +233,25 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         aria-label="接下来可以探索暂时不可用"
         aria-busy={statusRefreshPending ? 'true' : undefined}
       >
-        <div className="maka-first-run-checklist-error">
-          <span>首次使用清单暂时没刷新成功。{statusError ?? '请稍后重试。'}</span>
-          <button
-            type="button"
-            className="maka-first-run-checklist-error-action"
-            onClick={() => void refreshChecklistStatus()}
-            disabled={statusRefreshPending}
-            aria-busy={statusRefreshPending ? 'true' : undefined}
-          >
-            <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
-            <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
-          </button>
-        </div>
+        <Alert variant="warning" className="maka-first-run-checklist-error">
+          <AlertDescription>
+            首次使用清单暂时没刷新成功。{statusError ?? '请稍后重试。'}
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="maka-first-run-checklist-error-action"
+              onClick={() => void refreshChecklistStatus()}
+              disabled={statusRefreshPending}
+              aria-busy={statusRefreshPending ? 'true' : undefined}
+            >
+              <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
+              <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
+            </Button>
+          </AlertAction>
+        </Alert>
       </aside>
     );
   }
@@ -266,19 +272,25 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         <span className="maka-first-run-checklist-count">{remaining} / {completableItems.length} 待完成</span>
       </header>
       {statusError && (
-        <div className="maka-first-run-checklist-error" role="alert">
-          <span>部分状态暂时没刷新成功，已避免把未知状态计成未完成。{statusError}</span>
-          <button
-            type="button"
-            className="maka-first-run-checklist-error-action"
-            onClick={() => void refreshChecklistStatus()}
-            disabled={statusRefreshPending}
-            aria-busy={statusRefreshPending ? 'true' : undefined}
-          >
-            <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
-            <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
-          </button>
-        </div>
+        <Alert variant="warning" className="maka-first-run-checklist-error">
+          <AlertDescription>
+            部分状态暂时没刷新成功，已避免把未知状态计成未完成。{statusError}
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="maka-first-run-checklist-error-action"
+              onClick={() => void refreshChecklistStatus()}
+              disabled={statusRefreshPending}
+              aria-busy={statusRefreshPending ? 'true' : undefined}
+            >
+              <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
+              <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
+            </Button>
+          </AlertAction>
+        </Alert>
       )}
       <ul className="maka-first-run-checklist-list">
         {items.map((item) => (
@@ -288,7 +300,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
             data-done={item.done ? 'true' : undefined}
             data-kind={item.trackCompletion === false ? 'explore' : 'setup'}
           >
-            <button type="button" onClick={item.onClick} disabled={false}>
+            <Button type="button" variant="ghost" onClick={item.onClick} disabled={false}>
               <span className="maka-first-run-checklist-status" aria-hidden="true">
                 {item.done ? (
                   <Check size={14} strokeWidth={2} />
@@ -306,7 +318,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
                 aria-hidden="true"
                 className="maka-first-run-checklist-arrow"
               />
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

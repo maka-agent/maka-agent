@@ -228,7 +228,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /value=\{gatewayDraft\.host\}[\s\S]*onChange=\{\(event\) => void updateGateway\(\{ host: event\.currentTarget\.value as AppSettings\['openGateway'\]\['host'\] \}\)\}/,
+      /<SettingsSelect[\s\S]*value=\{gatewayDraft\.host\}[\s\S]*ariaLabel="开放网关监听地址"[\s\S]*onChange=\{\(host\) => void updateGateway\(\{ host \}\)\}/,
       'Open Gateway host select must render from the local draft while persisting in the background',
     );
     assert.match(

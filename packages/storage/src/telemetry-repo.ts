@@ -71,7 +71,8 @@ class FileTelemetryRepo implements TelemetryRepo {
     try {
       const text = await readFile(this.path, 'utf8');
       this.file = normalizeFile(JSON.parse(text));
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       this.file = emptyFile();
       await this.write();
     }
@@ -156,6 +157,7 @@ class FileTelemetryRepo implements TelemetryRepo {
         ...(row.errorClass ? { errorClass: row.errorClass } : {}),
         ...(row.sessionId ? { sessionId: row.sessionId } : {}),
         ...(row.turnId ? { turnId: row.turnId } : {}),
+        ...(row.systemPromptHash ? { systemPromptHash: row.systemPromptHash } : {}),
         ...(row.prefixHash ? { prefixHash: row.prefixHash } : {}),
         ...(row.prefixChangeReason ? { prefixChangeReason: row.prefixChangeReason } : {}),
         ...(row.requestShapeHash ? { requestShapeHash: row.requestShapeHash } : {}),

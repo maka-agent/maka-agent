@@ -38,9 +38,10 @@
     "./ai-sdk-flow": "./dist/ai-sdk-flow.js"
   },
   "scripts": {
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run clean && npm run build && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.78",

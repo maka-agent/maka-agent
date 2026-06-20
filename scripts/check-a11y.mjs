@@ -32,7 +32,13 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ROOTS = ['apps', 'packages'];
 const EXTS = new Set(['.tsx']);
-const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__']);
+// `primitives/` holds vendored upstream primitive source components that ship with
+// English aria-labels. They're rewritten with Chinese labels when
+// each consumer surface wires them up, so the a11y walker treats
+// them like third-party source that doesn't run through the same
+// gate. The wrappers in `./ui.tsx` and the call sites themselves
+// remain subject to the full check.
+const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', 'primitives']);
 
 async function walk(root) {
   const out = [];

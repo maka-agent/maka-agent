@@ -62,6 +62,7 @@ describe('WebSearch agent tool (PR-AGENT-WEB-SEARCH-TOOL-0)', () => {
     assert.equal(tool.name, WEB_SEARCH_TOOL_NAME);
     assert.equal(tool.name, 'WebSearch');
     assert.equal(tool.permissionRequired, true);
+    assert.equal(tool.categoryHint, undefined);
   });
 
   it('fails closed with invalid_query for empty / whitespace-only query', async () => {

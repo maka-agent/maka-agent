@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ResultRecord, Task } from './contracts.js';
+import { normalizeVerifier } from './verifier.js';
 import {
   taxonomyFromResultRecord,
   type AutonomousResultTaxonomy,
@@ -21,15 +22,21 @@ export interface TaskEventsFromResultRecordOptions {
 }
 
 export function taskDefinitionFromTask(task: Task): TaskDefinition {
+  const verifier = normalizeVerifier(task);
   return {
     id: task.id,
     instruction: task.instruction,
     workspaceDir: task.workspaceDir,
-    verification: {
-      command: task.verification.command,
-      ...(task.verification.timeoutMs === undefined ? {} : { timeoutMs: task.verification.timeoutMs }),
-      protectedPaths: [...task.verification.protectedPaths],
-    },
+    verification: verifier.kind === 'command'
+      ? {
+          command: verifier.command,
+          ...(verifier.timeoutMs === undefined ? {} : { timeoutMs: verifier.timeoutMs }),
+          protectedPaths: [...verifier.protectedPaths],
+        }
+      : {
+          command: verifier.kind,
+          protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : [],
+        },
   };
 }
 
@@ -42,6 +49,7 @@ export function taskEventsFromResultRecord(
   const attemptId = options.attemptId ?? `${taskRunId}-attempt-1`;
   const taxonomy = taxonomyFromResultRecord(record);
   const shouldRecordVerifier = record.status === 'completed' || record.exitCode !== null || taxonomy === 'verification_error';
+  const verifier = options.task ? normalizeVerifier(options.task) : undefined;
   const verifierResult: VerifierResult | undefined = shouldRecordVerifier
     ? {
         id: eventId(),
@@ -51,7 +59,7 @@ export function taskEventsFromResultRecord(
         kind: 'command',
         passed: record.status === 'completed' && record.passed,
         exitCode: record.exitCode,
-        ...(options.task ? { command: options.task.verification.command } : {}),
+        ...(verifier?.kind === 'command' ? { command: verifier.command } : {}),
         ...(record.error ? { error: record.error } : {}),
       }
     : undefined;
@@ -144,6 +152,9 @@ function attemptStatusFromResult(
     case 'verification_failed':
     case 'verification_error':
     case 'agent_failed':
+    case 'invalid_setup':
+    case 'unsupported_adapter':
+    case 'isolation_required':
     case 'setup_failed':
     case 'infra_failed':
       return 'failed';
@@ -180,6 +191,9 @@ function terminalEventFromResult(
     case 'verification_failed':
     case 'verification_error':
     case 'agent_failed':
+    case 'invalid_setup':
+    case 'unsupported_adapter':
+    case 'isolation_required':
     case 'setup_failed':
     case 'infra_failed':
       return { type: 'task_run_failed', ...base, error };
@@ -288,6 +302,12 @@ function errorMessageFromTaxonomy(
       return 'agent run failed';
     case 'agent_incomplete':
       return 'agent run incomplete';
+    case 'invalid_setup':
+      return 'invalid setup';
+    case 'unsupported_adapter':
+      return 'unsupported verifier adapter';
+    case 'isolation_required':
+      return 'isolated executor required';
     case 'setup_failed':
       return 'task setup failed';
     case 'infra_failed':

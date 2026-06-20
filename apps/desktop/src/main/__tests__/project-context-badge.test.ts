@@ -13,7 +13,7 @@ async function readRepo(path: string): Promise<string> {
   return readFile(join(repoRoot, path), 'utf8');
 }
 
-describe('project context badge', () => {
+describe('project context workspace picker', () => {
   it('resolves git branch from normal and worktree-style .git metadata', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-project-context-'));
     const worktree = await mkdtemp(join(tmpdir(), 'maka-project-context-worktree-'));
@@ -63,6 +63,31 @@ describe('project context badge', () => {
     assert.match(globalTypes, /projectGit:\s*\{ isGitRepo: boolean; branch\?: string \};/);
   });
 
+  it('lets the composer picker choose a new project directory instead of only opening Finder', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const preload = await readRepo('apps/desktop/src/preload/preload.ts');
+    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const workspacePickerBlock = renderer.match(/workspacePicker=\{\{[\s\S]*?\n\s*\}\}/)?.[0] ?? '';
+
+    assert.match(main, /let selectedProjectRoot: string \| null = null;/);
+    assert.match(main, /if \(selectedProjectRoot\) return selectedProjectRoot;/);
+    assert.match(main, /ipcMain\.handle\(\s*'app:selectProjectDirectory'/);
+    assert.match(main, /dialog\.showOpenDialog\(mainWindow,\s*\{[\s\S]*title:\s*'选择工作目录'[\s\S]*properties:\s*\['openDirectory'\]/);
+    assert.match(main, /const projectPath = await resolveProjectRoot\(\[selectedPath\]\)/);
+    assert.match(main, /selectedProjectRoot = projectPath;/);
+    assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
+    assert.match(preload, /selectProjectDirectory\(\): Promise</);
+    assert.match(preload, /ipcRenderer\.invoke\('app:selectProjectDirectory'\)/);
+    assert.match(globalTypes, /selectProjectDirectory\(\): Promise</);
+    assert.match(renderer, /async function selectProjectDirectory\(\)/);
+    assert.match(renderer, /window\.maka\.app\.selectProjectDirectory\(\)/);
+    assert.match(renderer, /setAppInfo\(\{ projectPath: result\.projectPath, projectGit: result\.projectGit \}\)/);
+    assert.match(renderer, /toastApi\.success\('已切换工作目录', basenameFromPath\(result\.projectPath\)\)/);
+    assert.match(workspacePickerBlock, /void selectProjectDirectory\(\)/);
+    assert.doesNotMatch(workspacePickerBlock, /openProjectFolder\(\)|openWorkspaceFolder\(\)|openPath\(/);
+  });
+
   it('opens project directory by allowlisted key, not renderer-supplied path', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const guard = await readRepo('apps/desktop/src/main/open-path-guard.ts');
@@ -74,32 +99,43 @@ describe('project context badge', () => {
     assert.doesNotMatch(renderer, /openPath\(appInfo\.projectPath\)/);
   });
 
-  it('renders a project badge in the sidebar header', async () => {
+  it('renders the guarded project picker below the composer', async () => {
     const ui = await readRepo('packages/ui/src/components.tsx');
     const styles = await readRepo('apps/desktop/src/renderer/styles.css');
     const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
 
-    assert.match(ui, /projectBadge\?:\s*\{/);
-    assert.match(ui, /className="maka-project-badge"/);
-    assert.match(ui, /branch\?: string;/);
-    assert.match(ui, /项目 · \{props\.projectBadge\.label\}\{props\.projectBadge\.branch \? ` · \$\{props\.projectBadge\.branch\}` : ''\}/);
-    assert.match(ui, /当前分支 \$\{props\.projectBadge\.branch\}/);
-    assert.match(styles, /\.maka-project-badge\s*\{/);
+    assert.match(ui, /workspacePicker\?:\s*\{/);
+    assert.match(ui, /className="maka-composer-workspace-picker"/);
+    assert.match(ui, /branch\?: string \| null;/);
+    // WAWQAQ msg `28128c9e` (2026-06-20): the "选择工作目录" placeholder
+    // is only rendered when no directory has been selected yet. Once
+    // a label is set, the picker renders `.maka-composer-workspace-current`
+    // alone — no more "选择工作目录 ai ▾" doubled string.
+    assert.match(ui, /\? <span className="maka-composer-workspace-current">\{props\.workspacePicker\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
+    assert.match(ui, /当前分支 \$\{props\.workspacePicker\.branch\}/);
+    // PR-PARCHMENT-HOME-2 (WAWQAQ msg `2690c2e4` round 2/20):
+    // composer + workspace-row share the new 680px measure to match
+    // reference implementation's composer card width. Was 750px; now 680px.
+    assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(680px,\s*80vw\)/);
+    assert.match(styles, /\.maka-composer-workspace-picker\s*\{/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
     assert.match(renderer, /basenameFromPath\(appInfo\.projectPath\)/);
-    assert.match(renderer, /branch:\s*appInfo\.projectGit\.branch/);
+    assert.match(renderer, /branch:\s*appInfo\?\.projectGit\.branch/);
+    assert.match(renderer, /workspacePicker=\{\{/);
+    assert.doesNotMatch(ui, /className="maka-project-badge"/);
   });
 
   it('adds a command palette action for the same guarded project open path', async () => {
     const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
     const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
-    const openProjectBlock = renderer.match(/async function openProjectFolder\(\)[\s\S]*?function createSkillFailureCopy/)?.[0] ?? '';
-    const openWorkspaceBlock = renderer.match(/onOpenWorkspace: async \(\) => \{[\s\S]*?onOpenProjectFolder:/)?.[0] ?? '';
+    const openProjectBlock = renderer.match(/async function openProjectFolder\(\)[\s\S]*?async function openWorkspaceFolder/)?.[0] ?? '';
+    const openWorkspaceBlock = renderer.match(/async function openWorkspaceFolder\(\)[\s\S]*?function createSkillFailureCopy/)?.[0] ?? '';
 
     assert.match(palette, /onOpenProjectFolder\?\(\): Promise<void> \| void/);
     assert.match(palette, /id:\s*'diag:open-project-folder'/);
     assert.match(palette, /label:\s*'打开项目目录'/);
     assert.match(renderer, /onOpenProjectFolder:\s*\(\) => openProjectFolder\(\)/);
+    assert.match(renderer, /onOpenWorkspace: async \(\) => \{\s*await openWorkspaceFolder\(\);\s*\}/);
     assert.match(renderer, /function openPathActionErrorMessage\(error: unknown, key: 'workspace' \| 'project' \| 'skills'\): string \{[\s\S]*generalizedErrorMessageChinese\(error, `无法打开\$\{openPathActionLabel\(key\)\}，请稍后重试。`\)/);
     assert.match(openProjectBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('project'\)\}`, openPathActionErrorMessage\(error, 'project'\)\)/);
     assert.match(openWorkspaceBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, openPathActionErrorMessage\(error, 'workspace'\)\)/);

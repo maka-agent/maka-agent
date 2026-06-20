@@ -553,6 +553,14 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /data-pending=\{summaryCopy\.phase === 'pending'/);
     assert.match(previewBlock, /data-copy-error=\{summaryCopy\.phase === 'failed'/);
     assert.match(previewBlock, /disabled=\{summaryCopy\.disabled\}/);
+    assert.match(previewBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="sm"[\s\S]*?className="maka-explore-agent-copy"/);
+    assert.equal(
+      previewBlock.match(/className="maka-explore-agent-copy"/g)?.length,
+      7,
+      'ExploreAgent copy actions should keep a narrow semantic class on shared UiButton controls',
+    );
+    assert.doesNotMatch(previewBlock, /className="[^"]*\bmaka-button\b[^"]*maka-explore-agent-copy[^"]*"/);
+    assert.doesNotMatch(previewBlock, /data-size="sm"/);
     assert.match(previewBlock, /复制中…/);
     assert.match(previewBlock, /复制失败/);
     assert.doesNotMatch(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\((summaryText|processText|evidenceText|candidateText|matchesText|continuationText|reportText)\)\)/);

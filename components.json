@@ -1,5 +1,5 @@
 {
-  "$schema": "https://ui.shadcn.com/schema.json",
+  "$schema": "https://ui.shared component.com/schema.json",
   "style": "base-nova",
   "rsc": false,
   "tsx": true,

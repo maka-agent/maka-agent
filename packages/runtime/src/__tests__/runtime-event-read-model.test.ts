@@ -151,6 +151,7 @@ function baseEvents(): RuntimeEvent[] {
           output: 25,
           cacheRead: 10,
           costUsd: 0.002,
+          systemPromptHash: 'sys-hash',
           contextRemaining: 9000,
         },
       },
@@ -223,6 +224,7 @@ function equivalentLegacyMessages(): StoredMessage[] {
       output: 25,
       cacheRead: 10,
       costUsd: 0.002,
+      systemPromptHash: 'sys-hash',
     },
     {
       type: 'turn_state',

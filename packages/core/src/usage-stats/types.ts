@@ -71,6 +71,7 @@ export interface UsageLogRow {
   errorClass?: string;
   sessionId?: string;
   turnId?: string;
+  systemPromptHash?: string;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;
@@ -121,7 +122,9 @@ export interface LlmCallRecord {
   latencyMs: number;
   status: 'success' | 'error' | 'aborted';
   errorClass?: string;
+  costUsd?: number;
   startedAt: number;
+  systemPromptHash?: string;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;

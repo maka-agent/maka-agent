@@ -45,6 +45,7 @@ class FileArtifactStore implements ArtifactStore {
   private readonly metadataPath: string;
   private records: ArtifactRecord[] = [];
   private loaded = false;
+  private loadPromise: Promise<void> | null = null;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly workspaceRoot: string) {
@@ -56,6 +57,7 @@ class FileArtifactStore implements ArtifactStore {
     const id = input.id ?? randomUUID();
     const name = sanitizeArtifactName(input.name);
     const relativePath = `${input.sessionId}/${id}-${name}`;
+    validateRelativeArtifactPath(relativePath);
     const target = join(this.artifactRoot, relativePath);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, input.content);
@@ -164,17 +166,27 @@ class FileArtifactStore implements ArtifactStore {
 
   private async load(): Promise<void> {
     if (this.loaded) return;
-    try {
-      const text = await readFile(this.metadataPath, 'utf8');
-      this.records = text
-        .split('\n')
-        .filter((line) => line.trim().length > 0)
-        .map((line) => normalizeRecord(JSON.parse(line) as ArtifactRecord));
-    } catch {
-      this.records = [];
-      await this.writeMetadataUnlocked();
+    if (this.loadPromise) {
+      await this.loadPromise;
+      return;
     }
-    this.loaded = true;
+    this.loadPromise = (async () => {
+      try {
+        const text = await readFile(this.metadataPath, 'utf8');
+        this.records = parseArtifactMetadata(text);
+      } catch (error) {
+        this.records = [];
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          await this.writeMetadataUnlocked();
+        }
+      }
+      this.loaded = true;
+    })();
+    try {
+      await this.loadPromise;
+    } finally {
+      this.loadPromise = null;
+    }
   }
 
   private async writeMetadataUnlocked(): Promise<void> {
@@ -245,6 +257,20 @@ function normalizeRecord(record: ArtifactRecord): ArtifactRecord {
     ...record,
     status: record.status === 'deleted' ? 'deleted' : 'live',
   };
+}
+
+function parseArtifactMetadata(text: string): ArtifactRecord[] {
+  const records: ArtifactRecord[] = [];
+  for (const line of text.split('\n')) {
+    if (line.trim().length === 0) continue;
+    try {
+      records.push(normalizeRecord(JSON.parse(line) as ArtifactRecord));
+    } catch {
+      // Keep the rest of the JSONL index readable if one metadata row is
+      // truncated or from a newer schema. A later write compacts valid rows.
+    }
+  }
+  return records;
 }
 
 async function ensureRealDirectory(path: string): Promise<string> {

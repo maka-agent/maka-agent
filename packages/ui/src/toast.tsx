@@ -26,6 +26,7 @@ import {
 } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import { useModalA11y } from './components.js';
+import { Button } from './ui.js';
 
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -206,8 +207,10 @@ function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): 
             {entry.description && <small>{entry.description}</small>}
           </div>
           {entry.action && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               className="maka-toast-action"
               onClick={() => {
                 entry.action!.onClick();
@@ -215,16 +218,18 @@ function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): 
               }}
             >
               {entry.action.label}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
+            variant="quiet"
+            size="icon-sm"
             className="maka-toast-close"
             aria-label="关闭通知"
             onClick={() => props.onDismiss(entry.id)}
           >
             <X size={14} strokeWidth={1.75} aria-hidden="true" />
-          </button>
+          </Button>
         </li>
       ))}
     </ol>
@@ -261,23 +266,21 @@ function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boole
           )}
         </div>
         <div className="maka-modal-footer">
-          <button
+          <Button
             ref={cancelRef}
             type="button"
-            className="maka-button"
-            data-variant="ghost"
+            variant="ghost"
             onClick={() => props.onResolve(false)}
           >
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="maka-button"
-            data-variant={destructive ? 'destructive' : 'primary'}
+            variant={destructive ? 'destructive' : 'default'}
             onClick={() => props.onResolve(true)}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

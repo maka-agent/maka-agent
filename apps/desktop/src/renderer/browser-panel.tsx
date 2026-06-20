@@ -14,8 +14,17 @@
  * ordinary chat reserves no space.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RotateCw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe, RotateCw, X } from 'lucide-react';
 import type { BrowserState } from '@maka/core';
+import {
+  Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Input,
+} from '@maka/ui';
 
 const EMPTY_STATE: BrowserState = {
   url: '',
@@ -104,26 +113,32 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
   return (
     <div className="maka-browser-panel" aria-label="嵌入式浏览器">
       <div className="maka-browser-toolbar">
-        <button
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           className="maka-browser-navbtn"
           title="后退"
           disabled={!state.canGoBack}
           onClick={() => void window.maka.browser.back(sessionId)}
         >
           <ChevronLeft size={16} aria-hidden />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           className="maka-browser-navbtn"
           title="前进"
           disabled={!state.canGoForward}
           onClick={() => void window.maka.browser.forward(sessionId)}
         >
           <ChevronRight size={16} aria-hidden />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           className="maka-browser-navbtn"
           title={state.loading ? '停止' : '刷新'}
           onClick={() =>
@@ -131,11 +146,12 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
           }
         >
           {state.loading ? <X size={16} aria-hidden /> : <RotateCw size={16} aria-hidden />}
-        </button>
-        <input
+        </Button>
+        <Input
           className="maka-browser-address"
           type="text"
           spellCheck={false}
+          aria-label="浏览器地址"
           placeholder="输入网址并回车"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
@@ -153,21 +169,30 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
             }
           }}
         />
-        <button
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           className="maka-browser-navbtn"
           title="关闭页面"
           onClick={() => void window.maka.browser.close(sessionId)}
         >
           <X size={16} aria-hidden />
-        </button>
+        </Button>
       </div>
       <div className="maka-browser-strip" ref={stripRef}>
         {!state.hasPage && (
-          <div className="maka-browser-empty">
-            <p>嵌入式浏览器</p>
-            <p className="maka-browser-empty-hint">输入网址打开页面，或让助手帮你导航并操作。</p>
-          </div>
+          <Empty className="maka-browser-empty absolute inset-0 py-10 md:py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Globe aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>嵌入式浏览器</EmptyTitle>
+              <EmptyDescription className="maka-browser-empty-hint">
+                输入网址打开页面，或让助手帮你导航并操作。
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </div>

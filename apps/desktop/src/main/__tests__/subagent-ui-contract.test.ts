@@ -1,0 +1,58 @@
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { OverlayHost } from '@maka/ui';
+
+describe('subagent UI contract', () => {
+  it('renders a compact subagent card without exposing internal ids', () => {
+    const markup = renderToStaticMarkup(createElement(OverlayHost, {
+      content: {
+        kind: 'subagent',
+        agentName: 'Research Agent',
+        turnId: 'turn-secret-123',
+        runId: 'run-secret-456',
+        status: 'completed',
+        permissionMode: 'explore',
+        summary: 'Mapped the runtime path.',
+        artifactIds: ['artifact-secret-1', 'artifact-secret-2'],
+        durationMs: 14_500,
+        eventCount: 42,
+      },
+      onClose: () => {},
+    }));
+
+    assert.match(markup, /data-kind="subagent"/);
+    assert.match(markup, /aria-label="关闭预览"/);
+    assert.match(markup, /<span>关闭<\/span>/);
+    assert.match(markup, /Research Agent/);
+    assert.match(markup, /已完成/);
+    assert.match(markup, /只读/);
+    assert.match(markup, /耗时/);
+    assert.match(markup, /Mapped the runtime path\./);
+    assert.match(markup, /产物/);
+    assert.match(markup, /2 个/);
+
+    assert.doesNotMatch(markup, /turn-secret-123/);
+    assert.doesNotMatch(markup, /run-secret-456/);
+    assert.doesNotMatch(markup, /artifact-secret-1/);
+    assert.doesNotMatch(markup, /artifact-secret-2/);
+    assert.doesNotMatch(markup, />Close</);
+    assert.doesNotMatch(markup, />explore</);
+    assert.doesNotMatch(markup, /事件/);
+    assert.doesNotMatch(markup, /42 个事件/);
+  });
+
+  it('keeps the overlay close action icon-backed and localized', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { resolve } = await import('node:path');
+    const source = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const block = source.match(/export function OverlayHost[\s\S]*?^}/m)?.[0] ?? '';
+
+    assert.match(block, /<UiButton[\s\S]*className="maka-button maka-overlay-close"/);
+    assert.match(block, /aria-label="关闭预览"/);
+    assert.match(block, /<X size=\{14\} strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
+    assert.match(block, /<span>关闭<\/span>/);
+    assert.doesNotMatch(block, />Close</);
+  });
+});

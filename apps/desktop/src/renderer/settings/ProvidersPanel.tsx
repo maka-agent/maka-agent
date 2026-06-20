@@ -17,7 +17,7 @@ import {
   type SubscriptionAccountState,
   type UpdateConnectionInput,
 } from '@maka/core';
-import { Button, Input, RelativeTime, useToast, useModalA11y } from '@maka/ui';
+import { Button, PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y } from '@maka/ui';
 import { formatRelativeTimestamp } from '@maka/core';
 import { PasswordInput } from './password-input';
 
@@ -91,20 +91,6 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const providersPanelMountedRef = useRef(false);
   const providersReloadTicketRef = useRef(0);
   const toast = useToast();
-
-  function onCatalogTabsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const visibleTabs = CATALOG_TABS.map((tab) => tab.id);
-    const next = nextRadioId(catalogTab, visibleTabs, event.key) as CatalogTab | null;
-    if (next === null || next === catalogTab) return;
-    event.preventDefault();
-    setCatalogTab(next);
-    const tablist = event.currentTarget;
-    window.setTimeout(() => {
-      tablist
-        .querySelector<HTMLButtonElement>(`button[data-catalog-tab="${CSS.escape(next)}"]`)
-        ?.focus({ preventScroll: true });
-    }, 0);
-  }
 
   async function reload(): Promise<boolean> {
     const ticket = ++providersReloadTicketRef.current;
@@ -223,19 +209,20 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             {connections.length > 0 && <span>{connections.length} 个配置</span>}
           </div>
           {loadError ? (
-            <button className="enabledEmptyChip" type="button" onClick={() => void reload()}>
+            <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => void reload()}>
               <strong>模型连接载入失败</strong>
               <small>{loadError} · 点击重试。</small>
-            </button>
+            </Button>
           ) : connections.length === 0 ? (
-            <button className="enabledEmptyChip" type="button" onClick={() => startAdd('zai-coding-plan')}>
+            <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => startAdd('zai-coding-plan')}>
               <strong>等待添加供应商</strong>
               <small>从下面选择一个开始配置。</small>
-            </button>
+            </Button>
           ) : connections.map((connection) => (
-              <button
+              <Button
                 key={connection.slug}
                 type="button"
+                variant="ghost"
                 className="enabledProviderChip"
                 data-default={connection.slug === defaultSlug}
                 data-test-status={connection.lastTestStatus ?? 'untested'}
@@ -253,7 +240,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                   <small>{providerDisplay(connection.providerType).name}</small>
                 </span>
                 <span className="enabledProviderChipStatus" aria-hidden="true" />
-              </button>
+              </Button>
             ))
           }
         </div>
@@ -263,32 +250,30 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             <h3>模型供应商</h3>
             <p>选择 API Key 服务、本地模型、OAuth 账号登录，或自定义 OpenAI 兼容接口。</p>
           </div>
-          <button className="maka-button" type="button" onClick={() => startAdd('openai-compatible')}>
+          <Button className="maka-button" type="button" onClick={() => startAdd('openai-compatible')}>
             自定义
-          </button>
+          </Button>
         </div>
 
-        <div
-          className="catalogTabs catalogPillTabs"
-          role="tablist"
-          aria-label="模型供应商分类"
-          onKeyDown={onCatalogTabsKeyDown}
+        <PrimitiveTabs
+          className="catalogTabsRoot"
+          value={catalogTab}
+          onValueChange={(value) => setCatalogTab(value as CatalogTab)}
         >
-          {CATALOG_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={catalogTab === tab.id}
-              data-active={catalogTab === tab.id}
-              data-catalog-tab={tab.id}
-              tabIndex={catalogTab === tab.id ? 0 : -1}
-              onClick={() => setCatalogTab(tab.id)}
-            >
-              <strong>{tab.label}</strong>
-            </button>
-          ))}
-        </div>
+          <PrimitiveTabsList className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">
+            {CATALOG_TABS.map((tab) => (
+              <PrimitiveTabsTrigger
+                key={tab.id}
+                className="catalogTab"
+                value={tab.id}
+                data-active={catalogTab === tab.id}
+                data-catalog-tab={tab.id}
+              >
+                <strong>{tab.label}</strong>
+              </PrimitiveTabsTrigger>
+            ))}
+          </PrimitiveTabsList>
+        </PrimitiveTabs>
 
         {catalogTab === 'oauth' ? (
           <ModelOAuthSection onConnectionsChanged={async () => { await reload(); }} />
@@ -311,9 +296,9 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             <p>接入中转站、代理服务，或自部署的 OpenAI 兼容接口。</p>
           </div>
           {customProviders.map((type) => (
-            <button key={type} type="button" onClick={() => startAdd(type)}>
+            <Button key={type} type="button" variant="secondary" onClick={() => startAdd(type)}>
               添加 OpenAI 兼容接口
-            </button>
+            </Button>
           ))}
         </div>
       </section>
@@ -385,14 +370,16 @@ function ProviderConfigSheetOverlay(props: { onClose(): void; children: ReactNod
         aria-label="模型供应商配置"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button
+        <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           className="providerConfigSheetClose"
           aria-label="关闭模型配置"
           onClick={props.onClose}
         >
           <X strokeWidth={1.75} aria-hidden="true" />
-        </button>
+        </Button>
         {props.children}
       </section>
     </div>
@@ -471,8 +458,9 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
   }
 
   return (
-    <button
+    <Button
       className="providerCatalogCard"
+      variant="ghost"
       data-provider={props.type}
       data-status="ready"
       type="button"
@@ -489,7 +477,7 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
         <small>{display.description}</small>
         {props.count > 0 && <span className="providerCatalogCount">已配置 {props.count} 个</span>}
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -683,9 +671,10 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
             ? snapshot.email
             : card.description;
           return (
-            <button
+            <Button
               key={card.id}
               type="button"
+              variant="ghost"
               className="providerCatalogCard providerOAuthCard"
               data-card-id={card.id}
               data-provider={card.providerType}
@@ -703,7 +692,7 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
                 </span>
                 <small className="providerOAuthCardDescription">{liveDescription}</small>
               </span>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -765,15 +754,15 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
             <h3>Claude Code</h3>
             <p>登录 Claude Pro / Max 后，会同步成已启用模型连接。</p>
           </div>
-          <button
+          <Button
             type="button"
             className="maka-button"
-            data-variant="ghost"
+            variant="ghost"
             onClick={props.onClose}
             aria-label="关闭"
           >
             ×
-          </button>
+          </Button>
         </header>
         <ClaudeSubscriptionCard />
       </section>
@@ -946,15 +935,15 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
             <h3>{display.name}</h3>
             <p>{display.detail}</p>
           </div>
-          <button
+          <Button
             type="button"
             className="maka-button"
-            data-variant="ghost"
+            variant="ghost"
             onClick={props.onClose}
             aria-label="关闭"
           >
             ×
-          </button>
+          </Button>
         </header>
         <div className="settingsConnectionRow" data-status={runtimeState}>
           <p className="settingsConnectionDetail">
@@ -968,25 +957,24 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
           )}
           <div className="settingsConnectionActions">
             {!isLoggedIn ? (
-              <button
+              <Button
                 type="button"
                 className="maka-button"
-                data-variant="primary"
                 onClick={() => void startLogin()}
                 disabled={actionBusy}
               >
                 {pendingAction === 'login' ? '打开浏览器…' : `登录 ${display.shortName}`}
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="button"
                 className="maka-button"
-                data-variant="ghost"
+                variant="ghost"
                 onClick={() => void logout()}
                 disabled={actionBusy}
               >
                 {pendingAction === 'logout' ? '退出中…' : '退出登录'}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -1868,18 +1856,18 @@ function ModelTable(props: {
             默认模型只用于新建会话；已有会话会保留创建时的模型选择。
           </small>
         </div>
-        <button
+        <Button
           className="maka-button"
           type="button"
           disabled={!props.canRefresh}
           onClick={props.onRefresh}
         >
           {props.fetchingModels ? '拉取中…' : '刷新模型列表'}
-        </button>
+        </Button>
       </header>
 
       {props.modelChoices.length > 6 && (
-        <input
+        <Input
           type="search"
           className="modelTableSearch"
           placeholder={`在 ${props.modelChoices.length} 个模型中搜索…`}
@@ -1892,14 +1880,15 @@ function ModelTable(props: {
       )}
 
       {defaultHidden && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
           className="modelTableDefaultHint"
           onClick={() => setQuery('')}
           title="清空搜索"
         >
           当前默认 <code>{props.defaultModel}</code> 不在搜索结果中 · 点这里清空搜索
-        </button>
+        </Button>
       )}
 
       {props.modelChoices.length === 0 ? (
@@ -1922,9 +1911,10 @@ function ModelTable(props: {
             const isDefault = model.id === props.defaultModel;
             return (
               <li key={model.id} role="none">
-                <button
+                <Button
                   type="button"
                   className="modelTableRow"
+                  variant="ghost"
                   role="radio"
                   aria-checked={isDefault}
                   data-default={isDefault ? 'true' : undefined}
@@ -1939,7 +1929,7 @@ function ModelTable(props: {
                   <code className="modelTableRowId">{model.id}</code>
                   <ModelCapabilityChips model={model} />
                   {isDefault && <span className="modelTableDefaultBadge">默认</span>}
-                </button>
+                </Button>
               </li>
             );
           })}
@@ -2112,13 +2102,13 @@ function ClaudeSubscriptionCard() {
           Claude 登录开关读取失败：{experimentalGateError}
         </small>
         <div className="settingsConnectionActions">
-          <button
+          <Button
             type="button"
             className="maka-button"
             onClick={() => void refreshExperimentalGate()}
           >
             重试
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -2314,10 +2304,9 @@ function ClaudeSubscriptionCard() {
 
       <div className="settingsConnectionActions">
         {canStartClaudeLogin || claudeLoginPending ? (
-          <button
+          <Button
             type="button"
             className="maka-button"
-            data-variant="primary"
             onClick={() => void startLogin()}
             disabled={actionBusy || claudeLoginPending}
           >
@@ -2328,26 +2317,26 @@ function ClaudeSubscriptionCard() {
               : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
                 ? '重新登录'
                 : '登录订阅'}
-          </button>
+          </Button>
         ) : (
           <>
-            <button
+            <Button
               type="button"
               className="maka-button"
               onClick={() => void refreshQuota()}
               disabled={actionBusy}
             >
               {pendingAction === 'quota' ? '刷新中…' : '刷新配额'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="maka-button"
-              data-variant="ghost"
+              variant="ghost"
               onClick={() => void logout()}
               disabled={actionBusy}
             >
               {pendingAction === 'logout' ? '退出中…' : '退出登录'}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -2361,7 +2350,7 @@ function ClaudeSubscriptionCard() {
           {stateHint && (
             <small>提示：你的 state 以 <code>{stateHint}</code> 开头。</small>
           )}
-          <textarea
+          <Textarea
             value={pasteValue}
             onChange={(event) => setPasteValue(event.currentTarget.value)}
             placeholder="粘贴授权码（格式：xxx#yyy）"
@@ -2372,24 +2361,23 @@ function ClaudeSubscriptionCard() {
           />
           {pasteError && <small className="settingsErrorText">{pasteError}</small>}
           <div className="settingsConnectionActions">
-            <button
+            <Button
               type="button"
               className="maka-button"
-              data-variant="primary"
               onClick={() => void submitPaste()}
               disabled={actionBusy || pasteValue.trim().length === 0}
             >
               {pendingAction === 'submit' ? '提交中…' : '提交授权码'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="maka-button"
-              data-variant="ghost"
+              variant="ghost"
               onClick={() => void cancelLogin()}
               disabled={actionBusy}
             >
               {pendingAction === 'cancel' ? '取消中…' : '取消'}
-            </button>
+            </Button>
           </div>
         </div>
       )}

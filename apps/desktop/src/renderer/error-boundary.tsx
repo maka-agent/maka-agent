@@ -8,7 +8,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, Check, Clipboard, RotateCw } from 'lucide-react';
-import { redactSecrets } from '@maka/ui';
+import { Button as UiButton, redactSecrets } from '@maka/ui';
 
 type State = {
   error: Error | null;
@@ -120,9 +120,10 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               </pre>
             )}
             <div className="maka-error-actions">
-              <button
+              <UiButton
                 type="button"
-                className="maka-button maka-error-copy-action"
+                variant="outline"
+                className="maka-error-copy-action"
                 data-copy-state={copyState}
                 disabled={copyPending}
                 aria-busy={copyPending ? 'true' : undefined}
@@ -130,19 +131,18 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               >
                 <CopyIcon size={14} strokeWidth={1.75} aria-hidden="true" />
                 <span>{copyLabel}</span>
-              </button>
-              <button type="button" className="maka-button" onClick={this.handleReset}>
+              </UiButton>
+              <UiButton type="button" variant="secondary" onClick={this.handleReset}>
                 <RotateCw size={14} strokeWidth={1.75} aria-hidden="true" />
                 <span>重试</span>
-              </button>
-              <button
+              </UiButton>
+              <UiButton
                 type="button"
-                className="maka-button"
-                data-variant="primary"
+                variant="default"
                 onClick={this.handleReload}
               >
                 重新加载
-              </button>
+              </UiButton>
             </div>
             {copyState === 'failed' && (
               <p className="maka-error-copy-status">剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。</p>

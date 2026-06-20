@@ -43,6 +43,7 @@ export function isInvocationSource(value: unknown): value is InvocationSource {
  * can map 1:1 without re-deriving shape.
  */
 export interface InvocationLineage {
+  parentRunId?: string;
   parentTurnId?: string;
   retriedFromTurnId?: string;
   regeneratedFromTurnId?: string;

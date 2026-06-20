@@ -20,6 +20,7 @@ import {
   Palette,
   Plug,
   Plus,
+  Search,
   Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
@@ -30,7 +31,20 @@ import {
 } from 'lucide-react';
 import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
-import { useModalA11y } from '@maka/ui';
+import {
+  Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  Kbd,
+  KbdGroup,
+  useModalA11y,
+} from '@maka/ui';
 import { SETTINGS_NAV } from './settings/SettingsModal';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
@@ -674,13 +688,14 @@ export function CommandPalette(props: {
         aria-label="命令面板"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="maka-palette-input-wrap">
-          <input
+        <InputGroup className="maka-palette-input-wrap" aria-label="命令面板搜索">
+          <InputGroupInput
             ref={inputRef}
             className="maka-palette-input"
             type="text"
             value={query}
             placeholder="搜索命令、设置项或会话…"
+            aria-label="搜索命令、设置项或会话"
             onChange={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={onInputKeyDown}
             autoComplete="off"
@@ -688,13 +703,23 @@ export function CommandPalette(props: {
             aria-controls="maka-palette-list"
             aria-activedescendant={combined[highlight] ? `cmd-${combined[highlight]!.id}` : undefined}
           />
-          <span className="maka-palette-input-hint" aria-hidden="true">
-            <kbd>↵</kbd> 执行 · <kbd>Esc</kbd> 关闭
-          </span>
-        </div>
+          <InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">
+            <span className="maka-palette-input-hint" aria-hidden="true">
+              <Kbd className="maka-shortcut-kbd">↵</Kbd> 执行 · <Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭
+            </span>
+          </InputGroupAddon>
+        </InputGroup>
         <div className="maka-palette-list" id="maka-palette-list" role="listbox" aria-label="命令面板结果">
           {grouped.length === 0 ? (
-            <div className="maka-palette-empty">没有匹配的命令</div>
+            <Empty className="maka-palette-empty py-8 md:py-10 gap-3">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Search aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>没有匹配的命令</EmptyTitle>
+                <EmptyDescription>换个关键词，或按 Esc 关闭。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             grouped.map((group) => (
               <div key={group.label} className="maka-palette-group">
@@ -705,10 +730,11 @@ export function CommandPalette(props: {
                   const active = index === highlight;
                   const commandCommitPending = committedCommandId === cmd.id;
                   return (
-                    <button
+                    <Button
                       key={cmd.id}
                       id={`cmd-${cmd.id}`}
                       type="button"
+                      variant="ghost"
                       role="option"
                       aria-selected={active}
                       aria-disabled={cmd.disabled ? true : undefined}
@@ -735,7 +761,7 @@ export function CommandPalette(props: {
                           <CornerDownLeft size={12} strokeWidth={1.75} />
                         </span>
                       )}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -743,11 +769,17 @@ export function CommandPalette(props: {
           )}
         </div>
         <div className="maka-palette-footer">
-          <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+          <span>
+            <KbdGroup className="maka-shortcut-group">
+              <Kbd className="maka-shortcut-kbd">↑</Kbd>
+              <Kbd className="maka-shortcut-kbd">↓</Kbd>
+            </KbdGroup>
+            选择
+          </span>
           <span>{PALETTE_DELIM}</span>
-          <span><kbd>↵</kbd> 执行</span>
+          <span><Kbd className="maka-shortcut-kbd">↵</Kbd> 执行</span>
           <span>{PALETTE_DELIM}</span>
-          <span><kbd>Esc</kbd> 关闭</span>
+          <span><Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭</span>
         </div>
       </div>
     </div>

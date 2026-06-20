@@ -15,6 +15,11 @@ Config × Task  →  throwaway workspace  →  headless agent run  →  trajecto
 ```sh
 maka-headless eval <spec.json> [--out <dir>]   # run the grid → results.jsonl + comparison.md
 maka-headless compare <results.jsonl>          # print the comparison table
+maka-headless task run <spec.json> --task <id> --config <id> [--out <dir>]
+maka-headless task inspect <taskRunId> --store <out>/runs [--json]
+maka-headless task export <taskRunId> --store <out>/runs --out <dir> [--include-events]
+maka-headless task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]
+maka-headless task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir>
 ```
 
 Try it with the bundled fake-backend demo (no API key needed):
@@ -50,6 +55,7 @@ Programmatic sketch:
 
 ```ts
 import {
+  buildIsolatedHeadlessToolAvailability,
   buildIsolatedHeadlessTools,
   runExperiment,
   type IsolatedToolExecutor,
@@ -72,7 +78,8 @@ await runExperiment(config, task, {
   registerBackends(registry, context) {
     registry.register('ai-sdk', (ctx) => createAiSdkBackend({
       ...ctx,
-      tools: buildIsolatedHeadlessTools(context.toolExecutor!),
+      tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],
+      toolAvailability: buildIsolatedHeadlessToolAvailability(),
     }));
   },
 });
@@ -111,6 +118,38 @@ pristine fixture *after* the agent finishes and *before* the command runs — a
 model that rewrote its own test to pass has that edit reverted. Declare `[]`
 only when the verification reads nothing the agent can forge — as the bundled
 `examples/demo` does, checking a fixture file the agent has no reason to touch.
+
+Tasks may also use typed benchmark verifiers. Terminal-Bench is the first
+carrier, but it is an adapter hook rather than a runtime architecture:
+
+```jsonc
+{
+  "id": "terminal-bench-local",
+  "instruction": "Solve the task.",
+  "workspaceDir": "./fixtures/tb-task",
+  "verifier": {
+    "kind": "terminal_bench",
+    "adapter": "terminal-bench",
+    "instanceId": "local-task",
+    "datasetPath": "./terminal-bench",
+    "testCommand": "./run-tests.sh",
+    "protectedPaths": ["tests/", "run-tests.sh"]
+  }
+}
+```
+
+`testCommand` mode runs in Maka's disposable scoring workspace and needs no
+Docker, Harbor, or `tb` binary; because it is still a local command verifier,
+`protectedPaths` is required. Real Terminal-Bench harness execution is wired
+programmatically through `benchmarkAdapters` and an explicit external isolation
+record.
+
+`task run` writes append-only task-run JSONL under `<out>/runs/task-runs/`,
+updates compatibility `results.jsonl`, and writes a canonical export under
+`<out>/exports/<taskRunId>/`. Exports are projection-based: they include
+trajectory/runtime refs, submitted snapshot metadata, verifier output, score,
+budget, isolation, permission/inbox facts, taxonomy, and warnings. They do not
+embed environment variables, credentials, or hidden harness configuration.
 
 ## Exit code
 

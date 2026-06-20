@@ -22,7 +22,7 @@ export function recordLlmCall(deps: LlmRecorderDeps, record: LlmCallRecord): voi
       const cachedInputTokens = cacheHitInputTokens;
       const reasoningTokens = record.reasoningTokens ?? 0;
       const totalTokens = record.totalTokens ?? record.inputTokens + record.outputTokens + reasoningTokens;
-      const costUsd = computeCost(
+      const costUsd = record.costUsd ?? computeCost(
         {
           inputTokens: record.inputTokens,
           outputTokens: record.outputTokens,

@@ -586,6 +586,7 @@ function projectTokenUsage(
     ...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
     ...(usage.cacheCreation !== undefined ? { cacheCreation: usage.cacheCreation } : {}),
     ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+    ...(usage.systemPromptHash !== undefined ? { systemPromptHash: usage.systemPromptHash } : {}),
     ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
     ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
     ...(usage.requestShapeHash !== undefined ? { requestShapeHash: usage.requestShapeHash } : {}),
@@ -775,6 +776,7 @@ function isToolResultContent(value: unknown): value is ToolResultContent {
     || kind === 'web_search_error'
     || kind === 'office_document'
     || kind === 'explore_agent'
+    || kind === 'subagent'
     || kind === 'rive_workflow';
 }
 
@@ -918,6 +920,7 @@ function semanticMessage(message: StoredMessage): unknown {
         cacheRead: message.cacheRead,
         cacheCreation: message.cacheCreation,
         costUsd: message.costUsd,
+        systemPromptHash: message.systemPromptHash,
         prefixHash: message.prefixHash,
         prefixChangeReason: message.prefixChangeReason,
         requestShapeHash: message.requestShapeHash,

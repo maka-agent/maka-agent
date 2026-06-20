@@ -175,7 +175,7 @@ describe('Settings usage dashboard contract', () => {
       'Usage settings saves must use latest-response draft sync and roll back on failure',
     );
     assert.match(usagePage![0], /<Input value=\{usageDraft\.modelFilter\}/);
-    assert.match(usagePage![0], /<select value=\{usageDraft\.status\}/);
+    assert.match(usagePage![0], /<SettingsSelect[\s\S]*value=\{usageDraft\.status\}[\s\S]*ariaLabel="请求状态筛选"/);
     assert.doesNotMatch(
       usagePage![0],
       /<(?:input|Input) value=\{usage\.modelFilter\}/,

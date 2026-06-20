@@ -67,6 +67,24 @@ describe('Daily Review copy feedback contract', () => {
     assert.doesNotMatch(mainPaneBlock, /composerRef\.current\?\.setText\(markdown\)/);
   });
 
+  it('renders Daily Review controls through shared button variants without legacy button classes', async () => {
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const css = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles.css'), 'utf8');
+    const panelBlock = ui.match(/function DailyReviewPanel[\s\S]*?function PlanReminderPanel/)?.[0] ?? '';
+
+    assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="icon-sm"[\s\S]*?className="maka-daily-review-stepper"/);
+    assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="sm"[\s\S]*?className="maka-daily-review-range-tab"/);
+    assert.match(panelBlock, /className="maka-daily-review-copy"/);
+    assert.match(panelBlock, /className="maka-daily-review-append"/);
+    assert.match(panelBlock, /className="maka-daily-review-save"/);
+    assert.match(panelBlock, /className="maka-daily-review-alert-retry"/);
+    assert.doesNotMatch(panelBlock, /className="[^"]*\bmaka-button\b[^"]*"/);
+    assert.match(css, /\.maka-daily-review-range-tab\[data-active="true"\]/);
+    assert.match(css, /\.maka-daily-review-copy,\s*\.maka-daily-review-append,\s*\.maka-daily-review-save/);
+    assert.doesNotMatch(css, /\.maka-daily-review-range-tabs > button/);
+    assert.doesNotMatch(css, /\.maka-daily-review-actions > button/);
+  });
+
   it('gates Daily Review export actions while async work is pending', async () => {
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');

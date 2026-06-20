@@ -298,6 +298,26 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
+      /import \{ Button as PrimitiveButton \} from '\.\/primitives\/button\.js';/,
+      'The capped-output handoff copy action should use the vendored shared primitive Button primitive.',
+    );
+    assert.match(
+      src,
+      /<PrimitiveButton[\s\S]*variant="ghost"[\s\S]*size="sm"[\s\S]*className="maka-tool-terminal-copy"/,
+      'The capped-output handoff copy action should keep its ghost/sm affordance through shared primitive Button props and a semantic class hook.',
+    );
+    assert.doesNotMatch(
+      src,
+      /className="[^"]*\bmaka-button\b[^"]*\bmaka-tool-terminal-copy\b[^"]*"/,
+      'The capped-output handoff copy action must not reintroduce legacy maka-button styling classes.',
+    );
+    assert.doesNotMatch(
+      src,
+      /className="maka-tool-terminal-copy"[\s\S]{0,240}data-size="sm"/,
+      'The capped-output handoff copy action should rely on shared primitive Button size props instead of redundant data-size styling.',
+    );
+    assert.match(
+      src,
       /function useClipboardCopyFeedback/,
       'Clipboard copy actions should share one pending/failure feedback boundary instead of silently firing raw writes.',
     );

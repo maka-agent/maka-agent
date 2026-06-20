@@ -18,6 +18,10 @@ import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { projectRuntimeEventsToStoredMessages } from './runtime-event-read-model.js';
+import {
+  buildStatusPatch,
+  normalizeStopSessionSource,
+} from './session-projection-helpers.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -30,7 +34,7 @@ export interface AgentRunActiveSession {
 export interface AgentRunHooks {
   ensureActive(sessionId: string, header: SessionHeader): Promise<AgentRunActiveSession>;
   registerRun(active: AgentRunActiveSession, run: AgentRun): void;
-  unregisterRun(active: AgentRunActiveSession, run: AgentRun): void;
+  unregisterRun(active: AgentRunActiveSession, run: AgentRun): void | Promise<void>;
   updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader>;
   updateStatus(sessionId: string, status: SessionStatus, blockedReason?: SessionBlockedReason, ts?: number): Promise<void>;
   appendTurnState(
@@ -44,7 +48,7 @@ export interface AgentRunHooks {
 
 export type AgentRunLineage = Partial<Pick<
   UserMessageInput,
-  'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
+  'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
 >>;
 
 export interface AgentRunInput {
@@ -57,6 +61,7 @@ export interface AgentRunInput {
   newId: () => string;
   now: () => number;
   hooks: AgentRunHooks;
+  recordSessionMessages?: boolean;
 }
 
 export interface AgentRunBeginResult {
@@ -97,6 +102,7 @@ export class AgentRun {
     this.turnId = input.userInput.turnId;
     this.header = input.header;
     this.lineage = {
+      ...(input.userInput.parentRunId ? { parentRunId: input.userInput.parentRunId } : {}),
       ...(input.userInput.parentTurnId ? { parentTurnId: input.userInput.parentTurnId } : {}),
       ...(input.userInput.retriedFromTurnId ? { retriedFromTurnId: input.userInput.retriedFromTurnId } : {}),
       ...(input.userInput.regeneratedFromTurnId ? { regeneratedFromTurnId: input.userInput.regeneratedFromTurnId } : {}),
@@ -135,16 +141,18 @@ export class AgentRun {
   async begin(): Promise<AgentRunBeginResult> {
     await this.createRunRecord();
 
-    const userMsg: UserMessage = {
-      type: 'user',
-      id: this.input.newId(),
-      turnId: this.turnId,
-      ts: this.input.now(),
-      text: this.input.userInput.text,
-      ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
-    };
-    await this.input.store.appendMessage(this.sessionId, userMsg);
-    await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage);
+    if (this.recordsSessionMessages()) {
+      const userMsg: UserMessage = {
+        type: 'user',
+        id: this.input.newId(),
+        turnId: this.turnId,
+        ts: this.input.now(),
+        text: this.input.userInput.text,
+        ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
+      };
+      await this.input.store.appendMessage(this.sessionId, userMsg);
+      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage);
+    }
 
     this.lastTs = this.input.now();
 
@@ -188,11 +196,19 @@ export class AgentRun {
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });
       const turnStatus = turnStatusFromEvent(ev);
-      if (turnStatus && !this.stopped) {
+      if (turnStatus && !this.stopped && this.recordsSessionMessages()) {
         await this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
           ts: ev.ts,
           errorClass: turnStatus.errorClass,
         });
+      }
+      // A complete(error) without a preceding error event leaves failureClass
+      // unset — record it now so finalize does not fall back to 'unknown'.
+      // This emits a run_failed event here AND another in finishRun, mirroring
+      // the error-event path (which also double-records). Event-stream
+      // consumers already tolerate duplicate terminal events.
+      if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass) {
+        this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
       }
     }
     if (ev.type === 'error') {
@@ -202,10 +218,12 @@ export class AgentRun {
       }
       this.turnFailed = true;
       this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
-      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
-        ts: ev.ts,
-        errorClass: ev.reason ?? ev.code ?? 'unknown',
-      });
+      if (this.recordsSessionMessages()) {
+        await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
+          ts: ev.ts,
+          errorClass: ev.reason ?? ev.code ?? 'unknown',
+        });
+      }
       this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
     }
   }
@@ -225,9 +243,11 @@ export class AgentRun {
       return;
     }
     this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
-    await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
-      errorClass: error instanceof Error ? error.name : 'unknown',
-    }).catch(() => {});
+    if (this.recordsSessionMessages()) {
+      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
+        errorClass: error instanceof Error ? error.name : 'unknown',
+      }).catch(() => {});
+    }
     this.markRunFailed(error instanceof Error ? error.name : 'unknown', errorMessage(error), this.input.now());
   }
 
@@ -236,7 +256,7 @@ export class AgentRun {
     this.finalized = true;
     const lastTs = this.lastTs || this.input.now();
     if (this.active) {
-      this.input.hooks.unregisterRun(this.active, this);
+      await this.input.hooks.unregisterRun(this.active, this);
       if (this.stopped) this.finalStatus = { status: 'aborted' };
     }
     const nextStatus = this.active && this.active.activeRuns.size > 0
@@ -247,12 +267,12 @@ export class AgentRun {
         lastUsedAt: lastTs,
         lastMessageAt: lastTs,
         hasUnread: true,
-        ...statusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
+        ...buildStatusPatch(nextStatus.status, lastTs, nextStatus.blockedReason),
       });
     } catch {
       // The user-visible turn already completed; preserve existing behavior.
     }
-    if (this.sawCompletion) {
+    if (this.sawCompletion && this.recordsSessionMessages()) {
       await this.input.store.appendMessage(this.sessionId, {
         type: 'system_note',
         id: this.input.newId(),
@@ -262,6 +282,10 @@ export class AgentRun {
       } satisfies SystemNoteMessage).catch(() => {});
     }
     await this.finishRun(this.finalStatus, lastTs);
+  }
+
+  private recordsSessionMessages(): boolean {
+    return this.input.recordSessionMessages !== false;
   }
 
   private async createRunRecord(): Promise<void> {
@@ -280,6 +304,8 @@ export class AgentRun {
       createdAt,
       updatedAt: createdAt,
       ...this.lineage,
+      ...(this.input.userInput.agentId ? { agentId: this.input.userInput.agentId } : {}),
+      ...(this.input.userInput.agentName ? { agentName: this.input.userInput.agentName } : {}),
     };
     try {
       await this.input.runStore.createRun(header);
@@ -302,6 +328,7 @@ export class AgentRun {
   }
 
   private async buildPriorRuntimeContext(): Promise<PriorRuntimeContext | undefined> {
+    if (this.lineage.parentRunId) return undefined;
     if (
       !this.input.runStore ||
       !this.input.runtimeEventStore ||
@@ -309,7 +336,11 @@ export class AgentRun {
       !this.runtimeEventStoreAvailable
     ) return undefined;
     const runs = await this.input.runStore.listSessionRuns(this.sessionId);
-    const priorRuns = runs.filter((run) => run.runId !== this.runId && run.turnId !== this.turnId);
+    const priorRuns = runs.filter((run) =>
+      run.runId !== this.runId &&
+      run.turnId !== this.turnId &&
+      !run.parentRunId
+    );
     if (priorRuns.length === 0) return undefined;
 
     const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];
@@ -568,18 +599,6 @@ function errorMessage(error: unknown): string {
   return redactTraceString(error instanceof Error ? error.message : String(error));
 }
 
-function statusPatch(
-  status: SessionStatus,
-  ts: number,
-  blockedReason?: SessionBlockedReason,
-): Pick<SessionHeader, 'status' | 'blockedReason' | 'statusUpdatedAt'> {
-  return {
-    status,
-    blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
-    statusUpdatedAt: ts,
-  };
-}
-
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
@@ -612,7 +631,7 @@ function turnStatusFromEvent(event: SessionEvent): { status: TurnRecord['status'
       return { status: 'failed', errorClass: event.reason ?? event.code ?? 'unknown' };
     case 'complete':
       if (event.stopReason === 'user_stop') return { status: 'aborted' };
-      if (event.stopReason === 'error') return { status: 'failed', errorClass: 'unknown' };
+      if (event.stopReason === 'error') return { status: 'failed', errorClass: 'runtime_error' };
       if (event.stopReason === 'permission_handoff') return { status: 'running' };
       return { status: 'completed' };
     default:
@@ -626,11 +645,4 @@ function blockedReasonFromErrorReason(reason: string | undefined): SessionBlocke
   if (reason === 'tool_failed') return 'tool_failed';
   if (reason === 'auth' || reason.includes('api_key') || reason.includes('connection')) return 'NO_REAL_CONNECTION';
   return 'unknown';
-}
-
-function normalizeStopSessionSource(source: StopSessionInput['source'] | undefined): string | undefined {
-  switch (source) {
-    case 'stop_button': return 'renderer.stop_button';
-    case undefined: return undefined;
-  }
 }

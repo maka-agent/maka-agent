@@ -1,4 +1,9 @@
 import type { Config, Task } from './contracts.js';
+import type {
+  EnvNetworkSecretPolicy,
+  TaskIsolationFacts,
+  ToolExecutorIdentity,
+} from './task-contracts.js';
 
 export interface IsolatedCommandInput {
   command: string;
@@ -69,4 +74,59 @@ export function validateRealBackendIsolation(isolation: RealBackendIsolation | u
   if (typeof isolation.label !== 'string' || isolation.label.trim().length === 0) {
     throw new Error('realBackendIsolation.label is required');
   }
+}
+
+export function defaultEnvNetworkSecretPolicy(isolation: RealBackendIsolation | undefined): EnvNetworkSecretPolicy {
+  if (isolation) {
+    return {
+      schemaVersion: 1,
+      env: 'inherit_none',
+      network: 'unrestricted_external_boundary',
+      secrets: 'brokered_by_executor',
+    };
+  }
+  return {
+    schemaVersion: 1,
+    env: 'inherit_none',
+    network: 'disabled',
+    secrets: 'none',
+  };
+}
+
+export function taskIsolationFacts(input: {
+  backendKind: string;
+  required: boolean;
+  isolation?: RealBackendIsolation;
+  assertionSource?: TaskIsolationFacts['assertionSource'];
+  validatedAt: number;
+}): TaskIsolationFacts {
+  return {
+    schemaVersion: 1,
+    backendKind: input.backendKind,
+    required: input.required,
+    mode: input.isolation ? 'external' : 'inert_fake_backend',
+    ...(input.isolation ? { label: input.isolation.label } : {}),
+    assertionSource: input.assertionSource ?? 'headless_deps',
+    validatedAt: input.validatedAt,
+  };
+}
+
+export function toolExecutorIdentity(input: {
+  executorId: string;
+  taskRunId: string;
+  attemptId?: string;
+  isolation?: RealBackendIsolation;
+  toolNames?: string[];
+}): ToolExecutorIdentity {
+  const isolationMode = input.isolation ? 'external' : 'inert_fake_backend';
+  return {
+    schemaVersion: 1,
+    executorId: input.executorId,
+    taskRunId: input.taskRunId,
+    ...(input.attemptId ? { attemptId: input.attemptId } : {}),
+    toolNames: input.toolNames ?? ['headless_runtime'],
+    isolationMode,
+    label: input.isolation?.label ?? 'fake backend inert tool boundary',
+    commandPolicy: defaultEnvNetworkSecretPolicy(input.isolation),
+  };
 }

@@ -27,6 +27,7 @@ export interface OpenGatewayDeps {
 export class OpenGatewayService {
   private server: Server | null = null;
   private activeToken: string | null = null;
+  private syncQueue: Promise<void> = Promise.resolve();
   private readonly eventClients = new Map<string, Set<GatewayEventClient>>();
   private readonly recentEvents = new Map<string, SessionEvent[]>();
   private readonly recentRequests: GatewayRequestSummary[] = [];
@@ -61,6 +62,16 @@ export class OpenGatewayService {
   }
 
   async sync(settings: OpenGatewaySettings): Promise<OpenGatewayStatus> {
+    const run = async () => {
+      await this.syncNow(settings);
+    };
+    const next = this.syncQueue.then(run, run);
+    this.syncQueue = next.catch(() => {});
+    await next;
+    return this.getStatus();
+  }
+
+  private async syncNow(settings: OpenGatewaySettings): Promise<void> {
     const tokenConfigured = settings.token.trim().length > 0;
     if (!settings.enabled || !tokenConfigured) {
       await this.stop();
@@ -74,7 +85,7 @@ export class OpenGatewayService {
         activeEventStreams: 0,
         ...(settings.enabled && !tokenConfigured ? { lastError: 'missing_token' } : {}),
       };
-      return this.getStatus();
+      return;
     }
 
     if (
@@ -94,7 +105,7 @@ export class OpenGatewayService {
         activeEventStreams: this.countEventClients(),
         lastError: undefined,
       };
-      return this.getStatus();
+      return;
     }
 
     await this.stop();
@@ -141,7 +152,6 @@ export class OpenGatewayService {
         lastError: 'start_failed',
       };
     }
-    return this.getStatus();
   }
 
   async stop(): Promise<void> {

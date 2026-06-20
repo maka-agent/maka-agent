@@ -247,6 +247,7 @@ export interface TokenUsageMessage {
   /** Backward-compatible alias for cacheWriteInput. */
   cacheCreation?: number;
   costUsd?: number;
+  systemPromptHash?: string;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;

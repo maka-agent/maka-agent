@@ -5,6 +5,7 @@ import {
   backendNeedsIsolation,
   validateTaskVerification,
 } from './runner.js';
+import { budgetExtensionInboxItem } from './task-inbox.js';
 import {
   runTaskOnce,
   type RunTaskOnceDeps,
@@ -17,6 +18,7 @@ import {
   type FeedbackObservation,
   type SelfCheckObservation,
   type TaskEvent,
+  type TaskInterventionPolicy,
   type TaskRunError,
   type TaskRunResult,
 } from './task-contracts.js';
@@ -199,7 +201,15 @@ export async function runAutonomousTask(
         startedAt,
         finishedAt,
       );
-      await appendBudgetTerminal(taskRunStore, taskRunId, now, newId, beforeAttemptBudget, 'wall time cap reached before attempt');
+      await appendBudgetTerminal(
+        taskRunStore,
+        taskRunId,
+        now,
+        newId,
+        beforeAttemptBudget,
+        'wall time cap reached before attempt',
+        options.interventionPolicy,
+      );
       return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord };
     }
 
@@ -281,7 +291,15 @@ export async function runAutonomousTask(
     }
 
     if (shouldBudgetTerminal(decision, attempt, afterAttemptBudget)) {
-      await appendBudgetTerminal(taskRunStore, taskRunId, now, newId, afterAttemptBudget, decision.reason ?? 'loop budget exhausted');
+      await appendBudgetTerminal(
+        taskRunStore,
+        taskRunId,
+        now,
+        newId,
+        afterAttemptBudget,
+        decision.reason ?? 'loop budget exhausted',
+        options.interventionPolicy,
+      );
     } else {
       await appendTaskEvent(taskRunStore, taskRunId, terminalEventFromResultRecord(attempt.resultRecord, taskRunId, newId, {
         verifierResultId: attempt.projection.latestVerifierResult?.id,
@@ -305,7 +323,15 @@ export async function runAutonomousTask(
     }));
     return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord: latestResultRecord };
   }
-  await appendBudgetTerminal(taskRunStore, taskRunId, now, newId, exhaustedBudget, 'max attempts exhausted');
+  await appendBudgetTerminal(
+    taskRunStore,
+    taskRunId,
+    now,
+    newId,
+    exhaustedBudget,
+    'max attempts exhausted',
+    options.interventionPolicy,
+  );
   const resultRecord = latestResultRecord ?? syntheticResultRecord(
     config,
     task,
@@ -556,8 +582,34 @@ async function appendBudgetTerminal(
   newId: () => string,
   budget: LoopBudgetSnapshot,
   reason: string,
+  policy: TaskInterventionPolicy | undefined = undefined,
 ): Promise<void> {
   const ts = now();
+  if (policy?.mode === 'park' && policy.allowBudgetExtensionRequests) {
+    const item = budgetExtensionInboxItem({
+      inboxItemId: newId(),
+      taskRunId,
+      reason,
+      createdAt: ts,
+      budget: { ...budget },
+    });
+    await appendTaskEvent(store, taskRunId, {
+      type: 'task_inbox_item_recorded',
+      id: newId(),
+      taskRunId,
+      ts,
+      item,
+    });
+    await appendTaskEvent(store, taskRunId, {
+      type: 'task_run_needs_approval',
+      id: newId(),
+      taskRunId,
+      ts,
+      reason: 'budget_extension',
+      inboxItemId: item.inboxItemId,
+    });
+    return;
+  }
   await appendTaskEvent(store, taskRunId, {
     type: 'task_run_budget_exhausted',
     id: newId(),
@@ -608,6 +660,9 @@ function terminalEventFromResultRecord(
     case 'verification_failed':
     case 'verification_error':
     case 'agent_failed':
+    case 'invalid_setup':
+    case 'unsupported_adapter':
+    case 'isolation_required':
     case 'setup_failed':
     case 'infra_failed':
       return { type: 'task_run_failed', ...base, error };
@@ -653,6 +708,12 @@ function errorMessageFromTaxonomy(taxonomy: AutonomousResultTaxonomy): string {
       return 'agent run failed';
     case 'agent_incomplete':
       return 'agent run incomplete';
+    case 'invalid_setup':
+      return 'invalid setup';
+    case 'unsupported_adapter':
+      return 'unsupported verifier adapter';
+    case 'isolation_required':
+      return 'isolated executor required';
     case 'setup_failed':
       return 'task setup failed';
     case 'infra_failed':

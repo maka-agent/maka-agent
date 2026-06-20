@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
+import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftOpen, Search, SquarePen } from 'lucide-react';
 import type {
   ConnectionTestResult,
   ConnectionEvent,
@@ -49,6 +50,7 @@ import {
   SessionListPanel,
   type SkillEntry,
   ToastProvider,
+  Button as UiButton,
   type TurnFooterActionMeta,
   type TurnLineageBadge,
   useToast,
@@ -103,6 +105,10 @@ const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
 const USER_MESSAGE_VISIBLE_TIMEOUT_MS = 1_200;
 const USER_MESSAGE_VISIBLE_POLL_MS = 40;
+const SESSION_LIST_COLLAPSED_WIDTH = 0;
+const SESSION_LIST_EXPANDED_DEFAULT_WIDTH = 210;
+const SESSION_LIST_EXPANDED_MIN_WIDTH = 210;
+const SESSION_LIST_EXPANDED_MAX_WIDTH = 280;
 
 interface RendererAppInfo {
   projectPath: string;
@@ -146,6 +152,11 @@ function openPathActionErrorMessage(error: unknown, key: 'workspace' | 'project'
 
 function appInfoActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。');
+}
+
+function selectProjectDirectoryFailureCopy(reason: 'missing-selection'): string {
+  if (reason === 'missing-selection') return '没有读取到选中的目录，请重新选择。';
+  return '工作目录暂时无法切换，请稍后重试。';
 }
 
 function shellSettingsActionErrorMessage(error: unknown): string {
@@ -442,6 +453,9 @@ function AppShell() {
   const activeSession = sessions.find((session) => session.id === activeId);
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
+    : undefined;
+  const defaultConnectionEntry = defaultConnection
+    ? connections.find((connection) => connection.slug === defaultConnection)
     : undefined;
   const chatModelChoices = useMemo<ChatModelChoice[]>(
     () => buildChatModelChoices(connections),
@@ -867,6 +881,7 @@ function AppShell() {
   const showOnboardingHero =
     sessions.length === 0 && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
+  const [sessionListCollapsed, setSessionListCollapsed] = useState(() => readSessionListCollapsed());
 
   function setActiveId(next: string | undefined): void {
     activeIdRef.current = next;
@@ -1122,6 +1137,14 @@ function AppShell() {
     }
   }, [sessionListWidth]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('maka-chat-list-collapsed-v1', sessionListCollapsed ? 'true' : 'false');
+    } catch {
+      /* localStorage unavailable; sidebar resets to the collapsed target-layout like rail */
+    }
+  }, [sessionListCollapsed]);
+
   // Persist sidebar nav selection so the app remembers what bucket the user
   // had open (Chats / Pinned / Archived / Skills) across restarts. Strict
   // localStorage availability check — Vite dev sometimes runs through a
@@ -1309,6 +1332,9 @@ function AppShell() {
     if (state.activeSessionId) {
       setActiveId(state.activeSessionId);
     }
+    if (state.sidebarCollapsed !== undefined) {
+      setSessionListCollapsed(state.sidebarCollapsed);
+    }
     if (state.openSettingsSection) {
       openSettingsSection(state.openSettingsSection);
     }
@@ -1319,6 +1345,12 @@ function AppShell() {
     // (visualSmoke.getState returns null without MAKA_VISUAL_SMOKE_FIXTURE).
     if (state.searchModalOpen) {
       setSearchModalOpen(true);
+    }
+    // PR-shared primitive-COMMAND-INPUT-0: visual-smoke-only opener for the command
+    // palette so screenshot baselines can cover its input shell without
+    // requiring Cmd/Ctrl+K in the capture harness.
+    if (state.paletteOpen) {
+      openPalette();
     }
     if (state.sidebarSection === 'automations') {
       setNavSelection({ section: 'automations' });
@@ -1558,6 +1590,22 @@ function AppShell() {
     }
   }
 
+  async function selectProjectDirectory() {
+    try {
+      const result = await window.maka.app.selectProjectDirectory();
+      if (!result.ok) {
+        if (result.reason !== 'cancelled') {
+          toastApi.error('选择工作目录失败', selectProjectDirectoryFailureCopy(result.reason));
+        }
+        return;
+      }
+      setAppInfo({ projectPath: result.projectPath, projectGit: result.projectGit });
+      toastApi.success('已切换工作目录', basenameFromPath(result.projectPath));
+    } catch (error) {
+      toastApi.error('选择工作目录失败', appInfoActionErrorMessage(error));
+    }
+  }
+
   async function refreshPlanReminders(options: { shouldShowError?: () => boolean } = {}) {
     try {
       const next = await window.maka.plans.list();
@@ -1770,6 +1818,17 @@ function AppShell() {
       }
     } catch (error) {
       toastApi.error(`无法打开${openPathActionLabel('project')}`, openPathActionErrorMessage(error, 'project'));
+    }
+  }
+
+  async function openWorkspaceFolder() {
+    try {
+      const result = await window.maka.app.openPath('workspace');
+      if (!result.ok) {
+        toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+      }
+    } catch (error) {
+      toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathActionErrorMessage(error, 'workspace'));
     }
   }
 
@@ -2559,6 +2618,7 @@ function AppShell() {
   }
 
   function startColumnResize(event: PointerEvent<HTMLDivElement>) {
+    if (sessionListCollapsed) return;
     event.preventDefault();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -2592,13 +2652,12 @@ function AppShell() {
   }
 
   function onResizeHandleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (sessionListCollapsed) return;
     // Keyboard-accessible separator (WAI-ARIA orientation=vertical convention):
     //   ArrowLeft  → -10 px       ArrowRight → +10 px
     //   Shift+Arrow → ±50 px       Home → min       End → max
     const SMALL = 10;
     const LARGE = 50;
-    const MIN = 240;
-    const MAX = 420;
     let next = sessionListWidth;
     switch (event.key) {
       case 'ArrowLeft':
@@ -2608,10 +2667,10 @@ function AppShell() {
         next = sessionListWidth + (event.shiftKey ? LARGE : SMALL);
         break;
       case 'Home':
-        next = MIN;
+        next = SESSION_LIST_EXPANDED_MIN_WIDTH;
         break;
       case 'End':
-        next = MAX;
+        next = SESSION_LIST_EXPANDED_MAX_WIDTH;
         break;
       default:
         return;
@@ -2621,6 +2680,15 @@ function AppShell() {
   }
 
   const hasModalOpen = Boolean(activePermission) || settingsOpen || helpOpen || paletteOpen || searchModalOpen;
+  const activeMessageLoadError = activeId ? messageLoadErrorBySession[activeId] : undefined;
+  const homeSurfaceActive =
+    navSelection.section === 'sessions'
+    && messages.length === 0
+    && activeStreaming.length === 0
+    && activeThinking.length === 0
+    && liveTools.length === 0
+    && !activeMessageLoadError;
+  const onboardingComposerHidden = showOnboardingHero && onboardingState !== undefined;
   useEffect(() => {
     void window.maka.appWindow.setTitlebarControlsVisible(!hasModalOpen).catch(() => {});
     return () => {
@@ -2629,32 +2697,28 @@ function AppShell() {
   }, [hasModalOpen]);
 
   return (
-    <div className="appFrame">
+    <div className="appFrame agents-layout-root">
       <div
-        className="app maka-shell-2col"
+        className="app maka-shell-2col agents-layout-body"
         aria-hidden={hasModalOpen ? 'true' : undefined}
         inert={hasModalOpen ? true : undefined}
         data-modal-background-hidden={hasModalOpen ? 'true' : undefined}
+        data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
         style={{
-          '--maka-session-list-width': `${sessionListWidth}px`,
+          '--maka-session-list-width': `${sessionListCollapsed ? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth}px`,
+          '--maka-resize-handle-width': '0px',
         } as CSSProperties}
       >
-        <div className="maka-panel maka-panel-list maka-floating-panel">
+        <div
+          className="maka-panel maka-panel-list maka-floating-panel"
+          aria-hidden={sessionListCollapsed ? 'true' : undefined}
+          inert={sessionListCollapsed ? true : undefined}
+        >
           <SessionListPanel
             selection={navSelection}
             sessionCounts={sessionCounts}
             sessions={visibleSessions}
             activeId={activeId}
-            projectBadge={
-              appInfo
-                ? {
-                    label: basenameFromPath(appInfo.projectPath),
-                    path: appInfo.projectPath,
-                    branch: appInfo.projectGit.branch,
-                    onOpen: () => void openProjectFolder(),
-                  }
-                : undefined
-            }
             skills={skills}
             onRefreshSkills={() => refreshSkills()}
             onCreateSkillTemplate={() => createSkillTemplate()}
@@ -2669,9 +2733,11 @@ function AppShell() {
               setSearchScrollTarget(null);
             }}
             onOpenSettings={openSettings}
+            userLabel={userLabel}
             onOpenUpdate={() => openSettingsSection('about')}
             onNew={createSession}
             onOpenSearchModal={() => setSearchModalOpen(true)}
+            onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
             onCreatePlanReminder={(input) => createPlanReminder(input)}
             onUpdatePlanReminder={(id, patch) => updatePlanReminder(id, patch)}
             onTogglePlanReminder={(id, enabled) => togglePlanReminder(id, enabled)}
@@ -2703,21 +2769,119 @@ function AppShell() {
               onRename: (sessionId, name) => renameSession(sessionId, name),
               onDelete: (sessionId) => deleteSession(sessionId),
             }}
+            sidebarCollapsed={sessionListCollapsed}
+            onToggleSidebar={() => setSessionListCollapsed((current) => !current)}
           />
         </div>
         <div
           className="maka-resize-handle"
           role="separator"
-          aria-label="调整对话列表宽度"
+          aria-label={sessionListCollapsed ? '侧边栏已收起' : '调整对话列表宽度'}
           aria-orientation="vertical"
-          aria-valuemin={240}
-          aria-valuemax={420}
+          aria-valuemin={SESSION_LIST_EXPANDED_MIN_WIDTH}
+          aria-valuemax={SESSION_LIST_EXPANDED_MAX_WIDTH}
           aria-valuenow={sessionListWidth}
-          tabIndex={0}
+          aria-hidden={sessionListCollapsed ? 'true' : undefined}
+          tabIndex={sessionListCollapsed ? -1 : 0}
           onPointerDown={startColumnResize}
           onKeyDown={onResizeHandleKeyDown}
         />
-        <div className="maka-panel maka-panel-detail maka-floating-panel">
+        <div
+          className="maka-panel maka-panel-detail maka-floating-panel agents-content-area agents-parchment-paper-surface"
+          data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
+          data-agents-view={
+            navSelection.section === 'automations'
+              ? 'cron'
+              : navSelection.section === 'skills'
+                ? 'skills'
+                : navSelection.section === 'sessions'
+                  ? 'im_hub'
+                  : navSelection.section
+          }
+        >
+          {sessionListCollapsed && (
+            <div className="maka-collapsed-drag-strip" aria-label="侧边栏已收起">
+              <UiButton
+                className="maka-collapsed-topbar-button"
+                variant="quiet"
+                size="icon-sm"
+                type="button"
+                onClick={() => setSessionListCollapsed(false)}
+                aria-label="展开侧边栏"
+                title="展开侧边栏"
+              >
+                <PanelLeftOpen size={16} strokeWidth={1.65} aria-hidden="true" />
+              </UiButton>
+              <UiButton
+                className="maka-collapsed-topbar-button"
+                variant="quiet"
+                size="icon-sm"
+                type="button"
+                onClick={() => setSearchModalOpen(true)}
+                aria-label="搜索对话"
+                title="搜索对话"
+              >
+                <Search size={16} strokeWidth={1.65} aria-hidden="true" />
+              </UiButton>
+              <UiButton
+                className="maka-collapsed-topbar-button"
+                variant="quiet"
+                size="icon-sm"
+                type="button"
+                onClick={createSession}
+                aria-label="新任务"
+                title="新任务"
+              >
+                <SquarePen size={16} strokeWidth={1.65} aria-hidden="true" />
+              </UiButton>
+            </div>
+          )}
+          <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
+            <UiButton
+              className="maka-workspace-feedback-action"
+              variant="quiet"
+              size="sm"
+              type="button"
+              onClick={() => openSettingsSection('about')}
+              title="问题反馈 · 打开关于与环境信息"
+            >
+              <MessageCircleQuestion size={15} strokeWidth={1.7} aria-hidden="true" />
+              <span>问题反馈</span>
+            </UiButton>
+            <UiButton
+              className="maka-workspace-icon-action"
+              variant="quiet"
+              size="icon-sm"
+              type="button"
+              onClick={openPalette}
+              aria-label="打开命令面板"
+              title="打开命令面板"
+            >
+              <Grid3X3 size={15} strokeWidth={1.7} aria-hidden="true" />
+            </UiButton>
+            <UiButton
+              className="maka-workspace-icon-action"
+              variant="quiet"
+              size="icon-sm"
+              type="button"
+              onClick={openHelp}
+              aria-label="打开帮助"
+              title="打开帮助"
+            >
+              <HelpCircle size={15} strokeWidth={1.7} aria-hidden="true" />
+            </UiButton>
+            <UiButton
+              className="maka-workspace-icon-action"
+              variant="quiet"
+              size="icon-sm"
+              type="button"
+              onClick={() => openSettingsSection('health')}
+              aria-label="打开健康中心"
+              title="打开健康中心"
+            >
+              <CircleGauge size={15} strokeWidth={1.7} aria-hidden="true" />
+            </UiButton>
+          </div>
           {/* PR-UI-RENDER-2: install the internal-URI dispatcher
               for any Markdown rendered inside ChatView (assistant
               answers, thinking panels, streaming bubbles). Wrapping
@@ -2728,7 +2892,7 @@ function AppShell() {
               navigation entry point. */}
           <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
-            <div className="mainColumn">
+            <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
               <ChatView
                 messages={messages}
                 streamingText={activeStreaming}
@@ -2764,7 +2928,9 @@ function AppShell() {
                 onRefreshSkills={() => refreshSkills()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
+                onOpenSkillsFolder={() => openSkillsFolder()}
                 planReminders={planReminders}
+                onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
                 onCreatePlanReminder={(input) => createPlanReminder(input)}
                 onUpdatePlanReminder={(id, patch) => updatePlanReminder(id, patch)}
                 onTogglePlanReminder={(id, enabled) => togglePlanReminder(id, enabled)}
@@ -2855,7 +3021,7 @@ function AppShell() {
               />
               <Composer
                 ref={composerRef}
-                hidden={navSelection.section !== 'sessions'}
+                hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
                 streaming={activeStreaming.length > 0}
@@ -2865,6 +3031,21 @@ function AppShell() {
                 onImportTextFile={importTextFileIntoComposer}
                 onImportDroppedTextFiles={importDroppedTextFilesIntoComposer}
                 onImportFolderOutline={importFolderOutlineIntoComposer}
+                modelLabel={
+                  activeModelLabel
+                  ?? activeConnection?.defaultModel
+                  ?? activeConnection?.models?.[0]?.id
+                  ?? defaultConnectionEntry?.defaultModel
+                  ?? defaultConnectionEntry?.models?.[0]?.id
+                  ?? undefined
+                }
+                workspacePicker={{
+                  label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
+                  branch: appInfo?.projectGit.branch,
+                  onOpen: () => {
+                    void selectProjectDirectory();
+                  },
+                }}
               />
             </div>
             {activeId && liveBrowserSessionIds.includes(activeId) && (
@@ -2996,14 +3177,7 @@ function AppShell() {
               }
             },
             onOpenWorkspace: async () => {
-              try {
-                const result = await window.maka.app.openPath('workspace');
-                if (!result.ok) {
-                  toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
-                }
-              } catch (error) {
-                toastApi.error(`无法打开${openPathActionLabel('workspace')}`, openPathActionErrorMessage(error, 'workspace'));
-              }
+              await openWorkspaceFolder();
             },
             onOpenProjectFolder: () => openProjectFolder(),
             onOpenSkillsFolder: () => openSkillsFolder(),
@@ -3337,7 +3511,18 @@ function readSessionListWidth(): number {
   } catch {
     /* localStorage unavailable */
   }
-  return 320;
+  return SESSION_LIST_EXPANDED_DEFAULT_WIDTH;
+}
+
+function readSessionListCollapsed(): boolean {
+  try {
+    const stored = localStorage.getItem('maka-chat-list-collapsed-v1');
+    if (stored === 'false') return false;
+    if (stored === 'true') return true;
+  } catch {
+    /* localStorage unavailable */
+  }
+  return true;
 }
 
 function isNoRealConnectionError(error: unknown): boolean {
@@ -3465,7 +3650,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function clampSessionListWidth(value: number): number {
-  return Math.round(clamp(value, 240, 420));
+  return Math.round(clamp(value, SESSION_LIST_EXPANDED_MIN_WIDTH, SESSION_LIST_EXPANDED_MAX_WIDTH));
 }
 
 function filterSessions(sessions: SessionSummary[], selection: NavSelection): SessionSummary[] {

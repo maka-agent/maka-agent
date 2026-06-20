@@ -93,6 +93,40 @@ describe('Settings theme page contract', () => {
     assert.match(segmentedBlock, /data-radio-value=\{value\}[\s\S]*tabIndex=\{radioTabIndex\(value, props\.value, values\)\}/);
   });
 
+  it('keeps theme/palette/density radio cards on native <button>, not <Button>', async () => {
+    // Regression guard for WAWQAQ msg 5f75daf6 — commit b40d097 swapped
+    // these cards onto packages/ui's <Button>, which bakes in
+    // `h-9 inline-flex bg-primary text-primary-foreground` Tailwind
+    // utilities that collapse each card to a 36px-tall black pill and
+    // hide the swatch + label. The radio-card pattern needs the custom
+    // grid layout in `.settingsThemeOption`, so it must stay on
+    // a native <button> element.
+    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
+    // Source order: each radio-card block opens with `<button` (not `<Button`)
+    // and the className appears later. The `\b` boundary keeps `<button` from
+    // matching `<Button`. Strip `//` line comments and `/* */` block comments
+    // first so the regression-explainer comments don't confuse the count.
+    const themePageNoComments = themePage
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    const lcButtonCount = (themePageNoComments.match(/<button\b/g) ?? []).length;
+    const ucButtonCount = (themePageNoComments.match(/<Button\b/g) ?? []).length;
+    assert.equal(
+      ucButtonCount,
+      0,
+      `Theme/palette/density radio cards must use native <button>, not <Button> from packages/ui (found ${ucButtonCount} <Button> occurrences in the page)`,
+    );
+    assert.equal(
+      lcButtonCount,
+      3,
+      `Expected exactly 3 native <button> elements (mode picker, palette picker, density picker), found ${lcButtonCount}`,
+    );
+    assert.match(themePage, /className="settingsThemeOption settingsThemeOptionPreview"/);
+    assert.match(themePage, /className="settingsThemeOption settingsPaletteOption"/);
+    assert.match(themePage, /className="settingsThemeOption"\s*\n\s*onClick=\{\(\) => void setDensity/);
+  });
+
   it('keeps theme page copy Chinese-first and user-facing', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
@@ -112,6 +146,46 @@ describe('Settings theme page contract', () => {
       themeCopy,
       /Light\/Dark|settings\.json|safeStorage|API key|accent|IDE/,
       'Theme settings visible copy must not leak implementation or English UI terms',
+    );
+  });
+
+  it('keeps shared Button chrome from collapsing theme choice cards', async () => {
+    const css = await readRepo('apps/desktop/src/renderer/styles.css');
+
+    assert.match(
+      css,
+      /\.settingsThemeOption \{[\s\S]*height:\s*auto;[\s\S]*min-height:\s*66px;[\s\S]*justify-content:\s*stretch;[\s\S]*overflow:\s*hidden;[\s\S]*white-space:\s*normal;/,
+      'Theme option cards must reset shared Button defaults instead of inheriting h-9/centered chrome',
+    );
+    assert.match(
+      css,
+      /\.settingsThemeOptionPreview \{[\s\S]*align-items:\s*stretch;[\s\S]*min-height:\s*142px;/,
+      'Theme preview cards must reserve enough vertical space for preview plus label',
+    );
+    assert.match(
+      css,
+      /\.settingsThemePreview \{[\s\S]*max-height:\s*70px;[\s\S]*aspect-ratio:\s*16 \/ 8;[\s\S]*overflow:\s*hidden;/,
+      'Theme preview mocks must be bounded so they cannot cover visible labels',
+    );
+    assert.match(
+      css,
+      /\.settingsThemePreviewPane\[data-mode="light"\] \{[\s\S]*background:\s*oklch\(1\.000 0 0\);[\s\S]*color:\s*oklch\(0\.18 0 0\);/,
+      'Light theme preview must show the target-layout style white content surface, not the old parchment hue',
+    );
+    assert.match(
+      css,
+      /\.settingsThemePreviewPane\[data-mode="light"\] \.settingsThemePreviewSidebar \{[\s\S]*background:\s*oklch\(0\.955 0 0\);/,
+      'Light theme preview sidebar must show the gray shell backplate',
+    );
+    assert.doesNotMatch(
+      css,
+      /settingsThemePreviewPane[\s\S]{0,260}oklch\([^)]*75\)/,
+      'Theme preview tiles must not keep the old warm parchment hue after the gray-shell baseline',
+    );
+    assert.match(
+      css,
+      /\.settingsThemeLabel strong \{[\s\S]*overflow:\s*hidden;[\s\S]*text-overflow:\s*ellipsis;[\s\S]*white-space:\s*nowrap;/,
+      'Long palette names must stay inside their option cards',
     );
   });
 });

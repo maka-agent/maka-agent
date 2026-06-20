@@ -4,6 +4,11 @@ import type { ResultRecord } from './contracts.js';
 import type {
   AutonomousDecision,
   FeedbackObservation,
+  TaskInboxItem,
+  TaskIsolationFacts,
+  TaskPermissionGrant,
+  TaskPermissionRequest,
+  TaskRunParkedState,
   ScoreResult,
   SelfCheckObservation,
   TaskAttempt,
@@ -11,7 +16,9 @@ import type {
   TaskRun,
   TaskRunError,
   TaskRunResult,
+  ToolExecutorIdentity,
   VerifierResult,
+  WorkspaceLeaseFacts,
 } from './task-contracts.js';
 
 export interface TaskRunProjection extends TaskRun {
@@ -22,9 +29,16 @@ export interface TaskRunProjection extends TaskRun {
   decisions: AutonomousDecision[];
   verifierResults: VerifierResult[];
   scoreResults: ScoreResult[];
+  toolExecutors: ToolExecutorIdentity[];
+  permissionGrants: TaskPermissionGrant[];
+  permissionRequests: TaskPermissionRequest[];
+  inboxItems: TaskInboxItem[];
   warnings: string[];
   latestVerifierResult?: VerifierResult;
   latestScoreResult?: ScoreResult;
+  isolation?: TaskIsolationFacts;
+  workspaceLease?: WorkspaceLeaseFacts;
+  parked?: TaskRunParkedState;
   sourceResultRecord?: ResultRecord;
 }
 
@@ -56,9 +70,14 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     decisions: [],
     verifierResults: [],
     scoreResults: [],
+    toolExecutors: [],
+    permissionGrants: [],
+    permissionRequests: [],
+    inboxItems: [],
     warnings: [],
   };
   const attempts = new Map<string, TaskAttempt>();
+  const inboxItems = new Map<string, TaskInboxItem>();
   let terminalEvents = 0;
 
   for (const event of events) {
@@ -118,6 +137,54 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         projection.scoreResults.push(event.result);
         projection.latestScoreResult = event.result;
         projection.result = resultFromScore(event.result, projection.latestVerifierResult);
+        break;
+      case 'isolation_policy_recorded':
+        projection.isolation = event.facts;
+        break;
+      case 'workspace_lease_recorded':
+        projection.workspaceLease = event.lease;
+        break;
+      case 'tool_executor_identity_recorded':
+        projection.toolExecutors.push(event.identity);
+        break;
+      case 'permission_request_recorded':
+        projection.permissionRequests.push(event.request);
+        break;
+      case 'permission_grant_recorded':
+        projection.permissionGrants.push(event.grant);
+        break;
+      case 'permission_decision_recorded':
+        break;
+      case 'task_inbox_item_recorded':
+        inboxItems.set(event.item.inboxItemId, event.item);
+        break;
+      case 'task_inbox_item_resolved': {
+        const previous = inboxItems.get(event.inboxItemId);
+        if (previous) {
+          inboxItems.set(event.inboxItemId, {
+            ...previous,
+            status: event.status,
+            ...(event.resolution ? { resolution: event.resolution } : {}),
+          });
+        }
+        if (projection.parked?.inboxItemId === event.inboxItemId && terminalEvents === 0) {
+          delete projection.parked;
+        }
+        break;
+      }
+      case 'task_run_needs_approval':
+        if (terminalEvents === 0) {
+          projection.status = 'needs_approval';
+          projection.parked = { reason: event.reason, inboxItemId: event.inboxItemId, since: event.ts };
+          if (event.attemptId) {
+            const previous = attempts.get(event.attemptId);
+            attempts.set(event.attemptId, {
+              ...(previous ?? { attemptId: event.attemptId, taskRunId: event.taskRunId, startedAt: event.ts }),
+              status: 'needs_approval',
+              finishedAt: event.ts,
+            });
+          }
+        }
         break;
       case 'task_attempt_completed':
         attempts.set(event.attemptId, {
@@ -186,6 +253,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
   }
 
   projection.attempts = [...attempts.values()];
+  projection.inboxItems = [...inboxItems.values()];
   return projection;
 }
 
@@ -306,6 +374,7 @@ function applyTerminalEvent(projection: TaskRunProjection, terminalEvents: numbe
   if (terminalEvents > 0) {
     projection.warnings.push('multiple terminal task run events observed; last terminal event wins');
   }
+  delete projection.parked;
   return terminalEvents + 1;
 }
 

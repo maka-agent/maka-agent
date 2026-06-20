@@ -26,6 +26,7 @@
 
 import { useEffect, useState } from 'react';
 import type { ArtifactRecord } from '@maka/core';
+import { Button, Spinner } from '@maka/ui';
 import {
   type ArtifactPreviewInput,
   type PreviewResolution,
@@ -140,13 +141,14 @@ export function UnsupportedArtifactPreview(props: {
           is available "eventually", which is misleading for surfaces
           that have no path-open IPC. */}
       {props.onShowInFolder && (
-        <button
+        <Button
           type="button"
-          className="maka-button maka-button-secondary maka-artifact-preview-unsupported-cta"
+          variant="secondary"
+          className="maka-artifact-preview-unsupported-cta"
           onClick={props.onShowInFolder}
         >
           在 Finder 中打开
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -177,7 +179,7 @@ function ImageArtifactPreview(props: {
   if (result.state === 'loading') {
     return (
       <div className="maka-artifact-preview-loading" role="status" aria-live="polite">
-        <span className="maka-artifact-preview-spinner" aria-hidden="true" />
+        <Spinner className="maka-artifact-preview-spinner" aria-hidden="true" role="presentation" />
         <span>加载图片预览…</span>
       </div>
     );

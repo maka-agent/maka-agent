@@ -72,14 +72,16 @@ export class RuntimeReadModel {
       ]);
     }
 
-    if (runs.length === 0) {
-      return this.buildView({ runs, events: [], diagnostics });
+    const topLevelRuns = runs.filter((run) => !run.parentRunId);
+
+    if (topLevelRuns.length === 0) {
+      return this.buildView({ runs: topLevelRuns, events: [], diagnostics });
     }
 
     const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];
     const terminalFacts: RuntimeEventTerminalFact[] = [];
-    for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
-      const run = runs[runIndex]!;
+    for (let runIndex = 0; runIndex < topLevelRuns.length; runIndex += 1) {
+      const run = topLevelRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
         const diagnostic = readModelDiagnostic('incomplete_event', 'active run is using the in-flight projection cache', {
           runId: run.runId,
@@ -146,7 +148,7 @@ export class RuntimeReadModel {
     );
 
     return this.buildView({
-      runs,
+      runs: topLevelRuns,
       events: ordered.map((item) => item.event),
       diagnostics,
       terminalFacts,

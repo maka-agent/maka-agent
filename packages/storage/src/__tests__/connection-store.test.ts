@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -189,12 +189,74 @@ describe('FileConnectionStore', () => {
       assert.equal(await store.getDefault(), null);
     });
   });
+
+  test('drops stale persisted default slugs on read without hiding connections', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await writeFile(
+        join(dir, 'llm-connections.json'),
+        JSON.stringify({
+          defaultSlug: 'deleted-connection',
+          connections: [{
+            slug: 'anthropic-live',
+            name: 'Claude',
+            providerType: 'anthropic',
+            defaultModel: 'claude-sonnet-4-5-20250929',
+            enabled: true,
+            createdAt: 1,
+            updatedAt: 1,
+          }],
+        }) + '\n',
+        'utf8',
+      );
+
+      assert.equal(await store.getDefault(), null);
+      assert.deepEqual((await store.list()).map((connection) => connection.slug), ['anthropic-live']);
+    });
+  });
+
+  test('drops disabled persisted default slugs on read while preserving enabled defaults', async () => {
+    await withConnectionStore(async (store, dir) => {
+      await writeFile(
+        join(dir, 'llm-connections.json'),
+        JSON.stringify({
+          defaultSlug: 'disabled-claude',
+          connections: [
+            {
+              slug: 'disabled-claude',
+              name: 'Claude',
+              providerType: 'anthropic',
+              defaultModel: 'claude-sonnet-4-5-20250929',
+              enabled: false,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+            {
+              slug: 'enabled-openai',
+              name: 'OpenAI',
+              providerType: 'openai',
+              defaultModel: 'gpt-5',
+              enabled: true,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        }) + '\n',
+        'utf8',
+      );
+
+      assert.equal(await store.getDefault(), null);
+      await store.setDefault('enabled-openai');
+      assert.equal(await store.getDefault(), 'enabled-openai');
+    });
+  });
 });
 
-async function withConnectionStore<T>(fn: (store: ReturnType<typeof createConnectionStore>) => Promise<T>): Promise<T> {
+async function withConnectionStore<T>(
+  fn: (store: ReturnType<typeof createConnectionStore>, dir: string) => Promise<T>,
+): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'maka-connection-store-'));
   try {
-    return await fn(createConnectionStore(dir));
+    return await fn(createConnectionStore(dir), dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

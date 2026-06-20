@@ -334,6 +334,8 @@ function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['stat
 
 function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
   const preview = lastMessagePreview(messages);
+  const derivedLastMessageAt = latestVisibleMessageAt(messages);
+  const lastMessageAt = maxTimestamp(header.lastMessageAt, derivedLastMessageAt);
   return {
     id: header.id,
     name: normalizeSessionName(header.name),
@@ -341,7 +343,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     isArchived: header.isArchived,
     labels: header.labels,
     hasUnread: header.hasUnread,
-    lastMessageAt: header.lastMessageAt,
+    lastMessageAt,
     ...(preview ? { lastMessagePreview: preview } : {}),
     status: header.status,
     ...(header.blockedReason ? { blockedReason: header.blockedReason } : {}),
@@ -353,6 +355,20 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     model: header.model,
     permissionMode: header.permissionMode,
   };
+}
+
+function latestVisibleMessageAt(messages: StoredMessage[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.type === 'user' || message.type === 'assistant') return message.ts;
+  }
+  return undefined;
+}
+
+function maxTimestamp(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.max(left, right);
 }
 
 function normalizeSessionName(name: string): string {

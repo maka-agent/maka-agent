@@ -4,7 +4,7 @@ PR-MEMORY-1 is a **contract-only** package. It MUST NOT add IPC handlers, storag
 
 Anchors:
 
-- `notes/reference app-memory-reverse-2026-05-25.md` (kenji msg `66fd3eab`) — Reference app facts + Maka quasi-memory inventory.
+- `notes/reference implementation-memory-reverse-2026-05-25.md` (kenji msg `66fd3eab`) — reference implementation facts + Maka quasi-memory inventory.
 - `notes/pr-memory-0-audit-plan.md` — pre-audit plan skeleton.
 - `#my-ai:2f91befb` thread, msgs `22209a1b` (xuan gate review + scope adjust) + `fb95a158` (kenji invariant ask) + `68a1bcb5` (xuan review priorities).
 
@@ -50,18 +50,18 @@ Memory is not one surface. The contract types separate them so a quasi-memory ob
 | 8 | provider+embedding leakage boundary | `MemoryCapabilitySnapshot.embeddingProvider` is the literal `'disabled'`. v1 has no provider field on entries. Downstream wiring of any provider requires extending this snapshot type. |
 | 9 | renderer cannot forge provenance/readiness | `MemoryWriteRequestContext.originatedFromRenderer=true` blocks any durable `'active'` write — even with valid `confirmedAt` — returning `MemoryBlockReason='renderer_provenance_forged'`. |
 
-## What NOT to copy from Reference app (negative reference list)
+## What NOT to copy from reference implementation (negative reference list)
 
-Per `notes/reference app-memory-reverse-2026-05-25.md`:
+Per `notes/reference implementation-memory-reverse-2026-05-25.md`:
 
 1. **Sleep cycle / 4-layer consolidation** (`22-embeddings.md`) — Maka has no sleep stage. No code path automatically aggregates, summarizes, or merges memory entries.
 2. **Auto-extract from chat** — every `chat_extracted` write requires explicit confirmation. Even after assistant suggests, user must click confirm; no silent insertion.
 3. **Auto-retrieve / Recall tool runtime** — out of scope for v1 contract. Adding it requires a separate retrieve-side contract with its own threat model.
 4. **LLM-mediated forget/delete** — only user-initiated deletes allowed. No "the model decided this is no longer relevant".
 5. **Activity-derived memory** — Activity recorder feeds Maka memory only via `activity_observation` candidate source, never as a durable source. Activity audit (separate lane) MUST run before any activity→memory pipeline.
-6. **Unauthenticated local route** (Reference app's `05-express-api.md` exposes memory over local HTTP) — Maka memory MUST NOT have a local HTTP endpoint; if Local Gateway lane lands, it MUST go through capability scope allowlist + audit log, never default-on.
+6. **Unauthenticated local route** (reference implementation's `05-express-api.md` exposes memory over local HTTP) — Maka memory MUST NOT have a local HTTP endpoint; if Local Gateway lane lands, it MUST go through capability scope allowlist + audit log, never default-on.
 7. **Cloud embedding fallback** — `embeddingProvider: 'disabled'` lock. Adding a provider requires an explicit contract extension; no silent OpenAI/Cohere/local hybrid.
-8. **Soul tree / `~/.config/reference app` long-term file** — out of v1 scope. If durable persistence lands (PR-MEMORY-2+), it sits inside the existing workspace store, not a separate global tree.
+8. **Soul tree / `~/.config/reference implementation` long-term file** — out of v1 scope. If durable persistence lands (PR-MEMORY-2+), it sits inside the existing workspace store, not a separate global tree.
 
 ## Quasi-memory exclusion list (gate #7 + #8)
 

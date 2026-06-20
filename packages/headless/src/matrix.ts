@@ -36,18 +36,35 @@ export async function runMatrix(
 
 function failedRecord(config: Config, task: Task, error: unknown): ResultRecord {
   const now = Date.now();
+  const errorClass = classifyMatrixFailure(error);
   return {
     taskId: task.id,
     configId: config.id,
     sessionId: '',
     runId: '',
     status: 'failed',
+    runnerCompleted: false,
     passed: false,
+    scored: false,
+    eligible: false,
+    excludedReason: errorClass,
     exitCode: null,
     steps: 0,
     durationMs: 0,
     startedAt: now,
     finishedAt: now,
     error: error instanceof Error ? error.message : String(error),
+    errorClass,
   };
+}
+
+function classifyMatrixFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const text = message.toLowerCase();
+  if (text.includes('unsupported_adapter')) return 'unsupported_adapter';
+  if (text.includes('isolated executor')) return 'isolation_required';
+  if (text.includes('protectedpaths') || text.includes('verifier') || text.includes('verification') || text.includes('fixture')) {
+    return 'invalid_setup';
+  }
+  return 'setup_failed';
 }

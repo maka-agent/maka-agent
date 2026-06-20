@@ -82,11 +82,11 @@ removed so runner and flow code share the same identity/provider spine.
   (the backend emits `abort` then a trailing `complete`, and the flow emits
   both). Coalescing into a single terminal event is a runner/projection
   concern.
-- **`AgentFlowLike` vs `AgentFlow`:** the runner defines a local
-  `AgentFlowLike` (`run(ctx, request)`) that predates the formal
-  `AgentFlow` (`run(ctx, input: FlowInput)`). Their second parameters
-  differ, so they are not cleanly assignable today. Convergence is a
-  SessionManager-delegation task.
+- **Flow runnable surface:** `RuntimeRunner` depends on the centrally owned
+  `RunnableAgentFlow` (`Pick<AgentFlow, 'run'>`) so it remains decoupled from
+  flow metadata (`kind`, `sessionId`) while sharing the formal `AgentFlow.run`
+  signature. The old `AgentFlowLike` name remains as a deprecated compatibility
+  alias.
 
 ## Verification snapshot
 

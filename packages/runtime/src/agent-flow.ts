@@ -53,6 +53,8 @@ export type { InvocationContext } from './invocation-context.js';
  * of the flow, not inside it.
  */
 export interface FlowInput {
+  /** Parent AgentRun id when this flow is running a child agent turn. */
+  parentRunId?: string;
   /** User turn text. */
   text: string;
   /** Optional attachments bound to the user message. */
@@ -105,6 +107,12 @@ export interface AgentFlow {
   /** Run the model/tool loop, emitting canonical runtime facts. */
   run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent>;
 }
+
+/**
+ * Narrow runnable flow surface for orchestration code that should not depend
+ * on flow metadata such as `kind` or `sessionId`.
+ */
+export type RunnableAgentFlow = Pick<AgentFlow, 'run'>;
 
 // ============================================================================
 // AgentFlowControl — optional lifecycle/steering surface

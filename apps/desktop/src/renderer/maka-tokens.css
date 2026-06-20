@@ -36,17 +36,45 @@
      `bfee559d`): de-yellowed by shifting hue 80 → 250 (cool neutral).
      The warm-cream tone read as visibly yellow against the chrome
      accents and felt odd as a default. Same hue family as the azure
-     palette but with lower chroma so the default stays subtler. The
-     warm-cream variant is still reachable via the coral palette.
+     palette but with lower chroma so the default stays subtler.
+
+     PR-PARCHMENT-DEFAULT-0 (@yuejing 2026-06-20, WAWQAQ msg `00dcaf3a`
+     "/goal 像素级模仿 reference implementation"): nudged back toward reference implementation's
+     `light-parchment` baseline (warm off-white).
+
+     PR-GRAY-CARD-LIFT-0 (@yuejing 2026-06-20, WAWQAQ msg `a49dbd1e`
+     "整个的底板应该是灰色的, content surface 应该是白色的"):
+     WAWQAQ pivoted off the warm-parchment family to reference implementation's plain
+     `light` theme. There:
+       --color-bg-layout (shell canvas)  : #fdfdfd ≈ near-white
+       --color-bg-container (card)       : #ffffff pure white
+       --color-fill-tertiary (chip)      : #f9f9f9 light gray
+       --color-border-tertiary           : #e6e6e6
+       --color-text                      : #141414 near-black
+     The user's intent reads as: the shell behind everything is a
+     gray plate, the cards lift off it as pure white. We translate to
+     oklch with hue 0 (no chroma, neutral gray). `--surface-canvas`
+     sits visibly darker than `--background` so the hierarchy reads
+     as plate-vs-card, not flat-on-flat.
 
      `--surface-canvas` is the shell-level background (what `.appFrame`
-     paints behind everything); `--background` is what cards paint.
-     Both are the same hue family — the new visual hierarchy comes from
-     borders, not contrast. */
-  --background: oklch(0.985 0.003 250);
-  --surface-canvas: oklch(0.97 0.005 250);
-  --background-elevated: color-mix(in srgb, var(--foreground) 1.5%, var(--background));
-  --foreground: oklch(0.20 0.010 250);
+     paints behind everything); `--background` is what cards paint. */
+  --background: oklch(1.000 0 0);
+  /* PR-GRAY-CARD-LIFT-6 (WAWQAQ msg `d4277aba` round 12): the plate
+     at 0.955 (≈ #f0f0f0) was so subtle that on commodity displays
+     the gray-plate / white-card lift was barely perceptible. Push
+     the shell down to 0.935 (≈ #ebebeb) — still calm and neutral,
+     but now clearly distinct from the white cards floating on it. */
+  --surface-canvas: oklch(0.935 0 0);
+  /* PR-GRAY-CARD-LIFT-3 (WAWQAQ msg `053ca971`): in the new
+     gray-plate / white-card hierarchy, "elevated" cards live on the
+     same pure white as base content cards — the lift comes from the
+     plate behind them, not from a darker shade. Previously
+     `--background-elevated` mixed 1.5% foreground into background,
+     which read as a faint gray on the new shell. Pinning it to the
+     same `--background` keeps card surfaces consistently white. */
+  --background-elevated: var(--background);
+  --foreground: oklch(0.18 0 0);
   --foreground-dimmed: color-mix(in srgb, var(--foreground) 80%, var(--background));
   --foreground-rgb: 36, 40, 48; /* light-mode RGB triplet used by shadow rings */
 
@@ -72,6 +100,8 @@
   --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
   --destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
   --info-text: color-mix(in oklab, var(--info) 50%, var(--foreground));
+  --warning: var(--info);
+  --warning-text: var(--info-text);
 
   /* === foreground solid mix scale ===
      foreground-N = N% of foreground interpolated INTO background.
@@ -102,11 +132,11 @@
   --hover:         oklch(from var(--foreground) l c h / 0.04);
   --active:        oklch(from var(--foreground) l c h / 0.08);
   /* User bubble color is intentionally distinct from `--accent` so users can
-     re-tint the accent without ruining chat legibility (external design reference §15.1).
-     PR-DEFAULT-CANVAS-DEYELLOW-0: re-aligned with the cool-neutral
-     canvas (hue 250). The bubble sits on `--background` so it must
-     share the canvas hue family or it reads as a tinted island. */
-  --chat-user-bg: oklch(0.94 0.006 250);
+     re-tint the accent without ruining chat legibility.
+     PR-GRAY-CARD-LIFT-0: bubble shifts to neutral gray (hue 0)
+     matching the new gray-plate / white-card hierarchy. Slightly
+     darker than the white card so the bubble lifts. */
+  --chat-user-bg: oklch(0.935 0 0);
   --chat-user-foreground: var(--foreground);
   --user-message-bubble: var(--chat-user-bg);
   --selection:     oklch(from var(--accent) l c h / 0.2);
@@ -231,15 +261,13 @@
 ============================================================================= */
 
 .dark {
-  /* PR-DEFAULT-CANVAS-DEYELLOW-0 (WAWQAQ msg `bfee559d`): dark mode
-   * also de-yellowed. Same hue family as the light canvas (250) so
-   * the brand reads consistently across modes. The delta between
-   * shell and card stays small so the sidebar still feels like part
-   * of the main sheet, not a separate panel. */
-  --background: oklch(0.21 0.006 250);
-  --surface-canvas: oklch(0.175 0.005 250);
+  /* PR-GRAY-CARD-LIFT-0: dark mode follows the same neutral gray
+   * (hue 0, no chroma) hierarchy. Lightness anchors keep existing
+   * contrast tuning. */
+  --background: oklch(0.21 0 0);
+  --surface-canvas: oklch(0.13 0 0);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
-  --foreground: oklch(0.92 0.005 250);
+  --foreground: oklch(0.92 0 0);
   --foreground-rgb: 222, 224, 230;
 
   --accent: oklch(0.65 0.20 293);
@@ -568,9 +596,9 @@
     overflow: hidden;          /* main shell handles its own scrolling */
   }
 
-  /* Scrollbars: thin, accent-on-hover, transparent track. */
-  /* PR-UI-10: thinner default scrollbar (8→6) + smoother hover state
-   * + Firefox `scrollbar-width: thin` for parity. */
+  /* Native fallback for raw browser scroll surfaces. Primary app scroll
+   * containers are mounted through OverlayScrollbars with the os-theme-maka
+   * theme in styles.css. */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;

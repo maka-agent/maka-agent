@@ -5,15 +5,16 @@ import {
   Archive,
   ArchiveRestore,
   ArrowDown,
+  ArrowUp,
   Ban,
   BookOpen,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleCheckBig,
   Clock,
   Copy,
-  DownloadCloud,
   Eye,
   FileEdit,
   Flag,
@@ -25,7 +26,10 @@ import {
   Hourglass,
   Loader2,
   MessageSquare,
-  Paperclip,
+  MoreHorizontal,
+  Mic,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Pin,
   PinOff,
@@ -50,6 +54,7 @@ import {
   type MakaUriDest,
 } from './maka-uri.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
+import { OverlayScrollArea } from './overlay-scroll-area.js';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -102,32 +107,37 @@ import {
   Badge,
   Button as UiButton,
   Card,
+  Checkbox,
   DialogClose,
   DialogContent,
   DialogRoot,
   Input,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectList,
+  SelectPopup,
+  SelectPortal,
+  SelectPositioner,
+  SelectRoot,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+  TabsList,
+  TabsPanel,
+  TabsRoot,
+  TabsTrigger,
   Textarea as UiTextarea,
   cn,
 } from './ui.js';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
+import { Button as PrimitiveButton } from './primitives/button.js';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './primitives/empty.js';
+import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
+import { Kbd } from './primitives/kbd.js';
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 
-/**
- * PR-SIDEBAR-IA-0 Phase 2 + fixup (xuan msg `47e204f2`, `91401163`;
- * WAWQAQ `b86b47d1`, `4259bf8c`; kenji `9f683ea8`, `6465cf22`).
- *
- * Left sidebar's second part is a 5-button module nav. Four of those
- * buttons select a content section (`sessions`, `automations`,
- * `skills`, `daily-review`); the fifth (`搜索`) is a **transient
- * modal trigger** and does NOT have a `NavSelection` section variant.
- * Clicking `搜索` opens a Search modal overlay; the underlying
- * `NavSelection` stays on whatever section was active.
- *
- * Module labels are Chinese-first per xuan `47e204f2` #5:
- *   - sessions     → 会话
- *   - search       → 搜索   (modal trigger; NOT a section)
- *   - automations  → 计划   (local reminder MVP; no arbitrary automation execution)
- *   - skills       → 技能   (reuses the existing skills view)
- *   - daily-review → 每日回顾  (PR-DAILY-REVIEW-MVP-0: real panel reading local telemetry + sessions)
- */
 export type NavSelection =
   | { section: 'sessions'; filter: SessionFilter }
   | { section: 'automations' }
@@ -137,6 +147,11 @@ export type NavSelection =
 export type SessionFilter = 'chats' | 'flagged' | 'archived';
 
 /**
+ * PR-PARCHMENT-HOME-9 (WAWQAQ msg `781852eb` 2026-06-20): restored
+ * after xuan's `6f73b05` removed the sidebar module nav. WAWQAQ asked
+ * for reference implementation's full sidebar — 会话 / 搜索 / 扩展▾ / 计划 / 技能 /
+ * 每日回顾 — to be kept, not collapsed to a pure session directory.
+ *
  * Identifier set for the sidebar module nav. Includes `search` even
  * though it is not a `NavSelection.section` — `search` is a modal
  * trigger and needs a label/icon but no underlying section.
@@ -144,10 +159,7 @@ export type SessionFilter = 'chats' | 'flagged' | 'archived';
 type ModuleNavId = NavSelection['section'] | 'search';
 
 /**
- * Top-level module nav labels. Chinese-first per xuan `47e204f2` #5;
- * English keywords stay accessible via the command-palette `keywords`
- * field but are not surfaced in the sidebar UI itself.
- *
+ * Top-level module nav labels. Chinese-first per xuan `47e204f2` #5.
  * Keyed by `ModuleNavId` so the `search` modal trigger gets a label
  * even though it is not a `NavSelection.section`.
  */
@@ -308,12 +320,6 @@ export function SessionListPanel(props: {
   sessionCounts: Record<SessionFilter, number>;
   sessions: SessionSummary[];
   activeId?: string;
-  projectBadge?: {
-    label: string;
-    path: string;
-    branch?: string;
-    onOpen(): void;
-  };
   skills?: SkillEntry[];
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
@@ -352,6 +358,7 @@ export function SessionListPanel(props: {
   onSelectSession(sessionId: string): void;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
+  userLabel?: string;
   onNew(): void;
   onOpenSkill?(skillId: string): void;
   /** Opens the local version/build information surface. */
@@ -364,6 +371,7 @@ export function SessionListPanel(props: {
    * lifecycle behind this callback.
    */
   onOpenSearchModal?(): void;
+  onRefreshPlanReminders?(): void | Promise<void>;
   onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
   onTogglePlanReminder?(id: string, enabled: boolean): void | Promise<void>;
@@ -382,16 +390,16 @@ export function SessionListPanel(props: {
    */
   dailyReviewBridge?: DailyReviewBridge;
   rowActions?: SessionRowActions;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?(): void;
 }) {
-  // PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ `49309559` + kenji
-  // `9f683ea8` + xuan `71687cc7`): the title is the Chinese module
-  // label only. The previous Chats/Pinned/Archived switcher was
-  // removed from the sidebar entirely — no visible filter tabs, no
-  // hidden ArrowLeft/Right cycle, no "查看已归档对话" link. Future
-  // Pinned/Archived access (if/when needed) will be a deliberate,
-  // visible, lightweight control in a separate PR. `NavSelection.filter`
-  // stays in the type for storage continuity but is internal-only.
+  // PR-PARCHMENT-HOME-9: title follows the active module so the panel
+  // heading reflects what's open. Reverted from the "always 会话"
+  // collapse in xuan's `6f73b05` — WAWQAQ explicitly wants the full
+  // target-layout style module nav restored (msg `781852eb`).
   const title = MODULE_NAV_LABEL[props.selection.section];
+  const accountLabel = props.userLabel?.trim() || 'jakevin';
+  const accountInitial = Array.from(accountLabel)[0]?.toUpperCase() ?? 'J';
   // PR-UX-POLISH-1 commit 4 (WAWQAQ msg `e0dbad11` + kenji msg
   // `2844f64f`): in-list `筛选会话` filter input removed. All search
   // capability lives in the top-level `搜索` modal (PR-SEARCH-MODAL-
@@ -454,28 +462,19 @@ export function SessionListPanel(props: {
     focusables[nextIndex]?.scrollIntoView({ block: 'nearest' });
   }
 
-  // PR-SIDEBAR-IA-0 Phase 2 module nav order is FIXED per WAWQAQ
-  // `b86b47d1` + xuan `47e204f2`. Sessions first (most-used), then
-  // Search (modal trigger), then Automations / Skills / Daily
-  // Review. Order is part of the contract — do not reorder without
-  // an explicit IA review.
-  //
-  // PR-SIDEBAR-IA-0 Phase 2 fixup (WAWQAQ `4259bf8c` + `49309559`,
-  // xuan `91401163`, kenji `6465cf22`): the `搜索` nav button is a
-  // transient modal trigger, NOT a section. It calls
-  // `onOpenSearchModal()` and does NOT touch `selection`. Selected
-  // state never sticks to `搜索`.
+  // PR-PARCHMENT-HOME-9 (WAWQAQ msg `781852eb`): restored module nav
+  // helpers. `search` is a transient modal trigger and never
+  // "active". Plan count shows unread reminders as a small chip.
   const isModuleActive = (id: ModuleNavId) => {
-    if (id === 'search') return false; // transient — never "active"
+    if (id === 'search') return false;
     return props.selection.section === id;
   };
   const activePlanReminderCount = (props.planReminders ?? [])
     .filter((reminder) => reminder.status !== 'completed')
     .length;
+  const [extensionsExpanded, setExtensionsExpanded] = useState(true);
   function selectModule(id: ModuleNavId) {
     if (id === 'search') {
-      // Opens the dedicated Search modal hosted by main.tsx. If no
-      // handler is wired (older callers / tests), the click is inert.
       props.onOpenSearchModal?.();
       return;
     }
@@ -489,41 +488,66 @@ export function SessionListPanel(props: {
   }
 
   return (
-    <aside className="maka-session-panel" aria-label="对话列表">
+    <aside
+      className="maka-session-panel agents-sidebar"
+      aria-label="对话列表"
+      data-collapsed={props.sidebarCollapsed ? 'true' : undefined}
+    >
       <header className="maka-session-panel-header">
-        <div className="maka-window-drag-strip" aria-hidden="true" />
-        <button className="maka-nav-primary" type="button" onClick={props.onNew}>
-          <SquarePen className="maka-nav-primary-icon" strokeWidth={1.5} />
-          <span>新建对话</span>
-        </button>
-        {props.projectBadge && (
+        <div className="maka-sidebar-drag-strip">
+          {props.onOpenSearchModal && (
+            <button
+              className="maka-sidebar-search-button"
+              type="button"
+              data-maka-search-trigger="true"
+              onClick={props.onOpenSearchModal}
+              aria-label="搜索对话"
+              title="搜索对话"
+            >
+              <Search size={16} strokeWidth={1.65} aria-hidden="true" />
+            </button>
+          )}
           <button
+            className="maka-sidebar-toggle"
             type="button"
-            className="maka-project-badge"
-            onClick={props.projectBadge.onOpen}
-            title={props.projectBadge.branch ? `打开项目目录 · ${props.projectBadge.branch}` : '打开项目目录'}
-            aria-label={props.projectBadge.branch
-              ? `打开项目目录：${props.projectBadge.label}，当前分支 ${props.projectBadge.branch}`
-              : `打开项目目录：${props.projectBadge.label}`}
+            onClick={props.onToggleSidebar}
+            aria-label={props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+            aria-expanded={!props.sidebarCollapsed}
+            title={props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
           >
-            <FolderOpen size={14} strokeWidth={1.6} aria-hidden="true" />
-            <span>项目 · {props.projectBadge.label}{props.projectBadge.branch ? ` · ${props.projectBadge.branch}` : ''}</span>
+            {props.sidebarCollapsed ? (
+              <PanelLeftOpen size={16} strokeWidth={1.65} aria-hidden="true" />
+            ) : (
+              <PanelLeftClose size={16} strokeWidth={1.65} aria-hidden="true" />
+            )}
           </button>
-        )}
+        </div>
+        {/* WAWQAQ msg `2690c2e4` + earlier msg `f56f38c1`: top-of-
+            sidebar primary action. reference implementation labels its equivalent as
+            "新任务" (not "新建对话") to keep the sidebar a verb-first
+            action rail. We follow the same word — clicking still
+            creates a new chat session (`onNew`); the label is just
+            the user-visible rhythm. `aria-label` repeats the full
+            "新任务" for screen readers. */}
+        <button className="maka-nav-primary" type="button" onClick={props.onNew} aria-label="新任务">
+          <SquarePen className="maka-nav-primary-icon" strokeWidth={1.5} />
+          <span>新任务</span>
+        </button>
       </header>
 
       {/*
-        PR-SIDEBAR-IA-0 Phase 2 (xuan msg `47e204f2`): top-level module
-        nav. Chinese-first labels; lightweight visual hierarchy reusing
-        `.maka-nav-row` (transparent bg, accent on selected). Pinned /
-        Archived / Recent are NOT here — they live as filter chips
-        inside the Sessions module content below.
+        PR-PARCHMENT-HOME-9 (WAWQAQ msg `781852eb` 2026-06-20):
+        restored after xuan's `6f73b05` removed the entire module
+        nav. Order matches reference implementation's sidebar — 会话 / 搜索 / 扩展▾
+        (专家套件 / 技能 / 连接器) / 计划. 搜索 is a transient
+        modal trigger.
       */}
       <nav className="maka-sidebar-modules" aria-label="主导航">
         <button
           className="maka-nav-row"
           data-active={isModuleActive('sessions')}
           aria-current={isModuleActive('sessions') ? 'page' : undefined}
+          aria-label={MODULE_NAV_LABEL.sessions}
           type="button"
           onClick={() => selectModule('sessions')}
         >
@@ -536,43 +560,70 @@ export function SessionListPanel(props: {
           data-maka-search-trigger="true"
           onClick={() => selectModule('search')}
           aria-haspopup="dialog"
+          aria-label={MODULE_NAV_LABEL.search}
         >
           <Search className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL.search}</span>
         </button>
+        <button
+          className="maka-nav-row maka-nav-row-parent"
+          type="button"
+          aria-expanded={extensionsExpanded}
+          aria-controls="maka-sidebar-extension-tree"
+          onClick={() => setExtensionsExpanded((value) => !value)}
+        >
+          <Sparkles className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+          <span>扩展</span>
+          <ChevronRight className="maka-nav-disclosure" strokeWidth={1.75} aria-hidden="true" />
+        </button>
+        {extensionsExpanded && (
+          <div id="maka-sidebar-extension-tree" className="maka-nav-tree maka-sidebar-extension-tree">
+            <button
+              className="maka-nav-row maka-nav-row-sub"
+              data-active={isModuleActive('daily-review')}
+              aria-current={isModuleActive('daily-review') ? 'page' : undefined}
+              aria-label="专家套件"
+              type="button"
+              onClick={() => selectModule('daily-review')}
+            >
+              <BookOpen className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+              <span>专家套件</span>
+            </button>
+            <button
+              className="maka-nav-row maka-nav-row-sub"
+              data-active={isModuleActive('skills')}
+              aria-current={isModuleActive('skills') ? 'page' : undefined}
+              aria-label={MODULE_NAV_LABEL.skills}
+              type="button"
+              onClick={() => selectModule('skills')}
+            >
+              <Sparkles className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+              <span>{MODULE_NAV_LABEL.skills}</span>
+            </button>
+            <button
+              className="maka-nav-row maka-nav-row-sub"
+              type="button"
+              aria-label="连接器"
+              onClick={props.onOpenSettings}
+            >
+              <Globe className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+              <span>连接器</span>
+            </button>
+          </div>
+        )}
         <button
           className="maka-nav-row"
           data-active={isModuleActive('automations')}
           aria-current={isModuleActive('automations') ? 'page' : undefined}
           type="button"
           onClick={() => selectModule('automations')}
-          aria-label={activePlanReminderCount > 0 ? `计划，${activePlanReminderCount} 个未完成提醒` : undefined}
+          aria-label={activePlanReminderCount > 0 ? `计划，${activePlanReminderCount} 个未完成提醒` : MODULE_NAV_LABEL.automations}
         >
           <Clock className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
           <span>{MODULE_NAV_LABEL.automations}</span>
           {activePlanReminderCount > 0 && (
             <small className="maka-nav-count" aria-hidden="true">{activePlanReminderCount}</small>
           )}
-        </button>
-        <button
-          className="maka-nav-row"
-          data-active={isModuleActive('skills')}
-          aria-current={isModuleActive('skills') ? 'page' : undefined}
-          type="button"
-          onClick={() => selectModule('skills')}
-        >
-          <Sparkles className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
-          <span>{MODULE_NAV_LABEL.skills}</span>
-        </button>
-        <button
-          className="maka-nav-row"
-          data-active={isModuleActive('daily-review')}
-          aria-current={isModuleActive('daily-review') ? 'page' : undefined}
-          type="button"
-          onClick={() => selectModule('daily-review')}
-        >
-          <CalendarDays className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
-          <span>{MODULE_NAV_LABEL['daily-review']}</span>
         </button>
       </nav>
 
@@ -597,82 +648,74 @@ export function SessionListPanel(props: {
 
       <section className="maka-session-list" aria-label={title}>
         <div className="maka-session-list-title" aria-hidden="true">{title}</div>
-        {props.selection.section === 'skills' ? (
-          <SidebarModuleHint
-            Icon={Sparkles}
-            title="技能库"
-            body="已在右侧内容栏打开。"
-          />
-        ) : props.selection.section === 'automations' ? (
-          <SidebarModuleHint
-            Icon={Clock}
-            title="计划"
-            body="已在右侧内容栏打开。"
-          />
-        ) : props.selection.section === 'sessions' ? (
-          props.sessions.length === 0 ? (
-            <EmptyState
-              Icon={MessageSquare}
-              title="等待开始对话"
-              body="和 Maka 的对话会出现在这里。点下面开始第一条。"
-              cta={{ label: '新建对话', onClick: props.onNew }}
-            />
-          ) : (
-            <div className="maka-list-stack" onKeyDown={handleListKeyDown}>
-              <SessionListGroups
-                groups={
-                  props.statusGroups && props.selection.section === 'sessions' && props.selection.filter === 'chats'
-                    ? props.statusGroups.map((g) => ({
-                        key: g.id,
-                        label: g.label,
-                        sessions: g.sessions,
-                        collapsible: g.collapsible,
-                        defaultExpanded: g.defaultExpanded,
-                      }))
-                    : groupSessionsForFilter(filteredSessions, props.selection).map((g) => ({
-                        key: g.label,
-                        label: g.label,
-                        sessions: g.sessions,
-                        collapsible: false,
-                        defaultExpanded: true,
-                      }))
-                }
-                activeId={props.activeId}
-                streamingSessionIds={props.streamingSessionIds}
-                staleSessionIds={props.staleSessionIds}
-                onSelectSession={props.onSelectSession}
-                rowActions={props.rowActions}
-              />
-            </div>
-          )
-        ) : props.selection.section === 'daily-review' ? (
-          <SidebarModuleHint
-            Icon={CalendarDays}
-            title="每日回顾"
-            body="已在右侧内容栏打开。"
+        {props.sessions.length === 0 ? (
+          // WAWQAQ msg `f56f38c1` (2026-06-20): the create-session CTA
+          // belongs in the sidebar header / nav rail, never in the
+          // bottom session-history empty state. The empty state here is
+          // pure "no sessions yet" copy — no inline CTA. The top-of-
+          // sidebar `+ 新任务` button is the only create-session entry.
+          <EmptyState
+            Icon={MessageSquare}
+            title="等待开始对话"
+            body="和 Maka 的对话会出现在这里。"
           />
         ) : (
-          null
+          <OverlayScrollArea
+            className="maka-list-stack"
+            viewportClassName="maka-list-stackViewport"
+            contentClassName="maka-list-stackContent"
+            onKeyDown={handleListKeyDown}
+          >
+            <SessionListGroups
+              groups={
+                props.statusGroups
+                  ? props.statusGroups.map((g) => ({
+                      key: g.id,
+                      label: g.label,
+                      sessions: g.sessions,
+                      collapsible: g.collapsible,
+                      defaultExpanded: g.defaultExpanded,
+                    }))
+                  : groupSessionsForFilter(filteredSessions, { section: 'sessions', filter: 'chats' }).map((g) => ({
+                      key: g.label,
+                      label: g.label,
+                      sessions: g.sessions,
+                      collapsible: false,
+                      defaultExpanded: true,
+                    }))
+              }
+              activeId={props.activeId}
+              streamingSessionIds={props.streamingSessionIds}
+              staleSessionIds={props.staleSessionIds}
+              onSelectSession={props.onSelectSession}
+              rowActions={props.rowActions}
+            />
+          </OverlayScrollArea>
         )}
       </section>
 
       <footer className="maka-session-panel-footer">
         <button
-          className="maka-nav-row"
+          className="maka-sidebar-account"
           type="button"
           onClick={props.onOpenUpdate}
-          aria-label="版本信息"
+          aria-label={`账号与版本信息：${accountLabel}`}
+          title="打开账号与版本信息"
         >
-          <DownloadCloud className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
-          <span>版本信息</span>
+          <span className="maka-sidebar-account-avatar" aria-hidden="true">{accountInitial}</span>
+          <span className="maka-sidebar-account-copy">
+            <strong>{accountLabel}</strong>
+            <small>Free Plan</small>
+          </span>
         </button>
         <button
-          className="maka-nav-row"
+          className="maka-sidebar-account-settings"
           type="button"
           onClick={props.onOpenSettings}
+          aria-label="设置"
+          title="设置"
         >
           <Settings className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
-          <span>设置</span>
         </button>
         {/*
           PR-UX-POLISH-1 commit 4 (WAWQAQ msg `e0dbad11` + kenji
@@ -716,16 +759,20 @@ export interface EmptyStateProps {
 
 export function EmptyState(props: EmptyStateProps) {
   const className = cn(
-    'maka-empty-state grid place-items-center gap-3 rounded-xl border border-border bg-card/70 p-8 text-center text-card-foreground shadow-maka-panel',
+    'maka-empty-state rounded-xl border-border bg-card/70 p-8 text-card-foreground shadow-maka-panel',
     props.extraClassName,
   );
   return (
-    <Card className={className} data-empty-view={props.dataEmptyView}>
-      <props.Icon className="maka-empty-state-icon size-10 text-muted-foreground" strokeWidth={1.5} />
-      <div className="maka-empty-state-title text-base font-semibold text-foreground">{props.title}</div>
-      <div className="maka-empty-state-body max-w-[48ch] text-sm leading-6 text-muted-foreground">{props.body}</div>
+    <Empty className={className} data-empty-view={props.dataEmptyView}>
+      <EmptyHeader>
+        <EmptyMedia variant="icon" className="maka-empty-state-media">
+          <props.Icon className="maka-empty-state-icon size-6 text-muted-foreground" strokeWidth={1.5} />
+        </EmptyMedia>
+        <EmptyTitle className="maka-empty-state-title">{props.title}</EmptyTitle>
+        <EmptyDescription className="maka-empty-state-body">{props.body}</EmptyDescription>
+      </EmptyHeader>
       {(props.cta || props.secondaryCta) && (
-        <div className="maka-empty-state-actions mt-2 flex flex-wrap items-center justify-center gap-2">
+        <EmptyContent className="maka-empty-state-actions mt-0">
           {props.cta && (
             <UiButton
               className="maka-button maka-empty-state-cta"
@@ -747,19 +794,9 @@ export function EmptyState(props: EmptyStateProps) {
               {props.secondaryCta.label}
             </UiButton>
           )}
-        </div>
+        </EmptyContent>
       )}
-    </Card>
-  );
-}
-
-function SidebarModuleHint(props: { Icon: EmptyStateProps['Icon']; title: string; body: string }) {
-  return (
-    <div className="maka-sidebar-module-hint">
-      <props.Icon className="maka-sidebar-module-hint-icon" strokeWidth={1.5} />
-      <strong>{props.title}</strong>
-      <span>{props.body}</span>
-    </div>
+    </Empty>
   );
 }
 
@@ -773,72 +810,128 @@ function SkillLibraryPanel(props: {
   createPending?: boolean;
   openingSkillId?: string | null;
 }) {
+  const skillCount = props.skills?.length ?? 0;
+  const declaredToolCount = new Set((props.skills ?? []).flatMap((skill) => skill.declaredTools ?? [])).size;
+  const examples = (
+    <section className="maka-skill-examples" aria-label="技能示例">
+      <div className="maka-skill-examples-header">
+        <span className="maka-skill-section-label">推荐模板</span>
+        <span>{props.createPending ? '正在创建本地模板…' : '可复制成工作区 Skill'}</span>
+      </div>
+      <ul className="maka-skill-example-grid" aria-label="技能模板示例">
+        {SKILL_EXAMPLE_CARDS.map((example) => (
+          <li key={example.title} className="maka-skill-example-card">
+            <span className="maka-skill-example-icon" aria-hidden="true">
+              <example.Icon size={16} strokeWidth={1.7} />
+            </span>
+            <strong>{example.title}</strong>
+            <span>{example.body}</span>
+            <small>{example.meta}</small>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
   if (!props.skills || props.skills.length === 0) {
     return (
-      <EmptyState
-        Icon={Sparkles}
-        title="等待添加 Skill"
-        body={
-          <>
-            把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
-            {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
-            工作区路径在 设置 · 关于 · 工作区。
-          </>
-        }
-        cta={props.onCreateSkillTemplate ? {
-          label: props.createPending ? '创建中…' : '创建示例技能',
-          onClick: props.onCreateSkillTemplate,
-          disabled: props.actionBusy,
-        } : undefined}
-        secondaryCta={props.onRefreshSkills ? {
-          label: props.refreshPending ? '刷新中…' : '刷新技能',
-          onClick: props.onRefreshSkills,
-          disabled: props.actionBusy,
-        } : undefined}
-      />
+      <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
+        {examples}
+        <EmptyState
+          Icon={Sparkles}
+          title="等待添加 Skill"
+          body={
+            <>
+              把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
+              {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
+              工作区路径在 设置 · 关于 · 工作区。
+            </>
+          }
+          cta={props.onCreateSkillTemplate ? {
+            label: props.createPending ? '创建中…' : '创建示例技能',
+            onClick: props.onCreateSkillTemplate,
+            disabled: props.actionBusy,
+          } : undefined}
+          secondaryCta={props.onRefreshSkills ? {
+            label: props.refreshPending ? '刷新中…' : '刷新技能',
+            onClick: props.onRefreshSkills,
+            disabled: props.actionBusy,
+          } : undefined}
+        />
+      </div>
     );
   }
 
   return (
-    <ul className="maka-skill-library-list" aria-label="技能列表" aria-busy={props.actionBusy ? 'true' : undefined}>
-      {props.skills.map((skill) => {
-        const tools = skill.declaredTools ?? [];
-        const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
-        const description = formatSkillLibraryDescription(skill);
-        const opening = props.openingSkillId === skill.id;
-        const hoverText = tools.length > 0
-          ? `打开技能文件：${skill.id}\n\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
-          : `打开技能文件：${skill.id}`;
-        return (
-          <li key={skill.id} className="maka-skill-library-item">
-            <button
-              type="button"
-              className="maka-skill-library-row"
-              onClick={() => props.onOpenSkill?.(skill.id)}
-              disabled={props.actionBusy}
-              title={hoverText}
-            >
-              <span className="maka-skill-library-name">{skill.name}</span>
-              {description && (
-                <span className="maka-skill-library-description">{description}</span>
-              )}
-              <span className="maka-skill-library-meta">
-                <span>{skill.id}</span>
-                {opening && <span>打开中…</span>}
-                {tools.length > 0 && (
-                  <span className="maka-skill-tools" aria-label="声明的工具">
-                    <span className="maka-skill-tools-label">工具</span>
-                    <span>{toolsLabel}</span>
+    <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
+      {examples}
+      <section className="maka-skill-installed" aria-label="已安装技能">
+        <div className="maka-skill-installed-header">
+          <span className="maka-skill-section-label">本地技能</span>
+          <span>{skillCount} 个 Skill · {declaredToolCount} 类工具声明</span>
+        </div>
+        <ul className="maka-skill-library-list" aria-label="技能列表">
+          {props.skills.map((skill) => {
+            const tools = skill.declaredTools ?? [];
+            const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
+            const description = formatSkillLibraryDescription(skill);
+            const opening = props.openingSkillId === skill.id;
+            const hoverText = tools.length > 0
+              ? `打开技能文件：${skill.id}\n\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
+              : `打开技能文件：${skill.id}`;
+            return (
+              <li key={skill.id} className="maka-skill-library-item">
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  className="maka-skill-library-row"
+                  onClick={() => props.onOpenSkill?.(skill.id)}
+                  disabled={props.actionBusy}
+                  title={hoverText}
+                >
+                  <span className="maka-skill-library-name">{skill.name}</span>
+                  {description && (
+                    <span className="maka-skill-library-description">{description}</span>
+                  )}
+                  <span className="maka-skill-library-meta">
+                    <span>{skill.id}</span>
+                    {opening && <span>打开中…</span>}
+                    {tools.length > 0 && (
+                      <span className="maka-skill-tools" aria-label="声明的工具">
+                        <span className="maka-skill-tools-label">工具</span>
+                        <span>{toolsLabel}</span>
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+                </UiButton>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    </div>
   );
 }
+
+const SKILL_EXAMPLE_CARDS: ReadonlyArray<{
+  title: string;
+  body: string;
+  meta: string;
+  Icon: typeof FileEdit;
+}> = [
+  {
+    title: '文档处理流',
+    body: '润色、批注、检查 DOCX 内容，把重复文档步骤沉进 Skill。',
+    meta: 'Office · 审阅 · 导出',
+    Icon: FileEdit,
+  },
+  {
+    title: '演示资料流',
+    body: '生成结构、整理讲稿、检查 PPTX 页面，让演示准备更稳定。',
+    meta: 'Slides · 提纲 · 校对',
+    Icon: BookOpen,
+  },
+];
 
 function formatSkillLibraryDescription(skill: SkillEntry): string | undefined {
   const raw = skill.description?.trim();
@@ -872,6 +965,7 @@ function SkillsModuleMain(props: {
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  onOpenSkillsFolder?(): void | Promise<void>;
 }) {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
   const skillActionMountedRef = useRef(true);
@@ -904,20 +998,41 @@ function SkillsModuleMain(props: {
 
   const skillActionBusy = pendingSkillAction !== null;
   return (
-    <main className="maka-main detailPane maka-module-main" aria-label="技能">
+    <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="技能">
       <header className="maka-module-main-header">
         <div>
           <h2>技能</h2>
-          <p>管理工作区里的 Skill 指令文件。</p>
+          <p>本地 Skill 指令文件和可复用工作流。</p>
         </div>
-        <button
-          className="maka-button maka-button-ghost"
-          type="button"
-          onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
-          disabled={!props.onRefreshSkills || skillActionBusy}
-        >
-          {pendingSkillAction === 'refresh' ? '刷新中…' : '刷新'}
-        </button>
+        <div className="maka-module-main-actions" role="group" aria-label="技能操作">
+          <UiButton
+            className="maka-button maka-button-ghost"
+            variant="ghost"
+            type="button"
+            onClick={() => void runSkillAction('folder', props.onOpenSkillsFolder)}
+            disabled={!props.onOpenSkillsFolder || skillActionBusy}
+          >
+            打开目录
+          </UiButton>
+          <UiButton
+            className="maka-button maka-button-ghost"
+            variant="ghost"
+            type="button"
+            onClick={() => void runSkillAction('create', props.onCreateSkillTemplate)}
+            disabled={!props.onCreateSkillTemplate || skillActionBusy}
+          >
+            {pendingSkillAction === 'create' ? '创建中…' : '创建示例'}
+          </UiButton>
+          <UiButton
+            className="maka-button maka-button-ghost"
+            variant="ghost"
+            type="button"
+            onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
+            disabled={!props.onRefreshSkills || skillActionBusy}
+          >
+            {pendingSkillAction === 'refresh' ? '刷新中…' : '刷新'}
+          </UiButton>
+        </div>
       </header>
       <SkillLibraryPanel
         skills={props.skills}
@@ -1066,32 +1181,38 @@ function DailyReviewPanel(props: {
   return (
     <div className="maka-daily-review-panel" data-loading={loading ? 'true' : undefined}>
       <header className="maka-daily-review-header">
-        <button
+        <UiButton
           type="button"
-          className="maka-button maka-button-ghost"
+          variant="ghost"
+          size="icon-sm"
+          className="maka-daily-review-stepper"
           onClick={() => setOffsetDays((n) => n - range)}
           aria-label={`查看更早一${stepperLabel}`}
         >
           ‹
-        </button>
+        </UiButton>
         <div className="maka-daily-review-day">{dayLabel}</div>
-        <button
+        <UiButton
           type="button"
-          className="maka-button maka-button-ghost"
+          variant="ghost"
+          size="icon-sm"
+          className="maka-daily-review-stepper"
           onClick={() => setOffsetDays((n) => Math.min(0, n + range))}
           disabled={offsetDays >= 0}
           aria-label={`查看更晚一${stepperLabel}`}
         >
           ›
-        </button>
+        </UiButton>
       </header>
       <nav className="maka-daily-review-range" aria-label="时间范围切换">
         <div className="maka-daily-review-range-tabs">
           {([1, 7, 30] as const).map((option) => (
-            <button
+            <UiButton
               key={option}
               type="button"
-              className="maka-button maka-button-ghost"
+              variant="ghost"
+              size="sm"
+              className="maka-daily-review-range-tab"
               data-active={range === option ? 'true' : undefined}
               aria-pressed={range === option}
               onClick={() => {
@@ -1100,15 +1221,17 @@ function DailyReviewPanel(props: {
               }}
             >
               {option === 1 ? '今日' : option === 7 ? '本周' : '本月'}
-            </button>
+            </UiButton>
           ))}
         </div>
         {visibleSummary && visibleSummary.totals.sessionCount + visibleSummary.totals.requestCount > 0 && hasDailyReviewActions && (
           <div className="maka-daily-review-actions" aria-label="回顾导出操作">
             {props.onCopyMarkdown && (
-              <button
+              <UiButton
                 type="button"
-                className="maka-button maka-button-ghost maka-daily-review-copy"
+                variant="ghost"
+                size="sm"
+                className="maka-daily-review-copy"
                 onClick={() => void runDailyReviewAction('copy', async () => {
                   const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
                   await props.onCopyMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
@@ -1119,12 +1242,14 @@ function DailyReviewPanel(props: {
                 title="复制为 Markdown 摘要，方便分享 / 贴到笔记"
               >
                 {pendingDailyReviewAction === 'copy' ? '复制中…' : '复制'}
-              </button>
+              </UiButton>
             )}
             {props.onAppendMarkdown && (
-              <button
+              <UiButton
                 type="button"
-                className="maka-button maka-button-ghost maka-daily-review-append"
+                variant="ghost"
+                size="sm"
+                className="maka-daily-review-append"
                 onClick={() => void runDailyReviewAction('append', async () => {
                   const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
                   await props.onAppendMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
@@ -1135,12 +1260,14 @@ function DailyReviewPanel(props: {
                 title="追加到当前输入框草稿"
               >
                 {pendingDailyReviewAction === 'append' ? '追加中…' : '粘到输入框'}
-              </button>
+              </UiButton>
             )}
             {props.onSaveMarkdown && (
-              <button
+              <UiButton
                 type="button"
-                className="maka-button maka-button-ghost maka-daily-review-save"
+                variant="ghost"
+                size="sm"
+                className="maka-daily-review-save"
                 onClick={() => void runDailyReviewAction('save', async () => {
                   const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
                   await props.onSaveMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
@@ -1151,24 +1278,28 @@ function DailyReviewPanel(props: {
                 title="保存为 Markdown 文件"
               >
                 {pendingDailyReviewAction === 'save' ? '保存中…' : '保存'}
-              </button>
+              </UiButton>
             )}
           </div>
         )}
       </nav>
 
       {error && visibleSummary ? (
-        <div className="maka-daily-review-alert" role="alert">
-          <span>每日回顾刷新失败：{error}</span>
-          <button
-            type="button"
-            className="maka-button maka-button-ghost"
-            onClick={() => setReloadToken((n) => n + 1)}
-            disabled={loading}
-          >
-            重试
-          </button>
-        </div>
+        <Alert variant="warning" className="maka-daily-review-alert">
+          <AlertDescription>每日回顾刷新失败：{error}</AlertDescription>
+          <AlertAction>
+            <UiButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="maka-daily-review-alert-retry"
+              onClick={() => setReloadToken((n) => n + 1)}
+              disabled={loading}
+            >
+              重试
+            </UiButton>
+          </AlertAction>
+        </Alert>
       ) : null}
 
       {error && !visibleSummary ? (
@@ -1331,8 +1462,74 @@ function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<Daily
   );
 }
 
+function PlanReminderSelect<T extends string>(props: {
+  value: T;
+  options: ReadonlyArray<readonly [T, string]>;
+  onChange(value: T): void;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <SelectRoot
+      value={props.value}
+      items={props.options.map(([value, label]) => ({ value, label }))}
+      disabled={props.disabled}
+      onValueChange={(value) => {
+        if (value !== null) props.onChange(value);
+      }}
+    >
+      <SelectTrigger className="maka-plan-select w-full" aria-label={props.ariaLabel}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectPortal>
+        <SelectPositioner alignItemWithTrigger={false} sideOffset={6}>
+          <SelectPopup className="maka-plan-select-popup">
+            {props.options.map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </SelectPositioner>
+      </SelectPortal>
+    </SelectRoot>
+  );
+}
+
+type PlanReminderExampleTemplate = {
+  id: string;
+  title: string;
+  note: string;
+  scheduleLabel: string;
+  recurrence: PlanReminderRecurrence;
+  cronExpression: string;
+  nextRun: { weekday?: number; hour: number; minute: number };
+};
+
+const PLAN_REMINDER_EXAMPLE_TEMPLATES: readonly PlanReminderExampleTemplate[] = [
+  {
+    id: 'daily-news-brief',
+    title: '每日新闻摘要',
+    note: '总结今天科技 / AI / Maka 相关新闻 5 条，按重要性排序，并给出每条 1 句影响判断。',
+    scheduleLabel: '每天 09:30',
+    recurrence: 'cron',
+    cronExpression: '30 9 * * *',
+    nextRun: { hour: 9, minute: 30 },
+  },
+  {
+    id: 'weekend-todo-review',
+    title: '周末待办整理',
+    note: '梳理这周完成 / 未完成的待办，输出下周计划，并标记需要优先处理的 3 件事。',
+    scheduleLabel: '每周日 20:00',
+    recurrence: 'cron',
+    cronExpression: '0 20 * * 0',
+    nextRun: { weekday: 0, hour: 20, minute: 0 },
+  },
+];
+
 function PlanReminderPanel(props: {
   reminders: PlanReminder[];
+  onRefresh?(): void | Promise<void>;
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
   onToggle?(id: string, enabled: boolean): void | Promise<void>;
@@ -1342,6 +1539,9 @@ function PlanReminderPanel(props: {
   onDelete?(id: string): void | Promise<void>;
 }) {
   type PlanReminderListFilter = 'all' | PlanReminderStatus;
+  type PlanReminderView = 'tasks' | 'runs';
+  type PlanReminderRunRange = 'day' | 'week' | 'month' | 'all';
+  type PlanReminderSort = 'created-desc' | 'next-run-asc' | 'updated-desc';
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [runAtLocal, setRunAtLocal] = useState(() => toPlanReminderDateTimeInputValue(Date.now() + 60 * 60 * 1000));
@@ -1355,8 +1555,13 @@ function PlanReminderPanel(props: {
   const [pendingActionKeys, setPendingActionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const planReminderMountedRef = useRef(true);
   const pendingActionKeysRef = useRef<Set<string>>(new Set());
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [planView, setPlanView] = useState<PlanReminderView>('tasks');
+  const [runRange, setRunRange] = useState<PlanReminderRunRange>('week');
   const [listFilter, setListFilter] = useState<PlanReminderListFilter>('all');
+  const [listSort, setListSort] = useState<PlanReminderSort>('created-desc');
   const [listQuery, setListQuery] = useState('');
+  const [refreshPending, setRefreshPending] = useState(false);
   const parsedRunAt = Date.parse(runAtLocal);
   const normalizedListQuery = normalizePlanReminderSearchQuery(listQuery);
   const searchMatchedReminders = normalizedListQuery
@@ -1365,7 +1570,12 @@ function PlanReminderPanel(props: {
   const visibleReminders = listFilter === 'all'
     ? searchMatchedReminders
     : searchMatchedReminders.filter((reminder) => reminder.status === listFilter);
-  const sortedReminders = [...visibleReminders].sort(comparePlanReminderForDisplay);
+  const sortedReminders = [...visibleReminders].sort((a, b) => comparePlanReminderBySort(a, b, listSort));
+  const runRangeStart = planReminderRunRangeStart(runRange, Date.now());
+  const visibleRunEntries = props.reminders
+    .flatMap((reminder) => reminder.runs.map((run) => ({ reminder, run })))
+    .filter((entry) => runRangeStart === null || entry.run.at >= runRangeStart)
+    .sort((a, b) => b.run.at - a.run.at);
   const filterCounts: Record<PlanReminderListFilter, number> = {
     all: searchMatchedReminders.length,
     scheduled: searchMatchedReminders.filter((reminder) => reminder.status === 'scheduled').length,
@@ -1412,6 +1622,30 @@ function PlanReminderPanel(props: {
     setEditingId(null);
   }
 
+  function openCreateReminderDialog() {
+    resetForm();
+    setFormDialogOpen(true);
+  }
+
+  function openPlanReminderTemplate(template: PlanReminderExampleTemplate) {
+    setEditingId(null);
+    setTitle(template.title);
+    setNote(template.note);
+    setRecurrence(template.recurrence);
+    setCronExpression(template.cronExpression);
+    setDeliveryChannel('local');
+    setDeliveryPlatform('telegram');
+    setDeliveryChatId('');
+    setRunAtLocal(toPlanReminderDateTimeInputValue(planReminderTemplateNextRunAt(template)));
+    setFormDialogOpen(true);
+  }
+
+  function closeReminderDialog() {
+    if (submitPending) return;
+    setFormDialogOpen(false);
+    resetForm();
+  }
+
   function editReminder(reminder: PlanReminder) {
     setEditingId(reminder.id);
     setTitle(reminder.title);
@@ -1427,6 +1661,7 @@ function PlanReminderPanel(props: {
       setDeliveryPlatform('telegram');
       setDeliveryChatId('');
     }
+    setFormDialogOpen(true);
   }
 
   function duplicateReminder(reminder: PlanReminder) {
@@ -1444,6 +1679,7 @@ function PlanReminderPanel(props: {
       setDeliveryPlatform('telegram');
       setDeliveryChatId('');
     }
+    setFormDialogOpen(true);
   }
 
   function applyRunAtPreset(preset: 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday') {
@@ -1469,7 +1705,10 @@ function PlanReminderPanel(props: {
           ...input,
           ...(input.note ? { note: input.note } : {}),
         });
-      if (result !== false && planReminderMountedRef.current) resetForm();
+      if (result !== false && planReminderMountedRef.current) {
+        resetForm();
+        setFormDialogOpen(false);
+      }
     } finally {
       if (planReminderMountedRef.current) setSubmitPending(false);
     }
@@ -1494,327 +1733,519 @@ function PlanReminderPanel(props: {
     }
   }
 
+  async function refreshFromPanel() {
+    if (!props.onRefresh || refreshPending) return;
+    setRefreshPending(true);
+    try {
+      await props.onRefresh();
+    } finally {
+      if (planReminderMountedRef.current) setRefreshPending(false);
+    }
+  }
+
   return (
     <div className="maka-plan-panel">
-      <form className="maka-plan-form" onSubmit={submit} aria-busy={submitPending ? 'true' : undefined}>
-        <div className="maka-plan-form-title">{isEditing ? '编辑提醒' : '新建提醒'}</div>
-        <label className="maka-plan-field">
-          <span>标题</span>
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.currentTarget.value)}
-            maxLength={120}
-            data-maka-plan-title-input="true"
-            placeholder="例如：明天复盘项目进度"
-            disabled={formInteractionDisabled}
-          />
-        </label>
-        <label className="maka-plan-field">
-          <span>时间</span>
-          <input
-            value={runAtLocal}
-            onChange={(event) => setRunAtLocal(event.currentTarget.value)}
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="2026-06-05 13:44"
-            aria-label="提醒时间"
-            disabled={formInteractionDisabled}
-          />
-        </label>
-        <div className="maka-plan-presets" aria-label="快速设置提醒时间">
-          {[
-            ['ten-minutes', '10 分钟后'],
-            ['one-hour', '1 小时后'],
-            ['tomorrow-morning', '明天 9 点'],
-            ['next-monday', '下周一 9 点'],
-          ].map(([preset, label]) => (
-            <button
-              key={preset}
+      <div className="maka-plan-shell agents-inner-view-clamp">
+        <div className="maka-plan-hero">
+          <div className="maka-plan-heading">
+            <h2>定时任务</h2>
+            <p>
+              创建和管理周期性任务，让 Maka 按计划执行提醒、复盘和投递。
+            </p>
+          </div>
+          <div className="maka-plan-top-actions" aria-label="计划提醒操作">
+            <UiButton
               type="button"
-              className="maka-plan-preset"
-              onClick={() => applyRunAtPreset(preset as 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday')}
-              disabled={formInteractionDisabled}
+              variant="quiet"
+              size="icon-sm"
+              className="maka-plan-refresh-button"
+              onClick={() => void refreshFromPanel()}
+              disabled={!props.onRefresh || refreshPending}
+              aria-label={refreshPending ? '正在刷新定时任务' : '刷新定时任务'}
+              aria-busy={refreshPending ? 'true' : undefined}
+              title={refreshPending ? '正在刷新定时任务' : '刷新定时任务'}
             >
-              {label}
-            </button>
+              <RefreshCcw size={15} strokeWidth={1.75} aria-hidden="true" />
+            </UiButton>
+            <UiButton
+              type="button"
+              variant="secondary"
+              className="maka-plan-create-through"
+              onClick={openCreateReminderDialog}
+            >
+              <Sparkles size={14} strokeWidth={1.75} aria-hidden="true" />
+              通过 Maka 创建
+            </UiButton>
+            <UiButton type="button" className="maka-plan-new-task-button" onClick={openCreateReminderDialog}>
+              <Plus size={15} strokeWidth={1.75} aria-hidden="true" />
+              新建定时任务
+            </UiButton>
+          </div>
+        </div>
+
+        <div className="maka-plan-template-strip" aria-label="定时任务示例模板">
+          {PLAN_REMINDER_EXAMPLE_TEMPLATES.map((template) => (
+            <UiButton
+              key={template.id}
+              type="button"
+              variant="ghost"
+              className="maka-plan-template-card"
+              onClick={() => openPlanReminderTemplate(template)}
+            >
+              <span className="maka-plan-template-icon" aria-hidden="true">
+                <Sparkles size={15} strokeWidth={1.8} />
+              </span>
+              <span className="maka-plan-template-main">
+                <span className="maka-plan-template-title">{template.title}</span>
+                <span className="maka-plan-template-note">{template.note}</span>
+              </span>
+              <span className="maka-plan-template-schedule">
+                <Clock size={13} strokeWidth={1.75} aria-hidden="true" />
+                {template.scheduleLabel}
+              </span>
+            </UiButton>
           ))}
         </div>
-        <label className="maka-plan-field">
-          <span>重复</span>
-          <select
-            value={recurrence}
-            onChange={(event) => setRecurrence(event.currentTarget.value as PlanReminderRecurrence)}
-            disabled={formInteractionDisabled}
-          >
-            <option value="none">不重复</option>
-            <option value="daily">每天</option>
-            <option value="weekly">每周</option>
-            <option value="monthly">每月</option>
-            <option value="cron">Cron</option>
-          </select>
-        </label>
-        {recurrence === 'cron' && (
-          <label className="maka-plan-field">
-            <span>Cron</span>
-            <input
-              value={cronExpression}
-              onChange={(event) => setCronExpression(event.currentTarget.value)}
-              maxLength={80}
-              placeholder="例如 0 9 * * 1-5"
-              disabled={formInteractionDisabled}
-            />
-          </label>
-        )}
-        <div className="maka-plan-delivery-grid">
-          <label className="maka-plan-field">
-            <span>投递</span>
-            <select
-              value={deliveryChannel}
-              onChange={(event) => setDeliveryChannel(event.currentTarget.value as PlanReminderDeliveryTarget['channel'])}
-              disabled={formInteractionDisabled}
-            >
-              <option value="local">本地提醒</option>
-              <option value="bot">机器人聊天</option>
-            </select>
-          </label>
-          {deliveryChannel === 'bot' && (
-            <label className="maka-plan-field">
-              <span>平台</span>
-              <select
-                value={deliveryPlatform}
-                onChange={(event) => setDeliveryPlatform(event.currentTarget.value as BotProvider)}
-                disabled={formInteractionDisabled}
-              >
-                {BOT_DELIVERY_PROVIDERS.map((provider) => (
-                  <option key={provider} value={provider}>{botDisplayLabel(provider)}</option>
+
+        <Alert variant="info" className="maka-plan-system-alert">
+          <div className="maka-plan-system-alert-main">
+            <Clock strokeWidth={1.75} aria-hidden="true" />
+            <div>
+              <AlertTitle>计划提醒会在本机唤醒时运行</AlertTitle>
+              <AlertDescription>
+                Maka 会保留执行记录；重复提醒、机器人投递和手动触发都走同一套计划队列。
+              </AlertDescription>
+            </div>
+          </div>
+          <div className="maka-plan-system-alert-switch">
+            <span>保持系统唤醒</span>
+            <Switch checked={false} disabled aria-label="保持系统唤醒暂未启用" />
+          </div>
+        </Alert>
+
+        <TabsRoot
+          className="maka-plan-tabs"
+          value={planView}
+          onValueChange={(value) => {
+            if (value === 'tasks' || value === 'runs') setPlanView(value);
+          }}
+        >
+          <div className="maka-plan-tabs-bar">
+            <TabsList className="maka-plan-tabs-list" aria-label="计划提醒视图">
+              <TabsTrigger className="maka-plan-tab" value="tasks">
+                我的定时任务
+                <span>{props.reminders.length}</span>
+              </TabsTrigger>
+              <TabsTrigger className="maka-plan-tab" value="runs">
+                执行记录
+                <span>{visibleRunEntries.length}</span>
+              </TabsTrigger>
+            </TabsList>
+            {planView === 'tasks' ? (
+              <div className="maka-plan-toolbar" aria-label="计划提醒筛选">
+                <label className="maka-plan-compact-select maka-plan-sort-select">
+                  <span>排序</span>
+                  <PlanReminderSelect
+                    value={listSort}
+                    onChange={(value) => setListSort(value)}
+                    ariaLabel="定时任务排序"
+                    options={[
+                      ['created-desc', '按创建时间倒序'],
+                      ['next-run-asc', '按下次触发升序'],
+                      ['updated-desc', '按更新时间倒序'],
+                    ] satisfies ReadonlyArray<readonly [PlanReminderSort, string]>}
+                  />
+                </label>
+                <label className="maka-plan-search">
+                  <span>搜索计划提醒</span>
+                  <Input
+                    value={listQuery}
+                    onChange={(event) => setListQuery(event.currentTarget.value)}
+                    maxLength={120}
+                    placeholder="搜索标题、备注、投递或执行记录…"
+                  />
+                </label>
+                <label className="maka-plan-compact-select">
+                  <span>状态</span>
+                  <PlanReminderSelect
+                    value={listFilter}
+                    onChange={(value) => setListFilter(value)}
+                    ariaLabel="计划提醒筛选"
+                    options={[
+                      ['all', `全部 ${filterCounts.all}`],
+                      ['scheduled', `待触发 ${filterCounts.scheduled}`],
+                      ['paused', `已暂停 ${filterCounts.paused}`],
+                      ['completed', `已完成 ${filterCounts.completed}`],
+                    ] satisfies ReadonlyArray<readonly [PlanReminderListFilter, string]>}
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="maka-plan-toolbar maka-plan-toolbar-compact" aria-label="执行记录筛选">
+                <label className="maka-plan-compact-select">
+                  <span>范围</span>
+                  <PlanReminderSelect
+                    value={runRange}
+                    onChange={(value) => setRunRange(value)}
+                    ariaLabel="执行记录范围"
+                    options={[
+                      ['day', '今天'],
+                      ['week', '近 7 天'],
+                      ['month', '近 30 天'],
+                      ['all', '全部记录'],
+                    ] satisfies ReadonlyArray<readonly [PlanReminderRunRange, string]>}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <TabsPanel className="maka-plan-tab-panel" value="tasks">
+            {normalizedListQuery && (
+              <div className="maka-plan-search-summary" role="status" aria-live="polite">
+                <span>找到 {searchMatchedReminders.length} 个匹配提醒</span>
+                <UiButton type="button" variant="ghost" size="sm" onClick={() => setListQuery('')}>清除搜索</UiButton>
+              </div>
+            )}
+            {props.reminders.length === 0 ? (
+              <EmptyState
+                Icon={Clock}
+                title="等待创建计划提醒"
+                body="创建一次性或重复提醒；Maka 会持久化并在到点时记录执行结果。"
+                cta={{ label: '新建计划提醒', onClick: openCreateReminderDialog }}
+                extraClassName="maka-plan-empty"
+              />
+            ) : sortedReminders.length === 0 ? (
+              <EmptyState
+                Icon={Clock}
+                title={normalizedListQuery ? '没有匹配的提醒' : '当前筛选没有提醒'}
+                body={normalizedListQuery ? '调整搜索词，或切换状态筛选查看其他提醒。' : '切换筛选查看其他状态，或创建新的计划提醒。'}
+                secondaryCta={{ label: '清除搜索', onClick: () => setListQuery(''), disabled: !normalizedListQuery }}
+                extraClassName="maka-plan-empty"
+              />
+            ) : (
+              <div className="maka-plan-card-grid agents-dual-card-row" aria-label="计划提醒列表">
+                {sortedReminders.map((reminder) => {
+                  const reminderActionPrefix = `${reminder.id}:`;
+                  const reminderActionPending = Array.from(pendingActionKeys).some((key) => key.startsWith(reminderActionPrefix));
+                  return (
+                    <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
+                      <div className="maka-plan-card-chrome">
+                        <Switch
+                          checked={reminder.enabled}
+                          disabled={reminderActionPending || reminder.status === 'completed'}
+                          aria-label={reminder.enabled ? '暂停提醒' : '启用提醒'}
+                          onCheckedChange={() => void runPlanReminderAction(`${reminder.id}:toggle`, () => props.onToggle?.(reminder.id, !reminder.enabled))}
+                        />
+                        <Menu>
+                          <MenuTrigger
+                            className="maka-plan-card-menu-trigger"
+                            disabled={reminderActionPending}
+                            aria-label="提醒操作"
+                          >
+                            <MoreHorizontal size={16} strokeWidth={1.75} aria-hidden="true" />
+                          </MenuTrigger>
+                          <MenuPopup className="maka-plan-card-menu" align="end">
+                            <MenuItem
+                              onClick={() => editReminder(reminder)}
+                              disabled={submitPending || reminderActionPending || reminder.status === 'completed'}
+                            >
+                              <Pencil size={14} strokeWidth={1.75} aria-hidden="true" />
+                              编辑
+                            </MenuItem>
+                            <MenuItem
+                              onClick={() => duplicateReminder(reminder)}
+                              disabled={submitPending || reminderActionPending}
+                            >
+                              <Copy size={14} strokeWidth={1.75} aria-hidden="true" />
+                              复制
+                            </MenuItem>
+                            <MenuItem
+                              onClick={() => void runPlanReminderAction(`${reminder.id}:trigger`, () => props.onTriggerNow?.(reminder.id))}
+                              disabled={reminderActionPending || !reminder.enabled}
+                            >
+                              <RefreshCcw size={14} strokeWidth={1.75} aria-hidden="true" />
+                              {pendingActionKeys.has(`${reminder.id}:trigger`) ? '触发中…' : '立即触发'}
+                            </MenuItem>
+                            <MenuItem
+                              onClick={() => void runPlanReminderAction(`${reminder.id}:snooze`, () => props.onSnooze?.(reminder.id))}
+                              disabled={reminderActionPending || !reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number'}
+                            >
+                              <Clock size={14} strokeWidth={1.75} aria-hidden="true" />
+                              {pendingActionKeys.has(`${reminder.id}:snooze`) ? '延后中…' : '延后 10 分钟'}
+                            </MenuItem>
+                            <MenuItem
+                              onClick={() => void runPlanReminderAction(`${reminder.id}:clear-runs`, () => props.onClearRunHistory?.(reminder.id))}
+                              disabled={reminderActionPending || reminder.runs.length === 0 || reminder.status === 'completed'}
+                            >
+                              <ArchiveRestore size={14} strokeWidth={1.75} aria-hidden="true" />
+                              {pendingActionKeys.has(`${reminder.id}:clear-runs`) ? '清空中…' : '清空记录'}
+                            </MenuItem>
+                            <MenuItem
+                              variant="destructive"
+                              onClick={() => void runPlanReminderAction(`${reminder.id}:delete`, () => props.onDelete?.(reminder.id))}
+                              disabled={reminderActionPending}
+                            >
+                              <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
+                              {pendingActionKeys.has(`${reminder.id}:delete`) ? '删除中…' : '删除'}
+                            </MenuItem>
+                          </MenuPopup>
+                        </Menu>
+                      </div>
+                      <div className="maka-plan-card-main">
+                        <div className="maka-plan-card-title-row">
+                          <h3 className="maka-plan-card-title">{reminder.title}</h3>
+                          <Badge variant={reminder.status === 'scheduled' ? 'success' : reminder.status === 'paused' ? 'warning' : 'secondary'}>
+                            {planReminderStatusLabel(reminder.status)}
+                          </Badge>
+                        </div>
+                        <p className="maka-plan-card-note">
+                          {reminder.note || `触发后投递到：${formatPlanReminderDeliveryTarget(reminder.delivery)}`}
+                        </p>
+                        {reminder.lastRun && (
+                          <div className="maka-plan-card-run">
+                            {runStatusLabel(reminder.lastRun.status)}：{reminder.lastRun.message}
+                          </div>
+                        )}
+                      </div>
+                      <div className="maka-plan-card-divider" aria-hidden="true" />
+                      <div className="maka-plan-card-footer">
+                        <span className="maka-plan-card-chip">
+                          <Clock size={13} strokeWidth={1.75} aria-hidden="true" />
+                          {reminder.nextRunAt ? (
+                            <>
+                              下次触发：{formatReminderTime(reminder.nextRunAt)}
+                              <span className="maka-plan-card-countdown">{formatReminderCountdown(reminder.nextRunAt)}</span>
+                            </>
+                          ) : reminder.lastRun ? (
+                            `最近 ${formatReminderTime(reminder.lastRun.at)}`
+                          ) : (
+                            '未安排'
+                          )}
+                        </span>
+                        <span className="maka-plan-card-chip">
+                          <Repeat size={13} strokeWidth={1.75} aria-hidden="true" />
+                          {formatPlanRecurrence(reminder)}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </TabsPanel>
+
+          <TabsPanel className="maka-plan-tab-panel" value="runs">
+            {visibleRunEntries.length === 0 ? (
+              <EmptyState
+                Icon={Clock}
+                title="暂无执行记录"
+                body="提醒触发、手动执行或投递失败后，会在这里保留最近记录。"
+                extraClassName="maka-plan-empty maka-plan-runs-empty"
+              />
+            ) : (
+              <div className="maka-plan-run-list" aria-label="计划提醒执行记录">
+                {visibleRunEntries.map(({ reminder, run }) => (
+                  <article key={`${reminder.id}:${run.id}`} className="maka-plan-run-row">
+                    <div className="maka-plan-run-status" data-status={run.status}>
+                      {runStatusLabel(run.status)}
+                    </div>
+                    <div className="maka-plan-run-main">
+                      <strong>{reminder.title}</strong>
+                      <span>{run.message}</span>
+                    </div>
+                    <time>{formatReminderTime(run.at)}</time>
+                  </article>
                 ))}
-              </select>
-            </label>
-          )}
-        </div>
-        {deliveryChannel === 'bot' && (
-          <>
-            <p className="maka-plan-delivery-help">
-              当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台不会出现在投递目标里。
-            </p>
-            <label className="maka-plan-field">
-              <span>Chat ID</span>
-              <input
-                value={deliveryChatId}
-                onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
-                maxLength={160}
-                placeholder="例如 Telegram chat_id"
+              </div>
+            )}
+          </TabsPanel>
+        </TabsRoot>
+      </div>
+
+      <DialogRoot
+        open={formDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setFormDialogOpen(true);
+          } else {
+            closeReminderDialog();
+          }
+        }}
+      >
+        <DialogContent
+          className="maka-plan-dialog w-[min(92vw,680px)] p-0"
+          aria-labelledby="maka-plan-dialog-title"
+          showClose={false}
+        >
+          <form className="maka-plan-form" onSubmit={submit} aria-busy={submitPending ? 'true' : undefined}>
+            <header className="maka-plan-form-header">
+              <div>
+                <p className="maka-plan-eyebrow">计划提示词</p>
+                <h3 id="maka-plan-dialog-title" className="maka-plan-form-title">{isEditing ? '编辑提醒' : '新建提醒'}</h3>
+              </div>
+              <DialogClose
+                render={<UiButton variant="quiet" size="icon-sm" />}
+                type="button"
+                onClick={closeReminderDialog}
+                disabled={formInteractionDisabled}
+                aria-label="关闭计划提醒表单"
+              >
+                <X size={16} strokeWidth={1.8} aria-hidden="true" />
+              </DialogClose>
+            </header>
+            <div className="maka-plan-form-grid">
+              <label className="maka-plan-field">
+                <span>标题</span>
+                <Input
+                  value={title}
+                  onChange={(event) => setTitle(event.currentTarget.value)}
+                  maxLength={120}
+                  data-maka-plan-title-input="true"
+                  placeholder="例如：明天复盘项目进度"
+                  disabled={formInteractionDisabled}
+                />
+              </label>
+              <label className="maka-plan-field">
+                <span>时间</span>
+                <Input
+                  value={runAtLocal}
+                  onChange={(event) => setRunAtLocal(event.currentTarget.value)}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="2026-06-05 13:44"
+                  aria-label="提醒时间"
+                  disabled={formInteractionDisabled}
+                />
+              </label>
+            </div>
+            <div className="maka-plan-presets" aria-label="快速设置提醒时间">
+              {[
+                ['ten-minutes', '10 分钟后'],
+                ['one-hour', '1 小时后'],
+                ['tomorrow-morning', '明天 9 点'],
+                ['next-monday', '下周一 9 点'],
+              ].map(([preset, label]) => (
+                <UiButton
+                  key={preset}
+                  type="button"
+                  variant="secondary"
+                  className="maka-plan-preset"
+                  onClick={() => applyRunAtPreset(preset as 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday')}
+                  disabled={formInteractionDisabled}
+                >
+                  {label}
+                </UiButton>
+              ))}
+            </div>
+            <div className="maka-plan-form-grid">
+              <label className="maka-plan-field">
+                <span>重复</span>
+                <PlanReminderSelect
+                  value={recurrence}
+                  onChange={(value) => setRecurrence(value)}
+                  disabled={formInteractionDisabled}
+                  ariaLabel="重复"
+                  options={[
+                    ['none', '不重复'],
+                    ['daily', '每天'],
+                    ['weekly', '每周'],
+                    ['monthly', '每月'],
+                    ['cron', 'Cron'],
+                  ] satisfies ReadonlyArray<readonly [PlanReminderRecurrence, string]>}
+                />
+              </label>
+              <label className="maka-plan-field">
+                <span>投递</span>
+                <PlanReminderSelect
+                  value={deliveryChannel}
+                  onChange={(value) => setDeliveryChannel(value)}
+                  disabled={formInteractionDisabled}
+                  ariaLabel="投递"
+                  options={[
+                    ['local', '本地提醒'],
+                    ['bot', '机器人聊天'],
+                  ] satisfies ReadonlyArray<readonly [PlanReminderDeliveryTarget['channel'], string]>}
+                />
+              </label>
+            </div>
+            {recurrence === 'cron' && (
+              <label className="maka-plan-field">
+                <span>Cron</span>
+                <Input
+                  value={cronExpression}
+                  onChange={(event) => setCronExpression(event.currentTarget.value)}
+                  maxLength={80}
+                  placeholder="例如 0 9 * * 1-5"
+                  disabled={formInteractionDisabled}
+                />
+              </label>
+            )}
+            {deliveryChannel === 'bot' && (
+              <>
+                <div className="maka-plan-delivery-grid">
+                  <label className="maka-plan-field">
+                    <span>平台</span>
+                    <PlanReminderSelect
+                      value={deliveryPlatform}
+                      onChange={(value) => setDeliveryPlatform(value)}
+                      disabled={formInteractionDisabled}
+                      ariaLabel="平台"
+                      options={BOT_DELIVERY_PROVIDERS.map((provider) => [provider, botDisplayLabel(provider)] as const)}
+                    />
+                  </label>
+                  <label className="maka-plan-field">
+                    <span>Chat ID</span>
+                    <Input
+                      value={deliveryChatId}
+                      onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
+                      maxLength={160}
+                      placeholder="例如 Telegram chat_id"
+                      disabled={formInteractionDisabled}
+                    />
+                  </label>
+                </div>
+                <p className="maka-plan-delivery-help">
+                  当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台不会出现在投递目标里。
+                </p>
+              </>
+            )}
+            <label className="maka-plan-field maka-plan-prompt-field">
+              <span>备注</span>
+              <UiTextarea
+                value={note}
+                onChange={(event) => setNote(event.currentTarget.value)}
+                maxLength={1000}
+                rows={5}
+                placeholder="可选：补充需要提醒的上下文"
                 disabled={formInteractionDisabled}
               />
             </label>
-          </>
-        )}
-        <label className="maka-plan-field">
-          <span>备注</span>
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.currentTarget.value)}
-            maxLength={1000}
-            rows={3}
-            placeholder="可选：补充需要提醒的上下文"
-            disabled={formInteractionDisabled}
-          />
-        </label>
-        {validationMessage && (
-          <p className="maka-plan-validation" role="status" aria-live="polite">
-            {validationMessage}
-          </p>
-        )}
-        <button className="maka-button maka-plan-submit" type="submit" disabled={submitDisabled}>
-          {isEditing ? <Check size={14} strokeWidth={1.75} aria-hidden="true" /> : <Plus size={14} strokeWidth={1.75} aria-hidden="true" />}
-          <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
-        </button>
-        {isEditing && (
-          <button
-            className="maka-button secondary maka-plan-submit"
-            type="button"
-            onClick={resetForm}
-            disabled={formInteractionDisabled}
-          >
-            取消编辑
-          </button>
-        )}
-      </form>
-
-      <div className="maka-plan-list" aria-label="计划提醒列表">
-        <label className="maka-plan-search">
-          <span>搜索计划提醒</span>
-          <input
-            value={listQuery}
-            onChange={(event) => setListQuery(event.currentTarget.value)}
-            maxLength={120}
-            placeholder="搜索标题、备注、投递或执行记录…"
-          />
-        </label>
-        {normalizedListQuery && (
-          <div className="maka-plan-search-summary" role="status" aria-live="polite">
-            <span>找到 {searchMatchedReminders.length} 个匹配提醒</span>
-            <button type="button" onClick={() => setListQuery('')}>清除搜索</button>
-          </div>
-        )}
-        <div className="maka-plan-filters" aria-label="计划提醒筛选">
-          {[
-            ['all', '全部'],
-            ['scheduled', '待触发'],
-            ['paused', '已暂停'],
-            ['completed', '已完成'],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className="maka-plan-filter"
-              data-active={listFilter === value ? 'true' : 'false'}
-              aria-pressed={listFilter === value}
-              onClick={() => setListFilter(value as PlanReminderListFilter)}
-            >
-              <span>{label}</span>
-              <span>{filterCounts[value as PlanReminderListFilter]}</span>
-            </button>
-          ))}
-        </div>
-        {props.reminders.length === 0 ? (
-          <EmptyState
-            Icon={Clock}
-            title="等待创建计划提醒"
-            body="创建一次性或重复提醒；Maka 会持久化并在到点时记录执行结果。"
-            extraClassName="maka-plan-empty"
-          />
-        ) : sortedReminders.length === 0 ? (
-          <EmptyState
-            Icon={Clock}
-            title={normalizedListQuery ? '没有匹配的提醒' : '当前筛选没有提醒'}
-            body={normalizedListQuery ? '调整搜索词，或切换状态筛选查看其他提醒。' : '切换筛选查看其他状态，或创建新的计划提醒。'}
-            extraClassName="maka-plan-empty"
-          />
-        ) : (
-          planReminderDisplayRows(listFilter, sortedReminders).map((row) => {
-            if (row.kind === 'group') {
-              return (
-                <div key={row.key} className="maka-plan-group-header" aria-label={`${row.label}，${row.count} 个提醒`}>
-                  <span>{row.label}</span>
-                  <span>{row.count}</span>
-                </div>
-              );
-            }
-            const reminder = row.reminder;
-            const reminderActionPrefix = `${reminder.id}:`;
-            const reminderActionPending = Array.from(pendingActionKeys).some((key) => key.startsWith(reminderActionPrefix));
-            return (
-            <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
-              <div className="maka-plan-card-main">
-                <div className="maka-plan-card-title">{reminder.title}</div>
-                <div className="maka-plan-card-time">
-                  {reminder.nextRunAt ? (
-                    <>
-                      下次触发：{formatReminderTime(reminder.nextRunAt)}
-                      <span className="maka-plan-card-countdown">
-                        {formatReminderCountdown(reminder.nextRunAt)}
-                      </span>
-                    </>
-                  ) : reminder.lastRun ? (
-                    `最近执行：${formatReminderTime(reminder.lastRun.at)} · ${runStatusLabel(reminder.lastRun.status)}`
-                  ) : (
-                    '未安排'
-                  )}
-                </div>
-                <div className="maka-plan-card-repeat">{formatPlanRecurrence(reminder)}</div>
-                <div className="maka-plan-card-delivery">{formatPlanReminderDeliveryTarget(reminder.delivery)}</div>
-                {reminder.note && <div className="maka-plan-card-note">{reminder.note}</div>}
-                {reminder.lastRun && (
-                  <div className="maka-plan-card-run">
-                    {runStatusLabel(reminder.lastRun.status)}：{reminder.lastRun.message}
-                  </div>
-                )}
-                {reminder.runs.length > 1 && (
-                  <div className="maka-plan-card-history" aria-label="最近执行记录">
-                    <div className="maka-plan-card-history-title">最近执行</div>
-                    {reminder.runs.slice(0, 3).map((run) => (
-                      <div key={run.id} className="maka-plan-card-history-row">
-                        <span>{formatReminderTime(run.at)}</span>
-                        <span>{runStatusLabel(run.status)}</span>
-                        <span>{run.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="maka-plan-card-actions">
-                <button
-                  type="button"
-                  className="maka-plan-action"
-                  onClick={() => editReminder(reminder)}
-                  disabled={submitPending || reminderActionPending || reminder.status === 'completed'}
-                  title="编辑提醒"
-                >
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  className="maka-plan-action"
-                  onClick={() => duplicateReminder(reminder)}
-                  disabled={submitPending || reminderActionPending}
-                  title="复制为新提醒"
-                >
-                  复制
-                </button>
-                <button
-                  type="button"
-                  className="maka-plan-action"
-                  onClick={() => void runPlanReminderAction(`${reminder.id}:trigger`, () => props.onTriggerNow?.(reminder.id))}
-                  disabled={reminderActionPending || !reminder.enabled}
-                  title="立即触发一次"
-                >
-                  {pendingActionKeys.has(`${reminder.id}:trigger`) ? '触发中…' : '立即触发'}
-                </button>
-                <button
-                  type="button"
-                  className="maka-plan-action"
-                  onClick={() => void runPlanReminderAction(`${reminder.id}:snooze`, () => props.onSnooze?.(reminder.id))}
-                  disabled={reminderActionPending || !reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number'}
-                  title="延后 10 分钟"
-                >
-                  {pendingActionKeys.has(`${reminder.id}:snooze`) ? '延后中…' : '延后 10 分钟'}
-                </button>
-                <button
-                  type="button"
-                  className="maka-plan-action"
-                  onClick={() => void runPlanReminderAction(`${reminder.id}:clear-runs`, () => props.onClearRunHistory?.(reminder.id))}
-                  disabled={reminderActionPending || reminder.runs.length === 0 || reminder.status === 'completed'}
-                  title="清空最近执行记录"
-                >
-                  {pendingActionKeys.has(`${reminder.id}:clear-runs`) ? '清空中…' : '清空记录'}
-                </button>
-                <button
-                  type="button"
-                  className="maka-plan-action"
-                  onClick={() => void runPlanReminderAction(`${reminder.id}:toggle`, () => props.onToggle?.(reminder.id, !reminder.enabled))}
-                  disabled={reminderActionPending || reminder.status === 'completed'}
-                  title={reminder.enabled ? '暂停提醒' : '启用提醒'}
-                >
-                  {pendingActionKeys.has(`${reminder.id}:toggle`) ? (reminder.enabled ? '暂停中…' : '启用中…') : (reminder.enabled ? '暂停' : '启用')}
-                </button>
-                <button
-                  type="button"
-                  className="maka-plan-action maka-plan-action-danger"
-                  onClick={() => void runPlanReminderAction(`${reminder.id}:delete`, () => props.onDelete?.(reminder.id))}
-                  disabled={reminderActionPending}
-                  title="删除提醒"
-                >
-                  {pendingActionKeys.has(`${reminder.id}:delete`) ? '删除中…' : '删除'}
-                </button>
-              </div>
-            </article>
-            );
-          })
-        )}
-      </div>
+            {validationMessage && (
+              <p className="maka-plan-validation" role="status" aria-live="polite">
+                {validationMessage}
+              </p>
+            )}
+            <footer className="maka-plan-form-footer">
+              <UiButton
+                className="maka-button maka-plan-submit"
+                variant="secondary"
+                type="button"
+                onClick={closeReminderDialog}
+                disabled={formInteractionDisabled}
+              >
+                取消
+              </UiButton>
+              <UiButton className="maka-button maka-plan-submit" type="submit" disabled={submitDisabled}>
+                {isEditing ? <Check size={14} strokeWidth={1.75} aria-hidden="true" /> : <Plus size={14} strokeWidth={1.75} aria-hidden="true" />}
+                <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
+              </UiButton>
+            </footer>
+          </form>
+        </DialogContent>
+      </DialogRoot>
     </div>
   );
 }
@@ -1839,6 +2270,20 @@ function planReminderPresetRunAt(preset: 'ten-minutes' | 'one-hour' | 'tomorrow-
   date.setDate(date.getDate() + daysUntilNextMonday);
   date.setHours(9, 0, 0, 0);
   return date.getTime();
+}
+
+function planReminderTemplateNextRunAt(template: PlanReminderExampleTemplate, now: number = Date.now()): number {
+  const nextRun = new Date(now);
+  nextRun.setSeconds(0, 0);
+  nextRun.setHours(template.nextRun.hour, template.nextRun.minute, 0, 0);
+  if (typeof template.nextRun.weekday === 'number') {
+    const daysUntilTarget = (template.nextRun.weekday - nextRun.getDay() + 7) % 7;
+    nextRun.setDate(nextRun.getDate() + daysUntilTarget);
+  }
+  if (nextRun.getTime() <= now) {
+    nextRun.setDate(nextRun.getDate() + (typeof template.nextRun.weekday === 'number' ? 7 : 1));
+  }
+  return nextRun.getTime();
 }
 
 function planReminderFormValidationMessage(input: {
@@ -1875,6 +2320,16 @@ function comparePlanReminderForDisplay(a: PlanReminder, b: PlanReminder): number
     return planReminderLastRunSortValue(b) - planReminderLastRunSortValue(a);
   }
   return a.title.localeCompare(b.title, 'zh-Hans-CN');
+}
+
+function comparePlanReminderBySort(a: PlanReminder, b: PlanReminder, sort: 'created-desc' | 'next-run-asc' | 'updated-desc'): number {
+  if (sort === 'created-desc') {
+    return b.createdAt - a.createdAt || comparePlanReminderForDisplay(a, b);
+  }
+  if (sort === 'updated-desc') {
+    return b.updatedAt - a.updatedAt || comparePlanReminderForDisplay(a, b);
+  }
+  return comparePlanReminderForDisplay(a, b);
 }
 
 function planReminderStatusDisplayRank(reminder: PlanReminder): number {
@@ -1932,6 +2387,20 @@ function planReminderStatusGroupLabel(status: PlanReminderStatus): string {
   if (status === 'scheduled') return '待触发';
   if (status === 'paused') return '已暂停';
   return '已完成';
+}
+
+function planReminderStatusLabel(status: PlanReminderStatus): string {
+  return planReminderStatusGroupLabel(status);
+}
+
+function planReminderRunRangeStart(range: 'day' | 'week' | 'month' | 'all', now: number): number | null {
+  if (range === 'all') return null;
+  const date = new Date(now);
+  if (range === 'day') {
+    date.setHours(0, 0, 0, 0);
+    return date.getTime();
+  }
+  return now - (range === 'week' ? 7 : 30) * 24 * 60 * 60 * 1000;
 }
 
 function planReminderEditableRunAt(reminder: PlanReminder, now: number = Date.now()): number {
@@ -2293,9 +2762,11 @@ export function SearchModal(props: {
             <X size={16} strokeWidth={1.8} aria-hidden="true" />
           </DialogClose>
         </header>
-        <div className="maka-search-modal-input-row">
-          <Search size={16} strokeWidth={1.75} aria-hidden="true" className="maka-search-modal-input-icon" />
-          <Input
+        <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">
+          <InputGroupAddon>
+            <Search size={16} strokeWidth={1.75} aria-hidden="true" className="maka-search-modal-input-icon" />
+          </InputGroupAddon>
+          <InputGroupInput
             ref={inputRef}
             type="search"
             className="maka-search-modal-input"
@@ -2352,18 +2823,20 @@ export function SearchModal(props: {
             spellCheck={false}
           />
           {query.length > 0 && (
-            <UiButton
-              variant="quiet"
-              size="icon-sm"
-              type="button"
-              className="maka-search-modal-clear"
-              aria-label="清空搜索"
-              onClick={clearSearchQuery}
-            >
-              <X size={14} strokeWidth={1.8} aria-hidden="true" />
-            </UiButton>
+            <InputGroupAddon align="inline-end">
+              <UiButton
+                variant="quiet"
+                size="icon-sm"
+                type="button"
+                className="maka-search-modal-clear"
+                aria-label="清空搜索"
+                onClick={clearSearchQuery}
+              >
+                <X size={14} strokeWidth={1.8} aria-hidden="true" />
+              </UiButton>
+            </InputGroupAddon>
           )}
-        </div>
+        </InputGroup>
         <div className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite">
           {!searchThread && (
             <p className="maka-search-modal-placeholder">
@@ -2541,20 +3014,14 @@ function SessionListGroups(props: {
                   }}
                 />
                 <span>{group.label}</span>
-                {/* PR-UX-POLISH-1 commit 3 (kenji `66123c95`): use
-                  full-width Chinese parens `（N）` instead of middle-
-                  dot separator. Reads as natural Chinese count
-                  notation (`会话（65）`) rather than label+meta
-                  pair (`会话 · 65`). The count is part of the
-                  group label's semantic, not separate metadata. */}
+                {/* Collapsed history buckets keep a subdued count so users
+                  can tell whether expanding the group is worth it. Open
+                  groups intentionally omit counts to keep the rail flat. */}
                 <span className="maka-list-group-count">（{group.sessions.length}）</span>
               </button>
             ) : (
               <div className="maka-list-group-label">
                 <span>{group.label}</span>
-                {group.sessions.length > 1 && (
-                  <span className="maka-list-group-count">（{group.sessions.length}）</span>
-                )}
               </div>
             )}
             {expanded && (
@@ -3247,7 +3714,9 @@ export function ChatView(props: {
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  onOpenSkillsFolder?(): void | Promise<void>;
   planReminders?: PlanReminder[];
+  onRefreshPlanReminders?: () => void | Promise<void>;
   onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdatePlanReminder?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
   onTogglePlanReminder?: (id: string, enabled: boolean) => void | Promise<void>;
@@ -3368,21 +3837,17 @@ export function ChatView(props: {
         onRefreshSkills={props.onRefreshSkills}
         onCreateSkillTemplate={props.onCreateSkillTemplate}
         onOpenSkill={props.onOpenSkill}
+        onOpenSkillsFolder={props.onOpenSkillsFolder}
       />
     );
   }
 
   if (props.mode === 'automations') {
     return (
-      <main className="maka-main detailPane maka-module-main" aria-label="计划">
-        <header className="maka-module-main-header">
-          <div>
-            <h2>计划</h2>
-            <p>创建和管理本机计划提醒。</p>
-          </div>
-        </header>
+      <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="计划">
         <PlanReminderPanel
           reminders={props.planReminders ?? []}
+          onRefresh={props.onRefreshPlanReminders}
           onCreate={props.onCreatePlanReminder}
           onUpdate={props.onUpdatePlanReminder}
           onToggle={props.onTogglePlanReminder}
@@ -3397,7 +3862,7 @@ export function ChatView(props: {
 
   if (props.mode === 'daily-review') {
     return (
-      <main className="maka-main detailPane maka-module-main" aria-label="每日回顾">
+      <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="每日回顾">
         <header className="maka-module-main-header">
           <div>
             <h2>每日回顾</h2>
@@ -3444,28 +3909,26 @@ export function ChatView(props: {
 
   if (!props.activeSession) {
     return (
-      <main className="maka-main detailPane">
-        <header className="maka-chat-header">
-          <ChatTab title="新建对话" />
-          <button className="maka-chat-tab-plus" type="button" aria-label="新建对话" onClick={props.onNew}>
-            <Plus strokeWidth={1.5} aria-hidden="true" />
-          </button>
-          <span className="maka-chat-header-spacer" />
-          <PermissionModeSwitcher mode="ask" disabled disabledReason="新建对话后再切换模式。" />
-        </header>
-        <div className="maka-chat messages">
+      <main className="maka-main detailPane agents-chat-panel agents-chat-view-root">
+        <OverlayScrollArea
+          className="maka-chat messages"
+          viewportClassName="maka-chatViewport"
+          contentClassName="maka-chatContent"
+        >
           {props.emptyOverride ?? <EmptyChatHero onPromptSuggestion={props.onPromptSuggestion} userLabel={props.userLabel} />}
-        </div>
+        </OverlayScrollArea>
       </main>
     );
   }
 
   const isLocalSimulationBackend = props.activeSession.backend === 'fake';
   const deepResearchActive = isDeepResearchSession(props.activeSession.labels);
+  const isEmptyHome = chat.length === 0 && !props.streamingText && !props.messageLoadError && !deepResearchActive;
 
   return (
-    <main className="maka-main detailPane">
-      <header className="maka-chat-header">
+    <main className="maka-main detailPane agents-chat-panel agents-chat-view-root">
+      {!isEmptyHome && (
+        <header className="maka-chat-header">
         <ChatTab
           title={props.activeSession.name}
           subtitle={props.activeModelLabel ?? props.activeConnectionLabel}
@@ -3476,9 +3939,9 @@ export function ChatView(props: {
             ? props.renderProviderMark(props.activeProviderType)
             : undefined}
         />
-        <button className="maka-chat-tab-plus" type="button" aria-label="新建对话" onClick={props.onNew}>
+        <UiButton className="maka-chat-tab-plus" variant="quiet" size="icon-sm" type="button" aria-label="新建对话" onClick={props.onNew}>
           <Plus strokeWidth={1.5} aria-hidden="true" />
-        </button>
+        </UiButton>
         <span className="maka-chat-header-spacer" />
         <ChatModelSwitcher
           activeSession={props.activeSession}
@@ -3489,9 +3952,11 @@ export function ChatView(props: {
           onChange={props.onModelChange}
         />
         {props.memoryActive && (
-          <button
+          <UiButton
             type="button"
             className="maka-chat-header-memory-pill"
+            variant="quiet"
+            size="sm"
             data-active="true"
             onClick={() => props.onOpenMemorySettings?.()}
             title="本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。"
@@ -3499,7 +3964,7 @@ export function ChatView(props: {
           >
             <BookOpen size={12} strokeWidth={1.75} aria-hidden="true" />
             <span>记忆</span>
-          </button>
+          </UiButton>
         )}
         {deepResearchActive && (
           <span
@@ -3522,12 +3987,15 @@ export function ChatView(props: {
           pending={props.permissionModePending}
           onChange={props.onPermissionModeChange}
         />
-      </header>
+        </header>
+      )}
       {isLocalSimulationBackend && (
-        <div className="maka-fake-backend-banner" role="status">
+        <Alert variant="info" className="maka-fake-backend-banner" role="status">
           <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
-          <span>当前会话来自旧的本地模拟连接。要拿到真实 LLM 回复，请到 <strong>设置 · 模型</strong> 添加 Anthropic / OpenAI / GLM 等 API key。</span>
-        </div>
+          <AlertDescription>
+            当前会话来自旧的本地模拟连接。要拿到真实 LLM 回复，请到 <strong>设置 · 模型</strong> 添加 Anthropic / OpenAI / GLM 等 API key。
+          </AlertDescription>
+        </Alert>
       )}
       <div className="maka-chat-shell">
         {props.branchBanner && (
@@ -3536,7 +4004,13 @@ export function ChatView(props: {
             onClick={props.onBranchBannerClick}
           />
         )}
-        <div ref={scrollRef} className="maka-chat messages" onScroll={onScroll}>
+        <OverlayScrollArea
+          ref={scrollRef}
+          className="maka-chat messages"
+          viewportClassName="maka-chatViewport"
+          contentClassName="maka-chatContent"
+          onScroll={onScroll}
+        >
           {chat.length === 0 && !props.streamingText && (
             props.messageLoadError ? (
               <div role="alert" aria-busy={props.messageLoadRetryPending ? 'true' : undefined}>
@@ -3625,16 +4099,18 @@ export function ChatView(props: {
               still appear instead of vanishing. materializeTurns already
               folds these into the `__loose` turn, so this is normally a
               no-op. */}
-        </div>
+        </OverlayScrollArea>
         {!pinnedToBottom && (
-          <button
+          <UiButton
             type="button"
             className="maka-chat-jump-bottom"
+            variant="secondary"
+            size="icon-sm"
             onClick={scrollToBottom}
             aria-label="跳到最新消息"
           >
             <ArrowDown size={16} strokeWidth={2} aria-hidden="true" />
-          </button>
+          </UiButton>
         )}
       </div>
     </main>
@@ -3659,6 +4135,17 @@ function ChatModelSwitcher(props: {
   const pending = props.pending || localPending;
   const disabled = pending || Boolean(props.disabledReason) || !props.onChange || props.choices.length === 0;
   const grouped = groupModelChoices(props.choices);
+  const currentKnownChoice = props.choices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue);
+  const modelSelectItems = useMemo(
+    () => [
+      ...(!currentKnownChoice ? [{ value: currentValue, label: currentModel }] : []),
+      ...props.choices.map((choice) => ({
+        value: modelChoiceValue(choice.connectionSlug, choice.model),
+        label: choice.label ?? choice.model,
+      })),
+    ],
+    [currentKnownChoice, currentModel, currentValue, props.choices],
+  );
   const title = pending
     ? '正在切换当前会话模型…'
     : props.disabledReason ?? '切换当前会话使用的模型。设置里的默认模型只影响新建会话；这里会更新当前会话。';
@@ -3682,22 +4169,20 @@ function ChatModelSwitcher(props: {
   }, [props.activeSession.id]);
 
   return (
-    <label
+    <div
       className="maka-model-switcher"
       title={title}
       data-disabled={disabled ? 'true' : undefined}
       data-pending={pending ? 'true' : undefined}
       aria-busy={pending ? 'true' : undefined}
     >
-      <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
-      <select
-        className="maka-model-switcher-select"
-        aria-label="切换当前会话模型"
+      <SelectRoot<string>
+        items={modelSelectItems}
         value={currentValue}
         disabled={disabled}
-        onChange={(event) => {
+        onValueChange={(value) => {
           if (pendingRef.current || props.pending) return;
-          const next = parseModelChoiceValue(event.currentTarget.value);
+          const next = typeof value === 'string' ? parseModelChoiceValue(value) : undefined;
           if (!next) return;
           if (
             next.llmConnectionSlug === props.activeSession.llmConnectionSlug &&
@@ -3723,23 +4208,47 @@ function ChatModelSwitcher(props: {
             });
         }}
       >
-        {!props.choices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue) && (
-          <option value={currentValue}>{currentModel}</option>
-        )}
-        {grouped.map((group) => (
-          <optgroup key={group.connectionSlug} label={group.connectionLabel}>
-            {group.choices.map((choice) => (
-              <option
-                key={modelChoiceValue(choice.connectionSlug, choice.model)}
-                value={modelChoiceValue(choice.connectionSlug, choice.model)}
-              >
-                {choice.label ?? choice.model}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    </label>
+        <SelectTrigger
+          className="maka-model-switcher-trigger"
+          aria-label="切换当前会话模型"
+          title={title}
+        >
+          <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
+          <SelectValue className="maka-model-switcher-value" />
+        </SelectTrigger>
+        <SelectPortal>
+          <SelectPositioner alignItemWithTrigger={false} sideOffset={8} className="maka-model-switcher-positioner">
+            <SelectPopup className="maka-model-switcher-popup">
+              <SelectList>
+                {!currentKnownChoice && (
+                  <>
+                    <SelectItem value={currentValue}>
+                      <span className="maka-model-switcher-item-main">{currentModel}</span>
+                      <span className="maka-model-switcher-item-meta">当前会话</span>
+                    </SelectItem>
+                    {grouped.length > 0 && <SelectSeparator />}
+                  </>
+                )}
+                {grouped.map((group) => (
+                  <SelectGroup key={group.connectionSlug}>
+                    <SelectGroupLabel>{group.connectionLabel}</SelectGroupLabel>
+                    {group.choices.map((choice) => (
+                      <SelectItem
+                        key={modelChoiceValue(choice.connectionSlug, choice.model)}
+                        value={modelChoiceValue(choice.connectionSlug, choice.model)}
+                      >
+                        <span className="maka-model-switcher-item-main">{choice.label ?? choice.model}</span>
+                        <span className="maka-model-switcher-item-meta">{choice.model}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectList>
+            </SelectPopup>
+          </SelectPositioner>
+        </SelectPortal>
+      </SelectRoot>
+    </div>
   );
 }
 
@@ -3826,9 +4335,11 @@ function MessageCopyButton(props: { text: string; label?: string }) {
         ? '复制失败'
         : baseLabel;
   return (
-    <button
+    <UiButton
       type="button"
       className="maka-message-copy"
+      variant="quiet"
+      size="icon-sm"
       onClick={() => void copy()}
       aria-label={copyPhase ? `${actionLabel} · ${baseLabel}` : baseLabel}
       aria-busy={copyPending ? 'true' : undefined}
@@ -3840,7 +4351,7 @@ function MessageCopyButton(props: { text: string; label?: string }) {
     >
       {copied ? <Check size={14} strokeWidth={2} aria-hidden="true" /> : <Copy size={14} strokeWidth={1.75} aria-hidden="true" />}
       {props.label && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : props.label}</span>}
-    </button>
+    </UiButton>
   );
 }
 
@@ -4016,9 +4527,11 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
     <div className="maka-code-block">
       <div className="maka-code-block-header">
         <span className="maka-code-block-lang">{lang ?? 'code'}</span>
-        <button
+        <UiButton
           type="button"
           className="maka-code-block-copy"
+          variant="quiet"
+          size="icon-sm"
           onClick={() => void copy()}
           aria-label={copyPhase === 'pending' ? '复制代码中' : copyPhase === 'copied' ? '已复制代码' : copyPhase === 'failed' ? '复制代码失败' : '复制代码'}
           aria-busy={copyPending ? 'true' : undefined}
@@ -4030,7 +4543,7 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
           {copied
             ? <Check size={12} strokeWidth={2} aria-hidden="true" />
             : <Copy size={12} strokeWidth={1.75} aria-hidden="true" />}
-        </button>
+        </UiButton>
       </div>
       <pre {...rest}>{children}</pre>
     </div>
@@ -4091,7 +4604,6 @@ export function detectDayPeriod(nowMs: number = Date.now()): DayPeriod {
 
 const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
   ariaLabel: string;
-  eyebrow: string;
   /** Time-of-day prefix: "早上好" / "Good morning" etc. */
   greeting: Record<DayPeriod, string>;
   /** Soft contextual phrase appended when no userLabel is set
@@ -4102,20 +4614,9 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
   /** Compose the headline when no name (greeting + tail). */
   headlineFallback: (greeting: string, tail: string) => string;
   intro: string;
-  /** PR-UI-LAYOUT-5: small discoverability hint for ⌘K command
-   *  palette — analog of the reference design's "Space 可以随时唤起 AI 输入".
-   *  We use ⌘K rather than Space because Cmd+K is the actual
-   *  Maka shortcut and Space conflicts with normal typing in
-   *  the composer. */
-  paletteHint: string;
-  promptListLabel: string;
 }> = {
   zh: {
     ariaLabel: '开始对话',
-    // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8` +
-    // `e2f932d7`): dropped the all-caps English prefix that read
-    // inconsistently against the rest of this Chinese-first surface.
-    eyebrow: '准备就绪 · 想一起做点什么？',
     greeting: {
       morning: '早上好',
       noon: '中午好',
@@ -4130,13 +4631,10 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     },
     headlineWithLabel: (greeting, label) => `${greeting} ${label}，今天想做点什么？`,
     headlineFallback: (greeting, tail) => `${greeting}，${tail}。`,
-    intro: '说一下你要改的、想问的、想查的；下面是几个常用起点，也可以直接在下方输入框里描述需求。',
-    paletteHint: '唤起命令面板：搜索 · 设置 · 模型 · 主题 · 新对话 都在这里',
-    promptListLabel: '提示建议',
+    intro: '本地运行、自主规划、安全可控的 AI 工作搭子。',
   },
   en: {
     ariaLabel: 'Start a conversation',
-    eyebrow: 'READY · What shall we work on?',
     greeting: {
       morning: 'Good morning',
       noon: 'Good afternoon',
@@ -4151,9 +4649,7 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     },
     headlineWithLabel: (greeting, label) => `${greeting} ${label} — what shall we tackle today?`,
     headlineFallback: (greeting, tail) => `${greeting} — ${tail}.`,
-    intro: 'Describe what you want to change, ask, or look up. Here are a few common starting points — or just type in the composer below.',
-    paletteHint: 'Open the command palette: search · settings · models · theme · new chat',
-    promptListLabel: 'Prompt suggestions',
+    intro: 'Describe what you want to change, ask, or look up. Type it in the composer below and Maka will start from there.',
   },
 };
 
@@ -4161,19 +4657,15 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
   // Greet the user by name when they've set one in Personalization Settings.
   // Falls back to a neutral title so first-run users don't see "Hi 你, …".
   //
-  // PR-UI-1 (@yuejing 2026-05-22): visual unification with OnboardingHero
-  // ReadyEmptyHero. Both heroes now use the same Sparkles-eyebrow chrome,
-  // same headline scale, same chip suggestion grid — so users don't see
-  // a jarring visual switch between "first-run" and "empty session" surfaces.
-  //
-  // PR-UI-14 (@yuejing 2026-05-22): locale-aware chips + hero copy. We
-  // detect `navigator.language` once per render and use it to pick both
-  // the prompt suggestion set and the surrounding copy bundle, so users
-  // on en locale never see a mixed-language hero.
+  // PR-REFERENCE_APP-HERO-0: the normal empty chat page now follows the
+  // reference implementation single-card pattern: calm copy above the one real composer
+  // card, without a grid of starter chips competing for the first
+  // viewport. `onPromptSuggestion` stays in the signature for callers
+  // that still pass it, but the generic empty-chat surface no longer
+  // renders suggestions; Deep Research keeps its specialized starters.
   const label = props.userLabel?.trim();
   const locale = detectPromptSuggestionLocale();
   const copy = EMPTY_HERO_COPY_BY_LOCALE[locale];
-  const suggestions = getPromptSuggestions(locale);
   // PR-UI-LAYOUT-4: time-of-day greeting prefix. `detectDayPeriod`
   // reads the user's local clock at render time; we don't memo
   // because the hero is short-lived and React will re-render when
@@ -4184,45 +4676,11 @@ function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userL
   return (
     <section className="maka-hero maka-hero-empty-chat" aria-label={copy.ariaLabel}>
       <header>
-        <span className="maka-hero-eyebrow">
-          <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
-          <span>{copy.eyebrow}</span>
-        </span>
         <h1>
           {label ? copy.headlineWithLabel(greeting, label) : copy.headlineFallback(greeting, greetingTail)}
         </h1>
         <p>{copy.intro}</p>
-        {/* PR-UI-LAYOUT-5b / B1-a1 review fixup (@kenji msg 708255f3):
-         *   - Outer wrapper is NOT `aria-hidden` — the hint copy
-         *     announces a real keyboard shortcut and command-palette
-         *     entrypoint to assistive tech users; hiding it strips
-         *     real navigation info from the AT tree.
-         *   - Only the visual `<kbd>` glyphs are aria-hidden (their
-         *     content reads noisily as "command K"); the textual hint
-         *     stays in the AT tree.
-         *   - `aria-keyshortcuts` lets AT users know the chord without
-         *     parsing the visual `<kbd>` glyphs. */}
-        <span className="maka-hero-palette-hint" aria-keyshortcuts="Meta+K">
-          <kbd aria-hidden="true">⌘</kbd><kbd aria-hidden="true">K</kbd>
-          <span>{copy.paletteHint}</span>
-        </span>
       </header>
-      {props.onPromptSuggestion && (
-        <ul className="maka-prompt-suggestions" aria-label={copy.promptListLabel}>
-          {suggestions.map((suggestion) => (
-            <li key={suggestion.label}>
-              <button
-                type="button"
-                className="maka-prompt-chip"
-                onClick={() => props.onPromptSuggestion?.(suggestion.prompt)}
-              >
-                <span className="maka-prompt-chip-label">{suggestion.label}</span>
-                <span className="maka-prompt-chip-hint">{suggestion.prompt.split('\n')[0]?.slice(0, 60)}…</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }
@@ -4296,14 +4754,15 @@ function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): voi
         <ul className="maka-prompt-suggestions" aria-label="深度研究起手式">
           {DEEP_RESEARCH_STARTER_PROMPTS.map((suggestion) => (
             <li key={suggestion.label}>
-              <button
+              <UiButton
                 type="button"
-                className="maka-prompt-chip"
+                className="maka-prompt-chip h-auto"
+                variant="quiet"
                 onClick={() => props.onPromptSuggestion?.(suggestion.prompt)}
               >
                 <span className="maka-prompt-chip-label">{suggestion.label}</span>
                 <span className="maka-prompt-chip-hint">{suggestion.prompt.slice(0, 60)}…</span>
-              </button>
+              </UiButton>
             </li>
           ))}
         </ul>
@@ -4320,19 +4779,33 @@ function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): voi
  */
 function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
   const { tone, label, tooltip, onClick } = props.alert;
-  const Tag = onClick ? 'button' : 'span';
+  if (onClick) {
+    return (
+      <UiButton
+        className="maka-chat-header-alert"
+        variant="quiet"
+        size="sm"
+        data-tone={tone}
+        type="button"
+        onClick={onClick}
+        aria-label={tooltip ?? label}
+        title={tooltip}
+      >
+        <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
+        <span>{label}</span>
+      </UiButton>
+    );
+  }
   return (
-    <Tag
+    <span
       className="maka-chat-header-alert"
       data-tone={tone}
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
       aria-label={tooltip ?? label}
       title={tooltip}
     >
       <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
       <span>{label}</span>
-    </Tag>
+    </span>
   );
 }
 
@@ -4393,7 +4866,7 @@ function PermissionModeSwitcher(props: {
         const meta = PERMISSION_MODE_META[mode];
         const isActive = mode === props.mode;
         return (
-          <button
+          <UiButton
             key={mode}
             type="button"
             role="radio"
@@ -4403,6 +4876,8 @@ function PermissionModeSwitcher(props: {
             data-mode={mode}
             data-tone={meta.tone}
             className="maka-mode-switcher-option"
+            variant="quiet"
+            size="sm"
             onClick={() => {
               if (!props.pending && !props.disabled && props.onChange && mode !== props.mode) {
                 props.onChange(mode);
@@ -4411,7 +4886,7 @@ function PermissionModeSwitcher(props: {
             title={meta.hint}
           >
             {meta.label}
-          </button>
+          </UiButton>
         );
       })}
     </div>
@@ -4632,17 +5107,19 @@ function TurnView(props: {
       {forwardBadges.length > 0 && (
         <div className="maka-turn-lineage-row" aria-label="本轮回答的来源">
           {forwardBadges.map((badge) => (
-            <button
+            <UiButton
               key={badge.id}
               type="button"
               className="maka-turn-lineage-badge"
+              variant="quiet"
+              size="sm"
               data-direction="forward"
               title={badge.tooltip ?? badge.label}
               onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
             >
               <GitBranch size={11} strokeWidth={2} aria-hidden="true" />
               <span>{badge.label}</span>
-            </button>
+            </UiButton>
           ))}
         </div>
       )}
@@ -4728,17 +5205,19 @@ function TurnView(props: {
           {reverseBadges.length > 0 && (
             <div className="maka-turn-lineage-row maka-turn-lineage-row-reverse" aria-label="本轮回答的衍生">
               {reverseBadges.map((badge) => (
-                <button
+                <UiButton
                   key={badge.id}
                   type="button"
                   className="maka-turn-lineage-badge"
+                  variant="quiet"
+                  size="sm"
                   data-direction="reverse"
                   title={badge.tooltip ?? badge.label}
                   onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
                 >
                   <GitBranch size={11} strokeWidth={2} aria-hidden="true" />
                   <span>{badge.label}</span>
-                </button>
+                </UiButton>
               ))}
             </div>
           )}
@@ -4787,9 +5266,11 @@ function SessionBranchBanner(props: {
 }) {
   const { banner } = props;
   return (
-    <button
+    <UiButton
       type="button"
       className="maka-session-branch-banner"
+      variant="quiet"
+      size="sm"
       data-from-aborted={banner.fromAbortedTurn || undefined}
       onClick={() => props.onClick?.(banner.parentSessionId)}
       aria-label={banner.fromAbortedTurn
@@ -4802,7 +5283,7 @@ function SessionBranchBanner(props: {
           ? `从中断前分支自 ${banner.parentSessionName}`
           : `分自 ${banner.parentSessionName}`}
       </span>
-    </button>
+    </UiButton>
   );
 }
 
@@ -4973,10 +5454,12 @@ function TurnFooterActions(props: {
         const isActionPending = isPending || copyIsPending;
         const priority = isActionPending ? 'primary' : STATUS_FOOTER_PRIORITY[action.id];
         return (
-          <button
+          <UiButton
             key={action.id}
             type="button"
             className="maka-turn-footer-action"
+            variant={priority === 'primary' ? 'secondary' : 'quiet'}
+            size="sm"
             data-action={action.id}
             data-priority={priority}
             data-pending={isActionPending || undefined}
@@ -4989,7 +5472,7 @@ function TurnFooterActions(props: {
           >
             {isCopyAction && copyPhase === 'copied' ? <Check size={12} strokeWidth={2} aria-hidden="true" /> : STATUS_FOOTER_ICON[action.id]}
             <span>{isCopyAction ? copyFeedbackLabel : action.label}</span>
-          </button>
+          </UiButton>
         );
       })}
     </div>
@@ -5272,7 +5755,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   streamingHintInterrupt: string;
 }> = {
   zh: {
-    placeholder: '给 Maka 发消息…',
+    placeholder: '描述任务，/ 快捷调用，@ 添加上下文，标准模式经济高效',
     textareaAriaLabel: '消息输入框',
     awaitingPermission: '等待你确认权限…',
     sending: '正在发送…',
@@ -5285,7 +5768,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     streamingHintInterrupt: '或点停止中断',
   },
   en: {
-    placeholder: 'Message Maka…',
+    placeholder: 'Describe a task, / for commands, @ for context…',
     textareaAriaLabel: 'Message input',
     awaitingPermission: 'Waiting for your permission decision…',
     sending: 'Sending…',
@@ -5424,6 +5907,12 @@ export const Composer = forwardRef<
     onImportTextFile?(): void | Promise<void>;
     onImportFolderOutline?(): void | Promise<void>;
     onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
+    modelLabel?: string;
+    workspacePicker?: {
+      label?: string;
+      branch?: string | null;
+      onOpen(): void;
+    };
   }
 >(function Composer(props, ref) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -5700,6 +6189,7 @@ export const Composer = forwardRef<
   if (props.hidden) return null;
   const importActionBusy = pendingImportAction !== null;
   const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
+  const modelChipLabel = props.modelLabel?.trim() || '选择模型';
 
   return (
     <form
@@ -5711,7 +6201,7 @@ export const Composer = forwardRef<
       onDrop={onComposerDrop}
       onSubmit={submit}
     >
-      <div className="maka-composer-inner composerInner">
+      <div className="maka-composer-inner composerInner agents-parchment-paper-surface">
         <UiTextarea
           ref={textareaRef}
           name="text"
@@ -5732,7 +6222,59 @@ export const Composer = forwardRef<
           </span>
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
-          <span>
+          <div className="maka-composer-left-controls">
+            {!props.streaming && props.onImportTextFile && props.onImportFolderOutline ? (
+              <Menu>
+                <MenuTrigger
+                  className="maka-composer-tool-button maka-composer-context-plus"
+                  type="button"
+                  disabled={props.disabled || importActionBusy}
+                  aria-label={pendingImportAction ? '正在添加上下文' : '添加上下文'}
+                  aria-busy={pendingImportAction ? 'true' : undefined}
+                  data-pending={pendingImportAction ? 'true' : undefined}
+                  title={pendingImportAction ? '正在添加上下文' : '添加上下文'}
+                >
+                  <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
+                </MenuTrigger>
+                <MenuPopup className="maka-composer-context-menu" align="start">
+                  <MenuItem
+                    onClick={() => void runImportAction('file', props.onImportTextFile)}
+                    disabled={props.disabled || importActionBusy}
+                  >
+                    <FileEdit size={14} strokeWidth={1.75} aria-hidden="true" />
+                    导入文件内容
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => void runImportAction('folder', props.onImportFolderOutline)}
+                    disabled={props.disabled || importActionBusy}
+                  >
+                    <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
+                    导入文件夹目录
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            ) : !props.streaming && props.onImportTextFile ? (
+              <UiButton
+                variant="quiet"
+                size="icon-sm"
+                className="maka-composer-tool-button maka-composer-context-plus"
+                type="button"
+                disabled={props.disabled || importActionBusy}
+                onClick={() => void runImportAction('file', props.onImportTextFile)}
+                aria-label={pendingImportAction === 'file' ? '正在添加上下文' : '添加上下文'}
+                aria-busy={pendingImportAction === 'file' ? 'true' : undefined}
+                data-pending={pendingImportAction === 'file' ? 'true' : undefined}
+                title={pendingImportAction === 'file' ? '正在添加上下文' : '添加上下文'}
+              >
+                <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
+              </UiButton>
+            ) : null}
+            <span className="maka-composer-role-chip" aria-label="通用助手">
+              通用
+              <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+          </div>
+          <span className="maka-composer-status-slot">
             {props.disabled ? (
               copy.awaitingPermission
             ) : sendPending ? (
@@ -5742,44 +6284,32 @@ export const Composer = forwardRef<
             ) : props.streaming ? (
               <span className="maka-composer-streaming-hint">
                 <span className="maka-composer-streaming-dot" aria-hidden="true" />
-                {copy.streamingHintPrefix} <kbd>Esc</kbd> {copy.streamingHintInterrupt}
+                {copy.streamingHintPrefix} <Kbd className="maka-shortcut-kbd">Esc</Kbd> {copy.streamingHintInterrupt}
               </span>
             ) : (
               null
             )}
           </span>
-          <div>
-            {!props.streaming && props.onImportTextFile && (
-              <UiButton
-                variant="quiet"
-                size="icon-sm"
-                className="maka-composer-tool-button"
-                type="button"
-                disabled={props.disabled || importActionBusy}
-                onClick={() => void runImportAction('file', props.onImportTextFile)}
-                aria-label={pendingImportAction === 'file' ? '正在导入文件内容' : '导入文件内容'}
-                aria-busy={pendingImportAction === 'file' ? 'true' : undefined}
-                data-pending={pendingImportAction === 'file' ? 'true' : undefined}
-                title={pendingImportAction === 'file' ? '正在导入文件内容' : '导入文件内容'}
-              >
-                <Paperclip size={14} strokeWidth={1.75} aria-hidden="true" />
-              </UiButton>
-            )}
-            {!props.streaming && props.onImportFolderOutline && (
-              <UiButton
-                variant="quiet"
-                size="icon-sm"
-                className="maka-composer-tool-button"
-                type="button"
-                disabled={props.disabled || importActionBusy}
-                onClick={() => void runImportAction('folder', props.onImportFolderOutline)}
-                aria-label={pendingImportAction === 'folder' ? '正在导入文件夹目录' : '导入文件夹目录'}
-                aria-busy={pendingImportAction === 'folder' ? 'true' : undefined}
-                data-pending={pendingImportAction === 'folder' ? 'true' : undefined}
-                title={pendingImportAction === 'folder' ? '正在导入文件夹目录' : '导入文件夹目录'}
-              >
-                <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
-              </UiButton>
+          <div className="maka-composer-right-controls">
+            {!props.streaming && (
+              <>
+                <span className="maka-composer-model-chip" aria-label={`当前模型：${modelChipLabel}`} title={modelChipLabel}>
+                  <span className="maka-composer-model-chip-text">{modelChipLabel}</span>
+                  <span className="maka-composer-model-status" aria-hidden="true" />
+                  <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+                </span>
+                <UiButton
+                  variant="quiet"
+                  size="icon-sm"
+                  className="maka-composer-tool-button maka-composer-mic-button"
+                  type="button"
+                  disabled
+                  aria-label="语音输入暂未启用"
+                  title="语音输入暂未启用"
+                >
+                  <Mic size={14} strokeWidth={1.75} aria-hidden="true" />
+                </UiButton>
+              </>
             )}
             {props.streaming ? (
               <UiButton
@@ -5797,13 +6327,46 @@ export const Composer = forwardRef<
                 {props.stopPending ? '停止中…' : buttonCopy.stopLabel}
               </UiButton>
             ) : (
-              <UiButton className="maka-button" variant="default" type="submit" disabled={sendDisabled}>
-                {buttonCopy.sendLabel}
+              <UiButton
+                className="maka-composer-send-button"
+                variant="default"
+                size="icon-sm"
+                type="submit"
+                disabled={sendDisabled}
+                aria-label={buttonCopy.sendLabel}
+                aria-busy={sendPending ? 'true' : undefined}
+                data-pending={sendPending ? 'true' : undefined}
+                title={buttonCopy.sendLabel}
+              >
+                <ArrowUp size={16} strokeWidth={2.1} aria-hidden="true" />
               </UiButton>
             )}
           </div>
         </div>
       </div>
+      {props.workspacePicker && (
+        <div className="maka-composer-workspace-row">
+          <button
+            type="button"
+            className="maka-composer-workspace-picker"
+            onClick={props.workspacePicker.onOpen}
+            title={props.workspacePicker.branch ? `选择工作目录 · ${props.workspacePicker.branch}` : '选择工作目录'}
+            aria-label={props.workspacePicker.branch
+              ? `选择工作目录：${props.workspacePicker.label ?? '当前工作目录'}，当前分支 ${props.workspacePicker.branch}`
+              : `选择工作目录：${props.workspacePicker.label ?? '当前工作目录'}`}
+          >
+            <FolderOpen size={13} strokeWidth={1.7} aria-hidden="true" />
+            {/* WAWQAQ msg `28128c9e` (2026-06-20): when a directory has
+                been chosen, the label replaces the "选择工作目录"
+                placeholder rather than appearing next to it. The
+                placeholder is purely for the empty state. */}
+            {props.workspacePicker.label
+              ? <span className="maka-composer-workspace-current">{props.workspacePicker.label}</span>
+              : <span>选择工作目录</span>}
+            <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </form>
   );
 });
@@ -6141,33 +6704,34 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
   }
 
   return (
-    <div className="maka-tool-error" role="alert">
-      <span className="maka-tool-error-icon" aria-hidden="true">
-        <AlertOctagon size={16} strokeWidth={2} />
-      </span>
-      <div className="maka-tool-error-body">
-        <strong className="maka-tool-error-title">工具调用失败</strong>
-        {errorText && (
-          <p className="maka-tool-error-text">{errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}</p>
-        )}
-      </div>
+    <Alert variant="error" className="maka-tool-error">
+      <AlertOctagon size={16} strokeWidth={2} aria-hidden="true" />
+      <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (
-        <button
-          type="button"
-          className="maka-button maka-tool-error-copy"
-          data-size="sm"
-          data-pending={copyPending ? 'true' : undefined}
-          data-copy-feedback={copyPhase ?? undefined}
-          aria-label={`${copyLabel}错误信息`}
-          aria-busy={copyPending ? 'true' : undefined}
-          disabled={copyPending}
-          onClick={() => void copy()}
-        >
-          {copyPhase === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-          <span>{copyLabel}</span>
-        </button>
+        <AlertDescription className="maka-tool-error-text">
+          {errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}
+        </AlertDescription>
       )}
-    </div>
+      {errorText && (
+        <AlertAction>
+          <UiButton
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="maka-button maka-tool-error-copy"
+            data-pending={copyPending ? 'true' : undefined}
+            data-copy-feedback={copyPhase ?? undefined}
+            aria-label={`${copyLabel}错误信息`}
+            aria-busy={copyPending ? 'true' : undefined}
+            disabled={copyPending}
+            onClick={() => void copy()}
+          >
+            {copyPhase === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+            <span>{copyLabel}</span>
+          </UiButton>
+        </AlertAction>
+      )}
+    </Alert>
   );
 }
 
@@ -6175,7 +6739,16 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
   if (!props.content) return null;
   return (
     <div className="maka-modal-backdrop overlay">
-      <button className="maka-button" onClick={props.onClose}>Close</button>
+      <UiButton
+        className="maka-button maka-overlay-close"
+        type="button"
+        variant="ghost"
+        onClick={props.onClose}
+        aria-label="关闭预览"
+      >
+        <X size={14} strokeWidth={1.75} aria-hidden="true" />
+        <span>关闭</span>
+      </UiButton>
       <OverlayPreview content={props.content} />
     </div>
   );
@@ -6312,11 +6885,10 @@ export function PermissionDialog(props: {
             <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
           </details>
           <label className="permissionRemember">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={rememberForTurn}
               disabled={responsePending}
-              onChange={(event) => setRememberForTurn(event.currentTarget.checked)}
+              onCheckedChange={(checked) => setRememberForTurn(checked === true)}
             />
             本轮对话内记住选择（同类型工具不再询问，关闭/切换对话后失效）
           </label>
@@ -6326,14 +6898,22 @@ export function PermissionDialog(props: {
             </p>
           )}
           {isDestructive && (
-            <p className="maka-permission-danger-note" role="note">
-              这类操作不可恢复，确认前请再读一遍上面的参数。
-            </p>
+            <Alert variant="error" className="maka-permission-danger-note">
+              <AlertDescription>
+                这类操作不可恢复，确认前请再读一遍上面的参数。
+              </AlertDescription>
+            </Alert>
           )}
           {health.status !== 'fresh' && (
-            <p className="maka-permission-stale-note" role="note" data-status={health.status}>
-              这个请求已经等待较久。允许前请重新确认工具名和参数；如果上下文已经变了，直接拒绝后重新发送。
-            </p>
+            <Alert
+              variant="warning"
+              className="maka-permission-stale-note"
+              data-status={health.status}
+            >
+              <AlertDescription>
+                这个请求已经等待较久。允许前请重新确认工具名和参数；如果上下文已经变了，直接拒绝后重新发送。
+              </AlertDescription>
+            </Alert>
           )}
         </div>
         <div className="maka-modal-footer permissionActions">
@@ -6507,6 +7087,7 @@ function permissionValuePreview(value: unknown): string {
  *   destructive tone
  * - `office_document`: Office adapter stdout/stderr/diagnostic cards
  * - `explore_agent`: bounded read-only subagent findings
+ * - `subagent`: foreground child-agent run summary
  * - `json`: pretty-printed in a code block
  * - `text` / others: plain `<pre>` fallback
  *
@@ -6573,6 +7154,10 @@ function OverlayPreview(props: { content: ToolResultContent }) {
 
   if (content.kind === 'explore_agent') {
     return <ExploreAgentPreview result={content} />;
+  }
+
+  if (content.kind === 'subagent') {
+    return <SubagentPreview result={content} />;
   }
 
   if (content.kind === 'rive_workflow') {
@@ -6665,6 +7250,66 @@ function formatRiveWorkflowNode(node: NonNullable<Extract<ToolResultContent, { k
     node.worker ? `worker=${node.worker}` : '',
   ].filter(Boolean).join(' · ');
   return attrs ? `- ${label}: ${attrs}` : `- ${label}`;
+}
+
+type SubagentResult = Extract<ToolResultContent, { kind: 'subagent' }>;
+
+const SUBAGENT_STATUS_LABEL: Record<SubagentResult['status'], string> = {
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  running: '运行中',
+  waiting_permission: '等待权限',
+};
+
+function SubagentPreview(props: {
+  result: SubagentResult;
+}) {
+  const { result } = props;
+  const duration = formatDuration(result.durationMs);
+  const status = presentSubagentStatus(result.status);
+  const summary = typeof result.summary === 'string' ? result.summary.trim() : '';
+  const artifactCount = result.artifactIds.length;
+  const meta = [
+    status,
+    presentSubagentPermission(result.permissionMode),
+    duration ? `耗时 ${duration}` : '',
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className="maka-overlay-preview maka-subagent-preview" data-kind="subagent" data-status={result.status}>
+      <header className="maka-explore-agent-head">
+        <strong>{redactSecrets(result.agentName || 'Subagent')}</strong>
+        <small>{meta}</small>
+      </header>
+      {summary.length > 0 && (
+        <section className="maka-explore-agent-section" aria-label="子代理结果摘要">
+          <strong>结果摘要</strong>
+          <p>{redactSecrets(summary)}</p>
+        </section>
+      )}
+      {result.failureClass && (
+        <div className="maka-explore-agent-message" role="note">
+          {redactSecrets(result.failureClass)}
+        </div>
+      )}
+      {artifactCount > 0 && (
+        <section className="maka-explore-agent-section" aria-label="子代理产物">
+          <strong>产物</strong>
+          <p>{artifactCount} 个</p>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function presentSubagentStatus(status: SubagentResult['status']): string {
+  return SUBAGENT_STATUS_LABEL[status] ?? status;
+}
+
+function presentSubagentPermission(permissionMode: SubagentResult['permissionMode']): string {
+  if (permissionMode === 'explore') return '只读';
+  return permissionMode;
 }
 
 function ExploreAgentPreview(props: {
@@ -6851,10 +7496,11 @@ function ExploreAgentPreview(props: {
         {resultSummary.length > 0 && (
           <div className="maka-explore-agent-summary-line">
             <small>{redactSecrets(resultSummary)}</small>
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('summary', summaryText)}
               disabled={summaryCopy.disabled}
               aria-label={summaryCopy.ariaLabel}
@@ -6865,15 +7511,16 @@ function ExploreAgentPreview(props: {
             >
               {summaryCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{summaryCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
         )}
         {continuationText.length > 0 && (
           <div className="maka-explore-agent-actions" aria-label="只读探索后续操作">
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('continuation', continuationText)}
               disabled={continuationCopy.disabled}
               aria-label={continuationCopy.ariaLabel}
@@ -6885,7 +7532,7 @@ function ExploreAgentPreview(props: {
             >
               {continuationCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{continuationCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
         )}
       </header>
@@ -6940,10 +7587,11 @@ function ExploreAgentPreview(props: {
         <section className="maka-explore-agent-section" aria-label="探索过程">
           <div className="maka-explore-agent-section-head">
             <strong>过程</strong>
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('process', processText)}
               disabled={processCopy.disabled}
               aria-label={processCopy.ariaLabel}
@@ -6954,7 +7602,7 @@ function ExploreAgentPreview(props: {
             >
               {processCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{processCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
           <ul>
             {progress.map((item, index) => (
@@ -6969,10 +7617,11 @@ function ExploreAgentPreview(props: {
         <section className="maka-explore-agent-section" aria-label="证据锚点">
           <div className="maka-explore-agent-section-head">
             <strong>证据锚点</strong>
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('evidence', evidenceText)}
               disabled={evidenceCopy.disabled}
               aria-label={evidenceCopy.ariaLabel}
@@ -6983,7 +7632,7 @@ function ExploreAgentPreview(props: {
             >
               {evidenceCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{evidenceCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
           <ul>
             {evidence.map((item, index) => (
@@ -7005,10 +7654,11 @@ function ExploreAgentPreview(props: {
         <section className="maka-explore-agent-section" aria-label="研究报告">
           <div className="maka-explore-agent-section-head">
             <strong>研究报告</strong>
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('report', reportText)}
               disabled={reportCopy.disabled}
               aria-label={reportCopy.ariaLabel}
@@ -7019,7 +7669,7 @@ function ExploreAgentPreview(props: {
             >
               {reportCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{reportCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
           <ul>
             {reportLines.map((line, index) => (
@@ -7034,10 +7684,11 @@ function ExploreAgentPreview(props: {
         <section className="maka-explore-agent-section" aria-label="候选文件">
           <div className="maka-explore-agent-section-head">
             <strong>候选文件</strong>
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('candidate', candidateText)}
               disabled={candidateCopy.disabled}
               aria-label={candidateCopy.ariaLabel}
@@ -7048,7 +7699,7 @@ function ExploreAgentPreview(props: {
             >
               {candidateCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{candidateCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
           <ul>
             {candidateFiles.map((file) => (
@@ -7067,10 +7718,11 @@ function ExploreAgentPreview(props: {
         <section className="maka-explore-agent-section" aria-label="命中片段">
           <div className="maka-explore-agent-section-head">
             <strong>命中片段</strong>
-            <button
+            <UiButton
               type="button"
-              className="maka-button maka-button-ghost maka-explore-agent-copy"
-              data-size="sm"
+              variant="ghost"
+              size="sm"
+              className="maka-explore-agent-copy"
               onClick={() => void copyFeedback.copy('matches', matchesText)}
               disabled={matchesCopy.disabled}
               aria-label={matchesCopy.ariaLabel}
@@ -7081,7 +7733,7 @@ function ExploreAgentPreview(props: {
             >
               {matchesCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
               <span>{matchesCopy.label}</span>
-            </button>
+            </UiButton>
           </div>
           <ul>
             {matches.map((match, index) => (
@@ -7557,10 +8209,11 @@ function TerminalPreview(props: {
           <span>
             输出较长，当前只展示每路输出的前 {TOOL_LINE_CAP} 行。需要继续研读时，可以切到深度研究并把命令、相关路径和想确认的问题交给只读探索。
           </span>
-          <button
+          <PrimitiveButton
             type="button"
-            className="maka-button maka-button-ghost maka-tool-terminal-copy"
-            data-size="sm"
+            variant="ghost"
+            size="sm"
+            className="maka-tool-terminal-copy"
             onClick={() => void copyFeedback.copy('handoff', handoffText)}
             disabled={handoffCopyPhase === 'pending'}
             aria-label={handoffCopyAria}
@@ -7571,7 +8224,7 @@ function TerminalPreview(props: {
           >
             {handoffCopyPhase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
             <span>{handoffCopyLabel}</span>
-          </button>
+          </PrimitiveButton>
         </div>
       )}
     </div>

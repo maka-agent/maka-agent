@@ -36,6 +36,8 @@ import type {
   BackendKind,
 } from '@maka/core/session';
 import type {
+  AgentSpec,
+  ChildAgentTurnInput,
   CreateSessionInput,
   BranchFromTurnInput,
   RegenerateTurnInput,
@@ -46,14 +48,14 @@ import type {
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
 import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
-import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
 import { RuntimeReadModel, type RuntimeReadModelSessionView } from './runtime-read-model.js';
 import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run-inspect.js';
 
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import type { AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
@@ -62,9 +64,85 @@ import type {
   InvocationSource,
 } from './invocation-context.js';
 import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
+import {
+  buildStatusPatch,
+  buildTurnStateMessage,
+  turnHasRetainedOutput as messagesHaveRetainedOutput,
+} from './session-projection-helpers.js';
+import {
+  listBuiltinAgentDefinitions,
+  requireBuiltinAgentDefinition,
+  type AgentDefinitionListItem,
+} from './agent-catalog.js';
 
 export interface StopSessionInput {
   source?: 'stop_button';
+}
+
+export interface SpawnChildAgentInput {
+  parentRunId: string;
+  turnId?: string;
+  spec: AgentSpec;
+  prompt: string;
+  abortSignal?: AbortSignal;
+}
+
+export interface SpawnChildAgentResult {
+  agentId: string;
+  agentName: string;
+  turnId: string;
+  runId?: string;
+  status: 'completed' | 'failed' | 'cancelled' | 'running' | 'waiting_permission';
+  permissionMode: PermissionMode;
+  summary: string;
+  artifactIds: string[];
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  eventCount: number;
+  failureClass?: string;
+}
+
+const CHILD_AGENT_SUMMARY_MAX_CHARS = 4_000;
+
+export interface AgentListItem {
+  runId: string;
+  turnId: string;
+  parentRunId: string;
+  agentId?: string;
+  agentName?: string;
+  status: AgentRunHeader['status'];
+  permissionMode: AgentRunHeader['permissionMode'];
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+  failureClass?: string;
+}
+
+export interface AgentListResult {
+  definitions: AgentDefinitionListItem[];
+  runs: AgentListItem[];
+}
+
+export interface AgentOutputInput {
+  runId?: string;
+  turnId?: string;
+  maxEvents?: number;
+}
+
+export interface AgentOutputResult {
+  header: AgentRunHeader;
+  events: AgentRunEvent[];
+  runtimeEvents: RuntimeEvent[];
+  sourceHealth: AgentRunInspectModel['sourceHealth'];
+  diagnostics: AgentRunInspectModel['diagnostics'];
+  artifacts: ArtifactRecord[];
+  truncated: {
+    events: boolean;
+    runtimeEvents: boolean;
+    diagnostics: boolean;
+  };
 }
 
 // ============================================================================
@@ -98,6 +176,18 @@ export interface BackendFactoryContext {
   workspaceRoot: string;
   header: SessionHeader;
   store: SessionStore;
+  appendMessage?: (message: StoredMessage) => Promise<void>;
+  /**
+   * Child-agent instruction channel. Only `ensureChildActive` populates
+   * this; the main-session `ensureActive` path leaves it undefined. A
+   * main-session factory that needs a system prompt must source it from
+   * its own closure (the desktop path and the headless benchmark path
+   * both do this) — do NOT route a main-session prompt through this
+   * field, it is semantically the child instruction, not the session
+   * system prompt.
+   */
+  systemPrompt?: string;
+  tools?: readonly MakaTool[];
   recordRunTrace?: RunTraceRecorder;
 }
 
@@ -132,6 +222,8 @@ export interface SessionManagerDeps {
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
+  childTools?: readonly MakaTool[];
+  listArtifactsForTurn?: (sessionId: string, turnId: string) => Promise<ArtifactRecord[]>;
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
@@ -251,7 +343,7 @@ export class SessionManager {
     status: SessionStatus,
     blockedReason?: SessionBlockedReason,
   ): Promise<SessionSummary> {
-    const next = await this.deps.store.updateHeader(sessionId, statusPatch(status, this.deps.now(), blockedReason));
+    const next = await this.deps.store.updateHeader(sessionId, buildStatusPatch(status, this.deps.now(), blockedReason));
     this.runtimeKernel.updateCachedHeader(sessionId, next);
     return headerToSummary(next);
   }
@@ -323,6 +415,129 @@ export class SessionManager {
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
     yield* this.runtimeKernel.startTurn(sessionId, input);
+  }
+
+  async *startChildTurn(
+    sessionId: string,
+    input: ChildAgentTurnInput,
+  ): AsyncIterable<SessionEvent> {
+    yield* this.runtimeKernel.startChildTurn(sessionId, input);
+  }
+
+  async spawnChildAgent(
+    sessionId: string,
+    input: SpawnChildAgentInput,
+  ): Promise<SpawnChildAgentResult> {
+    const definition = requireBuiltinAgentDefinition(input.spec.id);
+    const turnId = input.turnId ?? this.deps.newId();
+    const startedAt = this.deps.now();
+    const summary = new ChildAgentSummaryAccumulator();
+    let aborted = input.abortSignal?.aborted === true;
+    const iterator = this.startChildTurn(sessionId, {
+      turnId,
+      parentRunId: input.parentRunId,
+      spec: input.spec,
+      prompt: input.prompt,
+    })[Symbol.asyncIterator]();
+    const onAbort = () => {
+      aborted = true;
+      void iterator.return?.();
+    };
+    if (input.abortSignal && !input.abortSignal.aborted) {
+      input.abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    try {
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        summary.add(next.value);
+      }
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onAbort);
+      if (aborted) await iterator.return?.();
+    }
+
+    const completedAt = this.deps.now();
+    const run = await this.findRunByTurnId(sessionId, turnId);
+    const artifacts = this.deps.listArtifactsForTurn
+      ? await this.deps.listArtifactsForTurn(sessionId, turnId)
+      : [];
+    return {
+      agentId: definition.id,
+      agentName: definition.name,
+      turnId,
+      ...(run?.runId ? { runId: run.runId } : {}),
+      status: run ? agentRunStatusForSpawnResult(run.status) : summary.status(aborted),
+      permissionMode: definition.permissionMode,
+      summary: summary.text(),
+      artifactIds: artifacts.map((artifact) => artifact.id),
+      startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - startedAt),
+      eventCount: summary.eventCount,
+      ...(run?.failureClass ? { failureClass: run.failureClass } : {}),
+    };
+  }
+
+  async listChildAgents(sessionId: string): Promise<AgentListResult> {
+    const header = await this.deps.store.readHeader(sessionId);
+    const definitions = listBuiltinAgentDefinitions({
+      parentPermissionMode: header.permissionMode,
+      tools: this.deps.childTools ?? [],
+    });
+    if (!this.deps.runStore) return { definitions, runs: [] };
+    const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    return {
+      definitions,
+      runs: runs
+        .filter((run): run is AgentRunHeader & { parentRunId: string } => !!run.parentRunId)
+        .map((run) => ({
+          runId: run.runId,
+          turnId: run.turnId,
+          parentRunId: run.parentRunId,
+          ...(run.agentId ? { agentId: run.agentId } : {}),
+          ...(run.agentName ? { agentName: run.agentName } : {}),
+          status: run.status,
+          permissionMode: run.permissionMode,
+          createdAt: run.createdAt,
+          updatedAt: run.updatedAt,
+          ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
+          ...(run.completedAt !== undefined ? { durationMs: Math.max(0, run.completedAt - run.createdAt) } : {}),
+          ...(run.failureClass ? { failureClass: run.failureClass } : {}),
+        })),
+    };
+  }
+
+  async readChildAgentOutput(
+    sessionId: string,
+    input: AgentOutputInput,
+  ): Promise<AgentOutputResult> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('agent_output requires AgentRunStore and RuntimeEventStore');
+    }
+    const header = await this.findChildRunForOutput(sessionId, input);
+    const inspected = await inspectAgentRunReadModel(this.deps.runStore, this.deps.runtimeEventStore, {
+      sessionId,
+      runId: header.runId,
+      header,
+    });
+    const artifacts = this.deps.listArtifactsForTurn
+      ? await this.deps.listArtifactsForTurn(sessionId, header.turnId)
+      : [];
+    const maxEvents = normalizeAgentOutputMaxEvents(input.maxEvents);
+    return {
+      header: inspected.header,
+      events: tail(inspected.events, maxEvents),
+      runtimeEvents: tail(inspected.runtimeEvents, maxEvents),
+      sourceHealth: inspected.sourceHealth,
+      diagnostics: tail(inspected.diagnostics, maxEvents),
+      artifacts,
+      truncated: {
+        events: inspected.events.length > maxEvents,
+        runtimeEvents: inspected.runtimeEvents.length > maxEvents,
+        diagnostics: inspected.diagnostics.length > maxEvents,
+      },
+    };
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
@@ -403,13 +618,38 @@ export class SessionManager {
   // Internal helpers
   // --------------------------------------------------------------------------
 
+  private async findRunByTurnId(
+    sessionId: string,
+    turnId: string,
+  ): Promise<AgentRunHeader | undefined> {
+    if (!this.deps.runStore) return undefined;
+    const runs = await this.deps.runStore.listSessionRuns(sessionId).catch(() => []);
+    return runs.find((run) => run.turnId === turnId);
+  }
+
+  private async findChildRunForOutput(
+    sessionId: string,
+    input: AgentOutputInput,
+  ): Promise<AgentRunHeader> {
+    if (Number(!!input.runId) + Number(!!input.turnId) !== 1) {
+      throw new Error('agent_output requires exactly one of runId or turnId');
+    }
+    const runs = await this.deps.runStore?.listSessionRuns(sessionId);
+    const header = runs?.find((run) =>
+      input.runId ? run.runId === input.runId : input.turnId ? run.turnId === input.turnId : false
+    );
+    if (!header) throw new Error('agent_output could not find the requested child agent run');
+    if (!header.parentRunId) throw new Error('agent_output only reads child agent runs');
+    return header;
+  }
+
   private async updateStatus(
     sessionId: string,
     status: SessionStatus,
     blockedReason?: SessionBlockedReason,
     ts = this.deps.now(),
   ): Promise<void> {
-    await this.updateHeader(sessionId, statusPatch(status, ts, blockedReason));
+    await this.updateHeader(sessionId, buildStatusPatch(status, ts, blockedReason));
   }
 
   private async updateHeader(
@@ -429,30 +669,21 @@ export class SessionManager {
     options: { ts?: number; errorClass?: string; abortSource?: string } = {},
   ): Promise<void> {
     const ts = options.ts ?? this.deps.now();
-    await this.deps.store.appendMessage(sessionId, {
-      type: 'turn_state',
+    await this.deps.store.appendMessage(sessionId, buildTurnStateMessage({
       id: this.deps.newId(),
       turnId,
       ts,
       status,
-      ...(lineage.parentTurnId ? { parentTurnId: lineage.parentTurnId } : {}),
-      ...(lineage.retriedFromTurnId ? { retriedFromTurnId: lineage.retriedFromTurnId } : {}),
-      ...(lineage.regeneratedFromTurnId ? { regeneratedFromTurnId: lineage.regeneratedFromTurnId } : {}),
-      ...(lineage.branchOfTurnId ? { branchOfTurnId: lineage.branchOfTurnId } : {}),
-      ...(lineage.parentSessionId ? { parentSessionId: lineage.parentSessionId } : {}),
-      ...(status === 'aborted' ? { abortedAt: ts } : {}),
-      ...(status === 'aborted' && options.abortSource ? { abortSource: options.abortSource } : {}),
-      ...(status === 'failed' ? { errorClass: options.errorClass ?? 'unknown' } : {}),
+      lineage,
+      ...(options.abortSource ? { abortSource: options.abortSource } : {}),
+      ...(options.errorClass !== undefined ? { errorClass: options.errorClass } : {}),
       partialOutputRetained: await this.turnHasRetainedOutput(sessionId, turnId),
-    });
+    }));
   }
 
   private async turnHasRetainedOutput(sessionId: string, turnId: string): Promise<boolean> {
     const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
-    return messages.some((message) =>
-      (message.type === 'assistant' && message.turnId === turnId && message.text.trim().length > 0) ||
-      (message.type === 'tool_result' && message.turnId === turnId),
-    );
+    return messagesHaveRetainedOutput(messages, turnId);
   }
 
   private async requireTurnForAction(
@@ -641,6 +872,7 @@ export class SessionManager {
     status: TurnRecord['status'],
     options: { ts: number; errorClass?: string; abortSource?: string },
   ): Promise<void> {
+    if (decision.lineage.parentRunId) return;
     const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
     const latest = latestTurnState(messages, decision.turnId);
     if (latest && isTerminalTurnStatus(latest.status) && latest.status === status) return;
@@ -680,16 +912,74 @@ function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
   return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch;
 }
 
-function statusPatch(
-  status: SessionStatus,
-  ts: number,
-  blockedReason?: SessionBlockedReason,
-): Pick<SessionHeader, 'status' | 'blockedReason' | 'statusUpdatedAt'> {
-  return {
-    status,
-    blockedReason: status === 'blocked' ? (blockedReason ?? 'unknown') : undefined,
-    statusUpdatedAt: ts,
-  };
+function agentRunStatusForSpawnResult(status: AgentRunHeader['status']): SpawnChildAgentResult['status'] {
+  if (status === 'waiting_permission') return 'waiting_permission';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'failed') return 'failed';
+  if (status === 'running' || status === 'created') return 'running';
+  return 'completed';
+}
+
+function trimSummary(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length <= CHILD_AGENT_SUMMARY_MAX_CHARS
+    ? trimmed
+    : `${trimmed.slice(0, CHILD_AGENT_SUMMARY_MAX_CHARS - 1)}…`;
+}
+
+class ChildAgentSummaryAccumulator {
+  eventCount = 0;
+  private terminalStatus: SpawnChildAgentResult['status'] | undefined;
+  private lastTextComplete = '';
+  private textDeltaTail = '';
+  private textDeltaTruncated = false;
+  private lastError = '';
+
+  add(event: SessionEvent): void {
+    this.eventCount += 1;
+    switch (event.type) {
+      case 'text_complete':
+        this.lastTextComplete = trimSummary(event.text);
+        break;
+      case 'text_delta':
+        this.appendTextDelta(event.text);
+        break;
+      case 'error':
+        this.terminalStatus = 'failed';
+        this.lastError = trimSummary(event.message);
+        break;
+      case 'abort':
+        this.terminalStatus = 'cancelled';
+        break;
+      case 'complete':
+        if (event.stopReason === 'error') this.terminalStatus = 'failed';
+        else if (event.stopReason === 'user_stop') this.terminalStatus = 'cancelled';
+        else this.terminalStatus = 'completed';
+        break;
+    }
+  }
+
+  status(aborted: boolean): SpawnChildAgentResult['status'] {
+    if (aborted) return 'cancelled';
+    return this.terminalStatus ?? 'running';
+  }
+
+  text(): string {
+    if (this.lastTextComplete.trim()) return this.lastTextComplete;
+    if (this.textDeltaTail.trim()) {
+      return this.textDeltaTruncated
+        ? `…${this.textDeltaTail.slice(1)}`
+        : this.textDeltaTail.trim();
+    }
+    return this.lastError;
+  }
+
+  private appendTextDelta(text: string): void {
+    this.textDeltaTail += text;
+    if (this.textDeltaTail.length <= CHILD_AGENT_SUMMARY_MAX_CHARS) return;
+    this.textDeltaTruncated = true;
+    this.textDeltaTail = this.textDeltaTail.slice(-CHILD_AGENT_SUMMARY_MAX_CHARS);
+  }
 }
 
 interface InterruptedTurnRecovery {
@@ -833,6 +1123,7 @@ function runtimeTerminalFactToRecoveryDecision(
       runtimeEventStatus: fact.terminalEvent.status,
     },
     lineage: {
+      ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
       ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
       ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
       ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
@@ -840,6 +1131,16 @@ function runtimeTerminalFactToRecoveryDecision(
       ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     },
   };
+}
+
+function normalizeAgentOutputMaxEvents(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 20;
+  return Math.min(100, Math.max(1, Math.floor(value)));
+}
+
+function tail<T>(items: readonly T[], max: number): T[] {
+  if (items.length <= max) return [...items];
+  return items.slice(items.length - max);
 }
 
 // Re-export the suppressed-unused types so this file is the canonical home

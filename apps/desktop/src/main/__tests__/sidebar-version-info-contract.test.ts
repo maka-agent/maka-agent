@@ -34,8 +34,9 @@ describe('sidebar version info contract', () => {
       'SessionListPanel must not keep the version-info callback optional',
     );
     assert.match(ui, /onClick=\{props\.onOpenUpdate\}/);
-    assert.match(ui, /aria-label="版本信息"/);
-    assert.match(ui, /<span>版本信息<\/span>/);
+    assert.match(ui, /className="maka-sidebar-account"/);
+    assert.match(ui, /aria-label=\{`账号与版本信息：\$\{accountLabel\}`\}/);
+    assert.match(ui, /<small>Free Plan<\/small>/);
     assert.doesNotMatch(
       ui,
       /data-state="coming_soon"|版本信息不可用|maka-nav-row-state-badge|即将推出|版本更新/,

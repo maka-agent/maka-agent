@@ -101,6 +101,7 @@ export class RunTrace {
   modelStreamStarted(
     activeTools: readonly string[],
     prefix?: {
+      systemPromptHash?: string;
       prefixHash: string;
       prefixChangeReason: PrefixChangeReason;
       requestShapeHash?: string;
@@ -141,6 +142,8 @@ export class RunTrace {
     reasoningTokens: number;
     totalTokens: number;
     rawFinishReason?: string;
+    costUsd?: number;
+    systemPromptHash?: string;
     prefixHash?: string;
     prefixChangeReason?: PrefixChangeReason;
     requestShapeHash?: string;
@@ -159,6 +162,8 @@ export class RunTrace {
       reasoningTokens: usage.reasoningTokens,
       totalTokens: usage.totalTokens,
       ...(usage.rawFinishReason !== undefined ? { rawFinishReason: usage.rawFinishReason } : {}),
+      ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+      ...(usage.systemPromptHash !== undefined ? { systemPromptHash: usage.systemPromptHash } : {}),
       ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
       ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
       ...(usage.requestShapeHash !== undefined ? { requestShapeHash: usage.requestShapeHash } : {}),

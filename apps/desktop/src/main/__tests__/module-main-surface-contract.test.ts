@@ -17,10 +17,12 @@ describe('module main surface contract', () => {
     const sidebarListBlock = ui.match(/<section className="maka-session-list"[\s\S]*?<footer className="maka-session-panel-footer">/)?.[0] ?? '';
     const dailyReviewModeBlock = ui.match(/if \(props\.mode === 'daily-review'\) \{[\s\S]*?^\s*\}/m)?.[0] ?? '';
 
-    assert.match(dailyReviewModeBlock, /className="maka-main detailPane maka-module-main" aria-label="每日回顾"/);
+    assert.match(dailyReviewModeBlock, /className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="每日回顾"/);
     assert.match(dailyReviewModeBlock, /<DailyReviewPanel/);
     assert.doesNotMatch(sidebarListBlock, /<DailyReviewPanel/);
-    assert.match(sidebarListBlock, /title="每日回顾"[\s\S]*body="已在右侧内容栏打开。"/);
+    assert.doesNotMatch(sidebarListBlock, /title="每日回顾"[\s\S]*body="已在右侧内容栏打开。"/);
+    assert.match(sidebarListBlock, /const title = '会话'|aria-label=\{title\}/);
+    assert.match(sidebarListBlock, /<SessionListGroups/);
   });
 
   it('uses range-aware Daily Review empty copy instead of day-only copy for week/month ranges', async () => {
@@ -83,7 +85,7 @@ describe('module main surface contract', () => {
       /\.catch\(\(err: unknown\) => \{[\s\S]*?if \(cancelled\) return;\s*setSummary\(null\);\s*setError/,
       'Same-scope refresh failures should preserve the current Daily Review dashboard',
     );
-    assert.match(panelBlock, /<div className="maka-daily-review-alert" role="alert">/);
+    assert.match(panelBlock, /<Alert variant="warning" className="maka-daily-review-alert">/);
     assert.match(panelBlock, /每日回顾刷新失败：\{error\}/);
     assert.match(panelBlock, /summary: visibleSummary/);
   });
@@ -95,10 +97,13 @@ describe('module main surface contract', () => {
     const skillsModuleMain = ui.match(/function SkillsModuleMain\([\s\S]*?function DailyReviewPanel/)?.[0] ?? '';
 
     assert.match(skillsModeBlock, /<SkillsModuleMain/);
-    assert.match(skillsModuleMain, /className="maka-main detailPane maka-module-main" aria-label="技能"/);
+    assert.match(skillsModuleMain, /className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="技能"/);
+    assert.match(skillsModuleMain, /className="maka-module-main-actions" role="group" aria-label="技能操作"/);
     assert.match(skillsModuleMain, /<SkillLibraryPanel/);
     assert.doesNotMatch(sidebarListBlock, /<SkillLibraryPanel/);
-    assert.match(sidebarListBlock, /title="技能库"[\s\S]*body="已在右侧内容栏打开。"/);
+    assert.doesNotMatch(sidebarListBlock, /maka-skill-examples/);
+    assert.doesNotMatch(sidebarListBlock, /title="技能库"[\s\S]*body="已在右侧内容栏打开。"/);
+    assert.match(sidebarListBlock, /<SessionListGroups/);
   });
 
   it('renders Plan reminders in the main content pane, not as a left-bottom form', async () => {
@@ -106,10 +111,11 @@ describe('module main surface contract', () => {
     const sidebarListBlock = ui.match(/<section className="maka-session-list"[\s\S]*?<footer className="maka-session-panel-footer">/)?.[0] ?? '';
     const automationsModeBlock = ui.match(/if \(props\.mode === 'automations'\) \{[\s\S]*?^\s*\}/m)?.[0] ?? '';
 
-    assert.match(automationsModeBlock, /className="maka-main detailPane maka-module-main" aria-label="计划"/);
+    assert.match(automationsModeBlock, /className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="计划"/);
     assert.match(automationsModeBlock, /<PlanReminderPanel/);
     assert.doesNotMatch(sidebarListBlock, /<PlanReminderPanel/);
-    assert.match(sidebarListBlock, /title="计划"[\s\S]*body="已在右侧内容栏打开。"/);
+    assert.doesNotMatch(sidebarListBlock, /title="计划"[\s\S]*body="已在右侧内容栏打开。"/);
+    assert.match(sidebarListBlock, /<SessionListGroups/);
   });
 
   it('names Daily Review lists for assistive technology', async () => {

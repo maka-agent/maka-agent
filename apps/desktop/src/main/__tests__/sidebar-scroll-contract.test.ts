@@ -5,8 +5,8 @@
  * The scroll fix lives in plain CSS — there is no component invariant
  * a unit test can exercise. This file is a cheap grep-style regression
  * gate: if a later phase changes `.maka-session-list` or
- * `.maka-list-stack` and drops the grid layout / `min-height: 0` /
- * `overflow: auto`, the list stops scrolling and the footer
+ * `.maka-list-stack` and drops the OverlayScrollbars host /
+ * viewport / content split or `min-height: 0`, the list stops scrolling and the footer
  * (Settings + Version info) gets pushed off-screen
  * again — the exact P0 WAWQAQ flagged in msg `761141c5`.
  *
@@ -33,7 +33,7 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
   it('.maka-session-list is a grid with auto + minmax(0, 1fr) rows', async () => {
     // The grid layout is what makes `.maka-list-stack` a constrained
     // scroll body. Without `minmax(0, 1fr)` on the second row, the
-    // stack grows to its content height and `overflow: auto` becomes
+    // stack grows to its content height and the overlay viewport becomes
     // a no-op (the original P0).
     const css = await readFile(STYLES_PATH, 'utf8');
     // Grab the .maka-session-list rule body. Permissive whitespace
@@ -59,13 +59,14 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
     );
   });
 
-  it('.maka-list-stack has min-height: 0 and overflow: auto so the scroll body engages', async () => {
-    // These two are what actually scroll. They worked correctly before
-    // Phase 1 (the bug was the parent), but if a later phase strips
-    // them while reshuffling the list rendering, scroll breaks again.
+  it('.maka-list-stack uses OverlayScrollbars host + viewport/content split so the scroll body engages', async () => {
     const css = await readFile(STYLES_PATH, 'utf8');
     const ruleBody = extractRuleBody(css, '.maka-list-stack');
+    const viewportBody = extractRuleBody(css, '.maka-list-stackViewport');
+    const contentBody = extractRuleBody(css, '.maka-list-stackContent');
     assert.ok(ruleBody, '.maka-list-stack rule must exist');
+    assert.ok(viewportBody, '.maka-list-stackViewport rule must exist');
+    assert.ok(contentBody, '.maka-list-stackContent rule must exist');
     assert.match(
       ruleBody,
       /min-height:\s*0/,
@@ -73,8 +74,18 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
     );
     assert.match(
       ruleBody,
-      /overflow:\s*auto/,
-      '.maka-list-stack must declare overflow: auto',
+      /overflow:\s*hidden/,
+      '.maka-list-stack must be the OverlayScrollbars host, not a native overflow:auto scroller',
+    );
+    assert.match(
+      viewportBody,
+      /height:\s*100%/,
+      '.maka-list-stackViewport must fill the OverlayScrollbars host',
+    );
+    assert.match(
+      contentBody,
+      /display:\s*grid/,
+      '.maka-list-stackContent must keep the session groups in the compact grid stack',
     );
   });
 
@@ -92,6 +103,26 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
       /grid-template-rows:[^;]*minmax\(\s*0\s*,\s*1fr\s*\)/,
       '.maka-session-panel grid-template-rows must include a minmax(0, 1fr) row',
     );
+  });
+
+  it('keeps the sidebar shell flat without a shadow-like gray resize gutter', async () => {
+    const css = await readFile(STYLES_PATH, 'utf8');
+    const listPanel = extractRuleBody(css, '.maka-panel-list.maka-floating-panel');
+    const sessionPanel = extractRuleBody(css, '.maka-session-panel');
+    const resizeHandle = extractRuleBody(css, '.maka-resize-handle');
+    assert.ok(listPanel, '.maka-panel-list.maka-floating-panel rule must exist');
+    assert.ok(sessionPanel, '.maka-session-panel rule must exist');
+    assert.ok(resizeHandle, '.maka-resize-handle rule must exist');
+
+    assert.match(listPanel, /background:\s*transparent;/, 'sidebar panel must sit flat on the shell canvas, not as its own card');
+    assert.match(listPanel, /border-right:\s*0;/, 'sidebar must not draw a divider; the content surface edge supplies separation');
+    assert.match(sessionPanel, /background:\s*transparent;/, 'session panel content must stay on the same flat canvas as the shell');
+    assert.match(resizeHandle, /background:\s*transparent;/, 'resize hitbox must not paint an 8px gray gutter between sidebar and main');
+    assert.match(resizeHandle, /box-sizing:\s*content-box;/, 'zero-width resize handle must keep an overflow hitbox instead of consuming layout gutter');
+    assert.match(resizeHandle, /padding-inline:\s*4px;/, 'resize handle should preserve an 8px transparent mouse target');
+    assert.match(resizeHandle, /margin-inline:\s*-4px;/, 'resize handle mouse target must not add visible or layout width');
+    assert.doesNotMatch(listPanel + sessionPanel + resizeHandle, /box-shadow:/, 'sidebar shell and resize gutter must not add drop shadows');
+    assert.doesNotMatch(listPanel + sessionPanel, /calc\(l - 0\.015\)/, 'sidebar shell must not reintroduce the darker wash');
   });
 });
 

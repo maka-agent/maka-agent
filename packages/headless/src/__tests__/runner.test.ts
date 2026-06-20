@@ -339,6 +339,52 @@ describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () =>
       assert.equal(result.passed, false);
     });
   });
+
+  test('complete(stopReason=error) with no preceding error event classifies as runtime_error in ResultRecord', async () => {
+    // Reproduces the DeepSeek-reasoner smoke: the backend ended with
+    // stopReason='error' but never emitted a preceding error event. The
+    // benchmark ResultRecord.errorClass must read 'runtime_error' (not
+    // 'failed' or 'unknown') so scoring can distinguish runtime failures
+    // from max_tokens / incomplete_tool_calls / verification_failed.
+    class BareErrorCompleteBackend implements AgentBackend {
+      readonly kind: BackendKind = 'fake';
+      readonly sessionId: string;
+      constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+        this.sessionId = ctx.sessionId;
+      }
+      async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+        const { turnId } = input;
+        const ts = Date.now();
+        // NO preceding error event — just a bare complete(error).
+        yield { type: 'complete', id: 'bare-err-c', turnId, ts, stopReason: 'error' };
+      }
+      async stop(): Promise<void> {}
+      async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+      async dispose(): Promise<void> {}
+    }
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const task: Task = {
+        id: 'bare-error',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      const result = await runExperiment(fakeConfig, task, {
+        storageRoot,
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) =>
+            new BareErrorCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+          );
+        },
+      });
+
+      assert.equal(result.status, 'failed');
+      assert.equal(result.errorClass, 'runtime_error');
+      assert.equal(result.passed, false);
+    });
+  });
 });
 
 describe('engine-level grading-boundary validation (not only the CLI)', () => {
@@ -355,6 +401,150 @@ describe('engine-level grading-boundary validation (not only the CLI)', () => {
       await assert.rejects(
         runExperiment(fakeConfig, task, { storageRoot, registerBackends: registerFakeBackend }),
         /protectedPaths/,
+      );
+    });
+  });
+});
+
+describe('Config.systemPrompt (benchmark config variable, not session state)', () => {
+  // A factory that captures the systemPrompt it would hand to the backend,
+  // proving the benchmark's registerBackends closure can read config.systemPrompt
+  // and pass it through — mirroring the desktop path. The harness itself does
+  // NOT thread systemPrompt through BackendFactoryContext (that channel is the
+  // child-agent instruction); the factory owns it.
+  const registerCapturingBackend = (captured: { systemPrompt?: string }[]) =>
+    (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+      captured.push({ systemPrompt: context.config.systemPrompt });
+      registry.register('fake', (ctx) =>
+        new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+      );
+    };
+
+  test('factory closure can read config.systemPrompt and pass it to the backend', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const configWithPrompt: Config = {
+        ...fakeConfig,
+        systemPrompt: 'You are a benchmark agent. Use tools, do not narrate.',
+      };
+      const captured: { systemPrompt?: string }[] = [];
+      const task: Task = {
+        id: 'prompt-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      const result = await runExperiment(configWithPrompt, task, {
+        storageRoot,
+        registerBackends: registerCapturingBackend(captured),
+      });
+
+      assert.equal(result.status, 'completed');
+      assert.equal(captured.length, 1);
+      assert.equal(
+        captured[0]?.systemPrompt,
+        'You are a benchmark agent. Use tools, do not narrate.',
+        'factory closure must receive config.systemPrompt',
+      );
+    });
+  });
+
+  test('omitting systemPrompt leaves it undefined in the factory context (no default injection)', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const captured: { systemPrompt?: string }[] = [];
+      const task: Task = {
+        id: 'no-prompt-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      await runExperiment(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerCapturingBackend(captured),
+      });
+
+      assert.equal(captured.length, 1);
+      assert.equal(captured[0]?.systemPrompt, undefined, 'no systemPrompt should be injected when Config omits it');
+    });
+  });
+
+  // End-to-end wiring test: proves config.systemPrompt flows all the way
+  // through to the backend constructor's systemPrompt parameter — the exact
+  // seam a real AiSdkBackend factory (like desktop's) uses. Uses an ai-sdk
+  // stub that records its constructor input, so we verify the wiring contract
+  // without needing a live LLM call.
+  class SystemPromptCapturingBackend implements AgentBackend {
+    readonly kind: BackendKind = 'ai-sdk';
+    readonly sessionId: string;
+    readonly receivedSystemPrompt: string | undefined;
+    constructor(
+      private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+      systemPrompt?: string,
+    ) {
+      this.sessionId = ctx.sessionId;
+      this.receivedSystemPrompt = systemPrompt;
+    }
+    async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+      const turnId = input.turnId;
+      const ts = Date.now();
+      const messageId = 'capture-msg';
+      await this.ctx.store.appendMessage(this.sessionId, {
+        type: 'assistant', id: messageId, turnId, ts,
+        text: 'ok', modelId: this.ctx.header.model,
+      });
+      yield { type: 'text_complete', id: 'capture-tc', turnId, ts, messageId, text: 'ok' };
+      yield { type: 'complete', id: 'capture-c', turnId, ts, stopReason: 'end_turn' };
+    }
+    async stop(): Promise<void> {}
+    async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+    async dispose(): Promise<void> {}
+  }
+
+  test('config.systemPrompt reaches the backend constructor systemPrompt parameter', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const prompt = 'You are a benchmark agent. Use tools, do not narrate.';
+      let constructedBackend: SystemPromptCapturingBackend | undefined;
+      const configWithPrompt: Config = {
+        id: 'real-cfg',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'deepseek',
+        model: 'deepseek-chat',
+        systemPrompt: prompt,
+      };
+      const task: Task = {
+        id: 'wiring-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      await runExperiment(configWithPrompt, task, {
+        storageRoot,
+        realBackendIsolation: { kind: 'external', label: 'wiring test' },
+        registerBackends: (registry, context) => {
+          // This is the exact pattern a real benchmark factory uses:
+          // read config.systemPrompt from the closure, pass to backend ctor.
+          // The factory receives BackendFactoryContext (with store/header),
+          // and context.config is the HeadlessBackendContext closure copy.
+          registry.register('ai-sdk', (ctx) => {
+            constructedBackend = new SystemPromptCapturingBackend(
+              { sessionId: ctx.sessionId, header: ctx.header, store: ctx.store },
+              context.config.systemPrompt,
+            );
+            return constructedBackend;
+          });
+        },
+      });
+
+      assert.ok(constructedBackend, 'backend must have been constructed');
+      assert.equal(
+        constructedBackend!.receivedSystemPrompt,
+        prompt,
+        'config.systemPrompt must reach the backend constructor systemPrompt parameter',
       );
     });
   });

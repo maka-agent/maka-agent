@@ -1,9 +1,13 @@
 import { describe, test } from 'node:test';
+import type { LlmConnection, SessionHeader } from '@maka/core';
+import type { SessionEvent } from '@maka/core/events';
 import {
   deriveToolArtifactCandidates,
   extractStdoutRedirectPath,
   recordToolArtifactsSafely,
 } from '../tool-artifacts.js';
+import { PermissionEngine } from '../permission-engine.js';
+import { ToolRuntime, type MakaTool, type ToolRuntimeInput } from '../tool-runtime.js';
 import { expect } from '../test-helpers.js';
 
 describe('deriveToolArtifactCandidates', () => {
@@ -91,3 +95,109 @@ describe('recordToolArtifactsSafely', () => {
     expect(warnings[0]?.includes('sk-secret-token-should-not-leak')).toBe(false);
   });
 });
+
+describe('ToolRuntime artifact recorder scheduling', () => {
+  test('ordinary tool results do not wait for a slow artifact recorder', async () => {
+    const calls: unknown[] = [];
+    const { runtime, events } = makeToolRuntime({
+      recordToolArtifacts: (input) => {
+        calls.push(input);
+        return new Promise(() => {});
+      },
+    });
+    const execute = runtime.wrapToolExecute(writeArtifactTool(), 'turn-1', {
+      push: (event) => events.push(event),
+    });
+
+    const outcome = await Promise.race([
+      execute({ path: 'notes.md', content: 'hello' }, {
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+      }).then(() => 'done' as const),
+      delay(20).then(() => 'timeout' as const),
+    ]);
+
+    expect(outcome).toBe('done');
+    expect(calls.length).toBe(1);
+    expect(events.some((event) => event.type === 'tool_result' && event.toolUseId === 'tool-1')).toBe(true);
+  });
+
+});
+
+function makeToolRuntime(overrides: Partial<ToolRuntimeInput> = {}): { runtime: ToolRuntime; events: SessionEvent[] } {
+  const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
+  permissionEngine.beginTurn('turn-1');
+  const events: SessionEvent[] = [];
+  const runtime = new ToolRuntime({
+    sessionId: 'session-1',
+    header: testHeader(),
+    connection: testConnection(),
+    modelId: 'mock-model',
+    appendMessage: async () => {},
+    permissionEngine,
+    newId: nextId(),
+    now: () => 1,
+    getPermissionPauseTarget: () => null,
+    ...overrides,
+  });
+  return { runtime, events };
+}
+
+function writeArtifactTool(): MakaTool {
+  return {
+    name: 'Write',
+    description: 'write file',
+    parameters: {},
+    permissionRequired: false,
+    impl: async (args) => {
+      const path = typeof (args as { path?: unknown }).path === 'string'
+        ? (args as { path: string }).path
+        : 'notes.md';
+      return { ok: true, path: `/workspace/maka/${path}`, bytes: 5 };
+    },
+  };
+}
+
+function testHeader(): SessionHeader {
+  return {
+    id: 'session-1',
+    workspaceRoot: '/workspace/maka',
+    cwd: '/workspace/maka',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Test',
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'anthropic-main',
+    connectionLocked: true,
+    model: 'mock-model',
+    permissionMode: 'ask',
+    schemaVersion: 1,
+  };
+}
+
+function testConnection(): LlmConnection {
+  return {
+    slug: 'anthropic-main',
+    name: 'Anthropic',
+    providerType: 'anthropic',
+    defaultModel: 'mock-model',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function nextId(): () => string {
+  let id = 0;
+  return () => `id-${++id}`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

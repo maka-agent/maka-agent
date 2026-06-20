@@ -118,13 +118,13 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   it('returns focus to the sidebar Search trigger when the modal closes', async () => {
     const components = await readFile(COMPONENTS_PATH, 'utf8');
     const main = await readFile(MAIN_TSX_PATH, 'utf8');
-    const sidebarModules = components.match(/<nav className="maka-sidebar-modules"[\s\S]*?<\/nav>/)?.[0] ?? '';
+    const sidebarSearchButton = components.match(/className="maka-sidebar-search-button"[\s\S]*?<\/button>/)?.[0] ?? '';
     const closeSearchModal = main.match(/function closeSearchModal\(options\?: \{ restoreFocus\?: boolean \}\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
-      sidebarModules,
-      /data-maka-search-trigger="true"[\s\S]*aria-haspopup="dialog"/,
-      'Sidebar Search trigger must be queryable for focus restoration after modal close',
+      sidebarSearchButton,
+      /data-maka-search-trigger="true"[\s\S]*aria-label="搜索对话"/,
+      'Sidebar top Search trigger must be queryable for focus restoration after modal close',
     );
     assert.match(
       closeSearchModal,
@@ -294,6 +294,39 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.match(searchModal, /onClick=\{clearSearchQuery\}/, 'Clear search button must use the shared clear helper');
     assert.match(searchModal, /function clearSearchQuery\(\) \{[\s\S]*setQuery\(''\);[\s\S]*clearSearchState\(\);[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*\}/, 'Clear search helper must clear the query, invalidate search state, and return focus to input');
     assert.match(styles, /\.maka-search-modal-clear/, 'Clear search button needs dedicated styling');
+  });
+
+  it('search input shell uses shared primitive InputGroup instead of a hand-rolled grid wrapper', async () => {
+    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const styles = await readFile(STYLES_PATH, 'utf8');
+    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+    const inputRowStyle = styles.match(/\.maka-search-modal-input-row\s*\{[\s\S]*?\}/)?.[0] ?? '';
+
+    assert.match(
+      components,
+      /import \{ InputGroup, InputGroupAddon, InputGroupInput \} from '\.\/primitives\/input-group\.js';/,
+      'SearchModal must consume the vendored shared primitive InputGroup primitives',
+    );
+    assert.match(
+      searchModal,
+      /<InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">[\s\S]*<InputGroupAddon>[\s\S]*<InputGroupInput[\s\S]*<InputGroupAddon align="inline-end">/,
+      'SearchModal search field must be structured as shared primitive InputGroup + addons',
+    );
+    assert.doesNotMatch(
+      searchModal,
+      /<div className="maka-search-modal-input-row"/,
+      'SearchModal must not regress to the previous hand-rolled input-row wrapper',
+    );
+    assert.doesNotMatch(
+      inputRowStyle,
+      /display:\s*grid/,
+      'Search modal input row styling must not restore the old grid shell over shared primitive InputGroup',
+    );
+    assert.match(
+      inputRowStyle,
+      /margin:\s*12px 20px;/,
+      'Search modal InputGroup should keep the compact modal inset spacing',
+    );
   });
 
   it('empty query invalidates any already-started search request from every clear path', async () => {

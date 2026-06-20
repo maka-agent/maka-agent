@@ -699,6 +699,12 @@ contextBridge.exposeInMainWorld('maka', {
     > {
       return ipcRenderer.invoke('app:openPath', key);
     },
+    selectProjectDirectory(): Promise<
+      | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+      | { ok: false; reason: 'cancelled' | 'missing-selection' }
+    > {
+      return ipcRenderer.invoke('app:selectProjectDirectory');
+    },
     openArtifactPath(
       artifactId: string,
     ): Promise<

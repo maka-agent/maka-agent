@@ -183,6 +183,7 @@ export interface RuntimeEventTokenUsage {
   /** Backward-compatible alias for cacheWriteInput. */
   cacheCreation?: number;
   costUsd?: number;
+  systemPromptHash?: string;
   contextRemaining?: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;

@@ -1567,6 +1567,15 @@ describe('AiSdkBackend usage telemetry', () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
+    const runTraceEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    let pricingLookupCalls = 0;
+    const pricing = {
+      modelKey: 'anthropic:mock-model-id',
+      inputUsdPer1M: 3,
+      outputUsdPer1M: 15,
+      cacheReadUsdPer1M: 0.3,
+      cacheWriteUsdPer1M: 3.75,
+    };
     const chunks: LanguageModelV3StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'text-start', id: 'text-1' },
@@ -1613,8 +1622,16 @@ describe('AiSdkBackend usage telemetry', () => {
       tools: [],
       newId: idGenerator(),
       now: monotonicClock(),
+      systemPrompt: 'durable system prompt',
+      lookupPricing: (modelKey) => {
+        pricingLookupCalls += 1;
+        return modelKey === pricing.modelKey ? pricing : null;
+      },
       recordLlmCall: (record) => {
         llmRecords.push(record);
+      },
+      recordRunTrace: (event) => {
+        runTraceEvents.push(event);
       },
     });
 
@@ -1636,6 +1653,8 @@ describe('AiSdkBackend usage telemetry', () => {
       reasoning?: number;
       total?: number;
       rawFinishReason?: string;
+      costUsd?: number;
+      systemPromptHash?: string;
       prefixHash?: string;
       prefixChangeReason?: string;
       requestShapeHash?: string;
@@ -1643,7 +1662,11 @@ describe('AiSdkBackend usage telemetry', () => {
     } | undefined;
     const usageEvent = events.find((event) => event.type === 'token_usage') as
       | Extract<SessionEvent, { type: 'token_usage' }>
+      & { systemPromptHash?: string }
       | undefined;
+    const expectedCostUsd = ((5 * 3) + (3 * 0.3) + (2 * 3.75) + (7 * 15)) / 1_000_000;
+    const usageTrace = runTraceEvents.find((event) => event.type === 'usage_recorded');
+    const startTrace = runTraceEvents.find((event) => event.type === 'model_stream_started');
 
     assert.equal((usageMessage as { type?: string } | undefined)?.type, 'token_usage');
     assert.equal((usageMessage as { turnId?: string } | undefined)?.turnId, 'turn-1');
@@ -1658,6 +1681,9 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(usageMessage?.reasoning, 2);
     assert.equal(usageMessage?.total, 17);
     assert.equal(usageMessage?.rawFinishReason, 'stop');
+    assert.equal(usageMessage?.systemPromptHash, usageEvent?.systemPromptHash);
+    assert.ok(usageMessage?.systemPromptHash);
+    assert.equal(usageMessage?.costUsd, expectedCostUsd);
     assert.equal(usageMessage?.prefixChangeReason, 'first_turn');
     assert.equal(usageMessage?.requestShapeChangeReason, 'first_turn');
     assert.ok(usageMessage?.prefixHash);
@@ -1673,6 +1699,8 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(usageEvent?.reasoning, 2);
     assert.equal(usageEvent?.total, 17);
     assert.equal(usageEvent?.rawFinishReason, 'stop');
+    assert.equal(usageEvent?.systemPromptHash, usageMessage?.systemPromptHash);
+    assert.equal(usageEvent?.costUsd, expectedCostUsd);
     assert.equal(usageEvent?.prefixChangeReason, 'first_turn');
     assert.equal(usageEvent?.requestShapeChangeReason, 'first_turn');
     assert.ok(usageEvent?.prefixHash);
@@ -1687,10 +1715,16 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(llmRecords[0]?.reasoningTokens, 2);
     assert.equal(llmRecords[0]?.totalTokens, 17);
     assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
+    assert.equal(llmRecords[0]?.systemPromptHash, usageMessage?.systemPromptHash);
+    assert.equal(llmRecords[0]?.costUsd, expectedCostUsd);
     assert.equal(llmRecords[0]?.prefixChangeReason, 'first_turn');
     assert.equal(llmRecords[0]?.requestShapeChangeReason, 'first_turn');
     assert.ok(llmRecords[0]?.prefixHash);
     assert.ok(llmRecords[0]?.requestShapeHash);
+    assert.equal(startTrace?.data?.systemPromptHash, usageMessage?.systemPromptHash);
+    assert.equal(usageTrace?.data?.systemPromptHash, usageMessage?.systemPromptHash);
+    assert.equal(usageTrace?.data?.costUsd, expectedCostUsd);
+    assert.equal(pricingLookupCalls, 1);
   });
 });
 
@@ -2910,6 +2944,64 @@ describe('AiSdkBackend tool permission category hints', () => {
     );
   });
 
+  test('pauses stream watchdog while a foreground subagent tool is running', async () => {
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('explore'),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => ({}),
+      tools: [],
+      newId: idGenerator(),
+      now: () => 1,
+    });
+    let pauseCount = 0;
+    let resumeCount = 0;
+    (backend as unknown as {
+      currentWatchdog: { pause(): void; resume(): void };
+    }).currentWatchdog = {
+      pause: () => {
+        pauseCount += 1;
+      },
+      resume: () => {
+        resumeCount += 1;
+      },
+    };
+    let release!: () => void;
+    const tool: MakaTool = {
+      name: 'agent_spawn',
+      description: 'spawn child agent',
+      parameters: {},
+      permissionRequired: true,
+      categoryHint: 'subagent',
+      impl: async () => new Promise((resolve) => {
+        release = () => resolve({ kind: 'subagent', agentName: 'Researcher', turnId: 'child-turn', status: 'completed', permissionMode: 'explore', summary: 'done', artifactIds: [] });
+      }),
+    };
+    const execute = (backend as unknown as {
+      wrapToolExecute(
+        tool: MakaTool,
+        turnId: string,
+        queue: { push(event: SessionEvent): void },
+      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
+    }).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+
+    const pending = execute({}, {
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(pauseCount, 1);
+    assert.equal(resumeCount, 0);
+    release();
+    await pending;
+    assert.equal(resumeCount, 1);
+  });
+
   test('caps concurrent read-only subagent tools in one turn', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
@@ -3053,6 +3145,90 @@ describe('AiSdkBackend tool permission category hints', () => {
     assert.deepEqual(telemetry, [
       { status: 'error', toolCallId: 'tool-failed' },
       { status: 'aborted', toolCallId: 'tool-aborted' },
+    ]);
+  });
+
+  test('maps foreground subagent terminal states to persisted tool status', async () => {
+    const messages: unknown[] = [];
+    const events: SessionEvent[] = [];
+    const telemetry: Array<{ status: string; toolCallId?: string }> = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header('explore'),
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => ({}),
+      tools: [],
+      newId: idGenerator(),
+      now: () => 1,
+      recordToolInvocation: (record) => {
+        telemetry.push({ status: record.status, toolCallId: record.toolCallId });
+      },
+    });
+    const tool: MakaTool = {
+      name: 'agent_spawn',
+      description: 'spawn read-only worker',
+      parameters: {},
+      permissionRequired: true,
+      categoryHint: 'subagent',
+      impl: async (args: unknown) => {
+        const input = args as { status: 'completed' | 'failed' | 'cancelled' };
+        return {
+          kind: 'subagent',
+          agentName: 'Researcher',
+          turnId: `child-${input.status}`,
+          status: input.status,
+          permissionMode: 'explore',
+          summary: input.status,
+          artifactIds: [],
+        };
+      },
+    };
+    const execute = (backend as unknown as {
+      wrapToolExecute(
+        tool: MakaTool,
+        turnId: string,
+        queue: { push(event: SessionEvent): void },
+      ): (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown>;
+    }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+
+    await execute({ status: 'failed' }, {
+      toolCallId: 'tool-failed',
+      abortSignal: new AbortController().signal,
+    });
+    await execute({ status: 'cancelled' }, {
+      toolCallId: 'tool-cancelled',
+      abortSignal: new AbortController().signal,
+    });
+    await execute({ status: 'completed' }, {
+      toolCallId: 'tool-completed',
+      abortSignal: new AbortController().signal,
+    });
+
+    assert.equal(
+      (messages.find((message) =>
+        (message as { type?: string; toolUseId?: string }).type === 'tool_result' &&
+        (message as { toolUseId?: string }).toolUseId === 'tool-failed'
+      ) as { isError?: boolean } | undefined)?.isError,
+      true,
+    );
+    assert.equal(
+      (events.find((event) => event.type === 'tool_result' && event.toolUseId === 'tool-cancelled') as { isError?: boolean } | undefined)?.isError,
+      true,
+    );
+    assert.equal(
+      (events.find((event) => event.type === 'tool_result' && event.toolUseId === 'tool-completed') as { isError?: boolean } | undefined)?.isError,
+      false,
+    );
+    assert.deepEqual(telemetry, [
+      { status: 'error', toolCallId: 'tool-failed' },
+      { status: 'aborted', toolCallId: 'tool-cancelled' },
+      { status: 'success', toolCallId: 'tool-completed' },
     ]);
   });
 

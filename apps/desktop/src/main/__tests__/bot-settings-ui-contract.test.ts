@@ -105,6 +105,11 @@ describe('Bot settings UI contract', () => {
       /<div className="settingsBotActionStack">\s*<button/,
       'Bot platform action buttons must not regress to an anonymous button stack',
     );
+    assert.doesNotMatch(
+      actionRowBlock,
+      /<button[\s\S]*className="settingsBotAction"/,
+      'Bot platform action buttons must use the shared Button primitive',
+    );
     assert.match(actionRowBlock, /测试并连接/, 'Runtime onboarding CTA must keep the user-facing combined action label');
     assert.match(actionRowBlock, /selectedBotActionPending === 'connect' \? '连接中…' : '测试并连接'/, 'Runtime onboarding CTA must expose a visible connect pending state');
     // PR-BOT-RESTART-RACE-0 added `|| restarting` so the button
