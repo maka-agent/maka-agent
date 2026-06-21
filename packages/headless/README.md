@@ -43,9 +43,12 @@ default**:
   explicit assertion that tool execution is already outside the host credential
   process (for example Harbor / Terminal-Bench or a Docker workspace executor).
 - If the caller wants Maka's standard tool surface, use
-  `buildIsolatedHeadlessTools(executor)`: it replaces `Bash` with a command
-  executor supplied by the isolation boundary, while keeping path-confined pure
-  file tools in the throwaway workspace.
+  `buildIsolatedHeadlessTools(executor)`: it routes `Bash` plus
+  `Read`/`Write`/`Edit`/`Glob`/`Grep` through the supplied isolation boundary.
+  Executors can implement native file-operation methods, or rely on the
+  command-backed fallback when the isolated workspace has `node` available.
+  The headless helper rejects absolute paths, `..` escapes, and absolute glob
+  patterns before dispatching file operations.
 
 (An *operational* mode — intentionally running a trusted agent that *may* touch
 the host — can slot into this same entry later. That is a different, explicit
@@ -65,6 +68,11 @@ const executor: IsolatedToolExecutor = {
   async exec(input) {
     // Route to Harbor/Docker/etc. Do not inherit host env/secrets.
     return { exitCode: 0, stdout: '', stderr: '' };
+  },
+  async readFile(input) {
+    // Optional: implement native external workspace file reads instead of the
+    // command-backed fallback.
+    return { content: '' };
   },
 };
 

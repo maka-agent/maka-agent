@@ -1,5 +1,7 @@
 """Shared trial pricing helpers for Harbor benchmark adapters."""
 
+from __future__ import annotations
+
 import math
 from typing import Any, Callable, TypedDict
 

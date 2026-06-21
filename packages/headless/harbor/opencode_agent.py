@@ -1,5 +1,7 @@
 """Harbor OpenCode adapter wrapper with Maka benchmark cost metadata."""
 
+from __future__ import annotations
+
 import os
 import shlex
 from contextlib import contextmanager

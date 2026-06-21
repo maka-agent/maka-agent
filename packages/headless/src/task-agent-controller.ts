@@ -26,6 +26,7 @@ import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
 import type { HeadlessBackendContext } from './isolation.js';
 import {
+  ISOLATED_HEADLESS_TOOL_NAMES,
   taskIsolationFacts,
   toolExecutorIdentity,
   validateRealBackendIsolation,
@@ -202,7 +203,7 @@ export async function runTaskOnce(
         taskRunId,
         attemptId,
         isolation: deps.realBackendIsolation,
-        toolNames: deps.realBackendIsolation?.toolExecutor ? ['Bash'] : ['registered_backend'],
+        toolNames: deps.realBackendIsolation?.toolExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'],
       }),
     });
     const backends = new BackendRegistry();
