@@ -305,7 +305,6 @@ name: Writer
     assert.match(ui, /'创建中…'/);
     assert.match(ui, /'刷新中…'/);
     assert.match(ui, />\s*打开目录\s*</);
-    assert.match(ui, />推荐模板</);
     assert.match(ui, /title: '文档处理流'/);
     assert.match(ui, /title: '演示资料流'/);
     assert.doesNotMatch(ui, /重启 Maka 后会出现在这里/);
@@ -357,9 +356,9 @@ name: Writer
     assert.match(skillPanel, /actionBusy\?: boolean/);
     assert.match(skillPanel, /createPending\?: boolean/);
     assert.match(skillPanel, /openingSkillId\?: string \| null/);
-    assert.match(skillPanel, /const sidebar = \(/);
-    assert.match(skillPanel, /<aside className="maka-skill-workbench-rail" aria-label="技能概览">/);
-    assert.match(skillPanel, /<section className="maka-skill-workbench-summary" aria-label="技能库状态">/);
+    assert.match(skillPanel, /const templates = \(/);
+    assert.doesNotMatch(skillPanel, /maka-skill-workbench-rail/);
+    assert.doesNotMatch(skillPanel, /maka-skill-workbench-summary/);
     assert.match(skillPanel, /<section className="maka-skill-examples" aria-label="技能示例">/);
     assert.match(skillPanel, /<ul className="maka-skill-example-grid" aria-label="技能模板示例">/);
     assert.match(skillPanel, /className="maka-skill-template-row"/);
