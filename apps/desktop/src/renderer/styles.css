@@ -418,12 +418,9 @@ button:active {
 }
 
 /* Search modal: input + local thread-search results, backed by
- * `window.maka.search.thread()` through the renderer shell. */
-.maka-search-modal-backdrop {
-  /* Reuse the existing modal backdrop tokens. The presentational
-   * `.maka-modal-backdrop` class above this block handles dimming
-   * and centering. */
-}
+ * `window.maka.search.thread()` through the renderer shell. The dialog
+ * backdrop is rendered by the shared Dialog primitive (.maka-dialog-backdrop
+ * + .maka-modal-backdrop tokens), not a search-modal-specific element. */
 .maka-search-modal {
   width: min(560px, 92vw);
   max-height: 64vh;

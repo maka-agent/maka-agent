@@ -221,7 +221,11 @@ export const DialogBackdrop = forwardRef<HTMLDivElement, React.ComponentPropsWit
   return (
     <BaseDialog.Backdrop
       ref={ref}
-      className={cn('fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm', className)}
+      // `maka-dialog-backdrop` is a stable, style-free hook so tests and the
+      // real-window smoke diagnostic can select the dialog backdrop; Base UI
+      // renders only utility classes otherwise, which drift and aren't
+      // reliably selectable.
+      className={cn('maka-dialog-backdrop fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm', className)}
       {...props}
     />
   );

@@ -81,8 +81,8 @@ describe('real Electron window smoke gate (PR-DESKTOP-SMOKE-0)', () => {
     );
     assert.match(
       src,
-      /maka-search-modal-input/,
-      'programmatic focus check must accept the actual search input focus target, not only the close button',
+      /activeElementInSearchModal/,
+      'programmatic focus check must verify focus is trapped structurally inside the search modal (any interactive control), not by a brittle class on the focused element',
     );
     assert.match(src, /Window diagnostics/, 'real-window smoke report must include BrowserWindow/renderer diagnostics when available');
     assert.match(src, /PROGRAMMATIC_SMOKE_CHECKS/, 'real-window smoke must include an accessibility-independent programmatic BrowserWindow/renderer layer');
