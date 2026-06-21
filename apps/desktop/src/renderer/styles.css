@@ -4822,28 +4822,19 @@ button:active {
 .message.system > span { color: var(--info-text); }
 
 .maka-message-time {
-  margin-left: 8px;
+  margin-left: 6px;
   color: var(--foreground-40);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
-/* Message meta row — replaces the loose `<span>{label}</span>` of the
- * previous structure. Inline horizontal: avatar circle + role name +
- * timestamp, with the user row mirrored to the right via the global
- * `.message.user` flow.  */
 .maka-message-meta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 4px;
+  font-size: 10px;
   font-weight: 600;
-  /* PR-CHAT-MAIN-REDESIGN-0: tightened tracking. The previous
-     0.02em positive tracking + uppercase-feel font-weight read as
-     "label small-caps" which is fine for buttons but feels heavy
-     for a per-turn meta. -0.005em pulls characters together just
-     enough to register as a refined inline annotation. */
   letter-spacing: -0.005em;
   color: var(--foreground-60);
 }
@@ -4852,21 +4843,14 @@ button:active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  /* PR-CHAT-MAIN-REDESIGN-0: replace the generic-AI perfect circle
-     with a squircle. 30% radius reads as "rounded square" rather
-     than "circle" — softer than a hard rectangle, distinctive vs
-     the default Slack/Discord avatar pattern. */
+  width: 18px;
+  height: 18px;
   border-radius: 30%;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0;
   user-select: none;
   flex-shrink: 0;
-  /* Subtle inner highlight so the badge feels lit from above
-     instead of perfectly flat — pairs with the colored shadows
-     elsewhere in the theme. */
   box-shadow: inset 0 1px 0 oklch(from currentColor l c h / 0.18);
 }
 
@@ -4899,8 +4883,8 @@ button:active {
   border-radius: 999px;
   background: oklch(from var(--info) l c h / 0.08);
   color: var(--info-text);
-  padding: 4px 9px;
-  font-size: 12px;
+  padding: 2px 7px;
+  font-size: 10px;
 }
 
 .toolInline {
@@ -4943,21 +4927,20 @@ button:active {
   justify-self: end;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding-inline: 10px;
+  gap: 4px;
+  min-height: 24px;
+  padding-inline: 8px;
 }
 
-/* load_tool: friendly deferred-loading result card (vs raw JSON). */
 .maka-load-tool-preview {
-  margin: 8px 0 0;
-  padding: 10px 12px;
+  margin: 6px 0 0;
+  padding: 6px 10px;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--background);
-  font-size: 12.5px;
+  font-size: 11px;
 }
 
 .maka-load-tool-preview p {
