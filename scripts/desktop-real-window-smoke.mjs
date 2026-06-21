@@ -382,16 +382,14 @@ function buildProgrammaticResults(args, diagnostics) {
     },
     {
       check: PROGRAMMATIC_SMOKE_CHECKS[4],
+      // Focus must land on a control trapped inside the search modal. Check
+      // this structurally (activeElement is inside `.maka-search-modal`) rather
+      // than by a class on the focused element — the search input's class is
+      // owned by InputGroup's utility classes and isn't stable.
       ok:
-        (
-          renderer.activeElement?.tagName === 'INPUT' &&
-          renderer.activeElement?.className?.includes('maka-search-modal-input')
-        ) ||
-        (
-          renderer.activeElement?.tagName === 'BUTTON' &&
-          renderer.activeElement?.className?.includes('maka-search-modal-close')
-        ),
-      note: `activeElement=${JSON.stringify(renderer.activeElement ?? null)}`,
+        renderer.activeElementInSearchModal === true &&
+        (renderer.activeElement?.tagName === 'INPUT' || renderer.activeElement?.tagName === 'BUTTON'),
+      note: `activeElementInSearchModal=${renderer.activeElementInSearchModal ?? 'unknown'} activeElement=${JSON.stringify(renderer.activeElement ?? null)}`,
     },
     {
       check: PROGRAMMATIC_SMOKE_CHECKS[5],

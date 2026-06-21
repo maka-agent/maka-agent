@@ -1562,8 +1562,9 @@ function emitRealWindowSmokeDiagnostic(stage: string): void {
         title: document.title,
         appFramePresent: Boolean(document.querySelector('.appFrame')),
         searchModalPresent: Boolean(document.querySelector('.maka-search-modal')),
-        searchModalBackdropPresent: Boolean(document.querySelector('.maka-search-modal-backdrop')),
+        searchModalBackdropPresent: Boolean(document.querySelector('.maka-dialog-backdrop')),
         errorBoundaryPresent: Boolean(document.querySelector('.maka-error-surface')),
+        activeElementInSearchModal: Boolean(document.activeElement && document.activeElement.closest && document.activeElement.closest('.maka-search-modal')),
         activeElement: document.activeElement ? {
           tagName: document.activeElement.tagName,
           className: typeof document.activeElement.className === 'string' ? document.activeElement.className : '',
