@@ -286,6 +286,31 @@ describe('PiCliJsonTransport', () => {
 
     assert.deepEqual(killSignals, ['SIGTERM']);
   });
+
+  test('fails under control when stdin write emits an error', async () => {
+    const child = testChild(new PassThrough());
+    const killSignals: Array<NodeJS.Signals | number | undefined> = [];
+    child.kill = (signal) => {
+      killSignals.push(signal);
+      return true;
+    };
+    const transport = new PiCliJsonTransport({
+      command: 'pi-test',
+      model: 'glm-5.2',
+      spawn: () => {
+        setImmediate(() => child.stdin.emit('error', new Error('broken pipe')));
+        return child;
+      },
+    });
+
+    await assert.rejects(async () => {
+      for await (const frame of transport.send({ sessionId: 's1', turnId: 't1', cwd: '/tmp/task', text: 'solve it' })) {
+        void frame;
+      }
+    }, /pi stdin write failed: broken pipe/);
+
+    assert.deepEqual(killSignals, ['SIGTERM']);
+  });
 });
 
 type TestPiChild = EventEmitter & {

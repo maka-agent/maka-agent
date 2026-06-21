@@ -61,14 +61,31 @@ export class PiCliJsonTransport implements PiAgentTransport {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.child = child;
-    child.stdin.end(input.text);
     const close = childClose(child);
     const stderr = collectStderr(child.stderr);
+    let rejectStdin: (error: Error) => void = () => {};
+    const stdinFailed = new Promise<never>((_, reject) => {
+      rejectStdin = reject;
+    });
+    stdinFailed.catch(() => undefined);
+    const onStdinError = (error: Error) => {
+      rejectStdin(new Error(`pi stdin write failed: ${error.message}`));
+    };
+    child.stdin.once('error', onStdinError);
+    try {
+      child.stdin.end(input.text);
+    } catch (error) {
+      onStdinError(error instanceof Error ? error : new Error(String(error)));
+    }
     let closed = false;
     let buffer = '';
 
     try {
-      for await (const chunk of child.stdout) {
+      const stdout = child.stdout[Symbol.asyncIterator]();
+      while (true) {
+        const next = await Promise.race([stdout.next(), stdinFailed]);
+        if (next.done) break;
+        const chunk = next.value;
         buffer += String(chunk);
         const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() ?? '';
@@ -93,6 +110,7 @@ export class PiCliJsonTransport implements PiAgentTransport {
         child.kill('SIGTERM');
       }
       this.child = null;
+      child.stdin.off('error', onStdinError);
     }
   }
 
