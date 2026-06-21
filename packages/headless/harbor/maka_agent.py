@@ -65,6 +65,8 @@ class MakaAgent(BaseInstalledAgent):
 
     async def install(self, environment: BaseEnvironment) -> None:
         maka_repo = self._resolved_flags.get("maka_repo", "/opt/maka-agent")
+        backend = self._resolved_flags.get("backend", "") or self._get_env("MAKA_BACKEND") or "ai-sdk"
+        pi_command = self._get_env("MAKA_PI_COMMAND") or "pi"
         run_cell = Path(maka_repo) / "packages" / "headless" / "harbor" / "run-cell.mjs"
         dist_index = Path(maka_repo) / "packages" / "headless" / "dist" / "index.js"
         await self.exec_as_root(
@@ -91,6 +93,13 @@ class MakaAgent(BaseInstalledAgent):
                 "fi"
             ),
         )
+        pi_probe = (
+            f" && PI_COMMAND={shlex.quote(pi_command)}"
+            " && command -v \"$PI_COMMAND\" >/dev/null 2>&1"
+            " && \"$PI_COMMAND\" --version"
+            if backend == "pi-agent"
+            else ""
+        )
         await self.exec_as_agent(
             environment,
             command=(
@@ -99,6 +108,7 @@ class MakaAgent(BaseInstalledAgent):
                 "test \"$NODE_MAJOR\" -ge 22 && "
                 f"test -f {shlex.quote(str(run_cell))} && "
                 f"test -f {shlex.quote(str(dist_index))}"
+                f"{pi_probe}"
             ),
         )
 
@@ -141,7 +151,7 @@ class MakaAgent(BaseInstalledAgent):
     def _cell_env(self, instruction_path: Any) -> dict[str, str]:
         system_prompt = self._resolved_flags.get("system_prompt", "") or self._get_env("MAKA_SYSTEM_PROMPT") or ""
         model = self.model_name or self._get_env("MAKA_MODEL") or "deepseek/deepseek-chat"
-        backend = self._resolved_flags.get("backend", "ai-sdk")
+        backend = self._resolved_flags.get("backend", "") or self._get_env("MAKA_BACKEND") or "ai-sdk"
         provider = self._resolved_flags.get("provider", "") or self._get_env("MAKA_PROVIDER") or ""
         env = {
             "MAKA_BACKEND": backend,
@@ -154,15 +164,41 @@ class MakaAgent(BaseInstalledAgent):
         if provider:
             env["MAKA_PROVIDER"] = provider
         for key in (
+            "MAKA_PI_COMMAND",
+            "MAKA_PI_PROVIDER",
+            "MAKA_PI_MODEL",
+            "PI_CODING_AGENT_DIR",
+            "PI_CODING_AGENT_SESSION_DIR",
+            "PI_PACKAGE_DIR",
+            "PI_OFFLINE",
+            "PI_TELEMETRY",
+        ):
+            value = self._get_env(key)
+            if value:
+                env[key] = value
+        for key in (
             "DEEPSEEK_API_KEY",
+            "DEEPSEEK_API_KEY_FILE",
             "DEEPSEEK_BASE_URL",
             "OPENAI_API_KEY",
+            "OPENAI_API_KEY_FILE",
             "OPENAI_BASE_URL",
             "MOONSHOT_API_KEY",
+            "MOONSHOT_API_KEY_FILE",
             "GOOGLE_API_KEY",
+            "GOOGLE_API_KEY_FILE",
             "ANTHROPIC_API_KEY",
+            "ANTHROPIC_API_KEY_FILE",
             "ZAI_API_KEY",
+            "ZAI_API_KEY_FILE",
             "ZAI_BASE_URL",
+            "ZAI_CODING_CN_API_KEY",
+            "ZAI_CODING_CN_API_KEY_FILE",
+            "XIAOMI_API_KEY",
+            "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+            "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+            "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+            "OPENCODE_API_KEY",
         ):
             value = self._get_env(key)
             if value:

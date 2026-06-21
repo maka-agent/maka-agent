@@ -267,6 +267,32 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "test -f /opt/maka-agent/packages/headless/harbor/run-cell.mjs" in agent_probe_command, agent_probe_command
     assert "test -f /opt/maka-agent/packages/headless/dist/index.js" in agent_probe_command, agent_probe_command
 
+    pi_agent = MakaAgent(Path(tmp), extra_env={
+        "MAKA_BACKEND": "pi-agent",
+        "MAKA_PI_COMMAND": "/opt/pi/bin/pi",
+        "PI_CODING_AGENT_DIR": "/pi-agent",
+        "MAKA_PI_PROVIDER": "volcengine-plan",
+        "ZAI_CODING_CN_API_KEY": "zai-key",
+        "OPENAI_API_KEY_FILE": "/run/secrets/openai-key",
+    })
+    fake_pi_environment = types.SimpleNamespace(root_commands=[], agent_commands=[])
+    asyncio.run(pi_agent.install(fake_pi_environment))
+    pi_install_command = "\n".join(fake_pi_environment.root_commands)
+    assert "npm install -g" not in pi_install_command, pi_install_command
+    assert "npm prefix -g" not in pi_install_command, pi_install_command
+    pi_probe_command = "\n".join(fake_pi_environment.agent_commands)
+    assert "PI_COMMAND=/opt/pi/bin/pi" in pi_probe_command, pi_probe_command
+    assert "command -v \"$PI_COMMAND\"" in pi_probe_command, pi_probe_command
+    assert "\"$PI_COMMAND\" --version" in pi_probe_command, pi_probe_command
+    pi_agent._resolved_flags = {"backend": "pi-agent"}
+    pi_env = pi_agent._cell_env(Path("/logs/agent/instruction.txt"))
+    assert pi_env["MAKA_BACKEND"] == "pi-agent", pi_env
+    assert pi_env["MAKA_PI_COMMAND"] == "/opt/pi/bin/pi", pi_env
+    assert pi_env["PI_CODING_AGENT_DIR"] == "/pi-agent", pi_env
+    assert pi_env["MAKA_PI_PROVIDER"] == "volcengine-plan", pi_env
+    assert pi_env["ZAI_CODING_CN_API_KEY"] == "zai-key", pi_env
+    assert pi_env["OPENAI_API_KEY_FILE"] == "/run/secrets/openai-key", pi_env
+
     agent = MakaAgent(Path(tmp))
     context = AgentContext()
     agent._apply_cell_output(context, {
