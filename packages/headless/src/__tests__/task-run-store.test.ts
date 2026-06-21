@@ -167,7 +167,7 @@ describe('TaskRunStore', () => {
           executorId: 'exec-1',
           taskRunId,
           attemptId: 'a-1',
-          toolNames: ['Bash'],
+          toolNames: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
           isolationMode: 'external',
           label: 'unit isolation',
         },
