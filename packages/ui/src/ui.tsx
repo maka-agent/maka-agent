@@ -31,7 +31,7 @@ export const buttonVariants = cva(
     'transition-[background,border-color,box-shadow,transform,opacity] duration-150 ease-[var(--ease-maka)]',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     'active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45',
-    '[&_svg]:size-4 [&_svg]:shrink-0',
+    '[&_svg]:size-[var(--icon-size,1rem)] [&_svg]:shrink-0',
   ],
   {
     variants: {

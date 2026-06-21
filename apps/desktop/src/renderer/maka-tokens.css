@@ -210,6 +210,8 @@
   --radius-button: 6px;        /* buttons get a small radius for tactility */
   --radius-modal: 8px;
   --spacing: 0.25rem;          /* 4px base step */
+  --icon-size: 16px;           /* chrome glyph size (nav + button icons); dense
+                                  meta (12-14) and hero (20+) stay call-site */
 
   /* === motion ===
      Custom easing curves per emil-design-eng — the built-in CSS easings

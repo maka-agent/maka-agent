@@ -556,7 +556,7 @@ describe('localized main shell contract', () => {
     // top-actions — references the one var(--maka-titlebar-control-safe-top),
     // with its own per-container correction constant (not asserted).
     assert.match(sidebarTopBar, /padding-top:\s*calc\(var\(--maka-titlebar-control-safe-top\) - \d+px\)/);
-    assert.match(styles, /(?:^|\n)\.maka-nav-icon\s*\{[\s\S]*?width:\s*18px[\s\S]*?height:\s*18px/);
+    // nav-icon sizing is owned by icon-system-contract.test.ts (the --icon-size token).
     assert.match(styles, /\.maka-sidebar-modules\b/);
     assert.doesNotMatch(styles, /\.maka-sidebar-module-hint\b/);
     assert.match(styles, /\.maka-nav-row\b/);

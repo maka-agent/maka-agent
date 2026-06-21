@@ -892,8 +892,8 @@ button:active {
 }
 
 .maka-nav-primary-icon {
-  width: 15px;
-  height: 15px;
+  width: var(--icon-size);
+  height: var(--icon-size);
   color: currentColor;
   flex: 0 0 auto;
 }
@@ -921,8 +921,8 @@ button:active {
 }
 
 .maka-nav-icon {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-size);
+  height: var(--icon-size);
   color: var(--foreground-50);
   justify-self: center;
 }
@@ -947,7 +947,7 @@ button:active {
   margin-inline: 6px;
   min-height: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: var(--icon-size) minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   border: 0;

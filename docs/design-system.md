@@ -216,6 +216,24 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 
 ---
 
+### 1.9 图标（Iconography）
+
+图标用 `lucide-react`，按**语境分档**，不是全局统一一个尺寸。
+
+| 档 | 尺寸 | 设定方式 | 用途 |
+|---|---|---|---|
+| chrome | `--icon-size`（16px） | token | 左侧 nav 图标 + `buttonVariants` 按钮内图标 |
+| 密集 meta | 12–14px | call-site `size={…}` | 状态点、footer 操作、chip、与小字号同行的内联图标 |
+| 强调 / hero | 20px+ | call-site `size={…}` | onboarding、错误页、settings about、permission 等单个语义图标 |
+
+规则：
+
+- **chrome 是唯一被 token 化的档。** nav 图标（`.maka-nav-icon` / `.maka-nav-primary-icon`）和 `packages/ui/src/ui.tsx` 的 `buttonVariants`（`[&_svg]:size-[var(--icon-size,1rem)]`）都消费 `--icon-size`，所以两者不会再各走各的（历史缺陷：nav 18px 而按钮 1rem）。改这一个 token 同时移动两者。
+- **密集 / hero 是 call-site 刻意值，不收敛。** 它们是有意的视觉层级，不是漂移；不要用全局 `svg.lucide { width }` 之类的规则一锅端，那会把 11–14px 的小图标静默放大、把 hero 压小。
+- `packages/ui/src/primitives/*` 是另一套组件库，有自己的响应式图标尺寸（`size-4.5`/`size-4`），不归本节管。
+
+---
+
 ## 2. 密度契约（Density contract）
 
 三档密度对应 `:root[data-ui-density="..."]`：
