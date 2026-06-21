@@ -505,15 +505,15 @@ button:active {
 .maka-search-modal-body {
   display: block;
   border-top: 1px solid var(--border);
-  padding: 12px 12px 16px;
-  min-height: 200px;
+  padding: 10px 10px 12px;
+  min-height: 180px;
   max-height: calc(70vh - 110px);
   overflow-y: auto;
   text-align: left;
 }
 .maka-search-modal-placeholder {
-  margin: 18px 8px;
-  font-size: 13px;
+  margin: 14px 8px;
+  font-size: 12px;
   color: var(--foreground-50);
   text-align: center;
 }
@@ -521,11 +521,11 @@ button:active {
  * Distinct tone (info / warning) from regular placeholder. */
 .maka-search-modal-state {
   display: grid;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: 8px;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 6px;
   background: oklch(from var(--foreground) l c h / 0.03);
-  margin: 8px 4px;
+  margin: 6px 4px;
 }
 .maka-search-modal-state[data-tone="info"] {
   background: oklch(from var(--info, var(--accent)) l c h / 0.06);
@@ -535,11 +535,11 @@ button:active {
 }
 .maka-search-modal-state p {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--foreground);
 }
 .maka-search-modal-state-detail {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--foreground-60) !important;
 }
 
@@ -548,8 +548,8 @@ button:active {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 8px 8px;
-  font-size: 12px;
+  padding: 0 6px 6px;
+  font-size: 11px;
   color: var(--foreground-50);
 }
 
@@ -562,16 +562,16 @@ button:active {
 }
 .maka-search-modal-result {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
   text-align: left;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--foreground);
-  padding: 10px 12px;
+  padding: 7px 10px;
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background 150ms ease-out;
 }
 .maka-search-modal-result:hover:not([disabled]) {
   background: oklch(from var(--foreground) l c h / 0.04);
@@ -590,7 +590,7 @@ button:active {
   opacity: 0.7;
 }
 .maka-search-modal-result-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--foreground);
   overflow: hidden;
@@ -598,14 +598,14 @@ button:active {
   white-space: nowrap;
 }
 .maka-search-modal-result-meta {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--foreground-45);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .maka-search-modal-result-snippet {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--foreground-60);
   line-height: 1.45;
   /* Plain text snippet — backend redacts secrets + bounds to
@@ -1696,17 +1696,17 @@ button:active {
   width: 100%;
   height: auto;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 14px;
+  grid-template-columns: 18px minmax(0, 1fr) 12px;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 8px;
+  padding: 5px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--foreground);
   cursor: pointer;
   text-align: left;
-  transition: background 120ms ease;
+  transition: background 150ms ease-out;
 }
 
 .maka-onboarding-card:hover {
@@ -1769,13 +1769,13 @@ button:active {
 }
 
 .maka-onboarding-card-copy strong {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .maka-onboarding-card-copy small {
   color: var(--foreground-60);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1879,12 +1879,12 @@ button:active {
 
 .maka-onboarding-setup-step-state {
   justify-self: end;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border-radius: 999px;
   background: var(--background-elevated);
   color: var(--foreground-60);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 10px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -1914,14 +1914,11 @@ button:active {
   background: transparent;
   color: var(--foreground-60);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   text-decoration: none;
-  /* PR-UI-LAYOUT-26: bumped padding slightly + added focus-visible
-   * ring + radius so keyboard users see the skip button focus state
-   * (was invisible before — only browser default). */
-  padding: 6px 10px;
-  border-radius: 8px;
-  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  padding: 5px 8px;
+  border-radius: 6px;
+  transition: background 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
 .maka-onboarding-skip:hover {
