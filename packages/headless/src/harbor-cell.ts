@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
@@ -10,6 +11,7 @@ import {
   AiSdkBackend,
   BackendRegistry,
   PermissionEngine,
+  PiAgentBackend,
   SessionManager,
   buildBuiltinTools,
   buildProviderOptions,
@@ -27,6 +29,7 @@ import { buildHarborCellOutput, validateHarborCellOutput, type HarborCellOutput 
 import type { Config, Task } from './contracts.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
+import { PiCliJsonTransport } from './pi-cli-json-transport.js';
 import { backendNeedsIsolation } from './runner.js';
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
@@ -153,27 +156,69 @@ export async function runHarborCellFromEnv(
   options: RunHarborCellFromEnvOptions = {},
 ): Promise<RunHarborCellResult> {
   const now = options.now ?? Date.now;
+  const newId = options.newId ?? randomId;
   const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
-  const modelSpec = parseModelSpec(env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'deepseek/deepseek-chat', env.MAKA_PROVIDER);
   const backend = backendFromEnv(env.MAKA_BACKEND);
-  const config: Config = {
+  const baseConfig = {
     id: env.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
-    llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
-    model: modelSpec.model,
     ...(env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: env.MAKA_SYSTEM_PROMPT } : {}),
   };
-  const registerBackends = options.registerBackends ?? (
-    backend === 'fake'
-      ? undefined
-      : buildAiSdkCellBackendRegistration({
-          provider: modelSpec.provider,
-          model: modelSpec.model,
-          env,
-          now,
-          newId: options.newId ?? randomId,
-        })
-  );
+  let config: Config;
+  let registerBackends = options.registerBackends;
+
+  switch (backend) {
+    case 'ai-sdk': {
+      const modelSpec = parseModelSpec(env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'deepseek/deepseek-chat', env.MAKA_PROVIDER);
+      config = {
+        ...baseConfig,
+        llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
+        model: modelSpec.model,
+      };
+      registerBackends ??= buildAiSdkCellBackendRegistration({
+        provider: modelSpec.provider,
+        model: modelSpec.model,
+        env,
+        now,
+        newId,
+      });
+      break;
+    }
+    case 'pi-agent': {
+      const model = env.MAKA_PI_MODEL ?? env.MAKA_MODEL ?? env.HARBOR_MODEL;
+      if (!model) throw new Error('MAKA_PI_MODEL, MAKA_MODEL, or HARBOR_MODEL must include a model id');
+      const piProvider = env.MAKA_PI_PROVIDER;
+      config = {
+        ...baseConfig,
+        llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? piProvider ?? 'pi-agent',
+        model,
+      };
+      registerBackends ??= (registry) => {
+        registry.register('pi-agent', (ctx) =>
+          new PiAgentBackend({
+            sessionId: ctx.sessionId,
+            header: ctx.header,
+            appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+            permissionEngine: new PermissionEngine({ newId, now }),
+            transport: new PiCliJsonTransport({
+              command: env.MAKA_PI_COMMAND ?? 'pi',
+              ...(piProvider ? { provider: piProvider } : {}),
+              model,
+              env: env as NodeJS.ProcessEnv,
+            }),
+          }),
+        );
+      };
+      break;
+    }
+    case 'fake':
+      config = {
+        ...baseConfig,
+        llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? 'fake',
+        model: env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'fake',
+      };
+      break;
+  }
 
   return await runHarborCell({
     config,
@@ -225,6 +270,7 @@ function buildAiSdkCellBackendRegistration(input: {
   };
 }
 
+
 export function resolveHarborCellAiSdkEnv(input: {
   provider: ProviderType;
   model: string;
@@ -245,7 +291,7 @@ async function instructionFromEnv(env: RunHarborCellEnv): Promise<string> {
 
 function backendFromEnv(value: string | undefined): BackendKind {
   if (!value) return 'ai-sdk';
-  if (value === 'fake' || value === 'ai-sdk') return value;
+  if (value === 'fake' || value === 'ai-sdk' || value === 'pi-agent') return value;
   throw new Error(`unsupported MAKA_BACKEND: ${value}`);
 }
 
@@ -308,23 +354,44 @@ function providerBaseUrl(provider: ProviderType, env: RunHarborCellEnv): string 
 function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv): string {
   switch (provider) {
     case 'deepseek':
-      return env.DEEPSEEK_API_KEY ?? env.OPENAI_API_KEY ?? '';
+      return env.DEEPSEEK_API_KEY
+        ?? secretFileValue(env.DEEPSEEK_API_KEY_FILE, 'DEEPSEEK_API_KEY_FILE')
+        ?? env.OPENAI_API_KEY
+        ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE')
+        ?? '';
     case 'openai':
     case 'openai-compatible':
-      return env.OPENAI_API_KEY ?? '';
+      return env.OPENAI_API_KEY ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE') ?? '';
     case 'moonshot':
-      return env.MOONSHOT_API_KEY ?? env.OPENAI_API_KEY ?? '';
+      return env.MOONSHOT_API_KEY
+        ?? secretFileValue(env.MOONSHOT_API_KEY_FILE, 'MOONSHOT_API_KEY_FILE')
+        ?? env.OPENAI_API_KEY
+        ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE')
+        ?? '';
     case 'zai-coding-plan':
-      return env.ZAI_API_KEY ?? env.OPENAI_API_KEY ?? '';
+      return env.ZAI_API_KEY
+        ?? secretFileValue(env.ZAI_API_KEY_FILE, 'ZAI_API_KEY_FILE')
+        ?? env.ZAI_CODING_CN_API_KEY
+        ?? secretFileValue(env.ZAI_CODING_CN_API_KEY_FILE, 'ZAI_CODING_CN_API_KEY_FILE')
+        ?? env.OPENAI_API_KEY
+        ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE')
+        ?? '';
     case 'google':
-      return env.GOOGLE_API_KEY ?? '';
+      return env.GOOGLE_API_KEY ?? secretFileValue(env.GOOGLE_API_KEY_FILE, 'GOOGLE_API_KEY_FILE') ?? '';
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'claude-subscription':
-      return env.ANTHROPIC_API_KEY ?? '';
+      return env.ANTHROPIC_API_KEY ?? secretFileValue(env.ANTHROPIC_API_KEY_FILE, 'ANTHROPIC_API_KEY_FILE') ?? '';
     default:
-      return env.OPENAI_API_KEY ?? '';
+      return env.OPENAI_API_KEY ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE') ?? '';
   }
+}
+
+function secretFileValue(path: string | undefined, key: string): string | undefined {
+  if (!path) return undefined;
+  const value = readFileSync(path, 'utf8').trim();
+  if (!value) throw new Error(`${key} must point to a non-empty file`);
+  return value;
 }
 
 function runtimeEventsJsonl(invocation: InvocationResult): string {

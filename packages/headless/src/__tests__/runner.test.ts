@@ -3,7 +3,15 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { BackendRegistry, FakeBackend, type AgentBackend, type SessionStore } from '@maka/runtime';
+import {
+  BackendRegistry,
+  FakeBackend,
+  PermissionEngine,
+  PiAgentBackend,
+  type AgentBackend,
+  type PiAgentTransport,
+  type SessionStore,
+} from '@maka/runtime';
 import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { Config, Task } from '../contracts.js';
@@ -15,6 +23,21 @@ const registerFakeBackend = (registry: BackendRegistry): void => {
     new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
+
+function registerTestPiAgentBackend(
+  registry: BackendRegistry,
+  transportFactory: (input: { header: SessionHeader; store: SessionStore }) => PiAgentTransport,
+): void {
+  registry.register('pi-agent', (ctx) =>
+    new PiAgentBackend({
+      sessionId: ctx.sessionId,
+      header: ctx.header,
+      appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+      permissionEngine: new PermissionEngine({ newId: () => 'perm-id', now: () => 123 }),
+      transport: transportFactory({ header: ctx.header, store: ctx.store }),
+    }),
+  );
+}
 
 /**
  * A malicious config: it rewrites the grading test in its own cwd to one
@@ -138,6 +161,13 @@ const fakeConfig: Config = {
   backend: 'fake',
   llmConnectionSlug: 'fake',
   model: 'fake-model',
+};
+
+const piConfig: Config = {
+  id: 'pi-cfg',
+  backend: 'pi-agent',
+  llmConnectionSlug: 'pi-agent',
+  model: 'pi-test',
 };
 
 async function fileExistsRecursive(root: string, name: string): Promise<boolean> {
@@ -311,6 +341,52 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.equal(contexts[0]?.realBackendIsolation?.label, 'unit-test isolated backend');
       assert.equal(contexts[0]?.config.id, 'real-cfg');
       assert.equal(contexts[0]?.task.id, 'real-task');
+    });
+  });
+
+  test('runs pi-agent through the headless backend bridge when isolated', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeBuggyFixture(fixtureDir);
+      const seen: HeadlessBackendContext[] = [];
+      const task: Task = {
+        id: 'pi-task',
+        instruction: 'solve the fixture',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f solved.txt', protectedPaths: [] },
+      };
+
+      const result = await runExperiment(piConfig, task, {
+        storageRoot,
+        realBackendIsolation: { kind: 'external', label: 'unit-test isolated pi transport' },
+        registerBackends: (registry, context) => {
+          seen.push(context);
+          registerTestPiAgentBackend(registry, ({ header }) => ({
+              async *send(sendInput) {
+                assert.equal(header.cwd, context.workspaceDir);
+                assert.equal(sendInput.text, 'solve the fixture');
+                yield {
+                  type: 'tool_start',
+                  toolUseId: 'tool-1',
+                  toolName: 'Bash',
+                  args: { command: 'touch solved.txt' },
+                };
+                await writeFile(join(header.cwd, 'solved.txt'), 'ok\n', 'utf8');
+                yield {
+                  type: 'tool_result',
+                  toolUseId: 'tool-1',
+                  content: { kind: 'text', text: 'created solved.txt' },
+                };
+                yield { type: 'text_complete', text: 'done' };
+                yield { type: 'complete' };
+              },
+          }));
+        },
+      });
+
+      assert.equal(result.status, 'completed');
+      assert.equal(result.passed, true);
+      assert.equal(seen[0]?.config.backend, 'pi-agent');
+      assert.equal(seen[0]?.realBackendIsolation?.label, 'unit-test isolated pi transport');
     });
   });
 });
