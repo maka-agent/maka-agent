@@ -1,5 +1,7 @@
 """Harbor adapter for running a Maka RuntimeRunner cell in the task workdir."""
 
+from __future__ import annotations
+
 import json
 import shlex
 from pathlib import Path

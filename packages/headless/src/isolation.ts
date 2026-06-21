@@ -17,6 +17,65 @@ export interface IsolatedCommandResult {
   stderr: string;
 }
 
+export interface IsolatedReadFileInput {
+  cwd: string;
+  path: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface IsolatedReadFileResult {
+  content: string;
+}
+
+export interface IsolatedWriteFileInput {
+  cwd: string;
+  path: string;
+  content: string;
+}
+
+export interface IsolatedWriteFileResult {
+  ok: boolean;
+  path: string;
+  bytes: number;
+}
+
+export interface IsolatedEditFileInput {
+  cwd: string;
+  path: string;
+  oldString: string;
+  newString: string;
+}
+
+export interface IsolatedEditFileResult {
+  ok: boolean;
+  path: string;
+  replacements: number;
+}
+
+export interface IsolatedGlobInput {
+  cwd: string;
+  pattern: string;
+  searchCwd?: string;
+}
+
+export interface IsolatedGlobResult {
+  files: string[];
+}
+
+export interface IsolatedGrepInput {
+  cwd: string;
+  pattern: string;
+  path?: string;
+  glob?: string;
+}
+
+export interface IsolatedGrepResult {
+  matches: string[];
+}
+
+export const ISOLATED_HEADLESS_TOOL_NAMES = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'] as const;
+
 /**
  * Executes agent-visible shell commands outside the host credential process.
  *
@@ -28,6 +87,17 @@ export interface IsolatedCommandResult {
  */
 export interface IsolatedToolExecutor {
   exec(input: IsolatedCommandInput): Promise<IsolatedCommandResult>;
+  /**
+   * Optional native file operations for executors that can address their
+   * external workspace without shelling through exec. If omitted,
+   * buildIsolatedHeadlessTools falls back to command-backed operations inside
+   * the isolated boundary.
+   */
+  readFile?(input: IsolatedReadFileInput): Promise<IsolatedReadFileResult>;
+  writeFile?(input: IsolatedWriteFileInput): Promise<IsolatedWriteFileResult>;
+  editFile?(input: IsolatedEditFileInput): Promise<IsolatedEditFileResult>;
+  globFiles?(input: IsolatedGlobInput): Promise<IsolatedGlobResult>;
+  grepFiles?(input: IsolatedGrepInput): Promise<IsolatedGrepResult>;
 }
 
 export interface ExternalRealBackendIsolation {

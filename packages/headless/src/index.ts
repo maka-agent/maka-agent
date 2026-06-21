@@ -258,11 +258,29 @@ export type {
   HeadlessBackendContext,
   IsolatedCommandInput,
   IsolatedCommandResult,
+  IsolatedEditFileInput,
+  IsolatedEditFileResult,
+  IsolatedGlobInput,
+  IsolatedGlobResult,
+  IsolatedGrepInput,
+  IsolatedGrepResult,
+  IsolatedReadFileInput,
+  IsolatedReadFileResult,
   IsolatedToolExecutor,
+  IsolatedWriteFileInput,
+  IsolatedWriteFileResult,
   RealBackendIsolation,
 } from './isolation.js';
 export {
+  ISOLATED_HEADLESS_TOOL_NAMES,
+} from './isolation.js';
+export {
   buildIsolatedBashTool,
+  buildIsolatedEditTool,
+  buildIsolatedGlobTool,
+  buildIsolatedGrepTool,
   buildIsolatedHeadlessToolAvailability,
   buildIsolatedHeadlessTools,
+  buildIsolatedReadTool,
+  buildIsolatedWriteTool,
 } from './tools.js';
