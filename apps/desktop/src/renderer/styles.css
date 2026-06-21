@@ -2537,8 +2537,15 @@ button:active {
   width: min(100%, 1080px);
   margin: 0 auto;
   display: grid;
-  gap: 10px;
-  padding: clamp(16px, 3vh, 32px) 0 16px;
+  gap: 12px;
+  padding: clamp(16px, 3vh, 24px) 18px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.04),
+    0 8px 24px -16px oklch(from var(--foreground) l c h / 0.10);
+  animation: maka-page-shell-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .maka-plan-hero {
@@ -3362,8 +3369,35 @@ button:active {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 12px;
-  padding-right: 2px;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.04),
+    0 8px 24px -16px oklch(from var(--foreground) l c h / 0.10);
+  animation: maka-page-shell-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Reference-layout page-shell entrance — opacity 0 + translateY(6px) -> 0,
+   so each top-level module page lands as a lifted card rather than slamming
+   onto the canvas. Used by Skills + Plan/Reminder shells. */
+@keyframes maka-page-shell-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-skill-library,
+  .maka-plan-shell {
+    animation: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-skill-library,
+[data-maka-visual-smoke="true"] .maka-plan-shell {
+  animation: none;
 }
 
 .maka-skill-tool-summary-hidden {
