@@ -13349,14 +13349,25 @@ button:active {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 6px 12px 16px;
+  gap: 8px;
+  padding: 18px 20px 20px;
 }
 
+/* Daily Review page-card chrome — atlas §4 + Phase 2A recipe parity with
+   Skills + Plan shells (1px hairline border + 6px radius + 4% lift + inner
+   highlight). Was flat (transparent) which felt orphaned next to the other
+   module pages. */
 .maka-module-main .maka-daily-review-panel {
-  padding: 0;
   max-width: 980px;
   width: 100%;
+  margin-inline: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
 }
 
 .maka-daily-review-header {
@@ -13371,7 +13382,9 @@ button:active {
 .maka-daily-review-day {
   text-align: center;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
   color: var(--foreground);
 }
 
@@ -13863,4 +13876,62 @@ html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[fill*="ac
 html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"],
 html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"] {
   stroke: var(--card-border-color);
+}
+
+/* =============================================================================
+   [data-gradual-blur-layer] — atlas §15.2 ported. Fixed pointer-events: none
+   overlay that fades content edges into chrome via linear-gradient mask +
+   backdrop blur. Use cases: sticky chat header bottom edge, sidebar scroll
+   bottom edge, modal header overflow.
+
+   Usage: drop on an absolutely positioned div inside a scroll container with
+   `data-gradual-blur-layer` + `data-side="top|bottom"`. The element auto-
+   resolves into the right gradient direction.
+============================================================================= */
+[data-gradual-blur-layer] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 32px;
+  pointer-events: none;
+  z-index: 5;
+  background: linear-gradient(
+    to bottom,
+    var(--background) 0%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(to bottom, black 0%, transparent 100%);
+  mask: linear-gradient(to bottom, black 0%, transparent 100%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+[data-gradual-blur-layer][data-side="bottom"] {
+  bottom: 0;
+  top: auto;
+  background: linear-gradient(
+    to top,
+    var(--background) 0%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(to top, black 0%, transparent 100%);
+  mask: linear-gradient(to top, black 0%, transparent 100%);
+}
+
+[data-gradual-blur-layer][data-side="top"] {
+  top: 0;
+  bottom: auto;
+}
+
+/* Honor the user's preference + visual-smoke fixture. */
+@media (prefers-reduced-motion: reduce) {
+  [data-gradual-blur-layer] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] [data-gradual-blur-layer] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
