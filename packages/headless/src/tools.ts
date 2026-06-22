@@ -122,12 +122,12 @@ export function buildIsolatedEditTool(executor: IsolatedToolExecutor): MakaTool 
       if (executor.editFile) {
         return await executor.editFile({ cwd, path: normalizedPath, oldString: old_string, newString: new_string });
       }
-      await execFileCommand(executor, cwd, nodeFileCommand(EDIT_SCRIPT, [
+      const editStdout = await execFileCommand(executor, cwd, nodeFileCommand(EDIT_SCRIPT, [
         normalizedPath,
         Buffer.from(old_string, 'utf8').toString('base64'),
         Buffer.from(new_string, 'utf8').toString('base64'),
       ]));
-      return { ok: true, path: normalizedPath, replacements: 1 };
+      return { ok: true, path: normalizedPath, replacements: 1, ...parseEditMeta(editStdout) };
     },
   };
 }
@@ -209,6 +209,26 @@ function parseStringArray(stdout: string, label: string): string[] {
     throw new Error(`${label} command returned an invalid string array`);
   }
   return parsed;
+}
+
+// EDIT_SCRIPT applies the edit and THEN prints this metadata, so by the time we
+// parse it the file is already changed. matchedVia / line range are best-effort
+// observability; a malformed payload must not turn a successful edit into a
+// reported failure, so this fails open to {} (a protocol regression is caught by
+// tests, which assert the metadata is present).
+function parseEditMeta(stdout: string): { matchedVia?: string; startLine?: number; endLine?: number } {
+  try {
+    const parsed: unknown = JSON.parse(stdout || '{}');
+    if (!parsed || typeof parsed !== 'object') return {};
+    const { matchedVia, startLine, endLine } = parsed as Record<string, unknown>;
+    return {
+      matchedVia: typeof matchedVia === 'string' ? matchedVia : undefined,
+      startLine: typeof startLine === 'number' ? startLine : undefined,
+      endLine: typeof endLine === 'number' ? endLine : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function normalizeWorkspacePath(inputPath: string, cwd: string, label: string): string {
@@ -312,7 +332,9 @@ const target = existingTarget(root, inputPath, 'Edit path');
 const oldString = Buffer.from(oldBase64, 'base64').toString('utf8');
 const newString = Buffer.from(nextBase64, 'base64').toString('utf8');
 const current = fs.readFileSync(target, 'utf8');
-fs.writeFileSync(target, computeEditedSource(current, oldString, newString, inputPath), 'utf8');
+const result = computeEditedSource(current, oldString, newString, inputPath);
+fs.writeFileSync(target, result.content, 'utf8');
+process.stdout.write(JSON.stringify({ matchedVia: result.matchedVia, startLine: result.startLine, endLine: result.endLine }));
 `;
 
 const GLOB_SCRIPT = `${COMMON_NODE_HELPERS}

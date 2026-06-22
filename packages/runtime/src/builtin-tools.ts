@@ -92,9 +92,16 @@ export function buildBuiltinTools(): MakaTool[] {
       impl: async ({ path, old_string, new_string }, { cwd }) => {
         const abs = await resolveExistingInsideCwd(cwd, path, 'Edit');
         const current = await fs.readFile(abs, 'utf8');
-        const next = computeEditedSource(current, old_string, new_string, path);
-        await fs.writeFile(abs, next, 'utf8');
-        return { ok: true, path: abs, replacements: 1 };
+        const result = computeEditedSource(current, old_string, new_string, path);
+        await fs.writeFile(abs, result.content, 'utf8');
+        return {
+          ok: true,
+          path: abs,
+          replacements: 1,
+          matchedVia: result.matchedVia,
+          startLine: result.startLine,
+          endLine: result.endLine,
+        };
       },
     },
     {

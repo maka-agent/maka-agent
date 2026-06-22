@@ -2,34 +2,123 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from '../edit-replace.js';
 
-describe('computeEditedSource (exact match)', () => {
-  test('replaces the single occurrence and returns the new content', () => {
-    assert.equal(
-      computeEditedSource('hello world', 'world', 'Maka', 'a.txt'),
-      'hello Maka',
-    );
+describe('computeEditedSource — exact match', () => {
+  test('replaces the single occurrence and reports an exact match + line range', () => {
+    assert.deepEqual(computeEditedSource('hello world', 'world', 'Maka', 'a.txt'), {
+      content: 'hello Maka',
+      matchedVia: 'exact',
+      startLine: 1,
+      endLine: 1,
+    });
   });
 
-  test('throws with the where label when old_string is not found', () => {
-    assert.throws(
-      () => computeEditedSource('hello', 'absent', 'x', 'src/a.txt'),
-      /^Error: old_string not found in src\/a\.txt$/,
-    );
+  test('reports the matched multi-line range (1-based, inclusive)', () => {
+    const content = 'a\nb\nTARGET1\nTARGET2\nc\n';
+    const result = computeEditedSource(content, 'TARGET1\nTARGET2', 'X', 'a.txt');
+    assert.equal(result.content, 'a\nb\nX\nc\n');
+    assert.equal(result.startLine, 3);
+    assert.equal(result.endLine, 4);
+  });
+
+  test('inserts new_string literally (no $-pattern interpretation)', () => {
+    const result = computeEditedSource('const x = old;', 'old', '$&value', 'a.txt');
+    assert.equal(result.content, 'const x = $&value;');
+  });
+
+  test('throws with the where label when old_string is absent', () => {
+    assert.throws(() => computeEditedSource('hello', 'absent', 'x', 'src/a.txt'), /old_string not found in src\/a\.txt/);
   });
 
   test('throws with the match count when old_string is not unique', () => {
-    assert.throws(
-      () => computeEditedSource('a a a', 'a', 'b', 'b.txt'),
-      /^Error: old_string is not unique in b\.txt \(3 matches\)$/,
-    );
+    assert.throws(() => computeEditedSource('a a a', 'a', 'b', 'b.txt'), /old_string is not unique in b\.txt \(3 matches\)/);
   });
 
-  test('serialized source embeds standalone and reproduces the function', () => {
+  test('rejects identical old_string and new_string', () => {
+    assert.throws(() => computeEditedSource('abc', 'abc', 'abc', 'b.txt'), /identical/);
+  });
+
+  test('rejects an empty old_string', () => {
+    assert.throws(() => computeEditedSource('abc', '', 'x', 'b.txt'), /must not be empty/);
+  });
+});
+
+describe('computeEditedSource — fuzzy cascade', () => {
+  test('line-trimmed: tolerates indentation drift on a multi-line block', () => {
+    const content = 'function f() {\n    return 1;\n}\n'; // 4-space body
+    const oldString = 'function f() {\n  return 1;\n}'; // model used 2-space body
+    const result = computeEditedSource(content, oldString, 'function f() {\n    return 2;\n}', 'f.ts');
+    assert.equal(result.matchedVia, 'line-trimmed');
+    assert.equal(result.content, 'function f() {\n    return 2;\n}\n');
+    assert.equal(result.startLine, 1);
+    assert.equal(result.endLine, 3);
+  });
+
+  test('whitespace: tolerates collapsed internal whitespace', () => {
+    const content = 'const  x   =   1;';
+    const result = computeEditedSource(content, 'const x = 1;', 'const x = 2;', 'w.ts');
+    assert.equal(result.matchedVia, 'whitespace');
+    assert.equal(result.content, 'const x = 2;');
+  });
+
+  test('escape: tolerates literal backslash escapes in old_string', () => {
+    const content = 'line1\nline2';
+    const result = computeEditedSource(content, 'line1\\nline2', 'X', 'e.ts');
+    assert.equal(result.matchedVia, 'escape');
+    assert.equal(result.content, 'X');
+    assert.equal(result.startLine, 1);
+    assert.equal(result.endLine, 2);
+  });
+
+  test('line-trimmed: preserves a trailing newline in old_string (no extra blank line)', () => {
+    const content = '  abcde\n  fghij\n';
+    const result = computeEditedSource(content, 'abcde\nfghij\n', 'xxxxx\nyyyyy\n', 'n.ts');
+    assert.equal(result.matchedVia, 'line-trimmed');
+    assert.equal(result.content, 'xxxxx\nyyyyy\n');
+    assert.equal(result.startLine, 1);
+    assert.equal(result.endLine, 2);
+  });
+
+  test("a span's trailing newline is a terminator, not an extra line, for endLine", () => {
+    assert.deepEqual(computeEditedSource('abc\n', 'abc\n', 'def\n', 'r.ts'), {
+      content: 'def\n',
+      matchedVia: 'exact',
+      startLine: 1,
+      endLine: 1,
+    });
+  });
+});
+
+describe('computeEditedSource — anti-corruption guards', () => {
+  test('rejects multiple distinct fuzzy candidates instead of guessing', () => {
+    const content = 'function a() {\n  x;\n}\nfunction a() {\n   x;\n}\n';
+    const oldString = 'function a() {\n    x;\n}'; // matches both blocks by trimmed lines
+    assert.throws(() => computeEditedSource(content, oldString, 'Y', 'a.ts'), /different line-trimmed candidates/);
+  });
+
+  test('rejects a fuzzy span that occurs more than once', () => {
+    const content = 'function a() {\n  x;\n}\nfunction a() {\n  x;\n}\n';
+    const oldString = 'function a() {\n    x;\n}';
+    assert.throws(() => computeEditedSource(content, oldString, 'Y', 'a.ts'), /occurs more than once/);
+  });
+
+  test('rejects a too-short old_string for a non-exact match', () => {
+    const content = 'a   b';
+    assert.throws(() => computeEditedSource(content, 'a b', 'c', 's.ts'), /too short/);
+  });
+
+  test('a multi-line old_string never collapses onto a single line (whitespace)', () => {
+    const content = 'header\nalpha beta\nfooter\n';
+    assert.throws(() => computeEditedSource(content, 'alpha\nbeta', 'X', 'w.ts'), /not found/);
+  });
+});
+
+describe('computeEditedSource — serialized embedding', () => {
+  test('serialized source is standalone and reproduces the full cascade', () => {
     assert.equal(typeof COMPUTE_EDITED_SOURCE_FN_SOURCE, 'string');
-    // The isolated headless Edit tool runs this source inside `node -e`; verify
-    // it parses to a function with identical behavior to the in-process one.
     const embedded = new Function(`return (${COMPUTE_EDITED_SOURCE_FN_SOURCE})`)() as typeof computeEditedSource;
-    assert.equal(embedded('one two', 'two', 'three', 'x.txt'), 'one three');
-    assert.throws(() => embedded('z', 'absent', 'x', 'x.txt'), /old_string not found in x\.txt/);
+    // exercise a fuzzy path to prove nested helpers survive serialization
+    const result = embedded('function f() {\n    return 1;\n}\n', 'function f() {\n  return 1;\n}', 'function f() {\n    return 2;\n}', 'x.ts');
+    assert.equal(result.matchedVia, 'line-trimmed');
+    assert.equal(result.content, 'function f() {\n    return 2;\n}\n');
   });
 });

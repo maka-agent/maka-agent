@@ -170,7 +170,7 @@ describe('isolated headless tools', () => {
     });
     assert.deepEqual(
       await tool(tools, 'Edit').impl({ path: absoluteFile, old_string: 'hello', new_string: 'hi' }, toolCtx(cwd)),
-      { ok: true, path: 'src/file.txt', replacements: 1 },
+      { ok: true, path: 'src/file.txt', replacements: 1, matchedVia: 'exact', startLine: 1, endLine: 1 },
     );
     assert.deepEqual(await tool(tools, 'Glob').impl({ pattern: absoluteGlob }, toolCtx(cwd)), {
       files: ['src/file.txt'],
@@ -181,6 +181,37 @@ describe('isolated headless tools', () => {
     assert.equal(await readFile(join(cwd, 'src/file.txt'), 'utf8'), 'hi\nneedle\n');
     assert.ok(calls.length >= 5);
     assert.ok(calls.every((command) => command.startsWith("node -e '")));
+  });
+
+  test('command-backed Edit applies the fuzzy cascade inside the isolated process', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-fuzzy-'));
+    await mkdir(join(cwd, 'src'));
+    const file = join(cwd, 'src', 'f.ts');
+    // 4-space indented body on disk; the model's old_string uses 2-space indent.
+    await writeFile(file, 'function f() {\n    return 1;\n}\n', 'utf8');
+    const tools = buildIsolatedHeadlessTools({
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, maxBuffer: 1024 * 1024 });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    });
+
+    assert.deepEqual(
+      await tool(tools, 'Edit').impl(
+        { path: 'src/f.ts', old_string: 'function f() {\n  return 1;\n}', new_string: 'function f() {\n    return 2;\n}' },
+        toolCtx(cwd),
+      ),
+      { ok: true, path: 'src/f.ts', replacements: 1, matchedVia: 'line-trimmed', startLine: 1, endLine: 3 },
+    );
+    assert.equal(await readFile(file, 'utf8'), 'function f() {\n    return 2;\n}\n');
   });
 
   test('command-backed file tools do not follow symlinks outside the isolated workspace', async () => {
