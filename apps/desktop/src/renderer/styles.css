@@ -5034,12 +5034,27 @@ button:active {
 }
 
 .maka-palette-modal {
-  width: min(560px, calc(100vw - 48px));
-  max-height: 64vh;
+  width: min(584px, calc(100vw - 32px));
+  max-height: min(620px, 68vh);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.05),
+    0 18px 48px oklch(from var(--foreground) l c h / 0.12),
+    inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+.maka-palette-modal,
+.maka-palette-list,
+.maka-palette-group-label,
+.maka-palette-item,
+.maka-palette-hint,
+.maka-palette-footer {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .maka-palette-input-wrap {
@@ -5054,6 +5069,8 @@ button:active {
   color: var(--foreground);
   font-size: 12px;
   line-height: 1.4;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .maka-palette-input::placeholder {
@@ -5107,15 +5124,15 @@ button:active {
 .maka-palette-list {
   border-top: 1px solid var(--border);
   overflow-y: auto;
-  padding: 6px 6px 8px;
+  padding: 5px 6px 7px;
 }
 
 .maka-palette-group + .maka-palette-group {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .maka-palette-group-label {
-  padding: 4px 8px 2px;
+  padding: 4px 8px 3px;
   color: var(--foreground-50);
   font-size: 10px;
   font-weight: 600;
@@ -5124,19 +5141,41 @@ button:active {
 }
 
 .maka-palette-item {
+  position: relative;
   width: 100%;
+  min-height: 28px;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--foreground);
-  padding: 4px 8px;
+  padding: 5px 8px;
   text-align: left;
   font-size: 11px;
-  transition: background-color 150ms var(--ease-out-strong);
+  cursor: default;
+  transform: translateY(0);
+  transition:
+    background-color 140ms var(--ease-out-strong),
+    color 140ms var(--ease-out-strong),
+    opacity 140ms var(--ease-out-strong),
+    transform 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item::before {
+  content: "";
+  position: absolute;
+  inset: 5px auto 5px 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item:hover:not([data-disabled="true"]) {
+  background: var(--foreground-5);
 }
 
 .maka-palette-item[data-active="true"] {
@@ -5144,13 +5183,43 @@ button:active {
   color: var(--foreground);
 }
 
+.maka-palette-item[data-active="true"]::before {
+  background: oklch(from var(--accent) l c h / 0.72);
+}
+
+.maka-palette-item:active:not([data-disabled="true"]) {
+  transform: translateY(1px);
+}
+
+.maka-palette-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.maka-palette-item[data-disabled="true"] {
+  color: var(--foreground-50);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.maka-palette-item[data-pending="true"] {
+  cursor: progress;
+}
+
 .maka-palette-icon {
   display: grid;
   place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
   color: var(--foreground-50);
+  transition:
+    background-color 140ms var(--ease-out-strong),
+    color 140ms var(--ease-out-strong);
 }
 
 .maka-palette-item[data-active="true"] .maka-palette-icon {
+  background: oklch(from var(--accent) l c h / 0.10);
   color: var(--accent);
 }
 
@@ -5167,6 +5236,11 @@ button:active {
   color: var(--foreground-50);
   font-size: 10px;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-palette-item[data-pending="true"] .maka-palette-hint {
+  color: var(--accent);
 }
 
 .maka-palette-empty {
