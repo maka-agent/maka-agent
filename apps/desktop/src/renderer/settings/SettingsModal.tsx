@@ -96,6 +96,7 @@ import {
   SelectRoot,
   SelectTrigger,
   SelectValue,
+  PrimitiveBadge,
   Switch as BaseUiSwitch,
   Textarea,
   redactSecrets,
@@ -6097,6 +6098,23 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, strin
 }
 
 /**
+ * PR-USE-SHADCN-BASE-UI-BADGE — map the project's status-tone vocabulary
+ * (success / warning / destructive / info / neutral) onto the canonical
+ * shadcn `PrimitiveBadge` variants. `neutral` falls back to `secondary`
+ * which is the closest "muted chip" appearance the Badge primitive ships.
+ */
+type StatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'destructive';
+function statusBadgeVariant(tone: StatusTone): 'success' | 'warning' | 'destructive' | 'info' | 'secondary' {
+  switch (tone) {
+    case 'success': return 'success';
+    case 'warning': return 'warning';
+    case 'destructive': return 'destructive';
+    case 'info': return 'info';
+    case 'neutral': return 'secondary';
+  }
+}
+
+/**
  * PR-USE-SHADCN-BASE-UI-SWITCH — internal adapter that maps the existing
  * `{ ariaLabel, checked, onChange, disabled, ariaDescribedBy }` callsite
  * shape onto the shared `BaseUiSwitch` (Base UI `Switch.Root` +
@@ -6484,7 +6502,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
           <strong>{capability.label}</strong>
           <small className="settingsCapabilityId">{prettyCapabilityId(capability.id)}</small>
         </div>
-        <span className="pill" data-tone={readinessCopy.tone}>{readinessCopy.label}</span>
+        <PrimitiveBadge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</PrimitiveBadge>
       </div>
       <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
       <dl className="settingsCapabilityLayers" aria-label={`${capability.label}能力状态明细`}>
@@ -6613,7 +6631,7 @@ function OsPermissionRow(props: {
       <div className="settingsOsPermissionBody">
         <div className="settingsOsPermissionHeading">
           <strong>{label}</strong>
-          <span className="pill" data-tone={stateCopy.tone}>{stateCopy.label}</span>
+          <PrimitiveBadge variant={statusBadgeVariant(stateCopy.tone)}>{stateCopy.label}</PrimitiveBadge>
         </div>
         <small className="settingsOsPermissionPurpose">{purpose}</small>
         {impact ? (
@@ -6852,7 +6870,7 @@ function HealthCenterPage() {
           </p>
         </div>
         <div className="settingsHealthMeta">
-          <span className="pill" data-tone="info">只读快照</span>
+          <PrimitiveBadge variant="info">只读快照</PrimitiveBadge>
           <small>
             最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
           </small>
@@ -6878,14 +6896,14 @@ function HealthCenterPage() {
       {(blocksSendCount > 0 || blocksCapabilityCount > 0) && (
         <div className="settingsHealthBlockers" role="status">
           {blocksSendCount > 0 && (
-            <span className="pill" data-tone="destructive">
+            <PrimitiveBadge variant="destructive">
               {blocksSendCount} 条健康信号会阻塞发送
-            </span>
+            </PrimitiveBadge>
           )}
           {blocksCapabilityCount > 0 && (
-            <span className="pill" data-tone="warning">
+            <PrimitiveBadge variant="warning">
               {blocksCapabilityCount} 条健康信号会阻塞能力
-            </span>
+            </PrimitiveBadge>
           )}
         </div>
       )}
@@ -6940,7 +6958,7 @@ function HealthSignalRow(props: { signal: HealthSignal }) {
           <strong>{signal.label}</strong>
           <small className="settingsHealthSignalScope">{HEALTH_SCOPE_LABEL[signal.scope]}</small>
         </div>
-        <span className="pill" data-tone={statusCopy.tone}>{statusCopy.label}</span>
+        <PrimitiveBadge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</PrimitiveBadge>
       </div>
       <p className="settingsHealthSignalMessage">{signal.message}</p>
       {signal.detail && <small className="settingsHealthSignalDetail">{signal.detail}</small>}

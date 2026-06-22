@@ -41,3 +41,13 @@ export {
   TabsContent as PrimitiveTabsContent,
   TabsPrimitive as PrimitiveTabsPrimitive,
 } from './primitives/tabs.js';
+// PR-USE-SHADCN-BASE-UI-BADGE: the canonical shadcn/base-ui Badge primitive
+// (variants: default / destructive / error / info / outline / secondary /
+// success / warning). Aliased to PrimitiveBadge so it doesn't collide with
+// the legacy `Badge` exported from `ui.tsx`; consumers can pick the version
+// they want by import name.
+export {
+  Badge as PrimitiveBadge,
+  badgeVariants as primitiveBadgeVariants,
+} from './primitives/badge.js';
+export type { BadgeProps as PrimitiveBadgeProps } from './primitives/badge.js';
