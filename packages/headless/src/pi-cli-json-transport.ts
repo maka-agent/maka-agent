@@ -40,7 +40,16 @@ interface PiUsageTotals {
   sawCost: boolean;
 }
 
-type PiTokenUsageFrame = Extract<PiAgentFrame, { type: 'token_usage' }>;
+type PiTokenUsageFrame = {
+  type: 'token_usage';
+  input: number;
+  output: number;
+  cacheHitInput: number;
+  cacheWriteInput: number;
+  reasoning?: number;
+  total: number;
+  costUsd?: number;
+};
 
 export class PiCliJsonTransport implements PiAgentTransport {
   private readonly input: Required<Pick<PiCliJsonTransportInput, 'command' | 'spawn'>> & Omit<PiCliJsonTransportInput, 'command' | 'spawn'>;
