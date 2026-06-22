@@ -456,6 +456,49 @@ describe('isolated headless tools', () => {
     assert.ok(calls.every((command) => !command.includes('node -e')));
   });
 
+  test('Grep prefers ripgrep when on PATH and skips binary files', async (t) => {
+    try {
+      await execAsync('rg --version', { env: process.env });
+    } catch {
+      t.skip('ripgrep not installed');
+      return;
+    }
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-grep-rg-'));
+    await mkdir(join(cwd, 'src'));
+    await writeFile(join(cwd, 'src', 'file.txt'), 'hello\nneedle\n', 'utf8');
+    // A binary file that contains the needle: ripgrep detects the NUL bytes and
+    // skips it, where the find/awk fallback would match its bytes. A clean
+    // result therefore proves the ripgrep path ran.
+    await writeFile(join(cwd, 'src', 'data.bin'), Buffer.concat([Buffer.from([0, 1, 2, 0]), Buffer.from('needle\n')]));
+    const tools = buildIsolatedHeadlessTools({
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env: process.env, // full PATH so rg resolves
+            maxBuffer: 1024 * 1024,
+          });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    });
+
+    assert.deepEqual(await tool(tools, 'Grep').impl({ pattern: 'needle' }, toolCtx(cwd)), {
+      matches: ['src/file.txt:2:needle'],
+    });
+    // Single-file search must still carry the path prefix (rg --with-filename).
+    assert.deepEqual(
+      await tool(tools, 'Grep').impl({ pattern: 'needle', path: join(cwd, 'src', 'file.txt') }, toolCtx(cwd)),
+      { matches: ['src/file.txt:2:needle'] },
+    );
+  });
+
   test('command-backed Edit runs the shared fuzzy matcher via node -e', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-'));
     await mkdir(join(cwd, 'src'));

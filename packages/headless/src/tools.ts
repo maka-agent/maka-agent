@@ -615,31 +615,61 @@ const GREP_SCRIPT = `${COMMON_SHELL_HELPERS}
 root=$(pwd -P) || exit 1
 grep_pattern=$1
 input_path=$2
+glob=$3
 glob_re=$4
 if [ -n "$input_path" ]; then
   start=$(existing_target "$input_path" 'Grep path') || exit 1
 else
   start=$root
 fi
-if [ -f "$start" ]; then
-  file_list=$start
+# Prefer ripgrep: gitignore-aware, skips binaries and hidden files, fast, and a
+# far richer regex than awk. Output stays "<relpath>:<line>:<text>" and the
+# per-file (50) / total (200) caps are preserved. When rg is not on PATH (minimal
+# task images) fall back to the POSIX find/awk walk, which searches every file.
+# existing_target above already enforced the inside-workspace + no-symlink-escape
+# invariant for the search root in both paths; input_path is workspace-relative
+# so rg, run from root, emits workspace-relative paths to match the contract.
+if command -v rg >/dev/null 2>&1; then
+  # --no-ignore --hidden: search the same file set as the find/awk fallback, so
+  # results do not depend on whether rg happens to be installed. rg still skips
+  # binaries and brings a far richer regex than awk, which are the real wins.
+  # --with-filename keeps the filename on single-file searches so the
+  # "<relpath>:<line>:<text>" contract holds in every case.
+  set -- --line-number --no-heading --with-filename --color never --no-ignore --hidden --max-count 50
+  [ -n "$glob" ] && set -- "$@" --glob "$glob"
+  set -- "$@" -e "$grep_pattern"
+  # Always pass an explicit path: with none, rg reads from its (never-closing)
+  # stdin pipe and hangs. "." searches the whole workspace; rg prefixes those
+  # hits with "./", stripped below to the bare relative-path contract.
+  search=$input_path
+  [ -n "$search" ] || search=.
+  matches=$(rg "$@" -- "$search" 2>/dev/null)
+  rc=$?
+  # rg exit: 0 = matched, 1 = no match (-> empty result), >1 = a real error
+  # (bad regex/glob, I/O) that must surface instead of masquerading as "no hits".
+  [ "$rc" -gt 1 ] && { echo "ripgrep failed (exit $rc)" >&2; exit "$rc"; }
+  printf '%s\n' "$matches" | sed 's#^\\./##' | awk 'NR <= 200'
 else
-  file_list=$(find "$start" -type f -print)
-fi
-printf '%s\n' "$file_list" | while IFS= read -r file; do
-  [ -n "$file" ] || continue
-  rel=$file
-  prefix=$root/
-  case "$rel" in "$prefix"*) rel=\${rel#"$prefix"} ;; esac
-  if [ -n "$glob_re" ]; then
-    printf '%s\n' "$rel" | awk -v re="$glob_re" 'BEGIN { ok = 1 } $0 ~ re { ok = 0 } END { exit ok }' || continue
+  if [ -f "$start" ]; then
+    file_list=$start
+  else
+    file_list=$(find "$start" -type f -print)
   fi
-  awk -v rel="$rel" -v pattern="$grep_pattern" '
-    $0 ~ pattern {
-      print rel ":" NR ":" $0
-      count += 1
-      if (count >= 50) exit
-    }
-  ' "$file"
-done | awk 'NR <= 200'
+  printf '%s\n' "$file_list" | while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    rel=$file
+    prefix=$root/
+    case "$rel" in "$prefix"*) rel=\${rel#"$prefix"} ;; esac
+    if [ -n "$glob_re" ]; then
+      printf '%s\n' "$rel" | awk -v re="$glob_re" 'BEGIN { ok = 1 } $0 ~ re { ok = 0 } END { exit ok }' || continue
+    fi
+    awk -v rel="$rel" -v pattern="$grep_pattern" '
+      $0 ~ pattern {
+        print rel ":" NR ":" $0
+        count += 1
+        if (count >= 50) exit
+      }
+    ' "$file"
+  done | awk 'NR <= 200'
+fi
 `;
