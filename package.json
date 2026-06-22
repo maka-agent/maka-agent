@@ -14,7 +14,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev": "npm run build && npm --workspace @maka/desktop run start",
-    "dev:hmr": "npm --workspace @maka/desktop run dev:hmr",
+    "dev:hmr": "npm --workspace @maka/desktop run dev:hmr --",
     "build": "npm run build --workspaces --if-present",
     "clean": "node scripts/clean-build.mjs",
     "rebuild": "npm run clean && npm run build",
