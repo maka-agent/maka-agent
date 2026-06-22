@@ -572,7 +572,7 @@ Phase 2C (next big PR): wire the deep findings into code.
 
 ## 13. Deep-RE Round 3 — Sidebar, Composer, Banners, Resize Handle
 
-Follow-up after WAWQAQ msg f31b4611 ("还是多研究 qoderwork 的代码 和前端
+Follow-up after WAWQAQ msg f31b4611 ("还是多研究 参考布局 的代码 和前端
 设计，一定要深入挖掘他们的设计和代码"). Three days into the RE program
 and most surface-level patterns are caught (atlas §1–§12). This round
 focuses on the structural state machines and the smaller specialized
@@ -842,7 +842,7 @@ changes. Items 8-10 are bigger (new IPC / new dialog mounting).
 
 ## 15. Deep-RE Round 5 — Fonts, hero, blur-layer (§15)
 
-Following WAWQAQ msg 500eddc9 ("一定要多做、多分析…深度抄袭和学习 qoderwork
+Following WAWQAQ msg 500eddc9 ("一定要多做、多分析…深度抄袭和学习 参考
 界面 布局"). This round catches typography + visual-effect patterns I
 hadn't decoded.
 

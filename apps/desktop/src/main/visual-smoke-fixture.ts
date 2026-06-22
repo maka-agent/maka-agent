@@ -690,7 +690,7 @@ async function writeDailyReviewArchives(workspaceRoot: string, now: number): Pro
       errorCount: 1,
     },
     sections: {
-      summary: '深度分析覆盖最近一轮 Maka UI 打磨：QoderWork 参考学习、权限中心重画、Daily Review 从聚合面板走向可保存报告。',
+      summary: '深度分析覆盖最近一轮 Maka UI 打磨：参考布局学习、权限中心重画、Daily Review 从聚合面板走向可保存报告。',
       gaps: '第一性原理层面需要把“模块页 shell / Settings row / 状态 pill / 操作按钮”抽成真实组件，否则后续仍会在 CSS 中继续堆叠局部规则。',
       usage: '高频动作是读取源码、运行 contract、构建 renderer、生成 visual-smoke 截图。失败成本主要来自多处页面壳层行为不统一。',
       code: '下一步优先建立模块页 PageShell、SettingsActionRow 和 StatusPill primitives，再迁移 Daily Review、权限中心、计划任务和技能页。',
