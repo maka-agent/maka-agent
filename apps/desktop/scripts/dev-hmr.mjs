@@ -22,12 +22,13 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
-const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const DESKTOP_DIR = join(REPO_ROOT, 'apps', 'desktop');
+// This script lives in apps/desktop/scripts/, so `vite` resolves from the
+// package that declares it (rather than relying on hoisting to the repo root).
+const DESKTOP_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 // In a git worktree the electron binary lives in the main checkout's
 // node_modules (an ancestor dir), not the worktree's own — so walk up to the
-// nearest node_modules/.bin rather than assuming REPO_ROOT.
+// nearest node_modules/.bin rather than assuming a fixed location.
 function resolveElectronBin() {
   for (let dir = DESKTOP_DIR; ; dir = dirname(dir)) {
     const candidate = join(dir, 'node_modules', '.bin', 'electron');
