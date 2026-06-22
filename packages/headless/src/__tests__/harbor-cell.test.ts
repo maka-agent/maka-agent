@@ -346,10 +346,9 @@ describe('runHarborCell', () => {
       assert.equal(result.output.status, 'completed');
       assert.equal(await readFile(join(workspaceDir, 'pi-cell-proof.txt'), 'utf8'), 'ran via pi\n');
       assert.equal(seenContexts[0]?.config.backend, 'pi-agent');
-      assert.deepEqual(seenContexts[0]?.realBackendIsolation, {
-        kind: 'external',
-        label: 'Harbor task container',
-      });
+      assert.equal(seenContexts[0]?.realBackendIsolation?.kind, 'external');
+      assert.equal(seenContexts[0]?.realBackendIsolation?.label, 'Harbor task container');
+      assert.equal(typeof seenContexts[0]?.realBackendIsolation?.toolExecutor?.exec, 'function');
     });
   });
 
@@ -463,6 +462,7 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
         MAKA_INSTRUCTION: 'solve through default pi transport',
         MAKA_MODEL: 'pi-test',
         MAKA_PI_COMMAND: piCommand,
+        MAKA_PI_PROVIDER: 'deepseek',
         MAKA_WORKDIR: workspaceDir,
         MAKA_OUTPUT_DIR: outputDir,
         MAKA_STORAGE_ROOT: storageRoot,
@@ -471,7 +471,7 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
       assert.equal(result.output.status, 'completed');
       assert.equal(await readFile(join(workspaceDir, 'pi-default-proof.txt'), 'utf8'), 'ran via default pi cli\n');
       const argv = JSON.parse(await readFile(join(workspaceDir, 'pi-default-argv.json'), 'utf8')) as string[];
-      assert.equal(argv.includes('--provider'), false);
+      assert.deepEqual(argv.slice(argv.indexOf('--provider'), argv.indexOf('--provider') + 2), ['--provider', 'deepseek']);
       assert.equal(argv.includes('pi-agent'), false);
       assert.deepEqual(argv.slice(argv.indexOf('--model'), argv.indexOf('--model') + 2), ['--model', 'pi-test']);
       assert.equal(argv.at(-1), '-p');
@@ -480,6 +480,27 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
       assert.equal(result.output.tokenSummary.input, 5);
       assert.equal(result.output.tokenSummary.output, 2);
       assert.equal(result.output.tokenSummary.costUsd, 0.0003);
+    });
+  });
+
+  test('env entrypoint fails fast when default Pi CLI provider is omitted', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const keyPath = join(outputDir, 'deepseek-key');
+      await writeFile(keyPath, 'deepseek-key\n', 'utf8');
+
+      await assert.rejects(
+        runHarborCellFromEnv({
+          MAKA_BACKEND: 'pi-agent',
+          MAKA_INSTRUCTION: 'solve through default pi transport',
+          MAKA_MODEL: 'pi-test',
+          MAKA_PI_COMMAND: join(outputDir, 'pi'),
+          DEEPSEEK_API_KEY_FILE: keyPath,
+          MAKA_WORKDIR: workspaceDir,
+          MAKA_OUTPUT_DIR: outputDir,
+          MAKA_STORAGE_ROOT: storageRoot,
+        }),
+        /MAKA_PI_PROVIDER is required when using the default Pi CLI transport/,
+      );
     });
   });
 
@@ -541,6 +562,7 @@ console.log('not json');
         MAKA_INSTRUCTION: 'solve through noisy pi transport',
         MAKA_MODEL: 'pi-test',
         MAKA_PI_COMMAND: piCommand,
+        MAKA_PI_PROVIDER: 'deepseek',
         MAKA_WORKDIR: workspaceDir,
         MAKA_OUTPUT_DIR: outputDir,
         MAKA_STORAGE_ROOT: storageRoot,
@@ -584,6 +606,7 @@ console.log(JSON.stringify({ type: 'message_update', assistantMessageEvent: { ty
           MAKA_INSTRUCTION: `solve through incomplete pi transport: ${scenario.name}`,
           MAKA_MODEL: 'pi-test',
           MAKA_PI_COMMAND: piCommand,
+          MAKA_PI_PROVIDER: 'deepseek',
           MAKA_WORKDIR: workspaceDir,
           MAKA_OUTPUT_DIR: outputDir,
           MAKA_STORAGE_ROOT: storageRoot,
@@ -628,6 +651,7 @@ console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', 
         MAKA_INSTRUCTION: instruction,
         MAKA_MODEL: 'pi-test',
         MAKA_PI_COMMAND: piCommand,
+        MAKA_PI_PROVIDER: 'deepseek',
         MAKA_WORKDIR: workspaceDir,
         MAKA_OUTPUT_DIR: outputDir,
         MAKA_STORAGE_ROOT: storageRoot,
@@ -662,6 +686,7 @@ setTimeout(() => {
         MAKA_INSTRUCTION: 'solve through default pi transport',
         MAKA_MODEL: 'pi-test',
         MAKA_PI_COMMAND: piCommand,
+        MAKA_PI_PROVIDER: 'deepseek',
         MAKA_WORKDIR: workspaceDir,
         MAKA_OUTPUT_DIR: outputDir,
         MAKA_STORAGE_ROOT: storageRoot,
@@ -704,25 +729,6 @@ setTimeout(() => {
     assert.equal(deepseek.connection.baseUrl, 'https://fallback.example/v1');
   });
 
-  test('resolves ai-sdk API keys from secret files without embedding the key in job env', async () => {
-    await withDirs(async ({ outputDir }) => {
-      const keyPath = join(outputDir, 'api-key');
-      await writeFile(keyPath, 'file-key\n', 'utf8');
-
-      const resolved = resolveHarborCellAiSdkEnv({
-        provider: 'openai-compatible',
-        model: 'glm-5.2',
-        env: {
-          OPENAI_API_KEY_FILE: keyPath,
-          OPENAI_BASE_URL: 'https://ark.example/api/coding/v3',
-        },
-        ts: 789,
-      });
-
-      assert.equal(resolved.apiKey, 'file-key');
-      assert.equal(resolved.connection.baseUrl, 'https://ark.example/api/coding/v3');
-    });
-  });
 });
 
 function fakeToolExecutor(): IsolatedToolExecutor {

@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { exec as nodeExec } from 'node:child_process';
 import { join } from 'node:path';
@@ -219,6 +218,9 @@ export async function runHarborCellFromEnv(
       const model = env.MAKA_PI_MODEL ?? env.MAKA_MODEL ?? env.HARBOR_MODEL;
       if (!model) throw new Error('MAKA_PI_MODEL, MAKA_MODEL, or HARBOR_MODEL must include a model id');
       const piProvider = env.MAKA_PI_PROVIDER;
+      if (!registerBackends && !piProvider) {
+        throw new Error('MAKA_PI_PROVIDER is required when using the default Pi CLI transport');
+      }
       config = {
         ...baseConfig,
         llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? piProvider ?? 'pi-agent',
@@ -496,43 +498,29 @@ function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv): string {
   switch (provider) {
     case 'deepseek':
       return env.DEEPSEEK_API_KEY
-        ?? secretFileValue(env.DEEPSEEK_API_KEY_FILE, 'DEEPSEEK_API_KEY_FILE')
         ?? env.OPENAI_API_KEY
-        ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE')
         ?? '';
     case 'openai':
     case 'openai-compatible':
-      return env.OPENAI_API_KEY ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE') ?? '';
+      return env.OPENAI_API_KEY ?? '';
     case 'moonshot':
       return env.MOONSHOT_API_KEY
-        ?? secretFileValue(env.MOONSHOT_API_KEY_FILE, 'MOONSHOT_API_KEY_FILE')
         ?? env.OPENAI_API_KEY
-        ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE')
         ?? '';
     case 'zai-coding-plan':
       return env.ZAI_API_KEY
-        ?? secretFileValue(env.ZAI_API_KEY_FILE, 'ZAI_API_KEY_FILE')
         ?? env.ZAI_CODING_CN_API_KEY
-        ?? secretFileValue(env.ZAI_CODING_CN_API_KEY_FILE, 'ZAI_CODING_CN_API_KEY_FILE')
         ?? env.OPENAI_API_KEY
-        ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE')
         ?? '';
     case 'google':
-      return env.GOOGLE_API_KEY ?? secretFileValue(env.GOOGLE_API_KEY_FILE, 'GOOGLE_API_KEY_FILE') ?? '';
+      return env.GOOGLE_API_KEY ?? '';
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'claude-subscription':
-      return env.ANTHROPIC_API_KEY ?? secretFileValue(env.ANTHROPIC_API_KEY_FILE, 'ANTHROPIC_API_KEY_FILE') ?? '';
+      return env.ANTHROPIC_API_KEY ?? '';
     default:
-      return env.OPENAI_API_KEY ?? secretFileValue(env.OPENAI_API_KEY_FILE, 'OPENAI_API_KEY_FILE') ?? '';
+      return env.OPENAI_API_KEY ?? '';
   }
-}
-
-function secretFileValue(path: string | undefined, key: string): string | undefined {
-  if (!path) return undefined;
-  const value = readFileSync(path, 'utf8').trim();
-  if (!value) throw new Error(`${key} must point to a non-empty file`);
-  return value;
 }
 
 function runtimeEventsJsonl(invocation: InvocationResult): string {
