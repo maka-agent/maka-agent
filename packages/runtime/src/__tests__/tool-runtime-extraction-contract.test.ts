@@ -69,7 +69,7 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(backend, /this\.modelAdapter\.resolveModel\(\)/);
     assert.match(backend, /this\.modelAdapter\.startStream\(/);
     assert.match(backend, /this\.modelAdapter\.handleStreamChunk\(/);
-    assert.match(backend, /normalizeAiSdkUsage\(await result\.usage,[\s\S]*?rawFinishReason[\s\S]*?\)/);
+    assert.match(backend, /normalizeAiSdkUsage\(await \(result\.totalUsage \?\? result\.usage\),[\s\S]*?rawFinishReason[\s\S]*?\)/);
     assert.match(backend, /this\.modelAdapter\.classifyError\(/);
     assert.match(
       backend,

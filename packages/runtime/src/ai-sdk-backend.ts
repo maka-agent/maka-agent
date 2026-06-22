@@ -715,9 +715,10 @@ export class AiSdkBackend implements AgentBackend {
           } satisfies TextCompleteEvent);
         }
 
-        // Final usage event (await result.usage which resolves once stream ends).
+        // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
+        // is the billing-relevant sum across all internal tool-loop steps.
         try {
-          tokenUsage = normalizeAiSdkUsage(await result.usage, { rawFinishReason });
+          tokenUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
           if (tokenUsage) {
             const systemPromptHash = turnDiagnostics.requestShape.componentHashes.systemPromptHash;
             tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);

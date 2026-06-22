@@ -230,6 +230,7 @@ export interface AiSdkStreamChunk {
 export interface StreamTextResult {
   fullStream: AsyncIterable<AiSdkStreamChunk>;
   usage: Promise<AiSdkUsageLike | undefined>;
+  totalUsage?: Promise<AiSdkUsageLike | undefined>;
   finishReason: Promise<unknown>;
 }
 

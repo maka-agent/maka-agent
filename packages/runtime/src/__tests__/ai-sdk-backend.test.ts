@@ -1563,6 +1563,138 @@ describe('AiSdkBackend usage telemetry', () => {
     });
   });
 
+  test('records aggregate totalUsage across AI SDK tool-loop steps', async () => {
+    const messages: unknown[] = [];
+    const events: SessionEvent[] = [];
+    const llmRecords: LlmCallRecord[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: 'tool-1',
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'notes.md' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: {
+                  inputTokens: {
+                    total: 100,
+                    noCache: 70,
+                    cacheRead: 20,
+                    cacheWrite: 10,
+                  },
+                  outputTokens: {
+                    total: 5,
+                    text: 5,
+                    reasoning: 0,
+                  },
+                },
+              },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 'text-1' },
+              { type: 'text-delta', id: 'text-1', delta: 'done' },
+              { type: 'text-end', id: 'text-1' },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage: {
+                  inputTokens: {
+                    total: 200,
+                    noCache: 100,
+                    cacheRead: 80,
+                    cacheWrite: 20,
+                  },
+                  outputTokens: {
+                    total: 7,
+                    text: 5,
+                    reasoning: 2,
+                  },
+                },
+              },
+            ];
+        return {
+          stream: simulateReadableStream({
+            chunks,
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
+    });
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    const usageMessage = messages.find((message) =>
+      (message as { type?: string }).type === 'token_usage'
+    ) as {
+      input?: number;
+      output?: number;
+      cacheHitInput?: number;
+      cacheMissInput?: number;
+      cacheMissInputSource?: string;
+      cacheWriteInput?: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+      reasoning?: number;
+      total?: number;
+      rawFinishReason?: string;
+    } | undefined;
+    const usageEvent = events.find((event) => event.type === 'token_usage') as
+      | Extract<SessionEvent, { type: 'token_usage' }>
+      | undefined;
+
+    assert.equal(streamCalls, 2);
+    assert.equal(usageMessage?.input, 300);
+    assert.equal(usageMessage?.output, 12);
+    assert.equal(usageMessage?.cacheHitInput, 100);
+    assert.equal(usageMessage?.cacheMissInput, 170);
+    assert.equal(usageMessage?.cacheMissInputSource, 'explicit');
+    assert.equal(usageMessage?.cacheWriteInput, 30);
+    assert.equal(usageMessage?.cacheRead, 100);
+    assert.equal(usageMessage?.cacheCreation, 30);
+    assert.equal(usageMessage?.reasoning, 2);
+    assert.equal(usageMessage?.total, 312);
+    assert.equal(usageMessage?.rawFinishReason, 'stop');
+    assert.equal(usageEvent?.input, 300);
+    assert.equal(llmRecords[0]?.inputTokens, 300);
+    assert.equal(llmRecords[0]?.outputTokens, 12);
+    assert.equal(llmRecords[0]?.cacheHitInputTokens, 100);
+    assert.equal(llmRecords[0]?.cacheMissInputTokens, 170);
+    assert.equal(llmRecords[0]?.cacheWriteInputTokens, 30);
+    assert.equal(llmRecords[0]?.reasoningTokens, 2);
+    assert.equal(llmRecords[0]?.totalTokens, 312);
+    assert.equal(llmRecords[0]?.rawFinishReason, 'stop');
+  });
+
   test('normalizes cache and reasoning tokens to messages, events, and telemetry', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
