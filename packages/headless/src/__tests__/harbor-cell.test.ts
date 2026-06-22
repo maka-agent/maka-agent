@@ -281,6 +281,83 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('Harbor ai-sdk backend passes an explicit system prompt through unchanged', async () => {
+    await withDirs(async ({ workspaceDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        env: { DEEPSEEK_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      // Trailing newline kept on purpose: the controller hashes these exact bytes.
+      const candidatePrompt = 'CANDIDATE SYSTEM PROMPT — exact bytes.\n';
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'deepseek',
+          model: 'deepseek-v4-flash',
+          systemPrompt: candidatePrompt,
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as { input: { systemPrompt?: string } }).input;
+      assert.equal(backendInput.systemPrompt, candidatePrompt);
+      assert.doesNotMatch(backendInput.systemPrompt ?? '', /Maka Runtime|Prefer Read, Glob, and Grep/);
+    });
+  });
+
+  test('Harbor ai-sdk backend honors MAKA_TRIAL_* pricing override', async () => {
+    await withDirs(async ({ workspaceDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        env: {
+          DEEPSEEK_API_KEY: 'test-key',
+          MAKA_TRIAL_INPUT_USD_PER_1M: '0.145',
+          MAKA_TRIAL_OUTPUT_USD_PER_1M: '0.29',
+          MAKA_TRIAL_CACHE_READ_USD_PER_1M: '0.0029',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'deepseek',
+          model: 'deepseek-v4-flash',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const lookupPricing = (backend as unknown as {
+        input: { lookupPricing?: (key: string) => unknown };
+      }).input.lookupPricing;
+      assert.ok(lookupPricing, 'expected lookupPricing to be wired');
+      assert.deepEqual(lookupPricing('deepseek:deepseek-v4-flash'), {
+        modelKey: 'deepseek:deepseek-v4-flash',
+        inputUsdPer1M: 0.145,
+        outputUsdPer1M: 0.29,
+        cacheReadUsdPer1M: 0.0029,
+      });
+    });
+  });
+
   test('Harbor tool builder keeps the six container-native tools non-interactive', () => {
     const tools = buildHarborCellAiSdkTools(fakeToolExecutor());
     const names = tools.map((tool) => tool.name);

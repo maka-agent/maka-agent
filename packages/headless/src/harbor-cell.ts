@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import type {
   BackendKind,
   LlmConnection,
+  PricingConfig,
   ProviderType,
 } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core';
@@ -287,6 +288,11 @@ export function buildAiSdkCellBackendRegistration(input: {
     env: input.env,
     ts: input.now(),
   });
+  const modelKey = `${connection.providerType}:${input.model}`;
+  const pricingOverride = resolveHarborCellPricingOverride(input.env, modelKey);
+  const lookupPricing = pricingOverride
+    ? (key: string): PricingConfig | null => (key === modelKey ? pricingOverride : getBuiltinPricing(key))
+    : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   return (registry, context) => {
     if (!context.toolExecutor) {
@@ -306,7 +312,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
         providerOptions: buildProviderOptions(connection, input.model),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
-        lookupPricing: getBuiltinPricing,
+        lookupPricing,
         newId: input.newId,
         now: input.now,
         recordRunTrace: ctx.recordRunTrace,
@@ -347,16 +353,46 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
   };
 }
 
+// When the cell is given an explicit system prompt (MAKA_SYSTEM_PROMPT), it is
+// the complete prompt and is passed through byte-for-byte: the prompt-optimization
+// controller hashes exactly this string and verifies the round-trip against the
+// systemPromptHash the runtime stamps, so any wrapping here would break the check
+// (and make "the prompt being optimized" differ from "the prompt that ran").
+// The built-in preamble is only the default for prompt-less ad-hoc cell runs.
 function harborCellSystemPrompt(configPrompt: string | undefined): string {
+  if (configPrompt !== undefined) return configPrompt;
   return [
-    [
-      'You are Maka Runtime running inside an isolated Harbor benchmark task container.',
-      'Prefer Read, Glob, and Grep for file inspection and search.',
-      'Prefer Edit and Write for file changes.',
-      'Use Bash for running programs, tests, and shell-specific debugging only.',
-    ].join('\n'),
-    configPrompt,
-  ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0).join('\n\n');
+    'You are Maka Runtime running inside an isolated Harbor benchmark task container.',
+    'Prefer Read, Glob, and Grep for file inspection and search.',
+    'Prefer Edit and Write for file changes.',
+    'Use Bash for running programs, tests, and shell-specific debugging only.',
+  ].join('\n');
+}
+
+// Builtin pricing has no entry for newer DeepSeek models (e.g. deepseek-v4-flash),
+// so without an override the cell would emit costUsd=0 and the controller would
+// flag every task as a zero_cost_with_tokens plumbing failure. Honor the same
+// MAKA_TRIAL_*_USD_PER_1M env the Python adapter (trial_pricing.py) already reads,
+// so one pricing source feeds both the runtime cell cost and the Harbor trial cost.
+function resolveHarborCellPricingOverride(env: RunHarborCellEnv, modelKey: string): PricingConfig | null {
+  const inputUsdPer1M = numericEnv(env.MAKA_TRIAL_INPUT_USD_PER_1M);
+  const outputUsdPer1M = numericEnv(env.MAKA_TRIAL_OUTPUT_USD_PER_1M);
+  if (inputUsdPer1M === undefined || outputUsdPer1M === undefined) return null;
+  const cacheReadUsdPer1M = numericEnv(env.MAKA_TRIAL_CACHE_READ_USD_PER_1M);
+  const cacheWriteUsdPer1M = numericEnv(env.MAKA_TRIAL_CACHE_WRITE_USD_PER_1M);
+  return {
+    modelKey,
+    inputUsdPer1M,
+    outputUsdPer1M,
+    ...(cacheReadUsdPer1M !== undefined ? { cacheReadUsdPer1M } : {}),
+    ...(cacheWriteUsdPer1M !== undefined ? { cacheWriteUsdPer1M } : {}),
+  };
+}
+
+function numericEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function childProcessEnv(env: RunHarborCellEnv): NodeJS.ProcessEnv {
