@@ -47,6 +47,18 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /MAKA_INSTRUCTION_EOF/);
   });
 
+  test('run-prompt-optimization.mjs wires the headless run API with a key file, not a raw key', async () => {
+    const source = await readRepoFile('packages/headless/harbor/run-prompt-optimization.mjs');
+    assert.match(source, /runPromptOptimizationRun/);
+    assert.match(source, /discoverCachedHarborTasks/);
+    assert.match(source, /partitionPromptTasks/);
+    assert.match(source, /buildRewardHackVerifierPatterns/);
+    assert.match(source, /DEEPSEEK_V4_FLASH_PRICING/);
+    assert.match(source, /apiKeyFile: keyFile/);
+    // The secret travels as a file path only — never a raw key on argv/env here.
+    assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
+  });
+
   test('maka_agent.py hydrates a valid cell output without Harbor installed', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonAdapterSmokeScript(repoRoot)], {
       cwd: repoRoot,
