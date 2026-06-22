@@ -363,7 +363,7 @@ describe('isolated headless tools', () => {
       bytes: 13,
     });
     assert.deepEqual(await tool(tools, 'Read').impl({ path: absoluteFile, offset: 1, limit: 1 }, toolCtx(cwd)), {
-      content: 'needle',
+      content: '     2\tneedle\n', // cat -n: absolute line number + tab + content
     });
     assert.deepEqual(await tool(tools, 'Glob').impl({ pattern: absoluteGlob }, toolCtx(cwd)), {
       files: ['src/file.txt'],
@@ -378,6 +378,47 @@ describe('isolated headless tools', () => {
     assert.ok(calls.length >= 4);
     assert.ok(calls.every((command) => command.startsWith("sh -c '")));
     assert.ok(calls.every((command) => !command.includes('node -e')));
+  });
+
+  test('Read (command path) numbers lines, caps by default, and guards binaries', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-read-'));
+    await writeFile(join(cwd, 'big.txt'), Array.from({ length: 2500 }, (_, i) => `line${i + 1}`).join('\n') + '\n', 'utf8');
+    await writeFile(join(cwd, 'data.bin'), Buffer.from([0, 1, 2, 0, 65, 66])); // 6 bytes, contains NUL
+    const tools = buildIsolatedHeadlessTools({
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env: process.env, maxBuffer: 4 * 1024 * 1024 });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    });
+
+    // Default read: cat -n numbering from line 1, capped at 2000 with a continuation hint.
+    const def = (await tool(tools, 'Read').impl({ path: join(cwd, 'big.txt') }, toolCtx(cwd))) as { content: string };
+    assert.ok(def.content.startsWith('     1\tline1\n'), 'numbers from line 1');
+    assert.ok(def.content.includes('  2000\tline2000\n'), 'shows up to the 2000-line cap');
+    assert.ok(!def.content.includes('line2001'), 'does not exceed the cap');
+    assert.ok(def.content.includes('truncated at line 2000'), 'hints how to continue');
+
+    // Offset keeps absolute line numbers; reading the tail shows no hint.
+    const tail = (await tool(tools, 'Read').impl({ path: join(cwd, 'big.txt'), offset: 2498, limit: 2 }, toolCtx(cwd))) as { content: string };
+    assert.equal(tail.content, '  2499\tline2499\n  2500\tline2500\n');
+
+    // Binary guard.
+    const bin = (await tool(tools, 'Read').impl({ path: join(cwd, 'data.bin') }, toolCtx(cwd))) as { content: string };
+    assert.equal(bin.content, '[binary file: 6 bytes, contents omitted]');
+
+    // Binary guard must hold when an invalid high byte precedes the NUL: in a
+    // UTF-8 locale BSD/macOS tr would otherwise abort and misclassify it as text.
+    await writeFile(join(cwd, 'highbyte.bin'), Buffer.from([0xff, 0x00, 0x41]));
+    const highBin = (await tool(tools, 'Read').impl({ path: join(cwd, 'highbyte.bin') }, toolCtx(cwd))) as { content: string };
+    assert.equal(highBin.content, '[binary file: 3 bytes, contents omitted]');
   });
 
   test('Grep prefers ripgrep when on PATH and skips binary files', async (t) => {

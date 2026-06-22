@@ -453,20 +453,37 @@ writable_target() {
 const READ_SCRIPT = `${COMMON_SHELL_HELPERS}
 root=$(pwd -P) || exit 1
 target=$(existing_target "$1" 'Read path') || exit 1
-offset=$2
-limit=$3
-if [ -z "$offset" ] && [ -z "$limit" ]; then
-  cat "$target"
-else
-  awk -v start="\${offset:-0}" -v limit="$limit" '
-    BEGIN { first = start + 1; last = limit == "" ? 0 : start + limit; wrote = 0 }
-    NR >= first && (last == 0 || NR <= last) {
-      if (wrote) printf "\\n"
-      printf "%s", $0
-      wrote = 1
-    }
-  ' "$target"
+offset=\${2:-0}
+limit=\${3:-2000}
+# Binary guard: a NUL byte in the head means this is not text. Dumping it would
+# flood the model with garbage (and command substitution strips NULs anyway), so
+# report it instead. Matches Claude Code / opencode behavior. LC_ALL=C is
+# mandatory: in a UTF-8 locale, BSD/macOS tr aborts on an invalid high byte
+# ("Illegal byte sequence") and, with no pipefail, the count silently becomes 0,
+# letting a binary file with a high byte before its first NUL slip through.
+nul=$(head -c 8192 "$target" | LC_ALL=C tr -dc '\\000' | wc -c | tr -d ' ')
+if [ "\${nul:-0}" -gt 0 ]; then
+  size=$(wc -c < "$target" | tr -d ' ')
+  printf '[binary file: %s bytes, contents omitted]' "$size"
+  exit 0
 fi
+# cat -n style: each line carries its absolute 1-based number; over-long lines are
+# clipped; at most "limit" lines from "offset" are shown, with a hint when more
+# remain so the model knows to continue with a larger offset.
+# LC_ALL=C so awk treats the file as bytes and never aborts on invalid UTF-8 in a
+# non-NUL file; line content is emitted byte-for-byte, length()/maxcol count bytes.
+LC_ALL=C awk -v start="$offset" -v limit="$limit" '
+  BEGIN { first = start + 1; last = start + limit; maxcol = 2000 }
+  NR < first { next }
+  NR <= last {
+    line = $0
+    if (length(line) > maxcol) line = substr(line, 1, maxcol) "... [line truncated]"
+    printf "%6d\\t%s\\n", NR, line
+    next
+  }
+  { more = 1; exit }
+  END { if (more) printf "... (truncated at line %d; pass offset=%d to read more)\\n", last, last }
+' "$target"
 `;
 
 const WRITE_SCRIPT = `${COMMON_SHELL_HELPERS}

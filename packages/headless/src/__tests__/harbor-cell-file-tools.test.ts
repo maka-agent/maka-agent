@@ -30,17 +30,21 @@ function tool(tools: ReturnType<typeof buildIsolatedHeadlessTools>, name: string
 describe('Harbor local executor file tools (real spawn)', () => {
   test('Read returns the FULL file head-first, not a bounded tail (P1 regression)', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-harbor-read-'));
-    // ~2MB (under the 10MB exec cap) bracketed by markers. A bounded tail would
-    // silently drop HEAD_MARKER; Read must return the whole file.
-    const body = 'HEAD_MARKER\n' + 'a'.repeat(2 * 1024 * 1024) + '\nTAIL_MARKER\n';
+    // >1MB spread over many lines, each well under Read's 2000-col per-line clip
+    // and the whole file under its 2000-line cap, so nothing is clipped or capped.
+    // A bounded tail would keep only the last ~1MB and silently drop HEAD_MARKER on
+    // line 1; head-first Read returns the whole file, head and tail.
+    const filler = Array.from({ length: 1500 }, (_, i) => `line${i + 1}:` + 'a'.repeat(800)).join('\n');
+    const body = 'HEAD_MARKER\n' + filler + '\nTAIL_MARKER\n'; // 1502 lines, ~1.2MB, under both caps
     await writeFile(join(cwd, 'big.txt'), body, 'utf8');
     const tools = buildIsolatedHeadlessTools(createHarborCellLocalToolExecutor());
 
     const result = (await tool(tools, 'Read').impl({ path: 'big.txt' }, toolCtx(cwd))) as { content: string };
 
     assert.ok(result.content.includes('HEAD_MARKER'), 'head retained — Read is not tail-bounded');
-    assert.ok(result.content.includes('TAIL_MARKER'), 'tail retained');
-    assert.ok(result.content.length >= 2 * 1024 * 1024, 'full file content returned, not a 1MB tail');
+    assert.ok(result.content.includes('TAIL_MARKER'), 'tail retained — whole file returned');
+    assert.ok(result.content.length > 1024 * 1024, 'full content returned, far past a 1MB tail window');
+    assert.ok(!result.content.includes('truncated'), 'under both caps — nothing clipped or dropped');
     // (Glob/Grep share the same command-backed executor.exec with no boundedTail
     //  flag — see the "only Bash opts into bounded-tail" contract test — so this
     //  full-output guarantee covers them too without generating MBs of matches.)
