@@ -755,20 +755,38 @@ export {
   preflightDroppedTextFilesForPromptImport,
 } from './text-file-import.js';
 
-// daily-review.ts (PR-DAILY-REVIEW-MVP-0)
+// daily-review.ts (PR-DAILY-REVIEW-MVP-0 + PR-DAILY-REVIEW-FULL-0)
 export type {
+  DailyReviewArchive,
+  DailyReviewArchiveSectionContent,
+  DailyReviewArchiveStatus,
+  DailyReviewArchiveSummary,
+  DailyReviewConfig,
+  DailyReviewExternalNotify,
+  DailyReviewMode,
+  DailyReviewSectionKey,
+  DailyReviewSectionToggles,
   DailyReviewSessionRow,
   DailyReviewSummary,
   DailyReviewTopEntry,
   DailyReviewTotals,
+  DailyReviewTrigger,
   DayRangeMs,
 } from './daily-review.js';
 export {
+  DAILY_REVIEW_ARCHIVE_STATUSES,
   DAILY_REVIEW_LIST_LIMIT,
+  DAILY_REVIEW_MODES,
+  DAILY_REVIEW_SECTION_KEYS,
+  DEFAULT_DAILY_REVIEW_CONFIG,
   buildDailyReviewSummary,
+  dailyReviewArchiveId,
+  dailyReviewArchiveToSummary,
   dailyUsageQuery,
+  isDailyReviewExecuteTime,
   localDayBoundsAt,
   localDayBoundsForInstant,
+  normalizeDailyReviewConfig,
   pickDailyReviewSessions,
   pickDailyReviewTopEntries,
 } from './daily-review.js';

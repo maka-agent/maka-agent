@@ -187,3 +187,205 @@ export function dailyUsageQuery(day: DayRangeMs): UsageQuery {
 
 /** Default cap for "today's sessions" / "top tools" / "top models" lists. */
 export const DAILY_REVIEW_LIST_LIMIT = 8;
+
+/**
+ * PR-DAILY-REVIEW-FULL-0 — config + archive contract.
+ *
+ * Adds the missing pieces on top of MVP-0: a scheduled run, LLM-
+ * generated narrative sections, a persisted archive of past reports,
+ * and a 深度分析 (deep-analysis) mode. The locked interface is
+ * documented in the project thread; this file is the single source
+ * of truth used by core, main, preload, and renderer.
+ *
+ * borrow: external reference's "every morning auto-summary" + Settings
+ * sub-toggles for content categories (对话摘要 / 遗漏提醒 / 使用洞察 /
+ * 代码建议).
+ *
+ * diverge: archive lives on disk as plain JSON files in the workspace
+ * (no DB), no cloud sync, manual + cron run the same pipeline, model
+ * selection reuses the existing connection picker.
+ */
+
+export type DailyReviewMode = 'daily' | 'deep';
+
+export const DAILY_REVIEW_MODES: readonly DailyReviewMode[] = [
+  'daily',
+  'deep',
+] as const;
+
+export type DailyReviewSectionKey = 'summary' | 'gaps' | 'usage' | 'code';
+
+export const DAILY_REVIEW_SECTION_KEYS: readonly DailyReviewSectionKey[] = [
+  'summary',
+  'gaps',
+  'usage',
+  'code',
+] as const;
+
+export interface DailyReviewSectionToggles {
+  readonly summary: boolean;
+  readonly gaps: boolean;
+  readonly usage: boolean;
+  readonly code: boolean;
+}
+
+export interface DailyReviewExternalNotify {
+  readonly enabled: boolean;
+  readonly channelId?: string;
+}
+
+export interface DailyReviewConfig {
+  readonly enabled: boolean;
+  /** Local-TZ HH:mm string, e.g. "08:00". */
+  readonly executeTime: string;
+  readonly sections: DailyReviewSectionToggles;
+  readonly deepEnabled: boolean;
+  /**
+   * Composite model key (e.g. `connectionSlug::modelId`). Empty string
+   * means "use the chat default model". The pipeline treats empty as
+   * "no explicit model selected".
+   */
+  readonly modelKey: string;
+  readonly includeClaudeCode: boolean;
+  readonly externalNotify: DailyReviewExternalNotify;
+}
+
+export type DailyReviewArchiveStatus =
+  | 'ok'
+  | 'no_model'
+  | 'no_data'
+  | 'failed'
+  | 'skipped';
+
+export const DAILY_REVIEW_ARCHIVE_STATUSES: readonly DailyReviewArchiveStatus[] = [
+  'ok',
+  'no_model',
+  'no_data',
+  'failed',
+  'skipped',
+] as const;
+
+export type DailyReviewTrigger = 'cron' | 'manual';
+
+export interface DailyReviewArchiveSectionContent {
+  readonly summary?: string;
+  readonly gaps?: string;
+  readonly usage?: string;
+  readonly code?: string;
+}
+
+export interface DailyReviewArchive {
+  /** Stable id: `YYYY-MM-DD-{mode}`. Same-day re-runs overwrite. */
+  readonly id: string;
+  readonly day: DayRangeMs;
+  readonly mode: DailyReviewMode;
+  readonly status: DailyReviewArchiveStatus;
+  readonly generatedAt: number;
+  readonly trigger: DailyReviewTrigger;
+  readonly modelKey: string;
+  readonly sections: DailyReviewArchiveSectionContent;
+  readonly totals: DailyReviewTotals;
+  readonly errorMessage?: string;
+}
+
+/** Lightweight row for the history list — drops the section bodies. */
+export interface DailyReviewArchiveSummary {
+  readonly id: string;
+  readonly day: DayRangeMs;
+  readonly mode: DailyReviewMode;
+  readonly status: DailyReviewArchiveStatus;
+  readonly generatedAt: number;
+  readonly trigger: DailyReviewTrigger;
+  readonly modelKey: string;
+  readonly totals: DailyReviewTotals;
+  readonly errorMessage?: string;
+}
+
+export const DEFAULT_DAILY_REVIEW_CONFIG: DailyReviewConfig = {
+  enabled: false,
+  executeTime: '08:00',
+  sections: {
+    summary: true,
+    gaps: true,
+    usage: false,
+    code: false,
+  },
+  deepEnabled: false,
+  modelKey: '',
+  includeClaudeCode: false,
+  externalNotify: { enabled: false },
+};
+
+const EXECUTE_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Returns true if the string parses as a local HH:mm time. */
+export function isDailyReviewExecuteTime(value: unknown): value is string {
+  return typeof value === 'string' && EXECUTE_TIME_RE.test(value);
+}
+
+/** Coerces an arbitrary partial config to a fully-valid `DailyReviewConfig`. */
+export function normalizeDailyReviewConfig(
+  input: Partial<DailyReviewConfig> | null | undefined,
+): DailyReviewConfig {
+  const base = DEFAULT_DAILY_REVIEW_CONFIG;
+  if (!input) return base;
+  const sections = input.sections ?? base.sections;
+  const externalNotify = input.externalNotify ?? base.externalNotify;
+  return {
+    enabled: typeof input.enabled === 'boolean' ? input.enabled : base.enabled,
+    executeTime: isDailyReviewExecuteTime(input.executeTime)
+      ? input.executeTime
+      : base.executeTime,
+    sections: {
+      summary:
+        typeof sections.summary === 'boolean' ? sections.summary : base.sections.summary,
+      gaps: typeof sections.gaps === 'boolean' ? sections.gaps : base.sections.gaps,
+      usage:
+        typeof sections.usage === 'boolean' ? sections.usage : base.sections.usage,
+      code: typeof sections.code === 'boolean' ? sections.code : base.sections.code,
+    },
+    deepEnabled:
+      typeof input.deepEnabled === 'boolean' ? input.deepEnabled : base.deepEnabled,
+    modelKey: typeof input.modelKey === 'string' ? input.modelKey : base.modelKey,
+    includeClaudeCode:
+      typeof input.includeClaudeCode === 'boolean'
+        ? input.includeClaudeCode
+        : base.includeClaudeCode,
+    externalNotify: {
+      enabled:
+        typeof externalNotify.enabled === 'boolean'
+          ? externalNotify.enabled
+          : base.externalNotify.enabled,
+      channelId:
+        typeof externalNotify.channelId === 'string'
+          ? externalNotify.channelId
+          : undefined,
+    },
+  };
+}
+
+/** Builds the canonical archive id for a given day + mode. */
+export function dailyReviewArchiveId(day: DayRangeMs, mode: DailyReviewMode): string {
+  const d = new Date(day.fromMs);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}-${mode}`;
+}
+
+/** Strips the section bodies down to a lightweight history-list row. */
+export function dailyReviewArchiveToSummary(
+  archive: DailyReviewArchive,
+): DailyReviewArchiveSummary {
+  return {
+    id: archive.id,
+    day: archive.day,
+    mode: archive.mode,
+    status: archive.status,
+    generatedAt: archive.generatedAt,
+    trigger: archive.trigger,
+    modelKey: archive.modelKey,
+    totals: archive.totals,
+    errorMessage: archive.errorMessage,
+  };
+}
