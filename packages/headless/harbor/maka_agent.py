@@ -136,7 +136,7 @@ class MakaAgent(BaseInstalledAgent):
             f"2>&1 | tee {shlex.quote(run_log_path.as_posix())}"
         )
         command = f"bash -lc {shlex.quote(shell_script)}"
-        await self.exec_as_agent(environment, command=command, env=env, timeout_sec=900)
+        await self.exec_as_agent(environment, command=command, env=env, timeout_sec=self._cell_timeout_sec())
         await self._download_cell_output(environment)
         output = self._read_cell_output(required=True)
         self._apply_cell_output(context, output)
@@ -148,9 +148,24 @@ class MakaAgent(BaseInstalledAgent):
         maka_repo = self._resolved_flags.get("maka_repo", "/opt/maka-agent")
         return str(Path(maka_repo) / "packages" / "headless" / "harbor" / "run-cell.mjs")
 
+    _DEFAULT_CELL_TIMEOUT_SEC = 900
+
+    def _cell_timeout_sec(self) -> int:
+        """Wall-clock budget for the in-container cell. A hard-coded value turns
+        slow-but-healthy tasks into infra failures, so the operator can raise it
+        via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default."""
+        raw = self._get_env("MAKA_CELL_TIMEOUT_SEC")
+        if not raw:
+            return self._DEFAULT_CELL_TIMEOUT_SEC
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return self._DEFAULT_CELL_TIMEOUT_SEC
+        return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
+
     def _cell_env(self, instruction_path: Any) -> dict[str, str]:
         system_prompt = self._resolved_flags.get("system_prompt", "") or self._get_env("MAKA_SYSTEM_PROMPT") or ""
-        model = self.model_name or self._get_env("MAKA_MODEL") or "deepseek/deepseek-chat"
+        model = self.model_name or self._get_env("MAKA_MODEL") or "deepseek/deepseek-v4-flash"
         backend = self._resolved_flags.get("backend", "") or self._get_env("MAKA_BACKEND") or "ai-sdk"
         provider = self._resolved_flags.get("provider", "") or self._get_env("MAKA_PROVIDER") or ""
         env = {
@@ -180,6 +195,9 @@ class MakaAgent(BaseInstalledAgent):
             "MAKA_TRIAL_CACHE_READ_USD_PER_1M",
             "MAKA_TRIAL_CACHE_WRITE_USD_PER_1M",
             "MAKA_TRIAL_PRICING_SOURCE",
+            # Default per-command timeout floor for the in-container Bash tool, so
+            # long builds/tests do not hit a hard-coded 2-minute ceiling.
+            "MAKA_CELL_COMMAND_TIMEOUT_MS",
         ):
             value = self._get_env(key)
             if value:

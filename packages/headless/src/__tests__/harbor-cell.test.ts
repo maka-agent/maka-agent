@@ -19,6 +19,7 @@ import type { HeadlessBackendContext, IsolatedToolExecutor } from '../isolation.
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellAiSdkTools,
+  createHarborCellLocalToolExecutor,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
   resolveHarborCellAiSdkEnv,
@@ -832,6 +833,27 @@ setTimeout(() => {
     }
   });
 
+});
+
+describe('createHarborCellLocalToolExecutor', () => {
+  test('lets MAKA_CELL_COMMAND_TIMEOUT_MS lower the default per-command timeout', async () => {
+    const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '50' });
+    const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd() });
+    assert.notEqual(result.exitCode, 0);
+  });
+
+  test('honors an explicit per-command timeout over the configured default', async () => {
+    const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '60000' });
+    const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd(), timeoutMs: 50 });
+    assert.notEqual(result.exitCode, 0);
+  });
+
+  test('runs a quick command to completion under the default timeout', async () => {
+    const executor = createHarborCellLocalToolExecutor({});
+    const result = await executor.exec({ command: 'printf ok', cwd: process.cwd() });
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, 'ok');
+  });
 });
 
 function fakeToolExecutor(): IsolatedToolExecutor {

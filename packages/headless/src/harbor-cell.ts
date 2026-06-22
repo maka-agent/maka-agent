@@ -201,7 +201,7 @@ export async function runHarborCellFromEnv(
 
   switch (backend) {
     case 'ai-sdk': {
-      const modelSpec = parseModelSpec(env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'deepseek/deepseek-chat', env.MAKA_PROVIDER);
+      const modelSpec = parseModelSpec(env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'deepseek/deepseek-v4-flash', env.MAKA_PROVIDER);
       config = {
         ...baseConfig,
         llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
@@ -331,15 +331,21 @@ export function buildHarborCellAiSdkTools(executor: IsolatedToolExecutor): MakaT
   ));
 }
 
+export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
+
 export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
   const childEnv = childProcessEnv(env);
+  // A command that does not request its own timeout falls back to this. Some
+  // Terminal-Bench tasks build or test for longer than the 2-minute default, so
+  // the floor is operator-configurable instead of a hard-coded failure source.
+  const defaultTimeoutMs = numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
   return {
     exec: async ({ command, cwd, timeoutMs }) => {
       try {
         const result = await execAsync(command, {
           cwd,
           env: childEnv,
-          timeout: timeoutMs ?? 120_000,
+          timeout: timeoutMs ?? defaultTimeoutMs,
           maxBuffer: HARBOR_CELL_TOOL_MAX_BUFFER_BYTES,
         });
         return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
