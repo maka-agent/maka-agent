@@ -20,6 +20,10 @@ export type { MakaTool, MakaToolContext };
 
 const execAsync = promisify(exec);
 const BASH_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+// Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
+// near-instant; this only bounds a pathological hang now that the stream
+// watchdog is paused during tool execution.
+const GREP_TIMEOUT_MS = 120_000;
 
 export function buildBuiltinTools(): MakaTool[] {
   return [
@@ -130,7 +134,7 @@ export function buildBuiltinTools(): MakaTool[] {
         glob: z.string().optional(),
       }),
       permissionRequired: false,
-      impl: async ({ pattern, path, glob }, { cwd }) => {
+      impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
         const args = ['-n', '--no-heading', '--max-count=50'];
         if (glob) args.push('--glob', glob);
         args.push(pattern);
@@ -138,9 +142,15 @@ export function buildBuiltinTools(): MakaTool[] {
         args.push(searchPath);
         const cmd = `rg ${args.map(shellEscape).join(' ')}`;
         try {
+          // Self-bound: ripgrep finishes in well under a second normally, but a
+          // pathological tree (network mount, /proc, a FIFO) could hang it. The
+          // stream watchdog no longer caps tool execution, so each spawning tool
+          // must carry its own wall-clock timeout and honour the turn's abort.
           const { stdout } = await execAsync(cmd, {
             cwd,
             maxBuffer: 5 * 1024 * 1024,
+            timeout: GREP_TIMEOUT_MS,
+            ...(abortSignal ? { signal: abortSignal } : {}),
           });
           return { matches: stdout.split('\n').filter(Boolean).slice(0, 200) };
         } catch (e: any) {
