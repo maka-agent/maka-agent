@@ -191,6 +191,31 @@ describe('runPromptOptimizationLoop', () => {
     });
   });
 
+  test('drops a held-in task slower than the duration cap from calibration and rounds', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 3);
+      const heldOutTasks = makeTasks('hout', 2);
+      // hin-1 is pathologically slow in baseline; the cap drops it.
+      const durationMsFor = (_roundId: string, taskId: string): number => (taskId === 'hin-1' ? 9_000 : 10);
+      const rewardFor = (_roundId: string, taskId: string): number => (taskId.startsWith('hout-') ? 1 : taskIndex(taskId) === 0 ? 1 : 0);
+
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        durationMsFor,
+        maxStableTaskDurationMs: 1_000,
+        rounds: 1,
+        baselineRuns: 2,
+      });
+
+      assert.deepEqual(result.droppedHeldInTaskIds, ['hin-1']);
+      assert.equal(result.baseline.heldIn.taskCount, 2);
+      assert.equal(result.stopReason, 'rounds_complete');
+      assert.equal(result.smoke.status, 'pass');
+    });
+  });
+
   test('aborts when too few held-in tasks survive the minimum-stable floor', async () => {
     await withHarness(async (harness) => {
       await assert.rejects(
@@ -233,9 +258,12 @@ interface RunLoopOptions {
   costCeilingUsd?: number;
   heldOutResultsTsvPath?: string;
   minStableHeldInTasks?: number;
+  maxStableTaskDurationMs?: number;
   /** When it returns true, the runner emits a non-completed (unscored) cell for
    * that task — used to exercise the baseline stability filter. */
   shouldFail?: (roundId: string, taskId: string) => boolean;
+  /** Per-task baseline duration (ms); defaults to 10. Exercises the too-slow cap. */
+  durationMsFor?: (roundId: string, taskId: string) => number;
 }
 
 async function runLoop(harness: Harness, options: RunLoopOptions) {
@@ -257,13 +285,14 @@ async function runLoop(harness: Harness, options: RunLoopOptions) {
     heldInTasks: options.heldInTasks,
     heldOutTasks: options.heldOutTasks,
     config: CONFIG,
-    harborRunner: fakeHarborRunner(harness.eventsDir, options.rewardFor, options.shouldFail),
+    harborRunner: fakeHarborRunner(harness.eventsDir, options.rewardFor, options.shouldFail, options.durationMsFor),
     metaAgent: fakeMetaAgent(),
     git: createCliPromptCandidateGit({ cwd: harness.repoDir, systemPromptPath: harness.systemPromptPath }),
     originalCommitSha: harness.originalCommitSha,
     rewardHackVerifierPatternsByTaskId,
     ...(options.costCeilingUsd !== undefined ? { costCeilingUsd: options.costCeilingUsd } : {}),
     ...(options.minStableHeldInTasks !== undefined ? { minStableHeldInTasks: options.minStableHeldInTasks } : {}),
+    ...(options.maxStableTaskDurationMs !== undefined ? { maxStableTaskDurationMs: options.maxStableTaskDurationMs } : {}),
     now: () => (clock += 1),
     newId: nextId,
   };
@@ -284,6 +313,7 @@ function fakeHarborRunner(
   eventsDir: string,
   rewardFor: (roundId: string, taskId: string) => number,
   shouldFail?: (roundId: string, taskId: string) => boolean,
+  durationMsFor?: (roundId: string, taskId: string) => number,
 ): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
     const runtimeEventsPath = join(eventsDir, `${roundId}__${task.id}.jsonl`);
@@ -307,7 +337,7 @@ function fakeHarborRunner(
           actualToolCallCounts: { Bash: 1 },
         },
         steps: 1,
-        durationMs: 10,
+        durationMs: durationMsFor?.(roundId, task.id) ?? 10,
         startedAt: 0,
         finishedAt: 10,
         runtimeRefs: {

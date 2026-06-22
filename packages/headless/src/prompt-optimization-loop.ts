@@ -98,6 +98,10 @@ export interface PromptOptimizationLoopInput {
   minStableHeldInTasks?: number;
   /** Same floor for the held-out partition (default 1). */
   minStableHeldOutTasks?: number;
+  /** Drop a task whose baseline trial ran longer than this (any sweep) from the
+   * calibrated set and all candidate rounds. Keeps the loop tractable when a
+   * few tasks are pathologically slow for the agent. Unset = no duration cap. */
+  maxStableTaskDurationMs?: number;
 
   /** Stop the loop once cumulative task cost reaches this (checked per round). */
   costCeilingUsd?: number;
@@ -236,15 +240,20 @@ export async function runPromptOptimizationLoop(
   // already absorbs. Dropped tasks are excluded from every candidate round too,
   // so they neither cost more nor skew a decision. The run aborts only when a
   // whole partition has no stable task left (then there is nothing to calibrate).
+  const durationCap = input.maxStableTaskDurationMs !== undefined
+    ? { maxDurationMs: input.maxStableTaskDurationMs }
+    : {};
   const heldInStable = selectStablePromptTasks({
     taskIds: heldInTaskIds,
     baselineRuns: baselineRunsData.map((run) => run.heldInEvents),
     maxPassRateSpread: 1,
+    ...durationCap,
   });
   const heldOutStable = selectStablePromptTasks({
     taskIds: heldOutTaskIds,
     baselineRuns: baselineRunsData.map((run) => run.heldOutEvents),
     maxPassRateSpread: 1,
+    ...durationCap,
   });
   const minStableHeldIn = input.minStableHeldInTasks ?? 1;
   const minStableHeldOut = input.minStableHeldOutTasks ?? 1;

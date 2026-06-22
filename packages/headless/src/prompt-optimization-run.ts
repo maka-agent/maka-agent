@@ -196,6 +196,7 @@ export interface PromptOptimizationRunInput {
   maxConcurrency?: number;
   minStableHeldInTasks?: number;
   minStableHeldOutTasks?: number;
+  maxStableTaskDurationMs?: number;
 
   // Test overrides — bypass the real Docker/network components.
   harborRunner?: HarborTaskRunner;
@@ -265,6 +266,7 @@ export async function runPromptOptimizationRun(
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
     ...(input.minStableHeldInTasks !== undefined ? { minStableHeldInTasks: input.minStableHeldInTasks } : {}),
     ...(input.minStableHeldOutTasks !== undefined ? { minStableHeldOutTasks: input.minStableHeldOutTasks } : {}),
+    ...(input.maxStableTaskDurationMs !== undefined ? { maxStableTaskDurationMs: input.maxStableTaskDurationMs } : {}),
     ...(input.now ? { now: input.now } : {}),
     ...(input.newId ? { newId: input.newId } : {}),
   });
