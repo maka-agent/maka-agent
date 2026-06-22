@@ -186,6 +186,9 @@ async function main() {
 
   console.log('---');
   console.log(`stopReason: ${result.stopReason}`);
+  if (result.droppedHeldInTaskIds.length > 0 || result.droppedHeldOutTaskIds.length > 0) {
+    console.log(`dropped (unstable in baseline): held-in [${result.droppedHeldInTaskIds.join(', ')}], held-out [${result.droppedHeldOutTaskIds.join(', ')}]`);
+  }
   console.log(`decisions: ${result.decisions.length} (kept ${result.keptCount})`);
   console.log(`totalCostUsd: ${result.totalCostUsd.toFixed(4)}`);
   console.log(`smoke: ${result.smoke.status} (rounds ${result.smoke.observedRounds}/${result.smoke.minimumRounds})`);

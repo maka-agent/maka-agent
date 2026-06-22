@@ -22,6 +22,7 @@ import {
   appendPromptAcceptanceDecision,
   calibratePromptAcceptanceBaseline,
   decidePromptAcceptance,
+  selectStablePromptTasks,
   type PromptAcceptanceBaseline,
   type PromptAcceptanceBaselineRun,
   type PromptAcceptanceResult,
@@ -116,6 +117,11 @@ export interface PromptOptimizationLoopResult {
   totalCostUsd: number;
   stopReason: PromptOptimizationLoopStopReason;
   smoke: PromptStructuralSmokeReport;
+  /** Held-in task ids dropped before calibration: they did not complete
+   * (scored + eligible) across every baseline sweep, so they carry no signal. */
+  droppedHeldInTaskIds: string[];
+  /** Held-out task ids dropped before calibration, same criterion. */
+  droppedHeldOutTaskIds: string[];
 }
 
 export async function runPromptOptimizationLoop(
@@ -214,18 +220,55 @@ export async function runPromptOptimizationLoop(
     accumulate(heldOut);
     baselineRunsData.push({ heldInEvents: heldIn.events, heldOutEvents: heldOut.events });
   }
+  // Drop tasks that did not complete cleanly (scored + eligible) across every
+  // baseline sweep. Such a task carries no calibration signal and, left in,
+  // would abort the whole run via the strict completeness check inside
+  // calibratePromptAcceptanceBaseline. Completion-only filter (any pass/fail
+  // spread allowed) — a flaky-pass task's variance is honest noise the band
+  // already absorbs. Dropped tasks are excluded from every candidate round too,
+  // so they neither cost more nor skew a decision. The run aborts only when a
+  // whole partition has no stable task left (then there is nothing to calibrate).
+  const heldInStable = selectStablePromptTasks({
+    taskIds: heldInTaskIds,
+    baselineRuns: baselineRunsData.map((run) => run.heldInEvents),
+    maxPassRateSpread: 1,
+  });
+  const heldOutStable = selectStablePromptTasks({
+    taskIds: heldOutTaskIds,
+    baselineRuns: baselineRunsData.map((run) => run.heldOutEvents),
+    maxPassRateSpread: 1,
+  });
+  if (heldInStable.selectedTaskIds.length === 0) {
+    throw new Error('no held-in task completed across all baseline sweeps');
+  }
+  if (heldOutStable.selectedTaskIds.length === 0) {
+    throw new Error('no held-out task completed across all baseline sweeps');
+  }
+  const stableHeldInTaskIds = heldInStable.selectedTaskIds;
+  const stableHeldOutTaskIds = heldOutStable.selectedTaskIds;
+  const droppedHeldInTaskIds = heldInStable.rejectedTaskIds.map((rejected) => rejected.taskId);
+  const droppedHeldOutTaskIds = heldOutStable.rejectedTaskIds.map((rejected) => rejected.taskId);
+  const stableHeldInSet = new Set(stableHeldInTaskIds);
+  const stableHeldOutSet = new Set(stableHeldOutTaskIds);
+  const roundHeldInTasks = input.heldInTasks.filter((task) => stableHeldInSet.has(task.id));
+  const roundHeldOutTasks = input.heldOutTasks.filter((task) => stableHeldOutSet.has(task.id));
+  const stableHeldIn = (events: readonly FixedPromptTaskWalEvent[]): FixedPromptTaskWalEvent[] =>
+    events.filter((event) => stableHeldInSet.has(event.taskId));
+  const stableHeldOut = (events: readonly FixedPromptTaskWalEvent[]): FixedPromptTaskWalEvent[] =>
+    events.filter((event) => stableHeldOutSet.has(event.taskId));
+
   const baseline = calibratePromptAcceptanceBaseline({
-    heldInTaskIds,
-    heldOutTaskIds,
+    heldInTaskIds: stableHeldInTaskIds,
+    heldOutTaskIds: stableHeldOutTaskIds,
     baselineRuns: baselineRunsData,
     ...(input.zScore !== undefined ? { zScore: input.zScore } : {}),
   });
 
-  const originalHeldOutEvents = baselineRunsData[0]!.heldOutEvents;
+  const originalHeldOutEvents = stableHeldOut(baselineRunsData[0]!.heldOutEvents);
   let lastKeptCommitSha = input.originalCommitSha;
   let heldInReference = baseline.heldIn.referencePassEligibleRate;
-  let lastKeptHeldInEvents: readonly FixedPromptTaskWalEvent[] = baselineRunsData[0]!.heldInEvents;
-  let nextHeldInDigests = await digestsFor(baselineRunsData[baselineRunsData.length - 1]!.heldInEvents);
+  let lastKeptHeldInEvents: readonly FixedPromptTaskWalEvent[] = stableHeldIn(baselineRunsData[0]!.heldInEvents);
+  let nextHeldInDigests = await digestsFor(stableHeldIn(baselineRunsData[baselineRunsData.length - 1]!.heldInEvents));
 
   // 2. Candidate rounds.
   const decisions: PromptAcceptanceResult[] = [];
@@ -247,7 +290,7 @@ export async function runPromptOptimizationLoop(
       systemPromptPath: input.systemPromptPath,
       resultsTsvPath: input.heldInResultsTsvPath,
       resultsJsonlPath: input.resultsJsonlPath,
-      heldInTaskIds,
+      heldInTaskIds: stableHeldInTaskIds,
       heldInDigests: nextHeldInDigests,
       // The held-out TSV is controller-only; always hide it so a careless caller
       // cannot leak held-out results into the meta-agent's view.
@@ -258,8 +301,8 @@ export async function runPromptOptimizationLoop(
       newId,
     });
 
-    const heldIn = await sweep(roundId, input.heldInTasks, input.heldInResultsTsvPath);
-    const heldOut = await sweep(roundId, input.heldOutTasks, input.heldOutResultsTsvPath);
+    const heldIn = await sweep(roundId, roundHeldInTasks, input.heldInResultsTsvPath);
+    const heldOut = await sweep(roundId, roundHeldOutTasks, input.heldOutResultsTsvPath);
     accumulate(heldIn);
     accumulate(heldOut);
 
@@ -269,8 +312,8 @@ export async function runPromptOptimizationLoop(
       candidateCommitSha: candidate.commitSha,
       previousLastKeptCommitSha: lastKeptCommitSha,
       originalCommitSha: input.originalCommitSha,
-      heldInTaskIds,
-      heldOutTaskIds,
+      heldInTaskIds: stableHeldInTaskIds,
+      heldOutTaskIds: stableHeldOutTaskIds,
       previousHeldInReferencePassEligibleRate: heldInReference,
       originalHeldOutPassEligibleRate: baseline.heldOut.originalPassEligibleRate,
       heldInPassRateNoiseBand: baseline.heldIn.noiseBand,
@@ -323,5 +366,7 @@ export async function runPromptOptimizationLoop(
     totalCostUsd,
     stopReason,
     smoke,
+    droppedHeldInTaskIds,
+    droppedHeldOutTaskIds,
   };
 }

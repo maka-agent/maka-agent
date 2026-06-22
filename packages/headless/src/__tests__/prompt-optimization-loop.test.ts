@@ -135,6 +135,61 @@ describe('runPromptOptimizationLoop', () => {
       assert.ok(result.totalCostUsd >= 1.5);
     });
   });
+
+  test('drops a held-in task that never completes in baseline and calibrates on the rest', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 3);
+      const heldOutTasks = makeTasks('hout', 2);
+      // hin-2 never completes in any sweep; every other task always does.
+      const shouldFail = (_roundId: string, taskId: string): boolean => taskId === 'hin-2';
+      const rewardFor = (_roundId: string, taskId: string): number => {
+        if (taskId.startsWith('hout-')) return 1;
+        return taskIndex(taskId) === 0 ? 1 : 0;
+      };
+
+      const result = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        shouldFail,
+        rounds: 1,
+        baselineRuns: 2,
+      });
+
+      // The unstable task is dropped; the run still calibrates and finishes.
+      assert.deepEqual(result.droppedHeldInTaskIds, ['hin-2']);
+      assert.deepEqual(result.droppedHeldOutTaskIds, []);
+      assert.equal(result.baseline.heldIn.taskCount, 2);
+      assert.equal(result.stopReason, 'rounds_complete');
+      assert.equal(result.decisions.length, 1);
+      assert.equal(result.smoke.status, 'pass');
+
+      // The dropped task is never swept in the candidate round: only the two
+      // stable held-in tasks appear under round-0.
+      const wal = await readFile(harness.resultsJsonlPath, 'utf8');
+      const roundHeldInTaskIds = wal.trim().split('\n')
+        .map((line) => JSON.parse(line) as { roundId?: string; type?: string; taskId?: string })
+        .filter((event) => event.roundId === 'round-0' && event.type === 'task_completed' && (event.taskId ?? '').startsWith('hin-'))
+        .map((event) => event.taskId);
+      assert.deepEqual([...new Set(roundHeldInTaskIds)].sort(), ['hin-0', 'hin-1']);
+    });
+  });
+
+  test('aborts when no held-in task completes across baseline sweeps', async () => {
+    await withHarness(async (harness) => {
+      await assert.rejects(
+        runLoop(harness, {
+          heldInTasks: makeTasks('hin', 2),
+          heldOutTasks: makeTasks('hout', 1),
+          rewardFor: () => 1,
+          shouldFail: (_roundId, taskId) => taskId.startsWith('hin-'),
+          rounds: 1,
+          baselineRuns: 1,
+        }),
+        /no held-in task completed across all baseline sweeps/,
+      );
+    });
+  });
 });
 
 interface Harness {
@@ -158,6 +213,9 @@ interface RunLoopOptions {
   baselineRuns: number;
   costCeilingUsd?: number;
   heldOutResultsTsvPath?: string;
+  /** When it returns true, the runner emits a non-completed (unscored) cell for
+   * that task — used to exercise the baseline stability filter. */
+  shouldFail?: (roundId: string, taskId: string) => boolean;
 }
 
 async function runLoop(harness: Harness, options: RunLoopOptions) {
@@ -179,7 +237,7 @@ async function runLoop(harness: Harness, options: RunLoopOptions) {
     heldInTasks: options.heldInTasks,
     heldOutTasks: options.heldOutTasks,
     config: CONFIG,
-    harborRunner: fakeHarborRunner(harness.eventsDir, options.rewardFor),
+    harborRunner: fakeHarborRunner(harness.eventsDir, options.rewardFor, options.shouldFail),
     metaAgent: fakeMetaAgent(),
     git: createCliPromptCandidateGit({ cwd: harness.repoDir, systemPromptPath: harness.systemPromptPath }),
     originalCommitSha: harness.originalCommitSha,
@@ -204,15 +262,20 @@ function fakeMetaAgent(): MetaAgent {
 function fakeHarborRunner(
   eventsDir: string,
   rewardFor: (roundId: string, taskId: string) => number,
+  shouldFail?: (roundId: string, taskId: string) => boolean,
 ): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
     const runtimeEventsPath = join(eventsDir, `${roundId}__${task.id}.jsonl`);
     await writeFile(runtimeEventsPath, `${JSON.stringify(modelVisibleEvent())}\n`, 'utf8');
+    // A non-completed cell with a correct hash and real (non-zero) cost: scored
+    // is false, so the controller records it as an unscored task_completed — not
+    // a plumbing failure — which the stability filter drops.
+    const failed = shouldFail?.(roundId, task.id) ?? false;
     return {
-      harbor: { reward: rewardFor(roundId, task.id) },
+      harbor: { reward: failed ? 0 : rewardFor(roundId, task.id) },
       cell: {
         schemaVersion: 1,
-        status: 'completed',
+        status: failed ? 'failed' : 'completed',
         runtimeEventsPath,
         promptHash: hashSystemPrompt(systemPrompt),
         tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: COST_PER_TASK }),
