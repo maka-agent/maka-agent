@@ -104,6 +104,12 @@ export {
   runPromptCandidateRound,
   scanRuntimeEventsForRewardHack,
 } from './prompt-candidate-loop.js';
+export {
+  createAiSdkMetaAgent,
+  createAiSdkMetaAgentCompletion,
+  extractJsonObject,
+} from './meta-agent-completion.js';
+export type { CreateAiSdkMetaAgentInput } from './meta-agent-completion.js';
 export type {
   AppendPromptAcceptanceDecisionInput,
   CalibratePromptAcceptanceBaselineInput,
