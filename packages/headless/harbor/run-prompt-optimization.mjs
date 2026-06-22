@@ -97,6 +97,9 @@ async function main() {
   const maxConcurrency = process.env.MAKA_PROMPT_MAX_CONCURRENCY ? Number(process.env.MAKA_PROMPT_MAX_CONCURRENCY) : undefined;
   const minStableHeldInTasks = envInt('MAKA_PROMPT_MIN_STABLE_HELD_IN', 1);
   const minStableHeldOutTasks = envInt('MAKA_PROMPT_MIN_STABLE_HELD_OUT', 1);
+  const maxInfraFailureRate = process.env.MAKA_PROMPT_MAX_INFRA_FAILURE_RATE
+    ? Number(process.env.MAKA_PROMPT_MAX_INFRA_FAILURE_RATE)
+    : undefined;
 
   // Verify the key file exists before spending Docker time (never print it).
   await readFile(keyFile, 'utf8');
@@ -184,6 +187,7 @@ async function main() {
     minStableHeldOutTasks,
     ...(costCeilingUsd !== undefined ? { costCeilingUsd } : {}),
     ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
+    ...(maxInfraFailureRate !== undefined ? { maxInfraFailureRate } : {}),
   });
 
   const resultPath = join(outDir, 'prompt-optimization-result.json');
