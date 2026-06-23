@@ -242,6 +242,68 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('retries a thrown infra error once and records the successful retry', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      let attempts = 0;
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async ({ task }) => {
+          attempts += 1;
+          if (attempts === 1) throw new Error('transient container build hiccup');
+          return harborOutput({ taskId: task.id });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(attempts, 2); // failed once, retried once
+      assert.equal(result.events.length, 1);
+      assert.equal(result.events[0]?.type, 'task_completed');
+      const wal = await readFile(resultsJsonlPath, 'utf8');
+      assert.match(wal, /"type":"task_completed"/);
+      assert.doesNotMatch(wal, /"type":"task_infra_failed"/);
+    });
+  });
+
+  test('records task_infra_failed only after the retry also throws', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      let attempts = 0;
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => {
+          attempts += 1;
+          throw new Error('container crashed both times');
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(attempts, 2);
+      assert.equal(result.events.length, 1);
+      assert.equal(result.events[0]?.type, 'task_infra_failed');
+    });
+  });
+
   test('stops when infra failures exceed the configured rate', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -272,7 +334,9 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.deepEqual(calls, ['task-a', 'task-b']);
+      // Each failing task is retried once before being recorded, so it is
+      // attempted twice; we still stop after task-b and never reach c/d/e.
+      assert.deepEqual([...new Set(calls)], ['task-a', 'task-b']);
       assert.equal(result.stopReason, 'infra_failure_rate_exceeded');
       assert.deepEqual(result.taskIds, ['task-a', 'task-b']);
       assert.equal((await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').length, 2);
@@ -317,7 +381,7 @@ describe('fixed prompt controller', () => {
       });
 
       assert.equal(maxInFlight, 1);
-      assert.deepEqual(calls, ['task-a', 'task-b']);
+      assert.deepEqual([...new Set(calls)], ['task-a', 'task-b']);
       assert.equal(result.stopReason, 'infra_failure_rate_exceeded');
       assert.deepEqual(result.taskIds, ['task-a', 'task-b']);
     });

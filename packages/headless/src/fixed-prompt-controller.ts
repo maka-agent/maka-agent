@@ -324,33 +324,45 @@ async function runTaskAndBuildEvent(input: {
   id: string;
   ts: number;
 }): Promise<FixedPromptTaskWalEvent> {
+  const runHarbor = () => input.input.harborRunner({
+    runId: input.input.runId,
+    roundId: input.input.roundId,
+    task: input.task,
+    config: input.config,
+    systemPrompt: input.systemPrompt,
+  });
+  let output;
   try {
-    const output = await input.input.harborRunner({
-      runId: input.input.runId,
-      roundId: input.input.roundId,
-      task: input.task,
-      config: input.config,
-      systemPrompt: input.systemPrompt,
-    });
-    return taskEventFromOutput({
-      output,
-      expectedPromptHash: input.expectedPromptHash,
-      taskId: input.task.id,
-      runId: input.input.runId,
-      roundId: input.input.roundId,
-      id: input.id,
-      ts: input.ts,
-    });
-  } catch (error) {
-    return taskInfraFailedEvent({
-      error,
-      taskId: input.task.id,
-      runId: input.input.runId,
-      roundId: input.input.roundId,
-      id: input.id,
-      ts: input.ts,
-    });
+    output = await runHarbor();
+  } catch {
+    // #64: a thrown Harbor/Docker error is an infra failure, often a transient
+    // flake (container build hiccup, timeout). Retry the same task + prompt once
+    // before recording task_infra_failed, so a single blip does not pollute the
+    // candidate's decision. A second failure is treated as a real infra failure.
+    // A plumbing failure (a successful run with bad output) does not throw and is
+    // not retried — it is deterministic.
+    try {
+      output = await runHarbor();
+    } catch (error) {
+      return taskInfraFailedEvent({
+        error,
+        taskId: input.task.id,
+        runId: input.input.runId,
+        roundId: input.input.roundId,
+        id: input.id,
+        ts: input.ts,
+      });
+    }
   }
+  return taskEventFromOutput({
+    output,
+    expectedPromptHash: input.expectedPromptHash,
+    taskId: input.task.id,
+    runId: input.input.runId,
+    roundId: input.input.roundId,
+    id: input.id,
+    ts: input.ts,
+  });
 }
 
 function taskEventFromOutput(input: {
