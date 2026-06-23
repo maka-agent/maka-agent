@@ -108,12 +108,14 @@ export interface IsolatedToolExecutor {
    * buildIsolatedHeadlessTools falls back to command-backed operations inside
    * the isolated boundary.
    *
-   * Edit deliberately has NO native hook: its matching logic is non-trivial and
-   * must stay the single source of truth with the in-process builtin Edit, so it
-   * always runs the shared computeEditedSource via `node -e` (see
-   * buildIsolatedEditTool) regardless of which native ops an executor provides.
+   * Read and Edit deliberately have NO native hook. Read must always run through
+   * READ_SCRIPT so every result carries the line-number / line+byte-cap / binary-
+   * guard contract (#92); a native pass-through would bypass it. Edit's matching
+   * logic must stay the single source of truth with the in-process builtin Edit,
+   * so it always runs the shared computeEditedSource via `node -e` (see
+   * buildIsolatedEditTool). Both hold regardless of which native ops an executor
+   * provides.
    */
-  readFile?(input: IsolatedReadFileInput): Promise<IsolatedReadFileResult>;
   writeFile?(input: IsolatedWriteFileInput): Promise<IsolatedWriteFileResult>;
   globFiles?(input: IsolatedGlobInput): Promise<IsolatedGlobResult>;
   grepFiles?(input: IsolatedGrepInput): Promise<IsolatedGrepResult>;

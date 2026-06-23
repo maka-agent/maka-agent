@@ -13,6 +13,7 @@ import {
 import { createHeavyTaskEvidenceRecorder } from '../heavy-task-evidence.js';
 import { createInMemoryTaskRunStore } from '../task-run-store.js';
 import { buildIsolatedBashTool, buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from '../tools.js';
+import type { IsolatedToolExecutor } from '../isolation.js';
 
 const execAsync = promisify(childExec);
 
@@ -192,17 +193,13 @@ describe('isolated headless tools', () => {
     assert.ok(!names.includes('check_record'));
   });
 
-  test('Read, Write, Glob, and Grep delegate to native isolated executor methods', async () => {
+  test('Write, Glob, and Grep delegate to native isolated executor methods', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-host-'));
     await writeFile(join(cwd, 'target.txt'), 'host\n', 'utf8');
     const calls: Array<{ name: string; input: unknown }> = [];
     const tools = buildIsolatedHeadlessTools({
       async exec() {
         throw new Error('file tools must use native isolated methods when available');
-      },
-      async readFile(input) {
-        calls.push({ name: 'Read', input });
-        return { content: 'container\n' };
       },
       async writeFile(input) {
         calls.push({ name: 'Write', input });
@@ -218,9 +215,6 @@ describe('isolated headless tools', () => {
       },
     });
 
-    assert.deepEqual(await tool(tools, 'Read').impl({ path: join(cwd, 'target.txt'), offset: 1, limit: 2 }, toolCtx(cwd)), {
-      content: 'container\n',
-    });
     assert.deepEqual(await tool(tools, 'Write').impl({ path: join(cwd, 'target.txt'), content: 'external\n' }, toolCtx(cwd)), {
       ok: true,
       path: 'target.txt',
@@ -239,11 +233,38 @@ describe('isolated headless tools', () => {
 
     assert.equal(await readFile(join(cwd, 'target.txt'), 'utf8'), 'host\n');
     assert.deepEqual(calls, [
-      { name: 'Read', input: { cwd, path: 'target.txt', offset: 1, limit: 2 } },
       { name: 'Write', input: { cwd, path: 'target.txt', content: 'external\n' } },
       { name: 'Glob', input: { cwd, pattern: '*.txt', searchCwd: 'src' } },
       { name: 'Grep', input: { cwd, pattern: 'needle', path: 'src', glob: '*.txt' } },
     ]);
+  });
+
+  test('Read ignores any native readFile hook and always formats via READ_SCRIPT', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-read-nofastpath-'));
+    await writeFile(join(cwd, 'f.txt'), 'alpha\nbeta\n', 'utf8');
+    // An executor that DOES expose a native readFile returning raw, unformatted
+    // bytes. Read must ignore it and run READ_SCRIPT, so the result is line-numbered
+    // — a regression guard against re-introducing a Read native fast path.
+    const executor: IsolatedToolExecutor = {
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env: process.env, maxBuffer: 4 * 1024 * 1024 });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    };
+    (executor as { readFile?: () => Promise<{ content: string }> }).readFile = async () => ({ content: 'RAW-NATIVE-BYPASS\n' });
+    const tools = buildIsolatedHeadlessTools(executor);
+
+    const r = (await tool(tools, 'Read').impl({ path: join(cwd, 'f.txt') }, toolCtx(cwd))) as { content: string };
+    assert.equal(r.content, '     1\talpha\n     2\tbeta\n', 'formatted via READ_SCRIPT, not the raw native readFile');
+    assert.ok(!r.content.includes('RAW-NATIVE-BYPASS'), 'the native readFile result is never used');
   });
 
   test('Edit ignores native file ops and always runs the shared replacer', async () => {
@@ -267,7 +288,6 @@ describe('isolated headless tools', () => {
           };
         }
       },
-      async readFile() { nativeCalls.push('readFile'); return { content: '' }; },
       async writeFile(input) { nativeCalls.push('writeFile'); return { ok: true, path: input.path, bytes: 0 }; },
       async globFiles() { nativeCalls.push('globFiles'); return { files: [] }; },
       async grepFiles() { nativeCalls.push('grepFiles'); return { matches: [] }; },
@@ -302,10 +322,12 @@ describe('isolated headless tools', () => {
         if (input.command.startsWith("node -e '")) {
           return { exitCode: 0, stdout: '{"matchedVia":"exact","startLine":1,"endLine":1}', stderr: '' };
         }
+        // Read now runs through READ_SCRIPT (no native fast path); the script
+        // carries the distinctive 'Read path' label, so stub its content here.
+        if (input.command.includes('Read path')) {
+          return { exitCode: 0, stdout: `read src/file.ts\n${'r'.repeat(5_000)}`, stderr: '' };
+        }
         return { exitCode: 2, stdout: `large stdout\n${'x'.repeat(5_000)}`, stderr: 'short stderr\n' };
-      },
-      async readFile(input) {
-        return { content: `read ${input.path}\n${'r'.repeat(5_000)}` };
       },
       async writeFile(input) {
         return { ok: true, path: input.path, bytes: Buffer.byteLength(input.content, 'utf8') };

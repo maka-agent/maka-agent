@@ -120,11 +120,8 @@ export function buildIsolatedReadTool(
       const { cwd } = ctx;
       const normalizedPath = normalizeWorkspacePath(path, cwd, 'Read path');
       const input = { cwd, path: normalizedPath, offset, limit };
-      if (executor.readFile) {
-        const result = await executor.readFile(input);
-        await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Read', input, result }, ctx);
-        return result;
-      }
+      // Read has no native fast path: every result must go through READ_SCRIPT so
+      // it carries the line-number / line+byte-cap / binary-guard contract (#92).
       const stdout = await execFileCommand(executor, cwd, shellFileCommand(READ_SCRIPT, [
         normalizedPath,
         numberArg(offset),
