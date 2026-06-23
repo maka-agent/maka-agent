@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -247,6 +247,55 @@ describe('FileConnectionStore', () => {
       assert.equal(await store.getDefault(), null);
       await store.setDefault('enabled-openai');
       assert.equal(await store.getDefault(), 'enabled-openai');
+    });
+  });
+
+  test('rejects wrong top-level connection files instead of overwriting them as empty', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const filePath = join(dir, 'llm-connections.json');
+      const invalid = JSON.stringify({ defaultSlug: null }, null, 2) + '\n';
+      await writeFile(filePath, invalid, 'utf8');
+
+      await assert.rejects(
+        () => store.list(),
+        /connections must be an array/,
+      );
+      await assert.rejects(
+        () => store.create({
+          slug: 'openai-main',
+          name: 'OpenAI',
+          providerType: 'openai',
+          defaultModel: 'gpt-4o-mini',
+        }),
+        /connections must be an array/,
+      );
+      assert.equal(await readFile(filePath, 'utf8'), invalid);
+    });
+  });
+
+  test('rejects invalid defaultSlug types without overwriting connection bytes', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const filePath = join(dir, 'llm-connections.json');
+      const invalid = JSON.stringify({ defaultSlug: 42, connections: [] }, null, 2) + '\n';
+      await writeFile(filePath, invalid, 'utf8');
+
+      await assert.rejects(
+        () => store.getDefault(),
+        /defaultSlug must be a string or null/,
+      );
+      await assert.rejects(
+        () => store.save({
+          slug: 'anthropic-main',
+          name: 'Claude',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-5-20250929',
+          enabled: true,
+          createdAt: 1,
+          updatedAt: 1,
+        }),
+        /defaultSlug must be a string or null/,
+      );
+      assert.equal(await readFile(filePath, 'utf8'), invalid);
     });
   });
 });

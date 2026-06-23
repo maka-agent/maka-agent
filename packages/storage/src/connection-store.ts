@@ -191,10 +191,11 @@ class FileConnectionStore implements ConnectionStore {
 
   private async readUnlocked(): Promise<ConnectionsFile> {
     try {
-      const raw = JSON.parse(await readFile(this.path, 'utf8')) as ConnectionsFile;
-      const connections = (raw.connections ?? []).map((connection) => migrateConnectionV1ToV2(connection));
+      const raw = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
+      const parsed = normalizeConnectionsFile(raw);
+      const connections = parsed.connections.map((connection) => migrateConnectionV1ToV2(connection));
       return {
-        defaultSlug: normalizeDefaultSlug(raw.defaultSlug, connections),
+        defaultSlug: normalizeDefaultSlug(parsed.defaultSlug, connections),
         connections,
       };
     } catch (error) {
@@ -215,6 +216,27 @@ class FileConnectionStore implements ConnectionStore {
     this.queue = next.catch(() => {});
     return next;
   }
+}
+
+function normalizeConnectionsFile(value: unknown): ConnectionsFile {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid connection file: expected an object');
+  }
+  const record = value as Partial<ConnectionsFile>;
+  if (!Array.isArray(record.connections)) {
+    throw new Error('Invalid connection file: connections must be an array');
+  }
+  if (
+    record.defaultSlug !== undefined &&
+    record.defaultSlug !== null &&
+    typeof record.defaultSlug !== 'string'
+  ) {
+    throw new Error('Invalid connection file: defaultSlug must be a string or null');
+  }
+  return {
+    defaultSlug: record.defaultSlug ?? null,
+    connections: record.connections,
+  };
 }
 
 function normalizeDefaultSlug(defaultSlug: string | null | undefined, connections: LlmConnection[]): string | null {
