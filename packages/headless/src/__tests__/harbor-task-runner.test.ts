@@ -19,7 +19,6 @@ function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput
     schemaVersion: 1,
     status: 'completed',
     runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-    traceEventsPath: '/logs/agent/maka-storage/sessions/sess/runs/run/events.jsonl',
     promptHash: 'sha256:abc',
     tokenSummary: tokenSummary({ input: 100, output: 50, reasoning: 0, total: 150, costUsd: 0.0001 }),
     toolSummary: {

@@ -662,7 +662,6 @@ describe('fixed prompt controller', () => {
       assert.equal(output.harbor.reward, 0);
       assert.equal(output.cell.status, 'completed');
       assert.equal(output.cell.runtimeRefs.sessionId, 'session-task-a');
-      assert.equal(output.cell.traceEventsPath, '/logs/task-a/events.jsonl');
     });
   });
 

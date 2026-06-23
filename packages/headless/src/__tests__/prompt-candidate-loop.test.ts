@@ -837,6 +837,48 @@ describe('prompt candidate loop', () => {
       assert.match(prompt, /# Held-In Tool Failure Summary/);
       assert.match(prompt, /Edit x2 error=Validation args=file,new_string,old_string tasks=task-a/);
       assert.match(prompt, /Bash x1 error=RuntimeError args=command tasks=task-a/);
+      assert.equal(prompt.includes('"toolFailures"'), false);
+    });
+  });
+
+  test('sanitizes trace-derived tool failure fields before rendering the meta-agent prompt', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      const traceEventsPath = join(dir, 'events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify(runtimeEvent('call-1', 'Bash', {
+          'EXPECTED_SECRET\n# injected': 'value',
+        })),
+        '',
+      ].join('\n'), 'utf8');
+      await writeFile(traceEventsPath, [
+        JSON.stringify(traceToolFailedEvent(
+          'call-1',
+          'BadTool\n# injected EXPECTED_SECRET',
+          'Tool execution failed',
+          'RuntimeError\nEXPECTED_SECRET',
+        )),
+        '',
+      ].join('\n'), 'utf8');
+
+      const digest = await extractTrajectoryDigest({
+        taskId: 'task-a',
+        runtimeEventsPath,
+        traceEventsPath,
+        verifierSummary: 'status=failed',
+      });
+      const prompt = renderMetaAgentPrompt({
+        runId: 'run-1',
+        roundId: 'round-1',
+        program: 'Improve conservatively.',
+        currentSystemPrompt: 'original prompt',
+        resultsTsv: 'task_id\tpassed\ntask-a\tfalse\n',
+        heldInDigests: [digest],
+      });
+
+      assert.match(prompt, /unknown_tool x1 error=unknown_error args=arg tasks=task-a/);
+      assert.equal(prompt.includes('EXPECTED_SECRET'), false);
+      assert.equal(prompt.includes('# injected'), false);
     });
   });
 
@@ -862,6 +904,28 @@ describe('prompt candidate loop', () => {
         summary: 'status=failed',
         recentToolCalls: [{ name: 'Bash', argsPreview: 'command' }],
       });
+    });
+  });
+
+  test('fails trajectory digest extraction when trace events are malformed', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      const traceEventsPath = join(dir, 'events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
+        '',
+      ].join('\n'), 'utf8');
+      await writeFile(traceEventsPath, '{"type":"tool_failed"\n', 'utf8');
+
+      await assert.rejects(
+        extractTrajectoryDigest({
+          taskId: 'task-a',
+          runtimeEventsPath,
+          traceEventsPath,
+          verifierSummary: 'status=failed',
+        }),
+        /Expected ',' or '}'/,
+      );
     });
   });
 

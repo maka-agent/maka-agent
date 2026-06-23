@@ -370,7 +370,7 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
     input.resultsTsv,
     ...renderToolFailureSummary(input.heldInDigests),
     '# Held-In Digests',
-    JSON.stringify(input.heldInDigests, null, 2),
+    JSON.stringify(stripPromptOnlyToolFailures(input.heldInDigests), null, 2),
     '',
   ].join('\n');
 }
@@ -646,7 +646,8 @@ async function extractToolFailureDigests(
   let events: unknown[];
   try {
     events = await readRuntimeEventsJsonl(traceEventsPath);
-  } catch {
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
     return [];
   }
   const failures = new Map<string, TrajectoryToolFailureDigest>();
@@ -713,9 +714,9 @@ function toolFailureDigest(
   if (typeof data.toolName !== 'string') return undefined;
   const call = typeof data.toolUseId === 'string' ? callsById.get(data.toolUseId) : undefined;
   return {
-    name: data.toolName,
+    name: promptSafeToken(data.toolName, 'unknown_tool'),
     count: 1,
-    ...(typeof data.errorClass === 'string' ? { errorClass: data.errorClass } : {}),
+    ...(typeof data.errorClass === 'string' ? { errorClass: promptSafeToken(data.errorClass, 'unknown_error') } : {}),
     ...(call?.argsPreview ? { argsPreview: call.argsPreview } : {}),
   };
 }
@@ -747,7 +748,19 @@ function stringValues(value: unknown): string[] {
 
 function argsPreview(args: unknown): string {
   if (!isRecord(args)) return typeof args;
-  return Object.keys(args).sort((a, b) => a.localeCompare(b)).join(',');
+  return Object.keys(args)
+    .map((key) => promptSafeToken(key, 'arg'))
+    .sort((a, b) => a.localeCompare(b))
+    .join(',');
+}
+
+function stripPromptOnlyToolFailures(digests: readonly TrajectoryDigest[]): readonly Omit<TrajectoryDigest, 'toolFailures'>[] {
+  return digests.map(({ toolFailures: _toolFailures, ...digest }) => digest);
+}
+
+function promptSafeToken(value: string, fallback: string): string {
+  if (/^[A-Za-z0-9_.:-]{1,64}$/.test(value)) return value;
+  return fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

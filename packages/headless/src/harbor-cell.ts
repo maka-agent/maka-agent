@@ -179,10 +179,9 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
 
   await mkdir(input.outputDir, { recursive: true });
   const runtimeEventsPath = join(input.outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME);
-  const traceEventsPath = join(input.storageRoot, 'sessions', invocation.sessionId, 'runs', invocation.runId, 'events.jsonl');
   const outputPath = join(input.outputDir, HARBOR_CELL_OUTPUT_FILENAME);
   await writeFile(runtimeEventsPath, runtimeEventsJsonl(invocation), 'utf8');
-  const output = validateHarborCellOutput(buildHarborCellOutput({ invocation, runtimeEventsPath, traceEventsPath }));
+  const output = validateHarborCellOutput(buildHarborCellOutput({ invocation, runtimeEventsPath }));
   await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 
   return { invocation, output, outputPath, runtimeEventsPath };

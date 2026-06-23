@@ -171,18 +171,14 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       cell: {
         ...cell,
         runtimeEventsPath: hostEventsPath,
-        ...(cell.traceEventsPath
-          ? {
-              traceEventsPath: join(
-                trialDir,
-                TRIAL_TRACE_EVENTS_ROOT,
-                cell.runtimeRefs.sessionId,
-                'runs',
-                cell.runtimeRefs.runId,
-                'events.jsonl',
-              ),
-            }
-          : {}),
+        traceEventsPath: join(
+          trialDir,
+          TRIAL_TRACE_EVENTS_ROOT,
+          cell.runtimeRefs.sessionId,
+          'runs',
+          cell.runtimeRefs.runId,
+          'events.jsonl',
+        ),
       },
     };
   };

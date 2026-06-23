@@ -12,11 +12,15 @@ export interface FixedPromptTask {
   path: string;
 }
 
+export type HarborTaskRunCellOutput = HarborCellOutput & {
+  traceEventsPath?: string;
+};
+
 export interface HarborTaskRunOutput {
   harbor: {
     reward: number;
   };
-  cell: HarborCellOutput;
+  cell: HarborTaskRunCellOutput;
 }
 
 export interface HarborTaskRunInput {

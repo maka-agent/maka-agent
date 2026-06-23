@@ -68,7 +68,6 @@ describe('Harbor cell output contract', () => {
     const output = buildHarborCellOutput({
       invocation,
       runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-      traceEventsPath: '/logs/agent/maka-storage/sessions/session-1/runs/run-1/events.jsonl',
     });
 
     assert.deepEqual(validateHarborCellOutput(output), output);
@@ -76,7 +75,6 @@ describe('Harbor cell output contract', () => {
       schemaVersion: 1,
       status: 'completed',
       runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
-      traceEventsPath: '/logs/agent/maka-storage/sessions/session-1/runs/run-1/events.jsonl',
       promptHash: 'sha256:prompt-a',
       tokenSummary: {
         input: 13,
