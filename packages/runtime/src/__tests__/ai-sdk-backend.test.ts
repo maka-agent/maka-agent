@@ -1457,7 +1457,16 @@ describe('AiSdkBackend error surfaces', () => {
       { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
     );
 
-    assert.deepEqual(result, { error: '命令退出码 2' });
+    // In-turn result now folds in a redacted, bounded tail of stderr/stdout so
+    // the model can see *why* the command failed (the full structured content
+    // still goes to session history, asserted below).
+    assert.deepEqual(result, {
+      error: [
+        '命令退出码 2',
+        '--- stderr ---\nstderr before failure',
+        '--- stdout ---\nstdout before failure\nAuthorization: Bearer [redacted]',
+      ].join('\n\n'),
+    });
     assert.equal(messages[0]?.isError, true);
     assert.deepEqual(messages[0]?.content, events.find((event) => event.type === 'tool_result')?.content);
     assert.deepEqual(messages[0]?.content, {

@@ -27,7 +27,11 @@ describe('Settings coming-soon cleanup contract', () => {
     const styles = await readRepo('apps/desktop/src/renderer/styles.css');
     const providerCatalog = await readRepo('packages/core/src/llm-connections.ts');
     assert.doesNotMatch(settings, /comingSoon\??:/, 'Settings nav items must not carry stale comingSoon flags');
-    assert.doesNotMatch(settings, /settingsNavBadge/, 'Settings nav must not render stale Roadmap badges');
+    // PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): `settingsNavBadge`
+    // is now legitimately reused as a Beta chip on shipping features.
+    // The earlier blanket ban on the class name is dropped; the other
+    // copy-level assertions in this block (e.g. command palette `即将推出`
+    // ban below) still guard the original intent.
     assert.doesNotMatch(palette, /即将推出/, 'Command palette settings entries must not advertise dead coming-soon hints');
     assert.doesNotMatch(palette, /comingSoon/, 'Command palette must not read removed nav comingSoon flags');
     assert.doesNotMatch(providers, /即将支持的 OAuth 订阅登录/, 'Providers header must not advertise future OAuth login as a model-provider affordance');
@@ -37,18 +41,31 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.doesNotMatch(providers, /还没有供应商/, 'ProvidersPanel empty state should not read like unfinished product setup');
     assert.doesNotMatch(providerCatalog, /catalogBadge:\s*'Soon'|future phase/, 'provider catalog metadata must not keep soon/future-phase copy');
     assert.doesNotMatch(styles, /ComingSoonPage|roadmap banner|providerComingSoon|providerCatalogSoon/, 'Settings CSS must not keep stale coming-soon/provider-roadmap naming');
+    // PR-SETTINGS-NAV-REGROUP-0: `.settingsNavBadge` is reused as the Beta
+    // chip primitive. Lock it down so we don't lose it accidentally.
+    assert.match(styles, /\.settingsNavBadge\s*\{/);
   });
 
   it('keeps feature status pages product-scoped instead of demo-version or future-roadmap copy', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
 
     assert.doesNotMatch(settings, /V0\.1|V0\.2|capture smoke|之后会加|后续版本开放|阶段开放/, 'feature status pages must not read like demo-stage roadmap copy');
-    assert.match(settings, /本地汇总/, 'Daily Review status badge should describe the shipped local aggregate mode');
-    assert.match(settings, /今日 \/ 本周 \/ 本月/, 'Daily Review settings copy must mention the shipped range switcher');
-    assert.match(settings, /复制 \/ 保存 Markdown 摘要/, 'Daily Review settings copy must mention the shipped Markdown copy/save actions');
-    assert.match(settings, /粘到输入框继续追问/, 'Daily Review settings copy must mention the shipped composer append action');
-    assert.match(settings, /<ul className="settingsFeatureStatusList" aria-label="每日回顾当前包含">/, 'Daily Review included-feature list must have an accessible name');
-    assert.match(settings, /<ul className="settingsFeatureStatusList" aria-label="每日回顾不会执行的事">/, 'Daily Review privacy-boundary list must have an accessible name');
+    // PR-DAILY-REVIEW-FULL-0: Settings → 每日回顾 became a real config form
+    // (enable toggle, execute time, section toggles, deep analysis, manual
+    // trigger). The page still keeps a status badge ("本地汇总" or "本地 + LLM"
+    // depending on whether the backend pipeline is wired), but the body is
+    // no longer a static "shipped features" list.
+    assert.match(settings, /本地汇总/, 'Daily Review status badge should still describe the shipped local aggregate mode when the pipeline is not yet wired');
+    assert.match(settings, /启用每日回顾/, 'Daily Review settings must surface the auto-run enable toggle');
+    assert.match(settings, /执行时间/, 'Daily Review settings must surface the configurable execute time');
+    assert.match(settings, /对话摘要/, 'Daily Review settings must expose the 对话摘要 section toggle');
+    assert.match(settings, /遗漏提醒/, 'Daily Review settings must expose the 遗漏提醒 section toggle');
+    assert.match(settings, /使用洞察/, 'Daily Review settings must expose the 使用洞察 section toggle');
+    assert.match(settings, /代码建议/, 'Daily Review settings must expose the 代码建议 section toggle');
+    assert.match(settings, /深度分析/, 'Daily Review settings must expose the 深度分析 mode toggle');
+    assert.match(settings, /分析模型/, 'Daily Review settings must expose the 分析模型 selector');
+    assert.match(settings, /生成每日回顾/, 'Daily Review settings must surface the manual 生成每日回顾 trigger');
+    assert.match(settings, /生成深度分析/, 'Daily Review settings must surface the manual 生成深度分析 trigger');
     assert.match(settings, /本地自检/, 'Voice status badge should describe the shipped local smoke boundary');
   });
 
@@ -180,10 +197,16 @@ describe('Settings coming-soon cleanup contract', () => {
 
     assert.ok(permissionPage, 'Permission Center page block must exist');
     assert.ok(capabilityRow, 'Permission Center capability row block must exist');
-    assert.match(permissionPage![0], /只读取系统权限与功能能力的当前快照/, 'Permission Center must explain the current read-only snapshot boundary');
+    // PR-PERMISSION-PAGE-REDESIGN: page is no longer a pure read-only
+    // snapshot — system permissions row now exposes 请求授权 / 前往系统设置
+    // action buttons. The "read-only snapshot" framing moved to the
+    // footnote so the page intro can lead with the action affordance.
+    assert.match(permissionPage![0], /只读取系统权限与功能能力的当前快照/, 'Permission Center footnote must still explain the read-only snapshot boundary for capabilities');
     assert.match(permissionPage![0], /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
-    assert.match(permissionPage![0], /<ul className="settingsCapabilityList" aria-label="功能能力列表">/, 'Permission Center capability list must have an accessible name');
+    assert.match(permissionPage![0], /<ul className="settingsCapabilityList" aria-label="功能能力列表"/, 'Permission Center capability list must have an accessible name');
     assert.match(permissionPage![0], /<ul className="settingsOsPermissionList" aria-label="系统权限列表">/, 'Permission Center OS permission list must have an accessible name');
+    assert.match(permissionPage![0], /window\.maka\.permissions\.requestAccess/, 'Permission Center must wire the requestAccess IPC for direct-request permissions');
+    assert.match(permissionPage![0], /window\.maka\.permissions\.openSystemSettings/, 'Permission Center must wire the openSystemSettings IPC for deep-link permissions');
     assert.match(capabilityRow![0], /<dl className="settingsCapabilityLayers" aria-label=\{`\$\{capability\.label\}能力状态明细`\}>/, 'Capability status definition lists must expose row-scoped accessible names');
     assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}所需系统权限列表`\}>/, 'Capability required-permission lists must expose row-scoped accessible names');
     assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}处理建议列表`\}>/, 'Capability guidance lists must expose row-scoped accessible names');

@@ -137,39 +137,56 @@ describe('sessionStatusAriaLabel', () => {
 });
 
 describe('permission mode transition guard copy', () => {
-  it('disables the mode switcher for running and permission-waiting sessions', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
-    const chatShellBlock = ui.match(/const permissionModeDisabledReason[\s\S]*?<PermissionModeSwitcher/)?.[0] ?? '';
+  // PR-MOVE-PERMISSION-MODE (2026-06-23): the permission-mode picker no
+  // longer lives in the chat header — it moved into the composer's
+  // left-controls dropdown. Disabled-reason copy is now computed at the
+  // <Composer/> call site in main.tsx and passed down via the
+  // `permissionModeDisabledReason` prop, so the gating contract pins
+  // main.tsx, not components.tsx.
+  it('passes a disabled-reason for running, waiting, streaming, and pending sessions', async () => {
+    const renderer = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const composerReasonBlock = renderer.match(/permissionModeDisabledReason=\{[\s\S]*?\}\n {16}onPermissionModeChange/)?.[0] ?? '';
 
-    assert.match(chatShellBlock, /props\.permissionModePending/);
-    assert.match(chatShellBlock, /权限模式正在切换，完成后再继续操作。/);
-    assert.match(chatShellBlock, /status === 'running'/);
-    assert.match(chatShellBlock, /当前对话正在运行，等结束后再切换权限模式。/);
-    assert.match(chatShellBlock, /status === 'waiting_for_user'/);
-    assert.match(chatShellBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
-    assert.match(ui, /disabledReason=\{permissionModeDisabledReason\}/);
-    assert.match(ui, /pending=\{props\.permissionModePending\}/);
+    assert.ok(composerReasonBlock, 'main.tsx must pass permissionModeDisabledReason to the <Composer/>');
+    assert.match(composerReasonBlock, /pendingPermissionModeBySession\[activeId\] === true/);
+    assert.match(composerReasonBlock, /权限模式正在切换，完成后再继续操作。/);
+    assert.match(composerReasonBlock, /activeStreaming\.length > 0/);
+    assert.match(composerReasonBlock, /当前对话正在流式输出，等结束后再切换权限模式。/);
+    assert.match(composerReasonBlock, /activeSessionForView\?\.status === 'running'/);
+    assert.match(composerReasonBlock, /当前对话正在运行，等结束后再切换权限模式。/);
+    assert.match(composerReasonBlock, /activeSessionForView\?\.status === 'waiting_for_user'/);
+    assert.match(composerReasonBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
   });
 
-  it('supports standard radiogroup keyboard navigation on the mode switcher', async () => {
+  it('composer mode chip disables itself when pending or disabledReason is present', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
-    const switcherBlock = ui.match(/function PermissionModeSwitcher[\s\S]*?function createAbsoluteTimeFormat/)?.[0] ?? '';
+    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
 
-    assert.match(switcherBlock, /role="radiogroup"[\s\S]*aria-label="权限模式"/);
-    assert.match(switcherBlock, /pending\?: boolean/);
-    assert.match(switcherBlock, /if \(props\.pending \|\| props\.disabled \|\| !props\.onChange\) return;/);
-    assert.match(switcherBlock, /data-pending=\{props\.pending \? 'true' : undefined\}/);
-    assert.match(switcherBlock, /aria-busy=\{props\.pending \? 'true' : undefined\}/);
-    assert.match(switcherBlock, /disabled=\{props\.pending \|\| props\.disabled \|\| !props\.onChange\}/);
-    assert.match(switcherBlock, /!props\.pending && !props\.disabled && props\.onChange/);
-    assert.match(switcherBlock, /onKeyDown=\{changeModeByKeyboard\}/);
-    assert.match(switcherBlock, /case 'ArrowRight':[\s\S]*case 'ArrowDown':[\s\S]*currentIndex \+ 1/);
-    assert.match(switcherBlock, /case 'ArrowLeft':[\s\S]*case 'ArrowUp':[\s\S]*currentIndex - 1/);
-    assert.match(switcherBlock, /case 'Home':[\s\S]*nextIndex = 0/);
-    assert.match(switcherBlock, /case 'End':[\s\S]*PERMISSION_MODE_ORDER\.length - 1/);
-    assert.match(switcherBlock, /data-mode=\{mode\}/);
-    assert.match(switcherBlock, /const group = event\.currentTarget/);
-    assert.match(switcherBlock, /focus\(\{ preventScroll: true \}\)/);
+    assert.ok(dropdownBlock, 'components.tsx must render a composer permission-mode Menu dropdown');
+    assert.match(dropdownBlock, /const triggerDisabled = props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\);/);
+    assert.match(dropdownBlock, /disabled=\{triggerDisabled\}/);
+    assert.match(dropdownBlock, /title=\{props\.permissionModeDisabledReason \?\? meta\.hint\}/);
+    assert.match(dropdownBlock, /data-pending=\{props\.permissionModePending \? 'true' : undefined\}/);
+    assert.match(dropdownBlock, /aria-label=\{`权限模式：\$\{meta\.label\}`\}/);
+  });
+
+  it('composer mode menu offers the user-facing permission modes via base-ui Menu', async () => {
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+
+    // Two-mode picker: explore is retired from the picker entirely
+    // (read-only mode has no useful runtime toggle for normal chat —
+    // Deep-Research sessions set it internally). The picker shows
+    // 'ask' (询问权限) and 'execute' (自动执行).
+    assert.match(ui, /const PERMISSION_MODE_ORDER: PermissionMode\[\] = \['ask', 'execute'\];/);
+
+    // Mode chip uses base-ui Menu (not a custom radiogroup) — keyboard
+    // arrow / Home / End navigation is delegated to the primitive.
+    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
+    assert.match(dropdownBlock, /<Menu>/);
+    assert.match(dropdownBlock, /<MenuTrigger/);
+    assert.match(dropdownBlock, /<MenuPopup className="maka-composer-mode-menu"/);
+    assert.match(dropdownBlock, /PERMISSION_MODE_ORDER\.map\(\(mode\) =>/);
+    assert.match(dropdownBlock, /void props\.onPermissionModeChange\?\.\(mode\);/);
   });
 
   it('scrubs thrown permission-mode IPC failures before toast', async () => {

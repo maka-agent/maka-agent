@@ -9,12 +9,16 @@ const CAPABILITY_SNAPSHOT = join(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'c
 
 describe('voice capture smoke Settings contract', () => {
   it('does not present voice models as a coming-soon nav item', async () => {
+    // PR-SETTINGS-IA-CONSOLIDATE-0 (2026-06-23): 语音模型 + 开放网关
+    // merged into a single 语音与网关 (`voice-gateway`) section. The
+    // VoiceModelsSettingsPage component is still rendered, just inside
+    // the combined `voice-gateway` case.
     const src = await readFile(SETTINGS_MODAL, 'utf8');
-    const voiceNav = src.match(/\{\s*id:\s*'voice-models'[\s\S]*?\},/);
-    assert.ok(voiceNav, 'voice-models nav item must exist');
-    assert.doesNotMatch(voiceNav![0], /comingSoon:\s*true/, 'voice-models nav must not be tagged as coming soon');
-    assert.match(src, /case\s+'voice-models':\s*\n\s*return\s+<VoiceModelsSettingsPage\s*\/>/);
-    assert.doesNotMatch(src, /'voice-models':\s*\{[\s\S]*当前尚未实现/, 'voice-models must not keep stale roadmap copy');
+    const voiceNav = src.match(/\{\s*id:\s*'voice-gateway'[\s\S]*?\},/);
+    assert.ok(voiceNav, 'voice-gateway nav item must exist');
+    assert.doesNotMatch(voiceNav![0], /comingSoon:\s*true/, 'voice-gateway nav must not be tagged as coming soon');
+    assert.match(src, /case\s+'voice-gateway':\s*\n[\s\S]*?<VoiceModelsSettingsPage\s*\/>/);
+    assert.doesNotMatch(src, /'voice-gateway':\s*\{[\s\S]*当前尚未实现/, 'voice-gateway must not keep stale roadmap copy');
   });
 
   it('runs only a local renderer capture smoke and validates it through the core voice contract', async () => {

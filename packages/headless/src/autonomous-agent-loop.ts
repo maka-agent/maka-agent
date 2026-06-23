@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { validateRealBackendIsolation } from './isolation.js';
+import { resolveHeavyTaskMode } from './heavy-task-policy.js';
+import { renderHeavyTaskProgressForPrompt } from './heavy-task-progress.js';
 import {
   backendNeedsIsolation,
   validateTaskVerification,
@@ -271,7 +273,7 @@ export async function runAutonomousTask(
       budget: afterAttemptBudget,
       feedback: [verifierFeedback],
       ...(selfCheck ? { selfCheck } : {}),
-    }) ?? defaultContinuationPrompt(task, attempt, selfCheck);
+    }) ?? defaultContinuationPrompt(config, task, attempt, selfCheck);
 
     await appendDecision(
       taskRunStore,
@@ -738,18 +740,23 @@ function errorMessageFromTaxonomy(taxonomy: AutonomousResultTaxonomy): string {
 }
 
 function defaultContinuationPrompt(
+  config: Config,
   task: Task,
   attempt: RunTaskOnceResult,
   selfCheck: SelfCheckObservation | undefined,
 ): string {
   const taxonomy = taxonomyFromResultRecord(attempt.resultRecord);
   const selfCheckLine = selfCheck ? `\nAdvisory self-check: ${selfCheck.summary}` : '';
+  const progressBlock = resolveHeavyTaskMode(config, task).enabled
+    ? renderHeavyTaskProgressForPrompt(attempt.projection)
+    : undefined;
+  const progressLine = progressBlock ? `\n\n${progressBlock}` : '';
   return `${task.instruction}
 
 Previous autonomous attempt did not pass authoritative verification.
 Verifier taxonomy: ${taxonomy}.
 Verification exit code: ${attempt.resultRecord.exitCode ?? 'none'}.
-Continue from that feedback and produce a corrected solution.${selfCheckLine}`;
+Continue from that feedback and produce a corrected solution.${selfCheckLine}${progressLine}`;
 }
 
 function appendTaskEvent(store: TaskRunStore, taskRunId: string, event: TaskEvent): Promise<void> {

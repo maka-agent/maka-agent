@@ -102,6 +102,10 @@ export interface BenchmarkContract {
   instanceId?: string;
   official?: boolean;
   denominator?: 'scored_only' | 'eligible';
+  /**
+   * Benchmark-side metadata. P0 heavy-task mode recognizes explicit
+   * `heavyTask: true` or `heavyTaskMode: { enabled: true, reason?: string }`.
+   */
   metadata?: Record<string, unknown>;
 }
 
@@ -139,6 +143,18 @@ export interface Config {
    * is the child-agent instruction channel, not the main-session prompt).
    */
   systemPrompt?: string;
+  /**
+   * Explicit opt-in/out for heavy-task benchmark behavior. When enabled,
+   * headless appends the centralized heavy-task policy to the model-visible
+   * system prompt and records the selection reason in task-run telemetry.
+   */
+  heavyTaskMode?: boolean | HeavyTaskModeConfig;
+}
+
+export interface HeavyTaskModeConfig {
+  enabled?: boolean;
+  reason?: string;
+  policyVersion?: string;
 }
 
 /** One row of canonical truth per run: did it run, did it pass, and how much it cost. */

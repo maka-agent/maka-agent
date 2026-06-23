@@ -246,25 +246,23 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
   test('migration: settings.json without `palette` field loads with palette=default', () => {
     // Older settings.json that pre-dates PR-UI-D1 will not have
     // `appearance.palette`. normalizeSettings must seed `default`
-    // without touching theme/density.
+    // without touching theme.
     const legacy = {
       appearance: {
         theme: 'dark' as const,
-        density: 'compact' as const,
         // no palette field
       },
     };
     const normalized = normalizeSettings(legacy);
     expect(normalized.appearance.palette).toBe('default');
     expect(normalized.appearance.theme).toBe('dark');
-    expect(normalized.appearance.density).toBe('compact');
+    expect('density' in normalized.appearance).toBe(false);
   });
 
   test('fail-closed: unknown palette string falls back to default', () => {
     const malformed = {
       appearance: {
         theme: 'auto' as const,
-        density: 'comfortable' as const,
         palette: 'evil-unknown',
       },
     };
@@ -277,7 +275,6 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
       const malformed = {
         appearance: {
           theme: 'auto' as const,
-          density: 'comfortable' as const,
           palette: bad,
         },
       };
@@ -291,7 +288,6 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
       const input = {
         appearance: {
           theme: 'auto' as const,
-          density: 'comfortable' as const,
           palette,
         },
       };
@@ -302,12 +298,11 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
 
   test('palette validation does NOT silently reset unrelated settings fields', () => {
     // @kenji gate: "no silent reset of unrelated settings". Even with
-    // a malformed palette, all other fields (theme, density,
+    // a malformed palette, all other current fields (theme,
     // personalization, network, bot channels) must keep their values.
     const input = {
       appearance: {
         theme: 'dark' as const,
-        density: 'spacious' as const,
         palette: 'evil-unknown',
       },
       personalization: {
@@ -331,7 +326,7 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
     const normalized = normalizeSettings(input);
     expect(normalized.appearance.palette).toBe('default');
     expect(normalized.appearance.theme).toBe('dark');
-    expect(normalized.appearance.density).toBe('spacious');
+    expect('density' in normalized.appearance).toBe(false);
     expect(normalized.personalization.displayName).toBe('Yuejing');
     expect(normalized.personalization.assistantTone).toBe('concise');
     expect(normalized.network.proxy.enabled).toBe(true);
@@ -344,7 +339,6 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
     const patched = mergeSettings(current, { appearance: { palette: 'onedark' } });
     expect(patched.appearance.palette).toBe('onedark');
     expect(patched.appearance.theme).toBe('auto'); // unchanged
-    expect(patched.appearance.density).toBe('comfortable'); // unchanged
   });
 
   test('mergeSettings + normalizeSettings: patching with unknown palette ends up at default', () => {
@@ -369,7 +363,6 @@ describe('fixed toast position settings contract', () => {
     const legacy = {
       appearance: {
         theme: 'dark' as const,
-        density: 'compact' as const,
         palette: 'onedark' as const,
         toastPosition: 'top-left',
       },
@@ -377,7 +370,6 @@ describe('fixed toast position settings contract', () => {
     const normalized = normalizeSettings(legacy);
     expect('toastPosition' in normalized.appearance).toBe(false);
     expect(normalized.appearance.theme).toBe('dark');
-    expect(normalized.appearance.density).toBe('compact');
     expect(normalized.appearance.palette).toBe('onedark');
   });
 
@@ -385,7 +377,6 @@ describe('fixed toast position settings contract', () => {
     const input = {
       appearance: {
         theme: 'dark' as const,
-        density: 'spacious' as const,
         palette: 'tokyo-night' as const,
         toastPosition: 'evil-corner',
       },
@@ -397,7 +388,6 @@ describe('fixed toast position settings contract', () => {
     const normalized = normalizeSettings(input);
     expect('toastPosition' in normalized.appearance).toBe(false);
     expect(normalized.appearance.theme).toBe('dark');
-    expect(normalized.appearance.density).toBe('spacious');
     expect(normalized.appearance.palette).toBe('tokyo-night');
     expect(normalized.personalization.displayName).toBe('Yuejing');
     expect(normalized.personalization.assistantTone).toBe('concise');
@@ -417,7 +407,6 @@ describe('fixed toast position settings contract', () => {
     const input = {
       appearance: {
         theme: 'auto' as const,
-        density: 'comfortable' as const,
         palette: 'evil-unknown',
         toastPosition: 'evil-corner',
       },
@@ -425,6 +414,38 @@ describe('fixed toast position settings contract', () => {
     const normalized = normalizeSettings(input);
     expect(normalized.appearance.palette).toBe('default');
     expect('toastPosition' in normalized.appearance).toBe(false);
+  });
+});
+
+describe('removed UI density settings contract', () => {
+  test('createDefaultSettings does not persist a density setting', () => {
+    const defaults = createDefaultSettings();
+    expect('density' in defaults.appearance).toBe(false);
+  });
+
+  test('migration: legacy settings.json with density drops that field', () => {
+    const normalized = normalizeSettings({
+      appearance: {
+        theme: 'dark' as const,
+        density: 'compact',
+        palette: 'onedark' as const,
+      },
+    });
+
+    expect('density' in normalized.appearance).toBe(false);
+    expect(normalized.appearance.theme).toBe('dark');
+    expect(normalized.appearance.palette).toBe('onedark');
+  });
+
+  test('mergeSettings + normalizeSettings strips density patch input', () => {
+    const current = createDefaultSettings();
+    const patched = mergeSettings(current, { appearance: { density: 'spacious' } as never });
+    const normalized = normalizeSettings(patched);
+
+    expect('density' in patched.appearance).toBe(true);
+    expect('density' in normalized.appearance).toBe(false);
+    expect(normalized.appearance.theme).toBe('auto');
+    expect(normalized.appearance.palette).toBe('default');
   });
 });
 
@@ -458,7 +479,6 @@ describe('open gateway settings contract', () => {
     const normalized = normalizeSettings({
       appearance: {
         theme: 'dark',
-        density: 'compact',
       },
       openGateway: {
         enabled: true,
@@ -469,7 +489,7 @@ describe('open gateway settings contract', () => {
     });
 
     expect(normalized.appearance.theme).toBe('dark');
-    expect(normalized.appearance.density).toBe('compact');
+    expect('density' in normalized.appearance).toBe(false);
     expect(normalized.openGateway.enabled).toBe(true);
     expect(normalized.openGateway.host).toBe('0.0.0.0');
     expect(normalized.openGateway.port).toBe(4939);

@@ -41,4 +41,74 @@ describe('defaultFinalScorer', () => {
     assert.equal(score.taxonomy, 'agent_incomplete');
     assert.equal(score.errorClass, 'incomplete_tool_calls');
   });
+
+  test('keeps official verifier failure authoritative over advisory semantic completion', () => {
+    const verifierResult: VerifierResult = {
+      id: 'verifier',
+      taskRunId: 'run',
+      ts: 1,
+      kind: 'terminal_bench',
+      passed: false,
+      exitCode: 1,
+      errorClass: 'verification_failed',
+      authority: { source: 'official_harbor_verifier', authoritative: true },
+    };
+
+    const score = defaultFinalScorer({
+      config,
+      task,
+      runnerCompleted: true,
+      runnerStatus: 'completed',
+      submittedSnapshot,
+      verifierResult,
+    });
+
+    assert.equal(score.passed, false);
+    assert.equal(score.scored, true);
+    assert.equal(score.eligible, true);
+    assert.equal(score.taxonomy, 'verification_failed');
+    assert.equal(score.errorClass, 'verification_failed');
+  });
+
+  test('does not treat compact evidence as verifier authority', () => {
+    const verifierResult: VerifierResult = {
+      id: 'verifier',
+      taskRunId: 'run',
+      ts: 1,
+      kind: 'command',
+      passed: false,
+      exitCode: 1,
+      errorClass: 'verification_failed',
+      authority: { source: 'official_harbor_verifier', authoritative: true },
+      details: {
+        compactEvidence: {
+          latest: {
+            schemaVersion: 1,
+            evidenceId: 'evidence-pass-like',
+            taskRunId: 'run',
+            ts: 1,
+            kind: 'check',
+            public: true,
+            source: { kind: 'model_tool', toolCallId: 'tool-1' },
+            check: { status: 'pass', linkedSelfCheckId: 'self-check-1' },
+          },
+        },
+      },
+    };
+
+    const score = defaultFinalScorer({
+      config,
+      task,
+      runnerCompleted: true,
+      runnerStatus: 'completed',
+      submittedSnapshot,
+      verifierResult,
+    });
+
+    assert.equal(score.passed, false);
+    assert.equal(score.scored, true);
+    assert.equal(score.eligible, true);
+    assert.equal(score.taxonomy, 'verification_failed');
+    assert.equal(score.errorClass, 'verification_failed');
+  });
 });

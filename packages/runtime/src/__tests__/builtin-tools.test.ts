@@ -66,6 +66,85 @@ describe('builtin Bash streaming output', () => {
     await expectRejects(Promise.resolve(run), /Command aborted/);
     expect(events.some((event) => event.stream === 'stdout' && event.chunk.includes('started'))).toBe(true);
   });
+
+  test('large output is bounded to a tail instead of being discarded', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
+    const bash = buildBuiltinTools().find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    const result = await bash.impl(
+      { command: "awk 'BEGIN{for(i=1;i<=5000;i++)print \"line\"i}'", timeout_ms: 10_000 },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      },
+    ) as { exitCode: number; stdout: string };
+
+    expect(result.exitCode).toBe(0); // no reject — the old code threw away everything past the cap
+    expect(result.stdout.includes('line5000')).toBe(true); // tail preserved
+    expect(result.stdout.includes('truncated')).toBe(true); // truncation marker present
+    expect(result.stdout.includes('line1\n')).toBe(false); // head dropped, not the whole output
+  });
+
+  test('a failing command surfaces stdout/stderr on the rejection error', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
+    const bash = buildBuiltinTools().find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    let err: { code?: number; stdout?: string; stderr?: string } | null = null;
+    try {
+      await bash.impl(
+        { command: 'printf "out-data"; printf "err-data" >&2; exit 3', timeout_ms: 5_000 },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          cwd,
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      );
+    } catch (e: unknown) {
+      err = e as { code?: number; stdout?: string; stderr?: string };
+    }
+
+    expect(err?.code).toBe(3);
+    expect(err?.stdout).toBe('out-data');
+    expect(err?.stderr).toBe('err-data');
+  });
+
+  test('a timed-out command still surfaces the stdout/stderr captured before the timeout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
+    const bash = buildBuiltinTools().find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    let err: { code?: number; stdout?: string; stderr?: string } | null = null;
+    try {
+      await bash.impl(
+        { command: 'printf "out-before"; printf "err-before" >&2; sleep 5', timeout_ms: 200 },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          cwd,
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      );
+    } catch (e: unknown) {
+      err = e as { code?: number; stdout?: string; stderr?: string };
+    }
+
+    // Without the fix the model would see a bare "timed out" with no logs; now
+    // the error carries a code (124) and the bounded tail captured pre-timeout.
+    expect(err?.code).toBe(124);
+    expect(err?.stdout).toBe('out-before');
+    expect(err?.stderr).toBe('err-before');
+  });
 });
 
 describe('builtin read tools path containment', () => {

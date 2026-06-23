@@ -398,7 +398,7 @@ name: Writer
     );
     assert.match(
       refreshBlock,
-      /if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新技能失败', skillsActionErrorMessage\(error, '刷新技能失败，请稍后重试。'\)\);[\s\S]*\}/,
+      /if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新技能失败', generalizedErrorMessageChinese\(error, '刷新技能失败，请稍后重试。'\)\);[\s\S]*\}/,
       'startup/subscription Skills refresh failures must remain visible by default',
     );
     assert.match(
@@ -424,11 +424,10 @@ name: Writer
     const folderBlock = renderer.match(/async function openSkillsFolder\(\)[\s\S]*?async function openSkill/)?.[0] ?? '';
     const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(renderer, /function skillsActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*generalizedErrorMessageChinese\(error, fallback\)/);
     assert.match(createBlock, /try \{[\s\S]*window\.maka\.skills\.createStarter\(\)/);
     assert.match(
       createBlock,
-      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('无法创建示例技能', skillsActionErrorMessage\(error, '无法创建示例技能，请稍后重试。'\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('无法创建示例技能', generalizedErrorMessageChinese\(error, '无法创建示例技能，请稍后重试。'\)\);[\s\S]*\}/,
     );
     assert.doesNotMatch(createBlock, /toastApi\.error\('无法创建示例技能', cleanErrorMessage\(error\)\)/);
     assert.match(folderBlock, /try \{[\s\S]*window\.maka\.app\.openPath\('skills'\)/);
@@ -437,7 +436,7 @@ name: Writer
     assert.match(openBlock, /try \{[\s\S]*window\.maka\.skills\.open\(skillId, 'file'\)/);
     assert.match(
       openBlock,
-      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('无法打开 Skill', skillsActionErrorMessage\(error, '无法打开 Skill，请稍后重试。'\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(isSkillsSurfaceActive\(\)\) \{[\s\S]*toastApi\.error\('无法打开 Skill', generalizedErrorMessageChinese\(error, '无法打开 Skill，请稍后重试。'\)\);[\s\S]*\}/,
     );
     assert.doesNotMatch(openBlock, /toastApi\.error\('无法打开 Skill', cleanErrorMessage\(error\)\)/);
   });

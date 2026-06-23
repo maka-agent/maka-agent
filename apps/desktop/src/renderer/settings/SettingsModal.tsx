@@ -1,21 +1,25 @@
 import { useEffect, useId, useMemo, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import {
+  Accessibility as AccessibilityIcon,
   Activity,
   BarChart3,
+  Bell,
   Bot,
+  ArrowLeft,
   Brain,
   CalendarDays,
   Cpu,
   Database,
-  Globe,
   Info,
+  Mic,
+  Monitor,
+  MousePointer2,
   Network,
   Palette,
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
-  User,
   Volume2,
   X,
   type LucideProps,
@@ -30,6 +34,8 @@ import type {
   CapabilitySnapshot,
   CapabilitySnapshotCollection,
   ConnectionTestResult,
+  DailyReviewConfig,
+  DailyReviewMode,
   HealthSignal,
   HealthSignalLayer,
   HealthSignalSource,
@@ -46,7 +52,6 @@ import type {
   SettingsSection,
   ThemePalette,
   ThemePreference,
-  UiDensity,
   UpdateAppSettingsResult,
   UsageRange,
   UsageStats,
@@ -74,7 +79,7 @@ import {
   webSearchCredentialStatusFromResponse,
 } from '@maka/core';
 import { BOT_PROVIDERS, MAX_ALLOWED_USER_IDS, createDefaultSettings, parseAllowedUserIdsFromText } from '@maka/core/settings';
-import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
+import { CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS, PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import {
   Button,
   DialogContent,
@@ -89,6 +94,8 @@ import {
   SelectRoot,
   SelectTrigger,
   SelectValue,
+  PrimitiveBadge,
+  Switch as BaseUiSwitch,
   Textarea,
   redactSecrets,
   useModalA11y,
@@ -99,6 +106,7 @@ import { ProvidersPanel } from './ProvidersPanel';
 import { PasswordInput } from './password-input';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { applyUiLocale, type UiLocalePreference } from '../theme';
+import { safeLocalStorageGet, safeLocalStorageSet } from '../browser-storage';
 import {
   deriveAccountAuthActions,
   presentAccountAuthState,
@@ -122,6 +130,19 @@ type SettingsNavItem = {
   enabled: boolean;
   /** Group label rendered as a small uppercase divider above this item. */
   group: SettingsNavGroup;
+  /**
+   * PR-SETTINGS-PAGE-SUBTITLE-0 (round 4/15, WAWQAQ msg `f7e9d166`):
+   * one-line description rendered below the page title (h2). Reference
+   * carries this per-tab meta line; maka previously had only the bare
+   * label. Helps the user understand "where am I?" at the page top.
+   */
+  description?: string;
+  /**
+   * PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): render a small
+   * "Beta" chip next to the nav label. Reference uses this for the
+   * 应用快照 / 工作台 items.
+   */
+  badge?: 'Beta';
 };
 
 type AccountSecretProbeStatus = boolean | 'loading' | 'error';
@@ -193,35 +214,44 @@ function SettingsSelect<T extends string>(props: {
 // node:test without a DOM / React.
 export type { SettingsNavGroup };
 
+// PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0: WAWQAQ msg
+// `886f6406` rolled back the 记忆+回顾 merge — the combined page was
+// too dense. 记忆 and 每日回顾 are separate nav items again.
+// PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): 5 narrow groups
+// → 3 wider groups. 基础→通用, AI+集成→「AI 与集成」, 数据+其他→系统.
+// Mirrors reference's tighter grouping (1 big group + a couple small
+// ones) instead of 5 categories with only 1-3 items each.
 export const SETTINGS_NAV: SettingsNavItem[] = [
-  // Group 1: 基础 — 通用偏好、个性化、主题
-  { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true, group: '基础' },
-  { id: 'personalization', label: '个性化', Icon: User, enabled: true, group: '基础' },
-  { id: 'theme', label: '主题', Icon: Palette, enabled: true, group: '基础' },
-  // Group 2: AI — 模型、使用、语音、回顾、网关
-  { id: 'models', label: '模型', Icon: Cpu, enabled: true, group: 'AI' },
-  { id: 'usage', label: '使用统计', Icon: BarChart3, enabled: true, group: 'AI' },
-  { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, group: 'AI' },
-  { id: 'memory', label: '记忆', Icon: Brain, enabled: true, group: 'AI' },
-  { id: 'voice-models', label: '语音模型', Icon: Volume2, enabled: true, group: 'AI' },
-  { id: 'open-gateway', label: '开放网关', Icon: Sparkles, enabled: true, group: 'AI' },
-  // Group 3: 集成 — bot、搜索、网络
-  { id: 'bot-chat', label: '机器人对话', Icon: Bot, enabled: true, group: '集成' },
-  // PR-UX-POLISH-1 commit 2 (yuejing UX audit msg `9c779b56`):
-  // renamed `搜索服务` → `联网搜索` so it doesn't collide semantically
-  // with the sidebar's local-content search modal (which is a
-  // completely different feature — search across thread / session
-  // text, not web). Future Settings page wires per-engine credentials
-  // for web-search providers; the sidebar's modal stays the
-  // local-content search UI.
-  { id: 'search', label: '联网搜索', Icon: Search, enabled: true, group: '集成' },
-  { id: 'network', label: '网络', Icon: Globe, enabled: true, group: '集成' },
-  // Group 4: 数据
-  { id: 'data', label: '数据', Icon: Database, enabled: true, group: '数据' },
-  // Group 5: 其他
-  { id: 'permissions', label: '权限与能力', Icon: ShieldCheck, enabled: true, group: '其他' },
-  { id: 'health', label: '健康', Icon: Activity, enabled: true, group: '其他' },
-  { id: 'about', label: '关于', Icon: Info, enabled: true, group: '其他' },
+  // Group 1: 通用
+  { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true, group: '通用',
+    description: '隐身、启动、对话默认与网络代理等系统偏好。' },
+  { id: 'appearance', label: '外观', Icon: Palette, enabled: true, group: '通用',
+    description: '主题、配色、字体面板与个性化身份。' },
+  // Group 2: AI 与集成 — models, usage, memory, daily-review, voice+gateway, bots, search
+  { id: 'models', label: '模型', Icon: Cpu, enabled: true, group: 'AI 与集成',
+    description: '模型连接、API key 与 OAuth 订阅管理。' },
+  { id: 'usage', label: '使用统计', Icon: BarChart3, enabled: true, group: 'AI 与集成',
+    description: 'token、模型、工具使用走势与配额追踪。' },
+  { id: 'memory', label: '记忆', Icon: Brain, enabled: true, group: 'AI 与集成',
+    description: '本地 MEMORY.md、项目指令文件与上下文注入开关。' },
+  { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, group: 'AI 与集成',
+    description: '当天对话、模型与工具用量汇总。' },
+  { id: 'voice-gateway', label: '语音与网关', Icon: Volume2, enabled: true, group: 'AI 与集成',
+    description: '语音转写与 Maka 开放网关 SSE 接入。' },
+  { id: 'bot-chat', label: '机器人对话', Icon: Bot, enabled: true, group: 'AI 与集成',
+    description: 'Telegram / 飞书 / 企业微信等机器人凭据与运行状态。' },
+  { id: 'search', label: '联网搜索', Icon: Search, enabled: true, group: 'AI 与集成',
+    description: '联网搜索供应商（如 Tavily）凭据与隐私边界。',
+    badge: 'Beta' },
+  // Group 3: 系统 — data, permissions, health, about
+  { id: 'data', label: '数据', Icon: Database, enabled: true, group: '系统',
+    description: '本地工作区路径、备份与恢复。' },
+  { id: 'permissions', label: '权限与能力', Icon: ShieldCheck, enabled: true, group: '系统',
+    description: '系统权限授予状态与 Maka 能力运行时检查。' },
+  { id: 'health', label: '健康', Icon: Activity, enabled: true, group: '系统',
+    description: '运行时连接、模型探针与本地健康状态。' },
+  { id: 'about', label: '关于', Icon: Info, enabled: true, group: '系统',
+    description: '版本、运行环境与隐私承诺。' },
 ];
 
 /** Order-preserving grouping used by the nav renderer. */
@@ -751,8 +781,6 @@ export function SettingsModal(props: {
   onClose(): void;
   themePref: ThemePreference;
   onThemeChange(pref: ThemePreference): void;
-  density: UiDensity;
-  onDensityChange(density: UiDensity): void;
   /**
    * PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): current
    * palette + live setter. Click handler calls `onThemePaletteChange(next)`
@@ -807,8 +835,6 @@ export function SettingsModal(props: {
         onClose={props.onClose}
         themePref={props.themePref}
         onThemeChange={props.onThemeChange}
-        density={props.density}
-        onDensityChange={props.onDensityChange}
         themePalette={props.themePalette}
         onThemePaletteChange={props.onThemePaletteChange}
         onUserLabelChange={props.onUserLabelChange}
@@ -828,8 +854,6 @@ function SettingsSurface(props: {
   onClose(): void;
   themePref: ThemePreference;
   onThemeChange(pref: ThemePreference): void;
-  density: UiDensity;
-  onDensityChange(density: UiDensity): void;
   themePalette: ThemePalette;
   onThemePaletteChange(palette: ThemePalette): void;
   onUserLabelChange?(label: string): void;
@@ -874,11 +898,7 @@ function SettingsSurface(props: {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('maka-settings-section-v1', section);
-    } catch {
-      /* localStorage unavailable */
-    }
+    safeLocalStorageSet('maka-settings-section-v1', section);
   }, [section]);
   const [settings, setSettings] = useState<AppSettings>(() => createDefaultSettings());
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
@@ -959,42 +979,59 @@ function SettingsSurface(props: {
     <main className="settingsSurface agents-layout-body" data-modal="true" aria-label="设置内容">
       <aside className="settingsSidebar agents-sidebar" data-settings-nav-column aria-label="设置侧栏">
         <div className="settingsSidebarInner">
-          <header>
-            <span>设置</span>
-          </header>
+          {/* PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `8effe691`):
+              reference sidebar has just `← 返回应用` then straight
+              into the nav — no big "设置" brand label. Match it. */}
+          <Button
+            className="settingsBackButton"
+            variant="quiet"
+            type="button"
+            aria-label="返回应用"
+            onClick={props.onClose}
+          >
+            <ArrowLeft size={16} strokeWidth={1.85} aria-hidden="true" />
+            <span>返回应用</span>
+          </Button>
           <nav aria-label="设置分组">
             {groupedNav().map(({ group, items }) => (
-                <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
-                  <div className="settingsNavGroupLabel">{group}</div>
-                  {items.map((item) => (
-                    <button
-                      key={item.id}
-                      className="settingsNavItem"
-                      data-active={section === item.id}
-                      aria-current={section === item.id ? 'page' : undefined}
-                      type="button"
-                      ref={section === item.id ? props.initialFocusRef : undefined}
-                      disabled={!item.enabled}
-                      onClick={() => setSection(item.id)}
-                    >
-                      <span className="settingsNavGlyph" aria-hidden="true">
-                        <item.Icon size={16} strokeWidth={1.5} />
+              <div key={group} className="settingsNavGroup" role="group" aria-label={group}>
+                <div className="settingsNavGroupLabel">{group}</div>
+                {items.map((item) => (
+                  <Button
+                    key={item.id}
+                    className="settingsNavItem"
+                    data-active={section === item.id}
+                    aria-current={section === item.id ? 'page' : undefined}
+                    type="button"
+                    ref={section === item.id ? props.initialFocusRef : undefined}
+                    disabled={!item.enabled}
+                    onClick={() => setSection(item.id)}
+                  >
+                    <span className="settingsNavGlyph" aria-hidden="true">
+                      <item.Icon size={16} strokeWidth={1.5} />
+                    </span>
+                    <strong>{item.label}</strong>
+                    {item.badge && (
+                      <span className="settingsNavBadge" data-badge={item.badge}>
+                        {item.badge}
                       </span>
-                      <strong>{item.label}</strong>
-                    </button>
-                  ))}
-                </div>
-              ))}
+                    )}
+                  </Button>
+                ))}
+              </div>
+            ))}
           </nav>
         </div>
       </aside>
 
       <section className="settingsMainPane agents-content-area" data-agents-view="settings">
         <header className="settingsPageHeader">
-          <h2>{activeItem.label}</h2>
-          <Button className="settingsCloseButton" variant="quiet" size="icon-sm" type="button" aria-label="关闭设置" onClick={props.onClose}>
-            <X strokeWidth={1.75} aria-hidden="true" />
-          </Button>
+          <div className="settingsPageHeaderTitleStack">
+            <h2>{activeItem.label}</h2>
+            {activeItem.description && (
+              <p className="settingsPageHeaderDescription">{activeItem.description}</p>
+            )}
+          </div>
         </header>
 
         <OverlayScrollArea
@@ -1012,14 +1049,12 @@ function SettingsSurface(props: {
               connections={props.connections}
               defaultSlug={props.defaultSlug}
               themePref={props.themePref}
-              density={props.density}
               themePalette={props.themePalette}
               onRefreshConnections={props.onRefresh}
               onUpdateSettings={updateSettings}
               onReloadSettings={reloadSettings}
               onReloadUsage={reloadUsage}
               onThemeChange={props.onThemeChange}
-              onDensityChange={props.onDensityChange}
               onThemePaletteChange={props.onThemePaletteChange}
               onOpenDailyReview={props.onOpenDailyReview}
               onOpenSession={props.onOpenSession}
@@ -1038,14 +1073,12 @@ function SettingsPage(props: {
   connections: LlmConnection[];
   defaultSlug: string | null;
   themePref: ThemePreference;
-  density: UiDensity;
   themePalette: ThemePalette;
   onRefreshConnections(): Promise<void>;
   onUpdateSettings(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onReloadSettings(): Promise<void>;
   onReloadUsage(range?: UsageRange): Promise<void>;
   onThemeChange(pref: ThemePreference): void;
-  onDensityChange(density: UiDensity): void;
   onThemePaletteChange(palette: ThemePalette): void;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
@@ -1079,48 +1112,59 @@ function SettingsPage(props: {
           onReload={props.onReloadSettings}
         />
       );
-    case 'network':
-      return <NetworkSettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
-    case 'open-gateway':
-      return <OpenGatewaySettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
     case 'about':
       return <AboutSettingsPage />;
     case 'general':
+      // PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `d0e7dfb3`):
+      // multiple grouped cards stacked vertically, each one its own
+      // `<SettingsRows>` card. 隐身模式 alone, system defaults
+      // together, proxy alone — same shape as the reference layout
+      // (which has separate cards per logical group).
       return (
         <div className="settingsStructuredPage">
-          <div className="settingsFormRow">
-            <div>
-              <strong>隐身模式</strong>
-              <small>开启后暂停本地记忆读写、联网搜索和计划提醒触发；关闭后恢复正常工作区状态。</small>
+          <SettingsRows>
+            <div className="settingsFormRow">
+              <div>
+                <strong>隐身模式</strong>
+                <small>开启后暂停本地记忆读写、联网搜索和计划提醒触发；关闭后恢复正常工作区状态。</small>
+              </div>
+              <Switch
+                ariaLabel="启用隐身模式"
+                checked={props.settings.privacy.incognitoActive}
+                onChange={(incognitoActive) => void props.onUpdateSettings({ privacy: { incognitoActive } })}
+              />
             </div>
-            <Switch
-              ariaLabel="启用隐身模式"
-              checked={props.settings.privacy.incognitoActive}
-              onChange={(incognitoActive) => void props.onUpdateSettings({ privacy: { incognitoActive } })}
-            />
-          </div>
+          </SettingsRows>
           <SettingsRows>
             <SettingRow title="启动" detail="打开应用后回到最近一次对话。" value="已启用" />
             <SettingRow title="新对话模式" detail="新对话默认从确认模式开始。" value="确认" />
             <SettingRow title="默认模型" detail="新对话默认使用的模型连接。" value={props.defaultSlug ?? '未设置'} />
           </SettingsRows>
+          <SettingsRows>
+            <NetworkProxySection settings={props.settings} onUpdate={props.onUpdateSettings} />
+          </SettingsRows>
         </div>
       );
-    case 'theme':
+    case 'appearance':
+      // PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0 (WAWQAQ msg
+      // `6759cd0f`): 个性化 first, 主题 after. Personalization is the
+      // identity / display-name block; theme is presentation. Reading
+      // top→down the user picks "who am I" then "how does it look".
       return (
-        <ThemeSettingsPage
-          themePref={props.themePref}
-          density={props.density}
-          themePalette={props.themePalette}
-          settings={props.settings}
-          onUpdate={props.onUpdateSettings}
-          onThemeChange={props.onThemeChange}
-          onDensityChange={props.onDensityChange}
-          onThemePaletteChange={props.onThemePaletteChange}
-        />
+        <div className="settingsStructuredPage">
+          <h2 className="settingsSectionHeading">个性化</h2>
+          <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />
+          <h2 className="settingsSectionHeading">主题</h2>
+          <ThemeSettingsPage
+            themePref={props.themePref}
+            themePalette={props.themePalette}
+            settings={props.settings}
+            onUpdate={props.onUpdateSettings}
+            onThemeChange={props.onThemeChange}
+            onThemePaletteChange={props.onThemePaletteChange}
+          />
+        </div>
       );
-    case 'personalization':
-      return <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />;
     case 'data':
       return <DataSettingsPage />;
     case 'account':
@@ -1135,9 +1179,9 @@ function SettingsPage(props: {
       return <PermissionCenterPage />;
     case 'health':
       return <HealthCenterPage />;
-    case 'daily-review':
-      return <DailyReviewSettingsPage onOpenDailyReview={props.onOpenDailyReview} />;
     case 'memory':
+      // PR-SETTINGS-REVIEW-0 (WAWQAQ msg `886f6406`): the merged
+      // memory-review page was too dense; 记忆 is its own page again.
       return (
         <MemorySettingsPage
           settings={props.settings}
@@ -1145,8 +1189,19 @@ function SettingsPage(props: {
           onReloadSettings={props.onReloadSettings}
         />
       );
-    case 'voice-models':
-      return <VoiceModelsSettingsPage />;
+    case 'daily-review':
+      return <DailyReviewSettingsPage onOpenDailyReview={props.onOpenDailyReview} />;
+    case 'voice-gateway':
+      // PR-SETTINGS-IA-CONSOLIDATE-0: 语音模型 + 开放网关 → 语音与网关.
+      // PR-SETTINGS-SWEEP-0: section heading per sub-block.
+      return (
+        <div className="settingsStructuredPage">
+          <h2 className="settingsSectionHeading">语音模型</h2>
+          <VoiceModelsSettingsPage />
+          <h2 className="settingsSectionHeading">开放网关</h2>
+          <OpenGatewaySettingsPage settings={props.settings} onUpdate={props.onUpdateSettings} />
+        </div>
+      );
     case 'search':
       return (
         <WebSearchSettingsPage
@@ -1352,13 +1407,198 @@ function SettingsSkeleton() {
  * page summarizes what it does, the privacy boundary, and offers a
  * one-click jump to the sidebar.
  */
+const DAILY_REVIEW_SECTION_LABELS: ReadonlyArray<{
+  key: 'summary' | 'gaps' | 'usage' | 'code';
+  title: string;
+  detail: string;
+}> = [
+  { key: 'summary', title: '对话摘要', detail: '昨天聊了什么，关键结论是什么。' },
+  { key: 'gaps', title: '遗漏提醒', detail: '开始但未完成的讨论、可能忽略的要点。' },
+  { key: 'usage', title: '使用洞察', detail: '模型选择、Token 消耗、工具使用效率。' },
+  { key: 'code', title: '代码建议', detail: '基于对话中的代码讨论，给出优化建议。' },
+];
+
+const DAILY_REVIEW_DEFAULT_MODEL_VALUE = '__maka_daily_review_default_model__';
+
+function buildDailyReviewModelOptions(
+  connections: readonly LlmConnection[],
+  defaultConnectionSlug: string | null,
+  currentModelKey: string,
+): Array<readonly [string, string]> {
+  const defaultConnection = defaultConnectionSlug
+    ? connections.find((connection) => connection.slug === defaultConnectionSlug)
+    : null;
+  const options: Array<readonly [string, string]> = [
+    [
+      DAILY_REVIEW_DEFAULT_MODEL_VALUE,
+      defaultConnection
+        ? `使用对话默认模型（${defaultConnection.name} · ${defaultConnection.defaultModel || '默认模型'}）`
+        : '使用对话默认模型',
+    ],
+  ];
+  const seenKeys = new Set<string>();
+  for (const connection of connections) {
+    const defaults = PROVIDER_DEFAULTS[connection.providerType];
+    if (!connection.enabled || defaults.backendKind !== 'ai-sdk') continue;
+    if (
+      defaults.authKind === 'oauth_token' &&
+      connection.providerType !== 'claude-subscription' &&
+      connection.providerType !== 'codex-subscription'
+    ) {
+      continue;
+    }
+    const rawModels = connection.models?.length
+      ? connection.models.map((model) => model.id)
+      : connection.defaultModel
+        ? [connection.defaultModel]
+        : defaults.fallbackModels;
+    const safeModels = connection.providerType === 'codex-subscription'
+      ? rawModels.filter((model) => !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(model.trim()))
+      : rawModels;
+    for (const rawModel of safeModels) {
+      const model = rawModel.trim();
+      if (!model) continue;
+      const key = `${connection.slug}::${model}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      options.push([key, `${connection.name} · ${model}`]);
+    }
+  }
+  const trimmedCurrent = currentModelKey.trim();
+  if (
+    trimmedCurrent &&
+    trimmedCurrent !== DAILY_REVIEW_DEFAULT_MODEL_VALUE &&
+    !options.some(([value]) => value === trimmedCurrent)
+  ) {
+    options.push([trimmedCurrent, `当前自定义模型：${trimmedCurrent}`]);
+  }
+  return options;
+}
+
 function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
+  const toast = useToast();
+  const dailyReviewIpc = window.maka.dailyReview;
+  const hasConfigIpc = Boolean(dailyReviewIpc.getConfig && dailyReviewIpc.setConfig);
+  const hasRunOnceIpc = Boolean(dailyReviewIpc.runOnce);
+
+  const [config, setConfig] = useState<DailyReviewConfig | null>(null);
+  const [loading, setLoading] = useState<boolean>(hasConfigIpc);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [runningMode, setRunningMode] = useState<DailyReviewMode | null>(null);
+  const [modelConnections, setModelConnections] = useState<LlmConnection[]>([]);
+  const [defaultConnectionSlug, setDefaultConnectionSlug] = useState<string | null>(null);
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasConfigIpc || !dailyReviewIpc.getConfig) {
+      setConfig(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    dailyReviewIpc
+      .getConfig()
+      .then((next) => {
+        if (!cancelled && mountedRef.current) {
+          setConfig(next);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled && mountedRef.current) {
+          setLoadError(settingsActionErrorMessage(err));
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasConfigIpc, dailyReviewIpc]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function reloadModelConnections() {
+      try {
+        const [connections, defaultSlug] = await Promise.all([
+          window.maka.connections.list(),
+          window.maka.connections.getDefault(),
+        ]);
+        if (cancelled || !mountedRef.current) return;
+        setModelConnections(connections);
+        setDefaultConnectionSlug(defaultSlug);
+        setModelLoadError(null);
+      } catch (err) {
+        if (cancelled || !mountedRef.current) return;
+        setModelLoadError(settingsActionErrorMessage(err));
+      }
+    }
+    void reloadModelConnections();
+    const unsubscribe = window.maka.connections.subscribeEvents(() => {
+      void reloadModelConnections();
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  async function patchConfig(key: string, patch: Partial<DailyReviewConfig>) {
+    if (!dailyReviewIpc.setConfig || !config) return;
+    setSavingKey(key);
+    try {
+      const next = await dailyReviewIpc.setConfig(patch);
+      if (mountedRef.current) setConfig(next);
+    } catch (err) {
+      toast.error('保存每日回顾设置失败', settingsActionErrorMessage(err));
+    } finally {
+      if (mountedRef.current) setSavingKey(null);
+    }
+  }
+
+  async function triggerRun(mode: DailyReviewMode) {
+    if (!dailyReviewIpc.runOnce) return;
+    setRunningMode(mode);
+    try {
+      await dailyReviewIpc.runOnce({ mode });
+      toast.success(mode === 'daily' ? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。');
+    } catch (err) {
+      toast.error('生成回顾失败', settingsActionErrorMessage(err));
+    } finally {
+      if (mountedRef.current) setRunningMode(null);
+    }
+  }
+
+  const effectiveConfig = config;
+  const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig;
+  const modelOptions = useMemo(
+    () => buildDailyReviewModelOptions(modelConnections, defaultConnectionSlug, effectiveConfig?.modelKey ?? ''),
+    [defaultConnectionSlug, effectiveConfig?.modelKey, modelConnections],
+  );
+  const selectedModelValue = effectiveConfig?.modelKey?.trim()
+    ? effectiveConfig.modelKey.trim()
+    : DAILY_REVIEW_DEFAULT_MODEL_VALUE;
+
   return (
     <section className="settingsFeatureStatusPage" aria-label="每日回顾">
       <header className="settingsFeatureStatusBanner" role="status">
         <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
-        <strong>本地汇总 · 已上线</strong>
-        <span>读取本机 Maka 自己产生的会话与使用统计，不联网、不读其他 App 数据。</span>
+        <strong>每日回顾</strong>
+        <span>
+          {hasConfigIpc
+            ? '每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。'
+            : '当前版本仅本地数字聚合，定时生成 / LLM 摘要尚未连接到后端。'}
+        </span>
       </header>
 
       <div className="settingsFeatureStatusHero">
@@ -1368,11 +1608,13 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
         <div>
           <div className="settingsFeatureStatusHeroHeading">
             <h3>每日回顾</h3>
-            <span className="settingsFeatureStatusBadge">本地汇总</span>
+            <span className="settingsFeatureStatusBadge">
+              {hasConfigIpc ? '本地 + LLM' : '本地汇总'}
+            </span>
           </div>
           <p>
-            每日回顾会按你选择的日期范围，把活跃会话、模型用量、工具调用聚合到一个面板里。
-            主内容栏里的 "每日回顾" 支持今日 / 本周 / 本月切换、左右翻页、复制 / 保存 Markdown 摘要，也可以把当前范围粘到输入框继续追问。
+            打开右侧 Content 区里的「每日回顾」可以查看活跃会话、模型用量、工具调用，以及（开启后）LLM
+            生成的对话摘要 / 遗漏提醒等回顾内容。
           </p>
           {props.onOpenDailyReview && (
             <Button
@@ -1386,26 +1628,159 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
         </div>
       </div>
 
-      <div className="settingsFeatureStatusHeroHeading">
-        <h3>当前包含</h3>
-      </div>
-      <ul className="settingsFeatureStatusList" aria-label="每日回顾当前包含">
-        <li>对话数 / 请求数 / Token / 费用 / 错误数</li>
-        <li>今日 / 本周 / 本月三个范围，以及按范围翻页</li>
-        <li>活跃对话（点击可直接打开）</li>
-        <li>使用最频繁的模型 Top 8</li>
-        <li>调用最频繁的工具 Top 8</li>
-        <li>复制 / 保存 Markdown 摘要，或粘到输入框继续追问</li>
-      </ul>
+      {loadError ? (
+        <div className="settingsAlert" role="alert" style={{ marginTop: 12 }}>
+          读取每日回顾设置失败：{loadError}
+        </div>
+      ) : null}
 
-      <div className="settingsFeatureStatusHeroHeading">
-        <h3>不会做的事</h3>
+      <div className="settingsRows">
+        <div className="settingsRow">
+          <div>
+            <strong>启用每日回顾</strong>
+            <small>每天自动分析前一天的工作内容，提供摘要与建议。</small>
+          </div>
+          <Switch
+            ariaLabel="启用每日回顾"
+            checked={effectiveConfig?.enabled ?? false}
+            disabled={formDisabled || savingKey === 'enabled'}
+            onChange={(enabled) => void patchConfig('enabled', { enabled })}
+          />
+        </div>
+
+        <div className="settingsRow">
+          <div>
+            <strong>执行时间</strong>
+            <small>默认 08:00 本地时间触发。</small>
+          </div>
+          <Input
+            type="time"
+            aria-label="每日回顾执行时间"
+            className="settingsTimeInput"
+            value={effectiveConfig?.executeTime ?? '08:00'}
+            disabled={formDisabled || savingKey === 'executeTime' || !(effectiveConfig?.enabled ?? false)}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return;
+              void patchConfig('executeTime', { executeTime: value });
+            }}
+          />
+        </div>
+
+        {DAILY_REVIEW_SECTION_LABELS.map((item) => (
+          <div key={item.key} className="settingsRow">
+            <div>
+              <strong>{item.title}</strong>
+              <small>{item.detail}</small>
+            </div>
+            <Switch
+              ariaLabel={item.title}
+              checked={effectiveConfig?.sections[item.key] ?? false}
+              disabled={formDisabled || savingKey === `section:${item.key}` || !(effectiveConfig?.enabled ?? false)}
+              onChange={(next) =>
+                void patchConfig(`section:${item.key}`, {
+                  sections: {
+                    ...(effectiveConfig?.sections ?? { summary: false, gaps: false, usage: false, code: false }),
+                    [item.key]: next,
+                  },
+                })
+              }
+            />
+          </div>
+        ))}
+
+        <div className="settingsRow">
+          <div>
+            <strong>深度分析</strong>
+            <small>消耗更多资源，对更长时间周期进行深入调研。</small>
+          </div>
+          <Switch
+            ariaLabel="深度分析"
+            checked={effectiveConfig?.deepEnabled ?? false}
+            disabled={formDisabled || savingKey === 'deepEnabled'}
+            onChange={(deepEnabled) => void patchConfig('deepEnabled', { deepEnabled })}
+          />
+        </div>
+
+        <div className="settingsRow">
+          <div>
+            <strong>分析模型</strong>
+            <small>
+              用于生成回顾和分析的模型连接；默认跟随当前对话默认模型。
+              {modelLoadError ? ` 模型列表读取失败：${modelLoadError}` : ''}
+            </small>
+          </div>
+          <SettingsSelect
+            value={selectedModelValue}
+            ariaLabel="分析模型连接"
+            options={modelOptions}
+            disabled={formDisabled || savingKey === 'modelKey' || modelOptions.length === 0}
+            onChange={(value) => {
+              void patchConfig('modelKey', {
+                modelKey: value === DAILY_REVIEW_DEFAULT_MODEL_VALUE ? '' : value,
+              });
+            }}
+          />
+        </div>
+
+        <div className="settingsRow">
+          <div>
+            <strong>包含 Claude Code CLI 会话</strong>
+            <small>将已同步的 Claude Code 对话纳入分析范围。</small>
+          </div>
+          <Switch
+            ariaLabel="包含 Claude Code CLI 会话"
+            checked={effectiveConfig?.includeClaudeCode ?? false}
+            disabled={formDisabled || savingKey === 'includeClaudeCode'}
+            onChange={(includeClaudeCode) => void patchConfig('includeClaudeCode', { includeClaudeCode })}
+          />
+        </div>
+
+        <div className="settingsRow">
+          <div>
+            <strong>生成后发送外部通知</strong>
+            <small>
+              当前运行时尚未接入报告自动推送。机器人通道可以在「机器人对话」里配置，但每日回顾不会假装已发送。
+            </small>
+          </div>
+          <Switch
+            ariaLabel="生成后发送外部通知"
+            checked={false}
+            disabled={true}
+            onChange={() => undefined}
+          />
+        </div>
       </div>
-      <ul className="settingsFeatureStatusList" aria-label="每日回顾不会执行的事">
-        <li>不调用任何 LLM 生成摘要（当前只是本地聚合数字，不向云端送内容）</li>
-        <li>不写入记忆系统，也不导出任何东西</li>
-        <li>不读取 Maka 工作区以外的文件</li>
-      </ul>
+
+      {hasRunOnceIpc && (
+        <div className="settingsFeatureStatusHero" style={{ marginTop: 12 }}>
+          <span className="settingsFeatureStatusIcon" aria-hidden="true">
+            <CalendarDays size={20} strokeWidth={1.5} />
+          </span>
+          <div>
+            <div className="settingsFeatureStatusHeroHeading">
+              <h3>想先看看效果？</h3>
+            </div>
+            <p>无需开启自动执行，基于当前工作区的对话记录立即生成一份报告。</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <Button
+                type="button"
+                onClick={() => void triggerRun('daily')}
+                disabled={runningMode !== null}
+              >
+                {runningMode === 'daily' ? '生成中…' : '生成每日回顾'}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void triggerRun('deep')}
+                disabled={runningMode !== null}
+              >
+                {runningMode === 'deep' ? '生成中…' : '生成深度分析'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -2192,8 +2567,14 @@ function PersonalizationSettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <label className="settingsField">
+      {/* PR-S2 (2026-06-23): single-control rows use the
+          reference-style horizontal layout — label + description on
+          the left, control aligned right, 1 px hairline between
+          rows. Vertical layout is reserved for full-width controls
+          like the Textarea below. */}
+      <label className="settingsField" data-orient="horizontal">
         <span>显示名称</span>
+        <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
         <Input
           type="text"
           value={displayName}
@@ -2205,7 +2586,6 @@ function PersonalizationSettingsPage(props: {
           disabled={saving}
           aria-label="显示名称"
         />
-        <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
       </label>
 
       {/*
@@ -2214,8 +2594,9 @@ function PersonalizationSettingsPage(props: {
         choice wins over navigator.language; visual-smoke override
         wins over both (deterministic baselines).
       */}
-      <div className="settingsField">
+      <div className="settingsField" data-orient="horizontal">
         <span>界面语言</span>
+        <small>选择 Maka 界面的显示语言。保存后立即生效，重启后保持。</small>
         <Segmented
           value={uiLocale}
           options={[
@@ -2227,7 +2608,6 @@ function PersonalizationSettingsPage(props: {
           ariaLabel="界面语言"
           disabled={saving}
         />
-        <small>选择 Maka 界面的显示语言。保存后立即生效，重启后保持。</small>
       </div>
 
       <label className="settingsField">
@@ -2279,12 +2659,6 @@ function collectPersonalizationWarningCopy(warnings: PersonalizationSettingsWarn
   };
   return warnings.map((warning) => copy[warning]).join('\n');
 }
-
-const DENSITY_OPTIONS: Array<{ value: UiDensity; label: string; help: string }> = [
-  { value: 'compact', label: '紧凑', help: '减小行间距与控件高度，更接近专业编辑器风格。' },
-  { value: 'comfortable', label: '舒适', help: '默认。平衡阅读和密度。' },
-  { value: 'spacious', label: '宽松', help: '更大留白，适合长会话沉浸阅读。' },
-];
 
 /**
  * Mini chat-surface mockup rendered inside each theme radio tile. Replaces
@@ -2372,12 +2746,10 @@ const PALETTE_GROUPS: ReadonlyArray<{ id: string; label: string; palettes: Reado
 
 function ThemeSettingsPage(props: {
   themePref: ThemePreference;
-  density: UiDensity;
   themePalette: ThemePalette;
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onThemeChange(pref: ThemePreference): void;
-  onDensityChange(density: UiDensity): void;
   onThemePaletteChange(palette: ThemePalette): void;
 }) {
   const toast = useToast();
@@ -2411,15 +2783,10 @@ function ThemeSettingsPage(props: {
     await persistAppearance({ theme: next });
   }
 
-  async function setDensity(next: UiDensity) {
-    props.onDensityChange(next);
-    await persistAppearance({ density: next });
-  }
-
   // PR-THEME-PRODUCT-PALETTES-0 (WAWQAQ msg `4472ee95`) + PR-THEME-APPLY-
   // AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): apply the palette
   // synchronously on click for instant feedback, then persist. Same
-  // pattern as setTheme/setDensity above. The original comment claimed
+  // pattern as setTheme above. The original comment claimed
   // the IPC round-trip would re-apply on its own, but main.tsx had no
   // listener for palette changes — only ran applyThemePalette once at
   // mount — so switches were invisible until the next app start.
@@ -2515,42 +2882,6 @@ function ThemeSettingsPage(props: {
           </div>
         </div>
       ))}
-
-      <h3 className="settingsSubheading">界面密度</h3>
-      <div
-        className="settingsThemeOptions settingsDensityOptions"
-        role="radiogroup"
-        aria-label="界面密度"
-        onKeyDown={(event) => onSettingsRadioGroupKeyDown(
-          event,
-          DENSITY_OPTIONS.map((option) => option.value),
-          props.density,
-          (next) => void setDensity(next),
-        )}
-      >
-        {DENSITY_OPTIONS.map((option) => (
-          // Native <button>: same reason as the theme/palette pickers above.
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={props.density === option.value}
-            data-active={props.density === option.value}
-            data-radio-value={option.value}
-            tabIndex={radioTabIndex(option.value, props.density, DENSITY_OPTIONS.map((item) => item.value))}
-            className="settingsThemeOption"
-            onClick={() => void setDensity(option.value)}
-          >
-            <span className={`settingsDensitySwatch settingsDensitySwatch-${option.value}`} aria-hidden="true">
-              <span /><span /><span />
-            </span>
-            <span className="settingsThemeLabel">
-              <strong>{option.label}</strong>
-              <small>{option.help}</small>
-            </span>
-          </button>
-        ))}
-      </div>
 
       <p className="settingsHelpText">
         切换会立即生效，并保存在本地外观设置里下次启动延续。通知统一显示在屏幕右下角。
@@ -4146,7 +4477,11 @@ function settingsActionErrorMessage(error: unknown): string {
   return '未知错误，请稍后重试。';
 }
 
-function NetworkSettingsPage(props: {
+// PR-SETTINGS-IA-CONSOLIDATE-0 (2026-06-23): the standalone `网络` page
+// was deleted (a single proxy block does not warrant its own nav row).
+// This section is embedded at the bottom of the 通用 page, so it does
+// NOT wrap itself in `settingsStructuredPage` — the parent already does.
+function NetworkProxySection(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
@@ -4228,7 +4563,7 @@ function NetworkSettingsPage(props: {
   }
 
   return (
-    <div className="settingsStructuredPage">
+    <>
       <div className="settingsFormRow">
         <div>
           <strong>代理服务器</strong>
@@ -4320,7 +4655,7 @@ function NetworkSettingsPage(props: {
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -5768,21 +6103,52 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, strin
   );
 }
 
-function Switch(props: { ariaLabel: string; checked: boolean; onChange(checked: boolean): void; disabled?: boolean; ariaDescribedBy?: string }) {
+/**
+ * PR-USE-SHADCN-BASE-UI-BADGE — map the project's status-tone vocabulary
+ * (success / warning / destructive / info / neutral) onto the canonical
+ * shadcn `PrimitiveBadge` variants. `neutral` falls back to `secondary`
+ * which is the closest "muted chip" appearance the Badge primitive ships.
+ */
+type StatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'destructive';
+function statusBadgeVariant(tone: StatusTone): 'success' | 'warning' | 'destructive' | 'info' | 'secondary' {
+  switch (tone) {
+    case 'success': return 'success';
+    case 'warning': return 'warning';
+    case 'destructive': return 'destructive';
+    case 'info': return 'info';
+    case 'neutral': return 'secondary';
+  }
+}
+
+/**
+ * PR-USE-SHADCN-BASE-UI-SWITCH — internal adapter that maps the existing
+ * `{ ariaLabel, checked, onChange, disabled, ariaDescribedBy }` callsite
+ * shape onto the shared `BaseUiSwitch` (Base UI `Switch.Root` +
+ * `Switch.Thumb` styled with the project's semantic Tailwind tokens).
+ *
+ * Why an adapter, not a callsite rewrite: 15+ Switch usages across this
+ * 6900-line settings module all use `ariaLabel` / `onChange`. Renaming
+ * every callsite at the same time would conflict with the parallel
+ * Settings polish lanes; the adapter lets us swap the implementation
+ * (now real `[role="switch"]` semantics, real Base UI keyboard/focus
+ * handling, proper data-checked attribute) without touching the
+ * callers.
+ */
+function Switch(props: {
+  ariaLabel: string;
+  checked: boolean;
+  onChange(checked: boolean): void;
+  disabled?: boolean;
+  ariaDescribedBy?: string;
+}) {
   return (
-    <Button
-      className="settingsSwitch"
-      type="button"
-      role="switch"
+    <BaseUiSwitch
       aria-label={props.ariaLabel}
       aria-describedby={props.ariaDescribedBy}
-      aria-checked={props.checked}
-      data-checked={props.checked}
+      checked={props.checked}
       disabled={props.disabled}
-      onClick={() => props.onChange(!props.checked)}
-    >
-      <span />
-    </Button>
+      onCheckedChange={(next) => props.onChange(next)}
+    />
   );
 }
 
@@ -5810,12 +6176,44 @@ const CAPABILITY_READINESS_COPY: Record<CapabilityReadinessState, { label: strin
   paused: { label: '已暂停', detail: '功能开关被显式关闭，但配置仍保留。', tone: 'info' },
 };
 
-const OS_PERMISSION_COPY: Record<OsPermissionId, { label: string; purpose: string }> = {
-  accessibility: { label: '辅助功能', purpose: 'Computer Use 需要它来读取窗口焦点 / 模拟键盘鼠标。' },
-  screen_recording: { label: '屏幕录制', purpose: 'Computer Use 需要它来读取窗口内容；未来屏幕活动录制也会使用。' },
-  microphone: { label: '麦克风', purpose: 'Voice 通道需要它来采集语音输入。' },
-  notifications: { label: '通知', purpose: '权限申请、回顾完成等系统通知需要它。' },
-  automation: { label: '自动化（Apple Events）', purpose: 'Computer Use 控制其他 App 需要逐 target 授权。' },
+interface OsPermissionUiCopy {
+  label: string;
+  purpose: string;
+  impact: string;
+  icon: ComponentType<LucideProps>;
+}
+
+const OS_PERMISSION_COPY: Record<OsPermissionId, OsPermissionUiCopy> = {
+  accessibility: {
+    label: '辅助功能',
+    purpose: 'Computer Use 需要它来读取窗口焦点 / 模拟键盘鼠标。',
+    impact: 'Computer Use · 自动化键鼠操作',
+    icon: AccessibilityIcon,
+  },
+  screen_recording: {
+    label: '屏幕录制',
+    purpose: 'Computer Use 需要它来读取窗口内容；未来屏幕活动录制也会使用。',
+    impact: 'Computer Use · 截屏上下文',
+    icon: Monitor,
+  },
+  microphone: {
+    label: '麦克风',
+    purpose: 'Voice 通道需要它来采集语音输入。',
+    impact: '语音输入',
+    icon: Mic,
+  },
+  notifications: {
+    label: '通知',
+    purpose: '权限申请、回顾完成等系统通知需要它。',
+    impact: '权限申请提醒 · 每日回顾完成通知',
+    icon: Bell,
+  },
+  automation: {
+    label: '自动化（Apple Events）',
+    purpose: 'Computer Use 控制其他 App 需要逐 target 授权。',
+    impact: 'Computer Use · 跨 App 自动化',
+    icon: MousePointer2,
+  },
 };
 
 const OS_PERMISSION_STATE_COPY: Record<OsPermissionState, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
@@ -5835,6 +6233,17 @@ function PermissionCenterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [pendingPermAction, setPendingPermAction] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const toast = useToast();
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -5859,6 +6268,31 @@ function PermissionCenterPage() {
       cancelled = true;
     };
   }, [refreshTick]);
+
+  async function runPermissionAction(
+    permId: OsPermissionId,
+    kind: 'request' | 'openSettings',
+  ) {
+    const actionKey = `${permId}:${kind}`;
+    setPendingPermAction(actionKey);
+    try {
+      const result =
+        kind === 'request'
+          ? await window.maka.permissions.requestAccess(permId)
+          : await window.maka.permissions.openSystemSettings(permId);
+      if (result.ok) {
+        // Refresh snapshot so the user sees the new state when they
+        // return from System Settings.
+        if (mountedRef.current) setRefreshTick((tick) => tick + 1);
+      } else if (mountedRef.current) {
+        toast.error('权限操作失败', permissionActionFailureCopy(result.reason, result.message));
+      }
+    } catch (err) {
+      if (mountedRef.current) toast.error('权限操作失败', settingsActionErrorMessage(err));
+    } finally {
+      if (mountedRef.current) setPendingPermAction(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -5886,21 +6320,21 @@ function PermissionCenterPage() {
   }
 
   const checkedAtMs = capabilities.checkedAt;
+  const counts = summarizePermissionStatuses(permissions);
 
   return (
     <div className="settingsPermissionPage">
       <header className="settingsPermissionIntro">
         <div>
-          <h3>权限与能力中心</h3>
+          <h3>权限与能力</h3>
           <p>
-            这里只读取系统权限与功能能力的当前快照，不会代替你修改任何 OS 权限。
-            需要变更权限时，请前往「系统设置 → 隐私与安全性」完成授权或撤销。
+            查看 Maka 需要的系统权限和当前授权状态，
+            直接从这里前往「系统设置 → 隐私与安全性」完成授权或撤销，不必自己翻菜单。
           </p>
         </div>
         <div className="settingsPermissionMeta">
-          <span className="pill" data-tone="info">只读快照</span>
           <small>
-            最近一次读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
+            最近读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
           </small>
           <Button
             type="button"
@@ -5908,41 +6342,124 @@ function PermissionCenterPage() {
             variant="secondary"
             onClick={() => setRefreshTick((tick) => tick + 1)}
           >
-            刷新
+            重新检测
           </Button>
         </div>
       </header>
 
-      <section aria-label="功能能力" className="settingsPermissionSection">
+      <section className="settingsPermissionSummary" aria-label="权限概览">
+        <PermissionSummaryTile label="已授权" value={counts.granted} tone="success" />
+        <PermissionSummaryTile label="等待授权" value={counts.pending} tone="warning" />
+        <PermissionSummaryTile label="已拒绝" value={counts.denied} tone="destructive" />
+        <PermissionSummaryTile label="未知 / 不支持" value={counts.other} tone="neutral" />
+      </section>
+
+      <section aria-label="系统权限" className="settingsPermissionSection">
         <header>
-          <h4>功能能力</h4>
-          <small>每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。</small>
+          <h4>系统权限</h4>
+          <small>Maka 读到的 OS 级权限状态。点击右侧按钮可以直接前往「系统设置 → 隐私与安全性」对应分区。</small>
         </header>
-        <ul className="settingsCapabilityList" aria-label="功能能力列表">
+        <ul className="settingsOsPermissionList" aria-label="系统权限列表">
+          {OS_PERMISSION_IDS.map((id) => (
+            <OsPermissionRow
+              key={id}
+              snapshot={permissions.permissions[id]}
+              busy={pendingPermAction !== null}
+              pendingKey={pendingPermAction === `${id}:request` ? 'request' : pendingPermAction === `${id}:openSettings` ? 'openSettings' : null}
+              onRequest={() => void runPermissionAction(id, 'request')}
+              onOpenSettings={() => void runPermissionAction(id, 'openSettings')}
+            />
+          ))}
+        </ul>
+      </section>
+
+      <section aria-label="功能能力" className="settingsPermissionSection">
+        <header className="settingsPermissionSectionHeader">
+          <div>
+            <h4>功能能力</h4>
+            <small>每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。</small>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setDiagnosticsOpen((open) => !open)}
+            aria-expanded={diagnosticsOpen}
+          >
+            {diagnosticsOpen ? '收起详情' : '展开详情'}
+          </Button>
+        </header>
+        <ul className="settingsCapabilityList" aria-label="功能能力列表" data-diagnostics-open={diagnosticsOpen ? 'true' : undefined}>
           {capabilities.capabilities.map((capability) => (
             <CapabilityRow key={capability.id} capability={capability} />
           ))}
         </ul>
       </section>
 
-      <section aria-label="系统权限" className="settingsPermissionSection">
-        <header>
-          <h4>系统权限</h4>
-          <small>Maka 读到的 OS 级权限状态。撤销请前往「系统设置 → 隐私与安全性」。</small>
-        </header>
-        <ul className="settingsOsPermissionList" aria-label="系统权限列表">
-          {OS_PERMISSION_IDS.map((id) => (
-            <OsPermissionRow key={id} snapshot={permissions.permissions[id]} />
-          ))}
-        </ul>
-      </section>
-
       <p className="settingsPermissionFootnote">
-        本页不会自动授予 Accessibility、Automation 或 Screen Recording。
+        Maka 不会自动授予 Accessibility、Automation 或 Screen Recording。
         高风险自动化能力必须保持逐项审批、可审计、可撤销。
+        这里只读取系统权限与功能能力的当前快照，授权变更仍需在「系统设置 → 隐私与安全性」完成。
       </p>
     </div>
   );
+}
+
+function PermissionSummaryTile(props: {
+  label: string;
+  value: number;
+  tone: 'success' | 'warning' | 'destructive' | 'neutral';
+}) {
+  return (
+    <div className="settingsPermissionSummaryTile" data-tone={props.tone}>
+      <span className="settingsPermissionSummaryValue">{props.value}</span>
+      <span className="settingsPermissionSummaryLabel">{props.label}</span>
+    </div>
+  );
+}
+
+function summarizePermissionStatuses(snapshot: PermissionSnapshot): {
+  granted: number;
+  pending: number;
+  denied: number;
+  other: number;
+} {
+  let granted = 0;
+  let pending = 0;
+  let denied = 0;
+  let other = 0;
+  for (const id of OS_PERMISSION_IDS) {
+    const status = snapshot.permissions[id]?.status;
+    switch (status) {
+      case 'granted':
+        granted += 1;
+        break;
+      case 'not_determined':
+        pending += 1;
+        break;
+      case 'denied':
+        denied += 1;
+        break;
+      default:
+        other += 1;
+    }
+  }
+  return { granted, pending, denied, other };
+}
+
+function permissionActionFailureCopy(reason: string, message?: string): string {
+  switch (reason) {
+    case 'invalid_id':
+      return '内部错误：权限 id 无法识别。';
+    case 'unsupported_platform':
+      return '当前操作系统不支持这个权限操作。';
+    case 'unsupported_permission':
+      return '当前平台没有提供这个权限的直接入口。';
+    case 'failed':
+      return message ?? '权限操作未成功，请稍后重试。';
+    default:
+      return message ?? '权限操作未成功，请稍后重试。';
+  }
 }
 
 function CapabilityRow(props: { capability: CapabilitySnapshot }) {
@@ -5991,7 +6508,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
           <strong>{capability.label}</strong>
           <small className="settingsCapabilityId">{prettyCapabilityId(capability.id)}</small>
         </div>
-        <span className="pill" data-tone={readinessCopy.tone}>{readinessCopy.label}</span>
+        <PrimitiveBadge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</PrimitiveBadge>
       </div>
       <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
       <dl className="settingsCapabilityLayers" aria-label={`${capability.label}能力状态明细`}>
@@ -6094,18 +6611,70 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
   );
 }
 
-function OsPermissionRow(props: { snapshot: OsPermissionSnapshot }) {
-  const { snapshot } = props;
-  const copy = OS_PERMISSION_COPY[snapshot.id] ?? { label: snapshot.id, purpose: '' };
+function OsPermissionRow(props: {
+  snapshot: OsPermissionSnapshot;
+  busy: boolean;
+  pendingKey: 'request' | 'openSettings' | null;
+  onRequest: () => void;
+  onOpenSettings: () => void;
+}) {
+  const { snapshot, busy, pendingKey } = props;
+  const copy = OS_PERMISSION_COPY[snapshot.id];
+  const Icon = copy?.icon;
+  const label = copy?.label ?? snapshot.id;
+  const purpose = copy?.purpose ?? '';
+  const impact = copy?.impact ?? '';
   const stateCopy = OS_PERMISSION_STATE_COPY[snapshot.status];
+
+  const showRequest = snapshot.canRequest && snapshot.status !== 'granted';
+  const showOpenSettings = snapshot.canOpenSettings && snapshot.status !== 'granted';
+
   return (
     <li className="settingsOsPermissionRow" data-state={snapshot.status}>
-      <div>
-        <strong>{copy.label}</strong>
-        <small>{copy.purpose}</small>
-        {snapshot.reason && <small className="settingsOsPermissionReason">{snapshot.reason}</small>}
+      <div className="settingsOsPermissionIcon" aria-hidden="true">
+        {Icon ? <Icon size={18} strokeWidth={1.6} /> : null}
       </div>
-      <span className="pill" data-tone={stateCopy.tone}>{stateCopy.label}</span>
+      <div className="settingsOsPermissionBody">
+        <div className="settingsOsPermissionHeading">
+          <strong>{label}</strong>
+          <PrimitiveBadge variant={statusBadgeVariant(stateCopy.tone)}>{stateCopy.label}</PrimitiveBadge>
+        </div>
+        <small className="settingsOsPermissionPurpose">{purpose}</small>
+        {impact ? (
+          <small className="settingsOsPermissionImpact">
+            <span className="settingsOsPermissionImpactLabel">影响功能</span>
+            <span>{impact}</span>
+          </small>
+        ) : null}
+        {snapshot.reason ? (
+          <small className="settingsOsPermissionReason">{snapshot.reason}</small>
+        ) : null}
+      </div>
+      <div className="settingsOsPermissionActions">
+        {showRequest && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={props.onRequest}
+            disabled={busy}
+            aria-busy={pendingKey === 'request' ? 'true' : undefined}
+          >
+            {pendingKey === 'request' ? '请求中…' : '请求授权'}
+          </Button>
+        )}
+        {showOpenSettings && (
+          <Button
+            type="button"
+            variant={showRequest ? 'secondary' : 'default'}
+            size="sm"
+            onClick={props.onOpenSettings}
+            disabled={busy}
+            aria-busy={pendingKey === 'openSettings' ? 'true' : undefined}
+          >
+            {pendingKey === 'openSettings' ? '打开中…' : '前往系统设置'}
+          </Button>
+        )}
+      </div>
     </li>
   );
 }
@@ -6307,7 +6876,7 @@ function HealthCenterPage() {
           </p>
         </div>
         <div className="settingsHealthMeta">
-          <span className="pill" data-tone="info">只读快照</span>
+          <PrimitiveBadge variant="info">只读快照</PrimitiveBadge>
           <small>
             最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
           </small>
@@ -6333,14 +6902,14 @@ function HealthCenterPage() {
       {(blocksSendCount > 0 || blocksCapabilityCount > 0) && (
         <div className="settingsHealthBlockers" role="status">
           {blocksSendCount > 0 && (
-            <span className="pill" data-tone="destructive">
+            <PrimitiveBadge variant="destructive">
               {blocksSendCount} 条健康信号会阻塞发送
-            </span>
+            </PrimitiveBadge>
           )}
           {blocksCapabilityCount > 0 && (
-            <span className="pill" data-tone="warning">
+            <PrimitiveBadge variant="warning">
               {blocksCapabilityCount} 条健康信号会阻塞能力
-            </span>
+            </PrimitiveBadge>
           )}
         </div>
       )}
@@ -6395,7 +6964,7 @@ function HealthSignalRow(props: { signal: HealthSignal }) {
           <strong>{signal.label}</strong>
           <small className="settingsHealthSignalScope">{HEALTH_SCOPE_LABEL[signal.scope]}</small>
         </div>
-        <span className="pill" data-tone={statusCopy.tone}>{statusCopy.label}</span>
+        <PrimitiveBadge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</PrimitiveBadge>
       </div>
       <p className="settingsHealthSignalMessage">{signal.message}</p>
       {signal.detail && <small className="settingsHealthSignalDetail">{signal.detail}</small>}
@@ -6445,14 +7014,10 @@ function SettingRow(props: { title: string; detail: string; value: string }) {
 }
 
 function readLastSettingsSection(): SettingsSection {
-  try {
-    const value = localStorage.getItem('maka-settings-section-v1');
-    if (!value) return 'models';
-    if (SETTINGS_NAV.some((item) => item.id === value)) {
-      return value as SettingsSection;
-    }
-  } catch {
-    /* fall through */
+  const value = safeLocalStorageGet('maka-settings-section-v1');
+  if (!value) return 'models';
+  if (SETTINGS_NAV.some((item) => item.id === value)) {
+    return value as SettingsSection;
   }
   return 'models';
 }

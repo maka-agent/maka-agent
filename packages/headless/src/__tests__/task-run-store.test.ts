@@ -3,7 +3,7 @@ import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { TaskEvent } from '../task-contracts.js';
+import type { HeavyTaskEngineeringRecord, HeavyTaskSemanticSelfCheckState, TaskEvent } from '../task-contracts.js';
 import { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from '../task-run-store.js';
 
 function eventIdFactory(): () => string {
@@ -55,6 +55,140 @@ function completedEvents(taskRunId = 'tr-1'): TaskEvent[] {
     { type: 'task_attempt_completed', id: id(), taskRunId, ts: 22, attemptId: 'a-1', finishedAt: 22, status: 'completed' },
     { type: 'task_run_completed', id: id(), taskRunId, ts: 23, finishedAt: 23 },
   ];
+}
+
+function heavyTaskEvidenceEvent(
+  taskRunId: string,
+  id: string,
+  evidenceId: string,
+  name: 'Bash' | 'Read',
+  ts: number,
+  links: { todoIds?: string[]; checkIds?: string[]; artifactIds?: string[] } = {},
+): TaskEvent {
+  return {
+    type: 'heavy_task_evidence_recorded',
+    id,
+    taskRunId,
+    ts,
+    evidence: {
+      schemaVersion: 1,
+      evidenceId,
+      taskRunId,
+      ts,
+      kind: 'tool',
+      public: true,
+      source: { kind: 'model_tool', toolCallId: `tool-${ts}`, toolName: name },
+      tool: {
+        name,
+        inputSummary: name === 'Bash' ? { command: 'npm test' } : { path: 'README.md' },
+        ...(name === 'Bash' ? { exitCode: 0 } : {}),
+        ok: true,
+        outputs: [{
+          stream: name === 'Bash' ? 'stdout' : 'content',
+          excerpt: 'bounded public summary',
+          byteCount: 22,
+          lineCount: 1,
+          truncated: false,
+          truncationRef: { truncated: false, originalBytes: 22, visibleBytes: 22, omittedBytes: 0 },
+        }],
+        diff: { status: 'not_applicable' },
+      },
+      ...(Object.keys(links).length > 0 ? { links } : {}),
+    },
+  };
+}
+
+function heavyTaskEngineeringRecordEvent(
+  taskRunId: string,
+  id: string,
+  record: HeavyTaskEngineeringRecord,
+): TaskEvent {
+  return {
+    type: 'heavy_task_engineering_recorded',
+    id,
+    taskRunId,
+    ts: record.ts,
+    record,
+  };
+}
+
+function targetedCheckRecord(taskRunId: string, input: {
+  recordId: string;
+  checkId: string;
+  todoIds: string[];
+  evidenceIds: string[];
+  ts: number;
+}): HeavyTaskEngineeringRecord {
+  return {
+    schemaVersion: 1,
+    recordId: input.recordId,
+    taskRunId,
+    ts: input.ts,
+    kind: 'targeted_check',
+    title: 'Run public targeted check',
+    summary: 'Public check passed.',
+    status: 'passed',
+    completeness: 'complete',
+    source: { kind: 'model_tool', toolCallId: `tool-${input.recordId}`, toolName: 'check_record' },
+    links: {
+      todoIds: input.todoIds,
+      evidenceIds: input.evidenceIds,
+      toolCallIds: [`tool-${input.recordId}`],
+      checkIds: [input.checkId],
+      artifactIds: [],
+      changedFiles: [],
+      patchIds: [],
+      hypothesisIds: [],
+      repairIds: [],
+    },
+    targetedCheck: {
+      checkId: input.checkId,
+      command: 'npm test',
+      expectedSignal: 'public checks pass',
+      observedSignal: 'public checks passed',
+      result: 'pass',
+    },
+  };
+}
+
+function patchRecord(taskRunId: string, input: {
+  recordId: string;
+  todoIds: string[];
+  evidenceIds: string[];
+  changedFiles: string[];
+  status?: HeavyTaskEngineeringRecord['status'];
+  ts: number;
+}): HeavyTaskEngineeringRecord {
+  const patchId = `patch-${input.recordId}`;
+  return {
+    schemaVersion: 1,
+    recordId: input.recordId,
+    taskRunId,
+    ts: input.ts,
+    kind: 'patch',
+    title: 'Record public patch decision',
+    summary: 'Public patch record with compact evidence links.',
+    status: input.status ?? 'passed',
+    completeness: 'complete',
+    source: { kind: 'model_tool', toolCallId: `tool-${input.recordId}`, toolName: 'engineering_record' },
+    links: {
+      todoIds: input.todoIds,
+      evidenceIds: input.evidenceIds,
+      toolCallIds: [`tool-${input.recordId}`],
+      checkIds: [],
+      artifactIds: [],
+      changedFiles: input.changedFiles,
+      patchIds: [patchId],
+      hypothesisIds: [],
+      repairIds: [],
+    },
+    patch: {
+      patchId,
+      changedFiles: input.changedFiles,
+      changeSummary: 'Changed public source file.',
+      mutationEvidenceIds: input.evidenceIds,
+    },
+  };
 }
 
 describe('TaskRunStore', () => {
@@ -113,6 +247,302 @@ describe('TaskRunStore', () => {
     assert.equal(projection.artifacts.length, 1);
     assert.equal(projection.artifacts[0]?.workspacePath, '/app');
     assert.equal(projection.artifacts[0]?.authority.source, 'container_capture');
+    assert.equal(projection.heavyTaskEvidence.length, 0);
+  });
+
+  test('projects compact evidence for heavy-task runtime artifacts and skips official artifacts', () => {
+    const taskRunId = 'tr-artifact-evidence';
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'heavy_task_mode_recorded',
+        id: 'e-2',
+        taskRunId,
+        ts: 2,
+        facts: {
+          schemaVersion: 1,
+          enabled: true,
+          triggerSource: 'config',
+          triggerReason: 'long public task',
+          policyVersion: 'maka-heavy-task-policy.v1',
+        },
+      },
+      {
+        type: 'task_run_artifact_recorded',
+        id: 'e-3',
+        taskRunId,
+        ts: 3,
+        artifact: {
+          schemaVersion: 1,
+          artifactId: 'artifact-runtime',
+          taskRunId,
+          ts: 3,
+          kind: 'generated_output',
+          path: 'build-output.log',
+          authority: { source: 'runtime', authoritative: false, label: 'public runtime artifact' },
+          metadata: { label: 'public label', body: 'raw artifact body' },
+        },
+      },
+      {
+        type: 'task_run_artifact_recorded',
+        id: 'e-4',
+        taskRunId,
+        ts: 4,
+        artifact: {
+          schemaVersion: 1,
+          artifactId: 'artifact-official',
+          taskRunId,
+          ts: 4,
+          kind: 'benchmark_manifest',
+          path: 'official-verifier-output.json',
+          authority: { source: 'official_harbor_verifier', authoritative: true },
+        },
+      },
+    ], taskRunId);
+
+    assert.equal(projection.artifacts.length, 2);
+    assert.equal(projection.heavyTaskEvidence.length, 1);
+    assert.equal(projection.latestHeavyTaskEvidence?.artifact?.artifactId, 'artifact-runtime');
+    assert.equal(projection.latestHeavyTaskEvidence?.artifact?.authority?.source, 'runtime');
+    assert.equal(projection.latestHeavyTaskEvidence?.artifact?.metadata?.label, 'public label');
+    assert.doesNotMatch(JSON.stringify(projection.heavyTaskEvidence), /raw artifact body|official-verifier-output/);
+  });
+
+  test('projects heavy-task mode facts', () => {
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId: 'tr-heavy', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'heavy_task_mode_recorded',
+        id: 'e-2',
+        taskRunId: 'tr-heavy',
+        ts: 2,
+        facts: {
+          schemaVersion: 1,
+          enabled: true,
+          triggerSource: 'task_metadata',
+          triggerReason: 'task declared heavy',
+          policyVersion: 'maka-heavy-task-policy.v1',
+        },
+      },
+    ], 'tr-heavy');
+
+    assert.deepEqual(projection.heavyTaskMode, {
+      schemaVersion: 1,
+      enabled: true,
+      triggerSource: 'task_metadata',
+      triggerReason: 'task declared heavy',
+      policyVersion: 'maka-heavy-task-policy.v1',
+    });
+  });
+
+  test('projects heavy-task inventory and todo snapshots from replay order', () => {
+    const taskRunId = 'tr-progress';
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'heavy_task_inventory_recorded',
+        id: 'e-2',
+        taskRunId,
+        ts: 2,
+        inventory: {
+          schemaVersion: 1,
+          inventoryId: 'inventory-1',
+          taskRunId,
+          ts: 2,
+          summary: 'Initial inventory',
+          items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
+          source: { kind: 'model_tool', toolCallId: 'tool-1' },
+        },
+      },
+      {
+        type: 'heavy_task_todos_recorded',
+        id: 'e-3',
+        taskRunId,
+        ts: 3,
+        todos: {
+          schemaVersion: 1,
+          todoSetId: 'todos-1',
+          taskRunId,
+          ts: 3,
+          items: [{ id: 'inspect', content: 'Inspect files', status: 'in_progress', priority: 'high' }],
+          source: { kind: 'model_tool', toolCallId: 'tool-2' },
+        },
+      },
+      {
+        type: 'heavy_task_inventory_recorded',
+        id: 'e-4',
+        taskRunId,
+        ts: 4,
+        inventory: {
+          schemaVersion: 1,
+          inventoryId: 'inventory-2',
+          taskRunId,
+          ts: 4,
+          summary: 'Updated inventory',
+          items: [{ path: 'src/app.js', kind: 'file', status: 'planned' }],
+          source: { kind: 'model_tool', toolCallId: 'tool-3' },
+        },
+      },
+      {
+        type: 'heavy_task_todos_recorded',
+        id: 'e-5',
+        taskRunId,
+        ts: 5,
+        todos: {
+          schemaVersion: 1,
+          todoSetId: 'todos-2',
+          taskRunId,
+          ts: 5,
+          items: [{ id: 'edit', content: 'Patch implementation', status: 'pending', priority: 'medium' }],
+          source: { kind: 'model_tool', toolCallId: 'tool-4' },
+        },
+      },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskInventory.length, 2);
+    assert.equal(projection.latestHeavyTaskInventory?.inventoryId, 'inventory-2');
+    assert.equal(projection.latestHeavyTaskInventory?.items[0]?.path, 'src/app.js');
+    assert.equal(projection.heavyTaskTodoStates.length, 2);
+    assert.equal(projection.latestHeavyTaskTodos?.todoSetId, 'todos-2');
+    assert.equal(projection.latestHeavyTaskTodos?.items[0]?.id, 'edit');
+  });
+
+  test('projects heavy-task compact evidence from replay order', () => {
+    const taskRunId = 'tr-evidence';
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      heavyTaskEvidenceEvent(taskRunId, 'e-2', 'evidence-1', 'Bash', 2),
+      heavyTaskEvidenceEvent(taskRunId, 'e-3', 'evidence-2', 'Read', 3),
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskEvidence.length, 2);
+    assert.equal(projection.heavyTaskEvidence[0]?.evidenceId, 'evidence-1');
+    assert.equal(projection.latestHeavyTaskEvidence?.evidenceId, 'evidence-2');
+    assert.equal(projection.latestHeavyTaskEvidence?.tool?.name, 'Read');
+  });
+
+  test('projects only accepted public heavy-task self-checks from replay', () => {
+    const taskRunId = 'tr-self-check';
+    const accepted = acceptedSelfCheck(taskRunId, 'self-check-1', 'pass', 'npm test passed on public files.');
+    const rejectedGuard = {
+      ...acceptedSelfCheck(taskRunId, 'self-check-2', 'fail', 'official-verifier-output.json says failed'),
+      guard: {
+        status: 'rejected' as const,
+        checkedAt: 11,
+        categories: ['official_verifier_artifacts'],
+        publicReason: 'Rejected because submitted evidence referenced private, hidden, or evaluator-only material.',
+      },
+    };
+    const privatePayload = acceptedSelfCheck(taskRunId, 'self-check-3', 'inconclusive', 'hidden/tests/private_case.py revealed a failure.');
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      { type: 'heavy_task_self_check_recorded', id: 'e-2', taskRunId, ts: 10, selfCheck: accepted },
+      { type: 'heavy_task_self_check_recorded', id: 'e-3', taskRunId, ts: 11, selfCheck: rejectedGuard as unknown as HeavyTaskSemanticSelfCheckState },
+      { type: 'heavy_task_self_check_recorded', id: 'e-4', taskRunId, ts: 12, selfCheck: privatePayload },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskSelfChecks.length, 1);
+    assert.equal(projection.latestHeavyTaskSelfCheck?.selfCheckId, 'self-check-1');
+    assert.deepEqual(projection.heavyTaskEvidence.map((item) => item.kind), ['check', 'tool', 'artifact']);
+    assert.equal(projection.heavyTaskEvidence[2]?.artifact?.path, 'build-output.log');
+    assert.equal(projection.heavyTaskEvidence[2]?.artifact?.authority?.source, 'self_check');
+    assert.equal(projection.warnings.length, 2);
+    assert.match(projection.warnings.join('\n'), /source guard did not accept/);
+  });
+
+  test('derives heavy-task completion from accepted self-checks and latest todos', () => {
+    const taskRunId = 'tr-heavy-completion';
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'heavy_task_mode_recorded',
+        id: 'e-2',
+        taskRunId,
+        ts: 2,
+        facts: {
+          schemaVersion: 1,
+          enabled: true,
+          triggerSource: 'config',
+          triggerReason: 'long public task',
+          policyVersion: 'maka-heavy-task-policy.v1',
+        },
+      },
+      {
+        type: 'heavy_task_todos_recorded',
+        id: 'e-3',
+        taskRunId,
+        ts: 3,
+        todos: {
+          schemaVersion: 1,
+          todoSetId: 'todos-1',
+          taskRunId,
+          ts: 3,
+          items: [
+            { id: 'edit', content: 'Patch implementation', status: 'completed', priority: 'high' },
+            { id: 'optional', content: 'Optional polish', status: 'cancelled', priority: 'low', evidence: 'Not required by public task.' },
+          ],
+          source: { kind: 'model_tool', toolCallId: 'tool-2' },
+        },
+      },
+      {
+        type: 'heavy_task_self_check_recorded',
+        id: 'e-4',
+        taskRunId,
+        ts: 4,
+        selfCheck: acceptedSelfCheck(taskRunId, 'self-check-1', 'pass', 'npm test passed against public files.'),
+      },
+      heavyTaskEvidenceEvent(taskRunId, 'e-4a', 'e-check-edit', 'Bash', 4.1, { todoIds: ['edit'], checkIds: ['check-edit'] }),
+      heavyTaskEvidenceEvent(taskRunId, 'e-4b', 'e-optional', 'Read', 4.2, { todoIds: ['optional'] }),
+      heavyTaskEngineeringRecordEvent(taskRunId, 'e-4c', targetedCheckRecord(taskRunId, {
+        recordId: 'record-check-edit',
+        checkId: 'check-edit',
+        todoIds: ['edit'],
+        evidenceIds: ['e-check-edit'],
+        ts: 4.3,
+      })),
+      heavyTaskEngineeringRecordEvent(taskRunId, 'e-4d', patchRecord(taskRunId, {
+        recordId: 'record-optional',
+        todoIds: ['optional'],
+        evidenceIds: ['e-optional'],
+        changedFiles: ['README.md'],
+        status: 'abandoned',
+        ts: 4.4,
+      })),
+      {
+        type: 'score_result_recorded',
+        id: 'e-5',
+        taskRunId,
+        ts: 5,
+        result: {
+          id: 'score-1',
+          taskRunId,
+          ts: 5,
+          passed: false,
+          scored: true,
+          eligible: true,
+          taxonomy: 'verification_failed',
+          authority: { source: 'official_harbor_verifier', authoritative: true },
+        },
+      },
+      {
+        type: 'task_run_budget_exhausted',
+        id: 'e-6',
+        taskRunId,
+        ts: 6,
+        error: { message: 'runtime step cap reached', class: 'max_steps' },
+      },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskCompletion?.runtime.taskRunStatus, 'budget_exhausted');
+    assert.equal(projection.heavyTaskCompletion?.runtime.taxonomy, 'verification_failed');
+    assert.equal(projection.heavyTaskCompletion?.runtime.capKind, 'runtime_step_cap');
+    assert.equal(projection.heavyTaskCompletion?.semantic.status, 'complete');
+    assert.equal(projection.heavyTaskCompletion?.semantic.evidenceChain.outcome, 'complete');
+    assert.deepEqual(projection.heavyTaskCompletion?.semantic.evidenceChain.nonblockingItemIds, ['todo:optional']);
+    assert.deepEqual(projection.heavyTaskCompletion?.semantic.nonblockingTodoIds, ['optional']);
+    assert.equal(projection.heavyTaskCompletion?.finalization.eligible, true);
+    assert.equal(projection.result?.taxonomy, 'verification_failed');
+    assert.equal(projection.result?.passed, false);
   });
 
   test('projects isolation, permission, inbox, and needs_approval facts', () => {
@@ -376,3 +806,28 @@ describe('TaskRunStore', () => {
     }
   });
 });
+
+function acceptedSelfCheck(
+  taskRunId: string,
+  selfCheckId: string,
+  status: HeavyTaskSemanticSelfCheckState['status'],
+  publicReason: string,
+): HeavyTaskSemanticSelfCheckState {
+  return {
+    schemaVersion: 1,
+    selfCheckId,
+    taskRunId,
+    ts: 10,
+    status,
+    publicReason,
+    commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
+    artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
+    guard: {
+      status: 'accepted',
+      checkedAt: 10,
+      categories: [],
+      publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+    },
+    source: { kind: 'model_tool', toolCallId: 'tool-1' },
+  };
+}

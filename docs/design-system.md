@@ -165,19 +165,17 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 > 这是有意的反规范：Maka 整体 0px 直角 + 关键交互组件 6/8/10px。新 PR 不要引
 > 入 "更柔和" 的 12/14/16px，那会破坏 sharp 视觉。
 
-### 1.5 间距（Spacing）+ 密度 token
+### 1.5 间距（Spacing）
 
-| Token | 值（comfortable） | compact / spacious | 用法 |
-|---|---|---|---|
-| `--spacing` | 0.25rem (4px) | 不变 | 基础步距 |
-| `--ui-density-message-gap` | 18px | 12 / 26 | 每条 turn 之间 |
-| `--ui-density-message-pad-x` | 24px | 20 / 32 | 消息行水平 padding |
-| `--ui-density-message-pad-y` | 10px | 6 / 14 | 消息行垂直 padding |
-| `--ui-density-composer-pad-y` | 18px | 12 / 24 | 输入区上下 padding |
-| `--ui-density-row-pad-y` | 10px | 7 / 14 | 列表行 padding |
-| `--ui-density-turn-inner-gap` | 8px（默认） | — | turn 内三段（user / tools / assistant）间隙 |
+| Token / 值 | 用法 |
+|---|---|
+| `--spacing` = 0.25rem (4px) | 基础步距 |
+| chat gap = 18px | 每条 turn 之间 |
+| message pad-x = 24px | 消息行水平 padding |
+| composer pad-y = 18px | 输入区上下 padding |
+| turn inner gap = 8px | turn 内三段（user / tools / assistant）间隙 |
 
-详细规则见 §2 密度契约。
+Maka 不提供用户可配置的界面密度。新增布局应按具体 surface 的信息量定间距，不要新增全局 density switch。
 
 ### 1.6 动效（Motion）
 
@@ -234,32 +232,15 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 
 ---
 
-## 2. 密度契约（Density contract）
-
-三档密度对应 `:root[data-ui-density="..."]`：
-
-| 模式 | 触发 | message-gap | message-pad-x | message-pad-y | composer-pad-y | row-pad-y |
-|---|---|---|---|---|---|---|
-| `compact` | 显式选择 | 12px | 20 | 6 | 12 | 7 |
-| `comfortable` | 默认 | 18px | 24 | 10 | 18 | 10 |
-| `spacious` | 显式选择 | 26px | 32 | 14 | 24 | 14 |
+## 2. 间距契约（Spacing contract）
 
 **规则**：
 
-1. **新组件必须消费 token，不能硬编码 padding/gap**。例如：
-   ```css
-   .maka-chat { gap: var(--ui-density-message-gap, 16px); }
-   .maka-message-row { padding: 0 var(--ui-density-message-pad-x, 24px); }
-   ```
-   `, 16px` 的兜底值仅是字符串失败时的 fallback，正常路径必须经由 token。
+1. **新组件按 surface 明确写出稳定间距**。聊天主 surface 当前使用 18px turn gap、24px horizontal message padding、18px composer vertical padding。
 
-2. **不要在密度切换里改 typography**。字号、行高保持稳定；只调间距、padding、
-   行间 gap。否则文本 reflow 会让用户每次切换密度都"找内容找半天"。
+2. **不要用全局密度切换改 typography**。字号、行高保持稳定；具体页面需要更紧或更松时，在该页面局部调整。
 
-3. **密度切换是 `<html>` 级别**：CSS attribute selector `:root[data-ui-density=…]`
-   只在根节点生效。组件不要在自己内部 override 密度属性。
-
-4. **新增密度 token** 须同 PR 在本节登记新行 + 同步三档值。
+3. **不要新增 `<html data-ui-density>` 或 Settings 里的密度配置**。界面密度不是产品设置项。
 
 ---
 

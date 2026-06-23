@@ -63,7 +63,7 @@ describe('session open routing contract', () => {
     );
     assert.match(
       handlerBlock,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('操作失败', turnFooterActionErrorMessage\(error\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
       'turn footer failures must not toast after the user leaves the source session',
     );
     assert.doesNotMatch(
@@ -75,11 +75,6 @@ describe('session open routing contract', () => {
       catchBlock,
       /clearPendingTurnAction\(key\);/,
       'pending turn actions must not be cleared only by the error path',
-    );
-    assert.match(
-      main,
-      /function turnFooterActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)/,
-      'turn footer action failures must be generalized before visible toast feedback',
     );
     assert.doesNotMatch(
       handlerBlock,

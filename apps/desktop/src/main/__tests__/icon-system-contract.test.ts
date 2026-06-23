@@ -30,16 +30,16 @@ describe('icon system contract (single chrome size token)', () => {
 
   it('routes nav glyphs through the token, not hardcoded px', async () => {
     const styles = await readFile(join(rendererDir, 'styles.css'), 'utf8');
+    // PR-DELETE-ORPHAN-CSS: `.maka-nav-primary-icon` was an orphan
+    // class (no TSX consumer); deleted alongside the dead CSS sweep.
+    // The icon-token check now covers `.maka-nav-icon` and the
+    // `.maka-nav-row` column track, which is what actually renders.
     const navIcon = ruleBody(styles, '.maka-nav-icon');
-    const navPrimary = ruleBody(styles, '.maka-nav-primary-icon');
     const navRow = ruleBody(styles, '.maka-nav-row');
-    assert.ok(navIcon && navPrimary && navRow, 'nav rules must exist');
+    assert.ok(navIcon && navRow, 'nav rules must exist');
     assert.match(navIcon, /width:\s*var\(--icon-size\)/);
     assert.match(navIcon, /height:\s*var\(--icon-size\)/);
     assert.doesNotMatch(navIcon, /\b(width|height):\s*\d+px/, '.maka-nav-icon must not re-hardcode px');
-    assert.match(navPrimary, /width:\s*var\(--icon-size\)/);
-    assert.match(navPrimary, /height:\s*var\(--icon-size\)/);
-    assert.doesNotMatch(navPrimary, /\b(width|height):\s*\d+px/, '.maka-nav-primary-icon must not re-hardcode px');
     assert.match(navRow, /grid-template-columns:\s*var\(--icon-size\)/, 'nav-row glyph column tracks the token');
   });
 

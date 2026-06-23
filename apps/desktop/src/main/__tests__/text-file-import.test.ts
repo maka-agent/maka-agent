@@ -342,11 +342,10 @@ describe('text file context import', () => {
     assert.match(mainSource, /preflightDroppedTextFilesForPromptImport\(preflightInputs\)/);
     assert.match(mainSource, /window\.maka\.context\.importDroppedTextFiles\(payloads\)/);
     assert.match(
-      mainSource,
-      /function composerImportActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '导入文件内容失败，请稍后重试。'\)/,
+      droppedPromptBlock,
+      /toastApi\.error\('导入文件失败', generalizedErrorMessageChinese\(error, '导入文件内容失败，请稍后重试。'\)\)/,
       'Composer import thrown failures should use a generalized fallback instead of raw backend/path details',
     );
-    assert.match(droppedPromptBlock, /toastApi\.error\('导入文件失败', composerImportActionErrorMessage\(error\)\)/);
     assert.doesNotMatch(droppedPromptBlock, /toastApi\.error\('导入文件失败', cleanErrorMessage\(error\)\)/);
     assert.ok(
       mainSource.indexOf('preflightDroppedTextFilesForPromptImport(preflightInputs)') < mainSource.indexOf('text: await file.text()'),

@@ -63,6 +63,42 @@ describe('Command palette accessibility and visible copy', () => {
     );
   });
 
+  it('keeps command palette chrome compact, non-selectable, and tactile without blocking text entry', async () => {
+    const styles = await readRepo('apps/desktop/src/renderer/styles.css');
+    const modalStyle = styles.match(/\.maka-palette-modal\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const inputStyle = styles.match(/\.maka-palette-input\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    const rowStyle = styles.match(/\.maka-palette-item\s*\{[\s\S]*?\}/)?.[0] ?? '';
+
+    assert.match(modalStyle, /width:\s*min\(584px, calc\(100vw - 32px\)\);/);
+    assert.match(modalStyle, /border:\s*1px solid var\(--border\);/);
+    assert.match(modalStyle, /border-radius:\s*8px;/);
+    assert.match(
+      styles,
+      /\.maka-palette-modal,[\s\S]*?\.maka-palette-footer\s*\{[\s\S]*user-select:\s*none;/,
+      'Palette modal/list/rows/footer should behave as app chrome, not accidental selectable text',
+    );
+    assert.match(inputStyle, /user-select:\s*text;/, 'Palette input text must stay selectable/editable');
+    assert.match(rowStyle, /min-height:\s*28px;/);
+    assert.match(rowStyle, /grid-template-columns:\s*18px minmax\(0, 1fr\) auto;/);
+    assert.match(rowStyle, /transform:\s*translateY\(0\);/);
+    assert.match(rowStyle, /transform 140ms var\(--ease-out-strong\)/);
+    assert.match(
+      styles,
+      /\.maka-palette-item:hover:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*background:\s*var\(--foreground-5\);/,
+      'Palette rows need a hover state independent of keyboard active state',
+    );
+    assert.match(
+      styles,
+      /\.maka-palette-item:active:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*transform:\s*translateY\(1px\);/,
+      'Palette rows need tactile pressed feedback',
+    );
+    assert.match(styles, /\.maka-palette-item:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--ring\);/);
+    assert.match(styles, /\.maka-palette-item\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/);
+    assert.match(styles, /\.maka-palette-item\[data-active="true"\]::before\s*\{[\s\S]*var\(--accent\)/);
+    assert.match(styles, /\.maka-palette-icon\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/);
+    assert.match(styles, /\.maka-palette-hint\s*\{[\s\S]*font-variant-numeric:\s*tabular-nums;/);
+  });
+
   it('has a visual-smoke opener for the command palette input shell', async () => {
     const main = await readRepo('apps/desktop/src/renderer/main.tsx');
     const core = await readRepo('packages/core/src/visual-smoke.ts');

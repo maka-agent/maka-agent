@@ -24,6 +24,26 @@ import {
 } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
+import {
+  createHeavyTaskEngineeringRecorder,
+  HEAVY_TASK_ENGINEERING_TOOL_NAMES,
+  renderHeavyTaskEngineeringForPrompt,
+} from './heavy-task-engineering.js';
+import {
+  createHeavyTaskEvidenceRecorder,
+  renderHeavyTaskEvidenceForPrompt,
+} from './heavy-task-evidence.js';
+import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-policy.js';
+import {
+  createHeavyTaskProgressRecorder,
+  HEAVY_TASK_PROGRESS_TOOL_NAMES,
+  renderHeavyTaskProgressForPrompt,
+} from './heavy-task-progress.js';
+import {
+  createHeavyTaskSelfCheckRecorder,
+  HEAVY_TASK_SELF_CHECK_TOOL_NAMES,
+  renderHeavyTaskSelfCheckForPrompt,
+} from './heavy-task-self-check.js';
 import type { HeadlessBackendContext } from './isolation.js';
 import {
   ISOLATED_HEADLESS_TOOL_NAMES,
@@ -119,7 +139,6 @@ export async function runTaskOnce(
   const newId = deps.newId ?? randomUUID;
   const taskRunId = deps.taskRunId ?? newId();
   const attemptId = deps.attemptId ?? `${taskRunId}-attempt-1`;
-  const instruction = deps.instructionOverride ?? task.instruction;
   const createTaskRun = deps.createTaskRun ?? true;
   const closeTaskRun = deps.closeTaskRun ?? true;
   const interventionPolicy = deps.interventionPolicy ?? DEFAULT_INTERVENTION_POLICY;
@@ -129,6 +148,31 @@ export async function runTaskOnce(
   const runtimeEventStore = deps.runtimeEventStore ?? createRuntimeEventStore(deps.storageRoot);
   const startedAt = now();
   const verifier = normalizeVerifier(task);
+  const heavyTaskMode = resolveHeavyTaskMode(config, task);
+  const effectiveConfig = configWithHeavyTaskPolicy(config, heavyTaskMode);
+  const priorProjection = heavyTaskMode.enabled ? await taskRunStore.project(taskRunId) : undefined;
+  const priorProgressPrompt = priorProjection ? renderHeavyTaskProgressForPrompt(priorProjection) : undefined;
+  const priorSelfCheckPrompt = priorProjection ? renderHeavyTaskSelfCheckForPrompt(priorProjection) : undefined;
+  const priorEvidencePrompt = priorProjection ? renderHeavyTaskEvidenceForPrompt(priorProjection) : undefined;
+  const priorEngineeringPrompt = priorProjection ? renderHeavyTaskEngineeringForPrompt(priorProjection) : undefined;
+  const instruction = withOptionalStatePrompts(deps.instructionOverride ?? task.instruction, [
+    priorProgressPrompt,
+    priorSelfCheckPrompt,
+    priorEvidencePrompt,
+    priorEngineeringPrompt,
+  ]);
+  const heavyTaskProgress = heavyTaskMode.enabled
+    ? createHeavyTaskProgressRecorder({ taskRunId, attemptId, store: taskRunStore, now, newId })
+    : undefined;
+  const heavyTaskSelfCheck = heavyTaskMode.enabled
+    ? createHeavyTaskSelfCheckRecorder({ taskRunId, attemptId, store: taskRunStore, now, newId })
+    : undefined;
+  const heavyTaskEvidence = heavyTaskMode.enabled
+    ? createHeavyTaskEvidenceRecorder({ taskRunId, attemptId, store: taskRunStore, now, newId })
+    : undefined;
+  const heavyTaskEngineering = heavyTaskMode.enabled
+    ? createHeavyTaskEngineeringRecorder({ taskRunId, attemptId, store: taskRunStore, now, newId })
+    : undefined;
 
   if (createTaskRun) {
     await appendTaskEvent(taskRunStore, taskRunId, {
@@ -150,6 +194,13 @@ export async function runTaskOnce(
       taskDefinition: taskDefinitionFromTask(task),
     });
   }
+  await appendTaskEvent(taskRunStore, taskRunId, {
+    type: 'heavy_task_mode_recorded',
+    id: newId(),
+    taskRunId,
+    ts: now(),
+    facts: heavyTaskMode,
+  });
   await appendTaskEvent(taskRunStore, taskRunId, {
     type: 'isolation_policy_recorded',
     id: newId(),
@@ -203,16 +254,21 @@ export async function runTaskOnce(
         taskRunId,
         attemptId,
         isolation: deps.realBackendIsolation,
-        toolNames: deps.realBackendIsolation?.toolExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'],
+        toolNames: toolNamesForIdentity(Boolean(deps.realBackendIsolation?.toolExecutor), heavyTaskMode.enabled),
       }),
     });
     const backends = new BackendRegistry();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
     await registerBackends(backends, {
-      config,
+      config: effectiveConfig,
       task,
       workspaceDir: workspace.dir,
+      heavyTaskMode,
+      ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
+      ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
+      ...(heavyTaskEvidence ? { heavyTaskEvidence } : {}),
+      ...(heavyTaskEngineering ? { heavyTaskEngineering } : {}),
       ...(backendNeedsIsolation(config.backend)
         ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
         : {}),
@@ -221,8 +277,8 @@ export async function runTaskOnce(
     const header = await sessionStore.create({
       cwd: workspace.dir,
       backend: config.backend,
-      llmConnectionSlug: config.llmConnectionSlug,
-      model: config.model,
+      llmConnectionSlug: effectiveConfig.llmConnectionSlug,
+      model: effectiveConfig.model,
       permissionMode: deps.permissionMode ?? 'execute',
       name: `task:${config.id}:${task.id}`,
     });
@@ -448,6 +504,23 @@ export async function runTaskOnce(
 
 const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+function withOptionalStatePrompts(instruction: string, prompts: readonly (string | undefined)[]): string {
+  let next = instruction;
+  for (const prompt of prompts) {
+    if (!prompt) continue;
+    const firstLine = prompt.split('\n', 1)[0];
+    if (firstLine && next.includes(firstLine)) continue;
+    next = `${next}\n\n${prompt}`;
+  }
+  return next;
+}
+
+function toolNamesForIdentity(hasIsolatedExecutor: boolean, heavyTaskEnabled: boolean): string[] {
+  const names = hasIsolatedExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'];
+  if (heavyTaskEnabled && hasIsolatedExecutor) names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES, ...HEAVY_TASK_SELF_CHECK_TOOL_NAMES, ...HEAVY_TASK_ENGINEERING_TOOL_NAMES);
+  return names;
+}
 
 interface PermissionInterventionInput {
   invocation: InvocationResult;

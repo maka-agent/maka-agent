@@ -34,13 +34,13 @@ describe('active session message lifecycle contract', () => {
       'late active-session reads may set messages only while the same session is still active',
     );
     assert.match(
-      src,
-      /function messageLoadActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*generalizedErrorMessageChinese\(error, fallback\)/,
+      activeReadCatch,
+      /const message = generalizedErrorMessageChinese\(error, '对话内容暂时无法读取，请稍后重试。'\);/,
       'message read failures should use generalized fallback copy instead of raw backend/path details',
     );
     assert.match(
       activeReadCatch,
-      /\.catch\(\(error\) => \{[\s\S]*const message = messageLoadActionErrorMessage\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
+      /\.catch\(\(error\) => \{[\s\S]*const message = generalizedErrorMessageChinese\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
       'active-session read failures must set a visible per-session load error after the old chat body has already been cleared',
     );
     assert.doesNotMatch(activeReadCatch, /const message = cleanErrorMessage\(error\)/);
@@ -56,7 +56,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       refreshMessages,
-      /try \{[\s\S]*readMessages\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageLoadActionErrorMessage\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
+      /try \{[\s\S]*readMessages\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*\} catch \(error\) \{[\s\S]*const message = generalizedErrorMessageChinese\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
       'shared refreshMessages path must surface read failures through the same per-session load error state',
     );
     assert.doesNotMatch(refreshMessages, /const message = cleanErrorMessage\(error\)/);
@@ -72,12 +72,12 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       src,
-      /function addPendingMessageRetry\(sessionId: string\): boolean \{[\s\S]*messageRetryPendingRef\.current\.has\(sessionId\)[\s\S]*messageRetryPendingRef\.current\.add\(sessionId\)[\s\S]*setMessageRetryPendingBySession/,
+      /function addPendingSessionAction\([\s\S]*pendingRef\.current\.has\(sessionId\)[\s\S]*pendingRef\.current\.add\(sessionId\)[\s\S]*setPendingBySession/,
       'manual message-load retry must use a ref-backed same-frame duplicate guard',
     );
     assert.match(
       retryMessages,
-      /if \(!addPendingMessageRetry\(sessionId\)\) return;[\s\S]*await refreshMessages\(sessionId\);[\s\S]*finally \{[\s\S]*clearPendingMessageRetry\(sessionId\)/,
+      /if \(!addPendingSessionAction\(sessionId, messageRetryPendingRef, setMessageRetryPendingBySession\)\) return;[\s\S]*await refreshMessages\(sessionId\);[\s\S]*finally \{[\s\S]*clearPendingSessionAction\(sessionId, messageRetryPendingRef, setMessageRetryPendingBySession\)/,
       'manual retry must clear its pending state even when refreshMessages fails',
     );
     assert.match(

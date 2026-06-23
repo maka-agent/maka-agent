@@ -200,6 +200,32 @@ export type {
   AutonomousResultTaxonomy,
   EnvNetworkSecretPolicy,
   FeedbackObservation,
+  HeavyTaskCompactEvidenceEnvelope,
+  HeavyTaskDiffSummary,
+  HeavyTaskEngineeringCompleteness,
+  HeavyTaskEngineeringLinks,
+  HeavyTaskEngineeringRecord,
+  HeavyTaskEngineeringRecordKind,
+  HeavyTaskEngineeringRecordRecordedEvent,
+  HeavyTaskEvidenceKind,
+  HeavyTaskEvidenceRecordedEvent,
+  HeavyTaskOutputSummary,
+  HeavyTaskInventoryItem,
+  HeavyTaskInventoryRecordedEvent,
+  HeavyTaskInventoryState,
+  HeavyTaskModeRecordedEvent,
+  HeavyTaskArtifactEvidence,
+  HeavyTaskCommandEvidence,
+  HeavyTaskProgressSource,
+  HeavyTaskSelfCheckRecordedEvent,
+  HeavyTaskSelfCheckStatus,
+  HeavyTaskSemanticSelfCheckState,
+  HeavyTaskSourceGuardResult,
+  HeavyTaskToolEvidenceName,
+  HeavyTaskTodoItem,
+  HeavyTaskTodoState,
+  HeavyTaskTodosRecordedEvent,
+  HeavyTaskTruncationRef,
   HeadlessInterventionMode,
   IsolationPolicyRecordedEvent,
   PermissionDecision,
@@ -317,12 +343,103 @@ export {
 } from './result-export.js';
 export { normalizeVerifier } from './verifier.js';
 export { BENCHMARK_BASE_SYSTEM_PROMPT } from './system-prompts.js';
+export {
+  appendHeavyTaskPolicyToSystemPrompt,
+  buildHeavyTaskSystemPromptPolicy,
+  configWithHeavyTaskPolicy,
+  FORBIDDEN_HEAVY_TASK_POLICY_TERMS,
+  HEAVY_TASK_POLICY_VERSION,
+  resolveHeavyTaskMode,
+  type HeavyTaskModeSelection,
+  type HeavyTaskModeTriggerSource,
+} from './heavy-task-policy.js';
+export type {
+  HeavyTaskInventorySubmitInput,
+  HeavyTaskProgressRecorder,
+  HeavyTaskTodoUpdateInput,
+} from './heavy-task-progress.js';
+export {
+  buildHeavyTaskProgressTools,
+  createHeavyTaskProgressRecorder,
+  heavyTaskInventoryItemSchema,
+  heavyTaskInventorySubmitSchema,
+  heavyTaskTodoItemSchema,
+  heavyTaskTodoUpdateSchema,
+  HEAVY_TASK_PROGRESS_TOOL_NAMES,
+  renderHeavyTaskProgressForPrompt,
+} from './heavy-task-progress.js';
+export type {
+  HeavyTaskPublicSelfCheckValidation,
+  HeavyTaskSelfCheckRecorder,
+  HeavyTaskSelfCheckSubmitInput,
+} from './heavy-task-self-check.js';
+export {
+  buildHeavyTaskSelfCheckTools,
+  createHeavyTaskSelfCheckRecorder,
+  HEAVY_TASK_SELF_CHECK_TOOL_NAMES,
+  heavyTaskArtifactEvidenceSchema,
+  heavyTaskCommandEvidenceSchema,
+  heavyTaskSelfCheckSubmitSchema,
+  isAcceptedHeavyTaskSelfCheck,
+  renderHeavyTaskSelfCheckForPrompt,
+  validateHeavyTaskPublicSelfCheck,
+} from './heavy-task-self-check.js';
+export type {
+  CheckRecordSubmitInput,
+  EngineeringRecordSubmitInput,
+  HeavyTaskEngineeringArtifactLink,
+  HeavyTaskEngineeringEvent,
+  HeavyTaskEngineeringRecorder,
+  HeavyTaskEngineeringRecordResult,
+} from './heavy-task-engineering.js';
+export {
+  buildHeavyTaskEngineeringTools,
+  checkRecordSubmitSchema,
+  compactHeavyTaskEngineeringState,
+  createHeavyTaskEngineeringRecorder,
+  DEFAULT_EXPORT_ENGINEERING_LIMIT,
+  DEFAULT_PROMPT_ENGINEERING_LIMIT,
+  engineeringRecordSubmitSchema,
+  HEAVY_TASK_ENGINEERING_SCHEMA_VERSION,
+  HEAVY_TASK_ENGINEERING_TOOL_NAMES,
+  isPublicHeavyTaskEngineeringRecord,
+  renderHeavyTaskEngineeringForPrompt,
+  resolveHeavyTaskEngineeringRecordLinks,
+} from './heavy-task-engineering.js';
+export type {
+  CompactTextEvidenceOptions,
+  HeavyTaskCompactEvidenceInput,
+  HeavyTaskEvidenceRecorder,
+  HeavyTaskToolEvidenceInput,
+} from './heavy-task-evidence.js';
+export {
+  compactArtifactEvidence,
+  compactSelfCheckEvidence,
+  compactTextEvidence,
+  compactToolEvidence,
+  createHeavyTaskEvidenceRecorder,
+  DEFAULT_EXPORT_EVIDENCE_LIMIT,
+  DEFAULT_PROMPT_EVIDENCE_LIMIT,
+  DEFAULT_TEXT_EVIDENCE_LIMIT_CHARS,
+  HEAVY_TASK_EVIDENCE_SCHEMA_VERSION,
+  renderHeavyTaskEvidenceForPrompt,
+} from './heavy-task-evidence.js';
+export type {
+  HeavyTaskCompletionInput,
+  HeavyTaskCompletionStatus,
+  HeavyTaskEvidenceChainItem,
+  HeavyTaskEvidenceChainOutcome,
+  HeavyTaskEvidenceChainSummary,
+  HeavyTaskRuntimeCapKind,
+  HeavyTaskSemanticStatus,
+} from './heavy-task-finalization.js';
+export {
+  evaluateHeavyTaskCompletionStatus,
+} from './heavy-task-finalization.js';
 export type {
   HeadlessBackendContext,
   IsolatedCommandInput,
   IsolatedCommandResult,
-  IsolatedEditFileInput,
-  IsolatedEditFileResult,
   IsolatedGlobInput,
   IsolatedGlobResult,
   IsolatedGrepInput,

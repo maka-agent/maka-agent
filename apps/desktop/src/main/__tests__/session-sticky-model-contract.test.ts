@@ -84,13 +84,8 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', sessionModelActionErrorMessage\(error\)\);[\s\S]*\} finally/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\} finally/,
       'model switch failure toast must not surface stale failures after the user switches sessions',
-    );
-    assert.match(
-      renderer,
-      /function sessionModelActionErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)/,
-      'model switch failures must be generalized before visible toast feedback',
     );
     assert.doesNotMatch(
       renderer,
@@ -101,6 +96,11 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.doesNotMatch(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
     assert.match(renderer, /modelChangePending=\{activeId \? pendingSessionModelBySession\[activeId\] === true : false\}/);
     assert.match(renderer, /PROVIDER_DEFAULTS\[connection\.providerType\]/);
+    assert.match(
+      renderer,
+      /const rawModels = connection\.models !== undefined[\s\S]*\? connection\.models\.map\(\(model\) => model\.id\)[\s\S]*: connection\.defaultModel[\s\S]*\? \[connection\.defaultModel\][\s\S]*: defaults\.fallbackModels;/,
+      'chat model choices must fall back to provider defaults only when the connection has no explicit model list/default yet',
+    );
     assert.match(renderer, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(model\.trim\(\)\)/);
     assert.match(ui, /function ChatModelSwitcher/);
     assert.match(ui, /modelChangePending\?: boolean/);

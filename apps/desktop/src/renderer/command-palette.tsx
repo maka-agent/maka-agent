@@ -134,7 +134,8 @@ export function buildCommandList(args: {
    * PR-CMD-PALETTE-PERMISSION-MODE-0: switch the active session's
    * permission mode from anywhere via ⌘K. Only registers when both
    * a callback and an active session id are wired. Mirrors the
-   * PermissionModeSwitcher in the chat header.
+   * composer's permission-mode dropdown (PR-MOVE-PERMISSION-MODE
+   * relocated the picker out of the chat header).
    */
   onSetPermissionMode?(mode: 'explore' | 'ask' | 'execute'): Promise<void> | void;
   activePermissionMode?: 'explore' | 'ask' | 'execute';

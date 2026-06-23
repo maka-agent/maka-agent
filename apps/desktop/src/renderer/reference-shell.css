@@ -84,17 +84,26 @@
   transition: margin-left 150ms ease-out;
 }
 
+/* PR-SETTINGS-RESTORE-SURFACE-0 (WAWQAQ msg `c8dc03e4`): main chat
+   pane was rendering with a 1px border that read as a seam between
+   sidebar and content. Drop the border on the floating panel
+   variant; keep the surface plate (bg + radius + margin) so content
+   still reads as its own canvas. */
 .maka-panel-detail.maka-floating-panel.agents-content-area {
   position: relative;
   margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
-  border: 1px solid var(--color-border-tertiary);
+  border: 0;
   border-radius: var(--agents-content-area-radius);
   background: var(--agents-content-area-bg);
   box-shadow: none;
 }
 
+/* `.agents-parchment-paper-surface` is reused by the composer body —
+   composer keeps its border (overridden below). The bare class on the
+   content area drops its border so we don't double up with the
+   floating-panel rule above. */
 .agents-parchment-paper-surface {
-  border: 1px solid var(--color-border-tertiary);
+  border: 0;
   background-color: var(--agents-content-area-bg);
   box-shadow: none;
 }

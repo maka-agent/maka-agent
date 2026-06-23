@@ -16,13 +16,20 @@
 
 import type { AppSettings, LlmConnection } from '@maka/core';
 
-export type SettingsNavGroup = '基础' | 'AI' | '集成' | '数据' | '其他';
+/**
+ * PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): 5 narrow groups
+ * collapsed to 3. `基础` → `通用`, `AI` + `集成` → `AI 与集成`,
+ * `数据` + `其他` → `系统`. Mirrors reference's tighter nav grouping
+ * (通用 / 扩展与集成 / 高级设置) where one big group carries most
+ * items instead of 5 tiny ones.
+ */
+export type SettingsNavGroup = '通用' | 'AI 与集成' | '系统';
 
 /**
  * The render order used by the Settings modal sidebar. Lives here so the
  * nav-group enum and its presentation order stay in one place.
  */
-export const NAV_GROUP_ORDER: SettingsNavGroup[] = ['基础', 'AI', '集成', '数据', '其他'];
+export const NAV_GROUP_ORDER: SettingsNavGroup[] = ['通用', 'AI 与集成', '系统'];
 
 export interface NavGroupSummary {
   /** Short text rendered next to the group label, e.g. "3 verified · 1 needs reauth". */
@@ -49,13 +56,14 @@ export interface NavGroupSummaryInput {
  */
 export function deriveNavGroupSummary(input: NavGroupSummaryInput): NavGroupSummary | undefined {
   switch (input.group) {
-    case 'AI':
-      return summarizeAi(input.connections, input.defaultSlug);
-    case '集成':
-      return summarizeIntegrations(input.connections, input.settings);
-    case '数据':
-    case '基础':
-    case '其他':
+    case 'AI 与集成':
+      // PR-SETTINGS-NAV-REGROUP-0: AI and 集成 groups merged. Prefer
+      // showing the highest-urgency message — AI connection errors
+      // outrank proxy/bot status.
+      return summarizeAi(input.connections, input.defaultSlug)
+        ?? summarizeIntegrations(input.connections, input.settings);
+    case '通用':
+    case '系统':
       return undefined;
   }
 }

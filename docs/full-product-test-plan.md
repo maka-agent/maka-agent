@@ -79,7 +79,7 @@ Required deliverables:
 - Redacted diagnostics copy.
 - First-run stepper: provider preset, paste key, test/fetch models, choose default, send smoke prompt.
 - Quick Chat MVP: global shortcut and panel window; no accessibility-tree capture in MVP unless separately approved and gated.
-- Settings panels for UI density/font/sidebar, chat tuning, editable keybindings, and advanced flags.
+- Settings panels for font/sidebar, chat tuning, editable keybindings, and advanced flags.
 
 Done means:
 

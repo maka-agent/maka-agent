@@ -31,7 +31,7 @@ describe('Settings network and gateway persistence contract', () => {
   });
 
   it('surfaces network proxy save failures instead of returning raw rejected promises from field handlers', () => {
-    const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
+    const networkBlock = blockBetween('function NetworkProxySection', 'function OpenGatewaySettingsPage');
 
     assert.match(
       networkBlock,
@@ -83,7 +83,7 @@ describe('Settings network and gateway persistence contract', () => {
   it('localizes proxy test failure messages before returning them to Settings', () => {
     const helper = mainSource.match(/function proxyTestFailureMessage\(result: TestProxyResult\): string \{[\s\S]*?\n\}/);
     const handler = mainSource.match(/settings:testNetworkProxy[\s\S]*?satisfies SettingsTestResult;/)?.[0] ?? '';
-    const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
+    const networkBlock = blockBetween('function NetworkProxySection', 'function OpenGatewaySettingsPage');
 
     assert.ok(helper, 'main must normalize proxy test failures at the IPC boundary');
     assert.match(helper![0], /proxy disabled[\s\S]*代理未启用，请先打开代理开关/);
@@ -111,7 +111,7 @@ describe('Settings network and gateway persistence contract', () => {
   });
 
   it('gates proxy tests and reads the latest draft snapshot', () => {
-    const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
+    const networkBlock = blockBetween('function NetworkProxySection', 'function OpenGatewaySettingsPage');
 
     assert.match(
       networkBlock,
@@ -139,7 +139,7 @@ describe('Settings network and gateway persistence contract', () => {
   });
 
   it('drops late network proxy save and test UI writes after Settings is closed', () => {
-    const networkBlock = blockBetween('function NetworkSettingsPage', 'function OpenGatewaySettingsPage');
+    const networkBlock = blockBetween('function NetworkProxySection', 'function OpenGatewaySettingsPage');
 
     assert.match(
       networkBlock,

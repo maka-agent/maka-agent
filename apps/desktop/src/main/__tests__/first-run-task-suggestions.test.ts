@@ -80,13 +80,8 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(hero, /`恢复 \$\{hiddenSuggestions\.length\} 项`/);
     assert.match(main, /window\.maka\.onboarding\.setMilestone\(FIRST_RUN_TASK_SUGGESTION_MILESTONES\[id\], 'skipped'\)/);
     assert.match(main, /window\.maka\.onboarding\.clearMilestone\(FIRST_RUN_TASK_SUGGESTION_MILESTONES\[id\]\)/);
-    assert.match(
-      main,
-      /function firstRunSuggestionActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*generalizedErrorMessageChinese\(error, fallback\)/,
-      'first-run suggestion thrown failures should use generalized fallback copy instead of raw backend/path details',
-    );
-    assert.match(main, /toastApi\.error\('隐藏建议失败', firstRunSuggestionActionErrorMessage\(error, '任务建议暂时无法隐藏，请稍后重试。'\)\)/);
-    assert.match(main, /toastApi\.error\('恢复建议失败', firstRunSuggestionActionErrorMessage\(error, '任务建议暂时无法恢复，请稍后重试。'\)\)/);
+    assert.match(main, /toastApi\.error\('隐藏建议失败', generalizedErrorMessageChinese\(error, '任务建议暂时无法隐藏，请稍后重试。'\)\)/);
+    assert.match(main, /toastApi\.error\('恢复建议失败', generalizedErrorMessageChinese\(error, '任务建议暂时无法恢复，请稍后重试。'\)\)/);
     assert.doesNotMatch(main, /toastApi\.error\('隐藏建议失败', cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(main, /toastApi\.error\('恢复建议失败', cleanErrorMessage\(error\)\)/);
     assert.match(readyBlock, /const \[pendingSuggestionAction, setPendingSuggestionAction\] = useState<string \| null>\(null\)/);
@@ -188,6 +183,9 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(source, /workspaceInstructions\.getState\(\)/);
     assert.match(source, /创建项目指令文件/);
     assert.match(source, /workspaceInstructionCount > 0/);
+    // PR-SETTINGS-REVIEW-0: memory section is on its own again
+    // (the merged memory-review page was too dense). Workspace
+    // instructions live there.
     assert.match(source, /onOpenSettingsSection\('memory'\)/);
   });
 

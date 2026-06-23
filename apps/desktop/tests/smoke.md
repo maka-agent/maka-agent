@@ -1160,7 +1160,7 @@ lines):
 - `normalizeSettings()` falls `appearance.palette` closed to
   `'default'` on any miss (missing / unknown / non-string). The
   same normalize pass must NOT silently reset unrelated fields
-  (theme / density / palette ↔ toastPosition / personalization /
+  (theme / palette ↔ toastPosition / personalization /
   network).
 - `createDefaultSettings()` seeds `appearance.palette: 'default'`.
 - Renderer path: `applyThemePalette(palette)` writes
@@ -1244,7 +1244,7 @@ contract case):
 
 **Residual / non-blocking.**
 - `setToastPosition` keeps optimistic React state if `onUpdate(...)`
-  throws; matches existing theme/density semantics. A stricter
+  throws; matches existing theme/palette semantics. A stricter
   catch-revert path can land in a follow-up if needed; not gated
   by D2.
 

@@ -45,6 +45,10 @@ import type {
   PlanReminder,
   PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
+  DailyReviewArchive,
+  DailyReviewArchiveSummary,
+  DailyReviewConfig,
+  DailyReviewMode,
   DailyReviewSummary,
   WebSearchProvider,
   WebSearchResponse,
@@ -194,6 +198,18 @@ declare global {
       };
       permissions: {
         getSnapshot(): Promise<PermissionSnapshot>;
+        openSystemSettings(
+          permId: string,
+        ): Promise<
+          | { ok: true }
+          | { ok: false; reason: 'invalid_id' | 'unsupported_platform' | 'unsupported_permission' | 'failed'; message?: string }
+        >;
+        requestAccess(
+          permId: string,
+        ): Promise<
+          | { ok: true }
+          | { ok: false; reason: 'invalid_id' | 'unsupported_platform' | 'unsupported_permission' | 'failed'; message?: string }
+        >;
       };
       capabilities: {
         getSnapshot(): Promise<CapabilitySnapshotCollection>;
@@ -347,12 +363,28 @@ declare global {
       };
       dailyReview: {
         day(offsetDays: number, daySpan?: number): Promise<Result<DailyReviewSummary>>;
+        getConfig?(): Promise<DailyReviewConfig>;
+        setConfig?(patch: Partial<DailyReviewConfig>): Promise<DailyReviewConfig>;
+        runOnce?(input: { mode: DailyReviewMode; day?: number }): Promise<{ archiveId: string }>;
+        list?(): Promise<DailyReviewArchiveSummary[]>;
+        get?(archiveId: string): Promise<DailyReviewArchive | null>;
+        delete?(archiveId: string): Promise<void>;
+        listArchives?(): Promise<DailyReviewArchiveSummary[]>;
+        getArchive?(archiveId: string): Promise<DailyReviewArchive | null>;
+        deleteArchive?(archiveId: string): Promise<void>;
         saveMarkdownToFile(input: {
           markdown: string;
           defaultName: string;
         }): Promise<
           { ok: true; path: string } | { ok: false; reason: 'canceled' | 'write_failed' | 'invalid_input' }
         >;
+        /**
+         * PR-DAILY-REVIEW-FULL-0 — pipeline + archive surface. Each
+         * method may reject with a string error code when the
+         * backend is not yet wired or when prerequisites are missing
+         * (e.g. no model configured). Renderer gracefully handles
+         * rejection by showing the disabled / fallback form.
+         */
       };
       appWindow: {
         subscribeOpenSettings(handler: () => void): () => void;

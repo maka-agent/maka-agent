@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ResultRecord } from './contracts.js';
+import { compactHeavyTaskEngineeringState, isPublicHeavyTaskEngineeringRecord } from './heavy-task-engineering.js';
+import { isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
 import {
   isTerminalTaskRunStatus,
   type AutonomousResultTaxonomy,
@@ -50,6 +52,38 @@ export interface TaskRunExport {
   verifier?: VerifierResult & { benchmark?: Record<string, unknown> };
   score?: ScoreResult;
   budget?: Record<string, unknown>;
+  policy?: {
+    heavyTask?: TaskRunProjection['heavyTaskMode'];
+  };
+  heavyTask?: {
+    mode?: TaskRunProjection['heavyTaskMode'];
+    completion: NonNullable<TaskRunProjection['heavyTaskCompletion']>;
+  };
+  progress?: {
+    inventory?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskInventory']>;
+      historyCount: number;
+    };
+    todos?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskTodos']>;
+      historyCount: number;
+    };
+    selfChecks?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheck']>;
+      historyCount: number;
+    };
+    evidence?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskEvidence']>;
+      recent: TaskRunProjection['heavyTaskEvidence'];
+      historyCount: number;
+    };
+    engineering?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskEngineeringRecord']>;
+      recent: TaskRunProjection['heavyTaskEngineeringRecords'];
+      historyCount: number;
+      incompleteCount: number;
+    };
+  };
   isolation: {
     policy?: TaskRunProjection['isolation'];
     toolExecutors: TaskRunProjection['toolExecutors'];
@@ -124,6 +158,11 @@ export function taskRunExportFromProjection(
   const benchmark = verifierBenchmark(verifier);
   const taxonomy = score?.taxonomy ?? projection.result?.taxonomy ?? legacyResultRecord.errorClass ?? projection.status;
   const primaryWorkspacePath = primaryWorkspacePathFromArtifacts(projection.artifacts);
+  const policy = projection.heavyTaskMode?.enabled ? { heavyTask: projection.heavyTaskMode } : undefined;
+  const heavyTask = projection.heavyTaskCompletion
+    ? { mode: projection.heavyTaskMode, completion: projection.heavyTaskCompletion }
+    : undefined;
+  const progress = progressFromProjection(projection);
 
   return {
     schemaVersion: 'maka.task_run_export.v1',
@@ -168,6 +207,9 @@ export function taskRunExportFromProjection(
       : undefined,
     score,
     budget: recordValue(scoreDetails.budget) ? scoreDetails.budget as Record<string, unknown> : undefined,
+    policy,
+    heavyTask,
+    progress,
     isolation: {
       policy: projection.isolation,
       toolExecutors: projection.toolExecutors,
@@ -252,6 +294,9 @@ function compactResultView(exported: TaskRunExport): Record<string, unknown> {
         }
       : undefined,
     score: exported.score,
+    policy: exported.policy,
+    heavyTask: exported.heavyTask,
+    progress: exported.progress,
     workspace: exported.workspace,
     artifacts: exported.artifacts,
     legacyResultRecord: exported.legacyResultRecord,
@@ -260,6 +305,40 @@ function compactResultView(exported: TaskRunExport): Record<string, unknown> {
 
 function runtimeRefsFromFeedback(projection: TaskRunProjection): unknown {
   return projection.feedback.find((observation) => recordValue(observation.details?.runtimeRefs))?.details?.runtimeRefs;
+}
+
+function progressFromProjection(projection: TaskRunProjection): TaskRunExport['progress'] {
+  const progress: NonNullable<TaskRunExport['progress']> = {};
+  if (projection.latestHeavyTaskInventory) {
+    progress.inventory = {
+      latest: projection.latestHeavyTaskInventory,
+      historyCount: projection.heavyTaskInventory.length,
+    };
+  }
+  if (projection.latestHeavyTaskTodos) {
+    progress.todos = {
+      latest: projection.latestHeavyTaskTodos,
+      historyCount: projection.heavyTaskTodoStates.length,
+    };
+  }
+  if (projection.latestHeavyTaskSelfCheck) {
+    progress.selfChecks = {
+      latest: projection.latestHeavyTaskSelfCheck,
+      historyCount: projection.heavyTaskSelfChecks.length,
+    };
+  }
+  if (projection.latestHeavyTaskEvidence) {
+    progress.evidence = {
+      latest: projection.latestHeavyTaskEvidence,
+      recent: projection.heavyTaskEvidence.slice(-25),
+      historyCount: projection.heavyTaskEvidence.length,
+    };
+  }
+  const engineering = compactHeavyTaskEngineeringState(projection.heavyTaskEngineeringRecords);
+  if (engineering) {
+    progress.engineering = engineering;
+  }
+  return progress.inventory || progress.todos || progress.selfChecks || progress.evidence || progress.engineering ? progress : undefined;
 }
 
 function runtimeEventIdsFrom(runtimeRefs: unknown): string[] {
@@ -312,8 +391,21 @@ function verifierBenchmark(verifier: VerifierResult | undefined): Record<string,
 }
 
 function eventsJsonl(events: readonly TaskEvent[]): string {
-  const body = events.map((event) => JSON.stringify(event)).join('\n');
+  const body = events.flatMap(exportableTaskEvents).map((event) => JSON.stringify(event)).join('\n');
   return body.length > 0 ? `${body}\n` : '';
+}
+
+function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
+  if (event.type === 'heavy_task_self_check_recorded') {
+    return isAcceptedHeavyTaskSelfCheck(event.selfCheck) ? [event] : [];
+  }
+  if (event.type === 'heavy_task_evidence_recorded') {
+    return event.evidence.public === true ? [event] : [];
+  }
+  if (event.type === 'heavy_task_engineering_recorded') {
+    return isPublicHeavyTaskEngineeringRecord(event.record) ? [event] : [];
+  }
+  return [event];
 }
 
 export function exportContentHash(value: unknown): string {

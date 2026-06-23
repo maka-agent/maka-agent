@@ -234,6 +234,22 @@
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
+  /* === page-card recipe ===
+     Single source of truth for the lifted "page card" chrome used by every
+     top-level module page (Skills, Plan/Reminder, future Settings). Atlas
+     §4: the reference layout's signature recipe is `1px tertiary border +
+     6px radius + 0 1px 2px @ 4% lift` — every workbench-card, aux-panel,
+     and agents-chat-panel uses these three values. See
+     notes/reference-atlas.md §9 for the per-surface gap analysis. */
+  --card-radius: 6px;
+  --card-gap: 4px;
+  --card-border-color: oklch(from var(--foreground) l c h / 0.08);
+  --card-bg: var(--background);
+  --card-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.04);
+  /* Inner top highlight — high-end-visual-design §4A Doppelrand: cards
+     read as physical hardware via a 1px inner top sheen. */
+  --card-highlight: inset 0 1px 0 oklch(1 0 0 / 0.04);
+
   /* sidebar / pane widths (use as max-inline-size on resizable panels) */
   --w-sidebar: 240px;
   --w-rail: 240px;
@@ -241,33 +257,6 @@
   --h-toolbar: 40px;
   --h-composer-min: 56px;
 
-  /* === UI density ===
-     Three profiles map to the same set of tokens; see the `[data-ui-density]`
-     selectors below maka-tokens.css for the active values. Components read
-     these instead of hardcoded paddings so a single switch retunes the whole
-     surface (external design reference-deep §7). */
-  --ui-density-message-gap: 18px;
-  --ui-density-message-pad-x: 24px;
-  --ui-density-message-pad-y: 10px;
-  --ui-density-composer-pad-y: 18px;
-  --ui-density-row-pad-y: 10px;
-}
-
-/* Comfortable is the default; selectors below tune only the deltas. */
-:root[data-ui-density="compact"] {
-  --ui-density-message-gap: 12px;
-  --ui-density-message-pad-x: 20px;
-  --ui-density-message-pad-y: 6px;
-  --ui-density-composer-pad-y: 12px;
-  --ui-density-row-pad-y: 7px;
-}
-
-:root[data-ui-density="spacious"] {
-  --ui-density-message-gap: 26px;
-  --ui-density-message-pad-x: 32px;
-  --ui-density-message-pad-y: 14px;
-  --ui-density-composer-pad-y: 24px;
-  --ui-density-row-pad-y: 14px;
 }
 
 /* =============================================================================
@@ -841,13 +830,13 @@
     padding: 24px 0 16px 0;
     display: flex;
     flex-direction: column;
-    gap: var(--ui-density-message-gap, 16px);
+    gap: 18px;
   }
   .maka-message-row {
     max-width: 760px;
     margin: 0 auto;
     width: 100%;
-    padding: 0 var(--ui-density-message-pad-x, 24px);
+    padding: 0 24px;
     /* Subtle fade on first paint — uses @starting-style instead of a
        keyframe so the transition is interruptible and stays smooth even
        when messages are streaming in rapidly (emil-design-eng "Use CSS
@@ -866,14 +855,14 @@
   .maka-turn {
     display: flex;
     flex-direction: column;
-    gap: var(--ui-density-turn-inner-gap, 8px);
+    gap: 8px;
     max-width: 760px;
     margin: 0 auto;
     width: 100%;
   }
 
   .maka-turn-tools {
-    padding: 0 var(--ui-density-message-pad-x, 24px);
+    padding: 0 24px;
   }
 
   /* Compact turn summary chips between the user message and the rest of
@@ -883,7 +872,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 0 var(--ui-density-message-pad-x, 24px);
+    padding: 0 24px;
     margin-top: -2px;
   }
 
@@ -1583,7 +1572,7 @@
      * a strong horizontal line slicing the panel. The composer's
      * own border + rounded chrome below is sufficient visual
      * separation; no extra line needed. */
-    padding: var(--ui-density-composer-pad-y, 16px) 24px var(--ui-density-composer-pad-y, 18px) 24px;
+    padding: 18px 24px;
     background: var(--background);
   }
   .maka-composer-inner {

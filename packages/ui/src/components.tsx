@@ -25,6 +25,7 @@ import {
   HelpCircle,
   Hourglass,
   Info,
+  LineChart,
   Loader2,
   MessageSquare,
   MoreHorizontal,
@@ -95,7 +96,14 @@ import {
   normalizeSearchUrl,
   nextRelativeRefreshDelay,
 } from '@maka/core';
-import type { DailyReviewSummary, DailyReviewTopEntry } from '@maka/core';
+import type {
+  DailyReviewArchive,
+  DailyReviewArchiveSummary,
+  DailyReviewConfig,
+  DailyReviewMode,
+  DailyReviewSummary,
+  DailyReviewTopEntry,
+} from '@maka/core';
 import {
   materializeChat,
   materializeTools,
@@ -360,8 +368,6 @@ export function SessionListPanel(props: {
   userLabel?: string;
   onNew(): void;
   onOpenSkill?(skillId: string): void;
-  /** Opens the local version/build information surface. */
-  onOpenUpdate(): void;
   /**
    * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + `94c7bf0f`):
    * Sidebar `搜索` nav row click handler. Opens a dedicated Search
@@ -539,6 +545,17 @@ export function SessionListPanel(props: {
             are kept for those triggers. */}
         <button
           className="maka-nav-row"
+          data-active={isModuleActive('daily-review')}
+          aria-current={isModuleActive('daily-review') ? 'page' : undefined}
+          aria-label={MODULE_NAV_LABEL['daily-review']}
+          type="button"
+          onClick={() => selectModule('daily-review')}
+        >
+          <LineChart className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+          <span>{MODULE_NAV_LABEL['daily-review']}</span>
+        </button>
+        <button
+          className="maka-nav-row"
           data-active={isModuleActive('skills')}
           aria-current={isModuleActive('skills') ? 'page' : undefined}
           aria-label={MODULE_NAV_LABEL.skills}
@@ -632,6 +649,11 @@ export function SessionListPanel(props: {
       </section>
 
       <footer className="maka-session-panel-footer">
+        {/* Maka has no account system — the sidebar footer is a thin
+            settings affordance only. The earlier `.maka-sidebar-account`
+            "Free Plan" widget falsely implied a subscription model and
+            was removed per WAWQAQ msg cad3dec4. About / version info
+            still reachable via Settings → 关于. */}
         <button
           className="maka-sidebar-settings-button"
           type="button"
@@ -1180,6 +1202,17 @@ function SkillsModuleMain(props: {
  */
 export interface DailyReviewBridge {
   fetchDay(offsetDays: number, daySpan?: number): Promise<DailyReviewSummary>;
+  /**
+   * PR-DAILY-REVIEW-FULL-0 — optional pipeline methods. Renderer checks
+   * for presence before exposing the matching UI. When undefined, the
+   * panel still works as the MVP telemetry view.
+   */
+  runOnce?(opts: { mode: DailyReviewMode }): Promise<{ archiveId: string }>;
+  listArchives?(): Promise<DailyReviewArchiveSummary[]>;
+  getArchive?(archiveId: string): Promise<DailyReviewArchive>;
+  deleteArchive?(archiveId: string): Promise<void>;
+  fetchConfig?(): Promise<DailyReviewConfig>;
+  updateConfig?(patch: Partial<DailyReviewConfig>): Promise<DailyReviewConfig>;
 }
 
 /**
@@ -1196,6 +1229,27 @@ type DailyReviewMarkdownActionInput = {
   markdown: string;
   label: string;
   summary: DailyReviewSummary;
+};
+type DailyReviewArchiveSectionKey = keyof DailyReviewArchive['sections'];
+
+const DAILY_REVIEW_ARCHIVE_SECTION_LABEL: Record<DailyReviewArchiveSectionKey, string> = {
+  summary: '对话摘要',
+  gaps: '遗漏提醒',
+  usage: '使用洞察',
+  code: '代码建议',
+};
+
+const DAILY_REVIEW_ARCHIVE_STATUS_LABEL: Record<DailyReviewArchive['status'], string> = {
+  ok: '已生成',
+  no_model: '缺少模型',
+  no_data: '无数据',
+  failed: '生成失败',
+  skipped: '已跳过',
+};
+
+const DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL: Record<DailyReviewArchive['trigger'], string> = {
+  cron: '定时',
+  manual: '手动',
 };
 
 function dailyReviewScopeKey(offsetDays: number, range: DailyReviewRange): string {
@@ -1220,11 +1274,18 @@ function DailyReviewPanel(props: {
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
   const [pendingDailyReviewAction, setPendingDailyReviewAction] = useState<string | null>(null);
+  const [archives, setArchives] = useState<DailyReviewArchiveSummary[]>([]);
+  const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
+  const [selectedArchive, setSelectedArchive] = useState<DailyReviewArchive | null>(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveReloadToken, setArchiveReloadToken] = useState(0);
   const dailyReviewMountedRef = useRef(true);
   const summaryScopeKeyRef = useRef<string | null>(null);
   const pendingDailyReviewActionRef = useRef<string | null>(null);
   const currentSummaryScopeKey = dailyReviewScopeKey(offsetDays, range);
   const visibleSummary = summaryScopeKey === currentSummaryScopeKey ? summary : null;
+  const canLoadArchives = Boolean(props.bridge.listArchives && props.bridge.getArchive);
 
   useEffect(() => {
     dailyReviewMountedRef.current = true;
@@ -1263,6 +1324,61 @@ function DailyReviewPanel(props: {
     };
   }, [offsetDays, range, reloadToken, props.bridge]);
 
+  useEffect(() => {
+    const listArchives = props.bridge.listArchives;
+    if (!listArchives) {
+      setArchives([]);
+      setSelectedArchiveId(null);
+      setSelectedArchive(null);
+      return;
+    }
+    let cancelled = false;
+    setArchiveError(null);
+    listArchives()
+      .then((next) => {
+        if (cancelled) return;
+        setArchives(next);
+        setSelectedArchiveId((current) => {
+          if (current && next.some((archive) => archive.id === current)) return current;
+          return next[0]?.id ?? null;
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setArchiveError(dailyReviewPanelErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archiveReloadToken, props.bridge]);
+
+  useEffect(() => {
+    const getArchive = props.bridge.getArchive;
+    if (!getArchive || !selectedArchiveId) {
+      setSelectedArchive(null);
+      setArchiveLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setArchiveLoading(true);
+    setArchiveError(null);
+    getArchive(selectedArchiveId)
+      .then((next) => {
+        if (cancelled) return;
+        setSelectedArchive(next);
+        setArchiveLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setSelectedArchive(null);
+        setArchiveError(dailyReviewPanelErrorMessage(err));
+        setArchiveLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archiveReloadToken, selectedArchiveId, props.bridge]);
+
   const dayLabel = (() => {
     if (range === 1) {
       if (offsetDays === 0) return '今天';
@@ -1300,6 +1416,22 @@ function DailyReviewPanel(props: {
 
   const dailyReviewActionBusy = pendingDailyReviewAction !== null;
   const hasDailyReviewActions = Boolean(props.onCopyMarkdown || props.onAppendMarkdown || props.onSaveMarkdown);
+  const canManualRun = Boolean(props.bridge.runOnce);
+
+  async function triggerManualRun(mode: DailyReviewMode) {
+    const runOnce = props.bridge.runOnce;
+    if (!runOnce) return;
+    await runDailyReviewAction(`run:${mode}`, async () => {
+      try {
+        const result = await runOnce({ mode });
+        setSelectedArchiveId(result.archiveId);
+        setArchiveReloadToken((n) => n + 1);
+        setReloadToken((n) => n + 1);
+      } catch (err) {
+        setError(dailyReviewPanelErrorMessage(err));
+      }
+    });
+  }
 
   return (
     <div className="maka-daily-review-panel" data-loading={loading ? 'true' : undefined}>
@@ -1327,6 +1459,98 @@ function DailyReviewPanel(props: {
           ›
         </UiButton>
       </header>
+      <section className="maka-daily-review-info" aria-label="每日回顾说明">
+        <p className="maka-daily-review-info-body">
+          每日回顾会自动汇总本机的对话历史，生成
+          <strong>对话摘要</strong>和
+          <strong>遗漏提醒</strong>；开启
+          <strong>深度分析</strong>后还会做更长周期的项目趋势与技术调研。
+        </p>
+        <p className="maka-daily-review-info-hint">
+          在设置中开启<strong>定时执行</strong>，或在此页面手动触发一次。
+        </p>
+      </section>
+      {canManualRun && (
+        <div className="maka-daily-review-quick-runs" aria-label="手动触发回顾">
+          <UiButton
+            type="button"
+            variant="default"
+            size="sm"
+            className="maka-daily-review-quick-run"
+            onClick={() => void triggerManualRun('daily')}
+            disabled={dailyReviewActionBusy}
+            data-pending={pendingDailyReviewAction === 'run:daily' ? 'true' : undefined}
+            aria-busy={pendingDailyReviewAction === 'run:daily' ? 'true' : undefined}
+          >
+            {pendingDailyReviewAction === 'run:daily' ? '生成中…' : '生成每日回顾'}
+          </UiButton>
+          <UiButton
+            type="button"
+            variant="outline"
+            size="sm"
+            className="maka-daily-review-quick-run"
+            onClick={() => void triggerManualRun('deep')}
+            disabled={dailyReviewActionBusy}
+            data-pending={pendingDailyReviewAction === 'run:deep' ? 'true' : undefined}
+            aria-busy={pendingDailyReviewAction === 'run:deep' ? 'true' : undefined}
+          >
+            {pendingDailyReviewAction === 'run:deep' ? '生成中…' : '生成深度分析'}
+          </UiButton>
+        </div>
+      )}
+      {canLoadArchives && (
+        <section className="maka-daily-review-archives" aria-label="已生成报告">
+          <div className="maka-daily-review-archives-header">
+            <h4 className="maka-daily-review-section-title">已生成报告</h4>
+            <span className="maka-daily-review-archive-count">{archives.length} 份</span>
+          </div>
+          {archiveError && (
+            <Alert variant="warning" className="maka-daily-review-alert">
+              <AlertDescription>回顾报告读取失败：{archiveError}</AlertDescription>
+              <AlertAction>
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="maka-daily-review-alert-retry"
+                  onClick={() => setArchiveReloadToken((n) => n + 1)}
+                  disabled={archiveLoading}
+                >
+                  重试
+                </UiButton>
+              </AlertAction>
+            </Alert>
+          )}
+          {archives.length === 0 && !archiveError ? (
+            <p className="maka-daily-review-archive-empty">
+              还没有生成报告。点击上方按钮后，报告会保存到本机并显示在这里。
+            </p>
+          ) : (
+            <div className="maka-daily-review-archive-layout">
+              <div className="maka-daily-review-archive-list" role="list" aria-label="回顾报告历史">
+                {archives.map((archive) => (
+                  <button
+                    key={archive.id}
+                    type="button"
+                    className="maka-daily-review-archive-row"
+                    data-active={selectedArchiveId === archive.id ? 'true' : undefined}
+                    onClick={() => setSelectedArchiveId(archive.id)}
+                    role="listitem"
+                  >
+                    <span className="maka-daily-review-archive-row-title">
+                      {formatDailyReviewArchiveTitle(archive)}
+                    </span>
+                    <span className="maka-daily-review-archive-row-meta">
+                      {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]} · {archive.totals.sessionCount} 对话 · {formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <DailyReviewArchiveBody archive={selectedArchive} loading={archiveLoading} />
+            </div>
+          )}
+        </section>
+      )}
       <nav className="maka-daily-review-range" aria-label="时间范围切换">
         <div className="maka-daily-review-range-tabs">
           {([1, 7, 30] as const).map((option) => (
@@ -1431,6 +1655,7 @@ function DailyReviewPanel(props: {
           title="读取失败"
           body={error}
           cta={{ label: '重试', onClick: () => setReloadToken((n) => n + 1) }}
+          extraClassName="maka-daily-review-summary-empty"
         />
       ) : !visibleSummary ? (
         <div className="maka-daily-review-loading" aria-busy="true">
@@ -1443,6 +1668,7 @@ function DailyReviewPanel(props: {
           Icon={CalendarDays}
           title={emptyActivityTitle}
           body={emptyActivityBody}
+          extraClassName="maka-daily-review-summary-empty"
         />
       ) : (
         <>
@@ -1510,6 +1736,80 @@ function DailyReviewPanel(props: {
 
 function dailyReviewPanelErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '每日回顾暂时不可用，请稍后重试。');
+}
+
+function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loading: boolean }) {
+  if (props.loading) {
+    return (
+      <div className="maka-daily-review-archive-body" aria-busy="true">
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '58%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '92%' }} />
+        <div className="maka-skeleton maka-skeleton-line" style={{ width: '74%' }} />
+      </div>
+    );
+  }
+  if (!props.archive) {
+    return (
+      <div className="maka-daily-review-archive-body" data-empty="true">
+        选择一份报告查看生成内容。
+      </div>
+    );
+  }
+  const archive = props.archive;
+  const sections = (Object.keys(DAILY_REVIEW_ARCHIVE_SECTION_LABEL) as DailyReviewArchiveSectionKey[])
+    .map((key) => {
+      const content = archive.sections[key]?.trim();
+      return content ? { key, content } : null;
+    })
+    .filter((entry): entry is { key: DailyReviewArchiveSectionKey; content: string } => entry !== null);
+  return (
+    <article className="maka-daily-review-archive-body" aria-label={formatDailyReviewArchiveTitle(archive)}>
+      <header className="maka-daily-review-archive-body-header">
+        <div>
+          <h4>{formatDailyReviewArchiveTitle(archive)}</h4>
+          <p>
+            {DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL[archive.trigger]}生成 · {formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}
+            {archive.modelKey ? ` · ${archive.modelKey}` : ' · 默认对话模型'}
+          </p>
+        </div>
+        <span className="maka-daily-review-archive-status" data-status={archive.status}>
+          {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}
+        </span>
+      </header>
+      {archive.errorMessage && (
+        <p className="maka-daily-review-archive-error">{archive.errorMessage}</p>
+      )}
+      {sections.length > 0 ? (
+        <div className="maka-daily-review-archive-sections">
+          {sections.map((section) => (
+            <section key={section.key} className="maka-daily-review-archive-section">
+              <h5>{DAILY_REVIEW_ARCHIVE_SECTION_LABEL[section.key]}</h5>
+              <p>{section.content}</p>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <p className="maka-daily-review-archive-empty">
+          这份报告没有生成正文内容。
+        </p>
+      )}
+    </article>
+  );
+}
+
+function formatDailyReviewArchiveTitle(archive: DailyReviewArchive | DailyReviewArchiveSummary): string {
+  const d = new Date(archive.day.fromMs);
+  const date = d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  return `${date} · ${archive.mode === 'deep' ? '深度分析' : '每日回顾'}`;
+}
+
+function formatDailyReviewArchiveGeneratedAt(generatedAt: number): string {
+  return new Date(generatedAt).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 /**
@@ -3700,25 +4000,40 @@ interface PermissionModeMeta {
   tone: 'info' | 'accent' | 'caution';
 }
 
+/**
+ * PR-MOVE-PERMISSION-MODE (WAWQAQ msgs 47fe0d0e / 21993dcc / a667cf6c
+ * 2026-06-23): the user-facing permission-mode picker is now a
+ * two-option dropdown sitting in the composer left-controls instead
+ * of a 3-chip switcher at the chat header. The `explore` (read-only)
+ * mode was retired from the picker — for an agent that can't write
+ * or run anything, the mode is "not useful". Internally `explore`
+ * still exists in the `PermissionMode` enum because Deep Research
+ * sessions and Bot-incoming guards use it as their default; the
+ * picker collapses those sessions to display `询问权限` so the user
+ * sees a coherent option.
+ *
+ * Labels follow WAWQAQ's a667cf6c renaming — direct, action-led copy
+ * instead of engineering shorthand.
+ */
 const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
   explore: {
-    label: '只读',
-    hint: '只读模式：读取、列表、搜索直通，写入或网络仍需明确确认。',
+    label: '只读模式',
+    hint: '只读模式：读取、列表、搜索直通，写入或网络仍需明确确认。Deep Research 默认走这档；不再出现在用户切换里。',
     tone: 'info',
   },
   ask: {
-    label: '确认',
-    hint: '平衡模式：敏感工具调用前必须允许或拒绝。',
+    label: '询问权限',
+    hint: '每次工具调用前都弹出对话框让你确认。最稳健，适合需要盯着 agent 干活的场景。',
     tone: 'accent',
   },
   execute: {
-    label: '执行',
-    hint: '执行模式：信任的工具调用直通；破坏性操作仍会拦截。',
+    label: '自动执行',
+    hint: 'Agent 自跑全部工具，不打断你。等价于 reference 的 Bypass permissions — 适合让 agent 长时间独立完成任务。',
     tone: 'caution',
   },
 };
 
-const PERMISSION_MODE_ORDER: PermissionMode[] = ['explore', 'ask', 'execute'];
+const PERMISSION_MODE_ORDER: PermissionMode[] = ['ask', 'execute'];
 
 export interface ChatHeaderAlert {
   /** Visual tone — drives badge color in the chat header. */
@@ -3899,8 +4214,6 @@ export function ChatView(props: {
   onBranchBannerClick?: (parentSessionId: string) => void;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
-  permissionModePending?: boolean;
-  onPermissionModeChange?(mode: PermissionMode): void | Promise<void>;
 }) {
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
@@ -4003,7 +4316,11 @@ export function ChatView(props: {
 
   if (props.mode === 'daily-review') {
     return (
-      <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="每日回顾">
+      <main
+        className="maka-main detailPane maka-module-main agents-chat-panel"
+        data-module="daily-review"
+        aria-label="每日回顾"
+      >
         <header className="maka-module-main-header">
           <div>
             <h2>每日回顾</h2>
@@ -4032,6 +4349,19 @@ export function ChatView(props: {
   if (!props.activeSession) {
     return (
       <main className="maka-main detailPane agents-chat-panel agents-chat-view-root">
+        {/* PR-REMOVE-CHAT-TAB (WAWQAQ msg d401938d 2026-06-23): the
+            browser-style session tab + the duplicate "新建对话" plus
+            button were removed. The session name lives in the sidebar;
+            the new-task button at the top of the sidebar is the
+            canonical create-session entry point. The chat header
+            keeps the permission-mode switcher only. */}
+        {/* PR-MOVE-PERMISSION-MODE: chat header no longer carries the
+            permission-mode chips — the picker lives inside the composer's
+            left controls so the new-session screen and active-session
+            screen share the same "create / pick mode / send" rhythm. */}
+        <header className="maka-chat-header" data-empty="true">
+          <span className="maka-chat-header-spacer" />
+        </header>
         <OverlayScrollArea
           className="maka-chat messages"
           viewportClassName="maka-chatViewport"
@@ -4048,6 +4378,45 @@ export function ChatView(props: {
 
   return (
     <main className="maka-main detailPane agents-chat-panel agents-chat-view-root">
+      {/* PR-REMOVE-CHAT-TAB (WAWQAQ msg d401938d): no more browser-style
+          session tab in the chat header. Session name + model live in
+          the sidebar; the new-task button at the top of the sidebar is
+          the canonical create-session entry. The chat header is now
+          just a thin chrome strip carrying the permission-mode
+          switcher and the per-session memory/mode chips. */}
+      <header className="maka-chat-header">
+        <span className="maka-chat-header-spacer" />
+        {props.memoryActive && (
+          <button
+            type="button"
+            className="maka-chat-header-memory-pill"
+            data-active="true"
+            onClick={() => props.onOpenMemorySettings?.()}
+            title="本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。"
+            aria-label="本地记忆已启用"
+          >
+            <BookOpen size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>记忆</span>
+          </button>
+        )}
+        {deepResearchActive && (
+          <span
+            className="maka-chat-header-mode-pill"
+            data-mode="deep-research"
+            title="深度研究会话使用只读探索边界：先阅读和分析，默认不改文件。"
+            aria-label="深度研究，只读探索"
+          >
+            <Sparkles size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>深度研究</span>
+          </span>
+        )}
+        {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
+        {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
+        {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
+        {/* PR-MOVE-PERMISSION-MODE: switcher relocated into the
+            composer left-controls. Header keeps the per-session status
+            chips only. */}
+      </header>
       {isLocalSimulationBackend && (
         <Alert variant="info" className="maka-fake-backend-banner" role="status">
           <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -4179,6 +4548,8 @@ export function ChatView(props: {
 function ChatModelSwitcher(props: {
   activeSession: SessionSummary;
   activeModel?: string;
+  activeConnectionLabel?: string;
+  activeModelLabel?: string;
   choices: ChatModelChoice[];
   pending?: boolean;
   disabledReason?: string;
@@ -4205,9 +4576,12 @@ function ChatModelSwitcher(props: {
     ],
     [currentKnownChoice, currentModel, currentValue, props.choices],
   );
+  const currentSessionModelTitle = props.activeConnectionLabel && props.activeModelLabel
+    ? `本会话固定模型：${props.activeConnectionLabel} · ${props.activeModelLabel}`
+    : '切换当前会话使用的模型';
   const title = pending
     ? '正在切换当前会话模型…'
-    : props.disabledReason ?? '切换当前会话使用的模型。设置里的默认模型只影响新建会话；这里会更新当前会话。';
+    : props.disabledReason ?? `${currentSessionModelTitle}。设置里的默认模型只影响新建会话；这里会更新当前会话。`;
 
   useEffect(() => {
     modelSwitcherMountedRef.current = true;
@@ -4878,89 +5252,12 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
   );
 }
 
-function PermissionModeSwitcher(props: {
-  mode: PermissionMode;
-  disabled?: boolean;
-  disabledReason?: string;
-  pending?: boolean;
-  onChange?(mode: PermissionMode): void | Promise<void>;
-}) {
-  const active = PERMISSION_MODE_META[props.mode];
-  const changeModeByKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (props.pending || props.disabled || !props.onChange) return;
-    const currentIndex = PERMISSION_MODE_ORDER.indexOf(props.mode);
-    if (currentIndex === -1) return;
-    let nextIndex: number | null = null;
-    switch (event.key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        nextIndex = (currentIndex + 1) % PERMISSION_MODE_ORDER.length;
-        break;
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        nextIndex = (currentIndex - 1 + PERMISSION_MODE_ORDER.length) % PERMISSION_MODE_ORDER.length;
-        break;
-      case 'Home':
-        nextIndex = 0;
-        break;
-      case 'End':
-        nextIndex = PERMISSION_MODE_ORDER.length - 1;
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-    const group = event.currentTarget;
-    const nextMode = PERMISSION_MODE_ORDER[nextIndex];
-    if (!nextMode || nextMode === props.mode) return;
-    props.onChange(nextMode);
-    requestAnimationFrame(() => {
-      group
-        .querySelector<HTMLButtonElement>(`[data-mode="${nextMode}"]`)
-        ?.focus({ preventScroll: true });
-    });
-  };
-  return (
-    <div
-      className="maka-mode-switcher"
-      role="radiogroup"
-      aria-label="权限模式"
-      data-disabled={props.disabled || undefined}
-      data-pending={props.pending ? 'true' : undefined}
-      aria-busy={props.pending ? 'true' : undefined}
-      title={props.pending ? '权限模式正在切换，完成后再继续操作。' : props.disabledReason ?? active.hint}
-      onKeyDown={changeModeByKeyboard}
-    >
-      {PERMISSION_MODE_ORDER.map((mode) => {
-        const meta = PERMISSION_MODE_META[mode];
-        const isActive = mode === props.mode;
-        return (
-          <UiButton
-            key={mode}
-            type="button"
-            role="radio"
-            aria-checked={isActive}
-            disabled={props.pending || props.disabled || !props.onChange}
-            data-active={isActive}
-            data-mode={mode}
-            data-tone={meta.tone}
-            className="maka-mode-switcher-option"
-            variant="quiet"
-            size="sm"
-            onClick={() => {
-              if (!props.pending && !props.disabled && props.onChange && mode !== props.mode) {
-                props.onChange(mode);
-              }
-            }}
-            title={meta.hint}
-          >
-            {meta.label}
-          </UiButton>
-        );
-      })}
-    </div>
-  );
-}
+// PR-MOVE-PERMISSION-MODE: the chat-header `PermissionModeSwitcher`
+// radiogroup was deleted. Mode picking now lives inside the composer's
+// left-controls dropdown (see Composer + maka-composer-mode-chip / -menu)
+// so the picker sits where you actually start typing, matching the
+// reference product. The `radiogroup` keyboard contract was traded for
+// base-ui Menu's built-in arrow/Home/End handling.
 
 function createAbsoluteTimeFormat(): Intl.DateTimeFormat {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
@@ -5786,22 +6083,6 @@ function MessageMeta(props: { role: string; userLabel?: string; ts?: number }) {
   );
 }
 
-function ChatTab(props: {
-  title: string;
-  subtitle?: string;
-  subtitleHint?: string;
-  providerMark?: ReactNode;
-}) {
-  return (
-    <div className="maka-chat-tab" title={props.subtitleHint ? `${props.title} · ${props.subtitleHint}` : props.title}>
-      {props.providerMark
-        ? <span className="maka-chat-tab-provider" aria-hidden="true">{props.providerMark}</span>
-        : <MessageSquare className="maka-chat-tab-icon" strokeWidth={1.5} />}
-      <span>{props.title}</span>
-      {props.subtitle && <span className="maka-chat-tab-backend">{props.subtitle}</span>}
-    </div>
-  );
-}
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -5824,7 +6105,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   streamingHintInterrupt: string;
 }> = {
   zh: {
-    placeholder: '描述任务，/ 快捷调用，@ 添加上下文，标准模式经济高效',
+    placeholder: '描述任务  /  快捷调用  @  添加上下文',
     textareaAriaLabel: '消息输入框',
     awaitingPermission: '等待你确认权限…',
     sending: '正在发送…',
@@ -5978,6 +6259,7 @@ export const Composer = forwardRef<
     onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
     modelLabel?: string;
     activeSession?: SessionSummary;
+    activeConnectionLabel?: string;
     activeModelLabel?: string;
     modelChoices?: ChatModelChoice[];
     modelChangePending?: boolean;
@@ -5987,6 +6269,19 @@ export const Composer = forwardRef<
       branch?: string | null;
       onOpen(): void;
     };
+    /**
+     * PR-MOVE-PERMISSION-MODE (WAWQAQ 47fe0d0e + a667cf6c): the
+     * permission mode picker lives inside the composer left-controls
+     * instead of the chat header. Composer renders a dropdown labelled
+     * by the current mode (询问权限 / 自动执行); selecting an option
+     * fires `onPermissionModeChange`. When the active session is in
+     * the legacy `explore` mode the picker collapses to display
+     * 询问权限 — explore is internal-only now and won't surface here.
+     */
+    permissionMode?: PermissionMode;
+    permissionModePending?: boolean;
+    permissionModeDisabledReason?: string;
+    onPermissionModeChange?(mode: PermissionMode): void | Promise<void>;
   }
 >(function Composer(props, ref) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -6350,10 +6645,67 @@ export const Composer = forwardRef<
                 <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
               </UiButton>
             ) : null}
-            <span className="maka-composer-role-chip" aria-label="通用助手">
-              通用
-              <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
-            </span>
+            {/* PR-MOVE-PERMISSION-MODE: the static "通用" role chip
+                was replaced by the permission-mode dropdown — that
+                spot is where the reference Settings expects users to
+                pick "Ask permissions" / "Auto mode" / etc. Maka
+                exposes the two user-facing modes only (`ask` /
+                `execute`); `explore` collapses to `ask` in the
+                display because Deep Research sessions use it
+                internally but it's not a useful runtime toggle for
+                normal chat. */}
+            {props.onPermissionModeChange ? (() => {
+              const rawMode = props.permissionMode ?? 'ask';
+              const displayMode: PermissionMode = rawMode === 'explore' ? 'ask' : rawMode;
+              const meta = PERMISSION_MODE_META[displayMode];
+              const triggerDisabled = props.permissionModePending === true || Boolean(props.permissionModeDisabledReason);
+              return (
+                <Menu>
+                  <MenuTrigger
+                    render={(triggerProps) => (
+                      <button
+                        {...triggerProps}
+                        type="button"
+                        className="maka-composer-mode-chip"
+                        data-mode={displayMode}
+                        data-tone={meta.tone}
+                        data-pending={props.permissionModePending ? 'true' : undefined}
+                        disabled={triggerDisabled}
+                        aria-label={`权限模式：${meta.label}`}
+                        title={props.permissionModeDisabledReason ?? meta.hint}
+                      >
+                        <span className="maka-composer-mode-chip-label">{meta.label}</span>
+                        <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                    )}
+                  />
+                  <MenuPopup className="maka-composer-mode-menu" align="start">
+                    {PERMISSION_MODE_ORDER.map((mode) => {
+                      const optionMeta = PERMISSION_MODE_META[mode];
+                      return (
+                        <MenuItem
+                          key={mode}
+                          onClick={() => {
+                            if (mode === displayMode) return;
+                            void props.onPermissionModeChange?.(mode);
+                          }}
+                          data-active={mode === displayMode}
+                          data-tone={optionMeta.tone}
+                        >
+                          <div className="maka-composer-mode-menu-item">
+                            <span className="maka-composer-mode-menu-label">{optionMeta.label}</span>
+                            <span className="maka-composer-mode-menu-hint">{optionMeta.hint}</span>
+                          </div>
+                          {mode === displayMode ? (
+                            <Check size={12} strokeWidth={2} aria-hidden="true" />
+                          ) : null}
+                        </MenuItem>
+                      );
+                    })}
+                  </MenuPopup>
+                </Menu>
+              );
+            })() : null}
           </div>
           <span className="maka-composer-status-slot">
             {props.disabled ? (
@@ -6378,6 +6730,8 @@ export const Composer = forwardRef<
                   <ChatModelSwitcher
                     activeSession={props.activeSession}
                     activeModel={props.activeModelLabel}
+                    activeConnectionLabel={props.activeConnectionLabel}
+                    activeModelLabel={props.activeModelLabel}
                     choices={props.modelChoices ?? []}
                     pending={props.modelChangePending}
                     disabledReason={modelSwitcherDisabledReason}

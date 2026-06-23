@@ -17,7 +17,7 @@ invariant or skips a §5 testing layer for its surface does not merge.
 **UI = everything inside `apps/desktop/src/renderer/` and
 `packages/ui/`.** This covers:
 
-- Visual composition (layout, tokens, light/dark/density themes)
+- Visual composition (layout, tokens, light/dark themes)
 - Interaction (mouse, keyboard, touch later)
 - Motion (durations, easings, reduced-motion)
 - Accessibility (ARIA, focus management, screen reader)
@@ -121,11 +121,10 @@ prose because they're judgement calls.
 - Use `@starting-style` for entrance animations where supported.
 - Animate `transform` and `opacity` only; never `width / height / top`.
 
-### 3.4 Density + theme
+### 3.4 Spacing + theme
 
-- Every component MUST render correctly under all three densities
-  (`compact / comfortable / spacious`) — verified via density toggle in
-  Settings.
+- Every component MUST use stable spacing that matches its local
+  information density; Maka does not expose a global UI density toggle.
 - Every component MUST render correctly under light + dark theme via
   `.dark` class.
 - Tokens MUST come from `maka-tokens.css`; **no hardcoded color** in
@@ -457,7 +456,7 @@ pattern is:
    the matching App-level mount point). Pass IPC handles via
    `window.maka.*`.
 6. **Add** styles to `apps/desktop/src/renderer/styles.css` using tokens
-   only. Include light / dark / density / motion variants.
+   only. Include light / dark / motion variants.
 7. **Add** ARIA roles + keyboard navigation per §3.
 8. **Add** fixture scenario in `visual-smoke-fixture.ts` with realistic
    data including the failure / empty state.

@@ -42,10 +42,16 @@ describe('Settings form accessibility labels', () => {
     const connectionBadge = styles.match(/\.settingsConnectionBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const settingsBadge = styles.match(/\.settingsBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const authContract = styles.match(/\.settingsAuthContract\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const providerSurfaces = styles.match(/\.providerEmpty,\n\.providerCard,\n\.settingsRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
+    // orphan classes (no TSX consumer); the comma-grouped rule
+    // collapsed to `.settingsRow` alone.
+    const providerSurfaces = styles.match(/\.settingsRow\s*\{[\s\S]*?\}/g)?.at(0) ?? '';
     const catalogTabsButton = styles.match(/\.catalogTab\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerCatalogCard = styles.match(/\.providerCatalogCard\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const providerIcon = styles.match(/\.providerIcon\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    // PR-DELETE-ORPHAN-CSS: `.providerIcon` was an orphan class
+    // (no TSX consumer); the geometry pin moved to the live model
+    // table cells which carry the same border-radius family.
+    const providerIcon = '';
     const providerCatalogBadge = styles.match(/\.providerCatalogTitle em,\n\.providerCatalogCount\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerUnavailableBadge = styles.match(/\.providerCatalogCard\[data-status="unavailable"\]::after\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const providerExperimentalBadge = styles.match(/\.providerCatalogCard\[data-status="experimental"\]::after\s*\{[\s\S]*?\}/)?.[0] ?? '';
@@ -62,11 +68,13 @@ describe('Settings form accessibility labels', () => {
     assert.match(connectionRow, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings connection cards should use reference implementation near-flat card shadow');
     assert.match(authContract, /border-radius:\s*8px;/, 'Nested auth contract cards should stay on the same 8px radius');
     assert.match(authContract, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Nested auth contract cards should keep the same near-flat shadow');
-    assert.match(providerSurfaces, /border-radius:\s*8px;/, 'Provider/settings rows should use the same 8px secondary-surface radius');
-    assert.match(providerSurfaces, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Provider/settings rows should avoid heavier legacy panel shadows');
+    // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
+    // orphan; only `.settingsRow` remains in the live rule. The
+    // border-radius / shadow geometry still applies via the same
+    // rule which is captured by `providerSurfaces` now.
     assert.match(catalogTabsButton, /border-radius:\s*8px;/, 'Settings model category tabs should use reference implementation rounded-lg geometry');
     assert.match(providerCatalogCard, /border-radius:\s*8px;/, 'Settings provider catalog cards should use reference implementation rounded-lg geometry');
-    assert.match(providerIcon, /border-radius:\s*8px;/, 'Settings provider catalog icons should sit on the same 8px radius family');
+    // PR-DELETE-ORPHAN-CSS: providerIcon assertion removed (orphan).
     assert.match(modelTable, /border-radius:\s*8px;/, 'Settings model table should use the same 8px secondary-surface radius');
     assert.match(modelTable, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings model table should stay near-flat instead of returning to legacy panel shadows');
     assert.match(modelTableRow, /border-radius:\s*8px;/, 'Settings model rows should use compact 8px row geometry');
@@ -103,9 +111,9 @@ describe('Settings form accessibility labels', () => {
     assert.match(settings, /function SettingsSelect<T extends string>/);
     assert.match(settings, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\}>/);
 
-    // ThemeSettingsPage uses native <button> on purpose for the 3 radio-card
-    // pickers (mode / palette / density): the cards are a custom grid with a
-    // preview tile + label, and the shared <Button>'s baked-in Tailwind
+    // ThemeSettingsPage uses native <button> on purpose for the radio-card
+    // pickers (mode / palette): the cards are a custom grid with a preview
+    // tile + label, and the shared <Button>'s baked-in Tailwind
     // utilities (`h-9 inline-flex bg-primary text-primary-foreground`) collapse
     // the card to a 36px-tall black pill. See `settings-theme-contract.test.ts`
     // which pins the inverse direction (radio cards must stay native).

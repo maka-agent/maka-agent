@@ -4,6 +4,10 @@ import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftOpen,
 import type {
   ConnectionTestResult,
   ConnectionEvent,
+  DailyReviewArchive,
+  DailyReviewArchiveSummary,
+  DailyReviewConfig,
+  DailyReviewMode,
   DailyReviewSummary,
   LlmConnection,
   PermissionMode,
@@ -20,7 +24,6 @@ import type {
   TextFileImportPreflightFailureReason,
   ThemePalette,
   ThemePreference,
-  UiDensity,
 } from '@maka/core';
 import {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
@@ -90,7 +93,7 @@ import {
 import { deriveTurnFooterActions } from './turn-footer-actions';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { applyDensity, applyTheme, applyThemePalette, applyUiLocale } from './theme';
+import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import {
   createSessionEventStreamSubscription,
@@ -99,6 +102,7 @@ import {
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from './session-event-health';
+import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
 import './styles.css';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
@@ -150,25 +154,9 @@ function openPathActionErrorMessage(error: unknown, key: 'workspace' | 'project'
   return generalizedErrorMessageChinese(error, `无法打开${openPathActionLabel(key)}，请稍后重试。`);
 }
 
-function appInfoActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。');
-}
-
 function selectProjectDirectoryFailureCopy(reason: 'missing-selection'): string {
   if (reason === 'missing-selection') return '没有读取到选中的目录，请重新选择。';
   return '工作目录暂时无法切换，请稍后重试。';
-}
-
-function shellSettingsActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。');
-}
-
-function connectionsActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。');
-}
-
-function memoryActiveActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。');
 }
 
 function commandPaletteConnectionTestFailureMessage(result: ConnectionTestResult): string {
@@ -203,11 +191,11 @@ function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModel
       continue;
     }
     const seen = new Set<string>();
-    const rawModels = connection.models?.length
+    const rawModels = connection.models !== undefined
       ? connection.models.map((model) => model.id)
       : connection.defaultModel
         ? [connection.defaultModel]
-        : [];
+        : defaults.fallbackModels;
     const safeModels = connection.providerType === 'codex-subscription'
       ? rawModels.filter((model) => !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(model.trim()))
       : rawModels;
@@ -341,7 +329,6 @@ function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRequestedSection, setSettingsRequestedSection] = useState<SettingsSection | undefined>(undefined);
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
-  const [density, setDensity] = useState<UiDensity>('comfortable');
   const [themePalette, setThemePalette] = useState<ThemePalette>('default');
   const [userLabel, setUserLabel] = useState<string>('');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
@@ -414,6 +401,38 @@ function AppShell() {
         const result = await window.maka.dailyReview.day(offsetDays, daySpan);
         if (!result.ok) throw new Error(result.error.message);
         return result.data;
+      },
+      runOnce(input: { mode: DailyReviewMode }) {
+        const runOnce = window.maka.dailyReview.runOnce;
+        if (!runOnce) throw new Error('每日回顾生成暂不可用');
+        return runOnce(input);
+      },
+      listArchives() {
+        const listArchives = window.maka.dailyReview.listArchives;
+        if (!listArchives) throw new Error('每日回顾历史暂不可用');
+        return listArchives();
+      },
+      async getArchive(archiveId: string) {
+        const getArchive = window.maka.dailyReview.getArchive;
+        if (!getArchive) throw new Error('每日回顾历史暂不可用');
+        const archive = await getArchive(archiveId);
+        if (!archive) throw new Error('找不到每日回顾报告');
+        return archive;
+      },
+      deleteArchive(archiveId: string) {
+        const deleteArchive = window.maka.dailyReview.deleteArchive;
+        if (!deleteArchive) throw new Error('每日回顾历史暂不可用');
+        return deleteArchive(archiveId);
+      },
+      fetchConfig() {
+        const getConfig = window.maka.dailyReview.getConfig;
+        if (!getConfig) throw new Error('每日回顾设置暂不可用');
+        return getConfig();
+      },
+      updateConfig(patch: Partial<DailyReviewConfig>) {
+        const setConfig = window.maka.dailyReview.setConfig;
+        if (!setConfig) throw new Error('每日回顾设置暂不可用');
+        return setConfig(patch);
       },
     }),
     [],
@@ -565,6 +584,7 @@ function AppShell() {
   async function runSessionRowAction(
     sessionId: string,
     actionId: 'flag' | 'archive' | 'rename' | 'delete',
+    errorTitle: string,
     action: () => Promise<void>,
   ): Promise<void> {
     const sessionPrefix = `${sessionId}:`;
@@ -573,50 +593,38 @@ function AppShell() {
     pendingSessionRowActionsRef.current.add(key);
     try {
       await action();
+    } catch (error) {
+      toastApi.error(errorTitle, generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
     } finally {
       pendingSessionRowActionsRef.current.delete(key);
     }
   }
-  function addPendingMessageRetry(sessionId: string): boolean {
-    if (messageRetryPendingRef.current.has(sessionId)) return false;
-    messageRetryPendingRef.current.add(sessionId);
-    setMessageRetryPendingBySession((current) => ({ ...current, [sessionId]: true }));
-    return true;
-  }
-  function clearPendingMessageRetry(sessionId: string): void {
-    if (!messageRetryPendingRef.current.has(sessionId)) return;
-    messageRetryPendingRef.current.delete(sessionId);
-    setMessageRetryPendingBySession((current) => {
-      if (!current[sessionId]) return current;
-      const next = { ...current };
-      delete next[sessionId];
-      return next;
-    });
-  }
-
-  function addPendingStop(sessionId: string): boolean {
-    if (stopPendingRef.current.has(sessionId)) return false;
-    stopPendingRef.current.add(sessionId);
-    setStopPendingBySession((current) => ({ ...current, [sessionId]: true }));
-    return true;
-  }
-
-  function clearPendingStop(sessionId: string): void {
-    if (!stopPendingRef.current.has(sessionId)) return;
-    stopPendingRef.current.delete(sessionId);
-    setStopPendingBySession((current) => {
-      if (!current[sessionId]) return current;
-      const next = { ...current };
-      delete next[sessionId];
-      return next;
-    });
-  }
-
   function omitSessionKey<T>(current: Record<string, T>, sessionId: string): Record<string, T> {
     if (!(sessionId in current)) return current;
     const next = { ...current };
     delete next[sessionId];
     return next;
+  }
+
+  function addPendingSessionAction(
+    sessionId: string,
+    pendingRef: { current: Set<string> },
+    setPendingBySession: (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void,
+  ): boolean {
+    if (pendingRef.current.has(sessionId)) return false;
+    pendingRef.current.add(sessionId);
+    setPendingBySession((current) => ({ ...current, [sessionId]: true }));
+    return true;
+  }
+
+  function clearPendingSessionAction(
+    sessionId: string,
+    pendingRef: { current: Set<string> },
+    setPendingBySession: (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void,
+  ): void {
+    if (!pendingRef.current.has(sessionId)) return;
+    pendingRef.current.delete(sessionId);
+    setPendingBySession((current) => omitSessionKey(current, sessionId));
   }
 
   function clearSessionRendererState(sessionId: string): void {
@@ -799,7 +807,7 @@ function AppShell() {
         await refreshSessions();
       }
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('操作失败', turnFooterActionErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('操作失败', generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。'));
     } finally {
       clearPendingTurnAction(key);
     }
@@ -917,6 +925,24 @@ function AppShell() {
     activeIdRef.current = activeId;
   }, [activeId]);
 
+  // Tag the document with the host OS so glass-material CSS rules
+  // (sidebar vibrancy passthrough — see notes/reference-atlas.md §1 + §12.1)
+  // can light up only on macOS, where `BrowserWindow({ vibrancy: 'sidebar' })`
+  // paints the native blur material behind the renderer. Other platforms
+  // keep their opaque chrome since vibrancy is a no-op there.
+  useEffect(() => {
+    let cancelled = false;
+    void window.maka.app.info().then((info) => {
+      if (cancelled) return;
+      document.documentElement.setAttribute('data-os', info.platform);
+    }).catch(() => {
+      /* swallow — leaves data-os unset, CSS falls back to opaque chrome */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // P3 embedded browser: track which sessions have a live view (panel mounts
   // only for those) and tell main which session this window shows (so it can
   // validate browser:* IPC targets).
@@ -1031,10 +1057,6 @@ function AppShell() {
     return unsubscribe;
   }, [themePref]);
 
-  useEffect(() => {
-    applyDensity(density);
-  }, [density]);
-
   // PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): re-apply the
   // palette data attribute whenever the persisted setting changes, so
   // switching themes in Settings is immediately visible. Previously the
@@ -1065,7 +1087,7 @@ function AppShell() {
       })
       .catch((error) => {
         if (!disposed && activeIdRef.current === activeId) {
-          const message = messageLoadActionErrorMessage(error, '对话内容暂时无法读取，请稍后重试。');
+          const message = generalizedErrorMessageChinese(error, '对话内容暂时无法读取，请稍后重试。');
           setMessageLoadErrorBySession((current) => ({ ...current, [activeId]: message }));
           toastApi.error('读取对话失败', message);
         }
@@ -1130,19 +1152,11 @@ function AppShell() {
   }, [activeId, activeSession?.status, activeStreaming.length, hasInFlightLiveTools, activePermission?.requestId]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('maka-chat-list-width-v1', String(sessionListWidth));
-    } catch {
-      /* localStorage unavailable; width resets to the default next launch */
-    }
+    safeLocalStorageSet('maka-chat-list-width-v1', String(sessionListWidth));
   }, [sessionListWidth]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('maka-chat-list-collapsed-v1', sessionListCollapsed ? 'true' : 'false');
-    } catch {
-      /* localStorage unavailable; sidebar resets to the collapsed target-layout like rail */
-    }
+    safeLocalStorageSet('maka-chat-list-collapsed-v1', sessionListCollapsed ? 'true' : 'false');
   }, [sessionListCollapsed]);
 
   // Persist sidebar nav selection so the app remembers what bucket the user
@@ -1150,11 +1164,7 @@ function AppShell() {
   // localStorage availability check — Vite dev sometimes runs through a
   // worker where it isn't defined.
   useEffect(() => {
-    try {
-      localStorage.setItem('maka-nav-selection-v1', JSON.stringify(navSelection));
-    } catch {
-      /* localStorage unavailable */
-    }
+    safeLocalStorageSet('maka-nav-selection-v1', JSON.stringify(navSelection));
   }, [navSelection]);
 
   async function refreshSessions(): Promise<SessionSummary[]> {
@@ -1164,7 +1174,7 @@ function AppShell() {
       setSessions(next);
       return next;
     } catch (error) {
-      toastApi.error('刷新会话列表失败', sessionListActionErrorMessage(error));
+      toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
       return sessionsRef.current;
     }
   }
@@ -1173,7 +1183,6 @@ function AppShell() {
     try {
       const next = await window.maka.settings.get();
       const pref = next.appearance?.theme ?? 'auto';
-      const den = next.appearance?.density ?? 'comfortable';
       const palette = next.appearance?.palette ?? 'default';
       const name = next.personalization?.displayName ?? '';
       // PR-LANG-PREF-0: apply persisted UI locale preference to
@@ -1183,14 +1192,12 @@ function AppShell() {
       const uiLocale = next.personalization?.uiLocale ?? 'auto';
       applyUiLocale(uiLocale);
       setThemePref(pref);
-      setDensity(den);
       setThemePalette(palette);
       setUserLabel(name);
       applyTheme(pref);
-      applyDensity(den);
       applyThemePalette(palette);
     } catch (error) {
-      toastApi.error('载入外观设置失败', shellSettingsActionErrorMessage(error));
+      toastApi.error('载入外观设置失败', generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。'));
     }
   }
 
@@ -1427,48 +1434,32 @@ function AppShell() {
   // corresponding IPC and then refreshes the session list so the sidebar
   // reflects the new state immediately.
   async function flagSession(sessionId: string, flagged: boolean) {
-    await runSessionRowAction(sessionId, 'flag', async () => {
-      try {
-        await window.maka.sessions.setFlagged(sessionId, flagged);
-        await refreshSessions();
-      } catch (error) {
-        toastApi.error(flagged ? '标记会话失败' : '取消标记失败', sessionRowActionErrorMessage(error));
-      }
+    await runSessionRowAction(sessionId, 'flag', flagged ? '标记会话失败' : '取消标记失败', async () => {
+      await window.maka.sessions.setFlagged(sessionId, flagged);
+      await refreshSessions();
     });
   }
   async function archiveSession(sessionId: string) {
-    await runSessionRowAction(sessionId, 'archive', async () => {
-      try {
-        await window.maka.sessions.archive(sessionId);
-        if (activeIdRef.current === sessionId) {
-          setActiveId(undefined);
-          setMessages([]);
-          clearSessionRendererState(sessionId);
-        }
-        await refreshSessions();
-      } catch (error) {
-        toastApi.error('归档会话失败', sessionRowActionErrorMessage(error));
+    await runSessionRowAction(sessionId, 'archive', '归档会话失败', async () => {
+      await window.maka.sessions.archive(sessionId);
+      if (activeIdRef.current === sessionId) {
+        setActiveId(undefined);
+        setMessages([]);
+        clearSessionRendererState(sessionId);
       }
+      await refreshSessions();
     });
   }
   async function unarchiveSession(sessionId: string) {
-    await runSessionRowAction(sessionId, 'archive', async () => {
-      try {
-        await window.maka.sessions.unarchive(sessionId);
-        await refreshSessions();
-      } catch (error) {
-        toastApi.error('恢复会话失败', sessionRowActionErrorMessage(error));
-      }
+    await runSessionRowAction(sessionId, 'archive', '恢复会话失败', async () => {
+      await window.maka.sessions.unarchive(sessionId);
+      await refreshSessions();
     });
   }
   async function renameSession(sessionId: string, name: string) {
-    await runSessionRowAction(sessionId, 'rename', async () => {
-      try {
-        await window.maka.sessions.rename(sessionId, name);
-        await refreshSessions();
-      } catch (error) {
-        toastApi.error('重命名会话失败', sessionRowActionErrorMessage(error));
-      }
+    await runSessionRowAction(sessionId, 'rename', '重命名会话失败', async () => {
+      await window.maka.sessions.rename(sessionId, name);
+      await refreshSessions();
     });
   }
   async function setPermissionMode(mode: PermissionMode) {
@@ -1529,7 +1520,7 @@ function AppShell() {
       }
       await refreshSessions();
     } catch (error) {
-      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', sessionModelActionErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', generalizedErrorMessageChinese(error, '模型暂时无法切换，请稍后重试。'));
     } finally {
       pendingSessionModelChangesRef.current.delete(sessionId);
       setPendingSessionModelBySession((current) => {
@@ -1542,7 +1533,7 @@ function AppShell() {
   }
 
   async function deleteSession(sessionId: string) {
-    await runSessionRowAction(sessionId, 'delete', async () => {
+    await runSessionRowAction(sessionId, 'delete', '删除会话失败', async () => {
       const session = sessionsRef.current.find((entry) => entry.id === sessionId);
       const name = session?.name ?? '当前会话';
       const ok = await toastApi.confirm({
@@ -1553,18 +1544,14 @@ function AppShell() {
         destructive: true,
       });
       if (!ok) return;
-      try {
-        await window.maka.sessions.remove(sessionId);
-        if (activeIdRef.current === sessionId) {
-          setActiveId(undefined);
-          setMessages([]);
-        }
-        clearSessionRendererState(sessionId);
-        await refreshSessions();
-        toastApi.success(`已删除 ${name}`);
-      } catch (error) {
-        toastApi.error('删除会话失败', sessionRowActionErrorMessage(error));
+      await window.maka.sessions.remove(sessionId);
+      if (activeIdRef.current === sessionId) {
+        setActiveId(undefined);
+        setMessages([]);
       }
+      clearSessionRendererState(sessionId);
+      await refreshSessions();
+      toastApi.success(`已删除 ${name}`);
     });
   }
 
@@ -1577,7 +1564,7 @@ function AppShell() {
       setConnections(next);
       setDefaultConnection(nextDefault);
     } catch (error) {
-      toastApi.error('刷新模型连接失败', connectionsActionErrorMessage(error));
+      toastApi.error('刷新模型连接失败', generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。'));
     }
   }
 
@@ -1586,7 +1573,7 @@ function AppShell() {
       const next = await window.maka.app.info();
       setAppInfo({ projectPath: next.projectPath, projectGit: next.projectGit });
     } catch (error) {
-      toastApi.error('读取项目路径失败', appInfoActionErrorMessage(error));
+      toastApi.error('读取项目路径失败', generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。'));
     }
   }
 
@@ -1602,7 +1589,7 @@ function AppShell() {
       setAppInfo({ projectPath: result.projectPath, projectGit: result.projectGit });
       toastApi.success('已切换工作目录', basenameFromPath(result.projectPath));
     } catch (error) {
-      toastApi.error('选择工作目录失败', appInfoActionErrorMessage(error));
+      toastApi.error('选择工作目录失败', generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。'));
     }
   }
 
@@ -1612,75 +1599,82 @@ function AppShell() {
       setPlanReminders(next);
     } catch (error) {
       if (options.shouldShowError?.() ?? true) {
-        toastApi.error('刷新计划失败', planActionErrorMessage(error, '刷新计划提醒失败，请稍后重试。'));
+        toastApi.error('刷新计划失败', generalizedErrorMessageChinese(error, '刷新计划提醒失败，请稍后重试。'));
       }
+    }
+  }
+
+  async function runPlanReminderMutation(options: {
+    run: () => Promise<unknown>;
+    successTitle?: string;
+    successDetail?: string;
+    errorTitle: string;
+    errorFallback: string;
+  }): Promise<boolean> {
+    try {
+      await options.run();
+      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
+      if (options.successTitle && isAutomationsSurfaceActive()) {
+        toastApi.success(options.successTitle, options.successDetail);
+      }
+      return true;
+    } catch (error) {
+      if (isAutomationsSurfaceActive()) {
+        toastApi.error(options.errorTitle, generalizedErrorMessageChinese(error, options.errorFallback));
+      }
+      return false;
     }
   }
 
   async function createPlanReminder(input: { title: string; note?: string; runAt: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget }) {
-    try {
-      await window.maka.plans.create(input);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success('已创建计划提醒', input.title);
-      return true;
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('创建计划失败', planActionErrorMessage(error, '创建计划提醒失败，请稍后重试。'));
-      }
-      return false;
-    }
+    return runPlanReminderMutation({
+      run: () => window.maka.plans.create(input),
+      successTitle: '已创建计划提醒',
+      successDetail: input.title,
+      errorTitle: '创建计划失败',
+      errorFallback: '创建计划提醒失败，请稍后重试。',
+    });
   }
 
   async function updatePlanReminder(id: string, patch: { title?: string; note?: string; runAt?: number; recurrence?: PlanReminderRecurrence; cronExpression?: string; delivery?: PlanReminderDeliveryTarget; enabled?: boolean }) {
-    try {
-      await window.maka.plans.update(id, patch);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success('已保存计划提醒', patch.title);
-      return true;
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('保存计划失败', planActionErrorMessage(error, '保存计划提醒失败，请稍后重试。'));
-      }
-      return false;
-    }
+    return runPlanReminderMutation({
+      run: () => window.maka.plans.update(id, patch),
+      successTitle: '已保存计划提醒',
+      successDetail: patch.title,
+      errorTitle: '保存计划失败',
+      errorFallback: '保存计划提醒失败，请稍后重试。',
+    });
   }
 
   async function togglePlanReminder(id: string, enabled: boolean) {
-    try {
-      await window.maka.plans.setEnabled(id, enabled);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success(enabled ? '已启用提醒' : '已暂停提醒');
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('更新计划失败', planActionErrorMessage(error, '更新计划提醒失败，请稍后重试。'));
-      }
-    }
+    await runPlanReminderMutation({
+      run: () => window.maka.plans.setEnabled(id, enabled),
+      successTitle: enabled ? '已启用提醒' : '已暂停提醒',
+      errorTitle: '更新计划失败',
+      errorFallback: '更新计划提醒失败，请稍后重试。',
+    });
   }
 
   async function triggerPlanReminderNow(id: string) {
     const reminder = planReminders.find((entry) => entry.id === id);
-    try {
-      await window.maka.plans.triggerNow(id);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success('已触发计划提醒', reminder?.title);
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('触发计划失败', planActionErrorMessage(error, '触发计划提醒失败，请稍后重试。'));
-      }
-    }
+    await runPlanReminderMutation({
+      run: () => window.maka.plans.triggerNow(id),
+      successTitle: '已触发计划提醒',
+      successDetail: reminder?.title,
+      errorTitle: '触发计划失败',
+      errorFallback: '触发计划提醒失败，请稍后重试。',
+    });
   }
 
   async function snoozePlanReminder(id: string) {
     const reminder = planReminders.find((entry) => entry.id === id);
-    try {
-      await window.maka.plans.snooze(id);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success('已延后 10 分钟', reminder?.title);
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('延后计划失败', planActionErrorMessage(error, '延后计划提醒失败，请稍后重试。'));
-      }
-    }
+    await runPlanReminderMutation({
+      run: () => window.maka.plans.snooze(id),
+      successTitle: '已延后 10 分钟',
+      successDetail: reminder?.title,
+      errorTitle: '延后计划失败',
+      errorFallback: '延后计划提醒失败，请稍后重试。',
+    });
   }
 
   async function clearPlanReminderRunHistory(id: string) {
@@ -1693,15 +1687,13 @@ function AppShell() {
       destructive: true,
     });
     if (!ok) return;
-    try {
-      await window.maka.plans.clearRunHistory(id);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success('已清空执行记录', reminder?.title);
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('清空记录失败', planActionErrorMessage(error, '清空定时任务记录失败，请稍后重试。'));
-      }
-    }
+    await runPlanReminderMutation({
+      run: () => window.maka.plans.clearRunHistory(id),
+      successTitle: '已清空执行记录',
+      successDetail: reminder?.title,
+      errorTitle: '清空记录失败',
+      errorFallback: '清空定时任务记录失败，请稍后重试。',
+    });
   }
 
   async function deletePlanReminder(id: string) {
@@ -1714,15 +1706,12 @@ function AppShell() {
       destructive: true,
     });
     if (!ok) return;
-    try {
-      await window.maka.plans.delete(id);
-      await refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive });
-      if (isAutomationsSurfaceActive()) toastApi.success('已删除计划提醒');
-    } catch (error) {
-      if (isAutomationsSurfaceActive()) {
-        toastApi.error('删除计划失败', planActionErrorMessage(error, '删除计划提醒失败，请稍后重试。'));
-      }
-    }
+    await runPlanReminderMutation({
+      run: () => window.maka.plans.delete(id),
+      successTitle: '已删除计划提醒',
+      errorTitle: '删除计划失败',
+      errorFallback: '删除计划提醒失败，请稍后重试。',
+    });
   }
 
   async function createSession() {
@@ -1751,7 +1740,7 @@ function AppShell() {
       setSkills(next);
     } catch (error) {
       if (options.shouldShowError?.() ?? true) {
-        toastApi.error('刷新技能失败', skillsActionErrorMessage(error, '刷新技能失败，请稍后重试。'));
+        toastApi.error('刷新技能失败', generalizedErrorMessageChinese(error, '刷新技能失败，请稍后重试。'));
       }
     }
   }
@@ -1761,7 +1750,7 @@ function AppShell() {
       const next = await window.maka.memory.getState();
       setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
     } catch (error) {
-      toastApi.error(failureTitle, memoryActiveActionErrorMessage(error));
+      toastApi.error(failureTitle, generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。'));
     }
   }
 
@@ -1781,7 +1770,7 @@ function AppShell() {
       }
     } catch (error) {
       if (isSkillsSurfaceActive()) {
-        toastApi.error('无法创建示例技能', skillsActionErrorMessage(error, '无法创建示例技能，请稍后重试。'));
+        toastApi.error('无法创建示例技能', generalizedErrorMessageChinese(error, '无法创建示例技能，请稍后重试。'));
       }
     }
   }
@@ -1805,7 +1794,7 @@ function AppShell() {
       }
     } catch (error) {
       if (isSkillsSurfaceActive()) {
-        toastApi.error('无法打开 Skill', skillsActionErrorMessage(error, '无法打开 Skill，请稍后重试。'));
+        toastApi.error('无法打开 Skill', generalizedErrorMessageChinese(error, '无法打开 Skill，请稍后重试。'));
       }
     }
   }
@@ -1891,7 +1880,7 @@ function AppShell() {
         const reason = noRealConnectionReasonFromError(error);
         showModelSetupToast(noRealConnectionSetupDescription(reason), reason);
       } else {
-        toastApi.error('发送失败', sendActionErrorMessage(error));
+        toastApi.error('发送失败', generalizedErrorMessageChinese(error, '消息暂时无法发送，请稍后重试。'));
       }
       return false;
     }
@@ -1964,7 +1953,7 @@ function AppShell() {
       if (shouldShowFeedback()) toastApi.success('已导入文件内容', `${result.name}${result.truncated ? ' · 已截断' : ''}`);
       return result.prompt;
     } catch (error) {
-      if (shouldShowFeedback()) toastApi.error('导入文件失败', composerImportActionErrorMessage(error));
+      if (shouldShowFeedback()) toastApi.error('导入文件失败', generalizedErrorMessageChinese(error, '导入文件内容失败，请稍后重试。'));
       return undefined;
     }
   }
@@ -1998,7 +1987,7 @@ function AppShell() {
 
   async function stop() {
     const sessionId = activeIdRef.current;
-    if (!sessionId || !addPendingStop(sessionId)) return;
+    if (!sessionId || !addPendingSessionAction(sessionId, stopPendingRef, setStopPendingBySession)) return;
     try {
       await window.maka.sessions.stop(sessionId, { source: 'stop_button' });
     } catch (error) {
@@ -2008,9 +1997,9 @@ function AppShell() {
       // UnhandledPromiseRejection and the user would see nothing.
       // Surface it as a toast so the user knows the model wasn't
       // actually interrupted and can retry.
-      if (activeIdRef.current === sessionId) toastApi.error('停止失败', sessionControlActionErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('停止失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
     } finally {
-      clearPendingStop(sessionId);
+      clearPendingSessionAction(sessionId, stopPendingRef, setStopPendingBySession);
     }
   }
 
@@ -2023,7 +2012,7 @@ function AppShell() {
       // Same fire-and-forget call site as stop() — wrap so a failed
       // permission response (main process busy / session dropped)
       // surfaces instead of dying as UnhandledPromiseRejection.
-      if (activeIdRef.current === sessionId) toastApi.error('响应失败', sessionControlActionErrorMessage(error));
+      if (activeIdRef.current === sessionId) toastApi.error('响应失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
     }
   }
 
@@ -2041,18 +2030,18 @@ function AppShell() {
       }
     } catch (error) {
       if (activeIdRef.current === sessionId) {
-        const message = messageLoadActionErrorMessage(error, '对话内容暂时无法刷新，请稍后重试。');
+        const message = generalizedErrorMessageChinese(error, '对话内容暂时无法刷新，请稍后重试。');
         setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
         toastApi.error('刷新对话失败', message);
       }
     }
   }
   async function retryMessages(sessionId: string) {
-    if (!addPendingMessageRetry(sessionId)) return;
+    if (!addPendingSessionAction(sessionId, messageRetryPendingRef, setMessageRetryPendingBySession)) return;
     try {
       await refreshMessages(sessionId);
     } finally {
-      clearPendingMessageRetry(sessionId);
+      clearPendingSessionAction(sessionId, messageRetryPendingRef, setMessageRetryPendingBySession);
     }
   }
 
@@ -2358,11 +2347,7 @@ function AppShell() {
    * tabs without close/reopen.
    */
   function openSettingsSection(section: SettingsSection) {
-    try {
-      localStorage.setItem('maka-settings-section-v1', section);
-    } catch {
-      /* localStorage unavailable; fall back to whatever section the modal picks */
-    }
+    safeLocalStorageSet('maka-settings-section-v1', section);
     setSettingsRequestedSection(section);
     setSettingsOpen(true);
   }
@@ -2429,7 +2414,7 @@ function AppShell() {
         return false;
       }
     } catch (error) {
-      toastApi.error('开始对话失败', quickChatActionErrorMessage(error));
+      toastApi.error('开始对话失败', generalizedErrorMessageChinese(error, '对话暂时无法开始，请稍后重试。'));
       return false;
     } finally {
       quickChatPendingRef.current = false;
@@ -2442,7 +2427,7 @@ function AppShell() {
       await window.maka.onboarding.setMilestone(FIRST_RUN_TASK_SUGGESTION_MILESTONES[id], 'skipped');
       onboarding.refresh();
     } catch (error) {
-      toastApi.error('隐藏建议失败', firstRunSuggestionActionErrorMessage(error, '任务建议暂时无法隐藏，请稍后重试。'));
+      toastApi.error('隐藏建议失败', generalizedErrorMessageChinese(error, '任务建议暂时无法隐藏，请稍后重试。'));
     }
   }
 
@@ -2453,7 +2438,7 @@ function AppShell() {
       }
       onboarding.refresh();
     } catch (error) {
-      toastApi.error('恢复建议失败', firstRunSuggestionActionErrorMessage(error, '任务建议暂时无法恢复，请稍后重试。'));
+      toastApi.error('恢复建议失败', generalizedErrorMessageChinese(error, '任务建议暂时无法恢复，请稍后重试。'));
     }
   }
 
@@ -2733,7 +2718,6 @@ function AppShell() {
             }}
             onOpenSettings={openSettings}
             userLabel={userLabel}
-            onOpenUpdate={() => openSettingsSection('about')}
             onNew={createSession}
             onOpenSearchModal={() => setSearchModalOpen(true)}
             onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
@@ -3015,8 +2999,6 @@ function AppShell() {
                 }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
-                permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
-                onPermissionModeChange={(mode) => setPermissionMode(mode)}
               />
               <Composer
                 ref={composerRef}
@@ -3039,6 +3021,7 @@ function AppShell() {
                   ?? undefined
                 }
                 activeSession={activeSessionForView}
+                activeConnectionLabel={activeConnectionLabel}
                 activeModelLabel={activeModelLabel}
                 modelChoices={chatModelChoices}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
@@ -3050,6 +3033,20 @@ function AppShell() {
                     void selectProjectDirectory();
                   },
                 }}
+                permissionMode={activeSessionForView?.permissionMode}
+                permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
+                permissionModeDisabledReason={
+                  activeId && pendingPermissionModeBySession[activeId] === true
+                    ? '权限模式正在切换，完成后再继续操作。'
+                    : activeStreaming.length > 0
+                      ? '当前对话正在流式输出，等结束后再切换权限模式。'
+                      : activeSessionForView?.status === 'running'
+                        ? '当前对话正在运行，等结束后再切换权限模式。'
+                        : activeSessionForView?.status === 'waiting_for_user'
+                          ? '当前有工具调用正在等待确认，处理后再切换权限模式。'
+                          : undefined
+                }
+                onPermissionModeChange={(mode) => setPermissionMode(mode)}
               />
             </div>
             {activeId && liveBrowserSessionIds.includes(activeId) && (
@@ -3074,8 +3071,6 @@ function AppShell() {
           onClose={closeSettings}
           themePref={themePref}
           onThemeChange={setThemePref}
-          density={density}
-          onDensityChange={setDensity}
           themePalette={themePalette}
           onThemePaletteChange={setThemePalette}
           onUserLabelChange={setUserLabel}
@@ -3483,7 +3478,7 @@ function renderConversationMarkdown(sessionName: string, messages: StoredMessage
 
 function readNavSelection(): NavSelection {
   try {
-    const raw = localStorage.getItem('maka-nav-selection-v1');
+    const raw = safeLocalStorageGet('maka-nav-selection-v1');
     if (!raw) return { section: 'sessions', filter: 'chats' };
     const parsed = JSON.parse(raw) as { section?: string; filter?: string };
     // PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `94c7bf0f`): fail-closed.
@@ -3509,23 +3504,15 @@ function readNavSelection(): NavSelection {
 }
 
 function readSessionListWidth(): number {
-  try {
-    const stored = Number(localStorage.getItem('maka-chat-list-width-v1'));
-    if (Number.isFinite(stored) && stored > 0) return clampSessionListWidth(stored);
-  } catch {
-    /* localStorage unavailable */
-  }
+  const stored = Number(safeLocalStorageGet('maka-chat-list-width-v1'));
+  if (Number.isFinite(stored) && stored > 0) return clampSessionListWidth(stored);
   return SESSION_LIST_EXPANDED_DEFAULT_WIDTH;
 }
 
 function readSessionListCollapsed(): boolean {
-  try {
-    const stored = localStorage.getItem('maka-chat-list-collapsed-v1');
-    if (stored === 'false') return false;
-    if (stored === 'true') return true;
-  } catch {
-    /* localStorage unavailable */
-  }
+  const stored = safeLocalStorageGet('maka-chat-list-collapsed-v1');
+  if (stored === 'false') return false;
+  if (stored === 'true') return true;
   return true;
 }
 
@@ -3574,54 +3561,6 @@ function noRealConnectionSetupDescription(reason: string | undefined): string {
 
 function sessionEventErrorMessage(event: Extract<SessionEvent, { type: 'error' }>): string {
   return generalizedErrorMessageChinese(new Error(event.message), '对话运行失败，请稍后重试。');
-}
-
-function turnFooterActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。');
-}
-
-function sessionRowActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。');
-}
-
-function sessionListActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。');
-}
-
-function sessionModelActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '模型暂时无法切换，请稍后重试。');
-}
-
-function sessionControlActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。');
-}
-
-function messageLoadActionErrorMessage(error: unknown, fallback: string): string {
-  return generalizedErrorMessageChinese(error, fallback);
-}
-
-function sendActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '消息暂时无法发送，请稍后重试。');
-}
-
-function composerImportActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '导入文件内容失败，请稍后重试。');
-}
-
-function quickChatActionErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '对话暂时无法开始，请稍后重试。');
-}
-
-function firstRunSuggestionActionErrorMessage(error: unknown, fallback: string): string {
-  return generalizedErrorMessageChinese(error, fallback);
-}
-
-function skillsActionErrorMessage(error: unknown, fallback: string): string {
-  return generalizedErrorMessageChinese(error, fallback);
-}
-
-function planActionErrorMessage(error: unknown, fallback: string): string {
-  return generalizedErrorMessageChinese(error, fallback);
 }
 
 function cleanErrorMessage(error: unknown): string {
@@ -3684,19 +3623,15 @@ function countSessions(sessions: SessionSummary[]) {
 // "FOUC prevention via inline-script" pattern, but here it runs in the same
 // JS bundle as the rest of the renderer so we don't need to relax the CSP
 // `script-src 'self'` rule.
-try {
-  const cached = localStorage.getItem('maka-theme-v1');
-  const isDark =
-    cached === 'dark' ||
-    (cached !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  if (isDark) {
-    document.documentElement.classList.add('dark');
-    document.documentElement.style.colorScheme = 'dark';
-  } else {
-    document.documentElement.style.colorScheme = 'light';
-  }
-} catch {
-  /* localStorage unavailable; fall back to default light theme */
+const cachedThemePreference = safeLocalStorageGet('maka-theme-v1');
+const shouldApplyDarkTheme =
+  cachedThemePreference === 'dark' ||
+  (cachedThemePreference !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+if (shouldApplyDarkTheme) {
+  document.documentElement.classList.add('dark');
+  document.documentElement.style.colorScheme = 'dark';
+} else {
+  document.documentElement.style.colorScheme = 'light';
 }
 
 createRoot(document.getElementById('root')!).render(

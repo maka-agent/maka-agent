@@ -34,17 +34,12 @@ describe('Settings theme page contract', () => {
     );
     assert.match(
       themePage![0],
-      /props\.onDensityChange\(next\);[\s\S]*await persistAppearance\(\{ density: next \}\)/,
-      'Density changes must keep instant preview before persisting',
-    );
-    assert.match(
-      themePage![0],
       /props\.onThemePaletteChange\(next\);[\s\S]*await persistAppearance\(\{ palette: next \}\)/,
       'Palette changes must keep instant preview before persisting',
     );
     assert.doesNotMatch(
       themePage![0],
-      /await props\.onUpdate\(\{ appearance: \{ (theme|density|palette): next \} \}\)/,
+      /await props\.onUpdate\(\{ appearance: \{ (theme|palette): next \} \}\)/,
       'Appearance controls must not call raw settings update without the fail-soft helper',
     );
   });
@@ -83,17 +78,16 @@ describe('Settings theme page contract', () => {
     assert.match(helperBlock, /setTimeout\(\(\) => focusRadioValue\(group, next\), 0\)/);
     assert.match(themePage, /aria-label="主题"[\s\S]*onKeyDown=\{\(event\) => onSettingsRadioGroupKeyDown/);
     assert.match(themePage, /aria-label=\{group\.label\}[\s\S]*onKeyDown=\{\(event\) => onSettingsRadioGroupKeyDown/);
-    assert.match(themePage, /aria-label="界面密度"[\s\S]*onKeyDown=\{\(event\) => onSettingsRadioGroupKeyDown/);
     assert.match(themePage, /data-radio-value=\{option\.value\}[\s\S]*tabIndex=\{radioTabIndex\(option\.value, props\.themePref/);
     assert.match(themePage, /data-radio-value=\{palette\}[\s\S]*tabIndex=\{radioTabIndex\(palette, currentPalette, group\.palettes\)\}/);
-    assert.match(themePage, /data-radio-value=\{option\.value\}[\s\S]*tabIndex=\{radioTabIndex\(option\.value, props\.density/);
+    assert.doesNotMatch(themePage, /界面密度|props\.density|setDensity|onDensityChange/);
     assert.match(segmentedBlock, /if \(props\.disabled\) return;[\s\S]*onSettingsRadioGroupKeyDown\(event, values, props\.value, props\.onChange\)/);
     assert.match(segmentedBlock, /aria-disabled=\{props\.disabled \? 'true' : undefined\}/);
     assert.match(segmentedBlock, /disabled=\{props\.disabled\}/);
     assert.match(segmentedBlock, /data-radio-value=\{value\}[\s\S]*tabIndex=\{radioTabIndex\(value, props\.value, values\)\}/);
   });
 
-  it('keeps theme/palette/density radio cards on native <button>, not <Button>', async () => {
+  it('keeps theme and palette radio cards on native <button>, not <Button>', async () => {
     // Regression guard for WAWQAQ msg 5f75daf6 — commit b40d097 swapped
     // these cards onto packages/ui's <Button>, which bakes in
     // `h-9 inline-flex bg-primary text-primary-foreground` Tailwind
@@ -115,16 +109,16 @@ describe('Settings theme page contract', () => {
     assert.equal(
       ucButtonCount,
       0,
-      `Theme/palette/density radio cards must use native <button>, not <Button> from packages/ui (found ${ucButtonCount} <Button> occurrences in the page)`,
+      `Theme/palette radio cards must use native <button>, not <Button> from packages/ui (found ${ucButtonCount} <Button> occurrences in the page)`,
     );
     assert.equal(
       lcButtonCount,
-      3,
-      `Expected exactly 3 native <button> elements (mode picker, palette picker, density picker), found ${lcButtonCount}`,
+      2,
+      `Expected exactly 2 native <button> elements (mode picker, palette picker), found ${lcButtonCount}`,
     );
     assert.match(themePage, /className="settingsThemeOption settingsThemeOptionPreview"/);
     assert.match(themePage, /className="settingsThemeOption settingsPaletteOption"/);
-    assert.match(themePage, /className="settingsThemeOption"\s*\n\s*onClick=\{\(\) => void setDensity/);
+    assert.doesNotMatch(themePage, /界面密度|settingsDensitySwatch|setDensity/);
   });
 
   it('keeps theme page copy Chinese-first and user-facing', async () => {
@@ -132,13 +126,11 @@ describe('Settings theme page contract', () => {
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
     const themeCopy = [
       src.match(/const THEME_OPTIONS[\s\S]*?\];/)?.[0] ?? '',
-      src.match(/const DENSITY_OPTIONS[\s\S]*?\];/)?.[0] ?? '',
       src.match(/const PALETTE_HELP[\s\S]*?\};/)?.[0] ?? '',
       themePage.match(/<p className="settingsHelpText">[\s\S]*?<\/p>/)?.[0] ?? '',
     ].join('\n');
 
     assert.match(themeCopy, /匹配 macOS 当前浅色或深色偏好。/);
-    assert.match(themeCopy, /专业编辑器风格。/);
     assert.match(themeCopy, /Maka 原本的紫色强调色/);
     assert.match(themeCopy, /湖蓝强调色，干净冷静/);
     assert.match(themeCopy, /保存在本地外观设置里下次启动延续/);

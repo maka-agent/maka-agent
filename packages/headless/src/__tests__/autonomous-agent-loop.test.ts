@@ -7,6 +7,7 @@ import { BackendRegistry, FakeBackend, SessionManager, type SessionStore, type A
 import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { Config, Task } from '../contracts.js';
+import type { HeadlessBackendContext } from '../isolation.js';
 import { runAutonomousTask } from '../autonomous-agent-loop.js';
 
 const fakeConfig: Config = {
@@ -54,6 +55,79 @@ class PermissionRequestBackend implements AgentBackend {
 
 const registerPermissionRequestBackend = (registry: BackendRegistry): void => {
   registry.register('fake', (ctx) => new PermissionRequestBackend(ctx.sessionId));
+};
+
+class PromptCapturingProgressBackend implements AgentBackend {
+  readonly kind: BackendKind = 'fake';
+  readonly sessionId: string;
+
+  constructor(
+    sessionId: string,
+    private readonly progress: HeadlessBackendContext['heavyTaskProgress'],
+    private readonly evidence: HeadlessBackendContext['heavyTaskEvidence'],
+    private readonly engineering: HeadlessBackendContext['heavyTaskEngineering'],
+    private readonly prompts: string[],
+  ) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.prompts.push(input.text);
+    if (this.prompts.length === 1 && this.progress) {
+      const toolCtx = {
+        sessionId: this.sessionId,
+        turnId: input.turnId,
+        cwd: '/workspace',
+        toolCallId: 'progress-tool-call',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      };
+      await this.progress.recordInventory({
+        summary: 'Inspected public task files.',
+        items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
+      }, toolCtx);
+      await this.progress.recordTodos({
+        items: [{ id: 'fix', content: 'Patch implementation', status: 'in_progress', priority: 'high' }],
+      }, toolCtx);
+      const compactEvidence = await this.evidence?.recordToolEvidence({
+        name: 'Bash',
+        input: { command: 'npm test', cwd: '/workspace', timeoutMs: 120_000 },
+        result: { exitCode: 1, stdout: `public failure summary\n${'x'.repeat(5_000)}`, stderr: 'short stderr\n' },
+      }, toolCtx);
+      if (compactEvidence) {
+        await this.engineering?.recordCheck({
+          title: 'Public test check',
+          summary: 'The public test command failed and should guide the next repair.',
+          status: 'failed',
+          links: {
+            todoIds: ['fix'],
+            toolCallIds: ['progress-tool-call'],
+            evidenceIds: [compactEvidence.evidenceId],
+          },
+          command: 'npm test',
+          expectedSignal: 'public tests pass',
+          observedSignal: 'public tests failed',
+          result: 'fail',
+        }, toolCtx);
+      }
+    }
+    const ts = Date.now();
+    yield { type: 'complete', id: `progress-complete-${this.prompts.length}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerPromptCapturingProgressBackend = (prompts: string[]) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+  registry.register('fake', (ctx) => new PromptCapturingProgressBackend(
+    ctx.sessionId,
+    context.heavyTaskProgress,
+    context.heavyTaskEvidence,
+    context.heavyTaskEngineering,
+    prompts,
+  ));
 };
 
 async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
@@ -169,6 +243,43 @@ describe('runAutonomousTask', () => {
         result.projection.events.filter((event) => event.type === 'task_run_budget_exhausted').length,
         1,
       );
+    });
+  });
+
+  test('heavy-task continuation prompt includes compact progress from replay', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'README.md'), 'public notes\n', 'utf8');
+      const prompts: string[] = [];
+      const task: Task = {
+        id: 'heavy-progress-retry',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f missing.txt', protectedPaths: [] },
+      };
+
+      const result = await runAutonomousTask({ ...fakeConfig, heavyTaskMode: true }, task, {
+        storageRoot,
+        registerBackends: registerPromptCapturingProgressBackend(prompts),
+        budget: { maxAttempts: 2 },
+        newId: idFactory(),
+      });
+
+      assert.equal(result.attempts.length, 2);
+      assert.equal(result.projection.latestHeavyTaskInventory?.items[0]?.path, 'README.md');
+      assert.equal(result.projection.latestHeavyTaskTodos?.items[0]?.id, 'fix');
+      assert.match(prompts[1] ?? '', /Heavy-task progress state from prior task-run events/);
+      assert.match(prompts[1] ?? '', /Inventory summary: Inspected public task files/);
+      assert.match(prompts[1] ?? '', /Active todo: fix/);
+      assert.match(prompts[1] ?? '', /Heavy-task compact evidence from prior public tool\/check\/artifact observations/);
+      assert.match(prompts[1] ?? '', /tool:Bash exit=1/);
+      assert.match(prompts[1] ?? '', /truncated=true/);
+      assert.match(prompts[1] ?? '', /Heavy-task structured engineering loop records from prior task-run events/);
+      assert.match(prompts[1] ?? '', /targeted_check status=failed completeness=complete/);
+      assert.match(prompts[1] ?? '', /todos=fix/);
+      assert.doesNotMatch(prompts[1] ?? '', new RegExp(`x{${3_000}}`));
+      assert.equal((prompts[1]?.match(/Heavy-task progress state/g) ?? []).length, 1);
+      assert.equal((prompts[1]?.match(/Heavy-task compact evidence/g) ?? []).length, 1);
+      assert.equal((prompts[1]?.match(/Heavy-task structured engineering loop/g) ?? []).length, 1);
     });
   });
 

@@ -19,6 +19,7 @@ import {
   buildProviderOptions,
   getAIModel,
   getBuiltinPricing,
+  runShellWithBoundedTail,
   type MakaTool,
   type InvocationResult,
 } from '@maka/runtime';
@@ -30,11 +31,12 @@ import {
 import { registerFakeBackend } from './backends.js';
 import { buildHarborCellOutput, validateHarborCellOutput, type HarborCellOutput } from './cell-output.js';
 import type { Config, Task } from './contracts.js';
+import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-policy.js';
 import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
 import { backendNeedsIsolation } from './runner.js';
-import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from './tools.js';
+import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
@@ -123,9 +125,11 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     instruction: input.instruction,
     workspaceDir: input.cwd,
   };
+  const heavyTaskMode = resolveHeavyTaskMode(input.config, task);
+  const config = configWithHeavyTaskPolicy(input.config, heavyTaskMode);
   const registerBackends = input.registerBackends ?? ((registry: BackendRegistry) => registerFakeBackend(registry));
   await registerBackends(backends, {
-    config: input.config,
+    config,
     task,
     workspaceDir: input.cwd,
     ...(backendNeedsIsolation(input.config.backend)
@@ -150,8 +154,8 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const session = await manager.createSession({
     cwd: input.cwd,
     backend: input.config.backend,
-    llmConnectionSlug: input.config.llmConnectionSlug,
-    model: input.config.model,
+    llmConnectionSlug: config.llmConnectionSlug,
+    model: config.model,
     permissionMode: 'execute',
     name: `harbor-cell:${input.config.id}`,
   });
@@ -309,7 +313,12 @@ export function buildAiSdkCellBackendRegistration(input: {
         modelId: input.model,
         permissionEngine,
         modelFactory: getAIModel,
-        tools: buildHarborCellAiSdkTools(context.toolExecutor!),
+        tools: buildHarborCellAiSdkTools(context.toolExecutor!, {
+          ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+          ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+          ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
+          ...(context.heavyTaskEngineering ? { heavyTaskEngineering: context.heavyTaskEngineering } : {}),
+        }),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
         providerOptions: buildProviderOptions(connection, input.model),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
@@ -322,9 +331,12 @@ export function buildAiSdkCellBackendRegistration(input: {
   };
 }
 
-export function buildHarborCellAiSdkTools(executor: IsolatedToolExecutor): MakaTool[] {
+export function buildHarborCellAiSdkTools(
+  executor: IsolatedToolExecutor,
+  options: BuildIsolatedHeadlessToolsOptions = {},
+): MakaTool[] {
   const nonInteractiveToolNames = new Set<string>(ISOLATED_HEADLESS_TOOL_NAMES);
-  return buildIsolatedHeadlessTools(executor).map((tool) => (
+  return buildIsolatedHeadlessTools(executor, options).map((tool) => (
     nonInteractiveToolNames.has(tool.name)
       ? { ...tool, permissionRequired: false }
       : tool
@@ -340,7 +352,37 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
   // the floor is operator-configurable instead of a hard-coded failure source.
   const defaultTimeoutMs = numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
   return {
-    exec: async ({ command, cwd, timeoutMs }) => {
+    exec: async ({ command, cwd, timeoutMs, boundedTail }) => {
+      if (boundedTail) {
+        // Bash opted in: stream into a bounded tail (shared with the in-process
+        // builtin Bash) instead of execAsync({ maxBuffer }). A command whose
+        // output passes 10MB is no longer KILLED with only its head returned —
+        // it runs to completion and we keep the last ~1MB (the recoverable tail).
+        try {
+          const result = await runShellWithBoundedTail(command, {
+            cwd,
+            env: childEnv,
+            timeoutMs: timeoutMs ?? 120_000,
+          });
+          return {
+            exitCode: result.timedOut ? 124 : result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+          };
+        } catch (error) {
+          // runShellWithBoundedTail only rejects when the process cannot be
+          // spawned at all (e.g. the shell binary is missing).
+          return {
+            exitCode: shellErrorExitCode(error),
+            stdout: shellErrorText(error, 'stdout'),
+            stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
+          };
+        }
+      }
+      // Default (Read/Glob/Grep/Edit fallbacks): FULL output up to the buffer
+      // cap. These must return complete, head-first content — a bounded tail
+      // would silently drop the head of a file or search result and the model
+      // would edit code from a partial view.
       try {
         const result = await execAsync(command, {
           cwd,

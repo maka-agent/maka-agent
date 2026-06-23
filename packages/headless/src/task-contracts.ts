@@ -274,6 +274,243 @@ export interface ScoreResult {
   details?: Record<string, unknown>;
 }
 
+export interface HeavyTaskModeFacts {
+  schemaVersion: 1;
+  enabled: boolean;
+  triggerSource: 'default' | 'config' | 'task_metadata';
+  triggerReason: string;
+  policyVersion: string;
+}
+
+export interface HeavyTaskProgressSource {
+  kind: 'model_tool';
+  toolCallId: string;
+  sessionId?: string;
+  turnId?: string;
+}
+
+export interface HeavyTaskInventoryItem {
+  path: string;
+  kind: 'file' | 'directory' | 'artifact' | 'command' | 'unknown';
+  status: 'observed' | 'planned' | 'unknown';
+  purpose?: string;
+  evidence?: string;
+}
+
+export interface HeavyTaskInventoryState {
+  schemaVersion: 1;
+  inventoryId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  summary: string;
+  items: HeavyTaskInventoryItem[];
+  openQuestions?: string[];
+  source: HeavyTaskProgressSource;
+}
+
+export interface HeavyTaskTodoItem {
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  priority: 'high' | 'medium' | 'low';
+  evidence?: string;
+}
+
+export interface HeavyTaskTodoState {
+  schemaVersion: 1;
+  todoSetId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  items: HeavyTaskTodoItem[];
+  source: HeavyTaskProgressSource;
+}
+
+export type HeavyTaskSelfCheckStatus = 'pass' | 'fail' | 'inconclusive';
+
+export interface HeavyTaskCommandEvidence {
+  command: string;
+  exitCode?: number | null;
+  timedOut?: boolean;
+  outputExcerpt?: string;
+  artifactRefs?: string[];
+}
+
+export interface HeavyTaskArtifactEvidence {
+  path: string;
+  kind: 'file' | 'directory' | 'log' | 'build_output' | 'generated_output' | 'other';
+  exists?: boolean;
+  sizeBytes?: number;
+  hash?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface HeavyTaskSourceGuardResult {
+  status: 'accepted' | 'rejected';
+  checkedAt: number;
+  categories: string[];
+  publicReason: string;
+}
+
+export interface HeavyTaskSemanticSelfCheckState {
+  schemaVersion: 1;
+  selfCheckId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  status: HeavyTaskSelfCheckStatus;
+  publicReason: string;
+  commandEvidence: HeavyTaskCommandEvidence[];
+  artifactEvidence: HeavyTaskArtifactEvidence[];
+  guard: HeavyTaskSourceGuardResult & { status: 'accepted' };
+  source: HeavyTaskProgressSource;
+}
+
+export type HeavyTaskEvidenceKind = 'tool' | 'check' | 'artifact';
+export type HeavyTaskToolEvidenceName = 'Bash' | 'Read' | 'Grep' | 'Write' | 'Edit' | 'Glob' | string;
+
+export interface HeavyTaskTruncationRef {
+  truncated: boolean;
+  originalBytes?: number;
+  visibleBytes?: number;
+  omittedBytes?: number;
+  ref?: string;
+  refKind?: 'runtime_event' | 'artifact' | 'external' | 'future_storage';
+}
+
+export interface HeavyTaskOutputSummary {
+  stream: 'stdout' | 'stderr' | 'output' | 'content' | 'matches' | 'diff';
+  excerpt?: string;
+  lineCount?: number;
+  byteCount?: number;
+  truncated: boolean;
+  truncationRef?: HeavyTaskTruncationRef;
+}
+
+export interface HeavyTaskDiffSummary {
+  status: 'not_applicable' | 'not_captured' | 'present';
+  files?: Array<{ path: string; additions?: number; deletions?: number }>;
+  excerpt?: string;
+  truncationRef?: HeavyTaskTruncationRef;
+}
+
+export interface HeavyTaskCompactEvidenceEnvelope {
+  schemaVersion: 1;
+  evidenceId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  kind: HeavyTaskEvidenceKind;
+  public: true;
+  source: HeavyTaskProgressSource & {
+    runtimeEventId?: string;
+    toolName?: HeavyTaskToolEvidenceName;
+  };
+  tool?: {
+    name: HeavyTaskToolEvidenceName;
+    inputSummary: Record<string, unknown>;
+    exitCode?: number | null;
+    timedOut?: boolean;
+    ok?: boolean;
+    outputs: HeavyTaskOutputSummary[];
+    diff?: HeavyTaskDiffSummary;
+  };
+  artifact?: {
+    artifactId?: string;
+    path?: string;
+    workspacePath?: string;
+    artifactRef?: string;
+    kind?: string;
+    exists?: boolean;
+    sizeBytes?: number;
+    hash?: string;
+    mimeType?: string;
+    metadata?: Record<string, unknown>;
+    authority?: {
+      source: string;
+      authoritative: boolean;
+      label?: string;
+    };
+  };
+  check?: {
+    checkId?: string;
+    status?: 'pass' | 'fail' | 'inconclusive' | 'unknown';
+    linkedSelfCheckId?: string;
+  };
+  links?: {
+    todoIds?: string[];
+    checkIds?: string[];
+    artifactIds?: string[];
+    runtimeEventIds?: string[];
+  };
+}
+
+export type HeavyTaskEngineeringRecordKind =
+  | 'hypothesis'
+  | 'targeted_check'
+  | 'repair'
+  | 'patch';
+
+export type HeavyTaskEngineeringCompleteness = 'complete' | 'incomplete';
+
+export interface HeavyTaskEngineeringLinks {
+  todoIds: string[];
+  evidenceIds: string[];
+  toolCallIds: string[];
+  checkIds: string[];
+  artifactIds: string[];
+  changedFiles: string[];
+  patchIds: string[];
+  hypothesisIds: string[];
+  repairIds: string[];
+}
+
+export interface HeavyTaskEngineeringRecord {
+  schemaVersion: 1;
+  recordId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  kind: HeavyTaskEngineeringRecordKind;
+  title: string;
+  summary: string;
+  status: 'proposed' | 'running' | 'passed' | 'failed' | 'repaired' | 'superseded' | 'abandoned';
+  completeness: HeavyTaskEngineeringCompleteness;
+  incompleteReason?: string;
+  source: HeavyTaskProgressSource & { toolName: 'engineering_record' | 'check_record' };
+  links: HeavyTaskEngineeringLinks;
+  hypothesis?: {
+    expectedSignal: string;
+    rationaleEvidenceIds: string[];
+  };
+  targetedCheck?: {
+    checkId: string;
+    command?: string;
+    expectedSignal: string;
+    observedSignal: string;
+    result: 'pass' | 'fail' | 'inconclusive';
+  };
+  repair?: {
+    failedCheckIds: string[];
+    hypothesisId?: string;
+    repairStrategy: string;
+    outcome: 'not_checked' | 'check_passed' | 'check_failed' | 'inconclusive';
+  };
+  patch?: {
+    patchId: string;
+    changedFiles: string[];
+    changeSummary: string;
+    mutationEvidenceIds: string[];
+  };
+  projection?: {
+    missingTodoIds: string[];
+    missingEvidenceIds: string[];
+    missingArtifactIds: string[];
+    missingCheckIds: string[];
+  };
+}
+
 export interface EnvNetworkSecretPolicy {
   schemaVersion: 1;
   env: 'inherit_none' | 'allowlist';
@@ -471,6 +708,36 @@ export interface IsolationPolicyRecordedEvent extends BaseTaskEvent {
   facts: TaskIsolationFacts;
 }
 
+export interface HeavyTaskModeRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_mode_recorded';
+  facts: HeavyTaskModeFacts;
+}
+
+export interface HeavyTaskInventoryRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_inventory_recorded';
+  inventory: HeavyTaskInventoryState;
+}
+
+export interface HeavyTaskTodosRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_todos_recorded';
+  todos: HeavyTaskTodoState;
+}
+
+export interface HeavyTaskSelfCheckRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_self_check_recorded';
+  selfCheck: HeavyTaskSemanticSelfCheckState;
+}
+
+export interface HeavyTaskEvidenceRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_evidence_recorded';
+  evidence: HeavyTaskCompactEvidenceEnvelope;
+}
+
+export interface HeavyTaskEngineeringRecordRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_engineering_recorded';
+  record: HeavyTaskEngineeringRecord;
+}
+
 export interface WorkspaceLeaseRecordedEvent extends BaseTaskEvent {
   type: 'workspace_lease_recorded';
   lease: WorkspaceLeaseFacts;
@@ -594,6 +861,12 @@ export type TaskEvent =
   | VerifierResultRecordedEvent
   | TaskRunArtifactRecordedEvent
   | ScoreResultRecordedEvent
+  | HeavyTaskModeRecordedEvent
+  | HeavyTaskInventoryRecordedEvent
+  | HeavyTaskTodosRecordedEvent
+  | HeavyTaskSelfCheckRecordedEvent
+  | HeavyTaskEvidenceRecordedEvent
+  | HeavyTaskEngineeringRecordRecordedEvent
   | IsolationPolicyRecordedEvent
   | WorkspaceLeaseRecordedEvent
   | ToolExecutorIdentityRecordedEvent

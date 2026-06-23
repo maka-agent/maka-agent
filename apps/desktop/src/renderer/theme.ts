@@ -5,10 +5,8 @@
 // is `auto`, the helper subscribes to the system `prefers-color-scheme` media
 // query so the app follows OS-level Light/Dark switches in real time.
 //
-// Also exposes `applyDensity()` which sets `data-ui-density` on <html>; CSS
-// reads the attribute to swap a coherent set of `--ui-density-*` tokens.
-
-import type { ThemePalette, ThemePreference, UiDensity } from '@maka/core';
+import type { ThemePalette, ThemePreference } from '@maka/core';
+import { safeLocalStorageSet } from './browser-storage';
 
 const DARK_CLASS = 'dark';
 
@@ -29,11 +27,7 @@ export function applyTheme(pref: ThemePreference): () => void {
 
   // Cache the user-facing preference (not the resolved light/dark). The
   // pre-React paint reapplies the auto → system-matchMedia branch itself.
-  try {
-    localStorage.setItem('maka-theme-v1', pref);
-  } catch {
-    /* localStorage unavailable; cached preference will fall back to default */
-  }
+  safeLocalStorageSet('maka-theme-v1', pref);
 
   if (pref === 'auto') {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -70,10 +64,6 @@ function setDarkClass(isDark: boolean): void {
   root.style.colorScheme = isDark ? 'dark' : 'light';
 }
 
-export function applyDensity(density: UiDensity): void {
-  document.documentElement.setAttribute('data-ui-density', density);
-}
-
 /**
  * PR-UI-2 (@yuejing 2026-05-22): apply a base46 palette by writing
  * `data-maka-theme="<palette>"` on `<html>`. CSS variable overrides
@@ -90,11 +80,7 @@ export function applyThemePalette(palette: ThemePalette): void {
   } else {
     root.setAttribute('data-maka-theme', palette);
   }
-  try {
-    localStorage.setItem('maka-theme-palette-v1', palette);
-  } catch {
-    /* localStorage unavailable; pre-React paint will fall back to default */
-  }
+  safeLocalStorageSet('maka-theme-palette-v1', palette);
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   type ToolArtifactRecorder,
 } from './tool-artifacts.js';
 import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
+import { truncateToolOutput } from './tool-output.js';
 import type { RunTraceLike } from './run-trace.js';
 
 export interface MakaTool<P = any, R = unknown> {
@@ -669,17 +670,34 @@ function coerceTerminalFailure(
   const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
     ? (args as { command: string }).command
     : '';
+  const stdout = redactSecrets(String(error.stdout ?? ''));
+  const stderr = redactSecrets(String(error.stderr ?? ''));
   return {
     content: {
       kind: 'terminal',
       cwd,
       cmd: redactSecrets(command),
       exitCode: error.code,
-      stdout: redactSecrets(String(error.stdout ?? '')),
-      stderr: redactSecrets(String(error.stderr ?? '')),
+      stdout,
+      stderr,
     },
-    message: `命令退出码 ${error.code}`,
+    // The in-turn result the model acts on is just this message (the structured
+    // content above goes to session history). Without the actual output the
+    // model is blind to *why* the command failed, so fold in a bounded tail of
+    // stderr/stdout — the tail is where shell errors land.
+    message: buildTerminalFailureMessage(error.code, stdout, stderr),
   };
+}
+
+function buildTerminalFailureMessage(code: number, stdout: string, stderr: string): string {
+  const parts = [`命令退出码 ${code}`];
+  const view = (text: string) =>
+    truncateToolOutput(text, { maxLines: 40, maxBytes: 1500, direction: 'tail' }).content.trim();
+  const stderrView = view(stderr);
+  if (stderrView) parts.push(`--- stderr ---\n${stderrView}`);
+  const stdoutView = view(stdout);
+  if (stdoutView) parts.push(`--- stdout ---\n${stdoutView}`);
+  return parts.join('\n\n');
 }
 
 function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecord['status'] {

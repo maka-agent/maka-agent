@@ -72,6 +72,7 @@ import {
 } from '@maka/ui';
 import { ArtifactPreview } from './artifact-preview';
 import { nextArtifactListAction } from './artifact-list-keyboard';
+import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
 import { openPathFailureCopy } from './open-path';
 
 const COLLAPSE_KEY = 'maka-artifact-pane-collapsed-v1';
@@ -155,11 +156,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }, [sessionId, refresh]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
-    } catch {
-      /* localStorage unavailable — collapse state resets next launch, no behaviour impact */
-    }
+    safeLocalStorageSet(COLLAPSE_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
 
   const activeRecords = useMemo(
@@ -605,12 +602,7 @@ function KindIcon(props: { kind: ArtifactKind }) {
 }
 
 function readCollapsed(): boolean {
-  try {
-    const raw = localStorage.getItem(COLLAPSE_KEY);
-    return raw === '1';
-  } catch {
-    return false;
-  }
+  return safeLocalStorageGet(COLLAPSE_KEY) === '1';
 }
 
 function formatBytes(bytes: number): string {

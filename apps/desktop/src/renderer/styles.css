@@ -87,7 +87,7 @@ body {
 }
 
 .os-theme-maka {
-  --os-size: 6px;
+  --os-size: 8px;
   --os-padding-perpendicular: 1px;
   --os-padding-axis: 2px;
   --os-track-border-radius: 8px;
@@ -95,7 +95,7 @@ body {
   --os-track-bg-hover: transparent;
   --os-track-bg-active: transparent;
   --os-handle-border-radius: 6px;
-  --os-handle-bg: oklch(from var(--foreground) l c h / 0.14);
+  --os-handle-bg: var(--border);
   --os-handle-bg-hover: oklch(from var(--foreground) l c h / 0.22);
   --os-handle-bg-active: oklch(from var(--foreground) l c h / 0.30);
   --os-handle-interactive-area-offset: 6px;
@@ -137,10 +137,10 @@ select {
 
 button {
   transition:
-    background 150ms ease-out,
-    border-color 150ms ease-out,
-    color 150ms ease-out,
-    transform 150ms ease-out;
+    background 150ms var(--ease-out-strong),
+    border-color 150ms var(--ease-out-strong),
+    color 150ms var(--ease-out-strong),
+    transform 150ms var(--ease-out-strong);
 }
 
 button:active {
@@ -242,9 +242,15 @@ button:active {
      sidebar stays flat. Keep this at the shell boundary so chat,
      modules, and artifact panes share one workspace surface.
      gap/radius match reference layout-derived values (4px/6px)
-  per WAWQAQ ef6b2852. */
+  per WAWQAQ ef6b2852.
+     PR-SETTINGS-CHAT-PANE-NO-BORDER-0 (WAWQAQ msg `ab6240fc`, round
+     13/15): the previous round dropped the border on the more-specific
+     `.agents-content-area` overlay, but this BASE rule still carried
+     it. Some view states (cron / skills modules) don't add the
+     `agents-content-area` class so the base border leaked through and
+     WAWQAQ saw a seam in chat. Drop the border here too. */
   margin: 4px 4px 4px 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 6px;
   background: var(--background);
   box-shadow: none;
@@ -438,6 +444,11 @@ button:active {
   grid-template-rows: auto auto minmax(0, 1fr);
   padding: 0;
   overflow: hidden;
+  /* Double-bezel inner highlight — high-end-visual-design §4A: premium
+     modals read as physical hardware via a 1px inner top highlight. The
+     outer chrome (border + shadow) lives on the Dialog primitive; this
+     adds the inner sheen. */
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
 }
 .maka-search-modal-header {
   display: grid;
@@ -580,11 +591,14 @@ button:active {
   border-radius: 6px;
   background: transparent;
   color: var(--foreground);
-  padding: 7px 10px;
-  transition: background 150ms ease-out;
+  padding: 6px 10px;
+  transition:
+    background 150ms var(--ease-out-strong),
+    transform 180ms var(--ease-out-strong);
 }
 .maka-search-modal-result:hover:not([disabled]) {
-  background: oklch(from var(--foreground) l c h / 0.04);
+  background: oklch(from var(--foreground) l c h / 0.05);
+  transform: translateX(1px);
 }
 .maka-search-modal-result[data-active="true"]:not([disabled]) {
   background: oklch(from var(--accent) l c h / 0.08);
@@ -671,7 +685,7 @@ button:active {
   border-radius: 6px;
   background: transparent;
   color: var(--foreground-55);
-  transition: background 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
+  transition: background 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong), box-shadow 150ms var(--ease-out-strong);
 }
 
 .maka-sidebar-search-button:hover,
@@ -701,13 +715,7 @@ button:active {
   padding-inline: 8px;
 }
 
-.maka-session-panel[data-collapsed="true"] .maka-sidebar-settings-button {
-  width: 32px;
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.maka-session-panel[data-collapsed="true"] .maka-sidebar-settings-button span {
+.maka-session-panel[data-collapsed="true"] .maka-sidebar-settings-button > span {
   display: none;
 }
 
@@ -753,7 +761,7 @@ button:active {
   overflow: hidden;
   border-top: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   padding-top: 5px;
 }
 
@@ -764,21 +772,26 @@ button:active {
   border-top: 0;
 }
 
+/* Sidebar footer — Settings affordance only. The earlier "Free Plan" account
+   widget was removed (WAWQAQ msg cad3dec4: "现在左下角怎么还有 账户部分,
+   我们没有账户"). About / version still reachable via Settings → 关于. */
 .maka-sidebar-settings-button {
   width: 100%;
-  min-height: 32px;
-  display: inline-flex;
+  min-width: 0;
+  display: inline-grid;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--foreground-70);
-  cursor: pointer;
-  padding: 5px 8px;
+  color: var(--foreground-65);
+  padding: 6px 8px;
   text-align: left;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
+  transition: background-color 150ms var(--ease-out-strong),
+              color 150ms var(--ease-out-strong);
 }
 
 .maka-sidebar-settings-button:hover {
@@ -808,60 +821,8 @@ button:active {
   padding: 4px 4px 8px;
 }
 
-.maka-nav-window {
-  height: 32px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px 4px;
-  -webkit-app-region: drag;
-}
-
 .maka-nav-window span {
   display: none;
-}
-
-.maka-window-drag-strip {
-  height: 24px;
-  -webkit-app-region: drag;
-}
-
-.maka-nav-primary {
-  -webkit-app-region: no-drag;
-  width: 100%;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 0 6px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--foreground-70);
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
-  transition: background 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out;
-}
-
-.maka-nav-primary:hover {
-  background: var(--foreground-2);
-  border-color: transparent;
-}
-
-.maka-nav-primary:focus-visible {
-  outline: none;
-  border-color: oklch(from var(--accent) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
-}
-
-.maka-nav-primary-icon {
-  width: var(--icon-size);
-  height: var(--icon-size);
-  color: currentColor;
-  flex: 0 0 auto;
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-primary {
@@ -893,10 +854,6 @@ button:active {
   justify-self: center;
 }
 
-.maka-nav-spacer {
-  flex: 1;
-}
-
 /* PR-PARCHMENT-HOME-9 (WAWQAQ msg `781852eb` 2026-06-20): module nav
    styles restored, then tightened after task #98 so active rows read
    as slim target-layout like nav rows instead of full-width pills. */
@@ -923,24 +880,15 @@ button:active {
   -webkit-app-region: no-drag;
   padding: 3px 6px;
   text-align: left;
-  font-size: 13px;
-  line-height: 1.25;
+  /* PR-NAV-NEW-TASK-WEIGHT-0 (2026-06-23): reference-atlas §2 type
+     scale uses text-sm (14px / 20px line-height) for sidebar nav
+     rows. Maka was sitting at 13px / 1.25 (≈16.25px line-height),
+     a half-step smaller that read tighter than the reference. */
+  font-size: 14px;
+  line-height: 1.43;
   transition:
-    background 150ms ease-out,
-    color 150ms ease-out;
-}
-
-.maka-nav-row-parent {
-  color: var(--foreground);
-  font-weight: 600;
-}
-
-.maka-nav-disclosure {
-  width: 12px;
-  height: 12px;
-  justify-self: end;
-  color: var(--foreground-45);
-  transition: transform 140ms var(--ease-out-strong);
+    background 150ms var(--ease-out-strong),
+    color 150ms var(--ease-out-strong);
 }
 
 .maka-nav-row[aria-expanded="true"] .maka-nav-disclosure {
@@ -968,8 +916,13 @@ button:active {
 }
 
 .maka-nav-new-task {
+  /* PR-NAV-NEW-TASK-WEIGHT-0 (2026-06-23): "新任务" should not render
+     bold by default — the active-state already carries weight: 600,
+     and a permanently-bold idle entry reads as "this is the active
+     page" even when nothing is selected. Reference nav rows are all
+     normal weight at rest; the create-action stays a normal-weight
+     row with the SquarePen glyph carrying the affordance. */
   color: var(--foreground);
-  font-weight: 600;
 }
 
 .maka-nav-new-task .maka-nav-icon {
@@ -1009,35 +962,12 @@ button:active {
   background: oklch(from var(--foreground) l c h / 0.06);
   padding: 0 4px;
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .maka-nav-row[data-active="true"] .maka-nav-count {
   background: oklch(from var(--foreground) l c h / 0.08);
   color: var(--foreground);
-}
-
-.maka-nav-tree {
-  position: relative;
-  display: grid;
-  gap: 2px;
-  margin: 2px 0 0 10px;
-  padding-left: 4px;
-}
-
-.maka-nav-tree::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 2px;
-  bottom: 2px;
-  width: 1px;
-  background: oklch(from var(--foreground) l c h / 0.10);
-}
-
-.maka-nav-row-sub {
-  font-size: 12.5px;
-  color: var(--foreground-70);
-  padding: 3px 6px;
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-sidebar-modules {
@@ -1057,48 +987,6 @@ button:active {
 
 .maka-session-panel[data-collapsed="true"] .maka-nav-tree {
   display: none;
-}
-
-.maka-list-column {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--background);
-  box-shadow: var(--shadow-minimal-flat);
-}
-
-.maka-list-header {
-  height: var(--h-list-header);
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
-  align-items: center;
-  border-bottom: 1px solid var(--border);
-  padding: 0 8px;
-}
-
-.maka-list-header-title {
-  grid-column: 2;
-  min-width: 0;
-  overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--foreground);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.maka-list-header-actions {
-  grid-column: 3;
-  display: grid;
-  place-items: center;
-  color: var(--foreground-40);
 }
 
 .maka-list-header-actions svg {
@@ -1128,19 +1016,29 @@ button:active {
   gap: 0;
 }
 
+/* Sidebar group separator — atlas §14.6 + Phase 4A. Each group beyond
+   the first is preceded by a 1px hairline divider that reads as a
+   "data section break" rather than a card-like edge. */
 .maka-list-group + .maka-list-group {
-  margin-top: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.05);
 }
 
+/* Group label as "data-tier section header" — tighter typography,
+   uppercase tracking, slight monospace flavor. Mirrors the
+   reference's `.sidebar-section-title` (foreground-quaternary at 90%). */
 .maka-list-group-label {
   display: flex;
   align-items: baseline;
-  gap: 2px;
-  padding: 1px 6px 3px;
-  color: var(--foreground-42);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
+  gap: 3px;
+  padding: 0 6px 3px;
+  color: var(--foreground-45);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3 (WAWQAQ msgs `14ed98b5`, `761141c5` —
@@ -1173,7 +1071,30 @@ button:active {
   background: transparent;
   color: var(--foreground);
   overflow: hidden;
-  transition: background-color 150ms ease-out;
+  transition:
+    background-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Session list stagger — each row fades up with a 40ms cascade per index
+     via --maka-row-index custom property set by the renderer. Capped at 12
+     to avoid a long visible cascade on big sidebars. Reduced-motion below
+     drops the animation. */
+  animation: maka-list-row-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(min(var(--maka-row-index, 0), 11) * 32ms);
+}
+
+@keyframes maka-list-row-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row {
+    animation: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-list-row {
+  animation: none;
 }
 
 .maka-list-row:hover {
@@ -1541,7 +1462,7 @@ button:active {
   display: grid;
   gap: 10px;
   color: var(--foreground);
-  animation: maka-agents-slide-up 200ms ease-out both;
+  animation: maka-agents-slide-up 200ms var(--ease-out-strong) both;
 }
 
 @keyframes maka-agents-slide-up {
@@ -1647,7 +1568,7 @@ button:active {
 }
 
 .maka-onboarding-grid > li {
-  animation: maka-agents-fade-in 150ms ease-out both;
+  animation: maka-agents-fade-in 150ms var(--ease-out-strong) both;
 }
 
 .maka-onboarding-grid > li:nth-child(1) { animation-delay: 60ms; }
@@ -1676,7 +1597,10 @@ button:active {
   background: transparent;
   color: var(--foreground);
   text-align: left;
-  transition: background 150ms ease-out;
+  transition:
+    background 150ms var(--ease-out-strong),
+    transform 180ms var(--ease-out-strong),
+    box-shadow 220ms var(--ease-out-strong);
 }
 
 .maka-onboarding-card:hover {
@@ -1878,30 +1802,6 @@ button:active {
     justify-self: start;
   }
 }
-
-.maka-onboarding-skip {
-  border: 0;
-  background: transparent;
-  color: var(--foreground-60);
-  font-size: 12px;
-  text-decoration: none;
-  padding: 5px 8px;
-  border-radius: 6px;
-  transition: background 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
-}
-
-.maka-onboarding-skip:hover {
-  color: var(--foreground);
-  text-decoration: underline;
-}
-
-.maka-onboarding-skip:focus-visible {
-  outline: none;
-  color: var(--foreground);
-  background: var(--foreground-3);
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
-}
-
 /* PR110c: extended OnboardingHero variants. The setup variants
    reuse the base `.maka-onboarding` chrome but skip the provider
    grid; we add a compact body + a single CTA.
@@ -2243,8 +2143,14 @@ button:active {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--foreground-50);
-  font-size: 11px;
+  /* Phase 4A — tighten meta typography. 11/50 was reading too loud:
+     the date stamp dominated visual hierarchy when it should sit
+     under the title. 9/42 mirrors reference's secondary-meta tier. */
+  color: var(--foreground-42);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   flex-shrink: 0;
 }
 
@@ -2275,17 +2181,6 @@ button:active {
   align-items: center;
   gap: 4px;
   color: var(--foreground-60);
-}
-
-.maka-skill-tools-label {
-  padding: 0 5px;
-  border-radius: 4px;
-  background: oklch(from var(--info) l c h / 0.12);
-  color: var(--info-text);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
@@ -2462,8 +2357,8 @@ button:active {
 
 .maka-empty-state-body {
   max-width: 30ch;
-  color: var(--foreground-50);
-  font-size: 11px;
+  color: var(--foreground-45);
+  font-size: 12px;
   line-height: 1.4;
   text-wrap: pretty;
 }
@@ -2533,14 +2428,26 @@ button:active {
    定时任务 page (header → banner → tabs → grid sit straight on the white card).
    Removed the inner border/radius/shadow/1080-center so there's no card-in-card,
    and opened up the padding so the page breathes like the reference. */
+/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Plan/Reminder
+   page card uses the universal recipe: 1px hairline border + 6px radius +
+   single 4% lift + 1px inner top highlight. Tight 4-6px internal gaps
+   (`--card-gap`) replace the old 14-18px loose stacking. */
 .maka-plan-shell {
   width: min(100%, 900px);
   margin-inline: auto;
   display: grid;
-  gap: 18px;
-  padding: 0;
-  background: transparent;
-  animation: maka-page-shell-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* Atlas §14.6 quick-win: section gap tightens 14 -> 8 (reference uses
+     `--agents-content-area-gap: 4px`; 8 keeps long-page readability while
+     pulling toward the dense reference cadence). */
+  gap: 8px;
+  padding: 18px 20px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
 }
 
 .maka-plan-hero {
@@ -2567,10 +2474,10 @@ button:active {
 .maka-plan-heading h2 {
   margin: 0;
   color: var(--foreground);
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: 0;
-  line-height: 1.2;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
 }
 
 .maka-plan-heading p:last-child {
@@ -2598,25 +2505,39 @@ button:active {
   font-weight: 600;
 }
 
-/* PR-UI-PIXEL-3: signature black CTA, matching the reference's restrained
-   primary command treatment without using the app accent. */
+/* PR-UI-PIXEL-3: signature off-black CTA, matching the reference's restrained
+   primary command treatment without using the app accent. Pure #000 is banned
+   per design-taste rules — use oklch off-black (charcoal) for premium feel. */
 .maka-plan-new-task-button {
   gap: 4px;
-  border-color: #151515;
+  border-color: oklch(0.20 0 0);
   border-radius: 999px;
-  background: #000;
+  background: oklch(0.18 0 0);
   box-shadow:
-    inset 0 1px 0 #ffffff26,
-    0 1px 2px #0c0c0d1a;
-  color: #fff;
+    inset 0 1px 0 oklch(1 0 0 / 0.15),
+    0 1px 2px oklch(0 0 0 / 0.10);
+  color: oklch(1 0 0);
   font-size: 11px;
   font-weight: 600;
+  transition:
+    background-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .maka-plan-new-task-button:hover {
-  border-color: #1f1f1f;
-  background: #1f1f1f;
-  color: #fff;
+  border-color: oklch(0.28 0 0);
+  background: oklch(0.26 0 0);
+  color: oklch(1 0 0);
+  transform: translateY(-0.5px);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.20),
+    0 4px 14px -8px oklch(0 0 0 / 0.32);
+}
+
+.maka-plan-new-task-button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .maka-plan-refresh-button {
@@ -2889,7 +2810,7 @@ button:active {
   position: relative;
   gap: 6px;
   min-width: 0;
-  height: 30px;
+  height: 28px;
   padding: 0;
   border-radius: 0;
   background: transparent;
@@ -2988,14 +2909,14 @@ button:active {
   padding: 14px 16px 13px;
   min-height: 148px;
   transition:
-    border-color 150ms ease-out,
-    box-shadow 150ms ease-out,
+    border-color 150ms var(--ease-out-strong),
+    box-shadow 150ms var(--ease-out-strong),
     transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .maka-plan-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.13);
-  box-shadow: 0 10px 22px -22px oklch(from var(--foreground) l c h / 0.32);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
   transform: translateY(-1px);
 }
 
@@ -3285,12 +3206,6 @@ button:active {
   white-space: nowrap;
 }
 
-.maka-plan-card-status {
-  color: var(--foreground-35);
-  font-size: 10px;
-  font-weight: 600;
-}
-
 .maka-plan-card-run {
   display: none;
 }
@@ -3327,10 +3242,6 @@ button:active {
 }
 
 .maka-plan-card-chip + .maka-plan-card-chip {
-  display: none;
-}
-
-.maka-plan-card-recurrence {
   display: none;
 }
 
@@ -3493,6 +3404,11 @@ button:active {
   overflow: auto;
 }
 
+.maka-module-main[data-module="daily-review"] {
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
 .maka-module-main-header {
   width: min(100%, 900px);
   margin-inline: auto;
@@ -3504,16 +3420,16 @@ button:active {
   border-bottom: 0;
 }
 
-/* PR-UI-PIXEL-1: module page titles match the reference's ~24px page H1
-   (study §2.2) instead of reading like a small section label, and the subtitle
-   lifts from a cramped 11px to a legible 13px secondary line. */
+/* Module page titles use reference layout's --text-3xl display scale (30px) —
+   atlas §2 + §9. Negative letter-spacing gives the heading the cinematic
+   weight reference layout uses for page-level headings. */
 .maka-module-main-header h2 {
   margin: 0;
   color: var(--foreground);
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: 0;
-  line-height: 1.2;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
 }
 
 .maka-module-main-header p {
@@ -3588,6 +3504,9 @@ button:active {
   color: #fff;
 }
 
+/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Skills page
+   card mirrors the Plan shell: 1px hairline border + 6px radius + 4% lift +
+   1px inner top highlight, with tight 4-6px internal gaps. */
 .maka-skill-library {
   width: min(100%, 900px);
   margin-inline: auto;
@@ -3595,13 +3514,17 @@ button:active {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  animation: maka-page-shell-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* Atlas §14.6 quick-win: section gap 14 -> 8 to track the reference's
+     4px `--agents-content-area-gap` cadence. */
+  gap: 8px;
+  padding: 18px 20px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
 }
 
 /* Reference-layout page-shell entrance — opacity 0 + translateY(6px) -> 0,
@@ -3614,14 +3537,20 @@ button:active {
 
 @media (prefers-reduced-motion: reduce) {
   .maka-skill-library,
-  .maka-plan-shell {
+  .maka-plan-shell,
+  .maka-module-main .maka-daily-review-panel,
+  .maka-daily-review-panel {
     animation: none;
   }
 }
 
 [data-maka-visual-smoke="true"] .maka-skill-library,
-[data-maka-visual-smoke="true"] .maka-plan-shell {
+[data-maka-visual-smoke="true"] .maka-plan-shell,
+[data-maka-visual-smoke="true"] .maka-module-main .maka-daily-review-panel,
+[data-maka-visual-smoke="true"] .maka-daily-review-panel {
   animation: none;
+  opacity: 1;
+  transform: none;
 }
 
 [data-maka-visual-smoke="true"] .maka-plan-card-grid > article,
@@ -3763,7 +3692,6 @@ button:active {
   border-radius: 0;
   background: transparent;
   color: var(--foreground-55);
-  cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   padding: 0 1px;
@@ -3807,9 +3735,9 @@ button:active {
 }
 
 .maka-skill-filter-pill {
-  height: 30px;
+  height: 28px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--background);
   color: var(--foreground-70);
   font-size: 12px;
@@ -3853,14 +3781,14 @@ button:active {
   background: var(--background);
   padding: 16px;
   transition:
-    border-color 150ms ease-out,
+    border-color 150ms var(--ease-out-strong),
     box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
     transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .maka-skill-market-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.14);
-  box-shadow: 0 10px 22px -22px oklch(from var(--foreground) l c h / 0.30);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
   transform: translateY(-1px);
 }
 
@@ -3935,25 +3863,18 @@ button:active {
 .maka-skill-examples,
 .maka-skill-installed {
   display: grid;
-  gap: 6px;
+  /* Atlas §14.6 quick-win — section internal gap aligned to reference's
+     `--agents-content-area-gap: 4px` cadence; was 6px. */
+  gap: 4px;
   min-width: 0;
 }
 
-.maka-skill-examples-header,
-.maka-skill-installed-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--foreground-55);
-  font-size: 10px;
-  line-height: 1.35;
-}
-
 .maka-skill-section-label {
-  color: var(--foreground);
-  font-size: 11px;
+  color: var(--foreground-65);
+  font-size: 9.5px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .maka-skill-example-grid {
@@ -3974,7 +3895,7 @@ button:active {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  transition: background-color 150ms ease-out;
+  transition: background-color 150ms var(--ease-out-strong);
 }
 
 .maka-skill-template-row:hover {
@@ -4067,7 +3988,7 @@ button:active {
   white-space: normal !important;
   text-align: left;
   transition:
-    background-color 150ms ease-out,
+    background-color 150ms var(--ease-out-strong),
     transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -4102,7 +4023,7 @@ button:active {
   background: var(--background);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
   color: var(--foreground-55);
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  transition: background-color 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
 }
 
 /* PR-UI-PIXEL-1: tile stays white on hover (reference keeps icon tiles
@@ -4182,7 +4103,7 @@ button:active {
   text-align: center;
   opacity: 1;
   transform: none;
-  transition: opacity 150ms ease-out, transform 150ms ease-out, background-color 150ms ease-out, color 150ms ease-out;
+  transition: opacity 150ms var(--ease-out-strong), transform 150ms var(--ease-out-strong), background-color 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
 }
 
 .maka-skill-library-row:hover .maka-skill-library-action,
@@ -4243,15 +4164,7 @@ button:active {
   .maka-skill-workbench-rail {
     position: static;
   }
-
-  .maka-skill-examples-header,
-  .maka-skill-installed-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .maka-skill-library-row {
+.maka-skill-library-row {
     grid-template-columns: 38px minmax(0, 1fr) max-content;
     gap: 6px;
   }
@@ -4292,102 +4205,11 @@ button:active {
   -webkit-app-region: drag;
 }
 
-.maka-chat-tab {
-  height: 26px;
-  max-width: min(300px, 50vw);
-  min-width: 120px;
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 0;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: oklch(from var(--foreground) l c h / 0.05);
-  box-shadow: none;
-  color: var(--foreground);
-  font-size: 12px;
-  font-weight: 500;
-  -webkit-app-region: no-drag;
-}
-
-.maka-chat-tab-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--foreground-50);
-}
-
-/* Real provider brand mark replaces the generic MessageSquare icon when
-   the chat has a real connection. The ProviderLogo already renders an
-   inline 32px square via .providerLogo[data-compact]; we just resize. */
-.maka-chat-tab-provider {
-  width: 14px;
-  height: 14px;
-  display: inline-grid;
-  place-items: center;
-}
-
-.maka-chat-tab-provider .providerLogo {
-  width: 14px;
-  height: 14px;
-  /* 28% ratio matching the md / sm anchors (PR-UI-13). Previously 6px
-   * (33%) which made the chat-tab badge feel rounder than the sidebar
-   * chip and onboarding card. */
-  border-radius: 5px;
-  box-shadow: inset 0 0 0 0.5px oklch(1 0 0 / 0.4);
-}
-
-.maka-chat-tab-provider .providerLogo svg {
-  /* Anchor to the same 72% inner ratio as md / sm so the brand mark
-   * reads the same at every size. */
-  width: 72%;
-  height: 72%;
-}
-
-.maka-chat-tab span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.maka-chat-tab .maka-chat-tab-backend {
-  color: var(--foreground-45, var(--foreground-40));
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.maka-chat-tab-plus {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  margin: 0 2px 3px 2px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--foreground-50);
-  -webkit-app-region: no-drag;
-  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
-}
-
-.maka-chat-tab-plus:hover {
-  background: var(--hover);
-  color: var(--foreground);
-}
-
-.maka-chat-tab-plus:focus-visible {
-  outline: none;
-  background: var(--hover);
-  color: var(--foreground);
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
-}
-
-.maka-chat-tab-plus svg {
-  width: 14px;
-  height: 14px;
-}
+/* PR-REMOVE-CHAT-TAB (WAWQAQ msg d401938d 2026-06-23): the
+   browser-style session tab + the duplicate "新建对话" plus button at
+   the top-left of the chat header are removed. ~95 LOC of .maka-chat-tab*
+   rules came out with them. Session name + model live in the sidebar;
+   create-session lives in the sidebar new-task button. */
 
 .maka-chat-header-spacer {
   flex: 1;
@@ -4680,16 +4502,22 @@ button:active {
 }
 
 .maka-mode-switcher-option {
+  /* PR-CHAT-TOOLBAR-POLISH (2026-06-23): density tuned down so the
+     mode pill (只读 / 确认 / 执行) reads as a peer of the top-right
+     icon buttons (问题反馈 / 网格 / ? / 设置) instead of dominating
+     the chrome strip. -1 px font, -1 px vertical padding, slightly
+     tighter horizontal padding to match a 24-px chip rhythm. */
   display: inline-flex;
   align-items: center;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--foreground-60);
-  padding: 3px 11px;
-  font-size: 12px;
+  padding: 2px 9px;
+  font-size: 11.5px;
   font-weight: 500;
   white-space: nowrap;
+  letter-spacing: 0.005em;
   transition: background 140ms ease, color 140ms ease;
 }
 
@@ -4720,18 +4548,6 @@ button:active {
   color: var(--success-text);
 }
 
-.maka-center-state {
-  height: 100%;
-  display: grid;
-  place-items: center;
-  color: var(--foreground-50);
-  font-size: 15px;
-}
-
-.chatToolbar {
-  justify-content: space-between;
-}
-
 .chatToolbar > div {
   min-width: 0;
   display: grid;
@@ -4750,18 +4566,6 @@ button:active {
 .chatToolbar small {
   color: var(--foreground-50);
   font-size: 11px;
-}
-
-.modePill {
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-  padding: 0 6px;
-  font-size: 11px;
-  font-weight: 500;
 }
 
 .messages {
@@ -4807,7 +4611,7 @@ button:active {
   opacity: 1;
   transition:
     transform 180ms var(--ease-out-strong),
-    opacity 180ms ease-out,
+    opacity 180ms var(--ease-out-strong),
     background 120ms ease;
 }
 
@@ -4987,7 +4791,7 @@ button:active {
   opacity: 1;
   transform: translateY(0);
   transition:
-    opacity 200ms ease-out,
+    opacity 200ms var(--ease-out-strong),
     transform 220ms var(--ease-out-strong);
 }
 
@@ -5041,7 +4845,7 @@ button:active {
   padding: 2px 7px;
   font-size: 10px;
   font-weight: 600;
-  transition: background-color 150ms ease-out;
+  transition: background-color 150ms var(--ease-out-strong);
 }
 
 .maka-toast-action:hover {
@@ -5057,7 +4861,7 @@ button:active {
   border-radius: 4px;
   background: transparent;
   color: var(--foreground-50);
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  transition: background-color 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
 }
 
 .maka-toast-close:hover {
@@ -5080,6 +4884,7 @@ button:active {
   max-height: calc(100vh - 96px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
 }
 
 .maka-help-header {
@@ -5159,11 +4964,27 @@ button:active {
 }
 
 .maka-palette-modal {
-  width: min(560px, calc(100vw - 48px));
-  max-height: 64vh;
+  width: min(584px, calc(100vw - 32px));
+  max-height: min(620px, 68vh);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.05),
+    0 18px 48px oklch(from var(--foreground) l c h / 0.12),
+    inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+.maka-palette-modal,
+.maka-palette-list,
+.maka-palette-group-label,
+.maka-palette-item,
+.maka-palette-hint,
+.maka-palette-footer {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .maka-palette-input-wrap {
@@ -5178,6 +4999,8 @@ button:active {
   color: var(--foreground);
   font-size: 12px;
   line-height: 1.4;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .maka-palette-input::placeholder {
@@ -5231,15 +5054,15 @@ button:active {
 .maka-palette-list {
   border-top: 1px solid var(--border);
   overflow-y: auto;
-  padding: 6px 6px 8px;
+  padding: 5px 6px 7px;
 }
 
 .maka-palette-group + .maka-palette-group {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .maka-palette-group-label {
-  padding: 4px 8px 2px;
+  padding: 4px 8px 3px;
   color: var(--foreground-50);
   font-size: 10px;
   font-weight: 600;
@@ -5248,19 +5071,41 @@ button:active {
 }
 
 .maka-palette-item {
+  position: relative;
   width: 100%;
+  min-height: 28px;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--foreground);
-  padding: 4px 8px;
+  padding: 5px 8px;
   text-align: left;
   font-size: 11px;
-  transition: background-color 150ms ease-out;
+  cursor: default;
+  transform: translateY(0);
+  transition:
+    background-color 140ms var(--ease-out-strong),
+    color 140ms var(--ease-out-strong),
+    opacity 140ms var(--ease-out-strong),
+    transform 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item::before {
+  content: "";
+  position: absolute;
+  inset: 5px auto 5px 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item:hover:not([data-disabled="true"]) {
+  background: var(--foreground-5);
 }
 
 .maka-palette-item[data-active="true"] {
@@ -5268,13 +5113,43 @@ button:active {
   color: var(--foreground);
 }
 
+.maka-palette-item[data-active="true"]::before {
+  background: oklch(from var(--accent) l c h / 0.72);
+}
+
+.maka-palette-item:active:not([data-disabled="true"]) {
+  transform: translateY(1px);
+}
+
+.maka-palette-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.maka-palette-item[data-disabled="true"] {
+  color: var(--foreground-50);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.maka-palette-item[data-pending="true"] {
+  cursor: progress;
+}
+
 .maka-palette-icon {
   display: grid;
   place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
   color: var(--foreground-50);
+  transition:
+    background-color 140ms var(--ease-out-strong),
+    color 140ms var(--ease-out-strong);
 }
 
 .maka-palette-item[data-active="true"] .maka-palette-icon {
+  background: oklch(from var(--accent) l c h / 0.10);
   color: var(--accent);
 }
 
@@ -5291,6 +5166,11 @@ button:active {
   color: var(--foreground-50);
   font-size: 10px;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-palette-item[data-pending="true"] .maka-palette-hint {
+  color: var(--accent);
 }
 
 .maka-palette-empty {
@@ -5458,10 +5338,19 @@ button:active {
 .emptyChat h1 {
   margin: 0;
   max-width: 34ch;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.12;
-  text-wrap: pretty;
+  /* Phase 4A hero typography — atlas §15 deep RE notes reference uses
+     `.welcome-title` with `Instrument Sans` variable font at wdth:100/
+     wght:500 for hero. Maka uses Geist Variable which also has wdth +
+     wght axes. Pulling the heading to 32px / wght 550 / -0.018em
+     tracking + setting font-variation-settings wdth 105 gives the
+     hero the same "wider, slightly heavier, optically distinct from
+     chrome" feel without adding a second variable font asset. */
+  font-size: 32px;
+  font-weight: 550;
+  letter-spacing: -0.018em;
+  line-height: 1.1;
+  font-variation-settings: "wght" 550, "wdth" 105;
+  text-wrap: balance;
 }
 
 .maka-hero p,
@@ -5469,8 +5358,8 @@ button:active {
   margin: 0;
   max-width: 54ch;
   color: var(--foreground-60);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 14.5px;
+  line-height: 1.55;
   text-wrap: pretty;
 }
 
@@ -5499,7 +5388,7 @@ button:active {
    message slides up gently when it lands, including streaming deltas and
    session-switch loads. Honored by prefers-reduced-motion below. */
 .maka-message-row {
-  animation: maka-message-row-enter 220ms ease-out both;
+  animation: maka-message-row-enter 220ms var(--ease-out-strong) both;
 }
 
 @keyframes maka-message-row-enter {
@@ -6186,17 +6075,20 @@ button:active {
   max-width: 680px;
   margin-inline: auto;
   box-sizing: border-box;
-  /* PR-UI-PIXEL-3: reference composer is rounder (~12px) and floats on a
-     soft hairline ring, not a hard border (study §3.1). */
-  border-radius: 12px;
+  /* Composer outer chrome uses the universal page-card recipe (atlas §4
+     + maka-tokens.css --card-*) but with a slightly larger 10px radius
+     since the composer reads as a "hero card" rather than a flush page
+     surface — 6px would feel too tight for a 72px+ tall floating panel. */
+  border: 1px solid var(--card-border-color);
+  border-radius: 10px;
   padding: 10px 12px;
-  background: var(--background);
+  background: var(--card-bg);
   box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / 0.035),
-    0 1px 3px oklch(from var(--foreground) l c h / 0.025);
+    var(--card-shadow),
+    var(--card-highlight);
   transition:
-    border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    border-color 180ms var(--ease-out-strong),
+    box-shadow 220ms var(--ease-out-strong);
 }
 
 .composer .maka-composer-inner::before,
@@ -6331,9 +6223,9 @@ button:active {
 .maka-composer-mode-chip,
 .maka-composer-model-chip {
   transition:
-    background-color 150ms ease-out,
-    color 150ms ease-out,
-    border-color 150ms ease-out;
+    background-color 150ms var(--ease-out-strong),
+    color 150ms var(--ease-out-strong),
+    border-color 150ms var(--ease-out-strong);
 }
 
 .maka-composer-role-chip:hover,
@@ -6346,6 +6238,68 @@ button:active {
 
 .maka-composer-model-chip {
   max-width: min(190px, 30vw);
+}
+
+/* PR-MOVE-PERMISSION-MODE (WAWQAQ 2026-06-23): permission-mode chip
+   in the composer left-controls + its dropdown menu. The chip reuses
+   the shared `.maka-composer-role-chip` / `.maka-composer-mode-chip`
+   geometry (h-24 pill, foreground-65 ink); only the menu styling
+   below is new. */
+.maka-composer-mode-chip {
+  font-variant-numeric: tabular-nums;
+}
+.maka-composer-mode-chip[data-tone="accent"] {
+  border-color: oklch(from var(--accent) l c h / 0.32);
+  color: oklch(from var(--accent) l c h);
+}
+.maka-composer-mode-chip[data-tone="caution"] {
+  border-color: oklch(from var(--success) l c h / 0.32);
+  color: oklch(from var(--success) l c h);
+}
+.maka-composer-mode-chip[data-tone="info"] {
+  border-color: oklch(from var(--info) l c h / 0.32);
+  color: oklch(from var(--info) l c h);
+}
+.maka-composer-mode-chip[data-pending="true"] {
+  opacity: 0.7;
+}
+.maka-composer-mode-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.maka-composer-mode-menu {
+  min-width: 280px;
+  padding: 4px;
+  border-radius: 8px;
+}
+.maka-composer-mode-menu [role="menuitem"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.maka-composer-mode-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.maka-composer-mode-menu-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.maka-composer-mode-menu-hint {
+  font-size: 11px;
+  color: var(--foreground-55);
+  line-height: 1.4;
+  white-space: normal;
+}
+.maka-composer-mode-menu [data-active="true"] .maka-composer-mode-menu-label {
+  color: oklch(from var(--accent) l c h);
 }
 
 .maka-composer-right-controls .maka-model-switcher {
@@ -6408,8 +6362,8 @@ button:active {
   background: transparent;
   color: var(--foreground-60);
   transition:
-    background-color 150ms ease-out,
-    color 150ms ease-out,
+    background-color 150ms var(--ease-out-strong),
+    color 150ms var(--ease-out-strong),
     transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -6450,39 +6404,40 @@ button:active {
   opacity: 1;
 }
 
-/* PR-UI-PIXEL-3 (2026-06-21): reference's round send button is a black-pill
-   gradient (#222→#000) with a 1px inner top highlight — a tiny physical sheen,
-   not flat black (study §2.3). */
+/* Reference's round send button is an off-black pill gradient with a 1px
+   inner top highlight — a tiny physical sheen, not flat pure #000 (banned
+   per design-taste rules). Uses oklch off-black (charcoal) so the button
+   reads as premium machined hardware. */
 .maka-composer-send-button {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  background: linear-gradient(#222, #000);
-  color: #fff;
-  box-shadow: inset 0 1px 0 #ffffff26;
+  background: linear-gradient(oklch(0.24 0 0), oklch(0.14 0 0));
+  color: oklch(1 0 0);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.15);
   transition:
-    background-color 150ms ease-out,
+    background 150ms cubic-bezier(0.16, 1, 0.3, 1),
     transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 220ms ease-out;
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .maka-composer-send-button:hover:not(:disabled) {
-  background: linear-gradient(#3a3a3a, #1a1a1a);
-  color: #fff;
+  background: linear-gradient(oklch(0.32 0 0), oklch(0.20 0 0));
+  color: oklch(1 0 0);
   transform: scale(1.06);
   box-shadow:
-    inset 0 1px 0 #ffffff26,
+    inset 0 1px 0 oklch(1 0 0 / 0.18),
     0 4px 14px -8px oklch(from var(--foreground) l c h / 0.34);
 }
 
 .maka-composer-send-button:active:not(:disabled) {
   transform: scale(0.96);
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.10);
 }
 
 .maka-composer-send-button:disabled {
-  background: #000;
-  color: #fff;
+  background: oklch(0.18 0 0);
+  color: oklch(1 0 0);
   opacity: 1;
   cursor: not-allowed;
 }
@@ -6612,11 +6567,6 @@ button:active {
     animation: none;
   }
 }
-
-.permissionBackdrop {
-  z-index: var(--z-modal);
-}
-
 .permissionDialog pre {
   margin: 0;
   max-height: 300px;
@@ -6875,7 +6825,7 @@ button:active {
   /* Modern @starting-style entrance — emil-design-eng prefers transitions
      over keyframes for modals so the animation is interruptible. */
   opacity: 1;
-  transition: opacity 200ms ease-out;
+  transition: opacity 200ms var(--ease-out-strong);
   overscroll-behavior: contain;
 }
 
@@ -6886,36 +6836,34 @@ button:active {
 }
 
 .settingsModal {
-  /* PR-UI-LAYOUT-2 (@yuejing 2026-05-22): shrunk from near-full-screen
-   * to ~88vw / 76vh max to match the reference design screenshots 2/3/4 where the
-   * dialog occupies ~75% of the viewport with the chat clearly
-   * visible behind it. Was: 96vw / 82vh / 1380×760 cap.
-   * Now: 88vw / 76vh / 1100×680 cap.
-   *
-   * Min sizes also relaxed (820 → 760 width, 560 → 520 height) so
-   * users on smaller laptops aren't forced into "almost full screen"
-   * just because their viewport is short. */
+  /* Modal-mode Settings (when the page mode override below is not set). Sized
+     to match the upstream reference layout's settings dialog (~88vw / 76vh,
+     ~1100×680 cap). */
   width: min(88vw, 1100px);
   max-width: calc(100vw - 64px);
   height: min(76vh, 680px);
   min-width: min(760px, calc(100vw - 64px));
   min-height: 520px;
   overflow: hidden;
-  border: 1px solid oklch(0 0 0 / 0.08);
-  /* Slight radius reduction (22 → 18) keeps the dialog feeling like
-   * a card rather than a soft pillow. the reference settings dialog reads
-   * ~16-18px radius. */
-  border-radius: 18px;
-  background: var(--background);
+  /* Chrome derived from --card-* tokens (atlas §4 + Phase 2A recipe). The
+     dialog edge is now a tight 8px reference-aligned radius with a single
+     1px hairline border, a Doppelrand inner highlight and a soft 4% lift —
+     the same recipe used by every other page card, scaled to a bigger
+     surface. The previous double 28px / 8px black shadows read as "modal
+     popup heavy"; the new single lift reads as "premium card sitting on a
+     dimmed canvas". */
+  border: 1px solid var(--card-border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
   box-shadow:
-    0 28px 64px oklch(0 0 0 / 0.18),
-    0 8px 22px oklch(0 0 0 / 0.10);
+    var(--card-shadow),
+    var(--card-highlight),
+    0 28px 64px oklch(0 0 0 / 0.10);
   transform: scale(1);
   opacity: 1;
-  /* Modals keep transform-origin: center by default. */
   transition:
     transform 240ms var(--ease-out-strong),
-    opacity 200ms ease-out;
+    opacity 200ms var(--ease-out-strong);
 }
 
 @starting-style {
@@ -6940,7 +6888,7 @@ button:active {
   z-index: 35;
   overflow: hidden;
   transform: none;
-  transition: opacity 160ms ease-out;
+  transition: opacity 160ms var(--ease-out-strong);
 }
 
 @starting-style {
@@ -6970,8 +6918,43 @@ button:active {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  padding: 22px 10px 12px 14px;
+  /* PR-SETTINGS-REVIEW-0 (2026-06-23, WAWQAQ msg `1b2d4e83`): traffic
+     light row sits at y=14–28 on macOS; 22px sidebar top padding put
+     the 设置 brand right against it. Bump to 52px so the brand label
+     starts well below the traffic lights, matching reference. */
+  padding: 52px 10px 12px 14px;
   background: transparent;
+}
+
+/* PR-SETTINGS-REVIEW-0 (WAWQAQ msg `e1194266`): left-aligned `返回应用`
+   in place of the right-side X. Sits above the 设置 brand. */
+.settingsBackButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin: 0 0 10px 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-60);
+  font-size: 13px;
+  font-weight: 500;
+  -webkit-app-region: no-drag;
+}
+.settingsBackButton:hover {
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground);
+}
+.settingsBackButton:focus-visible {
+  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15, WAWQAQ msg `f7e9d166`): the
+     `← 返回应用` link is the only way to leave Settings without a
+     mouse; without a visible focus ring keyboard-only users couldn't
+     tell it was selected. Use the same 2px accent outline +
+     `:focus-visible` recipe as the settings rows. */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--foreground);
 }
 
 .settingsSidebar header {
@@ -7010,14 +6993,18 @@ button:active {
 }
 
 .settingsNavGroupLabel {
+  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0 (WAWQAQ msg `f7e9d166` round 2/15):
+     reference group labels are softer + more spaced out. Larger
+     leading top padding so each group reads as its own visual zone
+     instead of jamming against the prior item. */
   display: flex;
   align-items: center;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
   text-transform: none;
-  color: var(--foreground-45);
-  padding: 7px 10px 3px;
+  color: var(--foreground-40);
+  padding: 18px 12px 6px;
 }
 
 .settingsNavGroupLabel::after {
@@ -7025,24 +7012,44 @@ button:active {
 }
 
 .settingsNavItem {
+  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: roomier nav row matching reference.
+     PR-SETTINGS-NAV-REGROUP-0: 3rd grid column for optional Beta badge. */
   width: calc(100% - 8px);
-  height: 32px;
-  min-height: 32px;
+  height: 38px;
+  min-height: 38px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   box-shadow: none;
   color: var(--foreground-70);
-  cursor: pointer;
   margin-inline: 4px;
-  padding: 4px 8px;
+  padding: 6px 12px;
   text-align: left;
   justify-content: initial;
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  font-size: 14px;
+  transition: background-color 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
+}
+
+/* PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): small chip on nav
+   items that are still in beta — matches reference's pattern of
+   surfacing maturity inline rather than relegating to a separate
+   release notes view. */
+.settingsNavBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 .settingsSidebar .settingsNavItem,
@@ -7059,9 +7066,23 @@ button:active {
 }
 
 .settingsNavItem[data-active="true"] {
-  background: var(--settings-nav-row-selected-bg);
+  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15): bump the active state from
+     the muted `--settings-nav-row-selected-bg` token to a slightly
+     more visible 6.5% foreground overlay + 500 weight.
+     PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): add 3px inset
+     accent bar on the LEFT edge — Redesign-Skill recipe. Carries
+     brand into the most-used surface without recoloring the fill.
+     Inset shadow (not actual border) so the 38px row geometry stays. */
+  background: oklch(from var(--foreground) l c h / 0.065);
   color: var(--foreground);
-  box-shadow: none !important;
+  font-weight: 500;
+  box-shadow: inset 3px 0 0 var(--accent) !important;
+}
+
+.settingsNavItem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: oklch(from var(--accent) l c h / 0.04);
 }
 
 .settingsNavItem[data-active="true"] .settingsNavGlyph {
@@ -7074,16 +7095,18 @@ button:active {
 }
 
 .settingsNavGlyph {
-  width: 20px;
-  height: 20px;
+  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: slightly bigger glyph track + svg
+     so the icon doesn't read as a tiny dot. */
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   color: var(--foreground-60);
 }
 
 .settingsNavGlyph svg {
-  width: 14px;
-  height: 14px;
+  width: 17px;
+  height: 17px;
 }
 
 /* PR-UI-11 (@yuejing 2026-05-22): inactive glyph stays muted; active
@@ -7099,20 +7122,6 @@ button:active {
 
 .settingsNavItem {
   grid-template-columns: 20px minmax(0, 1fr) auto;
-}
-
-.settingsNavBadge {
-  display: inline-flex;
-  align-items: center;
-  height: 17px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: oklch(from var(--info) l c h / 0.14);
-  color: var(--info-text);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .settingsFeatureStatusPage {
@@ -7224,15 +7233,6 @@ button:active {
   white-space: nowrap;
 }
 
-.settingsFeatureStatusSection {
-  display: grid;
-  gap: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--background);
-}
-
 .settingsFeatureStatusSection p {
   margin: 0;
   color: var(--foreground-70);
@@ -7240,40 +7240,12 @@ button:active {
   line-height: 1.55;
 }
 
-.settingsFeatureStatusSectionTitle {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--foreground-60);
-}
-
-.settingsFeatureStatusSection-status {
-  background: oklch(from var(--foreground) l c h / 0.025);
-}
-
-.settingsFeatureStatusSection-include {
-  border-color: oklch(from var(--success) l c h / 0.24);
-  background: oklch(from var(--success) l c h / 0.04);
-}
-
 .settingsFeatureStatusSection-include .settingsFeatureStatusSectionTitle {
   color: var(--success);
 }
 
-.settingsFeatureStatusSection-exclude {
-  border-color: oklch(from var(--destructive) l c h / 0.22);
-  background: oklch(from var(--destructive) l c h / 0.04);
-}
-
 .settingsFeatureStatusSection-exclude .settingsFeatureStatusSectionTitle {
   color: var(--destructive);
-}
-
-.settingsFeatureStatusListExclude {
-  list-style: none;
-  padding-left: 0;
 }
 
 .settingsFeatureStatusListExclude li {
@@ -7289,11 +7261,6 @@ button:active {
   color: var(--destructive);
   font-weight: 700;
   line-height: 1.55;
-}
-
-.settingsFeatureStatusSection-config {
-  border-color: oklch(from var(--info) l c h / 0.26);
-  background: oklch(from var(--info) l c h / 0.04);
 }
 
 .settingsFeatureStatusSection-config .settingsFeatureStatusSectionTitle {
@@ -7323,6 +7290,21 @@ button:active {
   gap: 10px;
 }
 
+/* PR-SETTINGS-REVIEW-0 (2026-06-23, WAWQAQ msgs `f97ed407` + `8577326c`):
+   pull the page header into the same centered max-w-3xl column as the
+   content. Before this, the header sat in `.settingsMainPane` padding
+   (~34px from pane edge), while the row cards lived in the centered
+   768px column (~152px from pane edge at 1280 viewport) — the title
+   and content were visibly misaligned. Drop the mainpane padding to
+   thin top/bottom so the header + content can both share the centered
+   column. */
+/* PR-SETTINGS-RESTORE-SURFACE-0 (WAWQAQ msg `32ed9490` correction):
+   previous PR over-corrected — I read "no seam" as "no plate", but
+   reference's content surface is still a lighter-bg plate vs the
+   sidebar. The seam-between rule is: no visible BORDER line between
+   sidebar and content, but the content does have its own background
+   plate + rounded corners + small floating margin. Restore the
+   surface; just no border. */
 .settingsMainPane {
   position: relative;
   min-width: 0;
@@ -7330,27 +7312,63 @@ button:active {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
-  border: 1px solid var(--color-border-tertiary);
+  border: 0;
   border-radius: var(--agents-content-area-radius);
   background: var(--agents-content-area-bg);
   box-shadow: none;
   overflow: hidden;
-  padding: 26px 34px 30px;
+  /* Traffic-light-aligned top padding so the page title sits at the
+     same Y baseline as the sidebar brand. */
+  padding: 52px 0 0;
 }
 
+/* PR-SETTINGS-REVIEW-0 fix-2: max-width centering on a grid child
+   didn't actually align the H2 with the centered column underneath.
+   Use the same edge math the content column uses
+   (`calc((100% - 768px) / 2 + 24px)`) so the header content lines up
+   with row cards regardless of viewport width. */
 .settingsPageHeader {
   min-height: 36px;
+  padding: 0 max(24px, calc((100% - 768px) / 2 + 24px));
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* X close button moved to the sidebar `返回应用` — header hosts the
+     page title only, left-aligned. */
+  justify-content: flex-start;
   gap: 18px;
 }
 
+.settingsPageHeaderTitleStack {
+  display: grid;
+  gap: 6px;
+}
+
 .settingsPageHeader h2 {
+  /* PR-SETTINGS-PAGE-HEADER-POLISH-0 (round 12/15): tighten the h2
+     with negative tracking + slightly softer weight.
+     PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): `text-wrap:
+     balance` so 1-2 word titles don't orphan on long pages and
+     2-word titles like 「记忆与回顾」don't break across an awkward
+     line. */
   margin: 0;
   color: var(--foreground);
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+/* PR-SETTINGS-PAGE-SUBTITLE-0 (round 4/15) + round 12/15 cap +
+   round 15/15 `text-wrap: pretty` so the last line isn't a single
+   orphan word (per baseline-ui typography rule). */
+.settingsPageHeaderDescription {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--foreground-55);
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .settingsPageContent {
@@ -7363,15 +7381,75 @@ button:active {
   overscroll-behavior: contain;
 }
 
+/* PR-SETTINGS-SHELL-OWNS-LAYOUT-0 (2026-06-23, WAWQAQ msg `70c224f4`):
+   the page chrome (max-width column + side padding + top/bottom gutter)
+   used to live on each sub-page's own wrapper (settingsStructuredPage,
+   settingsAboutPage, settingsPermissionPage, settingsHealthPage…),
+   forcing per-page CSS edits whenever the chrome shifts. The shell
+   now owns it via `.settingsPageContentInner` — the single
+   OverlayScrollArea inner div every page renders through. Sub-pages
+   only manage their own row stack.
+
+   WAWQAQ msg `eafc18a1` correction: reference rows DO have 1px borders
+   + small radius, not flat. Earlier flat-row recipe (PR-PAGE-BODY-0)
+   was wrong; this PR reinstates per-row borders with the reference
+   recipe — 1px subtle border, 8px radius, white-ish bg, 8px gap. */
 .settingsPageContentInner {
-  padding-top: 22px;
-  padding-bottom: 8px;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
 }
 
+/* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15, WAWQAQ msg
+   `f7e9d166` + UI-skill deep read 2026-06-23): shared motion tokens
+   for the settings surface so timing/easing stay consistent across
+   nav rows, form rows, switches, and inputs. `--motion-fast` is the
+   default for state changes; `--motion-ease-out` is the cubic-bezier
+   recommended by Taste-Skill + 12-principles. */
+.settingsSurface,
+.settingsMainPane,
+.settingsSidebar {
+  --motion-fast: 160ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `d0e7dfb3`): nested
+   card-in-card was the previous problem — `.settingsStructuredPage`
+   was a card AND it contained `<SettingsRows>` cards AND orphan
+   `.settingsFormRow` direct children. Reference shows multiple
+   GROUPED cards stacked vertically. So `.settingsStructuredPage` is
+   no longer a card — it's just the vertical container with gap, and
+   `.settingsRows` is the ONLY card primitive. */
 .settingsStructuredPage {
   display: grid;
   align-content: start;
   gap: 16px;
+  background: transparent;
+}
+
+/* Nested `.settingsStructuredPage` (merged pages like 外观 stack two
+   sub-pages, each wrapping in their own `.settingsStructuredPage`):
+   the inner one just passes through. */
+.settingsStructuredPage .settingsStructuredPage {
+  gap: 16px;
+}
+
+/* PR-SETTINGS-SWEEP-0: section heading for merged pages. Mirrors
+   reference's small uppercase sub-section tag.
+   PR-SETTINGS-REVIEW-0 alignment fix: flush-left with the card stack
+   (cards carry their own L padding internally), and bump the heading
+   to 12/2px tracking so it reads as a real sub-section break rather
+   than a hairline. */
+.settingsSectionHeading {
+  margin: 24px 2px 10px;
+  color: var(--foreground-55);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.settingsStructuredPage > .settingsSectionHeading:first-child {
+  margin-top: 0;
 }
 
 .settingsPageIntro {
@@ -7395,14 +7473,121 @@ button:active {
   font-size: 13px;
 }
 
+/* PR-SETTINGS-ROW-SPACIOUS-0 (2026-06-23, WAWQAQ msg `f7e9d166`):
+   reference rows are MUCH more spacious than maka's. WAWQAQ's screenshot
+   of QoderWork's preferences card showed rows ~80–90px tall with
+   noticeable internal padding. Bumped: min-height 56→72, padding
+   16/20 → 20/24, gap inside row 16→20, label 14→15px, hint 12→13. */
 .settingsFormRow {
-  min-height: 40px;
+  min-height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 0;
+  gap: 20px;
+  padding: 20px 24px;
+  border: 0;
+  border-bottom: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 0;
+  background: transparent;
+  transition: background 150ms var(--ease-out-strong);
+}
+
+.settingsFormRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsFormRow:hover {
+  background: oklch(from var(--foreground) l c h / 0.025);
+}
+
+/* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15) — tactile press
+   feedback. 12-principles `physics-active-state` + Taste-Skill +
+   UIDB all converge on `:active { scale(0.98) }` as the cheapest way
+   to make UI feel handled vs simulated. Applied only when reduced-
+   motion is not preferred — the @media block above already strips
+   transition; here we keep `transform` declarations so the
+   `:active` *snap* still fires (it's instant, not animated). */
+.settingsFormRow:active,
+.settingsRow:active,
+.settingsBackButton:active,
+.settingsNavItem:active {
+  transform: scale(0.985);
+  transition: transform 100ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+@media (prefers-reduced-motion: reduce) {
+  .settingsFormRow:active,
+  .settingsRow:active,
+  .settingsBackButton:active,
+  .settingsNavItem:active {
+    transform: none;
+  }
+}
+
+/* PR-SETTINGS-A11Y-POLISH-0 (round 11/15) — keyboard-only focus ring
+   on settings rows + inputs. Reference's settings cards use a 2px
+   ring on focus-visible; maka had no visible affordance. Use the
+   accent color with 2px outline + 2px offset so it doesn't blend
+   with the row's hairline divider. */
+.settingsFormRow:focus-visible,
+.settingsRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  background: oklch(from var(--accent) l c h / 0.04);
+}
+
+.settingsField input:focus-visible,
+.settingsField textarea:focus-visible,
+.settingsFormGrid input:focus-visible,
+.settingsFormGrid select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.18);
+}
+
+/* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion. Strip
+   the nav-item background transition, the switch thumb slide, and
+   the row hover transitions for users on the OS reduced-motion
+   accommodation. The interaction still fires, just instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .settingsNavItem,
+  .settingsFormRow,
+  .settingsRow,
+  .settingsField input,
+  .settingsField textarea {
+    transition: none !important;
+  }
+  .settingsFormRow [role="switch"] > span,
+  .settingsField [role="switch"] > span {
+    transition: none;
+  }
+}
+
+/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15, WAWQAQ msg `f7e9d166`):
+   the BaseSwitch shared adapter renders at `h-5 w-9` (20×36px) with a
+   16×16 thumb — too small inside the now-roomy settings rows.
+   Reference toggles inside Settings are noticeably larger and the
+   on-state is a more saturated green. Scope the bigger size to
+   settings rows only so the Switch primitive stays compact in chat /
+   sidebar usage. The thumb translate offset (`1.125rem` for h-5)
+   no longer reaches the right side at h-6.5, so we override it with
+   a calc that scales with the new track width. */
+.settingsFormRow [role="switch"],
+.settingsField [role="switch"] {
+  height: 26px;
+  width: 46px;
+  border-radius: 999px;
+}
+
+.settingsFormRow [role="switch"] > span,
+.settingsField [role="switch"] > span {
+  height: 22px;
+  width: 22px;
+  transform: translateX(2px);
+}
+
+.settingsFormRow [role="switch"][data-checked] > span,
+.settingsField [role="switch"][data-checked] > span {
+  transform: translateX(22px);
 }
 
 .settingsFormRow strong,
@@ -7410,17 +7595,21 @@ button:active {
 .settingsFormGrid label span {
   display: block;
   color: var(--foreground);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
 .settingsFormRow small,
 .settingsField small {
   display: block;
-  margin-top: 2px;
-  color: var(--foreground-50);
-  font-size: 11px;
-  line-height: 1.35;
+  margin-top: 6px;
+  color: var(--foreground-55);
+  /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): 13 → 14 to clear
+     the 14px legibility floor cited by baseline-ui + UIDB + Impeccable
+     `/typeset`. Hint is the most-read body text on the page. */
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .settingsFieldWarning {
@@ -7429,59 +7618,12 @@ button:active {
   color: var(--warning-text, var(--info-text));
 }
 
-.settingsSwitch {
-  width: 34px;
-  height: 20px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 999px;
-  background: var(--foreground-20);
-  padding: 2px;
-  /* PR-UI-LAYOUT-35: smooth bg transition + focus ring (was
-   * missing — keyboard users couldn't see the switch state
-   * change visually-focused). */
-  transition: background 150ms ease, box-shadow 150ms ease;
-}
-
-.settingsSwitch:hover {
-  background: oklch(from var(--foreground) l c h / 0.28);
-}
-
-.settingsSwitch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.18);
-}
-
-.settingsSwitch[data-checked="true"]:hover {
-  background: var(--brand-deep-hover);
-}
-
-.settingsSwitch[data-checked="true"]:focus-visible {
-  box-shadow: 0 0 0 3px oklch(from var(--brand-deep) l c h / 0.28);
-}
-
-.settingsSwitch span {
-  width: 16px;
-  height: 16px;
-  display: block;
-  border-radius: 50%;
-  background: var(--background);
-  box-shadow: 0 1px 2px oklch(0 0 0 / 0.16);
-  transition: transform 150ms ease;
-}
-
-.settingsSwitch[data-checked="true"] {
-  background: var(--brand-deep);
-}
-
-.settingsSwitch[data-checked="true"] span {
-  transform: translateX(14px);
-}
-
-.settingsSwitch:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
+/* PR-USE-SHADCN-BASE-UI-SWITCH (2026-06-22): the bespoke .settingsSwitch
+   rules were removed because the local `Switch(...)` adapter now renders
+   the shared `BaseUiSwitch` (Base UI Switch.Root) which carries its own
+   Tailwind utility styling (h-5 w-9 track, h-4 w-4 thumb, data-checked
+   bg-primary, focus ring tied to --ring). Same external API shape;
+   ~50 lines of duplicate CSS deleted. */
 
 .settingsFormGrid {
   display: grid;
@@ -7499,6 +7641,60 @@ button:active {
   gap: 4px;
 }
 
+/* PR-S2 (2026-06-23): reference-style horizontal Settings row — label
+   stack on the left (title + description), control aligned right. Use
+   `<div className="settingsField" data-orient="horizontal">` on rows
+   whose control is a single inline element (Input, Switch, Segmented,
+   Select). Leave the default vertical stack for full-width controls
+   (Textarea, multi-line forms). The 1px hairline divider between rows
+   pulls the look closer to reference's flat divider list and away from
+   the previous "each row in its own implicit card" feel. */
+.settingsField[data-orient="horizontal"] {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label control"
+    "hint  control";
+  column-gap: 16px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settingsField[data-orient="horizontal"] > span {
+  grid-area: label;
+  align-self: end;
+}
+.settingsField[data-orient="horizontal"] > small {
+  grid-area: hint;
+  margin-top: 0;
+  align-self: start;
+}
+.settingsField[data-orient="horizontal"] > :not(span):not(small) {
+  grid-area: control;
+  justify-self: end;
+  align-self: center;
+  min-width: 0;
+}
+/* Allow inputs to take a comfortable cap width on horizontal rows so
+   the description column has space to breathe.
+   PR-SETTINGS-INPUT-POLISH-0: cap from 280 → 320 since rows are now
+   roomier (24px L/R padding). */
+.settingsField[data-orient="horizontal"] > input,
+.settingsField[data-orient="horizontal"] > .settingsBaseSelectTrigger {
+  max-width: 320px;
+}
+/* The horizontal row above the first one shouldn't carry a top border;
+   below the last one the section footer takes over. The default
+   border-bottom is fine for the inter-row hairlines. */
+.settingsField[data-orient="horizontal"] + .settingsField[data-orient="horizontal"] {
+  border-top: 0;
+}
+
+/* PR-SETTINGS-INPUT-POLISH-0 (round 6/15, WAWQAQ msg `f7e9d166`):
+   inputs inside settings rows were at 12px / 26px min-height with
+   tight 0/8 padding — visibly thin against the now-bigger row
+   typography (15px label / 13px hint / 26×46 switch). Bump to a
+   14px input with 34px min-height and proper padding. */
 .settingsField input,
 .settingsField textarea,
 .settingsFormGrid input,
@@ -7506,23 +7702,24 @@ button:active {
 .settingsUsageFilters input,
 .settingsUsageFilters select {
   min-width: 0;
-  min-height: 26px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  min-height: 34px;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.12);
+  border-radius: 7px;
   background: var(--background);
   color: var(--foreground);
-  padding: 0 8px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1.4;
   outline: none;
-  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  transition: border-color 150ms var(--ease-out-strong), box-shadow 150ms var(--ease-out-strong);
 }
 
 .settingsField textarea {
-  border-radius: 6px;
-  padding: 6px 8px;
-  line-height: 1.45;
+  border-radius: 7px;
+  padding: 8px 10px;
+  line-height: 1.5;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .settingsField input:focus,
@@ -7560,29 +7757,32 @@ button:active {
   gap: 10px;
 }
 
+/* PR-SETTINGS-SHELL-OWNS-LAYOUT-0: shell now owns max-width + page
+   padding via `.settingsPageContentInner`. About page just manages
+   its own internal block stack. */
 .settingsAboutPage {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 16px;
 }
 
 .settingsAboutHero {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  align-items: start;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
   gap: 16px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--foreground-3);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .settingsAboutLogo {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 12px;
   background: oklch(from var(--accent) l c h / 0.10);
   color: var(--accent);
 }
@@ -7658,19 +7858,6 @@ button:active {
 
 .settingsAboutPrivacy li::marker {
   color: var(--success);
-}
-
-.settingsInlineResult {
-  color: var(--foreground-60);
-  font-size: 12px;
-}
-
-.settingsInlineResult[data-ok="true"] {
-  color: var(--success-text);
-}
-
-.settingsInlineResult[data-ok="false"] {
-  color: var(--destructive-text);
 }
 
 .settingsThemeOptions {
@@ -7823,18 +8010,6 @@ button:active {
   border: 2px solid var(--border);
   box-shadow: inset 0 0 0 2px oklch(1 0 0 / 0.25);
 }
-.settingsPaletteSwatch-default { background: oklch(0.70 0.135 152); }
-.settingsPaletteSwatch-onedark { background: oklch(0.55 0.14 250); }
-.settingsPaletteSwatch-catppuccin-mocha { background: oklch(0.66 0.15 310); }
-.settingsPaletteSwatch-tokyo-night { background: oklch(0.55 0.17 265); }
-.settingsPaletteSwatch-nord { background: oklch(0.62 0.12 215); }
-.settingsPaletteSwatch-coral { background: oklch(0.68 0.18 25); }
-.settingsPaletteSwatch-azure { background: oklch(0.58 0.18 252); }
-.settingsPaletteSwatch-forest { background: oklch(0.50 0.12 152); }
-.settingsPaletteSwatch-dusk { background: oklch(0.55 0.18 305); }
-.settingsPaletteSwatch-sand { background: oklch(0.62 0.14 55); }
-.settingsPaletteSwatch-mono { background: oklch(0.30 0 0); }
-
 /* PR-PALETTE-PICKER-GROUPS-0: subgroup container that gathers a small
    heading (编辑器主题 / 产品色调) above its own grid. Spacing matches
    the existing settingsSubheading rhythm so the page reads as one
@@ -7886,7 +8061,7 @@ button:active {
   border-radius: 4px;
   background: transparent;
   color: var(--foreground-50);
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
 }
 .settingsPasswordToggle:hover {
   background: var(--hover);
@@ -8220,30 +8395,6 @@ button:active {
   cursor: progress;
 }
 
-.settingsThemeSwatch {
-  width: 56px;
-  height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: linear-gradient(180deg, oklch(0.98 0.003 265) 0%, oklch(0.94 0.005 90) 100%);
-  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.4);
-}
-
-.settingsThemeSwatch[data-variant="dark"] {
-  background: linear-gradient(180deg, oklch(0.20 0.005 270) 0%, oklch(0.14 0.005 270) 100%);
-  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.6);
-}
-
-.settingsThemeSwatch[data-variant="auto"] {
-  background: linear-gradient(
-    135deg,
-    oklch(0.98 0.003 265) 0%,
-    oklch(0.98 0.003 265) 49%,
-    oklch(0.14 0.005 270) 51%,
-    oklch(0.14 0.005 270) 100%
-  );
-}
-
 .settingsThemeLabel {
   display: grid;
   min-width: 0;
@@ -8284,34 +8435,6 @@ button:active {
 .settingsSubheading + .settingsThemeOptions {
   margin-top: -6px;
 }
-
-/* Density swatch: three rows of stacked lines that visualize the spacing
-   without needing real chat content. Each variant grows the gap. */
-.settingsDensitySwatch {
-  width: 56px;
-  height: 40px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--background);
-}
-
-.settingsDensitySwatch span {
-  display: block;
-  height: 3px;
-  width: 70%;
-  border-radius: 2px;
-  background: var(--foreground-40);
-}
-
-.settingsDensitySwatch-compact { gap: 2px; }
-.settingsDensitySwatch-comfortable { gap: 5px; }
-.settingsDensitySwatch-spacious { gap: 8px; }
-.settingsDensitySwatch-spacious span { width: 78%; }
 
 .settingsBotLayout {
   min-height: 470px;
@@ -8670,17 +8793,6 @@ button:active {
   font-weight: 600;
 }
 
-.settingsHeader {
-  min-height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--foreground-2);
-}
-
 .settingsSurface[data-modal="true"] .settingsHeader {
   min-height: 48px;
   padding: 12px 18px 8px;
@@ -8701,8 +8813,10 @@ button:active {
 .settingsHeader h1 {
   margin: 0;
   color: var(--foreground);
-  font-size: 16px;
+  font-size: 30px;
   font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
 }
 
 .settingsCloseButton {
@@ -8727,26 +8841,9 @@ button:active {
   color: var(--foreground);
 }
 
-.settingsBody {
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 238px minmax(0, 1fr);
-  overflow: hidden;
-}
-
 .settingsSurface[data-modal="true"] .settingsBody {
   grid-template-columns: 196px minmax(0, 1fr);
   padding-bottom: 74px;
-}
-
-.settingsTabs {
-  min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  padding: 18px 12px;
-  border-right: 1px solid var(--border);
-  background: var(--foreground-2);
 }
 
 .settingsSurface[data-modal="true"] .settingsTabs {
@@ -8755,33 +8852,12 @@ button:active {
   background: var(--background);
 }
 
-.settingsTab {
-  display: grid;
-  gap: 2px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--foreground-70);
-  padding: 4px 8px;
-  text-align: left;
-}
-
 .settingsSurface[data-modal="true"] .settingsTab {
   min-height: 32px;
   grid-template-columns: 1fr;
   align-content: center;
   border-radius: 6px;
   padding: 4px 10px;
-}
-
-.settingsTab:hover {
-  background: var(--hover);
-  color: var(--foreground);
-}
-
-.settingsTab[data-active="true"] {
-  background: var(--active);
-  color: var(--foreground);
 }
 
 .settingsTab strong {
@@ -8795,27 +8871,8 @@ button:active {
   line-height: 1.3;
 }
 
-.settingsContent {
-  min-height: 0;
-  overflow: auto;
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  padding: 12px;
-}
-
 .settingsSurface[data-modal="true"] .settingsContent {
   padding: 8px 18px 16px 6px;
-}
-
-.settingsCard {
-  display: grid;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  box-shadow: var(--shadow-minimal-flat);
-  padding: 10px 12px;
 }
 
 .settingsSurface[data-modal="true"] .settingsCard {
@@ -8868,9 +8925,15 @@ button:active {
 }
 
 .providerGrid,
+/* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
+   card pattern as `.settingsStructuredPage` — outer card + hairline
+   dividers, no per-row chrome. */
 .settingsRows {
   display: grid;
-  gap: 8px;
+  gap: 0;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 /* Per-connection card on AccountSettingsPage. Status badge tone derives
@@ -9179,8 +9242,7 @@ button:active {
 }
 
 .providerEmpty,
-.providerCard,
-.settingsRow {
+.providerCard {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--foreground-2);
@@ -9188,43 +9250,42 @@ button:active {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
+/* PR-SETTINGS-GROUPED-CARD-0: rows flush inside outer card, hairline
+   divider, last-child no border. Matches the reference grouped-list
+   pattern. */
 .settingsRow {
   display: grid;
   grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 0;
+  border-bottom: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 0;
+  background: transparent;
+  transition: background 150ms var(--ease-out-strong);
+}
+
+.settingsRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsRow:hover {
+  background: oklch(from var(--foreground) l c h / 0.025);
 }
 
 .settingsRow > div {
   min-width: 0;
 }
 
-.providerCard[data-default="true"] {
-  border-color: oklch(from var(--accent) l c h / 0.18);
-  background: oklch(from var(--accent) l c h / 0.06);
-}
-
 .providerCard small,
 .providerEmpty span,
 .settingsRow small {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--foreground-55);
   font-size: 12px;
-  line-height: 1.45;
-}
-
-.providerEmpty {
-  display: grid;
-  justify-items: start;
-  gap: 2px;
-  color: var(--foreground);
-}
-
-.connectionForm {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  line-height: 1.4;
 }
 
 .connectionForm label {
@@ -9233,10 +9294,6 @@ button:active {
   color: var(--foreground-60);
   font-size: 11px;
   font-weight: 500;
-}
-
-.wideField {
-  grid-column: 1 / -1;
 }
 
 .connectionForm input,
@@ -9266,15 +9323,6 @@ button:active {
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.10);
 }
 
-.connectionStatus {
-  color: var(--foreground-60);
-  font-size: 13px;
-}
-
-.settingsCardProviders {
-  min-height: 520px;
-}
-
 .settingsSurface[data-modal="true"] .settingsCardProviders {
   min-height: 100%;
 }
@@ -9295,22 +9343,6 @@ button:active {
 .settingsSurface[data-modal="true"] .providersCatalogPanel {
   grid-template-columns: minmax(178px, 0.62fr) minmax(238px, 0.86fr) minmax(330px, 1.28fr);
   align-items: stretch;
-}
-
-.providersEmpty {
-  min-height: 360px;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  background: var(--foreground-2);
-  text-align: center;
-}
-
-.catalogIntro {
-  min-height: 100%;
 }
 
 .settingsSurface[data-modal="true"] .providersEmpty {
@@ -9335,24 +9367,10 @@ button:active {
   line-height: 1.4;
 }
 
-.providersList,
-.providersDetail {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--foreground-2);
-}
-
 .settingsSurface[data-modal="true"] .providersList,
 .settingsSurface[data-modal="true"] .providersDetail {
   border-radius: 18px;
   background: var(--foreground-3);
-}
-
-.providersList {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  overflow: hidden;
 }
 
 .providersList header {
@@ -9371,15 +9389,6 @@ button:active {
   font-size: 11px;
 }
 
-.enabledProvidersEmpty {
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  min-height: 160px;
-  padding: 18px;
-  color: var(--foreground);
-}
-
 .enabledProvidersEmpty span {
   color: var(--foreground-50);
   font-size: 12px;
@@ -9394,32 +9403,8 @@ button:active {
   list-style: none;
 }
 
-.providerListItem {
-  width: 100%;
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--foreground);
-  padding: 9px;
-  text-align: left;
-}
-
 .settingsSurface[data-modal="true"] .providerListItem {
   border-radius: 14px;
-}
-
-.providerListItem:hover {
-  background: var(--foreground-5);
-}
-
-.providerListItem[data-active="true"] {
-  border-color: oklch(from var(--accent) l c h / 0.16);
-  background: oklch(from var(--accent) l c h / 0.07);
 }
 
 .providerListItem strong,
@@ -9438,13 +9423,6 @@ button:active {
   font-size: 11px;
 }
 
-.providerBadges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
 .providerBadges em {
   border-radius: 999px;
   background: var(--foreground-5);
@@ -9452,15 +9430,6 @@ button:active {
   padding: 2px 6px;
   font-size: 10px;
   font-style: normal;
-}
-
-.providersDetail {
-  padding: 14px;
-  overflow: auto;
-}
-
-.providerWorkbench {
-  min-height: 0;
 }
 
 .providerCatalog {
@@ -9531,10 +9500,10 @@ button:active {
   padding: 10px;
   text-align: left;
   transition:
-    border-color 150ms ease-out,
-    background 150ms ease-out,
-    box-shadow 150ms ease-out,
-    transform 150ms ease-out;
+    border-color 150ms var(--ease-out-strong),
+    background 150ms var(--ease-out-strong),
+    box-shadow 150ms var(--ease-out-strong),
+    transform 150ms var(--ease-out-strong);
 }
 
 /* PR-UI-LAYOUT-15 fixup (@kenji review @msg 0e7482e5):
@@ -9576,18 +9545,6 @@ button:active {
 .providerCatalogCard[data-disabled="true"]:focus-visible {
   outline: 1.5px dashed var(--foreground-40);
   outline-offset: 2px;
-}
-
-.providerIcon {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--foreground-5);
-  color: var(--brand-deep);
-  font-size: 15px;
-  font-weight: 700;
 }
 
 .providerCatalogCopy {
@@ -9635,11 +9592,6 @@ button:active {
    * the user to lean in. */
   font-size: 12px;
   line-height: 1.4;
-}
-
-.catalogCustom {
-  display: grid;
-  gap: 8px;
 }
 
 .catalogCustom .catalogGrid {
@@ -9769,13 +9721,6 @@ button:active {
   line-height: 1.5;
   letter-spacing: 0.01em;
 }
-.providerModelSource[data-source="fetched"] {
-  color: var(--success-text);
-}
-.providerModelSource[data-source="fallback"] {
-  color: var(--info-text);
-}
-
 /* UI-02 model table: per-row default radio, capability chips, search box,
  * source/fetchedAt header. Replaces the legacy <select> + refresh button
  * pair. The whole block is itself a "workspace" inside the connection
@@ -9905,7 +9850,7 @@ button:active {
   background: transparent;
   color: var(--foreground);
   text-align: left;
-  transition: background 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
+  transition: background 150ms var(--ease-out-strong), border-color 150ms var(--ease-out-strong), box-shadow 150ms var(--ease-out-strong);
 }
 
 .modelTableRow:hover {
@@ -9993,21 +9938,25 @@ button:active {
   color: var(--destructive-text);
 }
 
-.connectionStatus[data-ok="true"] {
-  color: var(--success-text);
-}
-
+/* PR-SETTINGS-PAGE-BODY-0: label / value typography aligned with the
+   reference recipe (text-sm font-medium for label; quaternary tone for
+   the right-side value text). */
 .settingsRow strong {
   color: var(--foreground);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .settingsRow > span {
+  /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): `tabular-nums` so
+     numeric values (version strings, model IDs, counts) align cleanly
+     when stacked vertically. baseline-ui + /typeset both require this
+     for any numeric data. */
   min-width: 0;
   color: var(--foreground-60);
-  font-size: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   text-align: right;
 }
@@ -10020,11 +9969,7 @@ button:active {
   }
 
   .maka-nav-rail,
-  .maka-list-column {
-    display: none;
-  }
-
-  .mainColumn {
+.mainColumn {
     border: 0;
     border-radius: 0;
   }
@@ -11362,7 +11307,7 @@ button:active {
   background: var(--foreground-5);
   color: var(--foreground-70);
   font-size: 10px;
-  transition: background 150ms ease-out, color 150ms ease-out;
+  transition: background 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
 }
 .maka-turn-lineage-badge:hover {
   background: var(--foreground-10, oklch(from var(--foreground) l c h / 0.08));
@@ -11403,7 +11348,7 @@ button:active {
   color: var(--info-text);
   font-size: 11px;
   line-height: 1.4;
-  transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
+  transition: background 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong), border-color 150ms var(--ease-out-strong);
   align-self: flex-start;
 }
 .maka-session-branch-banner:hover {
@@ -11473,7 +11418,7 @@ button:active {
   letter-spacing: 0.02em;
   color: var(--info-text);
   user-select: none;
-  transition: background 150ms ease-out;
+  transition: background 150ms var(--ease-out-strong);
 }
 .maka-reasoning-panel-header::-webkit-details-marker {
   display: none;
@@ -11552,7 +11497,7 @@ button:active {
   font-size: 12px;
   line-height: 1;
   color: var(--foreground-50);
-  transition: transform 150ms ease-out;
+  transition: transform 150ms var(--ease-out-strong);
 }
 
 .maka-reasoning-panel[open] .maka-reasoning-panel-chevron {
@@ -11891,27 +11836,6 @@ button:active {
   background: oklch(from var(--info) l c h / 0.10);
 }
 
-.settingsCapabilityActionHints {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.settingsCapabilityActionHint {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  letter-spacing: 0.02em;
-  color: var(--foreground-50);
-  background: var(--foreground-3);
-  border: 1px dashed var(--border);
-  cursor: not-allowed;
-}
-.settingsCapabilityActionHint[data-disabled="true"] {
-  opacity: 0.78;
-}
-
 .settingsCapabilityGuidance {
   display: grid;
   gap: 6px;
@@ -11991,35 +11915,96 @@ button:active {
   display: grid;
   gap: 6px;
 }
+
+/* PR-PERMISSION-PAGE-REDESIGN: card layout with icon + body + actions.
+   Mirrors the reference's row anatomy (icon-left / text / status pill /
+   action button) but uses our atlas page-card recipe (hairline border +
+   6px radius + 4% lift + inner highlight). */
 .settingsOsPermissionRow {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: flex-start;
-  gap: 16px;
+  gap: 12px;
   padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--background);
+  border: 1px solid var(--card-border-color, var(--border));
+  border-radius: var(--card-radius, 8px);
+  background: var(--card-bg, var(--background));
+  box-shadow:
+    var(--card-shadow, none),
+    var(--card-highlight, none);
+  transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong);
 }
-.settingsOsPermissionRow > div {
+
+.settingsOsPermissionIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: oklch(from var(--foreground) l c h / 0.04);
+  color: var(--foreground-70);
+}
+
+.settingsOsPermissionBody {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
 }
-.settingsOsPermissionRow strong {
-  font-size: 0.85rem;
+
+.settingsOsPermissionHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settingsOsPermissionHeading strong {
+  font-size: 0.875rem;
   font-weight: 600;
+  color: var(--foreground);
 }
-.settingsOsPermissionRow small {
-  color: var(--foreground-60);
-  font-size: 0.76rem;
+
+.settingsOsPermissionPurpose {
+  color: var(--foreground-70);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.settingsOsPermissionImpact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  color: var(--foreground-65);
   line-height: 1.45;
 }
+.settingsOsPermissionImpactLabel {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-55);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
 .settingsOsPermissionReason {
   color: var(--foreground-50);
   font-size: 0.72rem !important;
   font-style: italic;
 }
+
+.settingsOsPermissionActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
 .settingsOsPermissionRow[data-state="denied"] {
   border-color: oklch(from var(--destructive) l c h / 0.30);
 }
@@ -12028,6 +12013,67 @@ button:active {
 }
 .settingsOsPermissionRow[data-state="granted"] {
   border-color: oklch(from var(--success) l c h / 0.24);
+}
+.settingsOsPermissionRow[data-state="granted"] .settingsOsPermissionIcon {
+  background: oklch(from var(--success) l c h / 0.08);
+  color: oklch(from var(--success) l c h);
+}
+
+/* PR-PERMISSION-PAGE-REDESIGN: 4-cell summary above system permissions.
+   Quick read of overall posture (X granted / Y waiting / Z denied /
+   W other) so users see what's configured at a glance. */
+.settingsPermissionSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.settingsPermissionSummaryTile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-border-color, var(--border));
+  border-radius: var(--card-radius, 8px);
+  background: var(--card-bg, var(--background));
+  box-shadow:
+    var(--card-shadow, none),
+    var(--card-highlight, none);
+}
+.settingsPermissionSummaryValue {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.settingsPermissionSummaryLabel {
+  font-size: 0.72rem;
+  color: var(--foreground-60);
+  letter-spacing: 0.02em;
+}
+.settingsPermissionSummaryTile[data-tone="success"] .settingsPermissionSummaryValue {
+  color: oklch(from var(--success) l c h);
+}
+.settingsPermissionSummaryTile[data-tone="warning"] .settingsPermissionSummaryValue {
+  color: oklch(from var(--warning, var(--info)) l c h);
+}
+.settingsPermissionSummaryTile[data-tone="destructive"] .settingsPermissionSummaryValue {
+  color: oklch(from var(--destructive) l c h);
+}
+
+/* Diagnostic 5-column capability detail collapsed by default so the
+   page reads as "system permissions" first. Expand on click. */
+.settingsPermissionSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityLayers,
+.settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityGuidance,
+.settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityAuditSlot,
+.settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityOsPermissions {
+  display: none;
 }
 
 .settingsPermissionFootnote {
@@ -13259,14 +13305,25 @@ button:active {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 6px 12px 16px;
+  gap: 8px;
+  padding: 18px 20px 20px;
 }
 
+/* Daily Review page-card chrome — atlas §4 + Phase 2A recipe parity with
+   Skills + Plan shells (1px hairline border + 6px radius + 4% lift + inner
+   highlight). Was flat (transparent) which felt orphaned next to the other
+   module pages. */
 .maka-module-main .maka-daily-review-panel {
-  padding: 0;
   max-width: 980px;
   width: 100%;
+  margin-inline: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
 }
 
 .maka-daily-review-header {
@@ -13278,10 +13335,238 @@ button:active {
   border-bottom: 1px solid var(--foreground-10);
 }
 
+/* PR-DAILY-REVIEW-FULL-0: info banner explaining the feature, plus a
+   manual-trigger row. Banner uses the page-card recipe with a softer
+   tint so it reads as supporting context, not a primary surface. */
+.maka-daily-review-info {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  background: oklch(from var(--foreground) l c h / 0.03);
+  box-shadow: var(--card-highlight);
+}
+
+.maka-daily-review-info-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--foreground-80);
+}
+
+.maka-daily-review-info-body strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.maka-daily-review-info-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--foreground-55);
+}
+
+.maka-daily-review-info-hint strong {
+  font-weight: 600;
+  color: var(--foreground-80);
+}
+
+.maka-daily-review-quick-runs {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0 6px;
+  border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-daily-review-quick-run {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.maka-daily-review-quick-run[data-pending="true"] {
+  opacity: 0.7;
+}
+
+.maka-daily-review-archives {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-daily-review-archives-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.maka-daily-review-archive-count {
+  font-size: 11px;
+  color: var(--foreground-45);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-daily-review-archive-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.maka-daily-review-archive-list {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.maka-daily-review-archive-row {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+  transition:
+    background 120ms var(--ease-out-strong),
+    border-color 120ms var(--ease-out-strong);
+}
+
+.maka-daily-review-archive-row:hover {
+  background: oklch(from var(--foreground) l c h / 0.04);
+}
+
+.maka-daily-review-archive-row[data-active="true"] {
+  background: oklch(from var(--accent) l c h / 0.10);
+  border-color: oklch(from var(--accent) l c h / 0.18);
+}
+
+.maka-daily-review-archive-row-title {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-daily-review-archive-row-meta {
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-daily-review-archive-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  background: oklch(from var(--foreground) l c h / 0.025);
+  box-shadow: var(--card-highlight);
+}
+
+.maka-daily-review-archive-body[data-empty="true"],
+.maka-daily-review-archive-empty {
+  color: var(--foreground-50);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.maka-daily-review-archive-body-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.maka-daily-review-archive-body-header h4 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.maka-daily-review-archive-body-header p {
+  margin: 2px 0 0;
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.maka-daily-review-archive-status {
+  flex: none;
+  border: 1px solid var(--foreground-10);
+  border-radius: 999px;
+  color: var(--foreground-55);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.maka-daily-review-archive-status[data-status="ok"] {
+  border-color: oklch(from var(--success, var(--accent)) l c h / 0.26);
+  color: var(--success, var(--accent));
+}
+
+.maka-daily-review-archive-status[data-status="failed"],
+.maka-daily-review-archive-status[data-status="no_model"] {
+  border-color: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.30);
+  color: var(--destructive, var(--warning, var(--foreground)));
+}
+
+.maka-daily-review-archive-error {
+  margin: 0;
+  color: var(--destructive, var(--foreground));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.maka-daily-review-archive-sections {
+  display: grid;
+  gap: 8px;
+}
+
+.maka-daily-review-archive-section {
+  display: grid;
+  gap: 3px;
+}
+
+.maka-daily-review-archive-section h5 {
+  margin: 0;
+  color: var(--foreground-55);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.maka-daily-review-archive-section p {
+  margin: 0;
+  color: var(--foreground-80);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .maka-daily-review-day {
   text-align: center;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
   color: var(--foreground);
 }
 
@@ -13346,6 +13631,10 @@ button:active {
 
 @media (max-width: 720px) {
   .maka-daily-review-range {
+    grid-template-columns: 1fr;
+  }
+
+  .maka-daily-review-archive-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -13476,4 +13765,302 @@ button:active {
   display: grid;
   gap: 8px;
   padding: 8px 4px;
+}
+
+.maka-daily-review-summary-empty {
+  position: static;
+  left: auto;
+  top: auto;
+  width: 100%;
+  transform: none;
+  min-height: 120px;
+  align-content: center;
+}
+
+/* =============================================================================
+   Skeleton primitives — per design-taste-frontend rule 5 (Loading skeletons
+   matching layout sizes, no generic circular spinners) + minimalist-ui §7
+   (skeleton shimmer over 200ms cubic-bezier). Three building blocks:
+   .maka-skeleton-row (block placeholder), .maka-skeleton-text (line of text),
+   .maka-skeleton-circle (avatar / status dot placeholder). All inherit a
+   shared shimmer animation that scrubs an off-white highlight across a soft
+   foreground-tinted bar. Reduced-motion freezes the shimmer.
+============================================================================= */
+
+.maka-skeleton-row,
+.maka-skeleton-text,
+.maka-skeleton-circle {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: oklch(from var(--foreground) l c h / 0.045);
+  border-radius: 4px;
+}
+
+@keyframes maka-skeleton-shimmer {
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-skeleton-row::after,
+  .maka-skeleton-text::after,
+  .maka-skeleton-circle::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-skeleton-row::after,
+[data-maka-visual-smoke="true"] .maka-skeleton-text::after,
+[data-maka-visual-smoke="true"] .maka-skeleton-circle::after {
+  animation: none;
+  opacity: 0;
+}
+
+/* Pre-composed list-row skeleton for session list / skill list / plan list
+   loading states. Lays out a circle + two text lines on a single 30px row
+   matching the dense .maka-list-row geometry. */
+.maka-skeleton-list-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.maka-skeleton-list-row .maka-skeleton-text:nth-child(2) {
+  grid-column: 2;
+  height: 11px;
+}
+
+.maka-skeleton-list-row .maka-skeleton-text:nth-child(3) {
+  grid-column: 3;
+  width: 28px;
+  height: 9px;
+}
+
+/* =============================================================================
+   Ported keyframes from upstream reference design (atlas §12.4).
+   - streaming-fade-in: per-token fade-in for streamed Markdown.
+   - indeterminate-slide: horizontal sweep for indeterminate progress bars.
+   Both are CSS-only here; future PRs can wire them to actual surfaces.
+============================================================================= */
+
+@keyframes maka-streaming-token-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes maka-indeterminate-slide {
+  from { left: -40%; }
+  to   { left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maka-streaming-token-fade-in,
+  .maka-indeterminate-bar::after {
+    animation: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-streaming-token-fade-in,
+[data-maka-visual-smoke="true"] .maka-indeterminate-bar::after {
+  animation: none;
+}
+
+/* =============================================================================
+   Settings narrow-viewport heading variant — atlas §12.5 ports the
+   `.agents-settings-page-title-narrow` pattern: when the page card is narrow
+   (sidebar at full width on a small viewport), drop the H1 from --text-3xl
+   to --text-2xl so it doesn't blow up the header rail.
+============================================================================= */
+
+@media (max-width: 1100px) {
+  .settingsHeader h1 {
+    font-size: 24px;
+    letter-spacing: -0.008em;
+    line-height: 1.2;
+  }
+}
+
+/* =============================================================================
+   Glass material on macOS — atlas §1 + §12.1 documents the upstream reference
+   layout's `light-glass` / `dark-glass` themes that paint the sidebar against
+   native vibrancy material. We do the same:
+   - Main process sets BrowserWindow({ vibrancy: 'sidebar' }) on darwin.
+   - Renderer tags <html> with `data-os="darwin"` via window.maka.app.info().
+   - The CSS below makes the window background + sidebar surface translucent
+     so the macOS vibrancy material shows through, then re-tints with a
+     subtle warm overlay (matches reference's 172° linear-gradient on
+     --agents-layout-bg). Non-macOS platforms (Windows / Linux) keep their
+     opaque chrome since vibrancy is a no-op there.
+============================================================================= */
+
+html[data-os="darwin"],
+html[data-os="darwin"] body {
+  background: transparent;
+}
+
+html[data-os="darwin"] .maka-shell-2col {
+  background: transparent;
+}
+
+html[data-os="darwin"] .maka-session-panel {
+  background:
+    /* Warm wash so the glass material reads as a defined column rather
+       than empty translucency. Bumped from 0.04 -> 0.08 alpha so text
+       contrast holds on bright desktops (audit finding §6). Matches the
+       reference layout's parchment-mode `--agents-layout-bg` gradient
+       direction. */
+    linear-gradient(
+      172deg,
+      oklch(from var(--foreground) l c h / 0.08) 19.61%,
+      oklch(from var(--foreground) l c h / 0.02) 81.35%
+    ),
+    /* Translucent base — 50% (was 62%) gives the OS vibrancy more
+       room to show through while still keeping ~4.5:1 contrast on the
+       row text per WCAG AA. */
+    oklch(from var(--surface-canvas) l c h / 0.50);
+  /* Backdrop blur softens content that bleeds through. 8px (was 12)
+     keeps row text crisp; deeper blur made small UI text look soft. */
+  backdrop-filter: saturate(140%) blur(8px);
+  -webkit-backdrop-filter: saturate(140%) blur(8px);
+  border-right: 1px solid oklch(from var(--foreground) l c h / 0.06);
+}
+
+/* Force opaque-foreground text on every direct sidebar text surface so
+   the glass material doesn't pull legibility down through inheritance
+   (audit finding §6). The wash + 50% base provide enough contrast for
+   foreground @ full alpha; nav rows / list rows / settings button all
+   inherit. */
+html[data-os="darwin"] .maka-session-panel-header,
+html[data-os="darwin"] .maka-session-list,
+html[data-os="darwin"] .maka-nav-row,
+html[data-os="darwin"] .maka-list-row {
+  color: var(--foreground);
+}
+
+html[data-os="darwin"] .maka-session-panel-footer {
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    oklch(from var(--surface-canvas) l c h / 0.30) 100%
+  );
+}
+
+/* The main content column stays on its existing solid `var(--background)` so
+   chat text and cards remain legible. Without this, the page card would also
+   go translucent and hurt readability. */
+html[data-os="darwin"] .maka-panel-detail {
+  background: var(--background);
+}
+
+/* =============================================================================
+   Phase 3 quick-wins — atlas §13.7 + §14.6
+   Pure CSS, no JSX surgery, all gated on theme/attribute selectors.
+============================================================================= */
+
+/* §14.4 — chrome surfaces opt out of text selection. Selectable text is
+   restricted to actual content (Markdown body, composer textarea, readonly
+   pre/code). This prevents accidental "click-drag on nav row starts text
+   selection" footgun and makes click+drag-to-resize feel native. */
+.maka-session-panel,
+.maka-session-panel-header,
+.maka-session-panel-footer,
+.maka-nav-row,
+.maka-list-row,
+.maka-module-main-header,
+.maka-plan-heading,
+.maka-skill-tab,
+.maka-plan-tab,
+.maka-sidebar-search-button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* §13.4 — `[data-parchment-brand-motion]` auto-tints any third-party brand
+   motion (Lottie / SVG / GIF) to match the current theme. Drop the attribute
+   on a brand-motion element and these filters do the per-theme tinting. */
+html[data-theme="light-parchment"] [data-parchment-brand-motion],
+html[data-theme="dark-parchment"] [data-parchment-brand-motion] {
+  filter: hue-rotate(-85deg) saturate(0.65);
+}
+
+html[data-theme="dark"] [data-parchment-brand-motion],
+html[data-theme="dark-glass"] [data-parchment-brand-motion],
+html[data-theme="classic-dark"] [data-parchment-brand-motion] {
+  filter: brightness(0.8);
+}
+
+/* §13.3 — Banner-style SVG color rewrite. Any banner / hero SVG that
+   wears `[data-banner-logo]` or `[data-skill-deco-cover]` gets its brand
+   strokes/fills auto-mapped to parchment-neutral tokens. We don't ship a
+   maka-specific mascot SVG yet, but the rule sits ready for when we do. */
+html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[fill*="accent"],
+html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[fill*="accent"] {
+  fill: oklch(from var(--foreground) l c h / 0.08);
+}
+
+html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"],
+html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"] {
+  stroke: var(--card-border-color);
+}
+
+/* =============================================================================
+   [data-gradual-blur-layer] — atlas §15.2 ported. Fixed pointer-events: none
+   overlay that fades content edges into chrome via linear-gradient mask +
+   backdrop blur. Use cases: sticky chat header bottom edge, sidebar scroll
+   bottom edge, modal header overflow.
+
+   Usage: drop on an absolutely positioned div inside a scroll container with
+   `data-gradual-blur-layer` + `data-side="top|bottom"`. The element auto-
+   resolves into the right gradient direction.
+============================================================================= */
+[data-gradual-blur-layer] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 32px;
+  pointer-events: none;
+  z-index: 5;
+  background: linear-gradient(
+    to bottom,
+    var(--background) 0%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(to bottom, black 0%, transparent 100%);
+  mask: linear-gradient(to bottom, black 0%, transparent 100%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+[data-gradual-blur-layer][data-side="bottom"] {
+  bottom: 0;
+  top: auto;
+  background: linear-gradient(
+    to top,
+    var(--background) 0%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(to top, black 0%, transparent 100%);
+  mask: linear-gradient(to top, black 0%, transparent 100%);
+}
+
+[data-gradual-blur-layer][data-side="top"] {
+  top: 0;
+  bottom: auto;
+}
+
+/* Honor the user's preference + visual-smoke fixture. */
+@media (prefers-reduced-motion: reduce) {
+  [data-gradual-blur-layer] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] [data-gradual-blur-layer] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }

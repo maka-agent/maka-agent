@@ -386,13 +386,14 @@ describe('visual smoke fixture mode', () => {
     // Each scenario opens a specific Settings section over the shared
     // connection/session seed. The seed file shape is identical to
     // `provider-workspace` — the only difference is `openSettingsSection`.
+    // PR-SETTINGS-IA-CONSOLIDATE-0 (2026-06-23): consolidated nav.
     const cases = [
       { scenario: 'settings-data', expectedSection: 'data' },
-      { scenario: 'settings-personalization', expectedSection: 'personalization' },
-      { scenario: 'settings-network', expectedSection: 'network' },
+      { scenario: 'settings-appearance', expectedSection: 'appearance' },
       { scenario: 'settings-bots', expectedSection: 'bot-chat' },
       { scenario: 'settings-about', expectedSection: 'about' },
-      { scenario: 'settings-theme', expectedSection: 'theme' },
+      { scenario: 'settings-general', expectedSection: 'general' },
+      { scenario: 'settings-memory', expectedSection: 'memory' },
       { scenario: 'settings-daily-review', expectedSection: 'daily-review' },
     ] as const;
 

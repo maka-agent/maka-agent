@@ -1,4 +1,9 @@
 import type { Config, Task } from './contracts.js';
+import type { HeavyTaskEngineeringRecorder } from './heavy-task-engineering.js';
+import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
+import type { HeavyTaskModeSelection } from './heavy-task-policy.js';
+import type { HeavyTaskProgressRecorder } from './heavy-task-progress.js';
+import type { HeavyTaskSelfCheckRecorder } from './heavy-task-self-check.js';
 import type {
   EnvNetworkSecretPolicy,
   TaskIsolationFacts,
@@ -9,6 +14,14 @@ export interface IsolatedCommandInput {
   command: string;
   cwd: string;
   timeoutMs?: number;
+  /**
+   * Bash-only opt-in. When true the executor keeps just the recoverable TAIL of
+   * a large output and never kills the command for output size. Omitted/false
+   * (the default) preserves FULL output up to the executor's buffer cap — so the
+   * Read/Glob/Grep command fallbacks return complete, head-first content instead
+   * of a silently head-dropped tail. Only buildIsolatedBashTool sets this.
+   */
+  boundedTail?: boolean;
 }
 
 export interface IsolatedCommandResult {
@@ -51,6 +64,9 @@ export interface IsolatedEditFileResult {
   ok: boolean;
   path: string;
   replacements: number;
+  matchedVia?: string;
+  startLine?: number;
+  endLine?: number;
 }
 
 export interface IsolatedGlobInput {
@@ -92,10 +108,14 @@ export interface IsolatedToolExecutor {
    * external workspace without shelling through exec. If omitted,
    * buildIsolatedHeadlessTools falls back to command-backed operations inside
    * the isolated boundary.
+   *
+   * Edit deliberately has NO native hook: its matching logic is non-trivial and
+   * must stay the single source of truth with the in-process builtin Edit, so it
+   * always runs the shared computeEditedSource via `node -e` (see
+   * buildIsolatedEditTool) regardless of which native ops an executor provides.
    */
   readFile?(input: IsolatedReadFileInput): Promise<IsolatedReadFileResult>;
   writeFile?(input: IsolatedWriteFileInput): Promise<IsolatedWriteFileResult>;
-  editFile?(input: IsolatedEditFileInput): Promise<IsolatedEditFileResult>;
   globFiles?(input: IsolatedGlobInput): Promise<IsolatedGlobResult>;
   grepFiles?(input: IsolatedGrepInput): Promise<IsolatedGrepResult>;
 }
@@ -130,6 +150,16 @@ export interface HeadlessBackendContext {
   realBackendIsolation?: RealBackendIsolation;
   /** Convenience alias for realBackendIsolation.toolExecutor. */
   toolExecutor?: IsolatedToolExecutor;
+  /** Heavy-task selection resolved for this task run. */
+  heavyTaskMode?: HeavyTaskModeSelection;
+  /** Present only when heavy-task mode is enabled for task-run backed tooling. */
+  heavyTaskProgress?: HeavyTaskProgressRecorder;
+  /** Present only when heavy-task mode is enabled for advisory public self-check tooling. */
+  heavyTaskSelfCheck?: HeavyTaskSelfCheckRecorder;
+  /** Present only when heavy-task mode is enabled for compact public evidence capture. */
+  heavyTaskEvidence?: HeavyTaskEvidenceRecorder;
+  /** Present only when heavy-task mode is enabled for structured engineering loop records. */
+  heavyTaskEngineering?: HeavyTaskEngineeringRecorder;
 }
 
 export function validateRealBackendIsolation(isolation: RealBackendIsolation | undefined): void {

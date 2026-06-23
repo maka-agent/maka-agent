@@ -7,9 +7,11 @@ import { BackendRegistry, FakeBackend, SessionManager, type AgentBackend, type S
 import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { Config, Task } from '../contracts.js';
+import type { HeadlessBackendContext } from '../isolation.js';
 import { commandResourceScope, hashNormalizedArgs } from '../permission-grants.js';
 import { runTaskOnce } from '../task-agent-controller.js';
 import type { TaskPermissionGrant } from '../task-contracts.js';
+import { buildIsolatedHeadlessTools } from '../tools.js';
 
 const fakeConfig: Config = {
   id: 'fake-cfg',
@@ -226,6 +228,69 @@ const registerPermissionRequestBackend = (onRespond: () => void, command = 'rm -
   registry.register('fake', (ctx) => new PermissionRequestBackend(ctx.sessionId, onRespond, command));
 };
 
+class ProgressToolBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: {
+    sessionId: string;
+    header: SessionHeader;
+    tools: ReturnType<typeof buildIsolatedHeadlessTools>;
+  }) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const inventorySubmit = this.ctx.tools.find((tool) => tool.name === 'inventory_submit');
+    const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
+    const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
+    assert.ok(inventorySubmit);
+    assert.ok(todoUpdate);
+    assert.ok(selfCheckSubmit);
+    const toolCtx = {
+      sessionId: this.sessionId,
+      turnId: input.turnId,
+      cwd: this.ctx.header.cwd,
+      toolCallId: 'progress-tool-call',
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+    };
+    await inventorySubmit.impl({
+      summary: 'Inspected public files.',
+      items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
+    }, toolCtx);
+    await todoUpdate.impl({
+      items: [{ id: 'edit', content: 'Patch implementation', status: 'in_progress', priority: 'high' }],
+    }, toolCtx);
+    await selfCheckSubmit.impl({
+      status: 'pass',
+      publicReason: 'npm test passed using public README.md-backed fixture state.',
+      commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
+      artifactEvidence: [{ path: 'README.md', kind: 'file', exists: true }],
+    }, toolCtx);
+    const ts = Date.now();
+    yield { type: 'complete', id: 'progress-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerProgressToolBackend = (seen: HeadlessBackendContext[]) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+  seen.push(context);
+  assert.ok(context.toolExecutor);
+  registry.register('ai-sdk', (ctx) => new ProgressToolBackend({
+    sessionId: ctx.sessionId,
+    header: ctx.header,
+    tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
+      ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+      ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
+    }),
+  }));
+};
+
 async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'maka-task-controller-fx-'));
   const storageRoot = await mkdtemp(join(tmpdir(), 'maka-task-controller-store-'));
@@ -267,6 +332,7 @@ describe('runTaskOnce', () => {
           [
             'task_run_created',
             'task_run_queued',
+            'heavy_task_mode_recorded',
             'isolation_policy_recorded',
             'workspace_lease_recorded',
             'tool_executor_identity_recorded',
@@ -280,12 +346,98 @@ describe('runTaskOnce', () => {
             'task_run_completed',
           ],
         );
+        assert.equal(result.projection.heavyTaskMode?.enabled, false);
         assert.equal(result.projection.isolation?.mode, 'inert_fake_backend');
         assert.equal(result.projection.workspaceLease?.taskRunId, result.taskRunId);
         assert.equal(result.projection.toolExecutors[0]?.isolationMode, 'inert_fake_backend');
       } finally {
         SessionManager.prototype.sendMessage = original;
       }
+    });
+  });
+
+  test('records task-metadata heavy-task mode selection without changing scoring authority', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const task: Task = {
+        id: 'heavy-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+        benchmark: { metadata: { heavyTaskMode: { enabled: true, reason: 'declared long task' } } },
+      };
+
+      const result = await runTaskOnce(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerFakeBackend,
+      });
+
+      assert.equal(result.projection.heavyTaskMode?.enabled, true);
+      assert.equal(result.projection.heavyTaskMode?.triggerSource, 'task_metadata');
+      assert.equal(result.projection.heavyTaskMode?.triggerReason, 'declared long task');
+      assert.equal(result.projection.latestVerifierResult?.authority, undefined);
+      assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
+      assert.equal(result.resultRecord.passed, true);
+      assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('inventory_submit'));
+      assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('todo_update'));
+      assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('self_check_submit'));
+    });
+  });
+
+  test('enabled heavy-task run exposes progress tools and records submitted snapshots', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'README.md'), 'public task notes\n', 'utf8');
+      const seenContexts: HeadlessBackendContext[] = [];
+      const config: Config = {
+        ...fakeConfig,
+        backend: 'ai-sdk',
+        heavyTaskMode: true,
+      };
+      const task: Task = {
+        id: 'progress-task',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f README.md', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(config, task, {
+        storageRoot,
+        registerBackends: registerProgressToolBackend(seenContexts),
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+      });
+
+      assert.equal(seenContexts[0]?.heavyTaskMode?.enabled, true);
+      assert.ok(seenContexts[0]?.heavyTaskEvidence);
+      assert.ok(seenContexts[0]?.heavyTaskProgress);
+      assert.ok(seenContexts[0]?.heavyTaskSelfCheck);
+      assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('inventory_submit'));
+      assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('todo_update'));
+      assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('self_check_submit'));
+      assert.equal(result.projection.latestHeavyTaskInventory?.summary, 'Inspected public files.');
+      assert.equal(result.projection.latestHeavyTaskInventory?.items[0]?.path, 'README.md');
+      assert.equal(result.projection.latestHeavyTaskTodos?.items[0]?.status, 'in_progress');
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.status, 'pass');
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.guard.status, 'accepted');
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
+        1,
+      );
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_todos_recorded').length,
+        1,
+      );
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_recorded').length,
+        1,
+      );
     });
   });
 

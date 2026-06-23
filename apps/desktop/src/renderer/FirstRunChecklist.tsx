@@ -149,7 +149,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         title: '告诉我们怎么称呼你',
         reason: '消息行就不会再把你显示成默认的「你」。',
         done: personalization.displayName.trim().length > 0,
-        onClick: () => props.onOpenSettingsSection('personalization'),
+        onClick: () => props.onOpenSettingsSection('appearance'),
       },
       {
         id: 'web-search',
@@ -220,7 +220,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
         reason: '请求麦克风权限、录 2 秒本地样本，确认采集链路通；不上传、不保存、不写记忆。',
         done: false,
         trackCompletion: false,
-        onClick: () => props.onOpenSettingsSection('voice-models'),
+        onClick: () => props.onOpenSettingsSection('voice-gateway'),
       },
     ];
   }, [settings, planReminders, workspaceInstructionCount, props]);
