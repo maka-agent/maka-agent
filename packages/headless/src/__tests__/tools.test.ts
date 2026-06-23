@@ -579,7 +579,7 @@ describe('isolated headless tools', () => {
     assert.deepEqual(result.matches, ['{a,c}.txt:1:needle'], 'glob uses the literal fallback dialect, not rg brace-expansion');
   });
 
-  test('the ripgrep Grep invocation pins --no-config and --no-follow (non-skippable safety net)', async () => {
+  test('the ripgrep Grep branch pins its safety flags and never re-grows --glob (non-skippable safety net)', async () => {
     let captured = '';
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
@@ -588,9 +588,14 @@ describe('isolated headless tools', () => {
       },
     });
     await tool(tools, 'Grep').impl({ pattern: 'needle' }, toolCtx('/workspace'));
-    // Pin the exact rg arg prefix (not just a comment mention) so the config- and
+    // Pin the exact rg invocation (not just a comment mention) so the config- and
     // symlink-escape guards cannot be silently dropped — runs with or without rg.
-    assert.match(captured, /set -- --no-config --no-follow /);
+    assert.match(captured, /rg --no-config --no-follow .* -e "\$grep_pattern" -- "\$search"/);
+    // The rg branch is gated on no-glob; every glob must route through the fallback
+    // dialect, so this assertion holds even on a machine without rg installed.
+    assert.match(captured, /\[ -z "\$glob" \] && command -v rg/);
+    // ...and the deleted dynamic --glob assembly must never come back into rg.
+    assert.doesNotMatch(captured, /--glob "\$glob"/);
   });
 
   test('command-backed Edit runs the shared fuzzy matcher via node -e', async () => {
