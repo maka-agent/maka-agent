@@ -2,6 +2,7 @@ import type { MakaTool, ToolAvailabilityConfig } from '@maka/runtime';
 import {
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
+  COMPUTE_EDITED_SOURCE_FN_SOURCE,
 } from '@maka/runtime';
 import { posix as pathPosix } from 'node:path';
 import { z } from 'zod';
@@ -121,12 +122,18 @@ export function buildIsolatedEditTool(executor: IsolatedToolExecutor): MakaTool 
       if (executor.editFile) {
         return await executor.editFile({ cwd, path: normalizedPath, oldString: old_string, newString: new_string });
       }
-      await execFileCommand(executor, cwd, shellFileCommand(EDIT_SCRIPT, [
+      // Edit is the one file tool whose matching logic is non-trivial and must
+      // stay byte-identical to the in-process builtin Edit. Rather than keep a
+      // second (perl) matcher, it runs the SHARED computeEditedSource via
+      // `node -e` (node is guaranteed in the headless/Harbor environment); the
+      // other file tools stay on the POSIX-sh scripts. old/new are base64-encoded
+      // so arbitrary content survives argv transport unchanged.
+      const editStdout = await execFileCommand(executor, cwd, nodeFileCommand(EDIT_SCRIPT, [
         normalizedPath,
-        old_string,
-        new_string,
+        Buffer.from(old_string, 'utf8').toString('base64'),
+        Buffer.from(new_string, 'utf8').toString('base64'),
       ]));
-      return { ok: true, path: normalizedPath, replacements: 1 };
+      return { ok: true, path: normalizedPath, replacements: 1, ...parseEditMeta(editStdout) };
     },
   };
 }
@@ -196,6 +203,14 @@ function shellFileCommand(script: string, args: string[]): string {
   return ['sh', '-c', shellQuote(script), '--', ...args.map(shellQuote)].join(' ');
 }
 
+// Like shellFileCommand but runs the script with `node -e`. Used only by Edit,
+// whose matcher (computeEditedSource) is shared TypeScript that cannot be
+// expressed in POSIX sh. shellQuote escapes the embedded script (including its
+// single quotes) so the serialized function survives transport intact.
+function nodeFileCommand(script: string, args: string[]): string {
+  return ['node', '-e', shellQuote(script), '--', ...args.map(shellQuote)].join(' ');
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -207,6 +222,26 @@ function numberArg(value: number | undefined): string {
 function parseLineArray(stdout: string): string[] {
   if (!stdout) return [];
   return stdout.replace(/\n$/, '').split('\n').filter((line) => line.length > 0);
+}
+
+// EDIT_SCRIPT applies the edit and THEN prints this metadata, so the file is
+// already changed by the time we parse. matchedVia / line range are best-effort
+// observability; a malformed payload must not turn a successful edit into a
+// reported failure, so this fails open to {} (a protocol regression is caught by
+// tests, which assert the metadata is present on success).
+function parseEditMeta(stdout: string): { matchedVia?: string; startLine?: number; endLine?: number } {
+  try {
+    const parsed: unknown = JSON.parse(stdout || '{}');
+    if (!parsed || typeof parsed !== 'object') return {};
+    const { matchedVia, startLine, endLine } = parsed as Record<string, unknown>;
+    return {
+      matchedVia: typeof matchedVia === 'string' ? matchedVia : undefined,
+      startLine: typeof startLine === 'number' ? startLine : undefined,
+      endLine: typeof endLine === 'number' ? endLine : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function globPatternToEre(pattern: string): string {
@@ -350,33 +385,63 @@ target=$(writable_target "$1" 'Write path') || exit 1
 printf '%s' "$2" > "$target"
 `;
 
-const EDIT_SCRIPT = `${COMMON_SHELL_HELPERS}
-root=$(pwd -P) || exit 1
-target=$(existing_target "$1" 'Edit path') || exit 1
-tmp=$(mktemp "$target.maka-edit.XXXXXX") || exit 1
-perl -0 -e '
-  use strict;
-  use warnings;
-  my ($old, $new, $target, $tmp) = @ARGV;
-  die "old_string must not be empty\n" if $old eq "";
-  open my $in, "<:raw", $target or die "$target: $!\n";
-  local $/;
-  my $content = <$in>;
-  close $in;
-  my $count = () = $content =~ /\\Q$old\\E/g;
-  die "old_string not found in $target\n" if $count == 0;
-  die "old_string is not unique in $target ($count matches)\n" if $count > 1;
-  $content =~ s/\\Q$old\\E/$new/;
-  open my $out, ">:raw", $tmp or die "$tmp: $!\n";
-  print {$out} $content;
-  close $out;
-' "$2" "$3" "$target" "$tmp"
-rc=$?
-if [ "$rc" -ne 0 ]; then
-  rm -f "$tmp"
-  exit "$rc"
-fi
-mv "$tmp" "$target"
+// Edit runs as a `node -e` script (not sh) so it can embed the shared
+// computeEditedSource matcher verbatim — keeping a single source of truth with
+// the in-process builtin Edit instead of a divergent perl reimplementation.
+// Path containment mirrors COMMON_SHELL_HELPERS' existing_target(): reject a
+// symlinked target outright and require the resolved path to stay inside the
+// workspace root. Keep this policy in lockstep with existing_target().
+const EDIT_SCRIPT = `const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const computeEditedSource = ${COMPUTE_EDITED_SOURCE_FN_SOURCE};
+function inside(root, target) {
+  const rel = path.relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+function editTarget(root, inputPath, label) {
+  const target = path.join(root, inputPath);
+  let stat;
+  try {
+    stat = fs.lstatSync(target);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') throw new Error(label + ' does not exist: ' + inputPath);
+    throw error;
+  }
+  if (stat.isSymbolicLink()) throw new Error(label + ' must stay inside workspace');
+  const real = stat.isDirectory()
+    ? fs.realpathSync(target)
+    : path.join(fs.realpathSync(path.dirname(target)), path.basename(target));
+  if (!inside(root, real)) throw new Error(label + ' must stay inside workspace');
+  return real;
+}
+try {
+  const [inputPath, oldBase64, newBase64] = process.argv.slice(1);
+  const root = fs.realpathSync(process.cwd());
+  const target = editTarget(root, inputPath, 'Edit path');
+  const oldString = Buffer.from(oldBase64, 'base64').toString('utf8');
+  const newString = Buffer.from(newBase64, 'base64').toString('utf8');
+  const current = fs.readFileSync(target, 'utf8');
+  const result = computeEditedSource(current, oldString, newString, inputPath);
+  // Atomic write (tmp + rename), matching the prior perl EDIT_SCRIPT, so a crash
+  // mid-write can never leave a torn file — only the old or the new content. The
+  // temp name is unpredictable (crypto) and created with 'wx' (O_CREAT|O_EXCL),
+  // so a pre-planted symlink at the temp path can neither be guessed nor
+  // followed — equivalent to the old mktemp ...XXXXXX guarantees. Preserve the
+  // original file's permission bits (chmod is not subject to umask) so editing a
+  // restricted or executable file does not silently change its mode on rename.
+  const targetMode = fs.statSync(target).mode & 0o777;
+  const tmp = target + '.maka-edit.' + crypto.randomBytes(8).toString('hex');
+  fs.writeFileSync(tmp, result.content, { encoding: 'utf8', flag: 'wx' });
+  fs.chmodSync(tmp, targetMode);
+  fs.renameSync(tmp, target);
+  process.stdout.write(JSON.stringify({ matchedVia: result.matchedVia, startLine: result.startLine, endLine: result.endLine }));
+} catch (error) {
+  // Surface a clean message (matching the prior perl die behavior) instead of a
+  // node [eval] stack trace; execFileCommand propagates stderr to the model.
+  process.stderr.write(error && error.message ? error.message : String(error));
+  process.exit(1);
+}
 `;
 
 const GLOB_SCRIPT = `${COMMON_SHELL_HELPERS}

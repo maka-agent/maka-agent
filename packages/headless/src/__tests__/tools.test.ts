@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { exec as childExec } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -137,7 +137,7 @@ describe('isolated headless tools', () => {
     ]);
   });
 
-  test('file tools fall back to command-backed isolated operations', async () => {
+  test('sh-backed file tools fall back to command-backed isolated operations', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-fallback-'));
     await mkdir(join(cwd, 'src'));
     const absoluteFile = join(cwd, 'src', 'file.txt');
@@ -172,20 +172,76 @@ describe('isolated headless tools', () => {
     assert.deepEqual(await tool(tools, 'Read').impl({ path: absoluteFile, offset: 1, limit: 1 }, toolCtx(cwd)), {
       content: 'needle',
     });
-    assert.deepEqual(
-      await tool(tools, 'Edit').impl({ path: absoluteFile, old_string: 'hello', new_string: 'hi' }, toolCtx(cwd)),
-      { ok: true, path: 'src/file.txt', replacements: 1 },
-    );
     assert.deepEqual(await tool(tools, 'Glob').impl({ pattern: absoluteGlob }, toolCtx(cwd)), {
       files: ['src/file.txt'],
     });
     assert.deepEqual(await tool(tools, 'Grep').impl({ pattern: 'needle', path: absoluteSrc, glob: absoluteGlob }, toolCtx(cwd)), {
       matches: ['src/file.txt:2:needle'],
     });
-    assert.equal(await readFile(join(cwd, 'src/file.txt'), 'utf8'), 'hi\nneedle\n');
-    assert.ok(calls.length >= 5);
+    assert.equal(await readFile(join(cwd, 'src/file.txt'), 'utf8'), 'hello\nneedle\n');
+    // Edit is intentionally excluded here: it runs via `node -e` (covered by the
+    // dedicated Edit test below) while Read/Write/Glob/Grep stay POSIX-sh scripts
+    // that must work with only base coreutils on PATH (here pinned to /usr/bin:/bin).
+    assert.ok(calls.length >= 4);
     assert.ok(calls.every((command) => command.startsWith("sh -c '")));
     assert.ok(calls.every((command) => !command.includes('node -e')));
+  });
+
+  test('command-backed Edit runs the shared fuzzy matcher via node -e', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-'));
+    await mkdir(join(cwd, 'src'));
+    const file = join(cwd, 'src', 'f.ts');
+    // 4-space indented body on disk; the model's old_string uses 2-space indent.
+    await writeFile(file, 'function f() {\n    return 1;\n}\n', 'utf8');
+    await chmod(file, 0o600); // editing must preserve the original mode, not widen it
+    const calls: string[] = [];
+    const tools = buildIsolatedHeadlessTools({
+      async exec(input) {
+        calls.push(input.command);
+        try {
+          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, maxBuffer: 1024 * 1024 });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
+    });
+
+    // Fuzzy: indentation drift is forgiven, and the matched span/strategy is reported.
+    assert.deepEqual(
+      await tool(tools, 'Edit').impl(
+        { path: 'src/f.ts', old_string: 'function f() {\n  return 1;\n}', new_string: 'function f() {\n    return 2;\n}' },
+        toolCtx(cwd),
+      ),
+      { ok: true, path: 'src/f.ts', replacements: 1, matchedVia: 'line-trimmed', startLine: 1, endLine: 3 },
+    );
+    assert.equal(await readFile(file, 'utf8'), 'function f() {\n    return 2;\n}\n');
+
+    // Exact match still works and reports matchedVia: 'exact'.
+    assert.deepEqual(
+      await tool(tools, 'Edit').impl({ path: 'src/f.ts', old_string: 'return 2;', new_string: 'return 3;' }, toolCtx(cwd)),
+      { ok: true, path: 'src/f.ts', replacements: 1, matchedVia: 'exact', startLine: 2, endLine: 2 },
+    );
+    assert.equal(await readFile(file, 'utf8'), 'function f() {\n    return 3;\n}\n');
+    assert.equal((await stat(file)).mode & 0o777, 0o600); // mode preserved across the tmp+rename
+
+    // Edit refuses to follow a symlink out of the workspace (mirrors existing_target()).
+    const outside = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-outside-'));
+    await writeFile(join(outside, 'secret.txt'), 'secret\n', 'utf8');
+    await symlink(join(outside, 'secret.txt'), join(cwd, 'src', 'link.txt'));
+    await assert.rejects(
+      async () => await tool(tools, 'Edit').impl({ path: 'src/link.txt', old_string: 'secret', new_string: 'edited' }, toolCtx(cwd)),
+      /inside workspace/,
+    );
+    assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'secret\n');
+
+    // Every Edit ran through node -e (the shared computeEditedSource), not sh.
+    assert.ok(calls.length >= 3);
+    assert.ok(calls.every((command) => command.startsWith("node -e '")));
   });
 
   test('command-backed file tools do not follow symlinks outside the isolated workspace', async () => {
