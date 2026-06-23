@@ -6946,6 +6946,16 @@ button:active {
   background: oklch(from var(--foreground) l c h / 0.05);
   color: var(--foreground);
 }
+.settingsBackButton:focus-visible {
+  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15, WAWQAQ msg `f7e9d166`): the
+     `← 返回应用` link is the only way to leave Settings without a
+     mouse; without a visible focus ring keyboard-only users couldn't
+     tell it was selected. Use the same 2px accent outline +
+     `:focus-visible` recipe as the settings rows. */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--foreground);
+}
 
 .settingsSidebar header {
   min-height: 36px;
@@ -7056,9 +7066,21 @@ button:active {
 }
 
 .settingsNavItem[data-active="true"] {
-  background: var(--settings-nav-row-selected-bg);
+  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15): bump the active state from
+     the muted `--settings-nav-row-selected-bg` token to a slightly
+     more visible 6.5% foreground overlay + 500 weight. The previous
+     fill was reading as "muted disabled" against the now-bigger
+     nav row typography. */
+  background: oklch(from var(--foreground) l c h / 0.065);
   color: var(--foreground);
+  font-weight: 500;
   box-shadow: none !important;
+}
+
+.settingsNavItem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: oklch(from var(--accent) l c h / 0.04);
 }
 
 .settingsNavItem[data-active="true"] .settingsNavGlyph {
