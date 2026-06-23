@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import {
   envFinitePositiveNumber,
   envNonNegativeInt,
+  envPositiveInt,
   envRatio,
   resolveMinStable,
   smokeExitCode,
@@ -23,6 +24,27 @@ describe('envNonNegativeInt', () => {
     assert.throws(() => envNonNegativeInt('N', 'abc', 7), /N must be a non-negative integer/);
     assert.throws(() => envNonNegativeInt('N', '1.5', 7), /N must be a non-negative integer/);
     assert.throws(() => envNonNegativeInt('N', '-1', 7), /N must be a non-negative integer/);
+  });
+});
+
+describe('envPositiveInt', () => {
+  test('returns the fallback when unset', () => {
+    assert.equal(envPositiveInt('N', undefined, 10), 10);
+    assert.equal(envPositiveInt('N', '', 10), 10);
+  });
+
+  test('parses a positive integer', () => {
+    assert.equal(envPositiveInt('N', '1', 10), 1);
+    assert.equal(envPositiveInt('N', '10', 10), 10);
+  });
+
+  test('rejects 0 so a baseline-only run cannot trivially pass the smoke', () => {
+    assert.throws(() => envPositiveInt('N', '0', 10), /N must be a positive integer/);
+  });
+
+  test('rejects negative and non-integer values', () => {
+    assert.throws(() => envPositiveInt('N', '-1', 10), /N must be a non-negative integer/);
+    assert.throws(() => envPositiveInt('N', '2.5', 10), /N must be a non-negative integer/);
   });
 });
 

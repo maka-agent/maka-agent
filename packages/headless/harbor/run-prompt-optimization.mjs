@@ -25,6 +25,7 @@ import {
   discoverCachedHarborTasks,
   envFinitePositiveNumber,
   envNonNegativeInt,
+  envPositiveInt,
   envRatio,
   partitionPromptTasks,
   renderPromptStructuralSmokeMarkdown,
@@ -78,6 +79,7 @@ function envPath(name, fallback) {
 // FAILS LOUD on an illegal value rather than letting NaN slip through a later
 // `!== undefined` check and silently disable a guard.
 const envInt = (name, fallback) => envNonNegativeInt(name, process.env[name], fallback);
+const envPosInt = (name, fallback) => envPositiveInt(name, process.env[name], fallback);
 const envNum = (name, fallback) => envFinitePositiveNumber(name, process.env[name], fallback);
 const envRatioOf = (name, fallback) => envRatio(name, process.env[name], fallback);
 
@@ -116,7 +118,10 @@ async function main() {
   const model = process.env.MAKA_PROMPT_MODEL || 'deepseek/deepseek-v4-flash';
   const provider = process.env.MAKA_PROMPT_PROVIDER || 'deepseek';
   const baseUrl = process.env.MAKA_PROMPT_BASE_URL || 'https://api.deepseek.com';
-  const rounds = envInt('MAKA_PROMPT_ROUNDS', 10);
+  // Rounds must be >= 1: a 0-round run is baseline-only and would trivially pass
+  // the structural smoke (minimumRounds 0), contradicting the unattended >=1-round
+  // validation this runner exists to perform.
+  const rounds = envPosInt('MAKA_PROMPT_ROUNDS', 10);
   const baselineRuns = envInt('MAKA_PROMPT_BASELINE_RUNS', 3);
   const heldInCount = envInt('MAKA_PROMPT_HELD_IN', 60);
   const heldOutCount = envInt('MAKA_PROMPT_HELD_OUT', 20);

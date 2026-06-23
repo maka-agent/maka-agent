@@ -126,6 +126,7 @@ export {
 export {
   envFinitePositiveNumber,
   envNonNegativeInt,
+  envPositiveInt,
   envRatio,
   resolveMinStable,
   smokeExitCode,

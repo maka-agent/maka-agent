@@ -17,6 +17,17 @@ export function envNonNegativeInt(name: string, raw: string | undefined, fallbac
   return value;
 }
 
+/** Parse a positive integer (>= 1); throw on 0, negative, or non-integer. Used
+ * for counts that are meaningless at 0 — e.g. full-run rounds, where 0 would make
+ * a baseline-only run trivially pass the structural smoke (minimumRounds 0). */
+export function envPositiveInt(name: string, raw: string | undefined, fallback: number): number {
+  const value = envNonNegativeInt(name, raw, fallback);
+  if (value < 1) {
+    throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
+}
+
 /**
  * Parse a finite, strictly-positive number; throw on `NaN`, non-finite, or `<= 0`.
  * Used for guard knobs (cost ceiling, concurrency, duration cap) where a bare
