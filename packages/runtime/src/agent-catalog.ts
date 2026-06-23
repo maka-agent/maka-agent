@@ -186,6 +186,7 @@ const modeRank: Record<PermissionMode, number> = {
   explore: 0,
   ask: 1,
   execute: 2,
+  bypass: 3,
 };
 
 export function listBuiltinAgentDefinitions(options: AgentDefinitionListOptions = {}): AgentDefinitionListItem[] {

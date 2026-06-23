@@ -4003,7 +4003,7 @@ interface PermissionModeMeta {
 /**
  * PR-MOVE-PERMISSION-MODE (WAWQAQ msgs 47fe0d0e / 21993dcc / a667cf6c
  * 2026-06-23): the user-facing permission-mode picker is now a
- * two-option dropdown sitting in the composer left-controls instead
+ * three-option dropdown sitting in the composer left-controls instead
  * of a 3-chip switcher at the chat header. The `explore` (read-only)
  * mode was retired from the picker — for an agent that can't write
  * or run anything, the mode is "not useful". Internally `explore`
@@ -4028,12 +4028,17 @@ const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
   },
   execute: {
     label: '自动执行',
-    hint: 'Agent 自跑全部工具，不打断你。等价于 reference 的 Bypass permissions — 适合让 agent 长时间独立完成任务。',
+    hint: '常见工具直通，破坏性操作、特权操作和浏览器操作仍会停下来确认。',
+    tone: 'caution',
+  },
+  bypass: {
+    label: 'Bypass permissions',
+    hint: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。只在完全信任本轮任务时使用。',
     tone: 'caution',
   },
 };
 
-const PERMISSION_MODE_ORDER: PermissionMode[] = ['ask', 'execute'];
+const PERMISSION_MODE_ORDER: PermissionMode[] = ['ask', 'execute', 'bypass'];
 
 export interface ChatHeaderAlert {
   /** Visual tone — drives badge color in the chat header. */
@@ -6273,10 +6278,11 @@ export const Composer = forwardRef<
      * PR-MOVE-PERMISSION-MODE (WAWQAQ 47fe0d0e + a667cf6c): the
      * permission mode picker lives inside the composer left-controls
      * instead of the chat header. Composer renders a dropdown labelled
-     * by the current mode (询问权限 / 自动执行); selecting an option
-     * fires `onPermissionModeChange`. When the active session is in
-     * the legacy `explore` mode the picker collapses to display
-     * 询问权限 — explore is internal-only now and won't surface here.
+     * by the current mode (询问权限 / 自动执行 / Bypass permissions);
+     * selecting an option fires `onPermissionModeChange`. When the
+     * active session is in the legacy `explore` mode the picker
+     * collapses to display 询问权限 — explore is internal-only now and
+     * won't surface here.
      */
     permissionMode?: PermissionMode;
     permissionModePending?: boolean;
@@ -6648,9 +6654,9 @@ export const Composer = forwardRef<
             {/* PR-MOVE-PERMISSION-MODE: the static "通用" role chip
                 was replaced by the permission-mode dropdown — that
                 spot is where the reference Settings expects users to
-                pick "Ask permissions" / "Auto mode" / etc. Maka
-                exposes the two user-facing modes only (`ask` /
-                `execute`); `explore` collapses to `ask` in the
+                pick "Ask permissions" / "Auto mode" / "Bypass
+                permissions". Maka exposes the user-facing modes
+                `ask` / `execute` / `bypass`; `explore` collapses to `ask` in the
                 display because Deep Research sessions use it
                 internally but it's not a useful runtime toggle for
                 normal chat. */}

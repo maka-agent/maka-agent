@@ -173,11 +173,11 @@ describe('permission mode transition guard copy', () => {
   it('composer mode menu offers the user-facing permission modes via base-ui Menu', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
 
-    // Two-mode picker: explore is retired from the picker entirely
+    // Three-mode picker: explore is retired from the picker entirely
     // (read-only mode has no useful runtime toggle for normal chat —
     // Deep-Research sessions set it internally). The picker shows
-    // 'ask' (询问权限) and 'execute' (自动执行).
-    assert.match(ui, /const PERMISSION_MODE_ORDER: PermissionMode\[\] = \['ask', 'execute'\];/);
+    // 'ask' (询问权限), 'execute' (自动执行), and 'bypass' (Bypass permissions).
+    assert.match(ui, /const PERMISSION_MODE_ORDER: PermissionMode\[\] = \['ask', 'execute', 'bypass'\];/);
 
     // Mode chip uses base-ui Menu (not a custom radiogroup) — keyboard
     // arrow / Home / End navigation is delegated to the primitive.

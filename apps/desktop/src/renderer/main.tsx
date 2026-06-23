@@ -1479,8 +1479,9 @@ function AppShell() {
       }
       const labels: Record<PermissionMode, string> = {
         explore: '只读模式',
-        ask: '确认模式',
-        execute: '执行模式',
+        ask: '询问权限',
+        execute: '自动执行',
+        bypass: 'Bypass permissions',
       };
       if (activeIdRef.current === sessionId) toastApi.success(`已切到 ${labels[mode]}`, modeDescriptions[mode]);
       await refreshSessions();
@@ -3393,7 +3394,8 @@ function AppShell() {
 const modeDescriptions: Record<PermissionMode, string> = {
   explore: '只读工具直通，写入或网络仍需确认。',
   ask: '所有敏感工具调用前都会停下来征求允许或拒绝。',
-  execute: '常见工具直通；只有破坏性操作仍然拦截。',
+  execute: '常见工具直通；破坏性操作、特权操作和浏览器操作仍然确认。',
+  bypass: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。',
 };
 
 /**

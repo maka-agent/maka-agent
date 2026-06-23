@@ -13,7 +13,7 @@
 // Mode + Tool categories
 // ============================================================================
 
-export const PERMISSION_MODES = ['explore', 'ask', 'execute'] as const;
+export const PERMISSION_MODES = ['explore', 'ask', 'execute', 'bypass'] as const;
 export type PermissionMode = typeof PERMISSION_MODES[number];
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
@@ -115,6 +115,20 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // user's "allow for this turn" then carries the observe→act loop.
     browser: 'prompt',
   },
+  bypass: {
+    read: 'allow',
+    web_read: 'allow',
+    shell_safe: 'allow',
+    file_write: 'allow',
+    fs_destructive: 'allow',
+    shell_unsafe: 'allow',
+    git_destructive: 'allow',
+    network_send: 'allow',
+    privileged: 'allow',
+    browser: 'allow',
+    custom_tool: 'allow',
+    subagent: 'allow',
+  },
 };
 
 // ============================================================================
@@ -191,7 +205,7 @@ export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
 ];
 
 /** Irreversible filesystem operations. `rm` in any form (incl. single-file
- *  `rm foo.txt`) lands here so execute mode still prompts. */
+ *  `rm foo.txt`) lands here so auto/execute mode still prompts. */
 export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /^rm\b/, //                                       all rm (single-file, -r, -rf, etc.)
   /^rmdir\b/,

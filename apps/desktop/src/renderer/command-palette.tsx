@@ -29,7 +29,7 @@ import {
   Wifi,
   type LucideIcon,
 } from 'lucide-react';
-import type { LlmConnection, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
+import type { LlmConnection, PermissionMode, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import {
   Button,
@@ -137,8 +137,8 @@ export function buildCommandList(args: {
    * composer's permission-mode dropdown (PR-MOVE-PERMISSION-MODE
    * relocated the picker out of the chat header).
    */
-  onSetPermissionMode?(mode: 'explore' | 'ask' | 'execute'): Promise<void> | void;
-  activePermissionMode?: 'explore' | 'ask' | 'execute';
+  onSetPermissionMode?(mode: PermissionMode): Promise<void> | void;
+  activePermissionMode?: PermissionMode;
   /**
    * PR-CMD-PALETTE-PASTE-DAILY-REVIEW-0: fetch today's review and
    * paste the Markdown into the composer instead of the clipboard.
@@ -470,10 +470,11 @@ export function buildCommandList(args: {
   if (args.onSetPermissionMode && args.activeSessionId) {
     const setMode = args.onSetPermissionMode;
     const current = args.activePermissionMode;
-    const modes: Array<{ id: 'explore' | 'ask' | 'execute'; label: string; hintCopy: string }> = [
+    const modes: Array<{ id: PermissionMode; label: string; hintCopy: string }> = [
       { id: 'explore', label: '权限 · 只读', hintCopy: '读取和搜索直通，写入仍确认' },
-      { id: 'ask', label: '权限 · 确认', hintCopy: '每条敏感工具都先确认（默认）' },
-      { id: 'execute', label: '权限 · 执行', hintCopy: '可信工具直通，不可逆仍提示' },
+      { id: 'ask', label: '权限 · 询问权限', hintCopy: '每条敏感工具都先确认（默认）' },
+      { id: 'execute', label: '权限 · 自动执行', hintCopy: '常见工具直通，破坏性操作仍确认' },
+      { id: 'bypass', label: '权限 · Bypass permissions', hintCopy: '全部工具直通，不再弹权限确认' },
     ];
     for (const entry of modes) {
       cmds.push({

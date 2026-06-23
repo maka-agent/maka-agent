@@ -240,6 +240,36 @@ describe('preToolUse — execute mode', () => {
   });
 });
 
+describe('preToolUse — bypass mode', () => {
+  test('rm → allow without prompting', () => {
+    const r = evaluate('Bash', { command: 'rm important.txt' }, 'bypass');
+    expect(r.proceed).toBe(true);
+    expect(r.needsPrompt).toBe(false);
+    expect(r.category).toBe('fs_destructive');
+  });
+
+  test('git reset --hard → allow without prompting', () => {
+    const r = evaluate('Bash', { command: 'git reset --hard HEAD~5' }, 'bypass');
+    expect(r.proceed).toBe(true);
+    expect(r.needsPrompt).toBe(false);
+    expect(r.category).toBe('git_destructive');
+  });
+
+  test('sudo → allow without prompting', () => {
+    const r = evaluate('Bash', { command: 'sudo systemctl stop foo' }, 'bypass');
+    expect(r.proceed).toBe(true);
+    expect(r.needsPrompt).toBe(false);
+    expect(r.category).toBe('privileged');
+  });
+
+  test('browser actions → allow without prompting', () => {
+    const r = evaluate('browser_click', { ref: '[12]' }, 'bypass', [], 'browser');
+    expect(r.proceed).toBe(true);
+    expect(r.needsPrompt).toBe(false);
+    expect(r.category).toBe('browser');
+  });
+});
+
 describe('preToolUse — turnRemembered', () => {
   test('remembered scope → allow the same tool intent when policy says prompt', () => {
     const args = { path: '/x' };
@@ -316,7 +346,7 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     'custom_tool',
     'subagent',
   ];
-  const modes: PermissionMode[] = ['explore', 'ask', 'execute'];
+  const modes: PermissionMode[] = ['explore', 'ask', 'execute', 'bypass'];
 
   test('every (mode, category) pair has a decision', () => {
     for (const mode of modes) {
@@ -343,6 +373,7 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     expect(PERMISSION_POLICY.ask.browser).toBe('prompt');
     // The key contrast with network_send: not silently allowed in execute.
     expect(PERMISSION_POLICY.execute.browser).toBe('prompt');
+    expect(PERMISSION_POLICY.bypass.browser).toBe('allow');
   });
 
   test('explore mode allows local reads + safe shell (web_read prompts post PR-AGENT-WEB-SEARCH-TOOL-0)', () => {
@@ -367,5 +398,12 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     expect(PERMISSION_POLICY.explore.web_read).toBe('prompt');
     expect(PERMISSION_POLICY.ask.web_read).toBe('prompt');
     expect(PERMISSION_POLICY.execute.web_read).toBe('allow');
+    expect(PERMISSION_POLICY.bypass.web_read).toBe('allow');
+  });
+
+  test('bypass mode allows every category without prompting', () => {
+    for (const cat of categories) {
+      expect(PERMISSION_POLICY.bypass[cat]).toBe('allow');
+    }
   });
 });

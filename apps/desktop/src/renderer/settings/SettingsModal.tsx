@@ -1137,7 +1137,7 @@ function SettingsPage(props: {
           </SettingsRows>
           <SettingsRows>
             <SettingRow title="启动" detail="打开应用后回到最近一次对话。" value="已启用" />
-            <SettingRow title="新对话模式" detail="新对话默认从确认模式开始。" value="确认" />
+            <SettingRow title="新对话模式" detail="新对话默认从询问权限开始。" value="询问权限" />
             <SettingRow title="默认模型" detail="新对话默认使用的模型连接。" value={props.defaultSlug ?? '未设置'} />
           </SettingsRows>
           <SettingsRows>
@@ -2173,8 +2173,8 @@ function AccountSettingsPage(props: {
       <SettingsRows>
         <SettingRow
           title="默认权限模式"
-          detail="新会话默认从确认模式开始；可在对话顶部切到只读或执行。"
-          value="需要确认"
+          detail="新会话默认从询问权限开始；可在输入框左下角切到自动执行或 Bypass permissions。"
+          value="询问权限"
         />
         <SettingRow
           title="凭据保护"
