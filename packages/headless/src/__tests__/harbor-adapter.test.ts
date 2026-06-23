@@ -115,6 +115,7 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /partitionPromptTasks/);
     assert.match(source, /createHarborTaskRunner/);
     assert.match(source, /apiKeyFile: keyFile/);
+    assert.match(source, /MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS/);
     assert.match(source, /MAKA_PROMPT_AB_CANDIDATE_PROMPT_PATH/);
     assert.match(source, /from '#prompt-ab-run'/);
     assert.match(source, /from '#harbor-task-runner'/);

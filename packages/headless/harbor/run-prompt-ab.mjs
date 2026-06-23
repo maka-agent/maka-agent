@@ -129,6 +129,7 @@ async function main() {
   const calibrationLevels = envLevels('MAKA_PROMPT_AB_CALIBRATION_LEVELS', [1, 2, 4, 8, 12, 16]);
   const maxInfraFailureRate = envZeroToOne('MAKA_PROMPT_AB_MAX_INFRA_FAILURE_RATE', 0);
   const explicitMaxConcurrency = envPosInt('MAKA_PROMPT_AB_MAX_CONCURRENCY', undefined);
+  const harborTimeoutMs = envPosInt('MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS', undefined);
   const heldInPassRateNoiseBand = envZeroToOne('MAKA_PROMPT_AB_HELD_IN_NOISE_BAND', undefined);
   const heldOutPassRateNoiseBand = envZeroToOne('MAKA_PROMPT_AB_HELD_OUT_NOISE_BAND', undefined);
 
@@ -175,6 +176,7 @@ async function main() {
     apiKeyFile: keyFile,
     pricing: DEEPSEEK_V4_FLASH_PRICING,
     agentEnv: { DEEPSEEK_BASE_URL: baseUrl },
+    ...(harborTimeoutMs !== undefined ? { harborTimeoutMs } : {}),
   });
   const resultsJsonlPath = join(controllerDir, 'results.jsonl');
   const taskDurationsMs = await readTaskDurationsMs(taskDurationsPath);
