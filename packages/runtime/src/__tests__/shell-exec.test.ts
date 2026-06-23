@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runShellWithBoundedTail } from '../shell-exec.js';
 
 const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('runShellWithBoundedTail', () => {
   test('returns full small output and exit 0 without throwing', async () => {
@@ -35,6 +39,36 @@ describe('runShellWithBoundedTail', () => {
     const r = await runShellWithBoundedTail('sleep 5', base({ timeoutMs: 150 }));
     assert.equal(r.timedOut, true);
     assert.equal(r.exitCode, 124);
+  });
+
+  test('on timeout, escalates SIGTERM->SIGKILL and resolves only after the child is actually dead', async () => {
+    // A child that traps/ignores SIGTERM would, under the old "kill then resolve
+    // immediately" path, keep running (and emitting) after we told the caller
+    // "timed out". Now we wait for the child to actually exit (SIGKILL after the
+    // grace) before resolving — proven by the heartbeat file no longer growing.
+    const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-kill-'));
+    const beat = join(dir, 'beat');
+    const cmd = `trap '' TERM; while true; do echo STILL; echo x >> '${beat}'; sleep 0.02; done`;
+    const emits: string[] = [];
+    try {
+      const r = await runShellWithBoundedTail(
+        cmd,
+        base({ timeoutMs: 100, killGraceMs: 150, emitOutput: (_s: string, c: string) => emits.push(c) }),
+      );
+      assert.equal(r.timedOut, true);
+      assert.equal(r.exitCode, 124);
+      const sizeAtResolve = (await fs.stat(beat)).size;
+      const emitsAtResolve = emits.length;
+      await delay(300); // a live child would append ~15 more lines in this window
+      const sizeLater = (await fs.stat(beat)).size;
+      assert.ok(
+        sizeLater - sizeAtResolve <= 2, // tolerate at most one in-flight append
+        `child kept writing after resolve (grew ${sizeLater - sizeAtResolve} bytes) — not actually killed`,
+      );
+      assert.equal(emits.length, emitsAtResolve, 'no emitOutput after resolve');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('surfaces a safety marker (not bare empty) when an oversized no-newline line is dropped', async () => {

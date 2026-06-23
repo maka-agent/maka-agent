@@ -34,6 +34,12 @@ export const BASH_MAX_RETAINED_CHARS = 1024 * 1024;
 // chunks keep flowing into the retained tail buffer.
 export const BASH_MAX_LIVE_EMIT_CHARS = 1024 * 1024;
 
+// Grace period after SIGTERM (on timeout/abort) before escalating to SIGKILL. A
+// well-behaved child exits on SIGTERM and 'close' fires well within this window;
+// a child that traps/ignores SIGTERM is force-killed so the promise still
+// settles promptly (bounded by this) rather than hanging.
+export const SIGKILL_GRACE_MS = 2000;
+
 // Emitted once per stream when live forwarding is suppressed. The full output is
 // not lost — it still feeds the retained tail and the returned result.
 const LIVE_OUTPUT_SUPPRESSED_MARKER =
@@ -67,6 +73,8 @@ export interface BoundedShellOptions {
   env?: NodeJS.ProcessEnv;
   /** Aborts the child (sets `aborted`). */
   abortSignal?: AbortSignal;
+  /** Grace after SIGTERM before SIGKILL on timeout/abort. Defaults to SIGKILL_GRACE_MS. */
+  killGraceMs?: number;
   /** Receives every raw chunk live, before tail-bounding. */
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
 }
@@ -86,8 +94,11 @@ export interface BoundedShellResult {
 /**
  * Run `command` in a shell, streaming output into a memory-bounded tail. Never
  * kills the command for producing too much output — it keeps only the last
- * `maxRetainedChars` per stream. Resolves with the result (including timeout /
- * abort flags); rejects only when the process cannot be spawned.
+ * `maxRetainedChars` per stream. On timeout/abort it SIGTERMs (then SIGKILLs
+ * after a grace period) and resolves only once the child has actually exited, so
+ * it never reports "timed out" while the process keeps running in the
+ * background. Resolves with the result (including timeout / abort flags); rejects
+ * only when the process cannot be spawned.
  */
 export function runShellWithBoundedTail(
   command: string,
@@ -95,6 +106,7 @@ export function runShellWithBoundedTail(
 ): Promise<BoundedShellResult> {
   const cap = options.maxRetainedChars ?? BASH_MAX_RETAINED_CHARS;
   const liveCap = options.maxLiveEmitChars ?? BASH_MAX_LIVE_EMIT_CHARS;
+  const graceMs = options.killGraceMs ?? SIGKILL_GRACE_MS;
   return new Promise<BoundedShellResult>((resolvePromise, reject) => {
     const child = spawn(command, {
       cwd: options.cwd,
@@ -109,14 +121,10 @@ export function runShellWithBoundedTail(
     // stream passes liveCap we emit one marker and stop forwarding it live.
     let liveEmitted = { stdout: 0, stderr: 0 };
     let liveSuppressed = { stdout: false, stderr: false };
-
-    const timer = setTimeout(() => finish({ timedOut: true }), options.timeoutMs);
-
-    const abort = () => finish({ aborted: true });
-    if (options.abortSignal) {
-      if (options.abortSignal.aborted) abort();
-      else options.abortSignal.addEventListener('abort', abort, { once: true });
-    }
+    // Set when timeout/abort begins terminating the child. 'close' is the single
+    // resolve point, so this remembers WHY we resolve once the child is gone.
+    let termination: { timedOut?: boolean; aborted?: boolean } | null = null;
+    let killTimer: NodeJS.Timeout | undefined;
 
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
@@ -130,9 +138,20 @@ export function runShellWithBoundedTail(
       cleanup();
       reject(error);
     });
-    child.on('close', (code, signal) => finish({ exitCode: code ?? (signal ? 128 : 1) }));
+    // 'close' fires only after the process has exited AND its stdio has closed,
+    // so resolving here guarantees the child is gone and no further output can
+    // arrive — even when we triggered the kill ourselves.
+    child.on('close', (code, signal) => resolveOnce(code, signal));
+
+    const timer = setTimeout(() => beginTermination({ timedOut: true }), options.timeoutMs);
+    const abort = () => beginTermination({ aborted: true });
+    if (options.abortSignal) {
+      if (options.abortSignal.aborted) abort();
+      else options.abortSignal.addEventListener('abort', abort, { once: true });
+    }
 
     function append(stream: 'stdout' | 'stderr', chunk: string): void {
+      if (settled) return; // never capture or emit after we have resolved
       // Always retain (the result keeps the bounded tail regardless of live cap).
       if (stream === 'stdout') stdoutBuf.push(chunk);
       else stderrBuf.push(chunk);
@@ -156,25 +175,36 @@ export function runShellWithBoundedTail(
       liveSuppressed[stream] = true;
     }
 
-    // Settle once. On timeout/abort we kill and resolve immediately (with the
-    // tail captured so far) rather than waiting for 'close', so a child that
-    // ignores SIGTERM cannot hang the promise. A later 'close' is a no-op.
-    function finish(outcome: { exitCode?: number; timedOut?: boolean; aborted?: boolean }): void {
+    // Begin terminating a still-running child (timeout or abort). SIGTERM first
+    // so a well-behaved child can flush and exit; if it ignores SIGTERM, SIGKILL
+    // after a grace period guarantees it dies. We do NOT resolve here — 'close'
+    // is the single resolve point, so the promise settles only once the child is
+    // actually gone (no zombie left running, no output after resolve).
+    function beginTermination(reason: { timedOut?: boolean; aborted?: boolean }): void {
+      if (termination || settled) return;
+      termination = reason;
+      child.kill('SIGTERM');
+      killTimer = setTimeout(() => child.kill('SIGKILL'), graceMs);
+    }
+
+    // Settle once, on 'close'. exitCode reflects how we terminated: 124 timeout,
+    // 130 abort, else the child's own code (or 128+signal when signal-killed).
+    function resolveOnce(code: number | null, signal: NodeJS.Signals | null): void {
       if (settled) return;
       settled = true;
       cleanup();
-      if (outcome.timedOut || outcome.aborted) child.kill('SIGTERM');
       resolvePromise({
-        exitCode: outcome.exitCode ?? (outcome.timedOut ? 124 : outcome.aborted ? 130 : 1),
+        exitCode: termination ? (termination.timedOut ? 124 : 130) : (code ?? (signal ? 128 : 1)),
         stdout: withUnsafeDropMarker(stdoutBuf),
         stderr: withUnsafeDropMarker(stderrBuf),
-        timedOut: !!outcome.timedOut,
-        aborted: !!outcome.aborted,
+        timedOut: !!termination?.timedOut,
+        aborted: !!termination?.aborted,
       });
     }
 
     function cleanup(): void {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       if (options.abortSignal) options.abortSignal.removeEventListener('abort', abort);
     }
   });
