@@ -7495,29 +7495,39 @@ button:active {
   gap: 10px;
 }
 
+/* PR-SETTINGS-SWEEP-1 (2026-06-23): About page was using its own
+   chrome (bordered hero plate + green-tinted privacy panel) that
+   conflicted with the reference-style flat row recipe. Bring it into
+   the same `max-w-3xl` centered column as every other Settings page,
+   strip the hero plate background (the logo + version chip are
+   inline content, not a card), keep the privacy panel as a subtle
+   tinted callout but tighten its weight. */
 .settingsAboutPage {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 24px;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
 }
 
 .settingsAboutHero {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  align-items: start;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
   gap: 16px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--foreground-3);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .settingsAboutLogo {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 12px;
   background: oklch(from var(--accent) l c h / 0.10);
   color: var(--accent);
 }
