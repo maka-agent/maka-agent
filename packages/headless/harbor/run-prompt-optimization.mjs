@@ -23,16 +23,18 @@ import {
   BENCHMARK_BASE_SYSTEM_PROMPT,
   buildRewardHackVerifierPatterns,
   discoverCachedHarborTasks,
+  partitionPromptTasks,
+  renderPromptStructuralSmokeMarkdown,
+  runPromptOptimizationRun,
+} from '@maka/headless';
+import {
   envFinitePositiveNumber,
   envNonNegativeInt,
   envPositiveInt,
   envRatio,
-  partitionPromptTasks,
-  renderPromptStructuralSmokeMarkdown,
   resolveMinStable,
-  runPromptOptimizationRun,
   smokeExitCode,
-} from '@maka/headless';
+} from '@maka/headless/prompt-optimization-env';
 
 const execFileAsync = promisify(execFile);
 
