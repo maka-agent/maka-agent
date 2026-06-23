@@ -1,14 +1,8 @@
 import { generateText } from 'ai';
 import type { LlmConnection } from '@maka/core';
-import { getAIModel } from './model-factory.js';
+import { getAIModel } from '@maka/runtime/model-factory';
 
-/**
- * Single-turn, tool-less text completion over the same provider stack the agent
- * backend uses (getAIModel + the `ai` SDK). Intended for host-side helpers such
- * as the prompt-optimization meta-agent, which only reads a prompt and returns
- * text — no streaming, no tools, no session.
- */
-export interface OneShotCompletionInput {
+interface OneShotCompletionInput {
   connection: LlmConnection;
   apiKey: string;
   modelId: string;

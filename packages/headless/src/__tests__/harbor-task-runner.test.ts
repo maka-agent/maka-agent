@@ -115,9 +115,10 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  test('generates a JobConfig with verbatim prompt, key-file mount, and trial pricing', async () => {
+  test('generates a JobConfig with verbatim prompt, host-side provider auth, and trial pricing', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
       const runner = createHarborTaskRunner({
         makaRepoPath: repo,
         jobsDir,
@@ -126,7 +127,10 @@ describe('createHarborTaskRunner', () => {
         apiKeyFile: keyFile,
         pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29, cacheReadUsdPer1M: 0.0029, source: 'v4-flash' },
         agentEnv: { DEEPSEEK_BASE_URL: 'https://api.deepseek.com' },
-        runHarbor: fakeRunner({ reward: '0\n', captured }),
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '0\n', captured })(request);
+        },
       });
       await runner(runInput({ systemPrompt: 'PROMPT WITH\nNEWLINES\n' }));
 
@@ -143,16 +147,56 @@ describe('createHarborTaskRunner', () => {
       assert.equal(agent.model_name, 'deepseek-v4-flash');
       // Byte-for-byte, including the trailing newline the controller hashes.
       assert.equal(env.MAKA_SYSTEM_PROMPT, 'PROMPT WITH\nNEWLINES\n');
-      assert.equal(env.DEEPSEEK_API_KEY_FILE, '/run/secrets/deepseek-key');
+      assert.equal(env.DEEPSEEK_API_KEY_FILE, undefined);
+      assert.equal(env.DEEPSEEK_API_KEY, undefined);
+      assert.equal(env.DEEPSEEK_BASE_URL, undefined);
       assert.equal(env.MAKA_TRIAL_INPUT_USD_PER_1M, '0.145');
       assert.equal(env.MAKA_TRIAL_OUTPUT_USD_PER_1M, '0.29');
       assert.equal(env.MAKA_TRIAL_CACHE_READ_USD_PER_1M, '0.0029');
       assert.equal(env.MAKA_TRIAL_PRICING_SOURCE, 'v4-flash');
-      assert.equal(env.DEEPSEEK_BASE_URL, 'https://api.deepseek.com');
       const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
       assert.ok(mounts.some((m) => m.target === '/opt/maka-agent' && m.read_only === true));
-      assert.ok(mounts.some((m) => m.target === '/run/secrets/deepseek-key' && m.source === keyFile));
+      assert.equal(mounts.some((m) => m.target === '/run/secrets/deepseek-key' || m.source === keyFile), false);
+      assert.doesNotMatch(JSON.stringify(config), /\/run\/secrets|deepseek-key|sk-secret|host\.docker\.internal|maka-broker/);
+      assert.equal(harborEnv?.MAKA_HOST_REPO_ROOT, repo);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, keyFile);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'DEEPSEEK_API_KEY');
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.deepseek.com');
       assert.deepEqual(config.tasks, [{ path: '/tasks/cobol-modernization', overwrite: false }]);
+    });
+  });
+
+  test('host-only provider env is not copied into the task config', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const captured: { config?: Record<string, unknown> } = {};
+      let harborEnv: Record<string, string> | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        provider: 'deepseek',
+        apiKeyFile: keyFile,
+        pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29 },
+        agentEnv: {
+          DEEPSEEK_API_KEY: 'raw-should-not-enter-task',
+          DEEPSEEK_API_KEY_FILE: '/tmp/should-not-enter-task',
+          DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+        },
+        runHarbor: async (request) => {
+          harborEnv = request.env;
+          return fakeRunner({ reward: '1\n', captured })(request);
+        },
+      });
+      await runner(runInput());
+
+      const configJson = JSON.stringify(captured.config);
+      const env = (captured.config!.agents as Array<{ env: Record<string, string> }>)[0]!.env;
+      assert.equal(env.DEEPSEEK_API_KEY, undefined);
+      assert.equal(env.DEEPSEEK_API_KEY_FILE, undefined);
+      assert.equal(env.DEEPSEEK_BASE_URL, undefined);
+      assert.doesNotMatch(configJson, /raw-should-not-enter-task|should-not-enter-task|deepseek-key|sk-secret|\/run\/secrets/);
+      assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, keyFile);
+      assert.equal(harborEnv?.MAKA_HOST_BASE_URL, 'https://api.deepseek.com');
     });
   });
 

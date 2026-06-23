@@ -66,18 +66,6 @@ export {
   writeFixedPromptResultsTsv,
 } from './fixed-prompt-controller.js';
 export type {
-  HarborProcessRunner,
-  HarborRunRequest,
-  HarborRunResult,
-  HarborTaskPricing,
-  HarborTaskRunnerOptions,
-} from './harbor-task-runner.js';
-export {
-  buildHarborJobConfig,
-  createHarborTaskRunner,
-  HarborInfraError,
-} from './harbor-task-runner.js';
-export type {
   MetaAgent,
   MetaAgentPromptInput,
   MetaAgentPromptResult,
@@ -104,28 +92,10 @@ export {
   runPromptCandidateRound,
   scanRuntimeEventsForRewardHack,
 } from './prompt-candidate-loop.js';
-export {
-  createAiSdkMetaAgent,
-  createAiSdkMetaAgentCompletion,
-  extractJsonObject,
-} from './meta-agent-completion.js';
-export type { CreateAiSdkMetaAgentInput } from './meta-agent-completion.js';
-export { runPromptOptimizationLoop } from './prompt-optimization-loop.js';
-export type {
-  PromptOptimizationLoopInput,
-  PromptOptimizationLoopResult,
-  PromptOptimizationLoopStopReason,
-} from './prompt-optimization-loop.js';
-export {
-  buildRewardHackVerifierPatterns,
-  discoverCachedHarborTasks,
-  extractRewardHackVerifierPatterns,
-  partitionPromptTasks,
-  runPromptOptimizationRun,
-} from './prompt-optimization-run.js';
+export { runPromptOptimizationRun } from './prompt-optimization-run.js';
 export type {
   PromptOptimizationRunInput,
-  PromptTaskPartition,
+  PromptOptimizationRunResult,
 } from './prompt-optimization-run.js';
 export type {
   AppendPromptAcceptanceDecisionInput,

@@ -21,12 +21,15 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import {
   BENCHMARK_BASE_SYSTEM_PROMPT,
+} from '@maka/headless';
+import {
   buildRewardHackVerifierPatterns,
   discoverCachedHarborTasks,
   partitionPromptTasks,
-  renderPromptStructuralSmokeMarkdown,
+  resolvePromptOptimizationRunRoot,
   runPromptOptimizationRun,
-} from '@maka/headless';
+} from '#prompt-optimization-run';
+import { renderPromptStructuralSmokeMarkdown } from '#prompt-structural-smoke';
 import {
   envFinitePositiveNumber,
   envNonNegativeInt,
@@ -132,6 +135,7 @@ async function main() {
   const heldInCount = envInt('MAKA_PROMPT_HELD_IN', 60);
   const heldOutCount = envInt('MAKA_PROMPT_HELD_OUT', 20);
   const runId = process.env.MAKA_PROMPT_RUN_ID || `prompt-opt-${Date.now()}`;
+  const runRoot = resolvePromptOptimizationRunRoot(outDir, runId);
   // Default to a $30 ceiling: an unattended full run with no cost guard at all
   // is the worse failure mode than stopping early. An explicit value overrides.
   // This is a round/sweep-boundary ceiling, not a hard mid-task cap: the loop
@@ -205,10 +209,10 @@ async function main() {
 
   // Prompt repo: program.md + system_prompt.md committed; agent-cwd/ is the empty
   // isolation root; controller artifacts live OUTSIDE it.
-  const promptRepoDir = join(outDir, 'prompt-repo');
+  const promptRepoDir = join(runRoot, 'prompt-repo');
   const agentCwdPath = join(promptRepoDir, 'agent-cwd');
-  const controllerDir = join(outDir, 'controller');
-  const jobsDir = join(outDir, 'jobs');
+  const controllerDir = join(runRoot, 'controller');
+  const jobsDir = join(runRoot, 'jobs');
   await mkdir(agentCwdPath, { recursive: true });
   await mkdir(controllerDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
@@ -264,8 +268,8 @@ async function main() {
     ...(maxStableTaskDurationMs !== undefined ? { maxStableTaskDurationMs } : {}),
   });
 
-  const resultPath = join(outDir, 'prompt-optimization-result.json');
-  const smokePath = join(outDir, 'structural-smoke.md');
+  const resultPath = join(runRoot, 'prompt-optimization-result.json');
+  const smokePath = join(runRoot, 'structural-smoke.md');
   await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
   await writeFile(smokePath, renderPromptStructuralSmokeMarkdown(result.smoke), 'utf8');
 

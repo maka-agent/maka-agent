@@ -12,7 +12,9 @@
     }
   },
   "imports": {
-    "#prompt-optimization-env": "./dist/prompt-optimization-env.js"
+    "#prompt-optimization-env": "./dist/prompt-optimization-env.js",
+    "#prompt-optimization-run": "./dist/prompt-optimization-run.js",
+    "#prompt-structural-smoke": "./dist/prompt-structural-smoke.js"
   },
   "bin": {
     "maka-headless": "./dist/cli.js"
@@ -25,6 +27,7 @@
   "dependencies": {
     "@maka/core": "0.1.0",
     "@maka/runtime": "0.1.0",
-    "@maka/storage": "0.1.0"
+    "@maka/storage": "0.1.0",
+    "ai": "^6.0.185"
   }
 }

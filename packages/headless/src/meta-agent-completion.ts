@@ -1,6 +1,6 @@
 import type { LlmConnection } from '@maka/core';
-import { runOneShotCompletion } from '@maka/runtime';
 import { createScriptedMetaAgent, type MetaAgent, type MetaAgentCompletion } from './prompt-candidate-loop.js';
+import { runOneShotCompletion } from './one-shot-completion.js';
 
 const META_AGENT_SYSTEM =
   'You optimize a single benchmark system prompt. Reply with exactly one JSON object '

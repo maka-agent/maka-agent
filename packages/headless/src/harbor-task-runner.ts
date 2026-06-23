@@ -13,7 +13,6 @@ import type {
 const execFileAsync = promisify(execFile);
 
 const CONTAINER_MAKA_REPO = '/opt/maka-agent';
-const CONTAINER_SECRET_DIR = '/run/secrets';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
@@ -45,9 +44,11 @@ export interface HarborTaskRunnerOptions {
   model: string;
   /** MAKA_PROVIDER, e.g. "deepseek". */
   provider?: string;
-  /** Host path to an API key file, mounted read-only; only its path travels to Harbor. */
+  /** Host path to an API key file. The key stays in the Harbor control process;
+   * the task container receives no provider key env, key-file path, or secret mount. */
   apiKeyFile?: string;
-  /** Env var the cell reads the key file path from (default derived from provider). */
+  /** Raw API-key env var the host-side cell uses (default derived from provider).
+   * A legacy *_API_KEY_FILE name is normalized to its raw *_API_KEY companion. */
   apiKeyEnvName?: string;
   /** Per-1M USD pricing forwarded as MAKA_TRIAL_* so the cell emits real costUsd. */
   pricing?: HarborTaskPricing;
@@ -88,13 +89,13 @@ export interface HarborRunResult {
 
 export type HarborProcessRunner = (request: HarborRunRequest) => Promise<HarborRunResult>;
 
-const PROVIDER_KEY_FILE_ENV: Record<string, string> = {
-  deepseek: 'DEEPSEEK_API_KEY_FILE',
-  openai: 'OPENAI_API_KEY_FILE',
-  'openai-compatible': 'OPENAI_API_KEY_FILE',
-  moonshot: 'MOONSHOT_API_KEY_FILE',
-  google: 'GOOGLE_API_KEY_FILE',
-  anthropic: 'ANTHROPIC_API_KEY_FILE',
+const PROVIDER_SECRET_ENV: Record<string, { key: string; file: string; baseUrl: string }> = {
+  deepseek: { key: 'DEEPSEEK_API_KEY', file: 'DEEPSEEK_API_KEY_FILE', baseUrl: 'DEEPSEEK_BASE_URL' },
+  openai: { key: 'OPENAI_API_KEY', file: 'OPENAI_API_KEY_FILE', baseUrl: 'OPENAI_BASE_URL' },
+  'openai-compatible': { key: 'OPENAI_API_KEY', file: 'OPENAI_API_KEY_FILE', baseUrl: 'OPENAI_BASE_URL' },
+  moonshot: { key: 'MOONSHOT_API_KEY', file: 'MOONSHOT_API_KEY_FILE', baseUrl: 'MOONSHOT_BASE_URL' },
+  google: { key: 'GOOGLE_API_KEY', file: 'GOOGLE_API_KEY_FILE', baseUrl: 'GOOGLE_BASE_URL' },
+  anthropic: { key: 'ANTHROPIC_API_KEY', file: 'ANTHROPIC_API_KEY_FILE', baseUrl: 'ANTHROPIC_BASE_URL' },
 };
 
 export function createHarborTaskRunner(options: HarborTaskRunnerOptions): HarborTaskRunner {
@@ -120,8 +121,14 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     await rm(jobsDir, { recursive: true, force: true });
     await mkdir(jobsDir, { recursive: true });
 
-    const config = buildHarborJobConfig(input, { ...options, jobsDir, jobName });
+    const hostProviderEnv = hostSideProviderEnv(options);
     const configPath = join(jobsDir, 'job-config.json');
+    const config = buildHarborJobConfig(input, {
+      ...options,
+      jobsDir,
+      jobName,
+      ...(hostProviderEnv ? { agentEnv: taskAgentEnvWithoutProviderSecrets(options) } : {}),
+    });
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     const args = ['run', '--config', configPath, '--yes'];
@@ -135,7 +142,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         args,
         cwd: options.makaRepoPath,
         timeoutMs: options.harborTimeoutMs ?? DEFAULT_HARBOR_TIMEOUT_MS,
-        env: { PYTHONPATH: pythonPath },
+        env: { PYTHONPATH: pythonPath, ...(hostProviderEnv ?? {}) },
       });
     } catch (error) {
       throw new HarborInfraError(`harbor run failed to launch for task ${input.task.id}`, errorText(error));
@@ -181,13 +188,6 @@ export function buildHarborJobConfig(
     // Verbatim — the controller hashes exactly these bytes and verifies the round-trip.
     MAKA_SYSTEM_PROMPT: input.systemPrompt,
   };
-
-  if (options.apiKeyFile) {
-    const keyEnv = options.apiKeyEnvName ?? PROVIDER_KEY_FILE_ENV[provider] ?? 'OPENAI_API_KEY_FILE';
-    const containerKeyPath = `${CONTAINER_SECRET_DIR}/${basename(options.apiKeyFile)}`;
-    mounts.push({ type: 'bind', source: options.apiKeyFile, target: containerKeyPath, read_only: true });
-    agentEnv[keyEnv] = containerKeyPath;
-  }
 
   if (options.pricing) {
     agentEnv.MAKA_TRIAL_INPUT_USD_PER_1M = String(options.pricing.inputUsdPer1M);
@@ -235,6 +235,38 @@ export function buildHarborJobConfig(
     extra_instruction_paths: [],
     plugins: [],
   };
+}
+
+function providerSecretEnv(provider: string): { key: string; file: string; baseUrl: string } {
+  return PROVIDER_SECRET_ENV[provider] ?? PROVIDER_SECRET_ENV.openai!;
+}
+
+function hostSideProviderEnv(options: HarborTaskRunnerOptions): Record<string, string> | null {
+  if (!options.apiKeyFile) return null;
+  const provider = options.provider ?? 'deepseek';
+  const providerEnv = providerSecretEnv(provider);
+  const baseUrl = options.agentEnv?.[providerEnv.baseUrl] ?? options.agentEnv?.MAKA_BASE_URL ?? options.agentEnv?.OPENAI_BASE_URL;
+  return {
+    MAKA_HOST_REPO_ROOT: options.makaRepoPath,
+    MAKA_HOST_API_KEY_FILE: options.apiKeyFile,
+    MAKA_HOST_API_KEY_ENV_NAME: normalizeRawKeyEnvName(options.apiKeyEnvName ?? providerEnv.key),
+    ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
+  };
+}
+
+function taskAgentEnvWithoutProviderSecrets(options: HarborTaskRunnerOptions): Record<string, string> {
+  const providerEnv = providerSecretEnv(options.provider ?? 'deepseek');
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(options.agentEnv ?? {})) {
+    if (key === providerEnv.key || key === providerEnv.file || key === providerEnv.baseUrl) continue;
+    if (/_API_KEY(_FILE)?$/.test(key)) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+function normalizeRawKeyEnvName(name: string): string {
+  return name.endsWith('_FILE') ? name.slice(0, -'_FILE'.length) : name;
 }
 
 async function findTrialDir(jobDir: string, taskName: string): Promise<string> {

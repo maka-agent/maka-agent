@@ -29,6 +29,15 @@ export interface PromptTaskPartition {
   heldOutTasks: FixedPromptTask[];
 }
 
+export type PromptOptimizationRunResult = PromptOptimizationLoopResult;
+
+export function resolvePromptOptimizationRunRoot(outDir: string, runId: string): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(runId) || runId === '.' || runId === '..') {
+    throw new Error('MAKA_PROMPT_RUN_ID must contain only letters, numbers, dot, underscore, or hyphen');
+  }
+  return join(outDir, runId);
+}
+
 /** Deterministic id-sorted slice into disjoint held-in / held-out partitions, so
  * the same cached task set always yields the same split across runs. */
 export function partitionPromptTasks(
@@ -202,7 +211,7 @@ export interface PromptOptimizationRunInput {
 
 export async function runPromptOptimizationRun(
   input: PromptOptimizationRunInput,
-): Promise<PromptOptimizationLoopResult> {
+): Promise<PromptOptimizationRunResult> {
   const modelId = input.model.includes('/')
     ? input.model.slice(input.model.indexOf('/') + 1)
     : input.model;

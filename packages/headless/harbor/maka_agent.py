@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import secrets
 import shlex
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +73,7 @@ class MakaAgent(BaseInstalledAgent):
         backend = self._resolved_flags.get("backend", "") or self._get_env("MAKA_BACKEND") or "ai-sdk"
         pi_command = self._get_env("MAKA_PI_COMMAND") or "pi"
         run_cell = Path(maka_repo) / "packages" / "headless" / "harbor" / "run-cell.mjs"
+        run_host_cell = Path(maka_repo) / "packages" / "headless" / "harbor" / "run-host-cell.mjs"
         dist_index = Path(maka_repo) / "packages" / "headless" / "dist" / "index.js"
         await self.exec_as_root(
             environment,
@@ -107,6 +113,7 @@ class MakaAgent(BaseInstalledAgent):
                 "NODE_MAJOR=$(node -p 'process.versions.node.split(\".\")[0]') && "
                 "test \"$NODE_MAJOR\" -ge 22 && "
                 f"test -f {shlex.quote(str(run_cell))} && "
+                f"test -f {shlex.quote(str(run_host_cell))} && "
                 f"test -f {shlex.quote(str(dist_index))}"
                 f"{pi_probe}"
             ),
@@ -127,17 +134,20 @@ class MakaAgent(BaseInstalledAgent):
         local_instruction_path.write_text(instruction, encoding="utf-8")
         await environment.upload_file(local_instruction_path, instruction_path.as_posix())
 
-        run_cell_path = self._run_cell_path()
-        env = self._cell_env(instruction_path)
-        run_log_path = agent_dir / self._RUN_LOG_FILENAME
-        shell_script = (
-            "set -o pipefail; "
-            f"node {shlex.quote(run_cell_path)} "
-            f"2>&1 | tee {shlex.quote(run_log_path.as_posix())}"
-        )
-        command = f"bash -lc {shlex.quote(shell_script)}"
-        await self.exec_as_agent(environment, command=command, env=env, timeout_sec=self._cell_timeout_sec())
-        await self._download_cell_output(environment)
+        if self._host_side_llm_enabled():
+            await self._run_host_cell(environment, local_instruction_path)
+        else:
+            run_cell_path = self._run_cell_path()
+            env = self._cell_env(instruction_path)
+            run_log_path = agent_dir / self._RUN_LOG_FILENAME
+            shell_script = (
+                "set -o pipefail; "
+                f"node {shlex.quote(run_cell_path)} "
+                f"2>&1 | tee {shlex.quote(run_log_path.as_posix())}"
+            )
+            command = f"bash -lc {shlex.quote(shell_script)}"
+            await self.exec_as_agent(environment, command=command, env=env, timeout_sec=self._cell_timeout_sec())
+            await self._download_cell_output(environment)
         output = self._read_cell_output(required=True)
         self._apply_cell_output(context, output)
 
@@ -147,6 +157,10 @@ class MakaAgent(BaseInstalledAgent):
     def _run_cell_path(self) -> str:
         maka_repo = self._resolved_flags.get("maka_repo", "/opt/maka-agent")
         return str(Path(maka_repo) / "packages" / "headless" / "harbor" / "run-cell.mjs")
+
+    def _run_host_cell_path(self) -> str:
+        maka_repo = self._get_env("MAKA_HOST_REPO_ROOT") or os.getcwd()
+        return str(Path(maka_repo) / "packages" / "headless" / "harbor" / "run-host-cell.mjs")
 
     _DEFAULT_CELL_TIMEOUT_SEC = 900
 
@@ -162,6 +176,53 @@ class MakaAgent(BaseInstalledAgent):
         except (TypeError, ValueError):
             return self._DEFAULT_CELL_TIMEOUT_SEC
         return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
+
+    def _host_side_llm_enabled(self) -> bool:
+        return bool(self._get_env("MAKA_HOST_API_KEY_FILE") or self._get_env("MAKA_HOST_API_KEY"))
+
+    async def _run_host_cell(self, environment: BaseEnvironment, local_instruction_path: Path) -> None:
+        container_cwd = await self._container_cwd(environment)
+        async with _ToolExecutorServer(self, environment) as executor:
+            env = self._host_cell_env(local_instruction_path, container_cwd, executor)
+            run_log_path = self.logs_dir / self._RUN_LOG_FILENAME
+            process = await asyncio.create_subprocess_exec(
+                "node",
+                self._run_host_cell_path(),
+                cwd=self._get_env("MAKA_HOST_REPO_ROOT") or os.getcwd(),
+                env={**os.environ, **env},
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self._cell_timeout_sec())
+            except asyncio.TimeoutError:
+                process.kill()
+                stdout, stderr = await process.communicate()
+                run_log_path.write_bytes(stdout + stderr)
+                raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s")
+            run_log_path.write_bytes(stdout + stderr)
+            if process.returncode != 0:
+                message = (stderr or stdout).decode("utf-8", errors="replace").strip()
+                raise RuntimeError(f"Maka host cell exited {process.returncode}: {message}")
+
+    async def _container_cwd(self, environment: BaseEnvironment) -> str:
+        result = await self.exec_as_agent(environment, command="pwd")
+        cwd = _exec_stdout(result).strip()
+        return cwd or "."
+
+    def _host_cell_env(self, local_instruction_path: Path, container_cwd: str, executor: "_ToolExecutorServer") -> dict[str, str]:
+        env = self._cell_env(Path("/logs/agent/instruction.txt"))
+        env["MAKA_INSTRUCTION_FILE"] = str(local_instruction_path)
+        env["MAKA_OUTPUT_DIR"] = str(self.logs_dir)
+        env["MAKA_STORAGE_ROOT"] = str(self.logs_dir / "maka-storage")
+        env["MAKA_WORKDIR"] = container_cwd
+        env["MAKA_HARBOR_TOOL_EXECUTOR_URL"] = executor.url
+        env["MAKA_HARBOR_TOOL_EXECUTOR_TOKEN"] = executor.token
+        for key in ("MAKA_HOST_API_KEY", "MAKA_HOST_API_KEY_FILE", "MAKA_HOST_API_KEY_ENV_NAME", "MAKA_HOST_BASE_URL"):
+            value = self._get_env(key)
+            if value:
+                env[key] = value
+        return env
 
     def _cell_env(self, instruction_path: Any) -> dict[str, str]:
         system_prompt = self._resolved_flags.get("system_prompt", "") or self._get_env("MAKA_SYSTEM_PROMPT") or ""
@@ -202,33 +263,34 @@ class MakaAgent(BaseInstalledAgent):
             value = self._get_env(key)
             if value:
                 env[key] = value
-        for key in (
-            "DEEPSEEK_API_KEY",
-            "DEEPSEEK_API_KEY_FILE",
-            "DEEPSEEK_BASE_URL",
-            "OPENAI_API_KEY",
-            "OPENAI_API_KEY_FILE",
-            "OPENAI_BASE_URL",
-            "MOONSHOT_API_KEY",
-            "MOONSHOT_API_KEY_FILE",
-            "GOOGLE_API_KEY",
-            "GOOGLE_API_KEY_FILE",
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_API_KEY_FILE",
-            "ZAI_API_KEY",
-            "ZAI_API_KEY_FILE",
-            "ZAI_BASE_URL",
-            "ZAI_CODING_CN_API_KEY",
-            "ZAI_CODING_CN_API_KEY_FILE",
-            "XIAOMI_API_KEY",
-            "XIAOMI_TOKEN_PLAN_CN_API_KEY",
-            "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
-            "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
-            "OPENCODE_API_KEY",
-        ):
-            value = self._get_env(key)
-            if value:
-                env[key] = value
+        if not self._host_side_llm_enabled():
+            for key in (
+                "DEEPSEEK_API_KEY",
+                "DEEPSEEK_API_KEY_FILE",
+                "DEEPSEEK_BASE_URL",
+                "OPENAI_API_KEY",
+                "OPENAI_API_KEY_FILE",
+                "OPENAI_BASE_URL",
+                "MOONSHOT_API_KEY",
+                "MOONSHOT_API_KEY_FILE",
+                "GOOGLE_API_KEY",
+                "GOOGLE_API_KEY_FILE",
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_API_KEY_FILE",
+                "ZAI_API_KEY",
+                "ZAI_API_KEY_FILE",
+                "ZAI_BASE_URL",
+                "ZAI_CODING_CN_API_KEY",
+                "ZAI_CODING_CN_API_KEY_FILE",
+                "XIAOMI_API_KEY",
+                "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+                "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+                "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+                "OPENCODE_API_KEY",
+            ):
+                value = self._get_env(key)
+                if value:
+                    env[key] = value
         return env
 
     async def _download_cell_output(self, environment: BaseEnvironment) -> None:
@@ -336,6 +398,110 @@ class MakaAgent(BaseInstalledAgent):
             trajectory_path.write_text(format_trajectory_json(trajectory.to_json_dict()), encoding="utf-8")
         except OSError as exc:
             self.logger.debug("Could not write Maka trajectory %s: %s", trajectory_path, exc)
+
+
+class _ToolExecutorServer:
+    def __init__(self, agent: MakaAgent, environment: BaseEnvironment) -> None:
+        self._agent = agent
+        self._environment = environment
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._server: ThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
+        self.token = secrets.token_urlsafe(32)
+        self.url = ""
+
+    async def __aenter__(self) -> "_ToolExecutorServer":
+        self._loop = asyncio.get_running_loop()
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - stdlib callback name.
+                outer._handle_post(self)
+
+            def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib callback name.
+                return
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        host, port = self._server.server_address
+        self.url = f"http://{host}:{port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+    def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
+        if handler.path != "/exec":
+            _write_http(handler, 404, {"error": "not found"})
+            return
+        if handler.headers.get("authorization") != f"Bearer {self.token}":
+            _write_http(handler, 401, {"error": "unauthorized"})
+            return
+        try:
+            length = int(handler.headers.get("content-length") or "0")
+            payload = json.loads(handler.rfile.read(length).decode("utf-8"))
+            command = payload.get("command")
+            if not isinstance(command, str) or not command:
+                raise ValueError("command is required")
+            cwd = payload.get("cwd")
+            timeout_ms = payload.get("timeoutMs")
+            timeout_sec = _timeout_sec(timeout_ms)
+            assert self._loop is not None
+            future = asyncio.run_coroutine_threadsafe(
+                self._agent.exec_as_agent(
+                    self._environment,
+                    command=command,
+                    cwd=cwd if isinstance(cwd, str) and cwd else None,
+                    timeout_sec=timeout_sec,
+                ),
+                self._loop,
+            )
+            result = future.result(timeout=(timeout_sec or self._agent._cell_timeout_sec()) + 30)
+            _write_http(handler, 200, {
+                "exitCode": _exec_exit_code(result),
+                "stdout": _exec_stdout(result),
+                "stderr": _exec_stderr(result),
+            })
+        except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
+            _write_http(handler, 500, {"error": str(exc)})
+
+
+def _write_http(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
+    body = json.dumps(payload).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("content-type", "application/json")
+    handler.send_header("content-length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _timeout_sec(value: Any) -> int | None:
+    if isinstance(value, (int, float)) and value > 0:
+        return max(1, int((value + 999) // 1000))
+    return None
+
+
+def _exec_stdout(result: Any) -> str:
+    value = getattr(result, "stdout", "")
+    return value if isinstance(value, str) else ""
+
+
+def _exec_stderr(result: Any) -> str:
+    value = getattr(result, "stderr", "")
+    return value if isinstance(value, str) else ""
+
+
+def _exec_exit_code(result: Any) -> int:
+    for name in ("exit_code", "exitCode", "returncode"):
+        value = getattr(result, name, None)
+        if isinstance(value, int):
+            return value
+    return 0
 
 
 def _optional_int(value: Any, key: str) -> int | None:

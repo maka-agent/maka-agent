@@ -150,8 +150,6 @@ export type { StreamWatchdogInput, StreamWatchdogPhase, StreamWatchdogTimeout } 
 
 export { getAIModel, buildProviderOptions } from './model-factory.js';
 export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';
-export { runOneShotCompletion } from './one-shot-completion.js';
-export type { OneShotCompletionInput } from './one-shot-completion.js';
 export {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
