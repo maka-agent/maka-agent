@@ -35,6 +35,13 @@ const requiredForbiddenSourceCategories = [
   'private benchmark file identifiers',
 ] as const;
 
+const forbiddenBenchmarkSpecificPolicyTerms = [
+  'sqlite-with-gcov',
+  'make-mips-interpreter',
+  '/app/vm.js',
+  'gcov',
+] as const;
+
 describe('heavy-task policy', () => {
   test('defaults off and leaves system prompt unchanged', () => {
     const selection = resolveHeavyTaskMode(baseConfig, baseTask);
@@ -121,8 +128,31 @@ describe('heavy-task policy', () => {
     assert.match(prompt, /todo_update/);
     assert.match(prompt, /self_check_submit/);
     assert.match(prompt, /public, task-derived semantic self-check evidence/);
+    assert.match(prompt, /agent-owned public self-check plan before broad implementation/);
+    assert.match(prompt, /Derive the plan only from visible task\/workspace evidence/);
+    assert.match(prompt, /stable todo ids for both implementation work and check work/);
+    assert.match(prompt, /runner records public evidence and must not invent task-specific success checks/);
+    assert.match(prompt, /Run targeted public checks before and after repairs/);
+    assert.match(prompt, /record the concrete expectations and results with check_record/);
+    assert.match(prompt, /only after the relevant public checks have been executed or inspected/);
+    assert.match(prompt, /incomplete reason, such as a planned public check that has not run yet/);
     assert.match(prompt, /source guard rejects hidden, private, or evaluator-only material/);
     assert.match(prompt, /Official benchmark scoring remains external and authoritative/);
+  });
+
+  test('self-check loop uses existing heavy-task public tools only in enabled policy', () => {
+    const disabled = resolveHeavyTaskMode(baseConfig, baseTask);
+    const enabled = resolveHeavyTaskMode({ ...baseConfig, heavyTaskMode: true }, baseTask);
+    const disabledPrompt = appendHeavyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, disabled) ?? '';
+    const enabledPrompt = appendHeavyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, enabled) ?? '';
+
+    assert.doesNotMatch(disabledPrompt, /agent-owned public self-check plan/);
+    assert.match(enabledPrompt, /inventory_submit/);
+    assert.match(enabledPrompt, /todo_update/);
+    assert.match(enabledPrompt, /check_record/);
+    assert.match(enabledPrompt, /engineering_record/);
+    assert.match(enabledPrompt, /self_check_submit/);
+    assert.doesNotMatch(enabledPrompt, /self_check_plan/);
   });
 
   test('policy guardrails use generic forbidden-source categories only', () => {
@@ -135,6 +165,12 @@ describe('heavy-task policy', () => {
     }
 
     assert.doesNotMatch(policy, /task-specific benchmark constants/i);
+    for (const term of forbiddenBenchmarkSpecificPolicyTerms) {
+      assert.doesNotMatch(policy, new RegExp(escapeRegExp(term), 'i'));
+    }
+    assert.doesNotMatch(policy, /(?:from|using|based on|derived from) hidden/i);
+    assert.doesNotMatch(policy, /(?:from|using|based on|derived from) private/i);
+    assert.doesNotMatch(policy, /(?:from|using|based on|derived from) evaluator/i);
   });
 });
 

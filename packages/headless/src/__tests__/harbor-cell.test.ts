@@ -270,6 +270,7 @@ describe('runHarborCell', () => {
       assert.match(seenPrompts[1] ?? '', /Heavy-task benchmark policy/);
       assert.match(seenPrompts[1] ?? '', /self_check_submit/);
       assert.match(seenPrompts[1] ?? '', /public, task-derived semantic self-check evidence/);
+      assert.match(seenPrompts[1] ?? '', /agent-owned public self-check plan before broad implementation/);
     });
   });
 
