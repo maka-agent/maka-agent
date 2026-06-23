@@ -7258,10 +7258,20 @@ button:active {
   padding-bottom: 8px;
 }
 
+/* PR-SETTINGS-PAGE-BODY-0 (2026-06-23, WAWQAQ msg `2c810f2d`): bring
+   Settings page body to reference's recipe. Two visible problems before:
+   (a) content surface had no left/right whitespace — rows stretched
+   edge-to-edge of the right pane. Reference uses a `max-w-3xl` (768px)
+   centered column with generous side padding. (b) per-row chrome was
+   bordered + tinted plates with shadows; reference uses flat rows with
+   spacing-only separation. */
 .settingsStructuredPage {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: 0;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
 }
 
 .settingsPageIntro {
@@ -7285,14 +7295,23 @@ button:active {
   font-size: 13px;
 }
 
+/* PR-SETTINGS-PAGE-BODY-0: reference rows are flat — no border-bottom
+   between rows, spacing-only separation. Padding tightens vertically to
+   16/20 (was 6/0). Label / sub-text bumped to 14/12 from 12/11 to match
+   reference's `text-sm font-medium` + `text-xs text-text-quaternary`. */
 .settingsFormRow {
-  min-height: 40px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 0;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  transition: background 150ms var(--ease-out-strong);
+}
+
+.settingsFormRow:hover {
+  background: oklch(from var(--foreground) l c h / 0.03);
 }
 
 .settingsFormRow strong,
@@ -7300,17 +7319,17 @@ button:active {
 .settingsFormGrid label span {
   display: block;
   color: var(--foreground);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .settingsFormRow small,
 .settingsField small {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--foreground-50);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .settingsFieldWarning {
@@ -8951,8 +8970,7 @@ button:active {
 }
 
 .providerEmpty,
-.providerCard,
-.settingsRow {
+.providerCard {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--foreground-2);
@@ -8960,11 +8978,22 @@ button:active {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
+/* PR-SETTINGS-PAGE-BODY-0 (2026-06-23): `.settingsRow` was sharing the
+   bordered/tinted-plate chrome with `.providerCard`; reference uses
+   flat rows with no border or background plate. Provider cards keep
+   their chrome (they ARE cards) — only `.settingsRow` flattens. */
 .settingsRow {
   display: grid;
   grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  transition: background 150ms var(--ease-out-strong);
+}
+
+.settingsRow:hover {
+  background: oklch(from var(--foreground) l c h / 0.03);
 }
 
 .settingsRow > div {
@@ -8975,10 +9004,10 @@ button:active {
 .providerEmpty span,
 .settingsRow small {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--foreground-55);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .connectionForm label {
@@ -9631,17 +9660,20 @@ button:active {
   color: var(--destructive-text);
 }
 
+/* PR-SETTINGS-PAGE-BODY-0: label / value typography aligned with the
+   reference recipe (text-sm font-medium for label; quaternary tone for
+   the right-side value text). */
 .settingsRow strong {
   color: var(--foreground);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .settingsRow > span {
   min-width: 0;
   color: var(--foreground-60);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
   text-align: right;
 }

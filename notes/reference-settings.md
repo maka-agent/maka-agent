@@ -222,6 +222,28 @@ Reference does NOT use bordered card containers around groups of
 controls. The default presentation is a **flat row list inside the
 `max-w-3xl` column**.
 
+### 4.0 Content-column padding — WAWQAQ msg `2c810f2d` 2026-06-23
+
+WAWQAQ called out the left/right whitespace as visibly wider in
+reference than in Maka. Concrete numbers from a second RE pass:
+
+- The content column is `mx-auto max-w-3xl pt-10 pb-16` (= 768px wide,
+  40px top, 64px bottom). No explicit `px-N` is applied inside the
+  column — the side whitespace comes from the column NOT filling the
+  right pane.
+- At the typical desktop window width (~1280px viewport, 256px nav
+  rail), the right pane is ~1024px. A 768px centered column leaves
+  ~128px of whitespace on each side. That's the "wider padding" effect.
+- Inside each row, padding is `px-5 py-4` (20px / 16px). Rows do NOT
+  carry their own border, background plate, or shadow — separation is
+  pure spacing.
+
+**Maka delta found 2026-06-23**:
+- `.settingsStructuredPage` had `gap: 16px` but NO `max-width` / `margin: 0 auto` — rows stretched to fill the right pane. Fixed to `max-width: 768px; margin: 0 auto; padding: 40px 24px 64px`.
+- `.settingsFormRow` had `border-bottom: 1px solid var(--border)` and `padding: 6px 0` — both wrong. Reference uses spacing-only and `px-5 py-4`. Fixed to `padding: 16px 20px`, no border-bottom.
+- `.settingsRow` was sharing `.providerCard` chrome (bordered, tinted, lifted). Provider cards keep their chrome (they ARE cards); `.settingsRow` flattened to a flex row.
+- Label was 12px / 600 weight; bumped to 14px / 500. Sub-text 11px → 12px. Matches reference `text-sm font-medium` + `text-xs text-text-quaternary`.
+
 ### 4.1 Row
 
 ```
