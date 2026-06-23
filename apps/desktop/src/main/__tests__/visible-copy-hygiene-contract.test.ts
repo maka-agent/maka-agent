@@ -175,6 +175,12 @@ const FORBIDDEN_VISIBLE_COPY: ForbiddenCopy[] = [
       "shared empty-state titles should frame empty product surfaces as actionable waiting states (`等待开始对话` / `等待添加 Skill` / `等待创建计划提醒`), not unfinished setup copy.",
   },
   {
+    label: 'old generic Maka tagline',
+    needle: /本地运行、自主规划、安全可控的\s*AI\s*工作搭子/,
+    reason:
+      "Maka's product tagline is `自主规划，陪你把事做完的智能个人助手。`; the older generic `AI 工作搭子` line under-states the product promise.",
+  },
+  {
     label: 'workspace instruction missing-state toast sounds unfinished',
     needle: /当前项目还没有项目指引/,
     reason:
@@ -244,6 +250,17 @@ describe('visible-copy hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2)', 
       );
     });
   }
+
+  it('pins the zh empty-chat hero product tagline', async () => {
+    const heroPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const src = stripComments(await readFile(heroPath, 'utf8'));
+
+    assert.match(
+      src,
+      /intro:\s*'自主规划，陪你把事做完的智能个人助手。'/,
+      'The default zh chat empty hero should carry Maka’s exact product tagline.',
+    );
+  });
 });
 
 describe('terminal truncation handoff contract', () => {

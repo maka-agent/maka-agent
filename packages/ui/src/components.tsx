@@ -5069,7 +5069,7 @@ const EMPTY_HERO_COPY_BY_LOCALE: Record<PromptSuggestionLocale, {
     },
     headlineWithLabel: (greeting, label) => `${greeting} ${label}，今天想做点什么？`,
     headlineFallback: (greeting, tail) => `${greeting}，${tail}。`,
-    intro: '本地运行、自主规划、安全可控的 AI 工作搭子。',
+    intro: '自主规划，陪你把事做完的智能个人助手。',
   },
   en: {
     ariaLabel: 'Start a conversation',

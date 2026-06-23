@@ -278,8 +278,8 @@ function NeedsConnectionHero(props: {
           再开始第一条对话。" worked as an instruction but read more
           like documentation than a product promise. reference implementation's home
           hero is a single short imperative ("不止聊天，搞定一切")
-          plus a one-line product positioning ("本地运行、自主规划、
-          安全可控的 AI 工作搭子"). Same shape, Maka-honest wording.
+          plus a one-line product positioning ("自主规划，陪你把事做完的智能个人助手。").
+          Same shape, Maka-honest wording.
         */}
         <h1>不只是聊天，搞定真事。</h1>
         <p>
