@@ -209,6 +209,7 @@ export async function runPromptOptimizationLoop(
         taskId: event.taskId,
         ...(event.errorClass ? { errorClass: event.errorClass } : {}),
         runtimeEventsPath: event.runtimeEventsPath,
+        ...(event.traceEventsPath ? { traceEventsPath: event.traceEventsPath } : {}),
         verifierSummary: `status=${event.status} passed=${event.passed} reward=${event.harbor.reward}`,
       })),
   );

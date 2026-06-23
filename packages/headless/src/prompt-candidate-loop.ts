@@ -18,6 +18,7 @@ export interface TrajectoryDigest {
   errorClass?: string;
   summary: string;
   recentToolCalls?: readonly TrajectoryToolCallDigest[];
+  toolFailures?: readonly TrajectoryToolFailureDigest[];
 }
 
 export interface TrajectoryToolCallDigest {
@@ -25,10 +26,18 @@ export interface TrajectoryToolCallDigest {
   argsPreview: string;
 }
 
+export interface TrajectoryToolFailureDigest {
+  name: string;
+  count: number;
+  errorClass?: string;
+  argsPreview?: string;
+}
+
 export interface ExtractTrajectoryDigestInput {
   taskId: string;
   errorClass?: string;
   runtimeEventsPath: string;
+  traceEventsPath?: string;
   verifierSummary: string;
 }
 
@@ -286,15 +295,24 @@ export async function extractTrajectoryDigest(
   input: ExtractTrajectoryDigestInput,
 ): Promise<TrajectoryDigest> {
   const events = await readRuntimeEventsJsonl(input.runtimeEventsPath);
+  const callsById = new Map<string, TrajectoryToolCallDigest>();
+  for (const event of events) {
+    const call = functionCallDigestWithId(event);
+    if (call) callsById.set(call.id, { name: call.name, argsPreview: call.argsPreview });
+  }
   const recentToolCalls = events
     .map((event) => functionCallDigest(event))
     .filter((call): call is TrajectoryToolCallDigest => call !== undefined)
     .slice(-2);
+  const toolFailures = input.traceEventsPath
+    ? await extractToolFailureDigests(input.traceEventsPath, callsById)
+    : [];
   return {
     taskId: input.taskId,
     ...(input.errorClass ? { errorClass: input.errorClass } : {}),
     summary: input.verifierSummary,
     ...(recentToolCalls.length > 0 ? { recentToolCalls } : {}),
+    ...(toolFailures.length > 0 ? { toolFailures } : {}),
   };
 }
 
@@ -350,6 +368,7 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
     input.currentSystemPrompt,
     '# Results TSV',
     input.resultsTsv,
+    ...renderToolFailureSummary(input.heldInDigests),
     '# Held-In Digests',
     JSON.stringify(input.heldInDigests, null, 2),
     '',
@@ -620,6 +639,50 @@ async function readRuntimeEventsJsonl(path: string): Promise<unknown[]> {
     .map((line) => JSON.parse(line) as unknown);
 }
 
+async function extractToolFailureDigests(
+  traceEventsPath: string,
+  callsById: ReadonlyMap<string, TrajectoryToolCallDigest>,
+): Promise<TrajectoryToolFailureDigest[]> {
+  const events = await readRuntimeEventsJsonl(traceEventsPath);
+  const failures = new Map<string, TrajectoryToolFailureDigest>();
+  for (const event of events) {
+    const failure = toolFailureDigest(event, callsById);
+    if (!failure) continue;
+    const key = [failure.name, failure.errorClass ?? '', failure.argsPreview ?? ''].join('\0');
+    const current = failures.get(key);
+    failures.set(key, {
+      ...failure,
+      count: (current?.count ?? 0) + 1,
+    });
+  }
+  return [...failures.values()]
+    .sort(compareToolFailures)
+    .slice(0, 5);
+}
+
+function renderToolFailureSummary(digests: readonly TrajectoryDigest[]): string[] {
+  const failures = new Map<string, { digest: TrajectoryToolFailureDigest; taskIds: Set<string> }>();
+  for (const digest of digests) {
+    for (const failure of digest.toolFailures ?? []) {
+      const key = [failure.name, failure.errorClass ?? '', failure.argsPreview ?? ''].join('\0');
+      const current = failures.get(key) ?? { digest: { ...failure, count: 0 }, taskIds: new Set<string>() };
+      current.digest = { ...failure, count: current.digest.count + failure.count };
+      current.taskIds.add(digest.taskId);
+      failures.set(key, current);
+    }
+  }
+  const lines = [...failures.values()]
+    .sort((a, b) => compareToolFailures(a.digest, b.digest))
+    .slice(0, 10)
+    .map(({ digest, taskIds }) => [
+      `${digest.name} x${digest.count}`,
+      ...(digest.errorClass ? [`error=${digest.errorClass}`] : []),
+      ...(digest.argsPreview ? [`args=${digest.argsPreview}`] : []),
+      `tasks=${[...taskIds].sort((a, b) => a.localeCompare(b)).join(',')}`,
+    ].join(' '));
+  return lines.length > 0 ? ['# Held-In Tool Failure Summary', ...lines] : [];
+}
+
 function functionCallDigest(event: unknown): TrajectoryToolCallDigest | undefined {
   if (!isRecord(event) || !isRecord(event.content)) return undefined;
   const content = event.content;
@@ -628,6 +691,35 @@ function functionCallDigest(event: unknown): TrajectoryToolCallDigest | undefine
     name: content.name,
     argsPreview: argsPreview(content.args),
   };
+}
+
+function functionCallDigestWithId(event: unknown): (TrajectoryToolCallDigest & { id: string }) | undefined {
+  const call = functionCallDigest(event);
+  if (!call || !isRecord(event) || !isRecord(event.content) || typeof event.content.id !== 'string') return undefined;
+  return { ...call, id: event.content.id };
+}
+
+function toolFailureDigest(
+  event: unknown,
+  callsById: ReadonlyMap<string, TrajectoryToolCallDigest>,
+): TrajectoryToolFailureDigest | undefined {
+  if (!isRecord(event) || event.type !== 'tool_failed' || !isRecord(event.data)) return undefined;
+  const data = event.data;
+  if (typeof data.toolName !== 'string') return undefined;
+  const call = typeof data.toolUseId === 'string' ? callsById.get(data.toolUseId) : undefined;
+  return {
+    name: data.toolName,
+    count: 1,
+    ...(typeof data.errorClass === 'string' ? { errorClass: data.errorClass } : {}),
+    ...(call?.argsPreview ? { argsPreview: call.argsPreview } : {}),
+  };
+}
+
+function compareToolFailures(a: TrajectoryToolFailureDigest, b: TrajectoryToolFailureDigest): number {
+  return b.count - a.count
+    || a.name.localeCompare(b.name)
+    || (a.errorClass ?? '').localeCompare(b.errorClass ?? '')
+    || (a.argsPreview ?? '').localeCompare(b.argsPreview ?? '');
 }
 
 function modelVisibleStrings(event: unknown): readonly string[] {

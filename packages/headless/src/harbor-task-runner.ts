@@ -16,6 +16,7 @@ const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
+const TRIAL_TRACE_EVENTS_ROOT = 'agent/maka-storage/sessions';
 
 /** A Harbor-side failure (build/docker/timeout/missing artifact) — NOT a benchmark
  * result. The controller turns a thrown error into an infra_failed event so it is
@@ -167,7 +168,22 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       harbor: { reward },
       // Override the container-local runtimeEventsPath with the host path so the
       // controller's reward-hack scan and structural smoke can read raw events.
-      cell: { ...cell, runtimeEventsPath: hostEventsPath },
+      cell: {
+        ...cell,
+        runtimeEventsPath: hostEventsPath,
+        ...(cell.traceEventsPath
+          ? {
+              traceEventsPath: join(
+                trialDir,
+                TRIAL_TRACE_EVENTS_ROOT,
+                cell.runtimeRefs.sessionId,
+                'runs',
+                cell.runtimeRefs.runId,
+                'events.jsonl',
+              ),
+            }
+          : {}),
+      },
     };
   };
 }

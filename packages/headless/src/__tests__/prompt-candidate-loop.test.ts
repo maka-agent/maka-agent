@@ -796,6 +796,50 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('feeds aggregated tool failure trace signal into the meta-agent prompt', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
+      const traceEventsPath = join(dir, 'events.jsonl');
+      await writeFile(runtimeEventsPath, [
+        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
+        JSON.stringify(runtimeEvent('call-2', 'Edit', { file: '/app/main.py', old_string: 'x', new_string: 'y' })),
+        '',
+      ].join('\n'), 'utf8');
+      await writeFile(traceEventsPath, [
+        JSON.stringify(traceToolFailedEvent('call-1', 'Bash', 'Tool execution failed', 'RuntimeError')),
+        JSON.stringify(traceToolFailedEvent('call-2', 'Edit', 'Tool execution failed', 'Validation')),
+        JSON.stringify(traceToolFailedEvent('call-2', 'Edit', 'Tool execution failed', 'Validation')),
+        '',
+      ].join('\n'), 'utf8');
+
+      const digest = await extractTrajectoryDigest({
+        taskId: 'task-a',
+        errorClass: 'runtime_error',
+        runtimeEventsPath,
+        traceEventsPath,
+        verifierSummary: 'status=failed',
+      });
+
+      assert.deepEqual(digest.toolFailures, [
+        { name: 'Edit', count: 2, errorClass: 'Validation', argsPreview: 'file,new_string,old_string' },
+        { name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' },
+      ]);
+
+      const prompt = renderMetaAgentPrompt({
+        runId: 'run-1',
+        roundId: 'round-1',
+        program: 'Improve conservatively.',
+        currentSystemPrompt: 'original prompt',
+        resultsTsv: 'task_id\tpassed\ntask-a\tfalse\n',
+        heldInDigests: [digest],
+      });
+
+      assert.match(prompt, /# Held-In Tool Failure Summary/);
+      assert.match(prompt, /Edit x2 error=Validation args=file,new_string,old_string tasks=task-a/);
+      assert.match(prompt, /Bash x1 error=RuntimeError args=command tasks=task-a/);
+    });
+  });
+
   test('quarantines function calls containing verifier expected output', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
@@ -1526,6 +1570,25 @@ function runtimeEvent(id: string, name: string, args: unknown) {
     role: 'model',
     author: 'agent',
     content: { kind: 'function_call', id, name, args },
+  };
+}
+
+function traceToolFailedEvent(toolUseId: string, toolName: string, message: string, errorClass: string) {
+  return {
+    id: `trace-${toolUseId}-${errorClass}`,
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 2,
+    type: 'tool_failed',
+    phase: 'tool',
+    message,
+    data: {
+      toolUseId,
+      toolName,
+      status: 'error',
+      errorClass,
+    },
   };
 }
 

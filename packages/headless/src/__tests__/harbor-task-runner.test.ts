@@ -19,6 +19,7 @@ function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput
     schemaVersion: 1,
     status: 'completed',
     runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    traceEventsPath: '/logs/agent/maka-storage/sessions/sess/runs/run/events.jsonl',
     promptHash: 'sha256:abc',
     tokenSummary: tokenSummary({ input: 100, output: 50, reasoning: 0, total: 150, costUsd: 0.0001 }),
     toolSummary: {
@@ -74,6 +75,8 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
       await writeFile(join(trialDir, 'agent', 'maka-cell-output.json'), JSON.stringify(opts.cell ?? cellOutput()), 'utf8');
     }
     await writeFile(join(trialDir, 'agent', 'runtime-events.jsonl'), opts.events ?? '{"type":"x"}\n', 'utf8');
+    await mkdir(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), { recursive: true });
+    await writeFile(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
     return { exitCode: 0, stdout: 'ok', stderr: '' };
   };
 }
@@ -112,6 +115,8 @@ describe('createHarborTaskRunner', () => {
       // runtimeEventsPath must be the host trial path, not the container path.
       assert.match(output.cell.runtimeEventsPath, /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/runtime-events\.jsonl$/);
       assert.doesNotMatch(output.cell.runtimeEventsPath, /^\/logs\//);
+      assert.match(output.cell.traceEventsPath ?? '', /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/maka-storage\/sessions\/sess\/runs\/run\/events\.jsonl$/);
+      assert.doesNotMatch(output.cell.traceEventsPath ?? '', /^\/logs\//);
     });
   });
 

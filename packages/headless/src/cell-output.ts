@@ -36,6 +36,7 @@ export interface HarborCellOutput {
   status: InvocationResult['status'];
   errorClass?: string;
   runtimeEventsPath: string;
+  traceEventsPath?: string;
   promptHash?: string;
   tokenSummary: HarborCellTokenSummary;
   toolSummary: HarborCellToolSummary;
@@ -49,6 +50,7 @@ export interface HarborCellOutput {
 export function buildHarborCellOutput(input: {
   invocation: InvocationResult;
   runtimeEventsPath: string;
+  traceEventsPath?: string;
 }): HarborCellOutput {
   const { invocation } = input;
   return {
@@ -56,6 +58,7 @@ export function buildHarborCellOutput(input: {
     status: invocation.status,
     ...(invocation.failure?.class ? { errorClass: invocation.failure.class } : {}),
     runtimeEventsPath: input.runtimeEventsPath,
+    ...(input.traceEventsPath ? { traceEventsPath: input.traceEventsPath } : {}),
     ...promptHashField(invocation.events),
     tokenSummary: summarizeCellTokens(invocation.events),
     toolSummary: summarizeCellTools(invocation.events),
@@ -83,6 +86,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
   const status = requireStringUnion(value.status, 'status', ['completed', 'failed'] as const);
   const errorClass = 'errorClass' in value ? requireOptionalString(value.errorClass, 'errorClass') : undefined;
   const runtimeEventsPath = requireString(value.runtimeEventsPath, 'runtimeEventsPath');
+  const traceEventsPath = 'traceEventsPath' in value ? requireOptionalString(value.traceEventsPath, 'traceEventsPath') : undefined;
   const promptHash = 'promptHash' in value ? requireOptionalString(value.promptHash, 'promptHash') : undefined;
   const tokenSummary = validateTokenSummary(value.tokenSummary);
   const toolSummary = validateToolSummary(value.toolSummary);
@@ -96,6 +100,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     status,
     ...(errorClass !== undefined ? { errorClass } : {}),
     runtimeEventsPath,
+    ...(traceEventsPath !== undefined ? { traceEventsPath } : {}),
     ...(promptHash !== undefined ? { promptHash } : {}),
     tokenSummary,
     toolSummary,
