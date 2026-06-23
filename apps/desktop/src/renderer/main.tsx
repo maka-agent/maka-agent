@@ -192,11 +192,11 @@ function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModel
       continue;
     }
     const seen = new Set<string>();
-    const rawModels = connection.models?.length
+    const rawModels = connection.models !== undefined
       ? connection.models.map((model) => model.id)
       : connection.defaultModel
         ? [connection.defaultModel]
-        : [];
+        : defaults.fallbackModels;
     const safeModels = connection.providerType === 'codex-subscription'
       ? rawModels.filter((model) => !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(model.trim()))
       : rawModels;
