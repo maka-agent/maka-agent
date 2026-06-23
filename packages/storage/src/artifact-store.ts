@@ -175,10 +175,9 @@ class FileArtifactStore implements ArtifactStore {
         const text = await readFile(this.metadataPath, 'utf8');
         this.records = parseArtifactMetadata(text);
       } catch (error) {
+        if (!isNotFound(error)) throw error;
         this.records = [];
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          await this.writeMetadataUnlocked();
-        }
+        await this.writeMetadataUnlocked();
       }
       this.loaded = true;
     })();
@@ -283,6 +282,13 @@ function isInsideOrSamePath(root: string, target: string): boolean {
   if (target === root) return true;
   const rel = relative(root, target);
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
+}
+
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 'ENOENT';
 }
 
 function sniffAllowedBinaryMime(bytes: Uint8Array): string | null {

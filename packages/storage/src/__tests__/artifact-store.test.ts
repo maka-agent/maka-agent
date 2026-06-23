@@ -146,6 +146,19 @@ describe('FileArtifactStore', () => {
     });
   });
 
+  test('fails loud on metadata read I/O errors instead of treating the index as empty', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const metadataPath = join(workspaceRoot, 'artifacts', 'metadata.jsonl');
+      await mkdir(metadataPath, { recursive: true });
+
+      const store = createArtifactStore(workspaceRoot);
+      await assert.rejects(
+        () => store.list('session-1'),
+        { code: 'EISDIR' },
+      );
+    });
+  });
+
   test('guards first metadata load with one shared in-flight promise', async () => {
     const source = await readFile(join(process.cwd(), 'src/artifact-store.ts'), 'utf8');
     assert.match(source, /private loadPromise: Promise<void> \| null = null;/);
