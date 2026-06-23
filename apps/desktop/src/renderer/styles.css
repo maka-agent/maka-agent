@@ -1476,11 +1476,6 @@ button:active {
   }
 }
 
-@keyframes maka-agents-fade-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-
 @keyframes maka-workbench-card-scale-in {
   0% {
     opacity: 0;
@@ -1558,65 +1553,156 @@ button:active {
   display: none;
 }
 
-.maka-onboarding-grid {
+/* ============================================================
+   First-run hero (needs_connection) — selection-led redesign.
+   Scoped via `.maka-firstrun` so the other onboarding hero states
+   (SetupHero) keep their existing layout. Title leads, the three
+   setup steps compress to one quiet stepper line, and the provider
+   list is the clear subject.
+   ============================================================ */
+.maka-firstrun {
+  width: min(600px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.maka-firstrun-title {
+  margin: 0;
+  max-width: none;
+  font-size: 26px;
+  font-weight: 680;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.maka-firstrun-sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--foreground-55);
+}
+
+/* --- compact stepper (numbered nodes + connectors) --- */
+.maka-firstrun-stepper {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maka-firstrun-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 999px;
+}
+
+.maka-firstrun-step-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  border: 1.5px solid var(--border-strong);
+  color: var(--foreground-50);
+}
+
+.maka-firstrun-step-label {
+  font-size: 13px;
+  color: var(--foreground-50);
+  white-space: nowrap;
+}
+
+.maka-firstrun-step[data-state="active"] {
+  background: oklch(from var(--accent) l c h / 0.12);
+}
+.maka-firstrun-step[data-state="active"] .maka-firstrun-step-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--background);
+}
+.maka-firstrun-step[data-state="active"] .maka-firstrun-step-label {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.maka-firstrun-step[data-state="done"] .maka-firstrun-step-dot {
+  background: var(--foreground-8);
+  border-color: transparent;
+  color: var(--foreground-60);
+}
+
+.maka-firstrun-step[data-state="warning"] .maka-firstrun-step-dot {
+  border-color: var(--warning);
+  color: var(--warning-text);
+}
+
+.maka-firstrun-step-line {
+  width: 20px;
+  height: 1.5px;
+  flex: 0 0 auto;
+  margin: 0 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+/* --- section label above the provider list --- */
+.maka-firstrun-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 12px;
+}
+.maka-firstrun-pick-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.maka-firstrun-pick-hint {
+  font-size: 12.5px;
+  color: var(--foreground-50);
+}
+
+/* --- provider list panel (scrolls vertically as the list grows) --- */
+.maka-firstrun-list {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--background-elevated);
+}
+.maka-firstrun-list ul {
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.maka-firstrun-list li + li {
+  border-top: 1px solid var(--border);
 }
 
-.maka-onboarding-grid > li {
-  animation: maka-agents-fade-in 150ms var(--ease-out-strong) both;
+/* --- "常用" tag inside a provider row title --- */
+.maka-firstrun-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+  background: oklch(from var(--accent) l c h / 0.12);
+  padding: 2px 6px;
+  border-radius: 5px;
 }
 
-.maka-onboarding-grid > li:nth-child(1) { animation-delay: 60ms; }
-.maka-onboarding-grid > li:nth-child(2) { animation-delay: 100ms; }
-.maka-onboarding-grid > li:nth-child(3) { animation-delay: 140ms; }
-.maka-onboarding-grid > li:nth-child(4) { animation-delay: 180ms; }
-.maka-onboarding-grid > li:nth-child(5) { animation-delay: 220ms; }
-.maka-onboarding-grid > li:nth-child(6) { animation-delay: 260ms; }
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-onboarding-grid > li {
-    animation: none;
-  }
-}
-
-/* PR-UI-7: stagger entrance on provider tiles. Each card delays
- * 40ms longer than the previous so the grid populates feeling alive
- * rather than appearing all at once. Up to 6 tiles supported (FEATURED
- * array length); 7+ falls through to default delay. */
-.maka-onboarding-grid > li {
-  animation: maka-card-enter 280ms var(--ease-out-strong) both;
-}
-.maka-onboarding-grid > li:nth-child(1) { animation-delay: 80ms; }
-.maka-onboarding-grid > li:nth-child(2) { animation-delay: 120ms; }
-.maka-onboarding-grid > li:nth-child(3) { animation-delay: 160ms; }
-.maka-onboarding-grid > li:nth-child(4) { animation-delay: 200ms; }
-.maka-onboarding-grid > li:nth-child(5) { animation-delay: 240ms; }
-.maka-onboarding-grid > li:nth-child(6) { animation-delay: 280ms; }
-
-@keyframes maka-card-enter {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-onboarding-grid > li {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-onboarding-grid > li {
-  animation: none;
+.maka-firstrun .maka-onboarding-footer {
+  margin-top: 22px;
 }
 
 .maka-onboarding-footer {
@@ -10269,6 +10355,9 @@ button:active {
  * Inner SVG keeps the existing 72% ratio so brand marks read the
  * same at every size.
  */
+/* Neutral, theme-aware plate. Provider identity now comes from the
+   official brand mark (provider-brand-marks.tsx), so the plate stays a
+   quiet foreground wash in both light and dark — no per-provider tints. */
 .providerLogo {
   width: 44px;
   height: 44px;
@@ -10276,82 +10365,22 @@ button:active {
   place-items: center;
   border-radius: 12px; /* 27.3% — anchor ratio */
   background: var(--foreground-5);
-  color: var(--brand-deep);
-  box-shadow:
-    inset 0 0 0 1px oklch(1 0 0 / 0.58),
-    0 8px 16px oklch(0.44 0.03 90 / 0.06);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.06);
 }
 
 .providerLogo[data-compact="true"] {
   width: 32px;
   height: 32px;
   border-radius: 9px; /* 28.1% — matches md ratio */
-  /* Scale the drop shadow with the icon so the visual weight stays
-   * proportional. Without this override the compact icon inherited
-   * the 44px-tuned shadow and felt heavier than the default. */
-  box-shadow:
-    inset 0 0 0 1px oklch(1 0 0 / 0.58),
-    0 4px 10px oklch(0.44 0.03 90 / 0.05);
 }
 
+/* Color marks keep their own fill; monochrome marks declare
+   `fill="currentColor"` and inherit the plate color (= foreground). */
 .providerLogo svg {
-  width: 72%;
-  height: 72%;
+  width: 64%;
+  height: 64%;
   display: block;
-  color: currentColor;
-  fill: currentColor;
-}
-
-.providerLogo[data-provider="zai-coding-plan"] svg {
-  width: 82%;
-}
-
-.providerLogo[data-provider="google"] svg,
-.providerLogo[data-provider="gemini-cli"] svg,
-.providerLogo[data-provider="openai"] svg,
-.providerLogo[data-provider="codex-subscription"] svg,
-.providerLogo[data-provider="openai-compatible"] svg {
-  fill: none;
-}
-
-.providerLogo[data-provider="openai"],
-.providerLogo[data-provider="codex-subscription"],
-.providerLogo[data-provider="openai-compatible"] {
-  background: #e7f0ea;
-  color: #103b2c;
-}
-
-.providerLogo[data-provider="anthropic"],
-.providerLogo[data-provider="claude-subscription"] {
-  background: #eee7dd;
-  color: #5a3d24;
-}
-
-.providerLogo[data-provider="google"],
-.providerLogo[data-provider="gemini-cli"] {
-  background: #e9effd;
-  color: #2850a7;
-}
-
-.providerLogo[data-provider="deepseek"] {
-  background: #e7effb;
-  color: #1f4c8a;
-}
-
-.providerLogo[data-provider="moonshot"],
-.providerLogo[data-provider="kimi-coding-plan"] {
-  background: #f0edff;
-  color: #5d50b2;
-}
-
-.providerLogo[data-provider="zai-coding-plan"] {
-  background: #e8f3ef;
-  color: #235142;
-}
-
-.providerLogo[data-provider="ollama"] {
-  background: #ececec;
-  color: #292929;
 }
 
 .providerCatalogCard .providerCatalogTitle {

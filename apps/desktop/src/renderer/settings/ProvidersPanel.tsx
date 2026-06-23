@@ -20,6 +20,7 @@ import {
 import { Button, PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y } from '@maka/ui';
 import { formatRelativeTimestamp } from '@maka/core';
 import { PasswordInput } from './password-input';
+import { ProviderBrandMark } from './provider-brand-marks';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -1117,75 +1118,10 @@ function presentSnapshotDetail(state: SubscriptionSnapshot | null, display: Subs
   return _exhaustive;
 }
 
+// Renders the official brand mark (vendored in `provider-brand-marks.tsx`).
+// Kept as a thin wrapper so the many `ProviderLogo` call sites stay put.
 function ProviderLogoMark({ type }: { type: ProviderType }) {
-  switch (type) {
-    case 'anthropic':
-    case 'claude-subscription':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <path d="M18 6 29.5 30h-5.1l-2.3-5.4h-8.2L11.6 30H6.5L18 6Zm-2.5 14.7h5L18 14.9l-2.5 5.8Z" />
-        </svg>
-      );
-    case 'openai':
-    case 'codex-subscription':
-    case 'openai-compatible':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <g fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-            <path d="M18 7.5c4.5 0 7.7 3.4 7.7 7.1 3.2 1.9 4.2 6.2 2.1 9.5-2.1 3.4-6.2 4.6-9.2 3.1-3.1 1.8-7.4.9-9.6-2.4-2.2-3.2-1.6-7.6 1.4-9.6.2-4.1 3.4-7.7 7.6-7.7Z" />
-            <path d="M12 15.4 18 12l6 3.4v6.9L18 25.7l-6-3.4v-6.9Z" />
-          </g>
-        </svg>
-      );
-    case 'google':
-    case 'gemini-cli':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <path fill="#4285F4" d="M29.5 18.3c0-.8-.1-1.6-.2-2.3H18v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8Z" />
-          <path fill="#34A853" d="M18 30c3.3 0 6.1-1.1 8.1-3l-3.9-3c-1.1.7-2.4 1.1-4.2 1.1-3.1 0-5.8-2.1-6.8-5H7.2v3.1C9.2 27.2 13.3 30 18 30Z" />
-          <path fill="#FBBC05" d="M11.2 20.1c-.3-.7-.4-1.5-.4-2.3s.1-1.6.4-2.3v-3.1H7.2a12 12 0 0 0 0 10.8l4-3.1Z" />
-          <path fill="#EA4335" d="M18 10.8c1.8 0 3.4.6 4.7 1.8l3.5-3.5C24 7.1 21.3 6 18 6c-4.7 0-8.8 2.8-10.8 6.4l4 3.1c1-2.9 3.7-4.7 6.8-4.7Z" />
-        </svg>
-      );
-    case 'deepseek':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <path d="M7 19.5c4.6-7.7 14.4-8.4 21-3.1-1.2 7.4-8.7 12.9-16.7 9.1 2.8-.2 5.5-1.6 7-4.1-3.9 2.2-7.9 1.9-11.3-1.9Z" />
-          <circle cx="24" cy="14" r="2.3" fill="#fff" opacity=".9" />
-        </svg>
-      );
-    case 'moonshot':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <path d="M22.8 6.9a11.7 11.7 0 1 0 0 22.2 10 10 0 1 1 0-22.2Z" />
-          <circle cx="23.5" cy="13" r="2" />
-          <circle cx="26.5" cy="22" r="1.4" />
-        </svg>
-      );
-    case 'kimi-coding-plan':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <path d="M9 8h5.3v9.1L22.6 8h6.6L20 17.6 30 28h-6.9l-8.8-9.5V28H9V8Z" />
-          <path d="M27 8.4c-2.4 3.1-2.2 6.5.4 9.7-4.3-.6-7.1-3.7-7.1-7.3 0-1 .2-1.9.6-2.8 1.8-.5 3.9-.5 6.1.4Z" opacity=".35" />
-        </svg>
-      );
-    case 'zai-coding-plan':
-      return (
-        <svg viewBox="0 0 44 36" role="img">
-          <path d="M8 9h18v4.4L14.8 24H26v4H7.5v-4.5L18.7 13H8V9Z" />
-          <circle cx="31" cy="26" r="2" />
-          <path d="M35 12h3.7v16H35V12Zm-.2-4.8c0-1.2.9-2.2 2.1-2.2 1.3 0 2.2 1 2.2 2.2s-.9 2.1-2.2 2.1c-1.2 0-2.1-.9-2.1-2.1Z" />
-        </svg>
-      );
-    case 'ollama':
-      return (
-        <svg viewBox="0 0 36 36" role="img">
-          <path d="M13 9.5 10.8 6 9.4 12.2A10.6 10.6 0 0 0 7 19c0 6 4.9 10 11 10s11-4 11-10c0-2.6-.9-4.9-2.4-6.8L25.2 6 23 9.5A12 12 0 0 0 18 8.4c-1.8 0-3.5.4-5 1.1Z" />
-          <circle cx="14.2" cy="18" r="1.5" fill="#fff" opacity=".9" />
-          <circle cx="21.8" cy="18" r="1.5" fill="#fff" opacity=".9" />
-        </svg>
-      );
-  }
+  return <ProviderBrandMark type={type} />;
 }
 
 function AddProviderForm(props: {
@@ -1968,22 +1904,26 @@ function formatContextWindow(tokens: number): string {
 
 export function providerDisplay(type: ProviderType): { name: string; description: string; badge?: string } {
   switch (type) {
+    // Descriptions stay version-agnostic on purpose: they name the
+    // PROVIDER and how you connect (official key / protocol-compatible /
+    // local), never a specific model generation — model names go stale
+    // (GPT-4o, DeepSeek-V3, …) but the provider and access path do not.
     case 'anthropic':
-      return { name: 'Anthropic', description: 'Claude 模型密钥，适合生产级代理工作流。', badge: 'API' };
+      return { name: 'Anthropic', description: 'Anthropic 官方接入', badge: 'API' };
     case 'kimi-coding-plan':
-      return { name: 'Kimi Coding Plan', description: 'Kimi for Coding，兼容 Anthropic 协议。', badge: 'Coding' };
+      return { name: 'Kimi Coding Plan', description: '月之暗面 · Anthropic 兼容', badge: 'Coding' };
     case 'openai':
-      return { name: 'OpenAI', description: 'GPT / Responses 模型，使用模型密钥接入。', badge: 'API' };
+      return { name: 'OpenAI', description: 'OpenAI 官方接入', badge: 'API' };
     case 'google':
-      return { name: 'Google Gemini', description: 'Google AI Studio 模型密钥接入。', badge: 'API' };
+      return { name: 'Google Gemini', description: 'Google AI Studio 接入', badge: 'API' };
     case 'deepseek':
-      return { name: 'DeepSeek', description: 'DeepSeek Chat / Reasoner 系列模型。', badge: 'API' };
+      return { name: 'DeepSeek', description: 'DeepSeek 官方接入', badge: 'API' };
     case 'moonshot':
-      return { name: 'Moonshot', description: 'Moonshot Kimi 模型密钥接入。', badge: 'API' };
+      return { name: 'Moonshot', description: 'Moonshot 官方接入', badge: 'API' };
     case 'zai-coding-plan':
-      return { name: 'Z.AI Coding Plan', description: 'GLM Coding Plan，OpenAI 兼容协议。', badge: 'Coding' };
+      return { name: 'Z.AI Coding Plan', description: '智谱 · OpenAI 兼容', badge: 'Coding' };
     case 'ollama':
-      return { name: 'Ollama', description: '连接本机 localhost 的 Ollama 模型。', badge: 'Local' };
+      return { name: 'Ollama', description: '本机运行 · 离线可用', badge: 'Local' };
     case 'openai-compatible':
       return { name: 'OpenAI Compatible', description: '中转站、代理服务或自部署网关。', badge: 'Custom' };
     case 'claude-subscription':

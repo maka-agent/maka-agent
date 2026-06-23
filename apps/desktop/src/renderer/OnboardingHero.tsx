@@ -19,8 +19,8 @@
 //     `connectionName` promise) until sanitized display data is
 //     wired in a later PR.
 
-import { ArrowRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { ChevronRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import type { LlmConnection, OnboardingMilestone, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
 import {
   Button,
@@ -89,13 +89,16 @@ const READY_HERO_COPY_BY_LOCALE: Record<UiLocale, {
   },
 };
 
-const FEATURED: Array<{ type: ProviderType; tag: string }> = [
-  { type: 'anthropic', tag: 'Claude · Anthropic' },
-  { type: 'openai', tag: 'GPT-4o · OpenAI' },
+// Titles are PROVIDER-forward and version-free (no `GPT-4o` / `DeepSeek-V3`
+// — those go stale). The row description comes from `providerDisplay` so
+// copy has a single source of truth shared with Settings · 模型.
+const FEATURED: Array<{ type: ProviderType; tag: string; recommended?: boolean }> = [
+  { type: 'anthropic', tag: 'Claude · Anthropic', recommended: true },
+  { type: 'openai', tag: 'OpenAI' },
   { type: 'zai-coding-plan', tag: 'GLM Coding Plan · Z.ai' },
   { type: 'kimi-coding-plan', tag: 'Kimi · Moonshot' },
-  { type: 'deepseek', tag: 'DeepSeek-V3' },
-  { type: 'ollama', tag: 'Ollama · 本地' },
+  { type: 'deepseek', tag: 'DeepSeek' },
+  { type: 'ollama', tag: 'Ollama' },
 ];
 
 export interface OnboardingHeroProps {
@@ -259,77 +262,58 @@ function NeedsConnectionHero(props: {
 }) {
   const setupSteps = getOnboardingSetupSteps({ kind: 'needs_connection' });
   return (
-    <section className="maka-onboarding" aria-label="欢迎使用 Maka">
-      <header>
-        {/* PR-PARCHMENT-HOME-6 (WAWQAQ msg `2690c2e4` round 6/20):
-            soft brand emblem above the title — visual stand-in for
-            reference implementation's mascot slot without copying their character.
-            44px tinted circle + 20px Sparkles glyph reads as "this
-            is the hero of the page" at a glance; the eyebrow text
-            below now has the icon paired up with it instead of being
-            the lone scaffold. */}
-        <div className="maka-onboarding-hero-icon" aria-hidden="true">
-          <Sparkles size={20} strokeWidth={1.6} />
-        </div>
-        <span className="maka-onboarding-eyebrow">
-          {/*
-            PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2 (kenji `08be08d8`):
-            replaced the previous all-caps English eyebrow with
-            the Chinese-first `欢迎使用 Maka` that matches every
-            other eyebrow in this surface (see
-            `onboarding-hero-copy.ts` line 61). The old version
-            was the lone outlier and looked like leftover
-            scaffolding.
-          */}
-          <span>欢迎使用 Maka</span>
-        </span>
-        {/*
-          PR-PARCHMENT-DEFAULT-0 (WAWQAQ msg `00dcaf3a` "/goal
-          像素级模仿 reference implementation"): h1 + body tightened to reference implementation's
-          punchier hero rhythm. The old "把一个真实的 LLM 接进来，
-          再开始第一条对话。" worked as an instruction but read more
-          like documentation than a product promise. reference implementation's home
-          hero is a single short imperative ("不止聊天，搞定一切")
-          plus a one-line product positioning ("本地运行、自主规划、
-          安全可控的 AI 工作搭子"). Same shape, Maka-honest wording.
-        */}
-        <h1>不只是聊天，搞定真事。</h1>
-        <p>
-          本地运行、走你自己的 API key、对每一步可见可控。
-          下面是常见接入；点任意一张卡进入 <strong>设置 · 模型</strong> 添加它的 key。
-        </p>
-      </header>
+    <section className="maka-onboarding maka-firstrun" aria-label="欢迎使用 Maka">
+      {/* Selection-led layout: a big title sets the hierarchy, the three
+          setup steps compress to one quiet stepper line (context, not the
+          subject), and the provider list is the clear primary action. */}
+      <h1 className="maka-firstrun-title">不只是聊天，搞定真事。</h1>
+      <p className="maka-firstrun-sub">本地运行 · 自带 key · 每一步可见可控</p>
 
-      {setupSteps && <SetupProgress steps={setupSteps} />}
+      {setupSteps && <FirstRunStepper steps={setupSteps} />}
 
-      <ul className="maka-onboarding-grid" role="list">
-        {FEATURED.map((entry) => {
-          const display = providerDisplay(entry.type);
-          return (
-            <li key={entry.type}>
-              <Item
-                render={
-                  <button
-                    type="button"
-                    onClick={() => props.onOpenSettings('models')}
-                  />
-                }
-              >
-                <ItemMedia>
-                  <ProviderLogo type={entry.type} compact />
-                </ItemMedia>
-                <ItemContent>
-                  <ItemTitle>{entry.tag}</ItemTitle>
-                  <ItemDescription>{display.description}</ItemDescription>
-                </ItemContent>
-                <ItemActions>
-                  <ArrowRight size={14} strokeWidth={1.75} aria-hidden="true" />
-                </ItemActions>
-              </Item>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="maka-firstrun-pick">
+        <span className="maka-firstrun-pick-label">选择你的 AI</span>
+        <span className="maka-firstrun-pick-hint">点一个进入设置，填它的 key</span>
+      </div>
+
+      {/* The list scrolls vertically (CSS max-height) so it scales as more
+          providers are added without pushing the footer off-screen. */}
+      <div className="maka-firstrun-list">
+        <ul role="list">
+          {FEATURED.map((entry) => {
+            const display = providerDisplay(entry.type);
+            return (
+              <li key={entry.type}>
+                <Item
+                  className="maka-firstrun-row px-3.5 py-3 rounded-none"
+                  render={
+                    <button
+                      type="button"
+                      onClick={() => props.onOpenSettings('models')}
+                    />
+                  }
+                >
+                  <ItemMedia>
+                    <ProviderLogo type={entry.type} compact />
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>
+                      {entry.tag}
+                      {entry.recommended && (
+                        <span className="maka-firstrun-tag">常用</span>
+                      )}
+                    </ItemTitle>
+                    <ItemDescription>{display.description}</ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <ChevronRight size={16} strokeWidth={1.9} aria-hidden="true" />
+                  </ItemActions>
+                </Item>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
 
       <footer className="maka-onboarding-footer">
         <Button
@@ -351,6 +335,27 @@ function NeedsConnectionHero(props: {
         )}
       </footer>
     </section>
+  );
+}
+
+/**
+ * Compact "where you are" stepper for the first-run hero: numbered nodes
+ * joined by connectors, the active step lit with the brand accent and the
+ * rest outlined. Stays one quiet line so the provider list keeps the lead.
+ */
+function FirstRunStepper({ steps }: { steps: readonly OnboardingSetupStep[] }) {
+  return (
+    <ol className="maka-firstrun-stepper" aria-label="配置 AI 进度">
+      {steps.map((step, index) => (
+        <Fragment key={`${step.label}-${index}`}>
+          {index > 0 && <li className="maka-firstrun-step-line" aria-hidden="true" />}
+          <li className="maka-firstrun-step" data-state={step.state}>
+            <span className="maka-firstrun-step-dot" aria-hidden="true">{index + 1}</span>
+            <span className="maka-firstrun-step-label">{step.label}</span>
+          </li>
+        </Fragment>
+      ))}
+    </ol>
   );
 }
 

@@ -385,7 +385,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(src, /自定义 OpenAI 兼容接口/);
     assert.match(src, /添加 OpenAI 兼容接口/);
-    assert.match(src, /OpenAI 兼容协议/);
+    assert.match(src, /智谱 · OpenAI 兼容/);
     assert.doesNotMatch(
       src,
       /OpenAI-compatible|endpoint/,
@@ -419,8 +419,10 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(modelTable, /先配置模型密钥/);
     assert.match(modelTable, /该供应商的真实模型清单/);
     assert.match(src, /网络错误，请检查服务地址或代理设置后重试。/);
-    assert.match(src, /Claude 模型密钥，适合生产级代理工作流。/);
-    assert.match(src, /GPT \/ Responses 模型，使用模型密钥接入。/);
+    // Provider descriptions are version-agnostic (provider + access path,
+    // never a model generation that goes stale).
+    assert.match(src, /Anthropic 官方接入/);
+    assert.match(src, /OpenAI 官方接入/);
 
     for (const block of [addForm, detail, modelTable]) {
       assert.doesNotMatch(block, />Slug</);
