@@ -7251,23 +7251,23 @@ button:active {
    and content were visibly misaligned. Drop the mainpane padding to
    thin top/bottom so the header + content can both share the centered
    column. */
-/* PR-SETTINGS-NO-PANE-BORDER-0 (2026-06-23, WAWQAQ msg `aabfa2b8`):
-   the right pane was rendering as a separate floating plate (border +
-   tinted bg + corner radius + margin gap from sidebar). Reference's
-   Settings has NO seam between the sidebar and the content surface —
-   they share one continuous canvas. Drop the pane border, radius,
-   margin, and explicit background so the right pane visually flows
-   into the same surface as the nav. */
+/* PR-SETTINGS-RESTORE-SURFACE-0 (WAWQAQ msg `32ed9490` correction):
+   previous PR over-corrected — I read "no seam" as "no plate", but
+   reference's content surface is still a lighter-bg plate vs the
+   sidebar. The seam-between rule is: no visible BORDER line between
+   sidebar and content, but the content does have its own background
+   plate + rounded corners + small floating margin. Restore the
+   surface; just no border. */
 .settingsMainPane {
   position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  margin: 0;
+  margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
   border: 0;
-  border-radius: 0;
-  background: transparent;
+  border-radius: var(--agents-content-area-radius);
+  background: var(--agents-content-area-bg);
   box-shadow: none;
   overflow: hidden;
   /* Traffic-light-aligned top padding so the page title sits at the
