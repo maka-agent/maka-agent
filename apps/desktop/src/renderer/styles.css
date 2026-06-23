@@ -7310,20 +7310,31 @@ button:active {
 
 .settingsPageHeaderTitleStack {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .settingsPageHeader h2 {
+  /* PR-SETTINGS-PAGE-HEADER-POLISH-0 (round 12/15, WAWQAQ msg
+     `f7e9d166`): tighten the h2 with negative tracking + slightly
+     softer weight. 28 / 700 was too loud; 26 / 650 reads as
+     authoritative without shouting. Add a touch of `-0.012em`
+     tracking like reference's display face. */
   margin: 0;
   color: var(--foreground);
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
 }
 
 /* PR-SETTINGS-PAGE-SUBTITLE-0 (round 4/15): one-line page description
-   below the h2 — matches reference's per-tab meta line. */
+   below the h2 — matches reference's per-tab meta line.
+   PR-SETTINGS-PAGE-HEADER-POLISH-0 (round 12/15): cap width so long
+   descriptions don't span the full 768px column — caps at 56ch which
+   keeps the meta-line readable. */
 .settingsPageHeaderDescription {
   margin: 0;
+  max-width: 56ch;
   color: var(--foreground-55);
   font-size: 13px;
   line-height: 1.45;
