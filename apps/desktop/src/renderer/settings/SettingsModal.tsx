@@ -1083,6 +1083,13 @@ function SettingsPage(props: {
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
 }) {
+  // PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): the inline `void
+  // props.onUpdateSettings(...)` at the privacy toggle below
+  // discarded rejection promises, so an IPC failure became an
+  // Unhandled Promise Rejection at the renderer level with no user
+  // feedback. Toast surface mirrors the rest of the file's catch
+  // pattern (PR-STOP-ERROR-SURFACE-0 / PR-BOT-RESTART-RACE-0).
+  const toast = useToast();
   switch (props.section) {
     case 'models':
       return (
@@ -1127,7 +1134,11 @@ function SettingsPage(props: {
               <Switch
                 ariaLabel="启用隐身模式"
                 checked={props.settings.privacy.incognitoActive}
-                onChange={(incognitoActive) => void props.onUpdateSettings({ privacy: { incognitoActive } })}
+                onChange={(incognitoActive) => {
+                  props.onUpdateSettings({ privacy: { incognitoActive } }).catch((error: unknown) => {
+                    toast.error('隐身模式切换失败', generalizedErrorMessageChinese(error, '设置未生效，请稍后重试'));
+                  });
+                }}
               />
             </div>
           </SettingsRows>

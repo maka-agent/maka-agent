@@ -563,6 +563,14 @@ function ReadyEmptyHero(props: {
 
   const handleKey = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): mirror the main
+      // Composer's IME composition guard. Without this, a Chinese /
+      // Japanese / Korean user committing an IME composition with
+      // Enter immediately fires `submit()` and sends the unfinished
+      // draft. The same guard at packages/ui/src/components.tsx:5640
+      // already covers the main chat input; the onboarding-hero clone
+      // had drifted.
+      if (event.nativeEvent.isComposing || event.key === 'Process') return;
       // Enter (without modifier) → submit. Shift+Enter inserts newline.
       if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();

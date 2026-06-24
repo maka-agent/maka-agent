@@ -775,6 +775,29 @@ function AppShell() {
     }
   }
 
+  /* PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): SearchModal +
+     CommandPalette callbacks used to be inline arrows in JSX, so
+     their identity churned on every App re-render. SearchModal's
+     debounce effect lists `searchThread` in its dep array; during a
+     turn stream `App` re-renders many times per second and the
+     180ms timeout was torn down + restarted on every render, so it
+     never reached its `setTimeout` fire — search was effectively
+     dead while a stream was active. Same root cause for the palette
+     selection effect that resets keyboard highlight on every deps
+     change. Stable refs + memos keep the timers alive. */
+  const openSessionInChatRef = useRef(openSessionInChat);
+  openSessionInChatRef.current = openSessionInChat;
+  const searchModalDeps = useMemo(
+    () => ({ searchThread: (request: Parameters<typeof window.maka.search.thread>[0]) => window.maka.search.thread(request) }),
+    [],
+  );
+  const searchModalOnNavigate = useCallback((sessionId: string, turnId?: string) => {
+    openSessionInChatRef.current(sessionId, turnId);
+  }, []);
+  const paletteOnSelectSession = useCallback((sessionId: string, turnId?: string) => {
+    openSessionInChatRef.current(sessionId, turnId);
+  }, []);
+
   async function handleTurnFooterAction(
     turnId: string,
     actionId: TurnFooterActionMeta['id'],
@@ -3083,18 +3106,24 @@ function AppShell() {
       {searchModalOpen && (
         <SearchModal
           onClose={closeSearchModal}
-          deps={{ searchThread: (request) => window.maka.search.thread(request) }}
-          onNavigateToSession={(sessionId, turnId) => {
-            openSessionInChat(sessionId, turnId);
-          }}
+          /* PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): `deps` and
+             `onNavigateToSession` used to be created inline on every
+             App re-render. SearchModal's debounce effect lists
+             `searchThread` in its dep array, so the 180ms timeout was
+             torn down + restarted on every parent render. During an
+             active stream `App` re-renders many times per second, and
+             the timer never reached its setTimeout fire — search was
+             effectively dead while a turn was streaming. Stable refs
+             keep the timer alive. Same root cause for the palette
+             below. */
+          deps={searchModalDeps}
+          onNavigateToSession={searchModalOnNavigate}
         />
       )}
       {paletteOpen && (
         <CommandPalette
           onClose={closePalette}
-          onSelectSession={(sessionId, turnId) => {
-            openSessionInChat(sessionId, turnId);
-          }}
+          onSelectSession={paletteOnSelectSession}
           commands={buildCommandList({
             sessions: visibleSessions,
             activeSessionId: activeId,

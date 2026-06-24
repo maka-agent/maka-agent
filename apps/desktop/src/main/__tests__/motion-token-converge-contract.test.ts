@@ -85,6 +85,41 @@ describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
     }
   });
 
+  it('Tailwind `transition-all` is banned in @maka/ui primitives', async () => {
+    // PR-FE-BUG-HUNT-0 (kenji bug-hunt 2026-06-24): the previous
+    // checks only scanned renderer CSS files. shadcn primitives use
+    // Tailwind class strings that don't show up there. Three sites
+    // were caught (command/sheet overlays + sidebar rail) where
+    // `transition-all` animates every changing property — including
+    // layout-trigger ones like width/transform/etc. — instead of
+    // just the `opacity` / `transform` that actually animates.
+    // Enumerate the moving properties: `transition-opacity`,
+    // `transition-[transform,opacity]`, etc.
+    const { readdir } = await import('node:fs/promises');
+    const offenders: string[] = [];
+    async function walk(dir: string): Promise<void> {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        const full = resolve(dir, entry.name);
+        if (entry.isDirectory()) await walk(full);
+        else if (entry.isFile() && /\.(tsx|ts)$/.test(entry.name)) {
+          const src = await readFile(full, 'utf8');
+          if (/\btransition-all\b/.test(src)) {
+            offenders.push(full.replace(REPO_ROOT + '/', ''));
+          }
+        }
+      }
+    }
+    await walk(resolve(REPO_ROOT, 'packages/ui/src/primitives'));
+    await walk(resolve(REPO_ROOT, 'apps/desktop/src/renderer'));
+    assert.deepEqual(
+      offenders,
+      [],
+      `\`transition-all\` is banned. Enumerate the moving properties (e.g. \`transition-opacity\` or \`transition-[transform,opacity]\`):\n  ${offenders.join('\n  ')}`,
+    );
+  });
+
   it('--duration-{quick,base,emphasized,large} tokens are defined in maka-tokens.css', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
     assert.match(tokens, /--duration-quick:\s*120ms/, '--duration-quick must be 120ms');
