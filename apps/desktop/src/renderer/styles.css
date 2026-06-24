@@ -8036,6 +8036,19 @@ button:active {
 .settingsField[data-orient="horizontal"] > .settingsBaseSelectTrigger {
   max-width: 320px;
 }
+/* WAWQAQ msg `0951e3b1` 2026-06-25: "每日分析里面也没办法选择分析模型。
+   选择模型的那个组件框也特别丑，特别长，完全就不对。"
+   `.settingsRow` has a 2-column grid `minmax(150px, 0.36fr) 1fr`, so the
+   right control column can be ~500px+ on a wide page. With `w-full` on
+   the Select trigger, the dropdown stretched the full right column —
+   "特别长". Cap it the same way `.settingsField[data-orient="horizontal"]`
+   does (320px) and right-align via `justify-self: end` so the trigger
+   visually matches the Switches in adjacent rows. */
+.settingsRow > .settingsBaseSelectTrigger {
+  max-width: 320px;
+  width: 100%;
+  justify-self: end;
+}
 /* The horizontal row above the first one shouldn't carry a top border;
    below the last one the section footer takes over. The default
    border-bottom is fine for the inter-row hairlines. */
@@ -13783,7 +13796,14 @@ button:active {
 }
 
 .maka-daily-review-quick-runs {
+  /* WAWQAQ msg `3871e56b` 2026-06-25: "按钮的位置也不对。按道理一般都
+     是在右边，现在都是直接靠近文本的。"
+     The 生成每日回顾 / 生成深度分析 buttons were sitting flex-start
+     (left-aligned), hugging the explanatory paragraph above. Right-
+     align them with `justify-content: flex-end` so they read as the
+     panel's primary actions. */
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
   padding: 2px 0 6px;
   border-bottom: 1px solid var(--foreground-10);
