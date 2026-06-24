@@ -684,13 +684,22 @@ function WechatQrLoginModal(props: {
     };
   }, [reloadNonce]);
 
+  // PR-FE-BUG-HUNT-2 (kenji bug-hunt 2026-06-24 MEDIUM): the previous
+  // dep `[result]` re-armed the 3-second polling interval every time
+  // the QR refresh produced a new `result` object reference — even
+  // when the meaningful state (`ok` / `loggedIn` / `expired`) was
+  // unchanged. The interval clock drifted on every refresh,
+  // sometimes pushing the next poll 2.9s past the intended cadence.
+  // Depend on the gating booleans directly so the interval stays
+  // armed continuously while the user is actively scanning.
+  const shouldPollQr = !!result?.ok && !result.loggedIn && !result.expired;
   useEffect(() => {
-    if (!result?.ok || result.loggedIn || result.expired) return undefined;
+    if (!shouldPollQr) return undefined;
     const interval = window.setInterval(() => {
       reloadQrCode();
     }, 3_000);
     return () => window.clearInterval(interval);
-  }, [result]);
+  }, [shouldPollQr]);
 
   const qrDataUrl = result?.ok ? result.qrcode : null;
   const expired = result?.ok ? result.expired : false;
