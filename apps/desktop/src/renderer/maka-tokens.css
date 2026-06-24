@@ -1487,6 +1487,21 @@
     opacity: 1;
     background: transparent;
   }
+  /* User-turn meta-row copy. The meta row is NOT a
+     `.maka-bubble-with-actions` wrapper, so the absolute hover-reveal
+     above never matches it — without this the affordance is
+     permanently invisible and absolute-positioned to the wrong box.
+     Render it inline + always visible at the quiet caption weight, so
+     "copy what I said" reads without a hover and on touch. */
+  .maka-message-meta .maka-message-copy {
+    position: static;
+    width: 22px;
+    height: 22px;
+    opacity: 1;
+    transform: none;
+    background: transparent;
+    color: var(--foreground-40);
+  }
   .maka-bubble-with-actions:hover .maka-message-copy,
   .maka-bubble-with-actions:focus-within .maka-message-copy,
   .maka-message-copy:focus-visible {

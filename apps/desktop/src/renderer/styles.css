@@ -5701,6 +5701,10 @@ button:active {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  /* Separate the meta row from the bubble. Kept below the 8px turn
+     rhythm so the time + copy still read as belonging to the bubble
+     (proximity) rather than floating between turns. */
+  gap: 6px;
 }
 
 .maka-turn > .maka-turn-summary,
