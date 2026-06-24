@@ -44,8 +44,9 @@ export interface ChatHeaderAlertInput {
    * Computed as `(defaultConnection exists) && defaultConnection.enabled` —
    * it is NOT a send-readiness fact. The backend remains authoritative;
    * a `true` value here does NOT promise that `requireReadyConnection`
-   * will succeed (e.g. `missing_api_key` / `missing_model` / `model_not_enabled`
-   * are still gated by `isConnectionReady` at send time).
+   * will succeed (e.g. `missing_api_key` / `missing_model` /
+   * `model_not_enabled` / `model_not_chat_capable` are still gated by
+   * `isConnectionReady` at send time).
    *
    * Per PR-HEALTH-1 (xuan msg `e4887ffd`, I3 lock):
    *   - Use this only to choose the `warning` vs `destructive` tone of the

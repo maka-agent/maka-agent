@@ -220,6 +220,18 @@ describe('deriveOnboardingState — 15-case matrix (@kenji + @xuan PR110a)', () 
     );
   });
 
+  it('case 13b: 1 real, has key, defaultModel unsupported_for_chat → needs_default_model', () => {
+    const conn = realConnection({
+      slug: 'anthropic-live',
+      defaultModel: 'image-only',
+      models: [{ id: 'image-only', capabilities: { chat: false, imageGeneration: true } }],
+    });
+    assert.deepEqual(
+      derive({ connections: [conn], defaultSlug: 'anthropic-live', secrets: { 'anthropic-live': true } }),
+      { kind: 'needs_default_model', connectionSlug: 'anthropic-live' },
+    );
+  });
+
   it('case 14: 1 real disabled, no ready alt → blocked: all_connections_unhealthy', () => {
     const conn = realConnection({ slug: 'anthropic-live', enabled: false });
     assert.deepEqual(

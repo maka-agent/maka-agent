@@ -97,6 +97,20 @@ describe('chat readiness guard', () => {
       '不在连接 "Anthropic" 的启用模型列表中',
       'model_not_enabled',
     );
+
+    await assertRejectsReadiness(
+      'default model explicitly unsupported for chat',
+      () => requireReadyConnection('custom', deps({
+        connection: connection({
+          slug: 'custom',
+          defaultModel: 'gpt-image-1',
+          models: [{ id: 'gpt-image-1', capabilities: { chat: false, imageGeneration: true } }],
+        }),
+        apiKey: 'sk-test',
+      })),
+      '不能用于聊天',
+      'model_not_chat_capable',
+    );
   });
 
   test('allows none-auth local providers and real providers with secrets', async () => {
@@ -301,7 +315,7 @@ describe('chat readiness guard', () => {
   });
 
   test('classifies stale sessions that can be rebound to the current default model', () => {
-    for (const reason of ['fake_backend', 'connection_missing', 'missing_model', 'empty_model_list', 'model_not_enabled']) {
+    for (const reason of ['fake_backend', 'connection_missing', 'missing_model', 'empty_model_list', 'model_not_enabled', 'model_not_chat_capable']) {
       assert.equal(shouldRebindSessionToDefault(reason), true, reason);
     }
 

@@ -24,6 +24,7 @@
  */
 
 import { PROVIDER_DEFAULTS, type LlmConnection } from './llm-connections.js';
+import { isModelExplicitlyUnsupportedForChat } from './model-catalog.js';
 
 /**
  * Canonical reasons why an LlmConnection is not ready to send.
@@ -41,6 +42,7 @@ export type ChatConfigurationReason =
   | 'missing_model'
   | 'empty_model_list'
   | 'model_not_enabled'
+  | 'model_not_chat_capable'
   | 'oauth_subscription_not_wired'
   | 'fake_backend';
 
@@ -85,6 +87,7 @@ export interface IsConnectionReadyInput {
  *   5. effective model is empty/missing → `missing_model`
  *   6. `connection.models` is enumerated but empty → `empty_model_list`
  *   7. effective model is not in `connection.models` → `model_not_enabled`
+ *   8. effective model is explicitly not chat-capable → `model_not_chat_capable`
  *
  * "Effective model" = `requestedModel ?? connection.defaultModel`.
  */
@@ -113,12 +116,16 @@ export function isConnectionReady(input: IsConnectionReadyInput): IsConnectionRe
     return { ready: false, reason: 'missing_model' };
   }
   if (connection.models) {
-    const enabled = new Set(connection.models.map((entry) => entry.id));
+    const enabled = new Map(connection.models.map((entry) => [entry.id, entry]));
     if (enabled.size === 0) {
       return { ready: false, reason: 'empty_model_list' };
     }
-    if (!enabled.has(model)) {
+    const modelEntry = enabled.get(model);
+    if (!modelEntry) {
       return { ready: false, reason: 'model_not_enabled' };
+    }
+    if (isModelExplicitlyUnsupportedForChat(modelEntry)) {
+      return { ready: false, reason: 'model_not_chat_capable' };
     }
   }
   return { ready: true, model };

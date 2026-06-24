@@ -53,7 +53,8 @@ import type { SessionSummary } from './session.js';
  *    Fix: open the credential-entry flow for the named slug.
  *  - `needs_default_model` — the default connection has a usable
  *    secret but no valid model (no defaultModel, empty model list,
- *    or the persisted defaultModel is no longer enabled). Fix:
+ *    persisted defaultModel is no longer enabled, or the model is not
+ *    chat-capable). Fix:
  *    open the model picker for the named slug.
  *  - `ready_empty` — fully configured, no sessions yet. Show Quick
  *    Chat entry point.
@@ -161,6 +162,7 @@ export function deriveOnboardingState(input: DeriveOnboardingStateInput): Onboar
       case 'missing_model':
       case 'empty_model_list':
       case 'model_not_enabled':
+      case 'model_not_chat_capable':
         return { kind: 'needs_default_model', connectionSlug: defaultConn.slug };
       case 'connection_disabled':
       case 'fake_backend':

@@ -3552,6 +3552,8 @@ function noRealConnectionSetupDescription(reason: string | undefined): string {
       return '当前模型连接没有启用模型。请到 设置 · 模型 添加或启用模型后再发送。';
     case 'model_not_enabled':
       return '当前会话选择的模型未启用。请到 设置 · 模型 重新选择可用模型后再发送。';
+    case 'model_not_chat_capable':
+      return '当前会话选择的模型不能用于聊天。请到 设置 · 模型 重新选择支持聊天的模型后再发送。';
     case 'oauth_subscription_not_wired':
       return '这个订阅账号暂时不能作为聊天模型。请先选择可用的 API key 或已接入 OAuth 模型连接。';
     case 'fake_backend':

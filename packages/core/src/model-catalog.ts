@@ -188,7 +188,7 @@ function makeMissingDefaultEntry(
 function deriveUnavailableReason(input: BuildModelCatalogInput, model: ModelInfo): ModelUnavailableReason {
   if (input.providerAvailable === false) return 'provider_removed';
   if (input.authOk === false) return 'auth';
-  if (isExplicitlyUnsupportedForChat(model)) return 'unsupported_for_chat';
+  if (isModelExplicitlyUnsupportedForChat(model)) return 'unsupported_for_chat';
   if (isStale(input)) return 'stale';
   return 'none';
 }
@@ -200,7 +200,7 @@ function isStale(input: BuildModelCatalogInput): boolean {
   return now - input.modelsFetchedAt > staleAfterMs;
 }
 
-function isExplicitlyUnsupportedForChat(model: ModelInfo): boolean {
+export function isModelExplicitlyUnsupportedForChat(model: ModelInfo): boolean {
   const caps = model.capabilities;
   if (!caps) return false;
   if (caps.chat === false) return true;

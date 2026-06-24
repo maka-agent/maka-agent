@@ -619,6 +619,7 @@ export type {
 } from './model-catalog.js';
 export {
   buildModelCatalogEntries,
+  isModelExplicitlyUnsupportedForChat,
   validateChatDefaultModel,
 } from './model-catalog.js';
 

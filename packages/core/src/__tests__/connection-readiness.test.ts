@@ -1,0 +1,73 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { isConnectionReady } from '../connection-readiness.js';
+import type { LlmConnection } from '../llm-connections.js';
+
+function connection(overrides: Partial<LlmConnection> = {}): LlmConnection {
+  return {
+    slug: 'openai-live',
+    name: 'OpenAI Live',
+    providerType: 'openai',
+    defaultModel: 'gpt-4.1',
+    enabled: true,
+    models: [{ id: 'gpt-4.1', capabilities: { chat: true, functionCalling: true } }],
+    modelSource: 'fetched',
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+describe('isConnectionReady — model capability gate', () => {
+  it('rejects an explicitly image-only default model', () => {
+    const verdict = isConnectionReady({
+      connection: connection({
+        defaultModel: 'gpt-image-1',
+        models: [{ id: 'gpt-image-1', capabilities: { imageGeneration: true, chat: false } }],
+      }),
+      hasSecret: true,
+    });
+
+    assert.deepEqual(verdict, { ready: false, reason: 'model_not_chat_capable' });
+  });
+
+  it('rejects an explicitly image-only requested model even when the default is chat-capable', () => {
+    const verdict = isConnectionReady({
+      connection: connection({
+        defaultModel: 'gpt-4.1',
+        models: [
+          { id: 'gpt-4.1', capabilities: { chat: true, functionCalling: true } },
+          { id: 'gpt-image-1', capabilities: { imageGeneration: true, chat: false } },
+        ],
+      }),
+      hasSecret: true,
+      requestedModel: 'gpt-image-1',
+    });
+
+    assert.deepEqual(verdict, { ready: false, reason: 'model_not_chat_capable' });
+  });
+
+  it('keeps explicit chat models send-ready even when they also support image generation', () => {
+    const verdict = isConnectionReady({
+      connection: connection({
+        defaultModel: 'multimodal-chat',
+        models: [{ id: 'multimodal-chat', capabilities: { chat: true, imageGeneration: true } }],
+      }),
+      hasSecret: true,
+    });
+
+    assert.deepEqual(verdict, { ready: true, model: 'multimodal-chat' });
+  });
+
+  it('does not block models with unknown capability metadata', () => {
+    const verdict = isConnectionReady({
+      connection: connection({
+        defaultModel: 'custom-chat',
+        models: [{ id: 'custom-chat' }],
+      }),
+      hasSecret: true,
+    });
+
+    assert.deepEqual(verdict, { ready: true, model: 'custom-chat' });
+  });
+});
