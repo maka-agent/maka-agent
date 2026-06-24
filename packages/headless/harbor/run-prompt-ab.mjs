@@ -73,6 +73,10 @@ function envIds(name) {
   return ids.length > 0 ? ids : undefined;
 }
 
+function promptIdFromPath(path) {
+  return basename(path).replace(/\.[^.]+$/, '');
+}
+
 function envLevels(name, fallback) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -122,6 +126,7 @@ async function main() {
     ? envPath('MAKA_PROMPT_AB_TASK_DURATIONS_JSONL')
     : undefined;
   const runId = process.env.MAKA_PROMPT_AB_RUN_ID || `prompt-ab-${Date.now()}`;
+  const candidatePromptId = process.env.MAKA_PROMPT_AB_CANDIDATE_ID || promptIdFromPath(candidatePromptSourcePath);
   const runRoot = resolvePromptOptimizationRunRoot(outDir, runId);
   const controllerDir = join(runRoot, 'controller');
   const jobsDir = join(runRoot, 'jobs');
@@ -260,6 +265,7 @@ async function main() {
     config,
     baselinePromptPath,
     candidatePromptPath,
+    candidatePromptId,
     resultsJsonlPath,
     evaluationTasks,
     reps,

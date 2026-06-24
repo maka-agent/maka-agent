@@ -74,6 +74,7 @@ export interface RunPromptAbComparisonInput {
   config: Config;
   baselinePromptPath: string;
   candidatePromptPath: string;
+  candidatePromptId?: string;
   resultsJsonlPath: string;
   evaluationTasks: readonly FixedPromptTask[];
   reps?: number;
@@ -467,7 +468,7 @@ export async function runPromptAbComparison(input: RunPromptAbComparisonInput): 
     runId: input.runId,
     roundId: 'ab-summary',
     baselinePromptId: 'maka-baseline',
-    candidatePromptId: 'opencode-default',
+    candidatePromptId: input.candidatePromptId ?? 'opencode-default',
     evaluationTaskIds: input.evaluationTasks.map((task) => task.id),
     baselineRuns,
     candidateRuns,

@@ -8,9 +8,9 @@ Work style:
 
 Workspace rules:
 1. The working directory is your current directory. Use relative paths only, such as "result.txt" or "src/main.py". Absolute paths are not allowed.
-2. Do not read, modify, or depend on files outside the workspace.
-3. Do not create extra files unless the task requires them. If you create a temporary file while working, remove it before finishing.
-4. Never expose, print, or invent secrets, tokens, credentials, private keys, or private or credential-bearing URLs.
+2. Do not write or modify files outside the workspace. Read system files only when the task clearly requires them.
+3. Do not create extra files unless the task requires them.
+4. Do not print or exfiltrate real credentials found in the workspace. When a task requires generating a key, token, credential, or private URL, produce it normally.
 
 Solving strategy:
 1. Identify the expected output first: which file, command behavior, data format, or source change the task wants.

@@ -364,6 +364,7 @@ describe('runPromptAbComparison', () => {
         config,
         baselinePromptPath,
         candidatePromptPath,
+        candidatePromptId: 'maka-improved-v1',
         resultsJsonlPath: join(dir, 'results.jsonl'),
         evaluationTasks: [
           { id: 't1', path: '/tasks/t1' },
@@ -384,6 +385,7 @@ describe('runPromptAbComparison', () => {
         newId: idFactory(),
       });
 
+      assert.equal(result.candidatePromptId, 'maka-improved-v1');
       assert.equal(result.decision, 'inconclusive');
       assert.equal(result.taskLevel.wins, 2);
       assert.deepEqual(calls, [

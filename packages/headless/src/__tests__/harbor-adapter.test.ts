@@ -122,6 +122,8 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /MAKA_PROMPT_AB_USE_QUALIFICATION/);
     assert.match(source, /MAKA_PROMPT_AB_TASK_BUDGET_SEC/);
     assert.match(source, /MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS/);
+    assert.match(source, /MAKA_PROMPT_AB_CANDIDATE_ID/);
+    assert.match(source, /candidatePromptId/);
     assert.match(source, /const targetEvaluationTaskCount = envPosInt\('MAKA_PROMPT_AB_EVALUATION_TASKS', undefined\);/);
     assert.match(source, /const useQualification = envBool\('MAKA_PROMPT_AB_USE_QUALIFICATION', false\);/);
     assert.match(source, /const taskBudgetSec = envPosInt\('MAKA_PROMPT_AB_TASK_BUDGET_SEC', 30 \* 60\);/);
