@@ -196,6 +196,13 @@
   --z-tooltip: 150;
   --z-modal: 200;
   --z-overlay: 300;
+  /* PR-FE-BUG-HUNT-9 (kenji audit reminder 9, finding #4): named
+     micro-z tokens for the two raw z-index sites styles.css used to
+     spell as bare digits. Tokenizing preserves the previous visual
+     stacking exactly (no behavior change) while making them
+     contract-discoverable and renameable. */
+  --z-panel-action: 4;
+  --z-settings-fullpage: 35;
 
   /* === typography ===
      Primary face is Geist (variable). Falls back to system-ui so the app stays

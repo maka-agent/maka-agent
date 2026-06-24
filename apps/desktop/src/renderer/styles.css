@@ -404,7 +404,10 @@ button:active {
 .maka-workspace-top-actions {
   -webkit-app-region: no-drag;
   position: absolute;
-  z-index: 4;
+  /* PR-FE-BUG-HUNT-9 (kenji audit reminder 9, finding #4):
+     was bare `z-index: 4`. Tokenized to `--z-panel-action`.
+     Identical visual stacking, but referenceable + contract-locked. */
+  z-index: var(--z-panel-action);
   /* Same baseline; 17px correction = 12px half-icon + 5px detail-panel inset. */
   top: calc(var(--maka-titlebar-control-safe-top) - 17px);
   right: 24px;
@@ -3855,6 +3858,11 @@ button:active {
 .maka-skill-featured-art span:nth-child(2) {
   left: 92px;
   top: 4px;
+  /* PR-FE-BUG-HUNT-9 z-index allowlist: decorative sticker stack
+     local stacking (3 spans within `.maka-skill-featured-art`).
+     Bare 2 is intentional — these never escape the parent container,
+     so they don't need a global token. The contract test
+     `z-index-contract.test.ts` whitelists this exact site. */
   z-index: 2;
   width: 104px;
   height: 122px;
@@ -7190,7 +7198,12 @@ button:active {
   border-radius: 0;
   box-shadow: none;
   background: var(--agents-layout-bg);
-  z-index: 35;
+  /* PR-FE-BUG-HUNT-9 (kenji audit reminder 9, finding #4):
+     was bare `z-index: 35`. Tokenized to `--z-settings-fullpage`.
+     35 sits between `--z-titlebar` (40) and `--z-sticky` (20) so
+     the OS titlebar still owns top of the stack — preserved
+     visual behavior exactly. */
+  z-index: var(--z-settings-fullpage);
   overflow: hidden;
   transform: none;
   transition: opacity 160ms var(--ease-out-strong);
