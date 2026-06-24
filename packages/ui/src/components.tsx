@@ -5723,13 +5723,21 @@ export const Composer = forwardRef<
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    // PR-FE-BUG-HUNT-10: extend the IME composition guard from the
-    // keydown path (line 5640) to the paste path. If the user is
-    // mid-CJK composition and the clipboard happens to contain a
-    // file (screenshot shortcut etc.), `event.preventDefault()`
-    // below would interrupt the IME mid-character. Match the
-    // existing keydown pattern exactly.
-    if (event.nativeEvent.isComposing) return;
+    // PR-FE-BUG-HUNT-10 hotfix: extend the IME composition guard from
+    // the keydown path (line 5640) to the paste path. If the user is
+    // mid-CJK composition and the clipboard happens to contain a file
+    // (screenshot shortcut etc.), `event.preventDefault()` below would
+    // interrupt the IME mid-character.
+    //
+    // Original PR #216 copied `event.nativeEvent.isComposing` from the
+    // keydown handler verbatim, but `isComposing` only exists on
+    // KeyboardEvent / InputEvent in the DOM spec — not ClipboardEvent.
+    // (Browsers happen to expose it on the underlying event too, but
+    // TypeScript types don't acknowledge that.) Use a narrow `in` check
+    // + a typed cast so this compiles AND keeps working when the
+    // browser does expose the flag.
+    const native = event.nativeEvent;
+    if ('isComposing' in native && (native as { isComposing?: boolean }).isComposing) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedTextFiles()) return;
     const files = Array.from(event.clipboardData.files);
