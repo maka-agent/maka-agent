@@ -4,7 +4,7 @@
  * public API (loop + controller) and the CLI env parsers. The core API owns the
  * invariants so a direct caller cannot slip a `NaN`, fraction, or `0` past a
  * `value < 1` or `cost >= ceiling` comparison and silently disable a guard or
- * change loop semantics; the CLI parsers (`prompt-optimization-env`) just turn an
+ * change loop semantics; the CLI parsers (`headless-run-env`) just turn an
  * env string into a number and delegate the validation here. Each guard returns
  * the value so it can wrap an assignment.
  */

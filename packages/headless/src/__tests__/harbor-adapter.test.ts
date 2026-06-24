@@ -99,9 +99,12 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /buildRewardHackVerifierPatterns/);
     assert.match(source, /DEEPSEEK_V4_FLASH_PRICING/);
     assert.match(source, /apiKeyFile: keyFile/);
-    assert.match(source, /resolvePromptOptimizationRunRoot/);
+    assert.match(source, /resolveFixedPromptRunRoot/);
+    assert.match(source, /from '#fixed-prompt-task-source'/);
+    assert.match(source, /from '#headless-run-env'/);
     assert.match(source, /from '#prompt-optimization-run'/);
     assert.match(source, /from '#prompt-structural-smoke'/);
+    assert.doesNotMatch(source, /from '#prompt-optimization-env'/);
     // The secret travels as a file path only — never a raw key on argv/env here.
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
@@ -132,7 +135,11 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /Direct evaluation tasks:/);
     assert.match(source, /MAKA_PROMPT_AB_CANDIDATE_PROMPT_PATH/);
     assert.match(source, /from '#prompt-ab-run'/);
+    assert.match(source, /from '#fixed-prompt-task-source'/);
+    assert.match(source, /from '#headless-run-env'/);
     assert.match(source, /from '#harbor-task-runner'/);
+    assert.doesNotMatch(source, /from '#prompt-optimization-run'/);
+    assert.doesNotMatch(source, /from '#prompt-optimization-env'/);
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
 

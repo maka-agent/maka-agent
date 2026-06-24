@@ -23,10 +23,12 @@ import {
   BENCHMARK_BASE_SYSTEM_PROMPT,
 } from '@maka/headless';
 import {
-  buildRewardHackVerifierPatterns,
   discoverCachedHarborTasks,
+  resolveFixedPromptRunRoot,
+} from '#fixed-prompt-task-source';
+import {
+  buildRewardHackVerifierPatterns,
   partitionPromptTasks,
-  resolvePromptOptimizationRunRoot,
   runPromptOptimizationRun,
 } from '#prompt-optimization-run';
 import { renderPromptStructuralSmokeMarkdown } from '#prompt-structural-smoke';
@@ -37,7 +39,7 @@ import {
   envRatio,
   resolveMinStable,
   smokeExitCode,
-} from '#prompt-optimization-env';
+} from '#headless-run-env';
 
 const execFileAsync = promisify(execFile);
 
@@ -135,7 +137,7 @@ async function main() {
   const heldInCount = envInt('MAKA_PROMPT_HELD_IN', 60);
   const heldOutCount = envInt('MAKA_PROMPT_HELD_OUT', 20);
   const runId = process.env.MAKA_PROMPT_RUN_ID || `prompt-opt-${Date.now()}`;
-  const runRoot = resolvePromptOptimizationRunRoot(outDir, runId);
+  const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_PROMPT_RUN_ID');
   // Default to a $30 ceiling: an unattended full run with no cost guard at all
   // is the worse failure mode than stopping early. An explicit value overrides.
   // This is a round/sweep-boundary ceiling, not a hard mid-task cap: the loop

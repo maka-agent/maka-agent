@@ -3,13 +3,15 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
+import {
+  discoverCachedHarborTasks,
+  resolveFixedPromptRunRoot,
+} from '../fixed-prompt-task-source.js';
 import type { FixedPromptTask } from '../fixed-prompt-controller.js';
 import {
   buildRewardHackVerifierPatterns,
-  discoverCachedHarborTasks,
   extractRewardHackVerifierPatterns,
   partitionPromptTasks,
-  resolvePromptOptimizationRunRoot,
   resolvePromptOptimizationModelId,
   runPromptOptimizationRun,
 } from '../prompt-optimization-run.js';
@@ -134,10 +136,10 @@ describe('discoverCachedHarborTasks', () => {
   });
 });
 
-describe('resolvePromptOptimizationRunRoot', () => {
+describe('resolveFixedPromptRunRoot', () => {
   test('places every run under outDir/runId', () => {
     assert.equal(
-      resolvePromptOptimizationRunRoot('/tmp/prompt-runs', 'prompt-opt-123'),
+      resolveFixedPromptRunRoot('/tmp/prompt-runs', 'prompt-opt-123'),
       join('/tmp/prompt-runs', 'prompt-opt-123'),
     );
   });
@@ -145,7 +147,7 @@ describe('resolvePromptOptimizationRunRoot', () => {
   test('rejects run ids that could escape or alias the run root', () => {
     for (const runId of ['', '.', '..', '../escape', 'nested/run', 'nested\\run']) {
       assert.throws(
-        () => resolvePromptOptimizationRunRoot('/tmp/prompt-runs', runId),
+        () => resolveFixedPromptRunRoot('/tmp/prompt-runs', runId),
         /MAKA_PROMPT_RUN_ID must contain only/,
       );
     }

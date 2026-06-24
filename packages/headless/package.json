@@ -12,6 +12,8 @@
     }
   },
   "imports": {
+    "#fixed-prompt-task-source": "./dist/fixed-prompt-task-source.js",
+    "#headless-run-env": "./dist/headless-run-env.js",
     "#prompt-optimization-env": "./dist/prompt-optimization-env.js",
     "#prompt-optimization-run": "./dist/prompt-optimization-run.js",
     "#prompt-ab-run": "./dist/prompt-ab-run.js",

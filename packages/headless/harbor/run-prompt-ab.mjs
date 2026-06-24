@@ -16,8 +16,8 @@ import { fileURLToPath } from 'node:url';
 import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
 import {
   discoverCachedHarborTasks,
-  resolvePromptOptimizationRunRoot,
-} from '#prompt-optimization-run';
+  resolveFixedPromptRunRoot,
+} from '#fixed-prompt-task-source';
 import {
   filterPromptAbCandidateTasksByMetadata,
   renderPromptAbComparisonMarkdown,
@@ -27,7 +27,7 @@ import {
 } from '#prompt-ab-run';
 import {
   envPositiveInt,
-} from '#prompt-optimization-env';
+} from '#headless-run-env';
 import { createHarborTaskRunner } from '#harbor-task-runner';
 
 const DEEPSEEK_V4_FLASH_PRICING = {
@@ -127,7 +127,7 @@ async function main() {
     : undefined;
   const runId = process.env.MAKA_PROMPT_AB_RUN_ID || `prompt-ab-${Date.now()}`;
   const candidatePromptId = process.env.MAKA_PROMPT_AB_CANDIDATE_ID || promptIdFromPath(candidatePromptSourcePath);
-  const runRoot = resolvePromptOptimizationRunRoot(outDir, runId);
+  const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_PROMPT_AB_RUN_ID');
   const controllerDir = join(runRoot, 'controller');
   const jobsDir = join(runRoot, 'jobs');
   const promptsDir = join(runRoot, 'prompts');
