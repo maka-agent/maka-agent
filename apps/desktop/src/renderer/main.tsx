@@ -1150,8 +1150,18 @@ function AppShell() {
     };
   }, [activeId, activeSession?.status, activeStreaming.length, hasInFlightLiveTools, activePermission?.requestId]);
 
+  // PR-FE-BUG-HUNT-5 (kenji bug-hunt 2026-06-24 LOW): pointer drag on
+  // the sidebar resizer fires `setSessionListWidth` on every move
+  // event — at ~60Hz over a long drag, that's a couple hundred
+  // localStorage writes for a single resize gesture. The setting
+  // converges to the user's final width at rest; intermediate
+  // values aren't load-bearing. 200ms trailing debounce keeps the
+  // last-render value in storage without flushing every pixel.
   useEffect(() => {
-    safeLocalStorageSet('maka-chat-list-width-v1', String(sessionListWidth));
+    const handle = window.setTimeout(() => {
+      safeLocalStorageSet('maka-chat-list-width-v1', String(sessionListWidth));
+    }, 200);
+    return () => window.clearTimeout(handle);
   }, [sessionListWidth]);
 
   useEffect(() => {
