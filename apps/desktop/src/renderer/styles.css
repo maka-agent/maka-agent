@@ -9157,7 +9157,6 @@ button:active {
 }
 
 .settingsCardHeader,
-.connectionActions,
 .settingsRow {
   display: flex;
   align-items: center;
@@ -9543,41 +9542,6 @@ button:active {
   color: var(--foreground-55);
   font-size: 12px;
   line-height: 1.4;
-}
-
-.connectionForm label {
-  display: grid;
-  gap: 3px;
-  color: var(--foreground-60);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.connectionForm input,
-.connectionForm select,
-.credentialField input {
-  /* PR-UI-LAYOUT-11: provider form inputs aligned with the card
-   * radius family (6 → 8 stays slightly tighter than cards since
-   * inputs sit inside cards). Min-height bumped 34 → 36 so 13px
-   * text gets a more comfortable tap target. Background switches
-   * to `--background-elevated` so the input reads as recessed
-   * against the card surface. Focus ring added — was missing. */
-  min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background-elevated);
-  color: var(--foreground);
-  padding: 0 12px;
-  outline: none;
-  font-size: 13px;
-  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong), background 140ms var(--ease-out-strong);
-}
-.connectionForm input:focus,
-.connectionForm select:focus,
-.credentialField input:focus {
-  border-color: oklch(from var(--accent) l c h / 0.42);
-  background: var(--background);
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.10);
 }
 
 .settingsSurface[data-modal="true"] .settingsCardProviders {
