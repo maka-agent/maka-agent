@@ -77,7 +77,8 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const hero = await readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8');
     const readyBlock = hero.match(/function ReadyEmptyHero[\s\S]*?interface SetupHeroProps/)?.[0] ?? '';
 
-    assert.match(readyBlock, /const visibleSuggestions = FIRST_RUN_TASK_SUGGESTIONS;/);
+    assert.match(readyBlock, /FIRST_RUN_TASK_SUGGESTIONS\.length > 0/);
+    assert.match(readyBlock, /FIRST_RUN_TASK_SUGGESTIONS\.map\(\(suggestion\) =>/);
     assert.match(readyBlock, /const nextDraft = prompt;/);
     assert.match(readyBlock, /setDraft\(nextDraft\)/);
     assert.match(readyBlock, /onClick=\{\(\) => prefillSuggestion\(suggestion\.prompt, suggestion\.mode\)\}/);

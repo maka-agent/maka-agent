@@ -317,7 +317,7 @@ describe('text file context import', () => {
     assert.equal(folderPrompt.match(/<\/local-folder-outline>/g)?.length, 1);
   });
 
-  it('wires the import action into both Composer and first-run Quick Chat', async () => {
+  it('wires the import action into Composer and first-run drop/paste', async () => {
     const mainSource = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
     const mainProcessSource = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
     const preloadSource = await readFile(join(process.cwd(), 'src/preload/preload.ts'), 'utf8');
@@ -333,7 +333,7 @@ describe('text file context import', () => {
     const folderPromptBlock = mainSource.match(/async function importFolderOutlinePrompt[\s\S]*?async function importFolderOutlineIntoComposer/)?.[0] ?? '';
     const folderComposerBlock = mainSource.match(/async function importFolderOutlineIntoComposer\(\)[\s\S]*?async function stop/)?.[0] ?? '';
 
-    assert.match(mainSource, /onImportTextFile=\{importTextFilePrompt\}/);
+    assert.doesNotMatch(mainSource, /onImportTextFile=\{importTextFilePrompt\}/);
     assert.match(mainSource, /onImportTextFile=\{importTextFileIntoComposer\}/);
     assert.match(mainSource, /onImportDroppedTextFiles=\{importDroppedTextFilesPrompt\}/);
     assert.match(mainSource, /onImportDroppedTextFiles=\{importDroppedTextFilesIntoComposer\}/);
@@ -384,20 +384,21 @@ describe('text file context import', () => {
     assert.match(mainProcessSource, /context:importDroppedTextFiles/);
     assert.match(preloadSource, /importDroppedTextFiles/);
     assert.match(globalSource, /importDroppedTextFiles/);
-    assert.match(mainSource, /onImportFolderOutline=\{importFolderOutlinePrompt\}/);
+    assert.doesNotMatch(mainSource, /onImportFolderOutline=\{importFolderOutlinePrompt\}/);
     assert.match(mainSource, /onImportFolderOutline=\{importFolderOutlineIntoComposer\}/);
     assert.match(mainProcessSource, /properties: \['openDirectory', 'multiSelections'\]/);
     assert.match(mainProcessSource, /title: '导入文件内容'/);
-    // PR #190 review: the inline `导入文件内容` and `导入文件夹目录`
-    // buttons were removed from the first-run composer (single-action
-    // card pattern). Drop/paste imports still go through the textarea
-    // wrapper, so `appendPromptContextDraft(current, prompt)` and the
-    // drag handlers are still wired; the visible button labels are
+    // The inline `导入文件内容` and `导入文件夹目录` buttons were removed
+    // from the first-run composer. Drop/paste imports still go through
+    // the textarea wrapper, so `appendPromptContextDraft(current, prompt)`
+    // and the drag handlers stay wired; the visible button labels are
     // no longer in the onboarding source.
     assert.match(onboardingSource, /appendPromptContextDraft\(current, prompt\)/);
     assert.match(onboardingSource, /onImportDroppedTextFiles/);
     assert.match(onboardingSource, /onDrop=\{handleDrop\}/);
     assert.match(onboardingSource, /onPaste=\{handlePaste\}/);
+    assert.doesNotMatch(onboardingSource, /onImportTextFile/);
+    assert.doesNotMatch(onboardingSource, /onImportFolderOutline/);
     assert.doesNotMatch(onboardingSource, /导入文本文件/);
     assert.doesNotMatch(uiSource, /aria-label="导入文本文件"/);
     assert.match(uiSource, /aria-label=\{pendingImportAction === 'file' \? '正在添加上下文' : '添加上下文'\}/);

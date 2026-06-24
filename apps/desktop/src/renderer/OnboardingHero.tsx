@@ -31,6 +31,7 @@ import {
   ItemMedia,
   ItemTitle,
   Textarea,
+  appendPromptContextDraft,
   detectUiLocale,
   type UiLocale,
 } from '@maka/ui';
