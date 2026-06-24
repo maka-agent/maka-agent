@@ -353,13 +353,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /function chipStatusText\(connection: LlmConnection\): string/,
-      'status copy must be a dedicated helper, not parsed out of the chip title',
+      /import \{[^}]*chipStatusText[^}]*\} from '\.\/provider-connection-status'/,
+      'status copy must come from the dedicated provider-connection-status helper (behaviour is covered by provider-connection-status.test.ts), not be parsed out of the chip title',
     );
     assert.match(
       src,
-      /已启用模型：\$\{connection\.name\}，供应商：\$\{provider\}/,
-      'enabled model chip aria-label must describe the model and provider explicitly',
+      /模型连接：\$\{connection\.name\}，供应商：\$\{provider\}/,
+      'model connection chip aria-label must describe the model and provider explicitly',
     );
     assert.match(
       src,
@@ -861,8 +861,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /catch \(error\) \{[\s\S]*toast\.error\('刷新已启用模型失败', subscriptionActionErrorMessage\(error\)\)/,
-      'OAuth modal close must surface enabled-model refresh failures',
+      /catch \(error\) \{[\s\S]*toast\.error\('刷新模型连接失败', subscriptionActionErrorMessage\(error\)\)/,
+      'OAuth modal close must surface model-connection refresh failures',
     );
     assert.match(
       src,
@@ -952,7 +952,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       section,
-      /catch \(error\) \{[\s\S]*if \(!modelOAuthMountedRef\.current\) return;[\s\S]*toast\.error\('刷新已启用模型失败', subscriptionActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(!modelOAuthMountedRef\.current\) return;[\s\S]*toast\.error\('刷新模型连接失败', subscriptionActionErrorMessage\(error\)\)/,
       'enabled-provider refresh failures after modal close must not toast after Settings unmount',
     );
   });

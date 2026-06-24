@@ -28,6 +28,7 @@ import {
 import { formatRelativeTimestamp } from '@maka/core';
 import { PasswordInput } from './password-input';
 import { ProviderBrandMark } from './provider-brand-marks';
+import { chipStatusText, rollupForGroup } from './provider-connection-status';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -146,7 +147,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     [connections, selectedSlug],
   );
 
-  // Group enabled connections under their provider so the list reads as a
+  // Group connections under their provider so the list reads as a
   // hierarchy (provider → connections) instead of a flat peer list. Each
   // group rolls the worst connection status up to its header so a problem
   // is visible while the group is collapsed.
@@ -164,15 +165,12 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     }
     return order.map((type) => {
       const groupConnections = byType.get(type) ?? [];
-      const active = groupConnections.filter((connection) => connection.enabled);
-      const rollup: 'err' | 'warn' | 'ok' | 'idle' = active.some((c) => c.lastTestStatus === 'error')
-        ? 'err'
-        : active.some((c) => c.lastTestStatus === 'needs_reauth')
-          ? 'warn'
-          : active.some((c) => c.lastTestStatus === 'verified')
-            ? 'ok'
-            : 'idle';
-      return { type, name: providerDisplay(type).name, connections: groupConnections, rollup };
+      return {
+        type,
+        name: providerDisplay(type).name,
+        connections: groupConnections,
+        rollup: rollupForGroup(groupConnections),
+      };
     });
   }, [connections]);
 
@@ -205,27 +203,6 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     setSelectedSlug(null);
   }
 
-  function chipStatusText(connection: LlmConnection): string {
-    if (!connection.enabled) return '已禁用';
-    switch (connection.lastTestStatus) {
-      case 'verified':
-        // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): `verified` is a
-        // credential-validation result only; it does NOT prove
-        // agent send / stream / interrupt paths are operational
-        // (provider-auth contract Path 17 S11 D1 lock). Older copy
-        // "已验证可用" conflated validation with operational
-        // readiness — fixed to credential-only language. Matches
-        // the doc warning at SettingsModal `验证通过 ≠ 运行可用`.
-        return '凭据已验证';
-      case 'needs_reauth':
-        return '需要重新登录';
-      case 'error':
-        return '上次连接失败';
-      default:
-        return '等待验证';
-    }
-  }
-
   function chipTitle(connection: LlmConnection): string {
     return `${connection.name} · ${chipStatusText(connection)}`;
   }
@@ -233,7 +210,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   function chipAriaLabel(connection: LlmConnection): string {
     const provider = providerDisplay(connection.providerType).name;
     const defaultSuffix = connection.slug === defaultSlug ? '，默认连接' : '';
-    return `已启用模型：${connection.name}，供应商：${provider}${defaultSuffix}，${chipStatusText(connection)}`;
+    return `模型连接：${connection.name}，供应商：${provider}${defaultSuffix}，${chipStatusText(connection)}`;
   }
 
   const configuredByType = (type: ProviderType) =>
@@ -258,9 +235,9 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   return (
     <div className="providersPanel providersMarketPanel">
       <section className="providerMarket">
-        <div className="enabledStrip" aria-label="已启用的模型供应商">
+        <div className="enabledStrip" aria-label="模型连接">
           <div className="enabledStripHeader">
-            <h3>已启用模型</h3>
+            <h3>模型连接</h3>
             {connections.length > 0 && (
               <span>{providerGroups.length} 个供应商 · {connections.length} 个连接</span>
             )}
@@ -598,7 +575,7 @@ function providerDisabledStatus(type: ProviderType): 'unavailable' | 'experiment
 
 function providerDisabledTitle(type: ProviderType): string {
   if (isWiredOAuthProvider(type)) {
-    return '请在 OAuth 分类完成账号登录；登录成功后会自动出现在已启用模型。';
+    return '请在 OAuth 分类完成账号登录；登录成功后会自动出现在模型连接。';
   }
   return '该账号登录暂未接入聊天发送；当前请使用同一家厂商的模型密钥。';
 }
@@ -748,7 +725,7 @@ function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void> }) {
       await props.onConnectionsChanged();
     } catch (error) {
       if (!modelOAuthMountedRef.current) return;
-      toast.error('刷新已启用模型失败', subscriptionActionErrorMessage(error));
+      toast.error('刷新模型连接失败', subscriptionActionErrorMessage(error));
     }
   }
 
@@ -864,7 +841,7 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
         <header className="providerConfigHeader">
           <div>
             <h3>Claude Code</h3>
-            <p>登录 Claude Pro / Max 后，会同步成已启用模型连接。</p>
+            <p>登录 Claude Pro / Max 后，会同步成模型连接。</p>
           </div>
           <Button
             type="button"
@@ -1620,7 +1597,7 @@ function ConnectionDetail(props: {
     setDeleting(true);
     const ok = await toast.confirm({
       title: `删除供应商 ${connection.name}？`,
-      description: '将从已启用模型连接中移除这个供应商配置；如需再次使用，需要重新添加凭据。',
+      description: '将从模型连接中移除这个供应商配置；如需再次使用，需要重新添加凭据。',
       confirmLabel: '删除',
       cancelLabel: '取消',
       destructive: true,
@@ -1711,7 +1688,7 @@ function ConnectionDetail(props: {
                 ? '正在读取本机 OAuth 登录状态，读取完成前不会把未知状态显示成未登录。'
                 : hasSecret === 'error'
                   ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
-                  : '请到上方 OAuth 分类完成登录；登录成功后会自动出现在已启用模型里。'}
+                  : '请到上方 OAuth 分类完成登录；登录成功后会自动出现在模型连接里。'}
           </span>
         </div>
       )}
@@ -2444,7 +2421,7 @@ function presentSubscriptionState(state: SubscriptionAccountState): Subscription
       return {
         label: '已登录',
         tone: 'success',
-        detail: '已绑定 Claude 订阅，并会同步到“已启用模型”。',
+        detail: '已绑定 Claude 订阅，并会同步到“模型连接”。',
       };
     case 'refreshing':
       return { label: '刷新中…', tone: 'info', detail: '正在刷新访问令牌。' };
