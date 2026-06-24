@@ -333,7 +333,54 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.type, 'task_budget_exhausted');
       assert.equal(result.events[0]?.eligible, true);
       assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.expectedPromptHash, hashSystemPrompt('fixed prompt\n'));
       assert.match(await readFile(resultsJsonlPath, 'utf8'), /"type":"task_budget_exhausted"/);
+    });
+  });
+
+  test('reruns budget-exhausted WAL events whose prompt hash is stale', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results-old.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => {
+          throw new FixedPromptBudgetExhaustedError('harbor run timed out after 600s');
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      await writeFile(systemPromptPath, 'new fixed prompt\n', 'utf8');
+      const calls: string[] = [];
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results-new.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async ({ task }) => {
+          calls.push(task.id);
+          return harborOutput({ taskId: task.id, promptHash: hashSystemPrompt('new fixed prompt\n') });
+        },
+        now: () => 200,
+        newId: idFactory(),
+      });
+
+      assert.deepEqual(calls, ['task-a']);
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.promptHash, hashSystemPrompt('new fixed prompt\n'));
+      assert.equal((await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').length, 2);
     });
   });
 

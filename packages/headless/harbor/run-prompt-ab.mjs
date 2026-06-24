@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 // Real A/B runner for comparing Maka's benchmark baseline prompt against a
-// fixed external prompt (default target: opencode default.txt) over cached
-// Terminal-Bench tasks via Harbor + DeepSeek.
+// fixed candidate prompt over cached Terminal-Bench tasks via Harbor + DeepSeek.
 //
 // Usage:
 //   MAKA_PROMPT_AB_OUT_DIR=/tmp/maka-ab \
-//   MAKA_PROMPT_AB_CANDIDATE_PROMPT_PATH=/path/to/opencode/default.txt \
+//   MAKA_PROMPT_AB_CANDIDATE_PROMPT_PATH=/path/to/candidate-prompt.txt \
 //   MAKA_PROMPT_AB_KEY_FILE=~/.local/maka-eval/secrets/deepseek-key \
 //   node packages/headless/harbor/run-prompt-ab.mjs
 

@@ -107,6 +107,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   eligible: true;
   errorClass: 'budget_exhausted';
   error: string;
+  expectedPromptHash: string;
 }
 
 export interface FixedPromptTaskPlumbingFailedEvent {
@@ -426,6 +427,7 @@ async function runTaskAndBuildEvent(input: {
         taskId: input.task.id,
         runId: input.input.runId,
         roundId: input.input.roundId,
+        expectedPromptHash: input.expectedPromptHash,
         id: input.id,
         ts: input.ts,
       });
@@ -447,6 +449,7 @@ async function runTaskAndBuildEvent(input: {
           taskId: input.task.id,
           runId: input.input.runId,
           roundId: input.input.roundId,
+          expectedPromptHash: input.expectedPromptHash,
           id: input.id,
           ts: input.ts,
         });
@@ -621,6 +624,7 @@ function taskBudgetExhaustedEvent(input: {
   taskId: string;
   runId: string;
   roundId: string;
+  expectedPromptHash: string;
   id: string;
   ts: number;
 }): FixedPromptTaskBudgetExhaustedEvent {
@@ -638,6 +642,7 @@ function taskBudgetExhaustedEvent(input: {
     eligible: true,
     errorClass: 'budget_exhausted',
     error: errorMessage(input.error),
+    expectedPromptHash: input.expectedPromptHash,
   };
 }
 
@@ -681,7 +686,7 @@ function roundTaskEvents(
 
 function eventMatchesPrompt(event: FixedPromptTaskWalEvent, expectedPromptHash: string): boolean {
   if (event.type === 'task_infra_failed') return true;
-  if (event.type === 'task_budget_exhausted') return true;
+  if (event.type === 'task_budget_exhausted') return event.expectedPromptHash === expectedPromptHash;
   if (event.promptHash === expectedPromptHash) return true;
   return event.type === 'task_plumbing_failed' && event.expectedPromptHash === expectedPromptHash;
 }

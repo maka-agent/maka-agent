@@ -231,7 +231,7 @@ describe('summarizePromptAbComparison', () => {
       runId: 'ab-run',
       roundId: 'ab-summary',
       baselinePromptId: 'maka-baseline',
-      candidatePromptId: 'opencode-default',
+      candidatePromptId: 'candidate',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [
         [completed('t1', false), completed('t2', false)],
@@ -255,8 +255,8 @@ describe('summarizePromptAbComparison', () => {
     assert.equal(result.taskLevel.ties, 0);
     assert.deepEqual(result.taskLevel.missingTaskIds, []);
     assert.equal(result.taskLevel.meanPassRateDelta, 0.75);
-    assert.equal(result.outcomes.baseline.budgetExhausted, 0);
-    assert.equal(result.outcomes.candidate.budgetExhausted, 0);
+    assert.equal(result.baseline.budgetExhausted, 0);
+    assert.equal(result.candidate.budgetExhausted, 0);
 
     const markdown = renderPromptAbComparisonMarkdown(result);
     assert.match(markdown, /Decision: inconclusive \(sign_test_not_significant\)/);
@@ -271,7 +271,7 @@ describe('summarizePromptAbComparison', () => {
       runId: 'ab-run',
       roundId: 'ab-summary',
       baselinePromptId: 'maka-baseline',
-      candidatePromptId: 'opencode-default',
+      candidatePromptId: 'candidate',
       evaluationTaskIds: ['long-task'],
       baselineRuns: [[completed('long-task', true)]],
       candidateRuns: [[budgetExhausted('long-task')]],
@@ -281,8 +281,8 @@ describe('summarizePromptAbComparison', () => {
     assert.equal(result.decision, 'inconclusive');
     assert.equal(result.reason, 'asymmetric_budget_exhaustion');
     assert.equal(result.candidate.passRate, 0);
-    assert.equal(result.outcomes.candidate.budgetExhausted, 1);
-    assert.equal(result.outcomes.candidate.infraFailed, 0);
+    assert.equal(result.candidate.budgetExhausted, 1);
+    assert.equal(result.candidate.infraFailed, 0);
     assert.equal(result.taskLevel.losses, 1);
     assert.match(renderPromptAbComparisonMarkdown(result), /Budget outcomes: A timed_out=0, B timed_out=1/);
   });
@@ -293,7 +293,7 @@ describe('summarizePromptAbComparison', () => {
       runId: 'ab-run',
       roundId: 'ab-summary',
       baselinePromptId: 'maka-baseline',
-      candidatePromptId: 'opencode-default',
+      candidatePromptId: 'candidate',
       evaluationTaskIds: taskIds,
       baselineRuns: [
         taskIds.map((taskId, index) => completed(taskId, index >= 9)),
@@ -315,7 +315,7 @@ describe('summarizePromptAbComparison', () => {
       runId: 'ab-run',
       roundId: 'ab-summary',
       baselinePromptId: 'maka-baseline',
-      candidatePromptId: 'opencode-default',
+      candidatePromptId: 'candidate',
       evaluationTaskIds: taskIds,
       baselineRuns: [
         taskIds.map((taskId, index) => completed(taskId, index >= 13)),
@@ -336,14 +336,14 @@ describe('summarizePromptAbComparison', () => {
       runId: 'ab-run',
       roundId: 'ab-summary',
       baselinePromptId: 'maka-baseline',
-      candidatePromptId: 'opencode-default',
+      candidatePromptId: 'candidate',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [[budgetExhausted('t1'), completed('t2', true)]],
       candidateRuns: [[completed('t1', true), budgetExhausted('t2')]],
     });
 
-    assert.equal(result.outcomes.baseline.budgetExhausted, 1);
-    assert.equal(result.outcomes.candidate.budgetExhausted, 1);
+    assert.equal(result.baseline.budgetExhausted, 1);
+    assert.equal(result.candidate.budgetExhausted, 1);
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t1#r0', 't2#r0']);
     assert.equal(result.decision, 'inconclusive');
     assert.equal(result.reason, 'asymmetric_budget_exhaustion');
@@ -474,6 +474,7 @@ function budgetExhausted(taskId: string): FixedPromptTaskBudgetExhaustedEvent {
     eligible: true,
     errorClass: 'budget_exhausted',
     error: 'harbor run timed out after 600s',
+    expectedPromptHash: 'hash',
   };
 }
 

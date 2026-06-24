@@ -162,10 +162,6 @@ export interface PromptAbComparisonSummary {
   reason: string;
   baseline: PromptAbArmSummary;
   candidate: PromptAbArmSummary;
-  outcomes: {
-    baseline: PromptAbArmSummary;
-    candidate: PromptAbArmSummary;
-  };
   taskLevel: PromptAbTaskLevelSummary;
   pairedAttempts: PromptAbAttemptPairSummary;
 }
@@ -419,7 +415,6 @@ export function summarizePromptAbComparison(input: SummarizePromptAbComparisonIn
     reason,
     baseline,
     candidate,
-    outcomes: { baseline, candidate },
     taskLevel,
     pairedAttempts,
   };
@@ -468,7 +463,7 @@ export async function runPromptAbComparison(input: RunPromptAbComparisonInput): 
     runId: input.runId,
     roundId: 'ab-summary',
     baselinePromptId: 'maka-baseline',
-    candidatePromptId: input.candidatePromptId ?? 'opencode-default',
+    candidatePromptId: input.candidatePromptId ?? 'candidate',
     evaluationTaskIds: input.evaluationTasks.map((task) => task.id),
     baselineRuns,
     candidateRuns,
@@ -489,8 +484,8 @@ export function renderPromptAbComparisonMarkdown(summary: PromptAbComparisonSumm
     `- Evaluation pass rate: A=${summary.baseline.passed}/${summary.baseline.valid} = ${rate(summary.baseline.passRate)}, B=${summary.candidate.passed}/${summary.candidate.valid} = ${rate(summary.candidate.passRate)}`,
     `- Task-level delta: mean=${rate(summary.taskLevel.meanPassRateDelta)}, median=${rate(summary.taskLevel.medianPassRateDelta)}, wins=${summary.taskLevel.wins}, losses=${summary.taskLevel.losses}, ties=${summary.taskLevel.ties}, sign_test_p=${rate(summary.taskLevel.signTestPValue)}, missing=${summary.taskLevel.missingTaskIds.length}`,
     `- Attempt-pair auxiliary: wins=${summary.pairedAttempts.wins}, losses=${summary.pairedAttempts.losses}, ties=${summary.pairedAttempts.ties}, missing=${summary.pairedAttempts.missingPairIds.length}`,
-    `- Budget outcomes: A timed_out=${summary.outcomes.baseline.budgetExhausted}, B timed_out=${summary.outcomes.candidate.budgetExhausted}`,
-    `- Infra outcomes: A infra_failed=${summary.outcomes.baseline.infraFailed}, B infra_failed=${summary.outcomes.candidate.infraFailed}; A plumbing_failed=${summary.outcomes.baseline.plumbingFailed}, B plumbing_failed=${summary.outcomes.candidate.plumbingFailed}`,
+    `- Budget outcomes: A timed_out=${summary.baseline.budgetExhausted}, B timed_out=${summary.candidate.budgetExhausted}`,
+    `- Infra outcomes: A infra_failed=${summary.baseline.infraFailed}, B infra_failed=${summary.candidate.infraFailed}; A plumbing_failed=${summary.baseline.plumbingFailed}, B plumbing_failed=${summary.candidate.plumbingFailed}`,
     '',
     '## Limitation',
     '',

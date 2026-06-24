@@ -74,12 +74,13 @@ class MakaAgent(BaseInstalledAgent):
         run_cell = Path(maka_repo) / "packages" / "headless" / "harbor" / "run-cell.mjs"
         run_host_cell = Path(maka_repo) / "packages" / "headless" / "harbor" / "run-host-cell.mjs"
         dist_index = Path(maka_repo) / "packages" / "headless" / "dist" / "index.js"
+        dist_harbor_cell = Path(maka_repo) / "packages" / "headless" / "dist" / "harbor-cell.js"
         if self._host_side_llm_enabled():
             await self.exec_as_agent(
                 environment,
                 command=(
                     f"test -f {shlex.quote(str(run_host_cell))} && "
-                    f"test -f {shlex.quote(str(dist_index))}"
+                    f"test -f {shlex.quote(str(dist_harbor_cell))}"
                 ),
             )
             return
