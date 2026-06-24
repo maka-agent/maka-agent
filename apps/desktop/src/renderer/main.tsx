@@ -73,10 +73,6 @@ import { KeyboardHelpModal, useKeyboardHelp } from './keyboard-help';
 import { CommandPalette, buildCommandList, useCommandPalette } from './command-palette';
 import { OnboardingHero } from './OnboardingHero';
 import { FirstRunChecklist } from './FirstRunChecklist';
-import {
-  FIRST_RUN_TASK_SUGGESTION_MILESTONES,
-  type FirstRunTaskSuggestionId,
-} from './first-run-task-suggestions';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import { ProviderLogo } from './settings/ProvidersPanel';
 import { ArtifactPane } from './artifact-pane';
@@ -2423,26 +2419,6 @@ function AppShell() {
     }
   }
 
-  async function dismissFirstRunTaskSuggestion(id: FirstRunTaskSuggestionId): Promise<void> {
-    try {
-      await window.maka.onboarding.setMilestone(FIRST_RUN_TASK_SUGGESTION_MILESTONES[id], 'skipped');
-      onboarding.refresh();
-    } catch (error) {
-      toastApi.error('隐藏建议失败', generalizedErrorMessageChinese(error, '任务建议暂时无法隐藏，请稍后重试。'));
-    }
-  }
-
-  async function restoreFirstRunTaskSuggestions(ids: ReadonlyArray<FirstRunTaskSuggestionId>): Promise<void> {
-    try {
-      for (const id of ids) {
-        await window.maka.onboarding.clearMilestone(FIRST_RUN_TASK_SUGGESTION_MILESTONES[id]);
-      }
-      onboarding.refresh();
-    } catch (error) {
-      toastApi.error('恢复建议失败', generalizedErrorMessageChinese(error, '任务建议暂时无法恢复，请稍后重试。'));
-    }
-  }
-
   function showModelSetupToast(description: string, reason?: string) {
     const copy = modelSetupToastCopy(reason, description);
     toastApi.toast({
@@ -2970,12 +2946,7 @@ function AppShell() {
                         quickChatPending={quickChatPending}
                         connections={connections}
                         onRefreshConnections={refreshConnections}
-                        onImportTextFile={importTextFilePrompt}
-                        onImportFolderOutline={importFolderOutlinePrompt}
                         onImportDroppedTextFiles={importDroppedTextFilesPrompt}
-                        onboardingMilestones={onboarding.snapshot?.milestones}
-                        onDismissTaskSuggestion={dismissFirstRunTaskSuggestion}
-                        onRestoreTaskSuggestions={restoreFirstRunTaskSuggestions}
                       />
                       {onboardingState.kind === 'ready_empty' && (
                         <FirstRunChecklist

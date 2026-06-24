@@ -21,7 +21,7 @@
 
 import { ArrowUp, ChevronRight, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import type { LlmConnection, OnboardingMilestone, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
+import type { LlmConnection, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
 import {
   Button,
   Item,
@@ -31,16 +31,11 @@ import {
   ItemMedia,
   ItemTitle,
   Textarea,
-  appendPromptContextDraft,
   detectUiLocale,
   type UiLocale,
 } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './settings/ProvidersPanel';
-import {
-  FIRST_RUN_TASK_SUGGESTIONS,
-  FIRST_RUN_TASK_SUGGESTION_MILESTONES,
-  type FirstRunTaskSuggestionId,
-} from './first-run-task-suggestions';
+import { FIRST_RUN_TASK_SUGGESTIONS } from './first-run-task-suggestions';
 import { getOnboardingSetupSteps, type OnboardingSetupStep } from './onboarding-hero-copy';
 
 /**
@@ -132,12 +127,7 @@ export interface OnboardingHeroProps {
    * the snapshot without restarting. Optional.
    */
   onRefreshConnections?: () => Promise<void> | void;
-  onImportTextFile?: () => Promise<string | undefined>;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
-  onImportFolderOutline?: () => Promise<string | undefined>;
-  onboardingMilestones?: ReadonlyArray<OnboardingMilestone>;
-  onDismissTaskSuggestion?: (id: FirstRunTaskSuggestionId) => Promise<void> | void;
-  onRestoreTaskSuggestions?: (ids: ReadonlyArray<FirstRunTaskSuggestionId>) => Promise<void> | void;
 }
 
 export function OnboardingHero(props: OnboardingHeroProps) {
@@ -208,12 +198,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
         <ReadyEmptyHero
           onQuickChatSubmit={props.onQuickChatSubmit}
           quickChatPending={props.quickChatPending === true}
-          onImportTextFile={props.onImportTextFile}
           onImportDroppedTextFiles={props.onImportDroppedTextFiles}
-          onImportFolderOutline={props.onImportFolderOutline}
-          onboardingMilestones={props.onboardingMilestones}
-          onDismissTaskSuggestion={props.onDismissTaskSuggestion}
-          onRestoreTaskSuggestions={props.onRestoreTaskSuggestions}
         />
       );
     case 'blocked':
@@ -527,24 +512,17 @@ function BlockedHero(props: {
 function ReadyEmptyHero(props: {
   onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
   quickChatPending: boolean;
-  onImportTextFile?: () => Promise<string | undefined>;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
-  onImportFolderOutline?: () => Promise<string | undefined>;
-  onboardingMilestones?: ReadonlyArray<OnboardingMilestone>;
-  onDismissTaskSuggestion?: (id: FirstRunTaskSuggestionId) => Promise<void> | void;
-  onRestoreTaskSuggestions?: (ids: ReadonlyArray<FirstRunTaskSuggestionId>) => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState('');
   const [draftMode, setDraftMode] = useState<QuickChatMode | undefined>();
   const [dragActive, setDragActive] = useState(false);
   const [submitPending, setSubmitPending] = useState(false);
   const [pendingImportAction, setPendingImportAction] = useState<string | null>(null);
-  const [pendingSuggestionAction, setPendingSuggestionAction] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const readyHeroMountedRef = useRef(true);
   const submitPendingRef = useRef(false);
   const pendingImportActionRef = useRef<string | null>(null);
-  const pendingSuggestionActionRef = useRef<string | null>(null);
 
   useEffect(() => {
     readyHeroMountedRef.current = true;
@@ -552,14 +530,11 @@ function ReadyEmptyHero(props: {
       readyHeroMountedRef.current = false;
       submitPendingRef.current = false;
       pendingImportActionRef.current = null;
-      pendingSuggestionActionRef.current = null;
     };
   }, []);
 
   const copy = READY_HERO_COPY_BY_LOCALE[detectUiLocale()];
-  const visibleSuggestions = FIRST_RUN_TASK_SUGGESTIONS;
   const quickChatBusy = props.quickChatPending || submitPending;
-  const suggestionActionBusy = pendingSuggestionAction !== null;
   const importStatusText = pendingImportAction === null
     ? null
     : pendingImportAction === 'folder'
@@ -603,7 +578,7 @@ function ReadyEmptyHero(props: {
   );
 
   const prefillSuggestion = useCallback((prompt: string, mode?: QuickChatMode) => {
-    if (quickChatBusy || suggestionActionBusy) return;
+    if (quickChatBusy) return;
     const nextDraft = prompt;
     setDraft(nextDraft);
     setDraftMode(mode);
@@ -613,20 +588,6 @@ function ReadyEmptyHero(props: {
       input.focus();
       input.setSelectionRange(nextDraft.length, nextDraft.length);
     });
-  }, [quickChatBusy, suggestionActionBusy]);
-
-  const runSuggestionAction = useCallback(async (actionKey: string, action?: () => Promise<void> | void) => {
-    if (!action || quickChatBusy || pendingSuggestionActionRef.current !== null) return;
-    pendingSuggestionActionRef.current = actionKey;
-    setPendingSuggestionAction(actionKey);
-    try {
-      await action();
-    } finally {
-      if (pendingSuggestionActionRef.current === actionKey) {
-        pendingSuggestionActionRef.current = null;
-        if (readyHeroMountedRef.current) setPendingSuggestionAction(null);
-      }
-    }
   }, [quickChatBusy]);
 
   const appendImportedPrompt = useCallback((prompt: string) => {
@@ -782,30 +743,28 @@ function ReadyEmptyHero(props: {
         </Button>
       </div>
 
-      {visibleSuggestions.length > 0 && (
+      {FIRST_RUN_TASK_SUGGESTIONS.length > 0 && (
         <div className="maka-first-run-task-suggestions" aria-label="试试这些任务">
           <div className="maka-first-run-task-suggestions-inner">
             <div className="maka-first-run-task-suggestions-header">
               <strong>试试这些任务</strong>
             </div>
-            {visibleSuggestions.length > 0 && (
-              <div className="maka-first-run-task-suggestion-list">
-                {visibleSuggestions.map((suggestion) => (
-                  <span key={suggestion.id} className="maka-first-run-task-suggestion-chip">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="maka-first-run-task-suggestion"
-                      onClick={() => prefillSuggestion(suggestion.prompt, suggestion.mode)}
-                      disabled={quickChatBusy || suggestionActionBusy}
-                    >
-                      {suggestion.label}
-                    </Button>
-                  </span>
-                ))}
-              </div>
-            )}
+            <div className="maka-first-run-task-suggestion-list">
+              {FIRST_RUN_TASK_SUGGESTIONS.map((suggestion) => (
+                <div key={suggestion.id} className="maka-first-run-task-suggestion-chip">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="maka-first-run-task-suggestion"
+                    onClick={() => prefillSuggestion(suggestion.prompt, suggestion.mode)}
+                    disabled={quickChatBusy}
+                  >
+                    {suggestion.label}
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
