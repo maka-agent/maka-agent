@@ -2048,20 +2048,30 @@ function AppShell() {
   async function refreshMessagesUntilTurn(sessionId: string, turnId: string): Promise<void> {
     const deadline = Date.now() + USER_MESSAGE_VISIBLE_TIMEOUT_MS;
     while (Date.now() <= deadline) {
+      // PR-FE-BUG-HUNT-4 (kenji bug-hunt 2026-06-24 LOW): bail if the
+      // user navigated away from the session this poll was started for.
+      // Previously the loop kept burning IPC bandwidth for the full
+      // 1200ms after a session switch (the setState was gated, but the
+      // readMessages call still fired every 40ms). Now we stop the
+      // polling cycle itself.
+      if (activeIdRef.current !== sessionId) return;
       try {
         const next = await window.maka.sessions.readMessages(sessionId);
+        if (activeIdRef.current !== sessionId) return;
         const hasSentUserTurn = next.some((message) => message.type === 'user' && message.turnId === turnId);
-        if (hasSentUserTurn && activeIdRef.current === sessionId) {
+        if (hasSentUserTurn) {
           setMessages(next);
+          return;
         }
-        if (hasSentUserTurn) return;
       } catch {
         // Keep the current visible messages while the bounded retry loop
         // waits for the async send path to persist the first user message.
       }
       await new Promise((resolve) => window.setTimeout(resolve, USER_MESSAGE_VISIBLE_POLL_MS));
     }
-    await refreshMessages(sessionId);
+    if (activeIdRef.current === sessionId) {
+      await refreshMessages(sessionId);
+    }
   }
 
   function clearStreaming(sessionId: string) {
