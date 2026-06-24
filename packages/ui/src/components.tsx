@@ -215,7 +215,7 @@ export type NavSelection =
   | { section: 'skills' }
   | { section: 'daily-review' };
 
-export type SessionFilter = 'chats' | 'flagged' | 'archived';
+type SessionFilter = 'chats' | 'flagged' | 'archived';
 
 /**
  * Sidebar module ids. "sessions" is still the lower history region label,
@@ -372,7 +372,7 @@ type PlanReminderUpdatePatch = {
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 
-export interface SessionRowActions {
+interface SessionRowActions {
   /** Flag (pin) state toggle. */
   onToggleFlag(sessionId: string, next: boolean): void | Promise<void>;
   /** Move to / out of the archive bucket. */
@@ -1354,7 +1354,7 @@ function SkillsModuleMain(props: {
  * UI layer is reusable in fixtures / visual smoke / future surfaces
  * (e.g. a desktop notification renderer).
  */
-export interface DailyReviewBridge {
+interface DailyReviewBridge {
   fetchDay(offsetDays: number, daySpan?: number): Promise<DailyReviewSummary>;
   /**
    * PR-DAILY-REVIEW-FULL-0 — optional pipeline methods. Renderer checks
@@ -2790,7 +2790,7 @@ function PlanReminderPanel(props: {
  * fail-closed paths return the error envelope and the modal renders
  * them as user-facing copy.
  */
-export interface SearchModalDeps {
+interface SearchModalDeps {
   searchThread(request: SearchRequest): Promise<
     | SearchResult[]
     | { ok: false; reason: SearchErrorReason; message: string }
@@ -6068,7 +6068,7 @@ export function loadToolDisplayName(locale: UiLocale): string {
   return locale === 'en' ? 'Load tools' : '加载工具组';
 }
 
-export interface LoadToolResultDescription {
+interface LoadToolResultDescription {
   title: string;
   countLabel: string;
   toolsText: string;
