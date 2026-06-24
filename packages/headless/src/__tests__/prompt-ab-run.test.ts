@@ -8,11 +8,13 @@ import {
   renderPromptAbComparisonMarkdown,
   runPromptAbComparison,
   runPromptAbConcurrencyCalibration,
+  runPromptAbTaskQualification,
   summarizePromptAbComparison,
 } from '../prompt-ab-run.js';
 import type { Config } from '../contracts.js';
 import {
   FIXED_PROMPT_WAL_SCHEMA_VERSION,
+  FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
   type FixedPromptTask,
   type FixedPromptTaskBudgetExhaustedEvent,
@@ -150,6 +152,57 @@ describe('runPromptAbConcurrencyCalibration', () => {
       const walLines = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n');
       assert.equal(walLines.length, 9);
       assert.match(walLines.at(-1) ?? '', /"type":"task_infra_failed"/);
+    });
+  });
+});
+
+describe('runPromptAbTaskQualification', () => {
+  test('selects only A-medium tasks and reports the selection funnel', async () => {
+    await withDir(async (dir) => {
+      const baselinePromptPath = join(dir, 'baseline.md');
+      await writeFile(baselinePromptPath, 'A prompt\n', 'utf8');
+      const tasks: FixedPromptTask[] = [
+        { id: 'medium-one', path: '/tasks/medium-one' },
+        { id: 'medium-two', path: '/tasks/medium-two' },
+        { id: 'easy', path: '/tasks/easy' },
+        { id: 'hard', path: '/tasks/hard' },
+        { id: 'timeout', path: '/tasks/timeout' },
+      ];
+
+      const result = await runPromptAbTaskQualification({
+        runId: 'ab-run',
+        config,
+        baselinePromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        candidateTasks: tasks,
+        reps: 3,
+        targetTaskCount: 3,
+        maxConcurrency: 2,
+        harborRunner: async ({ roundId, task, systemPrompt }) => {
+          const rep = Number(roundId.match(/r(\d+)$/)?.[1] ?? 0);
+          if (task.id === 'timeout') throw new FixedPromptBudgetExhaustedError('Maka host cell exceeded 600s');
+          const passCounts: Record<string, number> = {
+            'medium-one': 1,
+            'medium-two': 2,
+            easy: 3,
+            hard: 0,
+          };
+          return harborOutput({
+            taskId: task.id,
+            promptHash: hashSystemPrompt(systemPrompt),
+            reward: rep < (passCounts[task.id] ?? 0) ? 1 : 0,
+          });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.deepEqual(result.selectedTaskIds, ['medium-one', 'medium-two']);
+      assert.equal(result.shortage, 1);
+      assert.deepEqual(result.rejected.easyTaskIds, ['easy']);
+      assert.deepEqual(result.rejected.hardTaskIds, ['hard']);
+      assert.deepEqual(result.rejected.infraOrInvalidTaskIds, ['timeout']);
+      assert.equal(result.runs.length, 3);
     });
   });
 });

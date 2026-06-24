@@ -165,6 +165,51 @@ export interface PromptAbComparisonSummary {
   pairedAttempts: PromptAbAttemptPairSummary;
 }
 
+export interface RunPromptAbTaskQualificationInput {
+  runId: string;
+  config: Config;
+  baselinePromptPath: string;
+  resultsJsonlPath: string;
+  candidateTasks: readonly FixedPromptTask[];
+  reps?: number;
+  targetTaskCount?: number;
+  minPasses?: number;
+  maxPasses?: number;
+  maxConcurrency?: number;
+  harborRunner: HarborTaskRunner;
+  now?: () => number;
+  newId?: () => string;
+}
+
+export interface PromptAbQualifiedTaskSummary {
+  taskId: string;
+  passed: number;
+  valid: number;
+  budgetExhausted: number;
+  infraFailed: number;
+  plumbingFailed: number;
+  missing: number;
+  classification: 'medium' | 'easy' | 'hard' | 'invalid';
+}
+
+export interface PromptAbTaskQualificationResult {
+  runId: string;
+  reps: number;
+  targetTaskCount: number;
+  candidateTaskCount: number;
+  selectedTaskIds: string[];
+  selectedTasks: FixedPromptTask[];
+  shortage: number;
+  tasks: PromptAbQualifiedTaskSummary[];
+  rejected: {
+    easyTaskIds: string[];
+    hardTaskIds: string[];
+    infraOrInvalidTaskIds: string[];
+    overflowTaskIds: string[];
+  };
+  runs: FixedPromptTaskWalEvent[][];
+}
+
 export function planPromptAbConcurrencyCalibration(
   input: PromptAbConcurrencyCalibrationPlanInput,
 ): PromptAbConcurrencyCalibrationPlan {
@@ -225,6 +270,77 @@ export async function runPromptAbConcurrencyCalibration(
     sampleTaskIds: plan.sampleTasks.map((task) => task.id),
     levels,
     recommendedConcurrency,
+  };
+}
+
+export async function runPromptAbTaskQualification(
+  input: RunPromptAbTaskQualificationInput,
+): Promise<PromptAbTaskQualificationResult> {
+  const reps = input.reps ?? 3;
+  const targetTaskCount = input.targetTaskCount ?? 30;
+  const minPasses = input.minPasses ?? 1;
+  const maxPasses = input.maxPasses ?? reps - 1;
+  assertPositiveInt('reps', reps);
+  assertPositiveInt('targetTaskCount', targetTaskCount);
+  assertPositiveInt('minPasses', minPasses);
+  assertPositiveInt('maxPasses', maxPasses);
+  if (minPasses > maxPasses) throw new Error('minPasses must be <= maxPasses');
+  if (input.maxConcurrency !== undefined) assertPositiveInt('maxConcurrency', input.maxConcurrency);
+
+  const runs: FixedPromptTaskWalEvent[][] = [];
+  for (let rep = 0; rep < reps; rep += 1) {
+    const roundId = `ab-qualification-r${rep}`;
+    const result = await runFixedPromptController({
+      runId: input.runId,
+      roundId,
+      config: input.config,
+      systemPromptPath: input.baselinePromptPath,
+      resultsJsonlPath: input.resultsJsonlPath,
+      resultsTsvPath: `${input.resultsJsonlPath}.${roundId}.tsv`,
+      tasks: input.candidateTasks,
+      harborRunner: input.harborRunner,
+      ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
+      ...(input.now ? { now: input.now } : {}),
+      ...(input.newId ? { newId: input.newId } : {}),
+    });
+    runs.push(result.events);
+  }
+
+  const summaries = input.candidateTasks.map((task) => {
+    const arm = summarizeTaskArm(task.id, runs, reps);
+    return {
+      taskId: task.id,
+      passed: arm.passed,
+      valid: arm.valid,
+      budgetExhausted: arm.budgetExhausted,
+      infraFailed: arm.infraFailed,
+      plumbingFailed: arm.plumbingFailed,
+      missing: arm.missing,
+      classification: classifyQualificationTask(arm, reps, minPasses, maxPasses),
+    };
+  });
+  const mediumTaskIds = summaries
+    .filter((summary) => summary.classification === 'medium')
+    .map((summary) => summary.taskId);
+  const selectedTaskIds = mediumTaskIds.slice(0, targetTaskCount);
+  const selected = new Set(selectedTaskIds);
+  const byId = new Map(input.candidateTasks.map((task) => [task.id, task]));
+  return {
+    runId: input.runId,
+    reps,
+    targetTaskCount,
+    candidateTaskCount: input.candidateTasks.length,
+    selectedTaskIds,
+    selectedTasks: selectedTaskIds.map((taskId) => byId.get(taskId)).filter((task): task is FixedPromptTask => task !== undefined),
+    shortage: Math.max(0, targetTaskCount - selectedTaskIds.length),
+    tasks: summaries,
+    rejected: {
+      easyTaskIds: summaries.filter((summary) => summary.classification === 'easy').map((summary) => summary.taskId),
+      hardTaskIds: summaries.filter((summary) => summary.classification === 'hard').map((summary) => summary.taskId),
+      infraOrInvalidTaskIds: summaries.filter((summary) => summary.classification === 'invalid').map((summary) => summary.taskId),
+      overflowTaskIds: mediumTaskIds.filter((taskId) => !selected.has(taskId)),
+    },
+    runs,
   };
 }
 
@@ -477,6 +593,27 @@ function summarizeTaskArm(
     plumbingFailed: observed.filter((event) => event.type === 'task_plumbing_failed').length,
     missing: reps - observed.length,
   };
+}
+
+function classifyQualificationTask(
+  arm: PromptAbTaskArmSummary,
+  reps: number,
+  minPasses: number,
+  maxPasses: number,
+): PromptAbQualifiedTaskSummary['classification'] {
+  if (
+    arm.valid !== reps
+    || arm.budgetExhausted > 0
+    || arm.infraFailed > 0
+    || arm.plumbingFailed > 0
+    || arm.missing > 0
+  ) {
+    return 'invalid';
+  }
+  if (arm.passed >= minPasses && arm.passed <= maxPasses) return 'medium';
+  if (arm.passed === 0) return 'hard';
+  if (arm.passed === reps) return 'easy';
+  return 'invalid';
 }
 
 function summarizeAttemptPairs(

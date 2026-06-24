@@ -16,16 +16,15 @@ import { fileURLToPath } from 'node:url';
 import { BENCHMARK_BASE_SYSTEM_PROMPT } from '@maka/headless';
 import {
   discoverCachedHarborTasks,
-  partitionPromptTasks,
   resolvePromptOptimizationRunRoot,
 } from '#prompt-optimization-run';
 import {
   renderPromptAbComparisonMarkdown,
   runPromptAbComparison,
   runPromptAbConcurrencyCalibration,
+  runPromptAbTaskQualification,
 } from '#prompt-ab-run';
 import {
-  envNonNegativeInt,
   envPositiveInt,
 } from '#prompt-optimization-env';
 import { createHarborTaskRunner } from '#harbor-task-runner';
@@ -45,7 +44,6 @@ function envPath(name, fallback) {
   return value.startsWith('~') ? join(homedir(), value.slice(1)) : resolve(value);
 }
 
-const envInt = (name, fallback) => envNonNegativeInt(name, process.env[name], fallback);
 const envPosInt = (name, fallback) => envPositiveInt(name, process.env[name], fallback);
 
 function envZeroToOne(name, fallback) {
@@ -121,37 +119,38 @@ async function main() {
   const provider = process.env.MAKA_PROMPT_AB_PROVIDER || 'deepseek';
   const baseUrl = process.env.MAKA_PROMPT_AB_BASE_URL || 'https://api.deepseek.com';
   const model = 'deepseek/deepseek-v4-flash';
-  const heldInCount = envInt('MAKA_PROMPT_AB_HELD_IN', 20);
-  const heldOutCount = envInt('MAKA_PROMPT_AB_HELD_OUT', 10);
+  const candidateLimit = envPosInt('MAKA_PROMPT_AB_CANDIDATE_LIMIT', 60);
+  const targetEvaluationTaskCount = envPosInt('MAKA_PROMPT_AB_EVALUATION_TASKS', 30);
+  const qualificationReps = envPosInt('MAKA_PROMPT_AB_QUALIFICATION_REPS', 3);
   const reps = envPosInt('MAKA_PROMPT_AB_REPS', 3);
   const calibrationSamplesPerBucket = envPosInt('MAKA_PROMPT_AB_CALIBRATION_SAMPLES_PER_BUCKET', 1);
   const calibrationReps = envPosInt('MAKA_PROMPT_AB_CALIBRATION_REPS', 1);
-  const calibrationLevels = envLevels('MAKA_PROMPT_AB_CALIBRATION_LEVELS', [1, 2, 4, 8, 12, 16]);
+  const calibrationLevels = envLevels('MAKA_PROMPT_AB_CALIBRATION_LEVELS', [1, 2, 4, 8]);
   const maxInfraFailureRate = envZeroToOne('MAKA_PROMPT_AB_MAX_INFRA_FAILURE_RATE', 0);
   const explicitMaxConcurrency = envPosInt('MAKA_PROMPT_AB_MAX_CONCURRENCY', undefined);
-  const harborTimeoutMs = envPosInt('MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS', undefined);
-  const heldInPassRateNoiseBand = envZeroToOne('MAKA_PROMPT_AB_HELD_IN_NOISE_BAND', undefined);
-  const heldOutPassRateNoiseBand = envZeroToOne('MAKA_PROMPT_AB_HELD_OUT_NOISE_BAND', undefined);
+  const taskBudgetSec = envPosInt('MAKA_PROMPT_AB_TASK_BUDGET_SEC', 600);
+  const harborTimeoutMs = envPosInt('MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS', (taskBudgetSec + 180) * 1000);
 
   await readFile(keyFile, 'utf8');
   const candidatePrompt = await readFile(candidatePromptSourcePath, 'utf8');
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   console.log(`Discovered ${allTasks.length} cached tasks under ${tasksRoot}`);
 
-  const heldInIds = envIds('MAKA_PROMPT_AB_HELD_IN_IDS');
-  const heldOutIds = envIds('MAKA_PROMPT_AB_HELD_OUT_IDS');
-  let heldInTasks;
-  let heldOutTasks;
-  if (heldInIds || heldOutIds) {
-    if (!heldInIds || !heldOutIds) {
-      throw new Error('MAKA_PROMPT_AB_HELD_IN_IDS and MAKA_PROMPT_AB_HELD_OUT_IDS must be set together');
-    }
-    const overlap = heldInIds.filter((id) => heldOutIds.includes(id));
-    if (overlap.length > 0) throw new Error(`held-in and held-out overlap: ${overlap.join(', ')}`);
-    heldInTasks = selectTasksByIds(allTasks, heldInIds);
-    heldOutTasks = selectTasksByIds(allTasks, heldOutIds);
+  const evaluationIds = envIds('MAKA_PROMPT_AB_EVALUATION_IDS');
+  const candidateIds = envIds('MAKA_PROMPT_AB_CANDIDATE_IDS');
+  const candidateTasks = candidateIds
+    ? selectTasksByIds(allTasks, candidateIds)
+    : allTasks.slice(0, candidateLimit);
+  if (candidateTasks.length === 0) {
+    throw new Error('no candidate tasks available for prompt A/B');
+  }
+
+  let evaluationTasks;
+  let qualification = null;
+  if (evaluationIds) {
+    evaluationTasks = selectTasksByIds(allTasks, evaluationIds);
   } else {
-    ({ heldInTasks, heldOutTasks } = partitionPromptTasks(allTasks, { heldInCount, heldOutCount }));
+    evaluationTasks = [];
   }
 
   await mkdir(controllerDir, { recursive: true });
@@ -175,7 +174,7 @@ async function main() {
     provider,
     apiKeyFile: keyFile,
     pricing: DEEPSEEK_V4_FLASH_PRICING,
-    agentEnv: { DEEPSEEK_BASE_URL: baseUrl },
+    agentEnv: { DEEPSEEK_BASE_URL: baseUrl, MAKA_CELL_TIMEOUT_SEC: String(taskBudgetSec) },
     ...(harborTimeoutMs !== undefined ? { harborTimeoutMs } : {}),
   });
   const resultsJsonlPath = join(controllerDir, 'results.jsonl');
@@ -187,7 +186,7 @@ async function main() {
     config,
     systemPromptPath: baselinePromptPath,
     resultsJsonlPath,
-    tasks: [...heldInTasks, ...heldOutTasks],
+    tasks: evaluationTasks.length > 0 ? evaluationTasks : candidateTasks,
     taskDurationsMs,
     samplesPerBucket: calibrationSamplesPerBucket,
     concurrencyLevels: calibrationLevels,
@@ -198,18 +197,40 @@ async function main() {
   const maxConcurrency = explicitMaxConcurrency ?? calibration.recommendedConcurrency;
   console.log(`Recommended concurrency: ${calibration.recommendedConcurrency}; using ${maxConcurrency}`);
 
+  if (!evaluationIds) {
+    console.log(`Qualification: ${candidateTasks.length} candidate tasks, target ${targetEvaluationTaskCount}, reps ${qualificationReps}`);
+    qualification = await runPromptAbTaskQualification({
+      runId,
+      config,
+      baselinePromptPath,
+      resultsJsonlPath,
+      candidateTasks,
+      reps: qualificationReps,
+      targetTaskCount: targetEvaluationTaskCount,
+      maxConcurrency,
+      harborRunner,
+    });
+    evaluationTasks = qualification.selectedTasks;
+    console.log(`Qualified evaluation tasks: ${evaluationTasks.length}/${targetEvaluationTaskCount}`);
+    if (qualification.shortage > 0) {
+      console.log(`Qualification shortage: ${qualification.shortage}; not filling with easy tasks`);
+    }
+  }
+
+  if (evaluationTasks.length === 0) {
+    throw new Error('no evaluation tasks qualified for prompt A/B');
+  }
+
   const summary = await runPromptAbComparison({
     runId,
     config,
     baselinePromptPath,
     candidatePromptPath,
     resultsJsonlPath,
-    heldInTasks,
-    heldOutTasks,
+    evaluationTasks,
     reps,
     maxConcurrency,
-    ...(heldInPassRateNoiseBand !== undefined ? { heldInPassRateNoiseBand } : {}),
-    ...(heldOutPassRateNoiseBand !== undefined ? { heldOutPassRateNoiseBand } : {}),
+    budgetMs: taskBudgetSec * 1000,
     harborRunner,
   });
 
@@ -218,19 +239,51 @@ async function main() {
     runId,
     candidatePromptSourcePath,
     taskDurationsPath,
+    taskBudgetSec,
+    harborTimeoutMs,
     calibration,
+    qualification,
     summary,
   };
   const resultPath = join(runRoot, 'prompt-ab-result.json');
   const reportPath = join(runRoot, 'prompt-ab-report.md');
   await writeFile(resultPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
-  await writeFile(reportPath, renderPromptAbComparisonMarkdown(summary), 'utf8');
+  await writeFile(reportPath, `${renderQualificationMarkdown(qualification)}${renderPromptAbComparisonMarkdown(summary)}`, 'utf8');
 
   console.log('---');
-  console.log(`decision: ${summary.acceptance.decision} (${summary.acceptance.reason})`);
-  console.log(`paired overall: wins=${summary.paired.overall.wins}, losses=${summary.paired.overall.losses}, ties=${summary.paired.overall.ties}`);
+  console.log(`decision: ${summary.decision} (${summary.reason})`);
+  console.log(`task-level: wins=${summary.taskLevel.wins}, losses=${summary.taskLevel.losses}, ties=${summary.taskLevel.ties}`);
   console.log(`result -> ${resultPath}`);
   console.log(`report -> ${reportPath}`);
+}
+
+function renderQualificationMarkdown(qualification) {
+  if (!qualification) {
+    return [
+      '# Prompt A/B Qualification',
+      '',
+      '- Mode: explicit evaluation task IDs',
+      '',
+    ].join('\n');
+  }
+  return [
+    '# Prompt A/B Qualification',
+    '',
+    `- Candidate tasks: ${qualification.candidateTaskCount}`,
+    `- Qualification reps: ${qualification.reps}`,
+    `- Target evaluation tasks: ${qualification.targetTaskCount}`,
+    `- Selected evaluation tasks: ${qualification.selectedTaskIds.length}`,
+    `- Shortage: ${qualification.shortage}`,
+    `- Rejected easy A=3/${qualification.reps}: ${qualification.rejected.easyTaskIds.length}`,
+    `- Rejected hard A=0/${qualification.reps}: ${qualification.rejected.hardTaskIds.length}`,
+    `- Rejected infra/plumbing/timeout/missing: ${qualification.rejected.infraOrInvalidTaskIds.length}`,
+    `- Overflow medium tasks: ${qualification.rejected.overflowTaskIds.length}`,
+    '',
+    '## Selected Tasks',
+    '',
+    ...qualification.selectedTaskIds.map((taskId) => `- ${taskId}`),
+    '',
+  ].join('\n');
 }
 
 main().catch((error) => {

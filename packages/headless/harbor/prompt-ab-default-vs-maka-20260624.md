@@ -2,52 +2,40 @@
 
 Date: 2026-06-24
 
-## Result
+## Status
 
-- Decision: discard (`held_in_within_noise`)
-- Baseline: Maka benchmark baseline prompt (`sha256:507bf4a8325b8f5c5728944089dfc04dbfa8829dc638ee678320ad8cc0932ebc`)
-- Candidate: opencode `default.txt` (`sha256:67609ac94869f523a2f770610e69c6b34be0e415c70c3956bbe79970a2f8da12`)
-- Samples: 8 held-in tasks + 4 held-out tasks, 3 reps each
-- Concurrency calibration: tested 1, 2, and 4; recommended 4
-- Run health: 81 completed task events, 0 infra failures, 0 plumbing failures
-- Total recorded model cost: $0.183818
+The earlier pilot result is superseded. It used an RSI-style held-in/held-out acceptance policy and reported `discard`, which is not the right evaluator for a fixed A/B prompt comparison.
 
-## Metrics
+This PR now treats the run as a pure A/B evaluator:
 
-- Held-in pass/eligible rate: baseline 23/24 = 0.9583, candidate 22/24 = 0.9167, noise band 0.1379
-- Held-out pass/eligible rate: baseline 9/12 = 0.75, candidate 9/12 = 0.75, noise band 0.3135
-- Paired held-in: 1 win, 2 losses, 21 ties, 0 missing
-- Paired held-out: 0 wins, 0 losses, 12 ties, 0 missing
-- Paired overall: 1 win, 2 losses, 33 ties, 0 missing
+- one `evaluationTasks` set, not held-in/held-out partitions;
+- baseline A qualification selects medium tasks where A passes 1/3 or 2/3 reps;
+- formal comparison uses fresh A and B reps, so qualification runs are not reused;
+- primary statistics are task-level deltas, not 90 independent attempt samples;
+- result language is `B better`, `A better`, or `inconclusive`;
+- budget exhaustion is reported separately from infrastructure failures.
 
-## Paired Deltas
+## Formal Run Shape
 
-- Candidate win: `openssl-selfsigned-cert#r2`
-- Candidate losses: `kv-store-grpc#r0`, `kv-store-grpc#r1`
+- Qualification: run A for 3 reps over the candidate pool and select up to 30 medium tasks.
+- Primary A/B: 30 qualified tasks x 3 reps x 2 arms = 180 formal jobs.
+- Execution: A/B arms are interleaved by rep to reduce time-of-day/provider/cache drift.
+- Default task budget: `MAKA_PROMPT_AB_TASK_BUDGET_SEC=600`.
+- Default Harbor watchdog: `MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS=780000`, leaving 3 minutes for Harbor/Docker cleanup after the 10-minute cell budget.
 
-## Task Sample
+## Timeout Limitation
 
-Held-in:
+A 10-minute task budget cannot prove long-horizon prompt gains. If B improves by spending more time exploring, verifying, or repairing, the primary result is only valid as an under-budget comparison. The report must show per-arm timeout counts, and asymmetric timeout rates force an `inconclusive` decision.
 
-- `log-summary-date-ranges`
-- `modernize-scientific-stack`
-- `git-leak-recovery`
-- `fix-git`
-- `kv-store-grpc`
-- `nginx-request-logging`
-- `fix-code-vulnerability`
-- `openssl-selfsigned-cert`
+Long-horizon sensitivity should be run separately on a smaller hard/near-timeout slice with a 20-30 minute budget and 1-2 reps. Those results should not be mixed into the primary medium-task A/B summary.
 
-Held-out:
+## Artifacts
 
-- `portfolio-optimization`
-- `mteb-retrieve`
-- `git-multibranch`
-- `constraints-scheduling`
+The runner writes local artifacts under `MAKA_PROMPT_AB_OUT_DIR/<runId>/`:
 
-## Notes
+- `prompt-ab-result.json`
+- `prompt-ab-report.md`
+- controller WAL and per-round TSVs
+- Harbor jobs, runtime events, and prompt copies
 
-- This is a concrete fixed-prompt A/B run, not an RSI optimization round.
-- The candidate was the opencode `default.txt` prompt copied from a local opencode checkout.
-- The initial broader sample exposed Harbor runtime risk from long Docker cleanup on some tasks, so this committed result uses a bounded, previously completed task sample and a 6-minute per-Harbor-job timeout.
-- Raw controller WAL, job directories, runtime events, and prompt copies were left in local run storage and are intentionally not committed.
+Raw WAL/job/runtime artifacts remain local and are intentionally not committed.
