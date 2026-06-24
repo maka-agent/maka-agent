@@ -182,6 +182,14 @@ export interface PromptAbMetadataFilterResult {
   };
 }
 
+export interface PromptAbCandidateTaskLimitResult {
+  limit: number | null;
+  inputTaskCount: number;
+  selectedTaskIds: string[];
+  selectedTasks: FixedPromptTask[];
+  truncatedTaskIds: string[];
+}
+
 export interface RunPromptAbTaskQualificationInput {
   runId: string;
   config: Config;
@@ -279,6 +287,20 @@ export function filterPromptAbCandidateTasksByMetadata(
       longExpertEstimateTaskIds,
       missingExpertEstimateTaskIds,
     },
+  };
+}
+
+export function limitPromptAbCandidateTasks(
+  tasks: readonly FixedPromptTask[],
+  limit: number | undefined,
+): PromptAbCandidateTaskLimitResult {
+  const selectedTasks = limit === undefined ? [...tasks] : tasks.slice(0, limit);
+  return {
+    limit: limit ?? null,
+    inputTaskCount: tasks.length,
+    selectedTaskIds: selectedTasks.map((task) => task.id),
+    selectedTasks,
+    truncatedTaskIds: tasks.slice(selectedTasks.length).map((task) => task.id),
   };
 }
 

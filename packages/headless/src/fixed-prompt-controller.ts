@@ -686,7 +686,7 @@ function roundTaskEvents(
 
 function eventMatchesPrompt(event: FixedPromptTaskWalEvent, expectedPromptHash: string): boolean {
   if (event.type === 'task_infra_failed') return true;
-  if (event.type === 'task_budget_exhausted') return event.expectedPromptHash === expectedPromptHash;
+  if (event.type === 'task_budget_exhausted') return false;
   if (event.promptHash === expectedPromptHash) return true;
   return event.type === 'task_plumbing_failed' && event.expectedPromptHash === expectedPromptHash;
 }

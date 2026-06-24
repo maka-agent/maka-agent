@@ -338,7 +338,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('reruns budget-exhausted WAL events whose prompt hash is stale', async () => {
+  test('reruns budget-exhausted WAL events instead of reusing a timeout', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
@@ -359,7 +359,6 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      await writeFile(systemPromptPath, 'new fixed prompt\n', 'utf8');
       const calls: string[] = [];
       const result = await runFixedPromptController({
         runId: 'run-1',
@@ -371,7 +370,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         harborRunner: async ({ task }) => {
           calls.push(task.id);
-          return harborOutput({ taskId: task.id, promptHash: hashSystemPrompt('new fixed prompt\n') });
+          return harborOutput({ taskId: task.id });
         },
         now: () => 200,
         newId: idFactory(),
@@ -379,7 +378,7 @@ describe('fixed prompt controller', () => {
 
       assert.deepEqual(calls, ['task-a']);
       assert.equal(result.events[0]?.type, 'task_completed');
-      assert.equal(result.events[0]?.promptHash, hashSystemPrompt('new fixed prompt\n'));
+      assert.equal(result.events[0]?.promptHash, hashSystemPrompt('fixed prompt\n'));
       assert.equal((await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').length, 2);
     });
   });

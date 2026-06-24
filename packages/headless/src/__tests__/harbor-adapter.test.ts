@@ -112,6 +112,7 @@ describe('Harbor adapter contract', () => {
   test('run-prompt-ab.mjs wires calibration and A/B comparison with a key file', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-prompt-ab.mjs');
     assert.match(source, /filterPromptAbCandidateTasksByMetadata/);
+    assert.match(source, /limitPromptAbCandidateTasks/);
     assert.match(source, /runPromptAbConcurrencyCalibration/);
     assert.match(source, /runPromptAbTaskQualification/);
     assert.match(source, /runPromptAbComparison/);
@@ -128,6 +129,7 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /MAKA_PROMPT_AB_CANDIDATE_ID/);
     assert.match(source, /candidatePromptId/);
     assert.match(source, /const targetEvaluationTaskCount = envPosInt\('MAKA_PROMPT_AB_EVALUATION_TASKS', undefined\);/);
+    assert.match(source, /const candidateLimit = envPosInt\('MAKA_PROMPT_AB_CANDIDATE_LIMIT', undefined\);/);
     assert.match(source, /const useQualification = envBool\('MAKA_PROMPT_AB_USE_QUALIFICATION', false\);/);
     assert.match(source, /const taskBudgetSec = envPosInt\('MAKA_PROMPT_AB_TASK_BUDGET_SEC', 30 \* 60\);/);
     assert.match(source, /const harborTimeoutMs = envPosInt\('MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS', \(taskBudgetSec \+ 300\) \* 1000\);/);

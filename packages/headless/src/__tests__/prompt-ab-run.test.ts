@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import {
   planPromptAbConcurrencyCalibration,
+  limitPromptAbCandidateTasks,
   renderPromptAbComparisonMarkdown,
   runPromptAbComparison,
   runPromptAbConcurrencyCalibration,
@@ -171,6 +172,26 @@ describe('filterPromptAbCandidateTasksByMetadata', () => {
     assert.deepEqual(result.selectedTaskIds, ['short']);
     assert.deepEqual(result.rejected.longExpertEstimateTaskIds, ['long']);
     assert.deepEqual(result.rejected.missingExpertEstimateTaskIds, ['unknown']);
+  });
+});
+
+describe('limitPromptAbCandidateTasks', () => {
+  test('keeps every metadata-filtered task unless a limit is explicit', () => {
+    const tasks: FixedPromptTask[] = Array.from({ length: 61 }, (_, index) => ({
+      id: `task-${index}`,
+      path: `/tasks/task-${index}`,
+    }));
+
+    const unlimited = limitPromptAbCandidateTasks(tasks, undefined);
+    assert.equal(unlimited.limit, null);
+    assert.equal(unlimited.inputTaskCount, 61);
+    assert.equal(unlimited.selectedTasks.length, 61);
+    assert.deepEqual(unlimited.truncatedTaskIds, []);
+
+    const limited = limitPromptAbCandidateTasks(tasks, 60);
+    assert.equal(limited.limit, 60);
+    assert.equal(limited.selectedTasks.length, 60);
+    assert.deepEqual(limited.truncatedTaskIds, ['task-60']);
   });
 });
 

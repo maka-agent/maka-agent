@@ -19,6 +19,7 @@ import {
 } from '#fixed-prompt-task-source';
 import {
   filterPromptAbCandidateTasksByMetadata,
+  limitPromptAbCandidateTasks,
   renderPromptAbComparisonMarkdown,
   runPromptAbComparison,
   runPromptAbConcurrencyCalibration,
@@ -133,7 +134,7 @@ async function main() {
   const provider = process.env.MAKA_PROMPT_AB_PROVIDER || 'deepseek';
   const baseUrl = process.env.MAKA_PROMPT_AB_BASE_URL || 'https://api.deepseek.com';
   const model = 'deepseek/deepseek-v4-flash';
-  const candidateLimit = envPosInt('MAKA_PROMPT_AB_CANDIDATE_LIMIT', 60);
+  const candidateLimit = envPosInt('MAKA_PROMPT_AB_CANDIDATE_LIMIT', undefined);
   const maxExpertTimeEstimateMin = envPosInt('MAKA_PROMPT_AB_MAX_EXPERT_MIN', 30);
   const targetEvaluationTaskCount = envPosInt('MAKA_PROMPT_AB_EVALUATION_TASKS', undefined);
   const useQualification = envBool('MAKA_PROMPT_AB_USE_QUALIFICATION', false);
@@ -158,13 +159,15 @@ async function main() {
     ? selectTasksByIds(allTasks, candidateIds)
     : allTasks;
   let metadataFilter = null;
-  let candidateTasks = discoveredCandidateTasks.slice(0, candidateLimit);
+  let candidateTaskLimit = null;
+  let candidateTasks = discoveredCandidateTasks;
   if (!evaluationIds) {
     metadataFilter = filterPromptAbCandidateTasksByMetadata({
       tasks: discoveredCandidateTasks,
       maxExpertTimeEstimateMin,
     });
-    candidateTasks = metadataFilter.selectedTasks.slice(0, candidateLimit);
+    candidateTaskLimit = limitPromptAbCandidateTasks(metadataFilter.selectedTasks, candidateLimit);
+    candidateTasks = candidateTaskLimit.selectedTasks;
   }
   if (!evaluationIds && candidateTasks.length === 0) {
     throw new Error('no candidate tasks available for prompt A/B');
@@ -283,6 +286,7 @@ async function main() {
     useQualification,
     targetEvaluationTaskCount: targetEvaluationTaskCount ?? null,
     metadataFilter,
+    candidateTaskLimit,
     calibration,
     qualification,
     summary,
@@ -290,7 +294,7 @@ async function main() {
   const resultPath = join(runRoot, 'prompt-ab-result.json');
   const reportPath = join(runRoot, 'prompt-ab-report.md');
   await writeFile(resultPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
-  await writeFile(reportPath, `${renderMetadataFilterMarkdown(metadataFilter)}${renderQualificationMarkdown(qualification)}${renderPromptAbComparisonMarkdown(summary)}`, 'utf8');
+  await writeFile(reportPath, `${renderMetadataFilterMarkdown(metadataFilter)}${renderCandidateLimitMarkdown(candidateTaskLimit)}${renderQualificationMarkdown(qualification)}${renderPromptAbComparisonMarkdown(summary)}`, 'utf8');
 
   console.log('---');
   console.log(`decision: ${summary.decision} (${summary.reason})`);
@@ -316,6 +320,26 @@ function renderMetadataFilterMarkdown(metadataFilter) {
     `- Candidate tasks after metadata filter: ${metadataFilter.selectedTaskIds.length}`,
     `- Rejected long expert estimate: ${metadataFilter.rejected.longExpertEstimateTaskIds.length}`,
     `- Rejected missing expert estimate: ${metadataFilter.rejected.missingExpertEstimateTaskIds.length}`,
+    '',
+  ].join('\n');
+}
+
+function renderCandidateLimitMarkdown(candidateTaskLimit) {
+  if (!candidateTaskLimit) {
+    return [
+      '# Prompt A/B Candidate Limit',
+      '',
+      '- Mode: skipped; explicit evaluation task IDs were used',
+      '',
+    ].join('\n');
+  }
+  return [
+    '# Prompt A/B Candidate Limit',
+    '',
+    `- Limit: ${candidateTaskLimit.limit ?? 'none'}`,
+    `- Candidate tasks before limit: ${candidateTaskLimit.inputTaskCount}`,
+    `- Candidate tasks after limit: ${candidateTaskLimit.selectedTaskIds.length}`,
+    `- Truncated tasks: ${candidateTaskLimit.truncatedTaskIds.length}`,
     '',
   ].join('\n');
 }
