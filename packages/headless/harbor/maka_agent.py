@@ -22,6 +22,35 @@ from harbor.utils.trajectory_utils import format_trajectory_json
 from trial_pricing import estimate_cost, pricing_from_env
 
 
+_HOST_NODE_ENV_ALLOWLIST = {
+    "PATH",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "NODE_USE_ENV_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+}
+
+
+def _host_node_process_env(cell_env: dict[str, str]) -> dict[str, str]:
+    env = {key: value for key in _HOST_NODE_ENV_ALLOWLIST if (value := os.environ.get(key))}
+    env.update(cell_env)
+    return env
+
+
 class MakaAgent(BaseInstalledAgent):
     """Run Maka inside the Harbor task container and expose the shared cell output."""
 
@@ -196,7 +225,7 @@ class MakaAgent(BaseInstalledAgent):
                 "node",
                 self._run_host_cell_path(),
                 cwd=self._get_env("MAKA_HOST_REPO_ROOT") or os.getcwd(),
-                env={**os.environ, **env},
+                env=_host_node_process_env(env),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
