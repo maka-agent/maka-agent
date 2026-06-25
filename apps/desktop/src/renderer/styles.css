@@ -4396,11 +4396,6 @@ button:active {
   flex: 0 0 auto;
 }
 
-.maka-chat-header .modePill {
-  margin-bottom: 3px;
-  -webkit-app-region: no-drag;
-}
-
 .maka-model-switcher {
   display: inline-flex;
   align-items: center;
