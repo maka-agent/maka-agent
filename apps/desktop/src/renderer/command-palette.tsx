@@ -628,7 +628,7 @@ export function CommandPalette(props: {
 
   useEffect(() => {
     // Reset highlight whenever the result set changes.
-    setHighlight((current) => Math.min(current, Math.max(0, combined.length - 1)));
+    setHighlight(0);
   }, [combined]);
 
   const grouped = useMemo(() => groupCommands(combined), [combined]);

@@ -149,6 +149,22 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(rowBlock, /data-pending=\{commandCommitPending \? 'true' : undefined\}/);
   });
 
+  it('resets active command to the first result when the result set changes', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const highlightEffect = src.match(/useEffect\(\(\) => \{[\s\S]*?Reset highlight whenever the result set changes\.[\s\S]*?\}, \[combined\]\);/)?.[0] ?? '';
+
+    assert.match(
+      highlightEffect,
+      /setHighlight\(0\);/,
+      'CommandPalette must reset highlight to the first new result after filtering/search results change',
+    );
+    assert.doesNotMatch(
+      highlightEffect,
+      /Math\.min\(current,\s*Math\.max\(0,\s*combined\.length - 1\)\)/,
+      'CommandPalette must not preserve a stale lower-row highlight across a new result set',
+    );
+  });
+
   it('scrubs thrown command action failures before toast', async () => {
     const main = await readRepo('apps/desktop/src/renderer/main.tsx');
     const commandPaletteBlock = main.match(/commands=\{buildCommandList\(\{[\s\S]*?\n\s*\}\)\}/)?.[0] ?? '';
