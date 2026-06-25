@@ -524,11 +524,13 @@ function WeChatScanLoginModal(props: {
           scanLoginConfirmingRef.current = true;
           setStatus('confirmed');
           await props.onConfirmed(result.data.credentials);
+          scanLoginConfirmingRef.current = false;
         } else if (result.data.status === 'expired') {
           setStatus('expired');
         }
       } catch (error) {
         if (cancelled || !scanLoginMountedRef.current) return;
+        scanLoginConfirmingRef.current = false;
         setStatus('error');
         setErrorMessage(settingsActionErrorMessage(error));
       } finally {

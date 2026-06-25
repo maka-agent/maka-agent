@@ -271,8 +271,13 @@ describe('Bot settings UI contract', () => {
     );
     assert.match(
       settings,
-      /if \(cancelled \|\| !scanLoginMountedRef\.current\) return;[\s\S]*if \(result\.data\.status === 'confirmed'\) \{[\s\S]*scanLoginConfirmingRef\.current = true;[\s\S]*setStatus\('confirmed'\);[\s\S]*await props\.onConfirmed\(result\.data\.credentials\);/,
+      /if \(cancelled \|\| !scanLoginMountedRef\.current\) return;[\s\S]*if \(result\.data\.status === 'confirmed'\) \{[\s\S]*scanLoginConfirmingRef\.current = true;[\s\S]*setStatus\('confirmed'\);[\s\S]*await props\.onConfirmed\(result\.data\.credentials\);[\s\S]*scanLoginConfirmingRef\.current = false;/,
       'Direct WeChat scan-login confirmation must be owned and must not continue from a stale poll',
+    );
+    assert.match(
+      settings,
+      /catch \(error\) \{[\s\S]*if \(cancelled \|\| !scanLoginMountedRef\.current\) return;[\s\S]*scanLoginConfirmingRef\.current = false;[\s\S]*setStatus\('error'\);[\s\S]*setErrorMessage\(settingsActionErrorMessage\(error\)\);/,
+      'Direct WeChat scan-login confirmation failures must release confirmation ownership so refreshed QR polling can resume',
     );
     assert.match(
       settings,
