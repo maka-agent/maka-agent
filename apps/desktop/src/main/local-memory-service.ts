@@ -423,8 +423,9 @@ export class LocalMemoryService {
         if (!backupStat.isFile()) {
           throw new Error('MEMORY.md backup is not a file.');
         }
-        await this.backup('restore.bak');
-        await copyFile(backup, this.file);
+        const backupContent = await readFile(backup);
+        await this.backupRestoreUndo();
+        await writeFile(this.file, backupContent, { mode: 0o600 });
         await chmod(this.file, 0o600);
       });
       this.recordPromptUpdate('backup_restored');
@@ -721,6 +722,22 @@ export class LocalMemoryService {
     } catch {
       // No prior file to back up.
     }
+  }
+
+  private async backupRestoreUndo(): Promise<void> {
+    await this.rotateRestoreBackupHistory();
+    await this.backup('restore.bak');
+  }
+
+  private async rotateRestoreBackupHistory(): Promise<void> {
+    const maxRestoreHistory = 5;
+    for (let index = maxRestoreHistory - 1; index >= 1; index -= 1) {
+      await rename(
+        `${this.file}.restore.${index}.bak`,
+        `${this.file}.restore.${index + 1}.bak`,
+      ).catch(() => {});
+    }
+    await rename(`${this.file}.restore.bak`, `${this.file}.restore.1.bak`).catch(() => {});
   }
 
   private async enqueue<T>(task: () => Promise<T>): Promise<T> {

@@ -182,6 +182,73 @@ describe('LocalMemoryService', () => {
     if (restoreBackup.ok) assert.match(restoreBackup.path, /MEMORY\.md\.restore\.bak$/);
   });
 
+  it('keeps the previous restore undo when restoring twice', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## First',
+      '<!-- maka-memory: id=first origin=manual createdAt=1700000000000 -->',
+      '第一版。',
+      '',
+    ].join('\n'));
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## Second',
+      '<!-- maka-memory: id=second origin=manual createdAt=1700000000001 -->',
+      '第二版。',
+      '',
+    ].join('\n'));
+
+    const firstRestore = await service.restoreBackup('save');
+    assert.equal(firstRestore.ok, true);
+    assert.match(await readFile(`${service.file}.restore.bak`, 'utf8'), /第二版/);
+
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## Third',
+      '<!-- maka-memory: id=third origin=manual createdAt=1700000000002 -->',
+      '第三版。',
+      '',
+    ].join('\n'));
+    const secondRestore = await service.restoreBackup('save');
+
+    assert.equal(secondRestore.ok, true);
+    assert.match(await readFile(`${service.file}.restore.bak`, 'utf8'), /第三版/);
+    assert.match(await readFile(`${service.file}.restore.1.bak`, 'utf8'), /第二版/);
+  });
+
+  it('can restore the restore backup without overwriting the selected backup first', async () => {
+    const { service } = await makeService(1_700_000_000_000)();
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## First',
+      '<!-- maka-memory: id=first origin=manual createdAt=1700000000000 -->',
+      '第一版。',
+      '',
+    ].join('\n'));
+    await service.save([
+      '# Maka Memory',
+      '',
+      '## Second',
+      '<!-- maka-memory: id=second origin=manual createdAt=1700000000001 -->',
+      '第二版。',
+      '',
+    ].join('\n'));
+    const firstRestore = await service.restoreBackup('save');
+    assert.equal(firstRestore.ok, true);
+
+    const undoRestore = await service.restoreBackup('restore');
+
+    assert.equal(undoRestore.ok, true);
+    assert.match(undoRestore.state.content, /第二版/);
+    assert.doesNotMatch(undoRestore.state.content, /第一版/);
+    assert.match(await readFile(`${service.file}.restore.1.bak`, 'utf8'), /第二版/);
+  });
+
   it('surfaces reset backup metadata so restore is visible before click', async () => {
     const { service } = await makeService(1_700_000_000_000)();
     await service.save([
