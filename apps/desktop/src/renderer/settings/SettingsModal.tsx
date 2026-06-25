@@ -82,6 +82,8 @@ import {
 import { BOT_PROVIDERS, MAX_ALLOWED_USER_IDS, createDefaultSettings, parseAllowedUserIdsFromText } from '@maka/core/settings';
 import { CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS, PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import {
+  Alert,
+  AlertDescription,
   Button,
   DialogContent,
   DialogRoot,
@@ -1669,9 +1671,9 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
       </div>
 
       {loadError ? (
-        <div className="settingsAlert" role="alert" style={{ marginTop: 12 }}>
-          读取每日回顾设置失败：{loadError}
-        </div>
+        <Alert variant="error" style={{ marginTop: 12 }}>
+          <AlertDescription>读取每日回顾设置失败：{loadError}</AlertDescription>
+        </Alert>
       ) : null}
 
       <div className="settingsRows">
