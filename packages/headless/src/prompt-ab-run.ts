@@ -3,10 +3,13 @@ import {
   type FixedPromptTask,
   type FixedPromptTaskWalEvent,
 } from './fixed-prompt-controller.js';
+import { renderAbComparisonMarkdown } from './ab-render.js';
 import { runAbComparison } from './ab-run.js';
+import { summarizeAbComparison } from './ab-summary.js';
 import type {
   PromptAbComparisonSummary,
   RunPromptAbComparisonInput,
+  SummarizePromptAbComparisonInput,
 } from './prompt-ab-types.js';
 
 export type * from './ab-types.js';
@@ -29,15 +32,9 @@ export {
   ensurePromptAbRunManifest,
 } from './prompt-ab-manifest.js';
 export {
-  renderPromptAbComparisonMarkdown,
-} from './prompt-ab-render.js';
-export {
   filterPromptAbCandidateTasksByMetadata,
   limitPromptAbCandidateTasks,
 } from './prompt-ab-selection.js';
-export {
-  summarizePromptAbComparison,
-} from './prompt-ab-summary.js';
 
 export async function runPromptAbComparison(input: RunPromptAbComparisonInput): Promise<PromptAbComparisonSummary> {
   const candidatePromptId = input.candidatePromptId ?? 'candidate';
@@ -73,6 +70,31 @@ export async function runPromptAbComparison(input: RunPromptAbComparisonInput): 
     candidatePromptId: input.candidatePromptId ?? 'candidate',
     candidateArmId: candidatePromptId,
   };
+}
+
+export function summarizePromptAbComparison(input: SummarizePromptAbComparisonInput): PromptAbComparisonSummary {
+  return {
+    ...summarizeAbComparison({
+      runId: input.runId,
+      roundId: input.roundId,
+      baselineArmId: input.baselinePromptId,
+      candidateArmId: input.candidatePromptId,
+      evaluationTaskIds: input.evaluationTaskIds,
+      baselineRuns: input.baselineRuns,
+      candidateRuns: input.candidateRuns,
+      ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
+    }),
+    baselinePromptId: input.baselinePromptId,
+    candidatePromptId: input.candidatePromptId,
+  };
+}
+
+export function renderPromptAbComparisonMarkdown(summary: PromptAbComparisonSummary): string {
+  return renderAbComparisonMarkdown({
+    ...summary,
+    baselineArmId: summary.baselinePromptId,
+    candidateArmId: summary.candidatePromptId,
+  }).replace('# A/B Comparison', '# Prompt A/B Comparison');
 }
 
 async function runComparisonTaskArm(input: {
