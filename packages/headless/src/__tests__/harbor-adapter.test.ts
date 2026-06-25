@@ -71,7 +71,7 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /host\.docker\.internal/);
   });
 
-  test('headless Harbor text files do not contain hidden Unicode controls', async () => {
+  test('headless Harbor text files do not contain hidden or unexpected control characters', async () => {
     const hiddenUnicode = /[\u202A-\u202E\u2066-\u2069\u200B\u200C\u200D\uFEFF]/u;
     const files = [
       'packages/headless/harbor/maka-improved-prompt-v1.txt',
@@ -83,7 +83,10 @@ describe('Harbor adapter contract', () => {
     ];
 
     for (const file of files) {
-      assert.doesNotMatch(await readRepoFile(file), hiddenUnicode, file);
+      const content = await readRepoFile(file);
+      assert.doesNotMatch(content, hiddenUnicode, file);
+      assert.doesNotMatch(content, /\r/u, `${file} must use LF line endings`);
+      assert.doesNotMatch(content, /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u, `${file} must not contain non-tab/non-LF control characters`);
     }
   });
 
