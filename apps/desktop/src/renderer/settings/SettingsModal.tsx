@@ -1476,22 +1476,15 @@ function buildDailyReviewModelOptions(
   const options: Array<readonly [string, string]> = [
     [
       DAILY_REVIEW_DEFAULT_MODEL_VALUE,
-      defaultConnection
-        ? `使用对话默认模型（${defaultConnection.name} · ${defaultConnection.defaultModel || '默认模型'}）`
-        : '使用对话默认模型',
+      defaultConnection?.defaultModel
+        ? `对话默认（${defaultConnection.defaultModel}）`
+        : '对话默认',
     ],
   ];
   const seenKeys = new Set<string>();
   for (const connection of connections) {
+    if (!connection.enabled) continue;
     const defaults = PROVIDER_DEFAULTS[connection.providerType];
-    if (!connection.enabled || defaults.backendKind !== 'ai-sdk') continue;
-    if (
-      defaults.authKind === 'oauth_token' &&
-      connection.providerType !== 'claude-subscription' &&
-      connection.providerType !== 'codex-subscription'
-    ) {
-      continue;
-    }
     const rawModels = connection.models?.length
       ? connection.models.map((model) => model.id)
       : connection.defaultModel
@@ -1506,7 +1499,7 @@ function buildDailyReviewModelOptions(
       const key = `${connection.slug}::${model}`;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      options.push([key, `${connection.name} · ${model}`]);
+      options.push([key, model]);
     }
   }
   const trimmedCurrent = currentModelKey.trim();
@@ -1515,7 +1508,8 @@ function buildDailyReviewModelOptions(
     trimmedCurrent !== DAILY_REVIEW_DEFAULT_MODEL_VALUE &&
     !options.some(([value]) => value === trimmedCurrent)
   ) {
-    options.push([trimmedCurrent, `当前自定义模型：${trimmedCurrent}`]);
+    const tail = trimmedCurrent.split('::').pop() || trimmedCurrent;
+    options.push([trimmedCurrent, tail]);
   }
   return options;
 }
@@ -1662,13 +1656,14 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
             生成的对话摘要 / 遗漏提醒等回顾内容。
           </p>
           {props.onOpenDailyReview && (
-            <Button
-              type="button"
-              onClick={props.onOpenDailyReview}
-              style={{ marginTop: 8 }}
-            >
-              打开每日回顾
-            </Button>
+            <div className="settingsFeatureStatusHeroActions">
+              <Button
+                type="button"
+                onClick={props.onOpenDailyReview}
+              >
+                打开每日回顾
+              </Button>
+            </div>
           )}
         </div>
       </div>

@@ -7429,6 +7429,17 @@ button:active {
   margin: 0;
 }
 
+.settingsFeatureStatusHeroActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.settingsRow > .settingsTimeInput {
+  max-width: 140px;
+  justify-self: end;
+}
+
 .settingsFeatureStatusBadge {
   display: inline-flex;
   align-items: center;
