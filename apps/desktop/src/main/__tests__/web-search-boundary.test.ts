@@ -146,7 +146,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /if \(!webSearchMountedRef\.current\) return;[\s\S]*if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*void persistCredentialStatus\('valid', queriedCredentialVersion\);[\s\S]*\} else \{/,
+      /if \(!isCurrentLiveQuery\(queryOwner\)\) return;[\s\S]*if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);[\s\S]*void persistCredentialStatus\('valid', queriedCredentialVersion\);[\s\S]*\} else \{/,
       'Successful live query results must render even if credential-status persistence later fails',
     );
     assert.doesNotMatch(
@@ -165,6 +165,17 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.match(page![0], /const pendingCredentialActionRef = useRef<'save' \| 'clear' \| null>\(null\)/);
     assert.match(page![0], /const testingRef = useRef\(false\)/);
     assert.match(page![0], /const liveQueryRunningRef = useRef\(false\)/);
+    assert.match(page![0], /const liveQueryInputRef = useRef\(liveQuery\)/);
+    assert.match(
+      page![0],
+      /function updateLiveQuery\(next: string\) \{[\s\S]*liveQueryInputRef\.current = next;[\s\S]*setLiveQuery\(next\);[\s\S]*setLiveQueryError\(null\);[\s\S]*setLiveQueryResults\(null\);[\s\S]*\}/,
+      'Changing the live-query input must immediately invalidate stale result/error rows.',
+    );
+    assert.match(
+      page![0],
+      /function isCurrentLiveQuery\(queryOwner: string\): boolean \{[\s\S]*return webSearchMountedRef\.current && liveQueryInputRef\.current === queryOwner;[\s\S]*\}/,
+      'Live-query continuations must be owned by the exact submitted query string.',
+    );
     assert.match(
       page![0],
       /async function runCredentialAction\([\s\S]*if \(pendingCredentialActionRef\.current !== null \|\| testingRef\.current\) return;[\s\S]*pendingCredentialActionRef\.current = action;[\s\S]*setPendingCredentialAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingCredentialActionRef\.current = null;[\s\S]*setPendingCredentialAction\(null\);/,
@@ -179,7 +190,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /if \(liveQueryRunningRef\.current\) return;[\s\S]*liveQueryRunningRef\.current = true;[\s\S]*setLiveQueryRunning\(true\);[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*setLiveQueryRunning\(false\);/,
+      /if \(liveQueryRunningRef\.current\) return;[\s\S]*const queryOwner = liveQueryInputRef\.current;[\s\S]*liveQueryRunningRef\.current = true;[\s\S]*setLiveQueryRunning\(true\);[\s\S]*liveQueryRunningRef\.current = false;[\s\S]*setLiveQueryRunning\(false\);/,
       'Live query verification must have a ref-backed duplicate-submit guard.',
     );
     assert.match(page![0], /const credentialActionBusy = pendingCredentialAction !== null \|\| testing/);
@@ -188,6 +199,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.match(page![0], /pendingCredentialAction === 'save' \? '保存中…' : '保存密钥'/);
     assert.match(page![0], /disabled=\{credentialActionBusy \|\| \(draftKey\.length === 0 && !hasUsableKey\)\}/);
     assert.match(page![0], /disabled=\{credentialActionBusy\}[\s\S]*pendingCredentialAction === 'clear' \? '清空中…' : '清空密钥'/);
+    assert.match(page![0], /onChange=\{\(event\) => updateLiveQuery\(event\.currentTarget\.value\)\}/);
   });
 
   it('Settings web-search async actions stop writing component state after unmount', async () => {
@@ -227,13 +239,13 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(
       page![0],
-      /const result = await window\.maka\.webSearch\.query\([\s\S]*if \(!webSearchMountedRef\.current\) return;[\s\S]*if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);/,
-      'Live-query success must not set results after unmount',
+      /const result = await window\.maka\.webSearch\.query\([\s\S]*if \(!isCurrentLiveQuery\(queryOwner\)\) return;[\s\S]*if \(result\.ok\) \{[\s\S]*setLiveQueryResults\(result\.results\);/,
+      'Live-query success must not set results after unmount or after the query input changed',
     );
     assert.match(
       page![0],
-      /if \(webSearchMountedRef\.current\) \{[\s\S]*setLiveQueryError\(settingsActionErrorMessage\(err\)\);[\s\S]*\}/,
-      'Live-query thrown errors must not set inline error state after unmount',
+      /if \(isCurrentLiveQuery\(queryOwner\)\) \{[\s\S]*setLiveQueryError\(settingsActionErrorMessage\(err\)\);[\s\S]*\}/,
+      'Live-query thrown errors must not set inline error state after unmount or after the query input changed',
     );
     assert.match(
       page![0],

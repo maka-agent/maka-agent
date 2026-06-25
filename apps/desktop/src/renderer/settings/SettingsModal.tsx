@@ -2878,6 +2878,7 @@ function WebSearchSettingsPage(props: {
   const pendingCredentialActionRef = useRef<'save' | 'clear' | null>(null);
   const testingRef = useRef(false);
   const liveQueryRunningRef = useRef(false);
+  const liveQueryInputRef = useRef(liveQuery);
   const toast = useToast();
 
   useEffect(() => {
@@ -2889,6 +2890,17 @@ function WebSearchSettingsPage(props: {
       liveQueryRunningRef.current = false;
     };
   }, []);
+
+  function updateLiveQuery(next: string) {
+    liveQueryInputRef.current = next;
+    setLiveQuery(next);
+    setLiveQueryError(null);
+    setLiveQueryResults(null);
+  }
+
+  function isCurrentLiveQuery(queryOwner: string): boolean {
+    return webSearchMountedRef.current && liveQueryInputRef.current === queryOwner;
+  }
 
   async function runCredentialAction(action: 'save' | 'clear', run: () => Promise<void>) {
     if (pendingCredentialActionRef.current !== null || testingRef.current) return;
@@ -2993,7 +3005,8 @@ function WebSearchSettingsPage(props: {
 
   async function runLiveQuery() {
     if (liveQueryRunningRef.current) return;
-    const trimmed = liveQuery.trim();
+    const queryOwner = liveQueryInputRef.current;
+    const trimmed = queryOwner.trim();
     if (trimmed.length === 0) return;
     liveQueryRunningRef.current = true;
     setLiveQueryRunning(true);
@@ -3006,7 +3019,7 @@ function WebSearchSettingsPage(props: {
         query: trimmed,
         limit: 5,
       });
-      if (!webSearchMountedRef.current) return;
+      if (!isCurrentLiveQuery(queryOwner)) return;
       if (result.ok) {
         setLiveQueryResults(result.results);
         if (hasUsableKey) {
@@ -3019,7 +3032,7 @@ function WebSearchSettingsPage(props: {
         }
       }
     } catch (err) {
-      if (webSearchMountedRef.current) {
+      if (isCurrentLiveQuery(queryOwner)) {
         setLiveQueryError(settingsActionErrorMessage(err));
       }
     } finally {
@@ -3144,7 +3157,7 @@ function WebSearchSettingsPage(props: {
           </div>
           <Input
             value={liveQuery}
-            onChange={(event) => setLiveQuery(event.currentTarget.value)}
+            onChange={(event) => updateLiveQuery(event.currentTarget.value)}
             placeholder="例如：本周 AI 产品发布动态"
             aria-label="联网搜索真实查询"
             onKeyDown={(event) => {
