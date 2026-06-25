@@ -9373,14 +9373,6 @@ button:active {
   line-height: 1.4;
 }
 
-.providerCatalog {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 12px;
-  overflow: hidden;
-}
-
 .catalogTabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9807,8 +9799,7 @@ button:active {
   flex-wrap: wrap;
 }
 
-.providerError,
-.connectionStatus[data-ok="false"] {
+.providerError {
   color: var(--destructive-text);
 }
 

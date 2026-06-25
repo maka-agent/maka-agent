@@ -10,6 +10,7 @@ describe('renderer style pruning contract', () => {
   it('does not keep CSS for retired renderer hooks', async () => {
     const styles = await readFile(STYLES_PATH, 'utf8');
     const retiredHooks = [
+      'connectionStatus',
       'maka-indeterminate-bar',
       'maka-nav-disclosure',
       'maka-nav-primary',
@@ -21,6 +22,7 @@ describe('renderer style pruning contract', () => {
       'maka-sidebar-brand',
       'maka-skill-workbench-rail',
       'maka-streaming-token-fade-in',
+      'providerCatalog',
       'settingsCardProviders',
       'settingsFeatureStatusHeroActions',
       'settingsHeader',
