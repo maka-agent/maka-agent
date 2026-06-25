@@ -85,7 +85,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.ok(reloadMatch, 'ProvidersPanel reload() must exist');
     assert.match(
       panel,
-      /const providersPanelMountedRef = useRef\(false\);[\s\S]*const providersReloadTicketRef = useRef\(0\);/,
+      /const providersPanelMountedRef = useRef\(false\);[\s\S]*const providersReloadTicketRef = useRef\(0\);[\s\S]*const providerSheetLifecycleRef = useRef\(0\);/,
       'ProvidersPanel reloads must track mounted state and latest request ownership',
     );
     assert.match(
@@ -110,8 +110,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       src,
-      /onCreated=\{async \(slug\) => \{[\s\S]*const reloaded = await reload\(\);[\s\S]*if \(!reloaded \|\| !providersPanelMountedRef\.current\) return;[\s\S]*setSelectedSlug\(slug\);[\s\S]*setAddingType\(null\);/,
-      'AddProviderForm completion must not select/close a stale sheet after ProvidersPanel unmounts',
+      /function closeProviderConfigSheet\(\) \{[\s\S]*providerSheetLifecycleRef\.current \+= 1;[\s\S]*setAddingType\(null\);[\s\S]*setSelectedSlug\(null\);[\s\S]*\}/,
+      'closing a provider config sheet must invalidate pending sheet-scoped continuations',
+    );
+    assert.match(
+      src,
+      /onCreated=\{async \(slug\) => \{[\s\S]*const providerSheetLifecycle = providerSheetLifecycleRef\.current;[\s\S]*const reloaded = await reload\(\);[\s\S]*providerSheetLifecycleRef\.current !== providerSheetLifecycle[\s\S]*\) return;[\s\S]*setSelectedSlug\(slug\);[\s\S]*setAddingType\(null\);/,
+      'AddProviderForm completion must not select/close a stale sheet after ProvidersPanel unmounts or sheet close',
     );
     assert.match(
       src,
@@ -238,13 +243,23 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       addForm,
+      /const addProviderMountedRef = useRef\(false\)[\s\S]*useEffect\(\(\) => \{[\s\S]*addProviderMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*addProviderMountedRef\.current = false;[\s\S]*busyRef\.current = false;[\s\S]*\};[\s\S]*\}, \[\]\);/,
+      'AddProviderForm must track its own sheet lifetime so pending create continuations cannot write after overlay close',
+    );
+    assert.match(
+      addForm,
       /async function submit\(\) \{[\s\S]*if \(busyRef\.current\) return;[\s\S]*busyRef\.current = true;[\s\S]*setBusy\(true\);[\s\S]*props\.bridge\.create\(/,
       'AddProviderForm create must set the duplicate-submit guard before awaiting bridge.create()',
     );
     assert.match(
       addForm,
-      /finally \{[\s\S]*busyRef\.current = false;[\s\S]*setBusy\(false\);[\s\S]*\}/,
-      'AddProviderForm create guard must always release after success or failure',
+      /const connection = await props\.bridge\.create\([\s\S]*\);[\s\S]*if \(!addProviderMountedRef\.current\) return;[\s\S]*await props\.onCreated\(connection\.slug\);/,
+      'AddProviderForm create completion must not re-open/select provider detail after the sheet was closed mid-save',
+    );
+    assert.match(
+      addForm,
+      /catch \(err\) \{[\s\S]*if \(addProviderMountedRef\.current\) setError\(providerPanelActionErrorMessage\(err\)\);[\s\S]*\} finally \{[\s\S]*busyRef\.current = false;[\s\S]*if \(addProviderMountedRef\.current\) setBusy\(false\);[\s\S]*\}/,
+      'AddProviderForm create guard must release without setting React state after sheet unmount',
     );
     assert.match(
       addForm,

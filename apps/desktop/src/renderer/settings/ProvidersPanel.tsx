@@ -99,6 +99,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const providersPanelMountedRef = useRef(false);
   const providersReloadTicketRef = useRef(0);
+  const providerSheetLifecycleRef = useRef(0);
   const toast = useToast();
 
   async function reload(): Promise<boolean> {
@@ -199,7 +200,14 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
   );
 
   function startAdd(type: ProviderType) {
+    providerSheetLifecycleRef.current += 1;
     setAddingType(type);
+    setSelectedSlug(null);
+  }
+
+  function closeProviderConfigSheet() {
+    providerSheetLifecycleRef.current += 1;
+    setAddingType(null);
     setSelectedSlug(null);
   }
 
@@ -292,6 +300,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    providerSheetLifecycleRef.current += 1;
                                     setSelectedSlug(connection.slug);
                                     setAddingType(null);
                                   }}
@@ -384,10 +393,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
 
       {(addingType || selected) && (
         <ProviderConfigSheetOverlay
-          onClose={() => {
-            setAddingType(null);
-            setSelectedSlug(null);
-          }}
+          onClose={closeProviderConfigSheet}
         >
             {addingType ? (
               <AddProviderForm
@@ -397,8 +403,13 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                 existingSlugs={connections.map((connection) => connection.slug)}
                 onCancel={() => setAddingType(null)}
                 onCreated={async (slug) => {
+                  const providerSheetLifecycle = providerSheetLifecycleRef.current;
                   const reloaded = await reload();
-                  if (!reloaded || !providersPanelMountedRef.current) return;
+                  if (
+                    !reloaded ||
+                    !providersPanelMountedRef.current ||
+                    providerSheetLifecycleRef.current !== providerSheetLifecycle
+                  ) return;
                   setSelectedSlug(slug);
                   setAddingType(null);
                 }}
@@ -1224,10 +1235,19 @@ function AddProviderForm(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const addProviderMountedRef = useRef(false);
 
   const requiresBaseUrl = !defaults.baseUrl;
   const isExperimental = defaults.status === 'phase3-experimental';
   const isWiredOAuth = isWiredOAuthProvider(props.providerType);
+
+  useEffect(() => {
+    addProviderMountedRef.current = true;
+    return () => {
+      addProviderMountedRef.current = false;
+      busyRef.current = false;
+    };
+  }, []);
 
   async function submit() {
     if (busyRef.current) return;
@@ -1251,12 +1271,13 @@ function AddProviderForm(props: {
         baseUrl: baseUrl || undefined,
         defaultModel,
       });
+      if (!addProviderMountedRef.current) return;
       await props.onCreated(connection.slug);
     } catch (err) {
-      setError(providerPanelActionErrorMessage(err));
+      if (addProviderMountedRef.current) setError(providerPanelActionErrorMessage(err));
     } finally {
       busyRef.current = false;
-      setBusy(false);
+      if (addProviderMountedRef.current) setBusy(false);
     }
   }
 
