@@ -333,6 +333,7 @@ function AppShell() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(null);
+  const [projectPickerPending, setProjectPickerPending] = useState(false);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   // Search modal state. Sidebar `搜索` opens the real thread-search
@@ -355,6 +356,7 @@ function AppShell() {
   }
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
+  const projectPickerPendingRef = useRef(false);
   const activeStreamingSlot = activeId ? streamingBySession[activeId] : undefined;
   const activeStreaming = activeStreamingSlot?.text ?? '';
   const activeStreamingTruncated = activeStreamingSlot?.truncated === true;
@@ -1632,6 +1634,9 @@ function AppShell() {
   }
 
   async function selectProjectDirectory() {
+    if (projectPickerPendingRef.current) return;
+    projectPickerPendingRef.current = true;
+    setProjectPickerPending(true);
     try {
       const result = await window.maka.app.selectProjectDirectory();
       if (!result.ok) {
@@ -1644,6 +1649,9 @@ function AppShell() {
       toastApi.success('已切换工作目录', basenameFromPath(result.projectPath));
     } catch (error) {
       toastApi.error('选择工作目录失败', generalizedErrorMessageChinese(error, '项目路径暂时无法读取，请稍后重试。'));
+    } finally {
+      projectPickerPendingRef.current = false;
+      setProjectPickerPending(false);
     }
   }
 
@@ -3076,6 +3084,7 @@ function AppShell() {
                 workspacePicker={{
                   label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
                   branch: appInfo?.projectGit.branch,
+                  pending: projectPickerPending,
                   onOpen: () => {
                     void selectProjectDirectory();
                   },

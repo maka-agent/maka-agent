@@ -82,8 +82,21 @@ describe('project context workspace picker', () => {
     assert.match(globalTypes, /selectProjectDirectory\(\): Promise</);
     assert.match(renderer, /async function selectProjectDirectory\(\)/);
     assert.match(renderer, /window\.maka\.app\.selectProjectDirectory\(\)/);
+    assert.match(renderer, /const \[projectPickerPending, setProjectPickerPending\] = useState\(false\)/);
+    assert.match(renderer, /const projectPickerPendingRef = useRef\(false\)/);
+    assert.match(
+      renderer,
+      /async function selectProjectDirectory\(\) \{[\s\S]*if \(projectPickerPendingRef\.current\) return;[\s\S]*projectPickerPendingRef\.current = true;[\s\S]*setProjectPickerPending\(true\);[\s\S]*window\.maka\.app\.selectProjectDirectory\(\)/,
+      'project picker must synchronously reject duplicate native dialog requests before React commits disabled state',
+    );
+    assert.match(
+      renderer,
+      /finally \{[\s\S]*projectPickerPendingRef\.current = false;[\s\S]*setProjectPickerPending\(false\);/,
+      'project picker must release its pending owner after the native dialog resolves or fails',
+    );
     assert.match(renderer, /setAppInfo\(\{ projectPath: result\.projectPath, projectGit: result\.projectGit \}\)/);
     assert.match(renderer, /toastApi\.success\('已切换工作目录', basenameFromPath\(result\.projectPath\)\)/);
+    assert.match(workspacePickerBlock, /pending:\s*projectPickerPending/);
     assert.match(workspacePickerBlock, /void selectProjectDirectory\(\)/);
     assert.doesNotMatch(workspacePickerBlock, /openProjectFolder\(\)|openWorkspaceFolder\(\)|openPath\(/);
   });
@@ -107,6 +120,9 @@ describe('project context workspace picker', () => {
     assert.match(ui, /workspacePicker\?:\s*\{/);
     assert.match(ui, /className="maka-composer-workspace-picker"/);
     assert.match(ui, /branch\?: string \| null;/);
+    assert.match(ui, /pending\?: boolean;/);
+    assert.match(ui, /disabled=\{props\.workspacePicker\.pending === true\}/);
+    assert.match(ui, /aria-busy=\{props\.workspacePicker\.pending === true \? 'true' : undefined\}/);
     // WAWQAQ msg `28128c9e` (2026-06-20): the "选择工作目录" placeholder
     // is only rendered when no directory has been selected yet. Once
     // a label is set, the picker renders `.maka-composer-workspace-current`

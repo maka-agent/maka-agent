@@ -5578,6 +5578,7 @@ export const Composer = forwardRef<
     workspacePicker?: {
       label?: string;
       branch?: string | null;
+      pending?: boolean;
       onOpen(): void;
     };
     /**
@@ -6163,6 +6164,8 @@ export const Composer = forwardRef<
             type="button"
             variant="quiet"
             className="maka-composer-workspace-picker"
+            disabled={props.workspacePicker.pending === true}
+            aria-busy={props.workspacePicker.pending === true ? 'true' : undefined}
             onClick={props.workspacePicker.onOpen}
             title={props.workspacePicker.branch ? `选择工作目录 · ${props.workspacePicker.branch}` : '选择工作目录'}
             aria-label={props.workspacePicker.branch
