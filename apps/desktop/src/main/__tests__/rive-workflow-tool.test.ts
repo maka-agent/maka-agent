@@ -14,7 +14,7 @@ import {
   type RiveWorkflowToolResult,
 } from '../rive-workflow-tool.js';
 
-describe('RiveWorkflow tool and CLI bridge', () => {
+describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
   it('registers as a permission-gated custom MakaTool', () => {
     const tool = buildRiveWorkflowTool();
     assert.equal(tool.name, RIVE_WORKFLOW_TOOL_NAME);
