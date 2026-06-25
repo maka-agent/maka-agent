@@ -77,12 +77,20 @@ describe('home composer new-chat model picker', () => {
       /onPickNewChatModel=\{\(input\) => setPendingNewChatModel\(input\)\}/,
       'main.tsx must wire the composer pick to setPendingNewChatModel',
     );
-    // send() forwards the explicit pick to sessions.create; absence keeps the
-    // backend default behavior unchanged.
+    // A pick only stays in effect while it is still an offered choice; once the
+    // connection/model is removed the picker must fall back to the default so it
+    // never shows — nor sends — a model sessions.create would reject.
     assert.match(
       renderer,
-      /\.\.\.\(pendingNewChatModel\s*\?\s*\{ llmConnectionSlug: pendingNewChatModel\.llmConnectionSlug, model: pendingNewChatModel\.model \}/,
-      'send() must forward the picked model to sessions.create when one was chosen',
+      /const validPendingNewChatModel\s*=[\s\S]*?chatModelChoices\.some\(/,
+      'main.tsx must drop a stale pendingNewChatModel that is no longer an offered choice',
+    );
+    // send() forwards only the *validated* pick to sessions.create; absence
+    // keeps the backend default behavior unchanged.
+    assert.match(
+      renderer,
+      /\.\.\.\(validPendingNewChatModel\s*\?\s*\{ llmConnectionSlug: validPendingNewChatModel\.llmConnectionSlug, model: validPendingNewChatModel\.model \}/,
+      'send() must forward the validated picked model to sessions.create when one was chosen',
     );
   });
 });

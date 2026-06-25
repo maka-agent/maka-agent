@@ -484,8 +484,18 @@ function AppShell() {
   // changed) and is forwarded to sessions.create in `send()`. Renderer-only —
   // it never mutates the persisted Settings · 模型 default.
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(null);
+  // A pick only stays in effect while it is still an offered choice. If the user
+  // later disables/removes that connection or model, fall back to the default so
+  // the home chip never shows — nor sends — a model that no longer exists.
+  const validPendingNewChatModel =
+    pendingNewChatModel &&
+    chatModelChoices.some(
+      (c) => c.connectionSlug === pendingNewChatModel.llmConnectionSlug && c.model === pendingNewChatModel.model,
+    )
+      ? pendingNewChatModel
+      : null;
   const defaultConnModel = defaultConnectionEntry?.defaultModel || defaultConnectionEntry?.models?.[0]?.id;
-  const newChatModel = pendingNewChatModel
+  const newChatModel = validPendingNewChatModel
     ?? (defaultConnectionEntry && defaultConnModel
       ? { llmConnectionSlug: defaultConnectionEntry.slug, model: defaultConnModel }
       : undefined);
@@ -1892,8 +1902,8 @@ function AppShell() {
         const session = await window.maka.sessions.create({
           permissionMode: 'ask',
           name: text.slice(0, 42) || '新建对话',
-          ...(pendingNewChatModel
-            ? { llmConnectionSlug: pendingNewChatModel.llmConnectionSlug, model: pendingNewChatModel.model }
+          ...(validPendingNewChatModel
+            ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
             : {}),
         });
         setNavSelection({ section: 'sessions', filter: 'chats' });
@@ -3048,7 +3058,7 @@ function AppShell() {
                 onImportFolderOutline={importFolderOutlineIntoComposer}
                 modelLabel={
                   activeModelLabel
-                  ?? pendingNewChatModel?.model
+                  ?? validPendingNewChatModel?.model
                   ?? activeConnection?.defaultModel
                   ?? activeConnection?.models?.[0]?.id
                   ?? defaultConnectionEntry?.defaultModel
