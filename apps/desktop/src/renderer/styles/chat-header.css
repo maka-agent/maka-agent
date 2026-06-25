@@ -1,0 +1,784 @@
+/* Inline credential-lifecycle pill in the chat header. Clickable when the
+ * caller provides onClick (jumps to Settings · 账号). Tone follows the
+ * 6-state ConnectionUiStatus surface tokens for visual continuity. */
+.maka-chat-header-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  margin-bottom: 3px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+  transition: transform 0.12s var(--ease-out-strong);
+}
+.maka-chat-header-alert:hover {
+  transform: translateY(-1px);
+}
+.maka-chat-header-alert:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-chat-header-alert[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.20);
+}
+.maka-chat-header-alert[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.30);
+}
+.maka-chat-header-alert[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.28);
+}
+
+/* PR109b: chat header lifecycle status badge. Sits next to the
+ * ChatHeaderAlert pill but with different semantics — alert is an
+ * ephemeral fault signal; status is the settled lifecycle position.
+ * Tone matches the SessionStatusIcon mapping so the sidebar row + the
+ * header badge read as the same status. */
+.maka-chat-header-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-right: 6px;
+  -webkit-app-region: no-drag;
+  /* Short status label (运行中 etc.): keep on one line and never let the
+     tight header (browser panel open) collapse it into vertical text. */
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.maka-chat-header-status[data-tone="accent"] {
+  background: oklch(from var(--accent) l c h / 0.14);
+  color: var(--accent);
+  border-color: oklch(from var(--accent) l c h / 0.24);
+}
+.maka-chat-header-status[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.30);
+}
+.maka-chat-header-status[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.28);
+}
+.maka-chat-header-status[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+  border-color: oklch(from var(--info) l c h / 0.20);
+}
+.maka-chat-header-status[data-tone="success"] {
+  background: oklch(from var(--brand-deep) l c h / 0.14);
+  color: var(--brand-deep);
+  border-color: oklch(from var(--brand-deep) l c h / 0.28);
+}
+.maka-chat-header-status[data-tone="muted"] {
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  border-color: var(--border);
+}
+
+.messages {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.maka-chatViewport {
+  height: 100%;
+  overscroll-behavior: contain;
+}
+
+.maka-chatContent {
+  position: relative;
+  min-height: 100%;
+  padding-inline: clamp(24px, 4vw, 40px);
+}
+
+.maka-chat-shell {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.maka-chat-jump-bottom {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground-70);
+  box-shadow: var(--shadow-medium);
+  opacity: 1;
+  transition:
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    opacity var(--duration-emphasized) var(--ease-out-strong),
+    background 120ms ease;
+}
+
+.maka-chat-jump-bottom:hover {
+  color: var(--foreground);
+  background: var(--foreground-3);
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.maka-chat-jump-bottom:active {
+  transform: translateX(-50%) scale(0.97);
+}
+
+@starting-style {
+  .maka-chat-jump-bottom {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+}
+
+.maka-error-surface {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--background);
+}
+
+.maka-error-card {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  max-width: 520px;
+  padding: 14px 16px;
+  border: 1px solid oklch(from var(--destructive) l c h / 0.3);
+  border-radius: 10px;
+  background: var(--background-elevated);
+  box-shadow: var(--shadow-modal);
+}
+
+.maka-error-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive-text);
+}
+
+.maka-error-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.maka-error-copy h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.maka-error-copy p {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 56ch;
+}
+
+.maka-error-stack {
+  margin: 4px 0 0;
+  max-height: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--foreground-3);
+  color: var(--foreground-80);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.maka-error-copy-action[data-copy-state="pending"] {
+  cursor: progress;
+}
+
+.maka-error-copy-action[data-copy-state="failed"] {
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.35);
+}
+
+.maka-error-copy-status {
+  color: var(--destructive-text);
+}
+
+.maka-fake-backend-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 14px 0;
+  padding: 8px 12px;
+  border: 1px solid oklch(from var(--info) l c h / 0.3);
+  border-radius: 8px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.maka-fake-backend-banner svg {
+  flex: 0 0 auto;
+}
+
+.maka-fake-backend-banner strong {
+  font-weight: 600;
+}
+
+.maka-toast-viewport {
+  position: fixed;
+  /* PR-UI-16: position now driven by `data-position` (default
+   * bottom-right preserves v1 behavior). Default anchors here are a
+   * safety fallback if data-position is missing or invalid. */
+  right: 24px;
+  bottom: 24px;
+  z-index: var(--z-overlay);
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 48px));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+/* Reset position properties before each variant sets its own, so
+ * switching positions at runtime doesn't leave stale anchors. */
+.maka-toast-viewport[data-position] {
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  transform: none;
+}
+
+.maka-toast-viewport[data-position="bottom-right"] {
+  bottom: 24px;
+  right: 24px;
+}
+
+/* PR-TOAST-POLISH-0 (WAWQAQ msg `7f0ec4a5`): editorial card-shape pass
+   on toast notifications. Larger radius (10px) so toasts feel like
+   real floating cards instead of pill chips, and a layered depth shadow
+   (1px hairline + 3px close + 14px ambient) matching the impeccable
+   "premium card stacking" recipe. Bigger padding so copy doesn't crowd
+   the edge.
+   Entry animation slides from the right edge (`translateX(24px)→0`)
+   instead of from bottom — toasts land at bottom-right by default,
+   so right-edge slide reads as "arriving" rather than "growing up
+   from the canvas". Easing stays `var(--ease-out-strong)`. */
+.maka-toast {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.05),
+    0 3px 6px oklch(from var(--foreground) l c h / 0.04),
+    0 14px 28px oklch(from var(--foreground) l c h / 0.07);
+  padding: 9px 12px;
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity 200ms var(--ease-out-strong),
+    transform 240ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .maka-toast {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+.maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }
+.maka-toast[data-variant="warning"] { border-left: 3px solid var(--info); }
+.maka-toast[data-variant="error"]   { border-left: 3px solid var(--destructive); }
+.maka-toast[data-variant="info"]    { border-left: 3px solid var(--accent); }
+
+.maka-toast-icon {
+  margin-top: 2px;
+  color: var(--foreground-60);
+}
+.maka-toast[data-variant="success"] .maka-toast-icon { color: var(--success-text); }
+.maka-toast[data-variant="warning"] .maka-toast-icon { color: var(--info-text); }
+.maka-toast[data-variant="error"]   .maka-toast-icon { color: var(--destructive-text); }
+.maka-toast[data-variant="info"]    .maka-toast-icon { color: var(--accent); }
+
+.maka-toast-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-toast-copy strong {
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.maka-toast-copy small {
+  color: var(--foreground-60);
+  font-size: 10px;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.maka-toast-action {
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--accent);
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 600;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-toast-action:hover {
+  background: oklch(from var(--accent) l c h / 0.08);
+}
+
+.maka-toast-action:active {
+  transform: scale(0.97);
+}
+
+.maka-toast-close {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-50);
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-toast-close:hover {
+  color: var(--foreground);
+  background: var(--foreground-5);
+}
+
+.maka-toast-close:active {
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-toast-action:active,
+  .maka-toast-close:active {
+    transform: none;
+  }
+}
+
+.maka-confirm-modal {
+  width: min(420px, calc(100vw - 48px));
+}
+
+.maka-confirm-backdrop {
+  /* Slightly opaque so destructive confirms feel weightier than regular
+     toast notifications. */
+  background: oklch(from var(--background) l c h / 0.7);
+}
+
+.maka-help-modal {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 96px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+.maka-help-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.maka-help-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  color: var(--foreground-50);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.maka-help-body {
+  display: grid;
+  gap: 10px;
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+}
+
+.maka-help-section h3 {
+  margin: 0 0 4px;
+  color: var(--foreground-70);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.maka-help-section dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  margin: 0;
+}
+
+.maka-help-section dl > div {
+  display: contents;
+}
+
+.maka-help-section dt {
+  color: var(--foreground-80);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.maka-help-section dd {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: end;
+}
+
+.maka-help-section dd > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.maka-help-plus {
+  color: var(--foreground-40);
+  font-size: 10px;
+}
+
+.maka-palette-backdrop {
+  padding-top: 12vh;
+  align-items: start;
+}
+
+.maka-palette-modal {
+  width: min(584px, calc(100vw - 32px));
+  max-height: min(620px, 68vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.05),
+    0 18px 48px oklch(from var(--foreground) l c h / 0.12),
+    inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+.maka-palette-modal,
+.maka-palette-list,
+.maka-palette-group-label,
+.maka-palette-item,
+.maka-palette-hint,
+.maka-palette-footer {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.maka-palette-input-wrap {
+  width: auto;
+  min-height: 32px;
+  margin: 8px 10px;
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.maka-palette-input {
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.maka-palette-input::placeholder {
+  color: var(--foreground-40);
+}
+
+.maka-palette-input-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.maka-palette-input-hint-addon {
+  flex-shrink: 0;
+}
+
+.maka-shortcut-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.maka-shortcut-kbd {
+  height: 16px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--foreground-5);
+  box-shadow: inset 0 1px 0 oklch(from var(--background) l c h / 0.45);
+  color: var(--foreground-60);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.maka-palette-input-hint .maka-shortcut-kbd {
+  background: var(--foreground-5);
+}
+
+@media (max-width: 560px) {
+  .maka-palette-input-hint-addon {
+    display: none;
+  }
+}
+
+.maka-palette-list {
+  border-top: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 5px 6px 7px;
+}
+
+.maka-palette-group + .maka-palette-group {
+  margin-top: 4px;
+}
+
+.maka-palette-group-label {
+  padding: 4px 8px 3px;
+  color: var(--foreground-50);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.maka-palette-item {
+  position: relative;
+  width: 100%;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  padding: 5px 8px;
+  text-align: left;
+  font-size: 11px;
+  cursor: default;
+  transform: translateY(0);
+  transition:
+    background-color 140ms var(--ease-out-strong),
+    color 140ms var(--ease-out-strong),
+    opacity 140ms var(--ease-out-strong),
+    transform 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item::before {
+  content: "";
+  position: absolute;
+  inset: 5px auto 5px 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item:hover:not([data-disabled="true"]) {
+  background: var(--foreground-5);
+}
+
+.maka-palette-item[data-active="true"] {
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--foreground);
+}
+
+.maka-palette-item[data-active="true"]::before {
+  background: oklch(from var(--accent) l c h / 0.72);
+}
+
+.maka-palette-item:active:not([data-disabled="true"]) {
+  transform: translateY(1px);
+}
+
+.maka-palette-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.maka-palette-item[data-disabled="true"] {
+  color: var(--foreground-50);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.maka-palette-item[data-pending="true"] {
+  cursor: progress;
+}
+
+.maka-palette-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: var(--foreground-50);
+  transition:
+    background-color 140ms var(--ease-out-strong),
+    color 140ms var(--ease-out-strong);
+}
+
+.maka-palette-item[data-active="true"] .maka-palette-icon {
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--accent);
+}
+
+.maka-palette-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--foreground-50);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-palette-item[data-pending="true"] .maka-palette-hint {
+  color: var(--accent);
+}
+
+.maka-palette-empty {
+  color: var(--foreground-50);
+}
+
+.maka-palette-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--foreground-2);
+  color: var(--foreground-50);
+  font-size: 10px;
+}
+
+.maka-palette-footer .maka-shortcut-group,
+.maka-palette-footer .maka-shortcut-kbd {
+  margin-right: 4px;
+}
+
+.maka-palette-footer .maka-shortcut-group .maka-shortcut-kbd {
+  margin-right: 0;
+}
+
+.maka-palette-footer .maka-shortcut-kbd {
+  padding: 1px 5px;
+  background: var(--background);
+  font-size: 10px;
+}
+
+/* PR-UI-1 (@yuejing 2026-05-22): unified hero chrome.
+ *
+ * `.maka-hero` is the shared layout for both EmptyChatHero (after a
+ * session exists but has no messages) and OnboardingHero variants
+ * (first-run / setup / ready_empty / blocked). Same width / margin /
+ * gap / eyebrow / heading scale, so the visual switch between
+ * "first-run" and "empty session" no longer feels jarring.
+ *
+ * Legacy `.emptyChat` and `.eyebrow` are kept as aliases so any
+ * external CSS / smoke fixture references still match.
+ */
+.maka-hero {
+  width: min(750px, 80vw);
+  margin: auto;
+  padding: 0;
+  display: grid;
+  justify-items: center;
+  gap: 26px;
+  color: var(--foreground);
+  text-align: center;
+  animation: maka-hero-enter 320ms var(--ease-out-strong) both;
+}
+

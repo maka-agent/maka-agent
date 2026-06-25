@@ -1,0 +1,2104 @@
+.maka-plan-panel {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  padding: 0;
+}
+
+.maka-module-main .maka-plan-panel {
+  padding: 0;
+  width: 100%;
+}
+
+/* PR-UI-ALIGN-2 (2026-06-21): the page content is NOT a nested card — it
+   fills the one floating content-area card directly, exactly like 参考实现's
+   定时任务 page (header → banner → tabs → grid sit straight on the white card).
+   Removed the inner border/radius/shadow/1080-center so there's no card-in-card,
+   and opened up the padding so the page breathes like the reference. */
+/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Plan/Reminder
+   page card uses the universal recipe: 1px hairline border + 6px radius +
+   single 4% lift + 1px inner top highlight. Tight 4-6px internal gaps
+   (`--card-gap`) replace the old 14-18px loose stacking. */
+.maka-plan-shell {
+  width: min(100%, 900px);
+  margin-inline: auto;
+  display: grid;
+  /* Atlas §14.6 quick-win: section gap tightens 14 -> 8 (reference uses
+     `--agents-content-area-gap: 4px`; 8 keeps long-page readability while
+     pulling toward the dense reference cadence). */
+  gap: 8px;
+  padding: 18px 20px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
+}
+
+.maka-plan-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.maka-plan-heading {
+  display: grid;
+  gap: 4px;
+  max-width: 560px;
+}
+
+.maka-plan-eyebrow {
+  margin: 0;
+  color: var(--foreground-40);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.maka-plan-heading h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+}
+
+.maka-plan-heading p:last-child {
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.maka-plan-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.maka-plan-create-through {
+  gap: 4px;
+  background: var(--foreground-3);
+  color: var(--foreground);
+  border-color: transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* PR-UI-PIXEL-3: signature off-black CTA, matching the reference's restrained
+   primary command treatment without using the app accent. Pure #000 is banned
+   per design-taste rules — use oklch off-black (charcoal) for premium feel. */
+.maka-plan-new-task-button {
+  gap: 4px;
+  border-color: oklch(0.20 0 0);
+  border-radius: 999px;
+  background: oklch(0.18 0 0);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.15),
+    0 1px 2px oklch(0 0 0 / 0.10);
+  color: oklch(1 0 0);
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    border-color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    box-shadow 200ms var(--ease-out-strong);
+}
+
+.maka-plan-new-task-button:hover {
+  border-color: oklch(0.28 0 0);
+  background: oklch(0.26 0 0);
+  color: oklch(1 0 0);
+  transform: translateY(-0.5px);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.20),
+    0 4px 14px -8px oklch(0 0 0 / 0.32);
+}
+
+.maka-plan-new-task-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.maka-plan-refresh-button {
+  color: var(--foreground-60);
+}
+
+.maka-plan-template-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.maka-plan-template-strip[data-layout="cards"] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.maka-plan-template-card {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 10px;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  justify-content: stretch;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card {
+  min-height: 134px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  box-shadow: none;
+  padding: 12px;
+}
+
+.maka-plan-template-card:hover {
+  border-color: transparent;
+  background: oklch(from var(--foreground) l c h / 0.04);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card:hover {
+  border-color: var(--border);
+  background: var(--background);
+  box-shadow: 0 4px 14px -12px oklch(from var(--foreground) l c h / 0.22);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card::after {
+  content: "•••";
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  color: var(--foreground-45);
+  font-size: 14px;
+  letter-spacing: 1px;
+  line-height: 20px;
+}
+
+.maka-plan-template-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--foreground-3);
+  color: var(--foreground-70);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-icon {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.16);
+  color: transparent;
+}
+
+.maka-plan-template-switch {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.16);
+}
+
+.maka-plan-template-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.22);
+}
+
+.maka-plan-template-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-main {
+  grid-column: 1 / -1;
+  gap: 7px;
+}
+
+.maka-plan-template-title {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-title {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.maka-plan-template-note {
+  color: var(--foreground-55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-note {
+  color: var(--foreground-60);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.maka-plan-template-schedule {
+  display: inline-flex;
+  align-self: start;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--foreground-2);
+  color: var(--foreground-55);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-schedule {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: auto;
+  border: 0;
+  border-top: 1px dashed var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground-60);
+  padding: 11px 0 0;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-schedule::before {
+  content: "";
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-schedule > svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* PR-UI-PIXEL-2: reference's info strip is a calm, roomy blue banner
+   (≈#e6f7ff bg / #b0e3ff border, r8, 12×16 padding) — not a tight chip. */
+.maka-plan-system-alert {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-color: oklch(0.90 0.04 240);
+  border-radius: 7px;
+  background: oklch(0.965 0.035 235);
+  color: oklch(0.50 0.13 245);
+  padding: 12px 16px;
+}
+
+.maka-plan-system-alert [class*="lucide"] {
+  color: oklch(0.42 0.095 245);
+}
+
+.maka-plan-system-alert-main,
+.maka-plan-system-alert-switch {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.maka-plan-system-alert-main div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.maka-plan-system-alert-main [data-slot="alert-description"] {
+  display: none;
+}
+
+.maka-plan-system-alert-main > [class*="lucide"] {
+  flex: 0 0 auto;
+}
+
+.maka-plan-system-alert-switch {
+  flex: 0 0 auto;
+  color: oklch(0.38 0.075 245);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dark .maka-plan-system-alert {
+  border-color: oklch(0.56 0.08 245 / 0.44);
+  background: oklch(0.25 0.04 245 / 0.52);
+  color: oklch(0.84 0.07 245);
+}
+
+.dark .maka-plan-system-alert [class*="lucide"],
+.dark .maka-plan-system-alert-switch {
+  color: oklch(0.84 0.07 245);
+}
+
+.maka-capability-audit-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--foreground-8);
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, oklch(from var(--accent) l c h / 0.06), transparent 42%),
+    var(--background);
+  padding: 12px 14px;
+}
+
+.maka-capability-audit-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.maka-capability-audit-kicker {
+  color: var(--foreground-50);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.maka-capability-audit-copy strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.maka-capability-audit-copy small {
+  color: var(--foreground-60);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.maka-capability-audit-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(92px, 1fr));
+  gap: 6px;
+  min-width: min(420px, 48%);
+  margin: 0;
+}
+
+.maka-capability-audit-metrics div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border-left: 1px solid var(--foreground-8);
+  padding-left: 10px;
+}
+
+.maka-capability-audit-metrics dt {
+  color: var(--foreground-45);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.maka-capability-audit-metrics dd {
+  margin: 0;
+  color: var(--foreground-80);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.maka-plan-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.maka-plan-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.maka-plan-tabs-list {
+  gap: 16px;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.maka-plan-tab {
+  position: relative;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground-45);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.maka-plan-tab[data-state="active"] {
+  color: var(--foreground);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* PR-UI-PIXEL-2 (2026-06-21): reference keeps the active-tab under-bar
+   NEUTRAL (the text/foreground color), not a brand tint — structural chrome
+   stays calm, brand color is reserved as a garnish (study §4 rule 2/3). */
+.maka-plan-tab[data-state="active"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--foreground);
+}
+
+.maka-plan-tab span {
+  color: var(--foreground-40);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-plan-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.maka-plan-toolbar-compact {
+  display: flex;
+}
+
+.maka-plan-tab-panel {
+  display: grid;
+  gap: 10px;
+}
+
+/* PR-UI-PIXEL-1: reference lays scheduled tasks out in a responsive card
+   grid (~2-up), not a single vertical column of rows. */
+.maka-plan-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.maka-plan-card-grid > article {
+  animation: maka-workbench-card-scale-in 350ms var(--ease-out-strong) both;
+}
+
+.maka-plan-card-grid > article:nth-child(n + 1) { animation-delay: 60ms; }
+.maka-plan-card-grid > article:nth-child(n + 4) { animation-delay: 120ms; }
+.maka-plan-card-grid > article:nth-child(n + 8) { animation-delay: 180ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-plan-card-grid > article {
+    animation: none;
+  }
+}
+
+.maka-plan-form,
+.maka-plan-run-row {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  padding: 16px;
+}
+
+/* PR-UI-PIXEL-1 (2026-06-21): scheduled-task cards rebuilt to match the
+   reference's roomy vertical card (study §3.3): switch top-left + ⋯ top-right,
+   title, 2-line note, dashed divider, clock pill footer — laid out in a
+   responsive 2-up grid instead of the previous compact horizontal rows. */
+.maka-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  border: 1px solid var(--foreground-8);
+  border-radius: 6px;
+  background: var(--background);
+  padding: 14px 16px 13px;
+  min-height: 148px;
+  transition:
+    border-color var(--duration-base) var(--ease-out-strong),
+    box-shadow var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-plan-card:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.13);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
+  transform: translateY(-1px);
+}
+
+.maka-plan-card[data-status="completed"] {
+  opacity: 0.62;
+}
+
+.maka-plan-card-chrome,
+.maka-plan-card-footer,
+.maka-plan-form-header,
+.maka-plan-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.maka-plan-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.maka-plan-card-title-row > span {
+  display: none;
+}
+
+/* PR-UI-PIXEL-1: switch + ⋯ menu now sit persistently at the top of the
+   card (reference shows the on/off switch at all times), spread to opposite
+   corners by the shared `justify-content: space-between`. */
+.maka-plan-card-chrome {
+  order: 1;
+  gap: 4px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.maka-plan-card-menu-trigger {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground-60);
+}
+
+.maka-plan-card-menu-trigger:hover {
+  background: oklch(from var(--foreground) l c h / 0.06);
+  color: var(--foreground);
+}
+
+.maka-plan-card-menu-trigger:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.maka-plan-card-menu {
+  min-width: 132px;
+}
+
+.maka-plan-dialog {
+  max-height: min(86dvh, 760px);
+}
+
+.maka-plan-form {
+  border: 0;
+  border-radius: 0;
+  background: var(--background);
+  padding: 12px;
+  overflow: auto;
+}
+
+.maka-plan-form-header {
+  align-items: flex-start;
+  padding-bottom: 2px;
+}
+
+.maka-plan-form-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.maka-plan-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.maka-plan-field {
+  display: grid;
+  gap: 3px;
+  color: var(--foreground-60);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.maka-plan-field input,
+.maka-plan-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 8px;
+  outline: none;
+  resize: vertical;
+}
+
+.maka-plan-field input:focus,
+.maka-plan-field textarea:focus {
+  border-color: oklch(from var(--accent) l c h / 0.55);
+  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
+}
+
+.maka-plan-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.maka-plan-preset {
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-plan-preset:hover {
+  background: var(--foreground-2);
+}
+
+.maka-plan-validation {
+  margin: 0;
+  border: 1px solid oklch(from var(--warning) l c h / 0.34);
+  border-radius: 5px;
+  background: oklch(from var(--warning) l c h / 0.08);
+  color: var(--foreground-80);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 4px 8px;
+}
+
+.maka-plan-delivery-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.maka-plan-delivery-help {
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.maka-plan-submit {
+  justify-content: center;
+}
+
+.maka-plan-search,
+.maka-plan-compact-select {
+  display: grid;
+  gap: 4px;
+  color: var(--foreground-60);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.maka-plan-search {
+  width: min(200px, 28vw);
+}
+
+.maka-plan-compact-select {
+  width: 124px;
+}
+
+.maka-plan-sort-select {
+  width: 168px;
+}
+
+/* PR-UI-ALIGN-1 (2026-06-21): the reference's task toolbar is a single bare
+   sort control on the right of the tabs — not a form. Hide the stacked field
+   labels (排序 / 搜索计划提醒 / 状态) so the controls read as light inline chips,
+   and let the bar sit on the tabs row instead of wrapping to its own block. */
+.maka-plan-toolbar label > span:first-child {
+  display: none;
+}
+
+.maka-panel-detail[data-agents-view="cron"] .maka-plan-tabs-bar .maka-plan-search,
+.maka-panel-detail[data-agents-view="cron"] .maka-plan-tabs-bar .maka-plan-compact-select:not(.maka-plan-sort-select) {
+  display: none;
+}
+
+.maka-plan-compact-select {
+  gap: 0;
+}
+.maka-plan-tabs-bar {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+.maka-plan-search input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  outline: none;
+  padding: 7px 8px;
+}
+
+.maka-plan-search input:focus {
+  border-color: oklch(from var(--accent) l c h / 0.55);
+  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
+}
+
+/* PR round-AB-shared-select (yuejing 2026-06-25): the Plan Reminder
+   delivery select and the 5 Settings selects used to ship two slightly
+   different wrappers — different option shapes, different selected
+   trigger renderers, different CSS recipes. They are now one
+   `SettingsSelect` primitive in `@maka/ui` (see kenji styles inventory
+   `notes/maka-styles-css-inventory-2026-06-25-task-128.md`). These
+   `.settingsSelect*` rules pin the unified chrome. */
+.settingsSelectTrigger {
+  min-width: 0;
+  height: 34px;
+  justify-content: space-between;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settingsSelectPopup {
+  min-width: var(--anchor-width);
+}
+
+/* The icon slot lines up with the text via inline-flex; the icon tile
+   is a fixed 16x16 to absorb Iconify's size: '100%' rendering of the
+   simple-icons svg without pushing option row height around. */
+.settingsSelectOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settingsSelectOptionIcon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.maka-plan-search-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--foreground-50);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.maka-plan-empty {
+  position: static;
+  width: auto;
+  transform: none;
+  padding: 16px 10px;
+}
+
+.maka-plan-empty-wrap[data-mode="starter-cards"] {
+  display: grid;
+  gap: 12px;
+}
+
+.maka-plan-card-main {
+  order: 2;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.maka-plan-card-title {
+  margin: 0;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-plan-card-run {
+  display: none;
+}
+
+/* PR-UI-PIXEL-1: footer drops to the card bottom behind a dashed divider
+   (reference §3.3), holding the clock schedule pill left-aligned. */
+.maka-plan-card-footer {
+  order: 3;
+  margin-top: auto;
+  padding-top: 11px;
+  border-top: 1px dashed var(--border);
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* PR-UI-PIXEL-1: schedule pill gets a filled tint (reference uses
+   fill-tertiary, not an outline) so it reads as a metadata chip. */
+.maka-plan-card-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 21px;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-60);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+}
+
+.maka-plan-card-chip + .maka-plan-card-chip {
+  display: none;
+}
+
+/* PR-PLAN-NEXT-RUN-COUNTDOWN-0: small accent pill next to the
+   absolute next-run time so user sees both wall-clock and
+   distance-from-now in one glance. */
+.maka-plan-card-countdown {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+/* PR-UI-PIXEL-1: note clamps to two lines (reference cards show a 2-line
+   description), replacing the single-line ellipsis used by the old row layout. */
+.maka-plan-card-note {
+  color: var(--foreground-60);
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.maka-plan-run-list {
+  display: grid;
+  gap: 4px;
+}
+
+.maka-plan-run-row {
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.maka-plan-run-status {
+  border-radius: 999px;
+  background: var(--foreground-3);
+  color: var(--foreground-60);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+}
+
+.maka-plan-run-status[data-status="triggered"] {
+  background: oklch(from var(--success) l c h / 0.10);
+  color: var(--success-text);
+}
+
+.maka-plan-run-status[data-status="blocked"],
+.maka-plan-run-status[data-status="failed"] {
+  background: oklch(from var(--warning) l c h / 0.10);
+  color: var(--warning-text);
+}
+
+.maka-plan-run-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.maka-plan-run-main strong {
+  color: var(--foreground);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-plan-run-main span,
+.maka-plan-run-row time {
+  color: var(--foreground-50);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.maka-plan-run-row time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.maka-plan-runs-empty {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 1100px) {
+  .maka-plan-hero,
+  .maka-plan-tabs-bar {
+    display: grid;
+  }
+
+  .maka-plan-system-alert {
+    display: grid;
+  }
+
+  .maka-capability-audit-strip {
+    display: grid;
+  }
+
+  .maka-capability-audit-metrics {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .maka-plan-template-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maka-plan-template-card {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+
+  .maka-plan-template-schedule {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .maka-plan-top-actions {
+    justify-content: flex-start;
+  }
+
+  .maka-plan-card-grid,
+  .maka-plan-form-grid,
+  .maka-plan-delivery-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maka-plan-toolbar,
+  .maka-plan-toolbar-compact {
+    justify-content: flex-start;
+  }
+
+  .maka-plan-search,
+  .maka-plan-compact-select,
+  .maka-plan-sort-select {
+    width: min(100%, 260px);
+  }
+
+  .maka-plan-run-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.detailPane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* PR-UI-ALIGN-2: the module pages (技能 / 定时任务 / 每日回顾) breathe with a
+   single generous padding layer on the content-area card — ~24px like 参考实现,
+   not the old cramped 12px. Inner wrappers (plan-shell etc.) no longer re-pad. */
+.maka-module-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 18px;
+  padding: 64px 26px 26px;
+  overflow: auto;
+}
+
+.maka-module-main[data-module="daily-review"] {
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+.maka-module-main-header {
+  width: min(100%, 900px);
+  margin-inline: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* Module page titles use reference layout's --text-3xl display scale (30px) —
+   atlas §2 + §9. Negative letter-spacing gives the heading the cinematic
+   weight reference layout uses for page-level headings. */
+.maka-module-main-header h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+}
+
+.maka-module-main-header p {
+  margin: 4px 0 0;
+  color: var(--foreground-60);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.maka-module-main-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.maka-panel-detail[data-agents-view="skills"] .maka-module-main-actions > .maka-button-ghost:not(.maka-skill-add-button) {
+  display: none;
+}
+
+.maka-skill-search {
+  width: min(280px, 30vw);
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground-50);
+  padding: 0 10px;
+}
+
+.maka-skill-search input {
+  /* PR-SKILL-SEARCH-DOUBLE-BOX-0 (WAWQAQ msg `703f2167` + screenshot
+     `d6218b43`): the `<Input>` primitive carries Tailwind utilities
+     `rounded-md border border-input bg-background shadow-sm` from
+     `@maka/ui inputClasses`. The per-page overrides killed
+     `border` + `background`, but `border-radius`, `box-shadow`, and
+     `min-height` (via `min-h-9` = 36px) leaked through and painted
+     a second visible rounded card INSIDE the outer
+     `.maka-skill-search` label — reading as two stacked search
+     bars. The fix zeroes every visual property the primitive can
+     paint, so the inner `<input>` reads as a bare text field and
+     the outer label is the only box. */
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  padding: 0;
+  font-size: 13px;
+}
+
+.maka-skill-search input::placeholder {
+  color: var(--foreground-40);
+}
+
+.maka-skill-search:focus-within {
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+  box-shadow: 0 0 0 2px oklch(from var(--foreground) l c h / 0.055);
+}
+
+.maka-skill-add-button {
+  gap: 5px;
+  border-color: #151515;
+  border-radius: 999px;
+  background: linear-gradient(#333, #151515);
+  box-shadow:
+    inset 0 1px 0 #ffffff26,
+    0 1px 2px #0c0c0d1a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.maka-skill-add-button:hover {
+  border-color: #1f1f1f;
+  background: linear-gradient(#3e3e3e, #1f1f1f);
+  color: #fff;
+}
+
+/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Skills page
+   card mirrors the Plan shell: 1px hairline border + 6px radius + 4% lift +
+   1px inner top highlight, with tight 4-6px internal gaps. */
+.maka-skill-library {
+  width: min(100%, 900px);
+  margin-inline: auto;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  /* Atlas §14.6 quick-win: section gap 14 -> 8 to track the reference's
+     4px `--agents-content-area-gap` cadence. */
+  gap: 8px;
+  padding: 18px 20px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
+}
+
+/* Reference-layout page-shell entrance — opacity 0 + translateY(6px) -> 0,
+   so each top-level module page lands as a lifted card rather than slamming
+   onto the canvas. Used by Skills + Plan/Reminder shells. */
+@keyframes maka-page-shell-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-skill-library,
+  .maka-plan-shell,
+  .maka-module-main .maka-daily-review-panel,
+  .maka-daily-review-panel {
+    animation: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-skill-library,
+[data-maka-visual-smoke="true"] .maka-plan-shell,
+[data-maka-visual-smoke="true"] .maka-module-main .maka-daily-review-panel,
+[data-maka-visual-smoke="true"] .maka-daily-review-panel {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+[data-maka-visual-smoke="true"] .maka-plan-card-grid > article,
+[data-maka-visual-smoke="true"] .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+.maka-skill-tool-summary-hidden {
+  display: none;
+}
+
+.maka-skill-featured-banner {
+  position: relative;
+  min-height: 128px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  overflow: hidden;
+  border: 1px solid oklch(88% 0.035 224 / 0.72);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 80% 50%, oklch(100% 0 0 / 0.44) 0 24%, transparent 25%),
+    linear-gradient(100deg, oklch(92.5% 0.035 222) 0%, oklch(93.5% 0.045 205) 56%, oklch(88.8% 0.052 199) 100%);
+  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.65);
+  padding: 26px 34px;
+}
+
+.maka-skill-featured-banner h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.maka-skill-featured-banner p {
+  max-width: 540px;
+  margin: 10px 0 0;
+  color: var(--foreground-65);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.maka-skill-featured-art {
+  position: relative;
+  align-self: stretch;
+  width: min(38%, 310px);
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: -18px 2px -20px 0;
+}
+
+.maka-skill-featured-art span {
+  position: absolute;
+  width: 94px;
+  height: 112px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96)),
+    var(--background);
+  color: var(--foreground-60);
+  box-shadow:
+    0 12px 24px -20px oklch(from var(--foreground) l c h / 0.32),
+    0 1px 2px oklch(from var(--foreground) l c h / 0.06);
+}
+
+.maka-skill-featured-art strong {
+  color: var(--foreground-70);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.1;
+}
+
+.maka-skill-featured-art small {
+  color: var(--foreground-45);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.maka-skill-featured-art span:first-child {
+  left: 14px;
+  top: 28px;
+  transform: rotate(-14deg);
+  color: oklch(64% 0.15 154);
+}
+
+.maka-skill-featured-art span:nth-child(2) {
+  left: 92px;
+  top: 4px;
+  /* PR-FE-BUG-HUNT-9 z-index allowlist: decorative sticker stack
+     local stacking (3 spans within `.maka-skill-featured-art`).
+     Bare 2 is intentional — these never escape the parent container,
+     so they don't need a global token. The contract test
+     `z-index-contract.test.ts` whitelists this exact site. */
+  z-index: 2;
+  width: 104px;
+  height: 122px;
+  transform: rotate(10deg);
+  color: oklch(54% 0.10 236);
+}
+
+.maka-skill-featured-art span:nth-child(3) {
+  right: 4px;
+  top: 34px;
+  width: 88px;
+  height: 104px;
+  transform: rotate(7deg);
+  color: oklch(58% 0.18 32);
+}
+
+.maka-skill-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.maka-skill-tabs {
+  display: flex;
+  gap: 18px;
+  border-bottom: 0;
+}
+
+.maka-skill-tab {
+  position: relative;
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground-55);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 1px;
+}
+
+.maka-skill-tab[data-state="active"] {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.maka-skill-tab[data-state="active"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--foreground);
+}
+
+.maka-skill-tab span {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.06);
+  color: var(--foreground-55);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 0 5px;
+}
+
+.maka-skill-filter-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.maka-skill-filter-pill {
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground-70);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 12px;
+  opacity: 1;
+}
+
+.maka-skill-market {
+  display: grid;
+  gap: 12px;
+}
+
+.maka-skill-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.maka-skill-section-row small {
+  color: var(--foreground-45);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.maka-skill-market-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.maka-skill-market-card {
+  min-width: 0;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--foreground-8);
+  border-radius: 6px;
+  background: var(--background);
+  padding: 16px;
+  transition:
+    border-color var(--duration-base) var(--ease-out-strong),
+    box-shadow var(--duration-emphasized) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong);
+}
+
+.maka-skill-market-card:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.14);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
+  transform: translateY(-1px);
+}
+
+.maka-skill-market-card-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.maka-skill-market-card h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.maka-skill-market-card small,
+.maka-skill-market-card-foot span {
+  color: var(--foreground-45);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.maka-skill-market-card p {
+  min-height: 40px;
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: 12.5px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.maka-skill-market-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground-65);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
+}
+
+.maka-skill-market-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.maka-skill-market-install {
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground-45);
+  cursor: not-allowed;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 0 14px;
+}
+
+.maka-skill-examples,
+.maka-skill-installed {
+  display: grid;
+  /* Atlas §14.6 quick-win — section internal gap aligned to reference's
+     `--agents-content-area-gap: 4px` cadence; was 6px. */
+  gap: 4px;
+  min-width: 0;
+}
+
+.maka-skill-section-label {
+  color: var(--foreground-65);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.maka-skill-example-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-skill-template-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 2px 6px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  transition: background-color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-skill-template-row:hover {
+  background: oklch(from var(--foreground) l c h / 0.04);
+}
+
+.maka-skill-template-icon {
+  grid-row: span 2;
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--accent);
+}
+
+.maka-skill-template-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-skill-template-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.maka-skill-template-copy span {
+  min-width: 0;
+  color: var(--foreground-60);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.maka-skill-template-row small {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground-45);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.maka-skill-library-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-height: 0;
+  overflow: visible;
+  display: grid;
+  align-content: start;
+  gap: 0;
+  border: 1px solid var(--foreground-8);
+  border-radius: 6px;
+  background: var(--background);
+}
+
+.maka-skill-library-item {
+  min-width: 0;
+}
+
+.maka-skill-library-item + .maka-skill-library-item {
+  border-top: 1px solid var(--foreground-8);
+}
+
+.maka-skill-library-row {
+  appearance: none;
+  width: 100%;
+  height: auto !important;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 34px minmax(180px, 1fr) minmax(72px, max-content) 40px 36px;
+  align-items: center;
+  justify-content: stretch !important;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+  white-space: normal !important;
+  text-align: left;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong);
+}
+
+/* PR-UI-PIXEL-0 (2026-06-21): reference rule #2 — hover/selected states are
+   NEUTRAL gray (#efefef ≈ foreground/0.06), never tinted with the brand color.
+   The purple-tinted row hover read as "themed"; neutral reads calmer/native.
+   See notes/近期 UI study §1.4, §4. */
+.maka-skill-library-row:hover {
+  background: oklch(from var(--foreground) l c h / 0.06);
+  transform: translateX(1px);
+}
+
+.maka-skill-library-row:active {
+  transform: translateY(1px);
+}
+
+.maka-skill-library-row:focus-visible {
+  outline: 3px solid oklch(from var(--accent) l c h / 0.35);
+  outline-offset: 2px;
+}
+
+/* PR-UI-PIXEL-1: skill rows are anchored by a reference-style icon tile —
+   a 38px rounded white square with a hairline + ultra-soft shadow holding the
+   glyph (study §3.2), instead of the previous flat 20px chip. */
+.maka-skill-library-status {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--foreground-8);
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-55);
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+
+/* PR-UI-PIXEL-1: tile stays white on hover (reference keeps icon tiles
+   neutral); only the glyph deepens. */
+.maka-skill-library-row:hover .maka-skill-library-status,
+.maka-skill-library-row:focus-visible .maka-skill-library-status {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.maka-skill-library-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+/* PR-UI-PIXEL-4 (2026-06-21): reference's built-in skill rows use a 14px/600
+   name + 12px description (study §3.2). maka's 12/11 read cramped — bump to the
+   reference scale so the skills list feels as comfortable as 参考实现's. */
+.maka-skill-library-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.maka-skill-library-description {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground-60);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.maka-skill-library-meta {
+  display: inline-flex;
+  justify-self: end;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground-50);
+  font-size: 10px;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* PR-UI-PIXEL-3: the skill id reads as a soft monospace metadata pill
+   (reference treats ids/counts/sources as filled fill-tertiary pills, §4 rule 8)
+   instead of loose gray text. */
+.maka-skill-library-meta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-55);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  letter-spacing: -0.01em;
+}
+
+.maka-skill-library-action {
+  justify-self: end;
+  min-width: 40px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--foreground-55);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--duration-base) var(--ease-out-strong), transform var(--duration-base) var(--ease-out-strong), background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-skill-library-row:hover .maka-skill-library-action,
+.maka-skill-library-row:focus-visible .maka-skill-library-action {
+  opacity: 1;
+  transform: translateX(0);
+  background: oklch(from var(--foreground) l c h / 0.06);
+  color: var(--foreground);
+}
+
+.maka-skill-library-switch {
+  position: relative;
+  justify-self: end;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.05);
+}
+
+.maka-skill-library-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 18px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.22);
+}
+
+.maka-skill-installed-empty {
+  align-self: stretch;
+}
+
+@media (max-width: 820px) {
+  .maka-module-main {
+    padding: 16px;
+  }
+
+  .maka-module-main-header {
+    display: grid;
+  }
+
+  .maka-module-main-actions {
+    justify-content: flex-start;
+  }
+
+  .maka-skill-search {
+    width: min(100%, 280px);
+  }
+
+  .maka-skill-library {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+.maka-skill-library-row {
+    grid-template-columns: 38px minmax(0, 1fr) max-content;
+    gap: 6px;
+  }
+
+  .maka-skill-library-meta {
+    grid-column: 2;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .maka-skill-library-action {
+    grid-column: 2;
+    justify-self: start;
+    opacity: 1;
+    transform: none;
+  }
+
+  .maka-skill-library-switch {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+:where(input, select, textarea):focus {
+  outline: none;
+  border-color: oklch(from var(--accent) l c h / 0.48);
+  box-shadow: inset 0 0 0 1px oklch(from var(--accent) l c h / 0.22) !important;
+}
+
+.maka-chat-header {
+  height: 32px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 10px;
+  background: transparent;
+  border-bottom: 0;
+  -webkit-app-region: drag;
+}
+
+/* PR-REMOVE-CHAT-TAB (WAWQAQ msg d401938d 2026-06-23): the
+   browser-style session tab + the duplicate "新建对话" plus button at
+   the top-left of the chat header are removed. ~95 LOC of .maka-chat-tab*
+   rules came out with them. Session name + model live in the sidebar;
+   create-session lives in the sidebar new-task button. */
+
+.maka-chat-header-spacer {
+  flex: 1;
+}
+
+/* PR-MEMORY-VISIBILITY-INDICATOR-0: small clickable pill that fires
+   when local MEMORY.md is being injected into the agent's system
+   prompt. Tone matches the existing info badge family. */
+.maka-chat-header-memory-pill {
+  appearance: none;
+  background: oklch(from var(--accent) l c h / 0.10);
+  border: 1px solid oklch(from var(--accent) l c h / 0.25);
+  color: var(--accent);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  -webkit-app-region: no-drag;
+  margin-right: 4px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.maka-chat-header-memory-pill:hover {
+  background: oklch(from var(--accent) l c h / 0.18);
+}
+
+.maka-chat-header-memory-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.maka-chat-header-mode-pill {
+  border: 1px solid oklch(from var(--info) l c h / 0.32);
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 650;
+  -webkit-app-region: no-drag;
+  margin-right: 4px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.maka-chat-header-mode-pill svg {
+  flex: 0 0 auto;
+}
+
+.maka-model-switcher {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 4px 2px 0;
+  min-width: 0;
+  max-width: min(320px, 28vw);
+  -webkit-app-region: no-drag;
+}
+
+.maka-model-switcher[data-disabled="true"] {
+  opacity: 0.56;
+}
+
+.maka-model-switcher[data-pending="true"] {
+  opacity: 0.78;
+  cursor: progress;
+}
+
+.maka-model-switcher-trigger {
+  width: 100%;
+  min-width: 120px;
+  max-width: min(320px, 28vw);
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 1px 6px 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--foreground-5);
+  color: var(--foreground);
+  font-size: 11px;
+  box-shadow: none;
+  /* PR-MODEL-SWITCHER-TACTILE-0 (WAWQAQ msg `ed67a267`, skills round
+     task #116): tactile press feedback so the switch-model flow
+     feels physical. Same convention as the other interactive
+     surfaces in this round (artifact-row, session-row,
+     onboarding-card, prompt-chip). */
+  transition: background 140ms var(--ease-out-strong), transform var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
+  background: var(--foreground-8, var(--foreground-5));
+}
+
+.maka-model-switcher-trigger:active:not(:disabled):not([data-disabled]) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-model-switcher-trigger {
+    transition: background 0ms;
+  }
+  .maka-model-switcher-trigger:active:not(:disabled):not([data-disabled]) {
+    transform: none;
+  }
+}
+
+.maka-model-switcher-trigger[data-popup-open] {
+  background: var(--background);
+  box-shadow: var(--shadow-minimal-flat);
+}
+
+.maka-model-switcher-trigger:disabled,
+.maka-model-switcher-trigger[data-disabled] {
+  cursor: not-allowed;
+}
+
+.maka-model-switcher-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--foreground-50);
+}
+
+.maka-model-switcher-value {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.maka-model-switcher-positioner {
+  z-index: var(--z-dropdown);
+  outline: none;
+}
+
+.maka-model-switcher-popup {
+  width: min(330px, calc(100vw - 32px));
+  min-width: min(300px, calc(100vw - 32px));
+  max-height: min(420px, var(--available-height));
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(from var(--foreground) l c h / 0.04),
+    0 14px 34px oklch(from var(--foreground) l c h / 0.13);
+}
+
+.maka-model-switcher-popup [role="group"] + [role="group"] {
+  border-top: 1px solid var(--border);
+}
+
+.maka-model-switcher-popup [role="option"] {
+  min-height: 46px;
+  align-items: center;
+  border-radius: 10px;
+  padding: 7px 10px;
+}
+
+.maka-model-switcher-item-main {
+  display: block;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+

@@ -1,0 +1,4298 @@
+.maka-permission-stale-note {
+  margin: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warning-text);
+  background: oklch(from var(--warning) l c h / 0.10);
+  border: 1px solid oklch(from var(--warning) l c h / 0.20);
+}
+
+.maka-permission-stale-note[data-status="expired"] {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.10);
+  border-color: oklch(from var(--destructive) l c h / 0.24);
+}
+
+.maka-permission-diff {
+  display: grid;
+  gap: 6px;
+}
+
+.maka-permission-diff > div {
+  display: grid;
+  gap: 2px;
+}
+
+.maka-permission-diff-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.maka-permission-diff-tag[data-side="old"] {
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive-text);
+}
+
+.maka-permission-diff-tag[data-side="new"] {
+  background: oklch(from var(--success) l c h / 0.10);
+  color: var(--success-text);
+}
+
+.maka-permission-raw {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--foreground-2);
+}
+
+.maka-permission-raw > summary {
+  list-style: none;
+  padding: 5px 10px;
+  color: var(--foreground-60);
+  font-size: 11px;
+}
+
+.maka-permission-raw > summary::-webkit-details-marker { display: none; }
+.maka-permission-raw > summary::marker { content: ''; }
+
+.maka-permission-raw[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.maka-permission-raw .maka-code {
+  margin: 0;
+  border: 0;
+  border-radius: 0 0 6px 6px;
+  background: var(--foreground-2);
+  max-height: 180px;
+  overflow: auto;
+}
+
+.settingsSurface {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--background);
+}
+
+.settingsModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  /* PR-UI-LAYOUT-2: stronger backdrop blur + slightly darker scrim
+   * so the underlying chat reads as "paused behind a dialog"
+   * (matches the reference design's settings screenshot 2/3/4 where the chat is
+   * still semi-visible but clearly dimmed). Was: blur 8px + 0.34
+   * scrim. Now: blur 14px + 0.42 scrim. The dialog itself shrinks
+   * (see .settingsModal below) so the visible "frame" of chat
+   * around the dialog grows — that gives the modal feeling. */
+  background: oklch(0.40 0.01 80 / 0.42);
+  backdrop-filter: blur(14px) saturate(0.85);
+  -webkit-backdrop-filter: blur(14px) saturate(0.85);
+  padding: 34px;
+  /* Modern @starting-style entrance — emil-design-eng prefers transitions
+     over keyframes for modals so the animation is interruptible. */
+  opacity: 1;
+  transition: opacity 200ms var(--ease-out-strong);
+  overscroll-behavior: contain;
+}
+
+@starting-style {
+  .settingsModalBackdrop {
+    opacity: 0;
+  }
+}
+
+.settingsModal {
+  /* Modal-mode Settings (when the page mode override below is not set). Sized
+     to match the upstream reference layout's settings dialog (~88vw / 76vh,
+     ~1100×680 cap). */
+  width: min(88vw, 1100px);
+  max-width: calc(100vw - 64px);
+  height: min(76vh, 680px);
+  min-width: min(760px, calc(100vw - 64px));
+  min-height: 520px;
+  overflow: hidden;
+  /* Chrome derived from --card-* tokens (atlas §4 + Phase 2A recipe). The
+     dialog edge is now a tight 8px reference-aligned radius with a single
+     1px hairline border, a Doppelrand inner highlight and a soft 4% lift —
+     the same recipe used by every other page card, scaled to a bigger
+     surface. The previous double 28px / 8px black shadows read as "modal
+     popup heavy"; the new single lift reads as "premium card sitting on a
+     dimmed canvas". */
+  border: 1px solid var(--card-border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight),
+    0 28px 64px oklch(0 0 0 / 0.10);
+  transform: scale(1);
+  opacity: 1;
+  transition:
+    transform 240ms var(--ease-out-strong),
+    opacity 200ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .settingsModal {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+}
+
+.settingsModal.settingsPage {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--agents-layout-bg);
+  /* PR-FE-BUG-HUNT-9 (kenji audit reminder 9, finding #4):
+     was bare `z-index: 35`. Tokenized to `--z-settings-fullpage`.
+     35 sits between `--z-titlebar` (40) and `--z-sticky` (20) so
+     the OS titlebar still owns top of the stack — preserved
+     visual behavior exactly. */
+  z-index: var(--z-settings-fullpage);
+  overflow: hidden;
+  transform: none;
+  transition: opacity 160ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .settingsModal.settingsPage {
+    /* PR-AUDIT-CLEANUP-BATCH-2: the matching `.settingsModal.settingsPage`
+       rule only transitions `opacity` (line ~7026), so a `transform: none`
+       here was a no-op — kept just the opacity start-style. */
+    opacity: 0;
+  }
+}
+
+.settingsSurface[data-modal="true"] {
+  position: relative;
+  background: transparent;
+  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+}
+
+.settingsSidebar {
+  min-height: 0;
+  width: var(--sidebar-width, 240px);
+  display: grid;
+  padding: 0;
+  background: transparent;
+}
+
+.settingsSidebarInner {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  /* PR-SETTINGS-REVIEW-0 (2026-06-23, WAWQAQ msg `1b2d4e83`): traffic
+     light row sits at y=14–28 on macOS; 22px sidebar top padding put
+     the 设置 brand right against it. Bump to 52px so the brand label
+     starts well below the traffic lights, matching reference. */
+  padding: 52px 10px 12px 14px;
+  background: transparent;
+}
+
+/* PR-SETTINGS-REVIEW-0 (WAWQAQ msg `e1194266`): left-aligned `返回应用`
+   in place of the right-side X. Sits above the 设置 brand. */
+.settingsBackButton {
+  /* WAWQAQ msg `dd21e793` 2026-06-25: the "返回应用" link previously
+     used 4px 8px padding + 13px / weight 500 + 6px radius + 4px gap +
+     `align-self: flex-start` — none of which matched `.settingsNavItem`
+     below it (38px height, 12px h-pad, 7px radius, 14px / weight 500,
+     12px gap). Combined with `inline-flex` + no width, the back link
+     looked intrinsically sized and visually centered, while every nav
+     row below was full-width, left-aligned with the same glyph + label
+     rhythm. Match `.settingsNavItem` exactly so the row reads as part
+     of the same vertical list. */
+  width: calc(100% - 8px);
+  height: 38px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 4px 4px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground-70);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  justify-content: initial;
+  -webkit-app-region: no-drag;
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+.settingsBackButton:hover {
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground);
+}
+.settingsBackButton:focus-visible {
+  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15, WAWQAQ msg `f7e9d166`): the
+     `← 返回应用` link is the only way to leave Settings without a
+     mouse; without a visible focus ring keyboard-only users couldn't
+     tell it was selected. Use the same 2px accent outline +
+     `:focus-visible` recipe as the settings rows. */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--foreground);
+}
+
+.settingsSidebar header {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.settingsSidebar header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.settingsSidebar header .maka-shortcut-kbd {
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+.settingsSidebar nav {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow: auto;
+  padding: 8px 0 0;
+}
+
+.settingsNavGroup {
+  display: grid;
+  gap: 2px;
+}
+
+.settingsNavGroupLabel {
+  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0 (WAWQAQ msg `f7e9d166` round 2/15):
+     reference group labels are softer + more spaced out. Larger
+     leading top padding so each group reads as its own visual zone
+     instead of jamming against the prior item. */
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  color: var(--foreground-40);
+  padding: 18px 12px 6px;
+}
+
+.settingsNavGroupLabel::after {
+  content: none;
+}
+
+.settingsNavItem {
+  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: roomier nav row matching reference.
+     PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the previous
+     `grid-template-columns: 24px minmax(0,1fr) auto` allocated a trailing
+     `auto` track for the Beta badge, but on the 11 rows without a
+     badge the empty auto track still consumed a 12px gap, so the label
+     ran 12px short. Switched to flex — glyph is fixed-width, label
+     fills, badge sits right-aligned naturally. No phantom gap. */
+  width: calc(100% - 8px);
+  height: 38px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--foreground-70);
+  margin-inline: 4px;
+  padding: 6px 12px;
+  text-align: left;
+  justify-content: initial;
+  font-size: 14px;
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+
+.settingsNavItem > .settingsNavGlyph {
+  flex-shrink: 0;
+}
+
+.settingsNavItem > strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): small chip on nav
+   items that are still in beta — matches reference's pattern of
+   surfacing maturity inline rather than relegating to a separate
+   release notes view. */
+.settingsNavBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the previous
+   reset listed `[data-active="true"]` in its selector and used
+   `!important` to wipe shadow. The active rule then had to use its own
+   `!important` to put a 3-px accent bar back. Two `!important`s fighting
+   over the same property = specificity war. Drop the active selector
+   from the reset and remove the `!important` from both places. The
+   active rule below is the single source of truth for nav shadow. */
+.settingsSidebar .settingsNavItem,
+.settingsSidebar .settingsNavItem:hover {
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.settingsNavItem:hover {
+  background: var(--foreground-5);
+  color: var(--foreground);
+}
+
+.settingsNavItem[data-active="true"] {
+  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15): bump the active state from
+     the muted `--settings-nav-row-selected-bg` token to a slightly
+     more visible 6.5% foreground overlay + 500 weight.
+     WAWQAQ msg 49bd00e1: keep the selected row neutral. A leading
+     accent rail reads like a stray status marker in the Settings nav. */
+  background: oklch(from var(--foreground) l c h / 0.065);
+  color: var(--foreground);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.settingsNavItem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: oklch(from var(--accent) l c h / 0.04);
+}
+
+.settingsNavItem[data-active="true"] .settingsNavGlyph {
+  color: var(--foreground);
+}
+
+.settingsNavItem:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.settingsNavGlyph {
+  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: slightly bigger glyph track + svg
+     so the icon doesn't read as a tiny dot. */
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--foreground-60);
+}
+
+.settingsNavGlyph svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* PR-UI-11 (@yuejing 2026-05-22): inactive glyph stays muted; active
+ * glyph is overridden above to `--accent` for selection visibility. */
+
+.settingsNavItem strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settingsNavItem {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+
+.settingsFeatureStatusPage {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+/* Status banner at the top of feature settings pages. */
+.settingsFeatureStatusBanner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed oklch(from var(--info) l c h / 0.32);
+  border-radius: 10px;
+  background: oklch(from var(--info) l c h / 0.06);
+  color: var(--foreground-80);
+  font-size: 12.5px;
+  line-height: 1.5;
+  width: fit-content;
+  max-width: 100%;
+}
+.settingsFeatureStatusBanner strong {
+  color: var(--info-text);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.settingsFeatureStatusBannerDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info);
+  flex: 0 0 auto;
+}
+
+.settingsFeatureStatusHero {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsFeatureStatusIcon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--accent);
+}
+
+.settingsFeatureStatusHero h3 {
+  margin: 0 0 3px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingsFeatureStatusHero p {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--foreground-70);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settingsFeatureStatusList {
+  margin: 0;
+  padding: 0 0 0 14px;
+  display: grid;
+  gap: 4px;
+  color: var(--foreground-70);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settingsFeatureStatusList li::marker {
+  color: var(--foreground-40);
+}
+
+.settingsFeatureStatusHeroHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+.settingsFeatureStatusHeroHeading h3 {
+  margin: 0;
+}
+
+/* PR daily-review-bundled (WAWQAQ msg `afbe542d` 2026-06-25 +
+   @kenji audit finding #6): the Daily Review settings page used to
+   stack a banner + intro hero card + settings rows + "try it now"
+   hero card — too much promo chrome for a workbench settings
+   surface. The unified `.settingsPageFooterActions` is a single
+   right-aligned action row that the page renders below the rows
+   (open Daily Review · generate now · deep). Keep the action set
+   visible and uniform regardless of how many ops the page exposes. */
+.settingsPageFooterActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* PR audit2-bundled (@kenji audit #5 msg `e4cfbfb0`): names for the
+   inline `style={{ marginTop: N }}` patches that were sprinkled around
+   settings surfaces. Keeps the spacing decision discoverable + locked
+   in the design token surface instead of buried in JSX. */
+.settingsSurfaceAlert {
+  margin-top: 12px;
+}
+
+.settingsNoticeAction {
+  margin-top: 8px;
+}
+
+/* PR daily-review-bundled (@kenji audit finding #5): semantic width
+   bucket on the row, not a class selector keyed off the input
+   className. Different settings rows ask for different control
+   widths (time-pickers want compact, free-text selects want a 320px
+   cap); keying off the row makes the contract local and obvious. */
+.settingsRow[data-control-width="compact"] > input,
+.settingsRow[data-control-width="compact"] > .settingsTimeInput {
+  max-width: 140px;
+  justify-self: end;
+}
+
+.settingsRow[data-control-width="select"] > .settingsSelectTrigger {
+  justify-self: end;
+}
+
+.settingsFeatureStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.settingsLoadingSkeleton {
+  padding: 8px 0;
+  max-width: 540px;
+}
+
+.providersLoading {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 8px 4px;
+}
+
+.providersLoadingStrip {
+  display: grid;
+  gap: 8px;
+}
+
+.providersLoadingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(198px, 1fr));
+  gap: 10px;
+}
+
+/* PR-SETTINGS-REVIEW-0 (2026-06-23, WAWQAQ msgs `f97ed407` + `8577326c`):
+   pull the page header into the same centered max-w-3xl column as the
+   content. Before this, the header sat in `.settingsMainPane` padding
+   (~34px from pane edge), while the row cards lived in the centered
+   768px column (~152px from pane edge at 1280 viewport) — the title
+   and content were visibly misaligned. Drop the mainpane padding to
+   thin top/bottom so the header + content can both share the centered
+   column. */
+/* PR-SETTINGS-RESTORE-SURFACE-0 (WAWQAQ msg `32ed9490` correction):
+   previous PR over-corrected — I read "no seam" as "no plate", but
+   reference's content surface is still a lighter-bg plate vs the
+   sidebar. The seam-between rule is: no visible BORDER line between
+   sidebar and content, but the content does have its own background
+   plate + rounded corners + small floating margin. Restore the
+   surface; just no border. */
+.settingsMainPane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  margin: var(--agents-content-area-gap) var(--agents-content-area-gap) var(--agents-content-area-gap) 0;
+  border: 0;
+  border-radius: var(--agents-content-area-radius);
+  background: var(--agents-content-area-bg);
+  box-shadow: none;
+  overflow: hidden;
+  /* Traffic-light-aligned top padding so the page title sits at the
+     same Y baseline as the sidebar brand. */
+  padding: 52px 0 0;
+}
+
+/* PR-SETTINGS-REVIEW-0 fix-2: max-width centering on a grid child
+   didn't actually align the H2 with the centered column underneath.
+   Use the same edge math the content column uses
+   (`calc((100% - 768px) / 2 + 24px)`) so the header content lines up
+   with row cards regardless of viewport width. */
+.settingsPageHeader {
+  min-height: 36px;
+  padding: 0 max(24px, calc((100% - 768px) / 2 + 24px));
+  display: flex;
+  align-items: center;
+  /* X close button moved to the sidebar `返回应用` — header hosts the
+     page title only, left-aligned. */
+  justify-content: flex-start;
+  gap: 18px;
+}
+
+.settingsPageHeaderTitleStack {
+  display: grid;
+  gap: 6px;
+}
+
+.settingsPageHeader h2 {
+  /* PR-SETTINGS-PAGE-HEADER-POLISH-0 (round 12/15): tighten the h2
+     with negative tracking + slightly softer weight.
+     PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): `text-wrap:
+     balance` so 1-2 word titles don't orphan on long pages and
+     2-word titles like 「记忆与回顾」don't break across an awkward
+     line. */
+  margin: 0;
+  color: var(--foreground);
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+/* PR-SETTINGS-PAGE-SUBTITLE-0 (round 4/15) + round 12/15 cap +
+   round 15/15 `text-wrap: pretty` so the last line isn't a single
+   orphan word (per baseline-ui typography rule). */
+.settingsPageHeaderDescription {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--foreground-55);
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.settingsPageContent {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settingsPageContentViewport {
+  height: 100%;
+  overscroll-behavior: contain;
+}
+
+/* PR-SETTINGS-SHELL-OWNS-LAYOUT-0 (2026-06-23, WAWQAQ msg `70c224f4`):
+   the page chrome (max-width column + side padding + top/bottom gutter)
+   used to live on each sub-page's own wrapper (settingsStructuredPage,
+   settingsAboutPage, settingsPermissionPage, settingsHealthPage…),
+   forcing per-page CSS edits whenever the chrome shifts. The shell
+   now owns it via `.settingsPageContentInner` — the single
+   OverlayScrollArea inner div every page renders through. Sub-pages
+   only manage their own row stack.
+
+   WAWQAQ msg `eafc18a1` correction: reference rows DO have 1px borders
+   + small radius, not flat. Earlier flat-row recipe (PR-PAGE-BODY-0)
+   was wrong; this PR reinstates per-row borders with the reference
+   recipe — 1px subtle border, 8px radius, white-ish bg, 8px gap. */
+.settingsPageContentInner {
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+}
+
+/* PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the renamed
+   motion token block introduced in round 15 duplicated the existing
+   `--ease-out-strong` (cubic-bezier(0.16,1,0.3,1)) already declared in
+   `maka-tokens.css`. The dup was cargo-culted because the round-15 PR
+   didn't grep first. Removed — `--ease-out-strong` is now the single
+   easing token used across the renderer (3000+ consumers). The
+   settings `:active` rule below uses it directly. */
+
+/* PR-SETTINGS-NO-PANE-BORDER-0 (WAWQAQ msg `d0e7dfb3`): nested
+   card-in-card was the previous problem — `.settingsStructuredPage`
+   was a card AND it contained `<SettingsRows>` cards AND orphan
+   `.settingsFormRow` direct children. Reference shows multiple
+   GROUPED cards stacked vertically. So `.settingsStructuredPage` is
+   no longer a card — it's just the vertical container with gap, and
+   `.settingsRows` is the ONLY card primitive. */
+.settingsStructuredPage {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  background: transparent;
+}
+
+/* Nested `.settingsStructuredPage` (merged pages like 外观 stack two
+   sub-pages, each wrapping in their own `.settingsStructuredPage`):
+   the inner one just passes through. */
+.settingsStructuredPage .settingsStructuredPage {
+  gap: 16px;
+}
+
+/* PR-SETTINGS-SWEEP-0: section heading for merged pages. Mirrors
+   reference's small uppercase sub-section tag.
+   PR-SETTINGS-REVIEW-0 alignment fix: flush-left with the card stack
+   (cards carry their own L padding internally), and bump the heading
+   to 12/2px tracking so it reads as a real sub-section break rather
+   than a hairline. */
+.settingsSectionHeading {
+  margin: 24px 2px 10px;
+  color: var(--foreground-55);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.settingsStructuredPage > .settingsSectionHeading:first-child {
+  margin-top: 0;
+}
+
+
+.settingsEmptyState {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  color: var(--foreground-50);
+  font-size: 13px;
+}
+
+/* PR-SETTINGS-ROW-SPACIOUS-0 (2026-06-23, WAWQAQ msg `f7e9d166`):
+   reference rows are MUCH more spacious than maka's. WAWQAQ's screenshot
+   of QoderWork's preferences card showed rows ~80–90px tall with
+   noticeable internal padding. Bumped: min-height 56→72, padding
+   16/20 → 20/24, gap inside row 16→20, label 14→15px, hint 12→13. */
+.settingsFormRow {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px;
+  border: 0;
+  border-bottom: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+.settingsFormRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsFormRow:hover {
+  background: oklch(from var(--foreground) l c h / 0.025);
+}
+
+/* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15) — tactile press
+   feedback. 12-principles `physics-active-state` + Taste-Skill +
+   UIDB all converge on `:active { scale(0.98) }` as the cheapest way
+   to make UI feel handled vs simulated. Applied only when reduced-
+   motion is not preferred — the @media block above already strips
+   transition; here we keep `transform` declarations so the
+   `:active` *snap* still fires (it's instant, not animated). */
+/* Self-review: `.settingsFormRow` and `.settingsRow` are <div>
+   containers wrapping <input>/<Switch>/<button> children. `:active`
+   on the wrapper fires when the user presses ANY of those children
+   (event bubbles), so pressing an input or switch knob scaled the
+   whole row — visually buggy. Restricted to actual <button>s. */
+.settingsBackButton:active,
+.settingsNavItem:active {
+  transform: scale(0.985);
+  transition: transform 100ms var(--ease-out-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settingsBackButton:active,
+  .settingsNavItem:active {
+    transform: none;
+  }
+}
+
+/* PR-SETTINGS-A11Y-POLISH-0 (round 11/15) — keyboard-only focus ring
+   on settings rows + inputs. Reference's settings cards use a 2px
+   ring on focus-visible; maka had no visible affordance. Use the
+   accent color with 2px outline + 2px offset so it doesn't blend
+   with the row's hairline divider. */
+.settingsFormRow:focus-visible,
+.settingsRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  background: oklch(from var(--accent) l c h / 0.04);
+}
+
+.settingsField input:focus-visible,
+.settingsField textarea:focus-visible,
+.settingsFormGrid input:focus-visible,
+.settingsFormGrid select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.18);
+}
+
+/* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion. Strip
+   the nav-item background transition, the switch thumb slide, and
+   the row hover transitions for users on the OS reduced-motion
+   accommodation. The interaction still fires, just instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .settingsNavItem,
+  .settingsFormRow,
+  .settingsRow,
+  .settingsField input,
+  .settingsField textarea {
+    transition: none !important;
+  }
+  .settingsFormRow [role="switch"] > span,
+  .settingsField [role="switch"] > span {
+    transition: none;
+  }
+}
+
+/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15, WAWQAQ msg `f7e9d166`):
+   the BaseSwitch shared adapter renders at `h-5 w-9` (20×36px) with a
+   16×16 thumb — too small inside the now-roomy settings rows.
+   Reference toggles inside Settings are noticeably larger and the
+   on-state is a more saturated green. Scope the bigger size to
+   settings rows only so the Switch primitive stays compact in chat /
+   sidebar usage. The thumb translate offset (`1.125rem` for h-5)
+   no longer reaches the right side at h-6.5, so we override it with
+   a calc that scales with the new track width. */
+.settingsFormRow [role="switch"],
+.settingsField [role="switch"] {
+  height: 26px;
+  width: 46px;
+  border-radius: 999px;
+}
+
+.settingsFormRow [role="switch"] > span,
+.settingsField [role="switch"] > span {
+  height: 22px;
+  width: 22px;
+  /* WAWQAQ msg `b45dc33d` 2026-06-25: Settings Switch thumbs ("白点")
+     were escaping the track to the right. Root cause: Tailwind v4's
+     `translate-x-0.5` / `translate-x-[1.125rem]` utilities applied on
+     <BaseSwitch.Thumb> in `packages/ui/src/ui.tsx:464` emit the
+     `translate:` CSS property, not `transform:`. The previous overrides
+     here set `transform: translateX(...)`, which is an INDEPENDENT
+     property — both stacked additively, pushing the thumb 2-18px past
+     the right edge of the 46px track at h-6.5 settings scale.
+     Fix: override the same `translate:` property so the value wins by
+     specificity instead of compounding. */
+  translate: 2px 0;
+}
+
+.settingsFormRow [role="switch"][data-checked] > span,
+.settingsField [role="switch"][data-checked] > span {
+  translate: 22px 0;
+}
+
+.settingsFormRow strong,
+.settingsField span,
+.settingsFormGrid label span {
+  display: block;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.settingsFormRow small,
+.settingsField small {
+  display: block;
+  margin-top: 6px;
+  color: var(--foreground-55);
+  /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): 13 → 14 to clear
+     the 14px legibility floor cited by baseline-ui + UIDB + Impeccable
+     `/typeset`. Hint is the most-read body text on the page. */
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.settingsFieldWarning {
+  display: block;
+  margin-top: 4px;
+  color: var(--warning-text, var(--info-text));
+}
+
+/* PR-USE-SHADCN-BASE-UI-SWITCH (2026-06-22): the bespoke .settingsSwitch
+   rules were removed because the local `Switch(...)` adapter now renders
+   the shared `BaseUiSwitch` (Base UI Switch.Root) which carries its own
+   Tailwind utility styling (h-5 w-9 track, h-4 w-4 thumb, data-checked
+   bg-primary, focus ring tied to --ring). Same external API shape;
+   ~50 lines of duplicate CSS deleted. */
+
+.settingsFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settingsFormGridProxy {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.8fr) minmax(84px, 0.5fr);
+}
+
+.settingsField,
+.settingsFormGrid label {
+  display: grid;
+  gap: 4px;
+}
+
+/* PR-S2 (2026-06-23): reference-style horizontal Settings row — label
+   stack on the left (title + description), control aligned right. Use
+   `<div className="settingsField" data-orient="horizontal">` on rows
+   whose control is a single inline element (Input, Switch, Segmented,
+   Select). Leave the default vertical stack for full-width controls
+   (Textarea, multi-line forms). The 1px hairline divider between rows
+   pulls the look closer to reference's flat divider list and away from
+   the previous "each row in its own implicit card" feel. */
+.settingsField[data-orient="horizontal"] {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label control"
+    "hint  control";
+  column-gap: 16px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settingsField[data-orient="horizontal"] > span {
+  grid-area: label;
+  align-self: end;
+}
+.settingsField[data-orient="horizontal"] > small {
+  grid-area: hint;
+  margin-top: 0;
+  align-self: start;
+}
+.settingsField[data-orient="horizontal"] > :not(span):not(small) {
+  grid-area: control;
+  justify-self: end;
+  align-self: center;
+  min-width: 0;
+}
+/* Allow inputs to take a comfortable cap width on horizontal rows so
+   the description column has space to breathe.
+   PR-SETTINGS-INPUT-POLISH-0: cap from 280 → 320 since rows are now
+   roomier (24px L/R padding). */
+.settingsField[data-orient="horizontal"] > input,
+.settingsField[data-orient="horizontal"] > .settingsSelectTrigger {
+  max-width: 320px;
+}
+/* WAWQAQ msg `0951e3b1` 2026-06-25 + @kenji audit #5 (msg `26a221be`):
+   moved to `.settingsRow[data-control-width="select"] >
+   .settingsBaseSelectTrigger` so the contract lives on the row, not on
+   a global class selector. See the data-control-width block above. */
+/* The horizontal row above the first one shouldn't carry a top border;
+   below the last one the section footer takes over. The default
+   border-bottom is fine for the inter-row hairlines. */
+.settingsField[data-orient="horizontal"] + .settingsField[data-orient="horizontal"] {
+  border-top: 0;
+}
+
+/* PR-SETTINGS-INPUT-POLISH-0 (round 6/15, WAWQAQ msg `f7e9d166`):
+   inputs inside settings rows were at 12px / 26px min-height with
+   tight 0/8 padding — visibly thin against the now-bigger row
+   typography (15px label / 13px hint / 26×46 switch). Bump to a
+   14px input with 34px min-height and proper padding. */
+.settingsField input,
+.settingsField textarea,
+.settingsFormGrid input,
+.settingsFormGrid select,
+.settingsUsageFilters input,
+.settingsUsageFilters select {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.12);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
+}
+
+.settingsField textarea {
+  border-radius: 7px;
+  padding: 8px 10px;
+  line-height: 1.5;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.settingsField input:focus,
+.settingsField textarea:focus,
+.settingsFormGrid input:focus,
+.settingsFormGrid select:focus,
+.settingsUsageFilters input:focus,
+.settingsUsageFilters select:focus {
+  /* PR-UI-LAYOUT-21: was border-only at 0.3 accent — keyboard
+   * focus was hard to see. Added a 3px accent halo (matches the
+   * connection form / nav-primary / button family) and bumped
+   * border opacity 0.3 → 0.42 for parity. */
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.12);
+}
+
+.settingsNotice {
+  border-radius: 12px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  padding: 11px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settingsNotice[data-tone="passive"] {
+  background: var(--foreground-5);
+  color: var(--foreground-55);
+}
+
+.settingsActionRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* PR-SETTINGS-SHELL-OWNS-LAYOUT-0: shell now owns max-width + page
+   padding via `.settingsPageContentInner`. About page just manages
+   its own internal block stack. */
+.settingsAboutPage {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.settingsAboutHero {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settingsAboutLogo {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--accent);
+}
+
+.settingsAboutHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+
+.settingsAboutHeading h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.settingsAboutVersion {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--foreground-70);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.05);
+}
+
+.settingsAboutChannel {
+  font-size: 11px;
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  font-weight: 600;
+}
+
+.settingsAboutTagline {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsAboutPrivacy {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid oklch(from var(--success) l c h / 0.24);
+  border-radius: 12px;
+  background: oklch(from var(--success) l c h / 0.04);
+}
+
+.settingsAboutPrivacy h3 {
+  margin: 0;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsAboutPrivacy ul {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--foreground-70);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsAboutPrivacy li::marker {
+  color: var(--success);
+}
+
+.settingsThemeOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settingsThemeOption {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: auto;
+  min-height: 48px;
+  justify-content: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background-elevated);
+  color: var(--foreground);
+  overflow: hidden;
+  padding: 8px;
+  text-align: left;
+  white-space: normal;
+}
+
+.settingsThemeOptionPreview {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 116px;
+}
+
+/* Mini chat-surface mock rendered inside each theme tile. Hardcodes colors
+ * per variant so the preview doesn't track the active theme — comparing
+ * tiles is the whole point. */
+.settingsThemePreview {
+  width: 100%;
+  max-height: 70px;
+  aspect-ratio: 16 / 8;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  display: flex;
+  background: var(--foreground-5);
+}
+
+.settingsThemePreviewSplit > .settingsThemePreviewPane:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.settingsThemePreviewPane {
+  flex: 1 1 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.settingsThemePreviewPane[data-mode="light"] {
+  /* PR-GRAY-CARD-LIFT-0: mirror the app shell after WAWQAQ's gray
+     plate / white content surface direction. */
+  background: oklch(1.000 0 0);
+  color: oklch(0.18 0 0);
+}
+
+.settingsThemePreviewPane[data-mode="dark"] {
+  background: oklch(0.21 0 0);
+  color: oklch(0.92 0 0);
+}
+
+.settingsThemePreviewSidebar {
+  height: 100%;
+}
+
+.settingsThemePreviewPane[data-mode="light"] .settingsThemePreviewSidebar {
+  background: oklch(0.955 0 0);
+  border-right: 1px solid oklch(0.88 0 0);
+}
+
+.settingsThemePreviewPane[data-mode="dark"] .settingsThemePreviewSidebar {
+  background: oklch(0.13 0 0);
+  border-right: 1px solid oklch(0.26 0 0);
+}
+
+.settingsThemePreviewChat {
+  padding: 6px 8px;
+  display: grid;
+  gap: 4px;
+  align-content: end;
+  min-width: 0;
+}
+
+.settingsThemePreviewLine {
+  height: 5px;
+  border-radius: 999px;
+  width: 90%;
+}
+
+.settingsThemePreviewLine-short {
+  width: 56%;
+}
+
+.settingsThemePreviewPane[data-mode="light"] .settingsThemePreviewLine-assistant {
+  background: oklch(0.78 0 0);
+}
+.settingsThemePreviewPane[data-mode="dark"] .settingsThemePreviewLine-assistant {
+  background: oklch(0.36 0 0);
+}
+
+.settingsThemePreviewBubble {
+  align-self: end;
+  justify-self: end;
+  width: 60%;
+  height: 12px;
+  border-radius: 7px 2px 7px 7px;
+  margin-top: 2px;
+}
+
+.settingsThemePreviewPane[data-mode="light"] .settingsThemePreviewBubble {
+  background: oklch(0.935 0 0);
+}
+.settingsThemePreviewPane[data-mode="dark"] .settingsThemePreviewBubble {
+  background: oklch(0.30 0 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settingsThemePreview { transition: none; }
+}
+
+.settingsThemeOption:hover {
+  border-color: oklch(from var(--accent) l c h / 0.22);
+  background: var(--foreground-3);
+}
+
+.settingsThemeOption[data-active="true"] {
+  border-color: oklch(from var(--accent) l c h / 0.45);
+  background: oklch(from var(--accent) l c h / 0.06);
+}
+
+/* PR-THEME-PRODUCT-PALETTES-0: palette picker. Each option shows a
+   round swatch whose color is the palette's accent token. The swatch
+   colors are hard-coded here (not pulled from --accent) so a non-
+   active palette still previews its real color. */
+.settingsPaletteSwatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  box-shadow: inset 0 0 0 2px oklch(1 0 0 / 0.25);
+}
+/* PR-PALETTE-PICKER-GROUPS-0: subgroup container that gathers a small
+   heading (编辑器主题 / 产品色调) above its own grid. Spacing matches
+   the existing settingsSubheading rhythm so the page reads as one
+   continuous picker, just structured. */
+.settingsPaletteGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settingsPaletteGroup + .settingsPaletteGroup {
+  margin-top: 8px;
+}
+.settingsPaletteGroupHeading {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--foreground-55);
+  letter-spacing: 0;
+}
+
+/* PR-BOT-SETTINGS-PASSWORD-EYE-0 (WAWQAQ msg `51c7b4ff` screenshots):
+   <input type=password> + trailing Eye / EyeOff toggle, matching the
+   reference design's "Bot Token …………… 👁" affordance. The toggle is
+   a real button so keyboard users can flip it. */
+.settingsPasswordField {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.settingsPasswordField input {
+  width: 100%;
+  padding-right: 56px;
+}
+.settingsPasswordActions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.settingsPasswordToggle {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground-50);
+  transition: background var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+.settingsPasswordToggle:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.settingsPasswordToggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.28);
+}
+
+/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
+   action buttons in bot settings follow the reference design — outlined
+   blue rounded pills, stacked vertically with a small gap. */
+.settingsBotActionStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 8px;
+}
+.settingsBotAction {
+  appearance: none;
+  min-width: 110px;
+  min-height: 36px;
+  padding: 0 22px;
+  border: 1px solid oklch(from var(--accent) l c h / 0.45);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
+}
+.settingsBotAction:hover {
+  background: oklch(from var(--accent) l c h / 0.08);
+}
+.settingsBotAction:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.22);
+}
+.settingsBotAction[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Inline hint after a field label — mirrors "(国内网络必填)" /
+   "(仅用于 Bot 鉴权)" in the reference. */
+.settingsFieldHint {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--foreground-50);
+  font-size: 11.5px;
+  margin-left: 6px;
+}
+
+/* Amber info notice with a leading ⓘ glyph — mirrors the reference
+   design's TUN-mode hints in Telegram + Discord. */
+.settingsBotInfoNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: oklch(from var(--info) l c h / 0.10);
+  border: 1px solid oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.settingsBotInfoNoticeIcon {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--info);
+  line-height: 1.4;
+}
+
+/* PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): scan-login modal —
+   compact dialog centered above the backdrop with the QR + status. */
+.settingsBotScanLoginModal {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: min(320px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-minimal);
+}
+.settingsBotScanLoginHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.settingsBotScanLoginHeader h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settingsBotScanLoginBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.settingsBotScanLoginQr {
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  background: white;
+  padding: 8px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+}
+.settingsBotScanLoginQrPlaceholder {
+  width: 180px;
+  height: 180px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--foreground-5);
+  border: 1px dashed var(--border);
+  color: var(--foreground-40);
+  font-size: 24px;
+}
+.settingsBotScanLoginStatus {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--foreground-70);
+}
+.settingsBotScanLoginStatus[data-status="confirmed"] { color: var(--success-text); }
+.settingsBotScanLoginStatus[data-status="error"] { color: var(--destructive-text); }
+.settingsBotScanLoginStatus[data-status="expired"] { color: var(--info-text); }
+.settingsBotScanLoginActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* WeChat 高级设置 collapsible toggle. */
+.settingsBotAdvanced {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settingsBotAdvancedToggle {
+  align-self: flex-start;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--foreground-55);
+  padding: 4px 0;
+  font-size: 12px;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+.settingsBotAdvancedToggle:hover {
+  color: var(--foreground);
+}
+.settingsBotAdvancedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
+.settingsWechatQrBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 1);
+  display: grid;
+  place-items: center;
+  background: oklch(0.34 0.01 80 / 0.34);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.settingsWechatQrModal {
+  width: min(360px, calc(100vw - 40px));
+  display: grid;
+  gap: 18px;
+  border: 1px solid color-mix(in srgb, #07C160 18%, var(--border));
+  border-radius: 12px;
+  background: var(--background);
+  box-shadow:
+    0 24px 58px oklch(0 0 0 / 0.18),
+    0 8px 18px oklch(0 0 0 / 0.10);
+  padding: 18px;
+}
+
+.settingsWechatQrHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.settingsWechatQrHeader h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.settingsWechatQrHeader p,
+.settingsWechatQrCaption {
+  margin: 0;
+  color: var(--foreground-55);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.settingsWechatQrClose {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground-55);
+}
+
+.settingsWechatQrClose:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.settingsWechatQrClose:focus-visible,
+.settingsWechatQrSecondary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.24);
+}
+
+.settingsWechatQrBody {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.settingsWechatQrFrame {
+  width: 224px;
+  height: 224px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #07C160 20%, var(--border));
+  border-radius: 12px;
+  background: white;
+  padding: 12px;
+}
+
+.settingsWechatQrFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.settingsWechatQrState {
+  width: 100%;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--foreground-3);
+  color: var(--foreground-60);
+  padding: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settingsWechatQrState strong {
+  color: inherit;
+  font-weight: 600;
+}
+
+.settingsWechatQrState[data-tone="success"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+  background: oklch(from var(--success) l c h / 0.08);
+  color: var(--success-text);
+}
+
+.settingsWechatQrState[data-tone="warning"] {
+  border-color: oklch(from var(--info) l c h / 0.26);
+  background: oklch(from var(--info) l c h / 0.09);
+  color: var(--info-text);
+}
+
+.settingsWechatQrState[data-tone="error"] {
+  border-color: oklch(from var(--destructive) l c h / 0.24);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  color: var(--destructive-text);
+}
+
+.settingsWechatQrSecondary {
+  min-height: 30px;
+  border: 1px solid oklch(from var(--accent) l c h / 0.34);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--accent);
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.settingsWechatQrSecondary:hover {
+  background: oklch(from var(--accent) l c h / 0.08);
+}
+
+.settingsWechatQrSecondary:disabled {
+  opacity: 0.58;
+  cursor: progress;
+}
+
+.settingsThemeLabel {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settingsThemeLabel strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsThemeLabel small {
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 820px) {
+  .settingsThemeOptions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.settingsSubheading {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsSubheading + .settingsThemeOptions {
+  margin-top: -6px;
+}
+
+.settingsBotLayout {
+  min-height: 470px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 22px;
+}
+
+.settingsBotList {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  border-right: 1px solid var(--border);
+  padding-right: 22px;
+}
+
+.settingsBotList button {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground-70);
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.settingsBotList button[data-active="true"] {
+  background: var(--active);
+  color: var(--foreground);
+}
+
+.settingsBotList em {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--foreground-55);
+}
+
+.settingsBotList em[data-tone="info"] { color: var(--accent); }
+.settingsBotList em[data-tone="success"] { color: var(--success-text); }
+.settingsBotList em[data-tone="warning"] { color: var(--info-text); }
+.settingsBotList em[data-tone="destructive"] { color: var(--destructive-text); }
+
+/* PR-PLACEHOLDER-SWEEP-0: planned-only platforms render their tab
+   muted so users don't mistake them for credentialed-and-ready
+   options. Clicking still navigates so the user can read the
+   unavailable-state notice on the detail pane. */
+.settingsBotList button[data-support="planned"] {
+  opacity: 0.55;
+}
+.settingsBotList button[data-support="planned"]:hover {
+  opacity: 0.75;
+}
+.settingsBotList button[data-support="planned"][data-active="true"] {
+  opacity: 1;
+}
+.settingsBotList button[data-support="planned"] em {
+  border: 1px solid var(--foreground-15);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--foreground-50);
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted monogram
+   badge. `--bot-brand-color` is the per-platform brand color set
+   inline by BotBrandLogo. Background uses ~14% tint so the brand
+   reads clearly without overpowering the row. */
+.settingsBotLogo {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bot-brand-color, var(--accent)) 14%, var(--background));
+  color: var(--bot-brand-color, var(--accent));
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
+.settingsBotLogo[data-large="true"] {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 20px;
+}
+
+.settingsBotLogoStatusDot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--foreground-30);
+  box-shadow: 0 0 0 2px var(--background);
+}
+.settingsBotLogo[data-large="true"] .settingsBotLogoStatusDot {
+  width: 11px;
+  height: 11px;
+  right: -3px;
+  bottom: -3px;
+  box-shadow: 0 0 0 2.5px var(--background);
+}
+.settingsBotLogoStatusDot[data-tone="info"] { background: var(--accent); }
+.settingsBotLogoStatusDot[data-tone="success"] { background: var(--success); }
+.settingsBotLogoStatusDot[data-tone="warning"] { background: var(--info); }
+.settingsBotLogoStatusDot[data-tone="destructive"] { background: var(--destructive); }
+
+.settingsBotDetail {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
+   card. Background uses the brand color at ~7% so the platform
+   identity is visible without overpowering the form. Telegram-style
+   light blue, WeChat green, Discord purple, etc. */
+.settingsBotHero {
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bot-brand-color, var(--accent)) 7%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--bot-brand-color, var(--accent)) 14%, transparent);
+  padding: 16px 18px;
+}
+
+.settingsBotHero[data-support="planned"] {
+  background: var(--foreground-5);
+  border-color: var(--border);
+}
+
+/* Re-export the brand color on the hero card so child logo + accents
+   pick up the right CSS var without needing a second prop pass. */
+.settingsBotHero[data-provider="telegram"] { --bot-brand-color: #229ED9; }
+.settingsBotHero[data-provider="feishu"]   { --bot-brand-color: #00C6B7; }
+.settingsBotHero[data-provider="wecom"]    { --bot-brand-color: #0089FF; }
+.settingsBotHero[data-provider="wechat"]   { --bot-brand-color: #07C160; }
+.settingsBotHero[data-provider="discord"]  { --bot-brand-color: #5865F2; }
+.settingsBotHero[data-provider="dingtalk"] { --bot-brand-color: #1372FB; }
+.settingsBotHero[data-provider="qq"]       { --bot-brand-color: #EB1923; }
+
+.settingsBotHeroBody {
+  min-width: 0;
+}
+
+.settingsBotHero h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settingsBotHero small,
+.settingsHelpText {
+  color: var(--foreground-55);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.settingsBotEnableHint {
+  display: block;
+  margin-top: 4px;
+  color: var(--warning-text, var(--foreground-70));
+}
+
+.settingsBotConfigDocLink {
+  color: var(--bot-brand-color, var(--accent));
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.settingsBotConfigDocLink:hover {
+  text-decoration: underline;
+}
+
+.settingsBotStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--foreground-70);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.settingsBotStatusPillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--foreground-40);
+}
+.settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--accent); }
+.settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
+.settingsBotStatusPill[data-tone="success"] .settingsBotStatusPillDot { background: var(--success); }
+.settingsBotStatusPill[data-tone="warning"] { color: var(--info-text); }
+.settingsBotStatusPill[data-tone="warning"] .settingsBotStatusPillDot { background: var(--info); }
+.settingsBotStatusPill[data-tone="destructive"] { color: var(--destructive-text); }
+.settingsBotStatusPill[data-tone="destructive"] .settingsBotStatusPillDot { background: var(--destructive); }
+
+.settingsHelpText {
+  margin: 0;
+}
+
+.settingsBotStatusGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.settingsBotStatusGrid div {
+  min-height: 52px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--foreground-3);
+  padding: 10px 12px;
+}
+
+@media (max-width: 1100px) {
+  .settingsBotStatusGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.settingsBotStatusGrid dt {
+  margin-bottom: 4px;
+  color: var(--foreground-45);
+  font-size: 11px;
+}
+
+.settingsBotStatusGrid dd {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.settingsBotReason {
+  border-left: 2px solid var(--accent);
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.5;
+  padding-left: 10px;
+}
+
+/* PR-BOT-CHAT-POLISH-0: error tone for persisted lastError so the
+   user can spot a failed test past the toast lifetime. */
+.settingsBotReason[data-tone="error"] {
+  border-left-color: var(--destructive, var(--warning));
+  color: var(--destructive-text, var(--info-text));
+}
+
+.settingsUsagePage {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.settingsUsageToolbar,
+.settingsUsageFilters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settingsSegmented {
+  justify-self: start;
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--foreground-5);
+  padding: 2px;
+}
+
+.settingsSegmented button {
+  min-height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground-60);
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.settingsSegmented button[data-active="true"] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.08);
+}
+
+.settingsUsageSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.settingsMetricCard {
+  min-height: 52px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--foreground-5);
+  padding: 6px 10px;
+}
+
+.settingsMetricCard small,
+.settingsMetricCard span {
+  color: var(--foreground-50);
+  font-size: 10px;
+}
+
+.settingsMetricCard strong {
+  font-size: 14px;
+}
+
+.settingsStatsTable {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.settingsStatsTable th,
+.settingsStatsTable td {
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground-60);
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.settingsStatsTable th {
+  color: var(--foreground-70);
+  font-weight: 600;
+}
+
+.settingsCloseButton {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-50);
+  line-height: 1;
+}
+
+.settingsCloseButton svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settingsCloseButton:hover {
+  background: var(--foreground-5);
+  color: var(--foreground);
+}
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settingsBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  border-radius: 4px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+/* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
+   card pattern as `.settingsStructuredPage` — outer card + hairline
+   dividers, no per-row chrome. */
+.settingsRows {
+  display: grid;
+  gap: 0;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Per-connection card on AccountSettingsPage. Status badge tone derives
+ * from the closed-form ConnectionUiStatus enum:
+ *   neutral / info / success / warning / destructive.
+ */
+.settingsConnectionList {
+  /* PR-CONNECTION-LIST-A11Y-0 (round 17/30): switched from
+     `<div role="list">` to semantic `<ul>`. Reset the UA's
+     default bullet + 40px padding-left so the grid layout
+     stays the same. */
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.settingsConnectionList > li {
+  margin: 0;
+  padding: 0;
+}
+
+.settingsConnectionRow {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--foreground-2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.settingsConnectionRow[data-status="verified"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+  background: oklch(from var(--success) l c h / 0.04);
+}
+.settingsConnectionRow[data-status="needs_reauth"] {
+  border-color: oklch(from var(--info) l c h / 0.30);
+  background: oklch(from var(--info) l c h / 0.06);
+}
+.settingsConnectionRow[data-status="error"] {
+  border-color: oklch(from var(--destructive) l c h / 0.30);
+  background: oklch(from var(--destructive) l c h / 0.05);
+}
+.settingsConnectionRow[data-status="not_configured"] {
+  border-color: oklch(from var(--info) l c h / 0.20);
+  background: oklch(from var(--info) l c h / 0.03);
+}
+
+/* PR-OAUTH-SUBSCRIPTION-0: Claude subscription card states. */
+.settingsConnectionRow[data-status="not_logged_in"] {
+  border-color: var(--border);
+  background: var(--foreground-2);
+}
+.settingsConnectionRow[data-status="authorizing"],
+.settingsConnectionRow[data-status="refreshing"] {
+  border-color: oklch(from var(--info) l c h / 0.30);
+  background: oklch(from var(--info) l c h / 0.04);
+}
+.settingsConnectionRow[data-status="authenticated"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+  background: oklch(from var(--success) l c h / 0.04);
+}
+.settingsConnectionRow[data-status="refresh_failed"],
+.settingsConnectionRow[data-status="quota_unavailable"] {
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.30);
+  background: oklch(from var(--warning, var(--info)) l c h / 0.05);
+}
+.settingsConnectionRow[data-status="provider_rejected"] {
+  border-color: oklch(from var(--destructive) l c h / 0.30);
+  background: oklch(from var(--destructive) l c h / 0.05);
+}
+
+.settingsQuotaSection {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: oklch(from var(--foreground) l c h / 0.03);
+}
+.settingsQuotaRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsOauthPastePanel {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: oklch(from var(--foreground) l c h / 0.04);
+}
+.settingsOauthPastePanel textarea {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--mono-font, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+.settingsErrorText {
+  color: var(--destructive-text, var(--destructive, red));
+}
+.settingsConnectionRow[data-status="disabled"] {
+  opacity: 0.72;
+}
+
+.settingsConnectionRow[data-default="true"] {
+  box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.12);
+}
+
+.settingsConnectionRowName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settingsConnectionDefaultBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: oklch(from var(--accent) l c h / 0.14);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.settingsConnectionRowHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsConnectionRowText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settingsConnectionRowText strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingsConnectionRowText small {
+  color: var(--foreground-50);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settingsConnectionBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  white-space: nowrap;
+}
+
+.settingsConnectionBadge[data-tone="success"] {
+  background: oklch(from var(--success) l c h / 0.12);
+  color: var(--success);
+}
+.settingsConnectionBadge[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+}
+.settingsConnectionBadge[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+  font-weight: 700;
+}
+.settingsConnectionBadge[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.15);
+  color: var(--destructive);
+  font-weight: 700;
+}
+
+.settingsConnectionDetail {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settingsAuthContract {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--foreground-3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.settingsAuthContractText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settingsAuthContractText strong {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settingsAuthContractText span {
+  color: var(--foreground-60);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settingsAuthContractBadge,
+.settingsAuthActionPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.settingsAuthContractBadge {
+  padding: 2px 9px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+}
+
+.settingsAuthContractBadge[data-tone="success"],
+.settingsAuthActionPill[data-tone="success"] {
+  background: oklch(from var(--success) l c h / 0.12);
+  color: var(--success);
+}
+
+.settingsAuthContractBadge[data-tone="info"],
+.settingsAuthActionPill[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+}
+
+.settingsAuthContractBadge[data-tone="warning"],
+.settingsAuthActionPill[data-tone="warning"] {
+  background: oklch(from var(--info) l c h / 0.18);
+  color: var(--info-text);
+}
+
+.settingsAuthContractBadge[data-tone="destructive"],
+.settingsAuthActionPill[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+}
+
+.settingsConnectionMeta {
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.settingsInlineFileState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settingsInlineTextButton {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+}
+
+.settingsInlineTextButton:hover {
+  text-decoration: underline;
+}
+
+.settingsConnectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.settingsAuthActionPill {
+  padding: 2px 9px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+}
+
+.settingsAuthActionPill[data-kind="preview"] {
+  border: 1px dashed oklch(from var(--info) l c h / 0.30);
+}
+
+/* PR-SETTINGS-GROUPED-CARD-0: rows flush inside outer card, hairline
+   divider, last-child no border. Matches the reference grouped-list
+   pattern. */
+.settingsRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 0;
+  border-bottom: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+.settingsRow:last-child {
+  border-bottom: 0;
+}
+
+.settingsRow:hover {
+  background: oklch(from var(--foreground) l c h / 0.025);
+}
+
+.settingsRow > div {
+  min-width: 0;
+}
+
+.settingsRow small {
+  display: block;
+  margin-top: 4px;
+  color: var(--foreground-55);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.providersPanel {
+  min-height: 420px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.82fr) minmax(0, 1.5fr);
+  gap: 12px;
+}
+
+.settingsSurface[data-modal="true"] .providersPanel {
+  min-height: 480px;
+  grid-template-columns: minmax(190px, 0.7fr) minmax(250px, 1fr);
+}
+
+.providerEditor h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.providerEditor p {
+  margin: 0;
+  color: var(--foreground-50);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.catalogTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.catalogTab {
+  min-height: 38px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--foreground-3);
+  color: var(--foreground);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.catalogTab:hover {
+  background: var(--foreground-5);
+}
+
+.catalogTab[data-active="true"] {
+  border-color: oklch(from var(--accent) l c h / 0.16);
+  background: oklch(from var(--accent) l c h / 0.08);
+}
+
+.catalogTabs strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.catalogTabs small {
+  color: var(--foreground-50);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+/* Provider catalog + OAuth login render as governed Item rows (media ·
+ * content · actions) — the same shadcn primitive the enabled connections
+ * use — inside a seamless hairline list. This replaces the hand-written
+ * .providerCatalogCard grid so the whole 模型 page speaks one component
+ * language (component governance). */
+.catalogGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  overflow: auto;
+}
+
+.providerCatalogRow {
+  gap: 12px;
+  padding: 11px 6px;
+}
+
+/* Gated providers (preview / not-yet-open) stay inert and muted; the
+ * provider-surface gate forbids rendering them as actionable. */
+.providerCatalogRow[data-disabled="true"] {
+  opacity: 0.66;
+  cursor: not-allowed;
+  filter: grayscale(0.28);
+}
+
+.providerCatalogTitle {
+  font-weight: 600;
+}
+
+/* Trailing badge + chevron live in ItemActions (a direct child of the row),
+ * so they sit vertically centered against the full two-line row rather than
+ * pinned to the title line. */
+.providerCatalogActions {
+  gap: 10px;
+}
+
+.providerCatalogCount {
+  margin-left: 8px;
+  color: var(--foreground-50);
+  font-size: 12px;
+}
+
+.providerCatalogChevron {
+  flex: 0 0 auto;
+  color: var(--foreground-40);
+}
+
+/* category / preview / login badges — compact squared corners, never pills */
+.providerCatalogBadge {
+  flex: 0 0 auto;
+  width: fit-content;
+  border-radius: 4px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  padding: 2px 7px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.providerEditor {
+  display: grid;
+  gap: 12px;
+}
+
+.providerUnavailableNotice {
+  display: grid;
+  gap: 4px;
+  border: 1px solid oklch(from var(--info) l c h / 0.22);
+  border-radius: 12px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  padding: 12px;
+}
+
+.providerUnavailableNotice span {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Direct child only: this is the sheet's own title/badges header. The
+ * descendant form (`.providerEditor header`) also matched the nested
+ * `.modelTableHeader`, leaking the close-button padding-right onto the
+ * model card and pushing its refresh button 36px off the right edge. */
+.providerEditor > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  /* Reserve the top-right corner for the absolutely-positioned sheet
+   * close button (.providerConfigSheetClose: 32px wide at right:14px,
+   * intruding ~30px into the 16px-padded content box). Without this the
+   * right-aligned header badges (默认 / 国内) slide under the X. */
+  padding-right: 36px;
+}
+
+.providerEditor label {
+  display: grid;
+  gap: 6px;
+  color: var(--foreground-60);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.providerEditor input,
+.providerEditor select {
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  /* PR-UI-LAYOUT-22: provider editor inputs (used in the
+   * ConfigureProvider sheet) brought up to the LAYOUT-11/21 focus
+   * ring family. Was: radius 6 + border-only focus.
+   * Now: radius 8 + min-height 36 + 3px halo + smoother transition.
+   * Matches connectionForm inputs visually so users see the same
+   * "this is a focused input" signal everywhere. */
+  border-radius: 8px;
+  background: var(--background-elevated);
+  color: var(--foreground);
+  padding: 0 12px;
+  outline: none;
+  font-size: 13px;
+  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong), background 140ms var(--ease-out-strong);
+}
+
+.providerEditor input:focus,
+.providerEditor select:focus {
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  background: var(--background);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.10);
+}
+
+.providerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.providerHeaderBadges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.providerExternalLink {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  /* PR-UI-LAYOUT-33: explicit padding + radius so the focus halo
+   * has a defined shape. Was a borderless inline link with no
+   * focus-visible — keyboard users couldn't see it. */
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 6px;
+  transition: background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong), text-decoration-color var(--duration-quick) var(--ease-out-strong);
+}
+
+.providerExternalLink:hover {
+  text-decoration: underline;
+}
+
+.providerExternalLink:focus-visible {
+  outline: none;
+  background: oklch(from var(--accent) l c h / 0.06);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+
+/* UI-02 model table: per-row default radio, capability chips, search box,
+ * source/fetchedAt header. Replaces the legacy <select> + refresh button
+ * pair. The whole block is itself a "workspace" inside the connection
+ * editor, not a form field. */
+.modelTable {
+  display: grid;
+  /* Single column that fills the card. Without an explicit 1fr the
+   * implicit `auto` track sizes to content and the header row stops
+   * short of the card edge, so the right-aligned refresh button never
+   * reaches the right margin. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--foreground-2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.modelTableHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modelTableHeaderText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modelTableHeaderText strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.modelTableHeaderText small {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--foreground-60);
+}
+
+.modelTable[data-source="fetched"] .modelTableHeaderText small {
+  color: var(--success-text);
+}
+
+.modelTable[data-source="fallback"] .modelTableHeaderText small {
+  color: var(--info-text);
+}
+
+.modelTableHeaderText .modelTableStickyHint {
+  color: var(--foreground-50);
+}
+
+.modelTableSearch {
+  width: 100%;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong);
+}
+
+.modelTableSearch:focus {
+  outline: none;
+  /* PR-UI-LAYOUT-22: brought into the focus-ring family — was
+   * border-color only, now 3px accent halo to match the rest. */
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.10);
+}
+
+.modelTableEmpty {
+  padding: 18px;
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+/* Surfaced when a search filter hides the currently-selected default
+ * (per @kenji PR91 follow-up). Click to clear the search. */
+.modelTableDefaultHint {
+  display: block;
+  text-align: left;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid oklch(from var(--accent) l c h / 0.22);
+  background: oklch(from var(--accent) l c h / 0.06);
+  color: var(--foreground);
+  font-size: 11px;
+  line-height: 1.5;
+  width: 100%;
+}
+
+.modelTableDefaultHint:hover {
+  background: oklch(from var(--accent) l c h / 0.10);
+}
+
+.modelTableDefaultHint code {
+  font-family: var(--font-mono);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.modelTableList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.modelTableRow {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  transition: background var(--duration-base) var(--ease-out-strong), border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
+}
+
+.modelTableRow:hover {
+  background: var(--background);
+  border-color: var(--border);
+}
+
+.modelTableRow:focus-visible {
+  outline: none;
+  background: var(--background);
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+
+.modelTableRow[data-default="true"] {
+  background: oklch(from var(--accent) l c h / 0.06);
+  border-color: oklch(from var(--accent) l c h / 0.30);
+}
+
+.modelTableRowRadio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--foreground-40);
+  background: transparent;
+  position: relative;
+}
+
+.modelTableRow[data-default="true"] .modelTableRowRadio {
+  border-color: var(--accent);
+}
+
+.modelTableRow[data-default="true"] .modelTableRowRadio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.modelTableRowId {
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modelTableChips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-self: end;
+}
+
+.modelTableChip {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.modelTableDefaultBadge {
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: oklch(from var(--accent) l c h / 0.14);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.providerActions {
+  flex-wrap: wrap;
+}
+
+.providerError {
+  color: var(--destructive-text);
+}
+
+/* PR-SETTINGS-PAGE-BODY-0: label / value typography aligned with the
+   reference recipe (text-sm font-medium for label; quaternary tone for
+   the right-side value text). */
+.settingsRow strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.settingsRow > span {
+  /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): `tabular-nums` so
+     numeric values (version strings, model IDs, counts) align cleanly
+     when stacked vertically. baseline-ui + /typeset both require this
+     for any numeric data. */
+  min-width: 0;
+  color: var(--foreground-60);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (max-width: 980px) {
+  .app {
+    grid-template-columns: 1fr;
+    padding: 0;
+    gap: 0;
+  }
+
+  .mainColumn {
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 980px) {
+  .catalogGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Provider market refresh */
+.providersMarketPanel,
+.settingsSurface[data-modal="true"] .providersMarketPanel {
+  position: relative;
+  min-height: 500px;
+  display: block;
+}
+
+.providerMarket {
+  min-height: 500px;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 14px;
+}
+
+/* Account-bound OAuth providers live under the OAuth catalog tab, as
+   a peer of 国内 / 海外 / 本地 instead of a pinned standalone section.
+   Keep the same catalog grid/card chrome across every provider tab so
+   OAuth, 国内, 海外, and 本地 do not look like unrelated surfaces. */
+.providerOAuthCatalog {
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.providerOAuthError {
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--background));
+  color: var(--warning-text);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 11px;
+}
+.providerOAuthGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  overflow: auto;
+}
+
+.providerOAuthCardBadge {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.providerOAuthCard[data-logged-in="true"] .providerOAuthCardBadge {
+  background: color-mix(in srgb, var(--success) 16%, var(--background));
+  color: var(--success-text);
+}
+
+.providerOAuthCardDescription {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.enabledStrip {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.enabledStripHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.enabledStripHeader h3,
+.providerMarketHeader h3,
+.customProviderEntry h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.enabledStripHeader span,
+.providerMarketHeader p,
+.customProviderEntry p {
+  margin: 0;
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* Empty / load-error CTA shown when there are no connections yet. */
+.enabledEmptyChip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.enabledEmptyChip:hover {
+  border-color: oklch(from var(--accent) l c h / 0.16);
+  background: var(--background-elevated);
+}
+
+.enabledEmptyChip strong { font-size: 12px; font-weight: 700; }
+.enabledEmptyChip small { margin-top: 2px; color: var(--foreground-50); font-size: 11px; }
+
+/* ---- Enabled models: provider → connection hierarchy (Base UI Accordion).
+ * Each provider is a collapsible row; its connections live in the panel, so
+ * the list reads as provider over connection instead of a flat peer list.
+ * Problem providers open by default (see defaultOpenGroups). ---- */
+/* Seamless list: no card box (it was the heaviest element on the page and
+ * clashed with the catalog below). Hairline top/bottom bounds the group;
+ * whitespace + the logo plates carry the structure. */
+.enabledAccordion {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.enabledProvider + .enabledProvider {
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.06);
+}
+
+.enabledProviderHead { margin: 0; }
+
+.enabledProviderTrigger {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  /* pad-x 6 + logo 32 + gap 11 = 49 → connection name (pl-[49px]) sits
+   * directly under the provider name; pr keeps the rollup status right
+   * edge aligned with the connection status (pr-[32px] = 6 + chevron 15 +
+   * meta gap 11). */
+  padding: 11px 6px;
+  background: transparent;
+  border: 0;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  transition: background-color 130ms ease;
+}
+
+.enabledProviderTrigger:hover { background: var(--hover); }
+
+.enabledProviderName {
+  font-size: 13.5px;
+  font-weight: 620;
+  letter-spacing: -0.002em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enabledProviderMeta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.enabledChevron {
+  color: var(--foreground-40);
+  transition: transform 160ms var(--ease-out-strong);
+}
+
+.enabledProviderTrigger[data-panel-open] .enabledChevron,
+.enabledProvider[data-open] .enabledChevron {
+  transform: rotate(90deg);
+}
+
+/* status line, shared by the provider rollup and each connection row;
+ * the dot inherits the text color via currentColor. */
+.enabledRollup,
+.enabledConnStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--foreground-50);
+}
+
+.enabledStatusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.enabledRollup.is-ok,
+.enabledConnStatus.is-verified { color: var(--success); }
+.enabledRollup.is-warn,
+.enabledConnStatus.is-needs_reauth { color: var(--info); }
+.enabledRollup.is-err,
+.enabledConnStatus.is-error { color: var(--destructive); }
+.enabledRollup.is-idle,
+.enabledConnStatus.is-untested { color: var(--foreground-50); }
+
+.enabledProviderPanel {
+  background: oklch(from var(--foreground) l c h / 0.02);
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
+}
+
+.enabledProviderPanel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.enabledProviderPanel li + li .enabledConnRow {
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
+}
+
+.enabledConnRow[data-default="true"] {
+  background: oklch(from var(--accent) l c h / 0.07);
+}
+
+.enabledConnRow[data-disabled="true"] {
+  opacity: 0.6;
+}
+
+.enabledConnTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.enabledDefaultTag {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--accent);
+  background: oklch(from var(--accent) l c h / 0.14);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.providerMarketHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.catalogPillTabs,
+.settingsSurface[data-modal="true"] .catalogPillTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.catalogPillTabs button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  padding: 0 15px;
+}
+
+.catalogPillTabs button:hover {
+  background: var(--foreground-10);
+  color: var(--foreground);
+}
+
+.catalogPillTabs button[data-active="true"] {
+  border-color: oklch(from var(--accent) l c h / 0.22);
+  background: oklch(from var(--accent) l c h / 0.13);
+  color: var(--accent);
+}
+
+/* Base UI's Tabs renders a sliding rounded-md indicator behind the active
+ * tab. These pills supply their own active fill, and the indicator's square
+ * radius pokes out from behind the 999px pill (the warped selected look).
+ * Hide it; the pill background is the single source of the active state. */
+.catalogPillTabs [data-slot="tab-indicator"] {
+  display: none;
+}
+
+.catalogPillTabs strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.providerMarketGrid,
+.settingsSurface[data-modal="true"] .providerMarketGrid {
+  grid-template-columns: 1fr;
+  overflow: auto;
+}
+
+.providerMarketGrid .providerCatalogRow + .providerCatalogRow,
+.providerOAuthGrid .providerCatalogRow + .providerCatalogRow {
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.06);
+}
+
+/* Logo plates match the enabled list (compact 32px) so the page reads as
+ * one column of provider rows top to bottom. */
+.providerCatalogRow .providerLogo {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+/* Gated providers carry a real trailing state badge in ItemActions (not an
+ * absolute ::after), tinted by the gate reason. The row itself is a plain
+ * div Item with no render prop, so it is inert — the provider-surface gate
+ * never lets a gated provider read as clickable. */
+.providerCatalogRow[data-status="unavailable"] .providerCatalogBadge.is-state {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+}
+
+.providerCatalogRow[data-status="experimental"] .providerCatalogBadge.is-state {
+  background: oklch(from var(--warning) l c h / 0.14);
+  color: var(--warning-text);
+}
+
+/* PR-UI-13 (@yuejing 2026-05-22): ProviderLogo size normalization.
+ *
+ * Audit §3.8 — "OnboardingHero (compact) 跟 ProvidersPanel (default)
+ * 大小不同，底图比例感觉不统一". Root cause: the compact override
+ * only resized width/height/border-radius, but inherited the default
+ * `0 8px 16px` drop shadow — at 32px the shadow extends ~25% beyond
+ * the icon, visually drifting from the default size. Border-radius
+ * ratios also drifted (29.5% default vs 31.25% compact vs 33% micro).
+ *
+ * Fix: pin a single ~27-28% border-radius ratio across all three
+ * sizes (md / sm / xs) and scale the drop shadow proportionally.
+ * Inner SVG keeps the existing 72% ratio so brand marks read the
+ * same at every size.
+ */
+/* Neutral, theme-aware plate. Provider identity now comes from the
+   official brand mark (provider-brand-marks.tsx), so the plate stays a
+   quiet foreground wash in both light and dark — no per-provider tints. */
+.providerLogo {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px; /* 27.3% — anchor ratio */
+  background: var(--foreground-5);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.06);
+}
+
+.providerLogo[data-compact="true"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px; /* 28.1% — matches md ratio */
+}
+
+/* Color marks keep their own fill; monochrome marks declare
+   `fill="currentColor"` and inherit the plate color (= foreground). */
+.providerLogo svg {
+  width: 64%;
+  height: 64%;
+  display: block;
+}
+
+
+.customProviderEntry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.customProviderEntry button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border: 1px dashed oklch(from var(--accent) l c h / 0.34);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.providerConfigOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: oklch(0.95 0.01 90 / 0.64);
+  backdrop-filter: blur(2px);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.providerConfigSheet {
+  position: relative;
+  width: min(430px, 100%);
+  min-height: 100%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  box-shadow: 0 18px 46px oklch(0 0 0 / 0.14);
+  padding: 16px;
+}
+
+/* Position + circular shape only. Size, centering, and every rest/hover/
+ * focus state come from the governed Button (variant="quiet" size="icon-sm"),
+ * so there is nothing to hand-maintain here. The earlier hand-written rules
+ * leaned on undefined --settings-surface-* / --text* tokens, which is why the
+ * button had no hover feedback at all. */
+.providerConfigSheetClose {
+  position: absolute;
+  /* Center on the header's first line, aligned with the title and the
+   * right-aligned status badges (~25px from the sheet top). */
+  top: 10px;
+  right: 14px;
+  border-radius: 999px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────── */
+/* §9.1 ArtifactPane — right-side preview for assistant-produced files.     */
+/* Sits inside the existing detail panel; flex-row keeps the chat column    */
+/* flush with the composer while the pane occupies a fixed right strip.    */
+/* Returns null when no live artifacts → the row collapses gracefully.     */
+/* ──────────────────────────────────────────────────────────────────────── */
+
+.maka-detail-with-artifacts {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 1 1 auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.maka-detail-with-artifacts > .mainColumn {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* P3 BrowserPanel — a right-side split: a chrome toolbar (address bar + nav)
+   over a strip the native WebContentsView floats above. The strip itself is
+   empty by design (the native layer paints there); only the empty state shows
+   when no page is loaded. */
+.maka-browser-panel {
+  flex: 0 0 auto;
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.maka-browser-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.maka-browser-navbtn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.maka-browser-navbtn:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+}
+
+.maka-browser-navbtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.maka-browser-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface, var(--background));
+  color: var(--text);
+  font-size: 12px;
+}
+
+.maka-browser-strip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.maka-browser-empty {
+  color: var(--text-muted, #888);
+}
+
+.maka-browser-empty-hint {
+  max-width: 280px;
+}
+
+.maka-artifact-pane {
+  flex: 0 0 auto;
+  width: 320px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  overflow: hidden;
+}
+
+.maka-artifact-pane[data-collapsed="true"] {
+  width: 28px;
+  grid-template-rows: auto;
+}
+
+.maka-artifact-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  min-height: 28px;
+}
+
+.maka-artifact-pane[data-collapsed="true"] .maka-artifact-pane-header {
+  border-bottom: 0;
+}
+
+.maka-artifact-pane-collapse {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--foreground-70);
+  border-radius: 6px;
+  padding: 0;
+  transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-artifact-pane-collapse:hover {
+  background: var(--foreground-3);
+  color: var(--foreground);
+  border-color: oklch(from var(--foreground) l c h / 0.08);
+}
+
+.maka-artifact-pane-collapse:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+
+.maka-artifact-pane-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--foreground);
+}
+
+.maka-artifact-pane-count {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-60);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-artifact-list-error {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  margin: 8px;
+  padding: 9px;
+  border: 1px solid oklch(from var(--warning) l c h / 0.28);
+  border-radius: 8px;
+  background: oklch(from var(--warning) l c h / 0.08);
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.maka-artifact-list-error svg {
+  color: var(--warning);
+}
+
+.maka-artifact-list-error strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.maka-artifact-list-error p {
+  margin: 0;
+  color: var(--foreground-70);
+  overflow-wrap: anywhere;
+}
+
+.maka-artifact-error-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.maka-artifact-error-retry:hover {
+  background: var(--foreground-5);
+}
+
+.maka-artifact-error-retry:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.maka-artifact-error-retry:disabled:hover {
+  background: var(--background);
+}
+
+.maka-artifact-error-retry[data-pending="true"] {
+  opacity: 0.78;
+}
+
+.maka-artifact-error-retry:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--accent) l c h / 0.42);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+
+.maka-artifact-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 4px 0;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+  max-height: 40%;
+}
+
+.maka-artifact-list-item {
+  margin: 0;
+}
+
+/* PR-ARTIFACT-ROW-TACTILE-0 (WAWQAQ msg `ed67a267`, skills round
+   task #116): Emil agents-with-taste — every clickable row needs
+   `:active { scale(0.97) }` so press feels physical, and a subtle
+   transform on hover gives spatial feedback. Without it, rows feel
+   like inert color blocks. Transitions limited to transform +
+   background (GPU-friendly, no reflow). */
+.maka-artifact-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  font-size: 11px;
+  transition:
+    background 140ms var(--ease-out-strong),
+    border-color 140ms var(--ease-out-strong),
+    transform var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-artifact-row:hover {
+  background: var(--foreground-5);
+}
+
+.maka-artifact-row:active:not([data-deleted="true"]) {
+  transform: scale(0.98);
+}
+
+.maka-artifact-row[data-selected="true"] {
+  background: oklch(from var(--accent) l c h / 0.10);
+  border-color: oklch(from var(--accent) l c h / 0.24);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-artifact-row {
+    transition: background 0ms, border-color 0ms;
+  }
+  .maka-artifact-row:active:not([data-deleted="true"]) {
+    transform: none;
+  }
+}
+
+.maka-artifact-row[data-deleted="true"] {
+  opacity: 0.6;
+}
+
+.maka-artifact-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.maka-artifact-row-name {
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.maka-artifact-row-meta {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-size: 10px;
+  color: oklch(from var(--foreground) l c h / 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-artifact-row-size {
+  font-weight: 600;
+}
+
+.maka-artifact-row-badge {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.maka-artifact-preview {
+  position: relative;
+  overflow: auto;
+  padding: 6px 10px;
+  background: var(--background);
+  min-height: 0;
+}
+
+.maka-artifact-preview[data-empty="true"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(from var(--foreground) l c h / 0.5);
+  font-size: 11px;
+}
+
+.maka-artifact-preview-empty {
+  font-size: 11px;
+}
+
+.maka-artifact-preview-file {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.maka-artifact-preview-diff {
+  margin: 0;
+  font-size: 11px;
+}
+
+.maka-artifact-preview-html {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  gap: 6px;
+}
+
+.maka-artifact-preview-html-iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  /* iframe sandbox attribute on the JSX side carries the real boundary;
+     this is only visual. NEVER ship `allow-same-origin` here. */
+}
+
+.maka-artifact-preview-external-links-bar {
+  font-size: 10px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  border: 1px solid oklch(from var(--info) l c h / 0.20);
+}
+
+.maka-artifact-preview-image {
+  /* PR-UI-RENDER-3a: bounded image container. The img child uses
+     object-fit: contain so an oversized intrinsic resolution can't
+     stretch the column; max-width/height keep it inside the pane. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
+.maka-artifact-preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* PR-UI-RENDER-3a — Unsupported preview card. Shown when the
+   registry resolves an artifact to `kind: 'unsupported'`. Same
+   tone family as the existing failure cards (info, not destructive
+   — it's not an error, just an unsupported format). */
+.maka-artifact-preview-unsupported {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px dashed oklch(from var(--info) l c h / 0.32);
+  background: oklch(from var(--info) l c h / 0.06);
+  color: var(--foreground-80);
+}
+
+.maka-artifact-preview-unsupported-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.maka-artifact-preview-unsupported-body {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--foreground-70);
+}
+
+.maka-artifact-preview-unsupported-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--foreground-70);
+}
+.maka-artifact-preview-unsupported-meta > div {
+  display: contents;
+}
+.maka-artifact-preview-unsupported-meta dt {
+  color: var(--foreground-60);
+  font-weight: 500;
+}
+.maka-artifact-preview-unsupported-meta dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.maka-artifact-preview-unsupported-cta {
+  align-self: flex-start;
+}
+
+.maka-artifact-preview-pdf {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  gap: 6px;
+}
+
+.maka-artifact-preview-pdf embed {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  min-height: 240px;
+}
+
+.maka-artifact-preview-pdf-fallback {
+  margin: 0;
+  font-size: 11px;
+  color: oklch(from var(--foreground) l c h / 0.6);
+}
+
+.maka-artifact-preview-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: oklch(from var(--foreground) l c h / 0.65);
+}
+
+.maka-artifact-preview-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.maka-artifact-preview-fail {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.maka-artifact-preview-fail[data-tone="destructive"] {
+  background: oklch(from var(--destructive) l c h / 0.08);
+  border-color: oklch(from var(--destructive) l c h / 0.22);
+  color: var(--destructive-text);
+}
+
+.maka-artifact-preview-fail[data-tone="info"] {
+  background: oklch(from var(--info) l c h / 0.08);
+  border-color: oklch(from var(--info) l c h / 0.22);
+  color: var(--info-text);
+}
+
+.maka-artifact-preview-fail-title {
+  font-weight: 600;
+}
+
+.maka-artifact-preview-fail-body {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.maka-artifact-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  box-shadow: none;
+}
+
+.maka-artifact-toolbar-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.maka-artifact-toolbar-danger-group {
+  margin-left: auto;
+}
+
+.maka-artifact-toolbar-separator {
+  min-height: 22px;
+  background: var(--border);
+}
+
+.maka-artifact-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+}
+
+.maka-artifact-toolbar-button:hover {
+  background: var(--foreground-5);
+}
+
+.maka-artifact-toolbar-button:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.maka-artifact-toolbar-button:disabled:hover {
+  background: var(--background);
+}
+
+.maka-artifact-toolbar-button[data-pending="true"] {
+  opacity: 0.78;
+}
+
+.maka-artifact-toolbar-destructive {
+  color: var(--destructive-text);
+  border-color: oklch(from var(--destructive) l c h / 0.32);
+}
+
+.maka-artifact-toolbar-destructive:hover {
+  background: oklch(from var(--destructive) l c h / 0.10);
+}
+
+/* Narrow window: ArtifactPane becomes a bottom sheet below the composer
+   instead of continuing to shrink the chat column. This keeps the send path
+   visible and usable while preserving artifact access on small windows. */
+@media (max-width: 990px) {
+  .maka-detail-with-artifacts {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .maka-artifact-pane {
+    width: 100%;
+    min-height: 220px;
+    max-height: min(42dvh, 360px);
+    grid-template-rows: auto minmax(82px, 0.8fr) minmax(0, 1fr) auto;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -8px 24px oklch(0 0 0 / 0.08);
+  }
+
+  .maka-artifact-pane[data-collapsed="true"] {
+    width: 100%;
+    min-height: 34px;
+    max-height: 34px;
+    grid-template-rows: auto;
+  }
+
+  .maka-artifact-list {
+    max-height: none;
+    padding: 6px;
+  }
+
+  .maka-artifact-preview {
+    min-height: 120px;
+  }
+
+  .maka-artifact-toolbar {
+    max-height: 76px;
+    overflow-y: auto;
+  }
+}
+
+
+/* PR109d-c: Aborted turn marker. Sits above the assistant message body
+ * to surface "(已中断)" + muted Ban icon when turn.status === aborted.
+ * Uses muted tone — aborted is dormant history, NOT an error state
+ * (per @kenji review #2: aborted does NOT use destructive red). */
+.maka-turn[data-search-highlight="true"] {
+  border-radius: 12px;
+  outline: 1px solid oklch(from var(--accent) l c h / 0.34);
+  outline-offset: 6px;
+  background: oklch(from var(--accent) l c h / 0.045);
+}
+
+.maka-turn-aborted-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+  font-size: 12px;
+  font-style: italic;
+  width: fit-content;
+}
+.maka-turn-aborted-marker em {
+  font-style: italic;
+}
+
+
+/* PR109d-b: Turn footer action row. Sits below the assistant message
+ * bubble; icon+text buttons for 重试/重新生成/分支/复制. Disabled
+ * buttons remain rendered (per @kenji review: user should see what
+ * actions exist on the turn) but click handlers no-op. */
+.maka-turn-footer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 0;
+  flex-wrap: wrap;
+  opacity: 0.72;
+}
+/* PR-UI-PIXEL-6 (2026-06-21): turn-footer actions read as subtle borderless
+   ghost buttons (reference's footer is icon-light, no bordered pills) — the
+   border only appears implicitly via the hover fill. */
+.maka-turn-footer-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground-50);
+  font-size: 12px;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.maka-turn-footer:hover,
+.maka-turn-footer:focus-within {
+  opacity: 1;
+}
+.maka-turn-footer-action:hover:not(:disabled) {
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground);
+}
+.maka-turn-footer-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-turn-footer-action:disabled,
+.maka-turn-footer-action[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.maka-turn-footer-action[data-pending] {
+  opacity: 0.78;
+  cursor: progress;
+}
+.maka-turn-footer-action[data-copy-feedback="copied"] {
+  color: var(--accent);
+}
+.maka-turn-footer-action[data-copy-feedback="failed"] {
+  color: var(--destructive);
+}
+
+/* PR-CHAT-CHROME-FOLLOWUP-0: footer actions render uniformly — icon +
+ * label, always visible, at the shared 12px chrome size. This supersedes
+ * the PR-UI-17 primary/secondary collapse, which hid branch/copy (and,
+ * after #212, retry/regenerate too) behind a hover-to-expand width
+ * animation. That left an unclear, undeclared priority split and made
+ * the most common action — copy — hard to find. The strip stays quiet at
+ * rest via the toolbar's 0.72 opacity and lifts to full on hover/focus;
+ * the label is no longer width-collapsed. `data-priority` is retained on
+ * the element for downstream styling but no longer drives visibility. */
+
+
+/* PR109e-d: Failed turn banner. Lives above the assistant message body
+ * when turn.status === failed. Uses destructive tone — failed IS a
+ * fault state (distinct from aborted which is dormant muted).
+ * Copy is generalized Chinese (errorClass → Chinese phrase) per
+ * @kenji gate #3 — never exposes the raw enum identifier. */
+.maka-turn-failed-banner {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: oklch(from var(--destructive) l c h / 0.10);
+  border: 1px solid oklch(from var(--destructive) l c h / 0.28);
+  color: var(--destructive);
+  font-size: 12px;
+  width: fit-content;
+}
+.maka-turn-failed-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.maka-turn-failed-recovery {
+  color: var(--text-muted);
+}
+.maka-turn-failed-recovery::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--border-strong);
+}
+
+/* PR109e-e: Lineage badges. Forward badges sit at the top of the turn
+ * ("重试自 turn X"); reverse badges sit at the bottom ("已重试 →
+ * turn Y"). Same visual treatment + interactive button so screen
+ * readers and keyboard users can navigate. */
+.maka-turn-lineage-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 2px 0 4px;
+  opacity: 0.82;
+}
+.maka-turn-lineage-row-reverse {
+  margin-top: 4px;
+}
+.maka-turn-lineage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  border: 0;
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-48);
+  font-size: 9px;
+  transition: background 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
+}
+.maka-turn-lineage-badge:hover {
+  background: oklch(from var(--foreground) l c h / 0.08);
+  color: var(--foreground);
+}
+.maka-turn-lineage-badge:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-turn-lineage-badge[data-direction="forward"] {
+  background: oklch(from var(--info) l c h / 0.06);
+  color: oklch(from var(--info-text) calc(l - 0.06) c h);
+}
+.maka-turn-lineage-badge[data-direction="reverse"] {
+  background: oklch(from var(--brand-deep) l c h / 0.06);
+  color: oklch(from var(--brand-deep) calc(l - 0.04) c h);
+}
+
+/* PR109f: branched session banner. Renders above the chat scroll area
+   when the active session has a parentSessionId. Inline button-styled
+   pill that the user can click to jump back to the parent session.
+
+   Visual style: info-tinted background, GitBranch icon, single line.
+   `data-from-aborted` shifts the tone to muted-warning so the user
+   sees that the branch starts from before an abort. */
+.maka-session-branch-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  margin: 6px 12px 4px;
+  border-radius: 999px;
+  border: 1px solid oklch(from var(--info) l c h / 0.20);
+  background: oklch(from var(--info) l c h / 0.06);
+  color: var(--info-text);
+  font-size: 11px;
+  line-height: 1.4;
+  transition: background var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong), border-color var(--duration-base) var(--ease-out-strong);
+  align-self: flex-start;
+}
+.maka-session-branch-banner:hover {
+  background: oklch(from var(--info) l c h / 0.14);
+  border-color: oklch(from var(--info) l c h / 0.38);
+  color: var(--info);
+}
+.maka-session-branch-banner:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.maka-session-branch-banner[data-from-aborted] {
+  /* Muted-warning tone so the user sees the branch starts from before
+     the cancel point, not from the abort itself. */
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
+  color: var(--warning-text);
+}
+.maka-session-branch-banner[data-from-aborted]:hover {
+  background: oklch(from var(--warning) l c h / 0.14);
+  border-color: oklch(from var(--warning) l c h / 0.42);
+  color: var(--warning);
+}
+

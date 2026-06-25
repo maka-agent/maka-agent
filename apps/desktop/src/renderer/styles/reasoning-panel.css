@@ -1,0 +1,153 @@
+/* =============================================================================
+   PR-UI-LAYOUT-42 — Reasoning panel (Anthropic extended thinking)
+
+   Renders live `ThinkingDeltaEvent.text` accumulated per session in
+   `thinkingBySession`. Visible above the streaming answer bubble while
+   the model is reasoning. Collapsible `<details>` wrapper for keyboard
+   a11y. Default-open so users see the live reasoning; clicking the
+   header collapses.
+============================================================================= */
+
+.maka-reasoning-panel {
+  margin: 4px 0 8px;
+  border: 1px solid oklch(from var(--info) l c h / 0.22);
+  border-radius: 8px;
+  background: oklch(from var(--info) l c h / 0.04);
+  overflow: hidden;
+  animation: maka-reasoning-panel-enter 280ms var(--ease-out-strong) both;
+}
+
+@keyframes maka-reasoning-panel-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-reasoning-panel {
+    animation: none;
+  }
+}
+
+.maka-reasoning-panel[data-live="true"] {
+  border-color: oklch(from var(--info) l c h / 0.32);
+}
+
+.maka-reasoning-panel-header {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--info-text);
+  user-select: none;
+  transition: background var(--duration-base) var(--ease-out-strong);
+}
+.maka-reasoning-panel-header::-webkit-details-marker {
+  display: none;
+}
+.maka-reasoning-panel-header::marker {
+  content: '';
+}
+.maka-reasoning-panel-header:hover {
+  background: oklch(from var(--info) l c h / 0.08);
+}
+.maka-reasoning-panel-header:focus-visible {
+  outline: none;
+  background: oklch(from var(--info) l c h / 0.10);
+  box-shadow: 0 0 0 3px oklch(from var(--info) l c h / 0.18);
+}
+
+.maka-reasoning-panel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--info);
+  /* Live pulse — collapses under prefers-reduced-motion via the rule below. */
+  animation: maka-reasoning-panel-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes maka-reasoning-panel-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  /* PR-FE-BUG-HUNT-6 (kenji aesthetic audit reminder 9, finding #5):
+     standardize live-dot pulse amplitude across the three streaming
+     indicators. The semantic is identical ("live work happening")
+     but the amplitudes drifted: list-row dot 10%, reasoning-panel
+     dot 15%, tool-output dot 18%. Settled on scale(1.1) — the
+     calmest of the three — because the dots run continuously while
+     a turn is streaming and the larger pulses read as agitated. */
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-reasoning-panel-dot {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+.maka-reasoning-panel-label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* PR-UI-C0 review fixup (@kenji msg 7885a347) — "已截断" pill
+   fires when `applyThinkingDelta` / `applyThinkingComplete`
+   dropped content. Same family as the A3 tool-output truncated
+   pill: warning tone, rounded rect, cursor:help. */
+.maka-reasoning-panel-truncated[data-truncated="true"] {
+  font-size: 10px;
+  color: var(--warning-text, var(--info-text));
+  border: 1px solid oklch(from var(--warning) l c h / 0.24);
+  background: oklch(from var(--warning) l c h / 0.05);
+  border-radius: 4px;
+  padding: 0 4px;
+  cursor: help;
+}
+
+/* PR-UI-Cx (@kenji msg cd09bcac) — "已截断" pill on the streaming
+   assistant bubble. Fires when `applyAssistantDelta` either tail-kept
+   a single oversize delta or head-capped the per-session total. Same
+   visual family as the reasoning-panel truncated pill, positioned as
+   a footer affordance under the bubble's Markdown body so it doesn't
+   compete with the running text. */
+.maka-bubble-truncated {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--warning-text, var(--info-text));
+  border: 1px solid oklch(from var(--warning) l c h / 0.24);
+  background: oklch(from var(--warning) l c h / 0.05);
+  border-radius: 4px;
+  padding: 0 5px;
+  cursor: help;
+}
+
+.maka-reasoning-panel-chevron {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--foreground-50);
+  transition: transform var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-reasoning-panel[open] .maka-reasoning-panel-chevron {
+  transform: rotate(90deg);
+}
+
+.maka-reasoning-panel-body {
+  margin: 0;
+  padding: 6px 10px 8px;
+  border-top: 1px solid oklch(from var(--info) l c h / 0.14);
+  background: transparent;
+  color: var(--foreground-70);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+

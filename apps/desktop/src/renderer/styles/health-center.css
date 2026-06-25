@@ -1,0 +1,281 @@
+/* =============================================================================
+   PR-UI-9 — Health Center page
+
+   Consumes PR-HC-1 `HealthSnapshot`. Groups signals by `layer` so the user
+   never sees a single aggregated green dot. The summary tiles up top give a
+   one-glance count per status; the per-layer sections give the actual
+   diagnostic detail.
+============================================================================= */
+
+.settingsHealthPage {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settingsHealthIntro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--foreground-3);
+}
+.settingsHealthIntro h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.settingsHealthIntro p {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  max-width: 60ch;
+}
+.settingsHealthIntro p strong {
+  color: var(--foreground);
+}
+.settingsHealthMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.settingsHealthMeta small {
+  color: var(--foreground-60);
+  font-size: 0.75rem;
+}
+.settingsHealthRefresh {
+  border: 1px solid var(--border);
+  background: var(--background);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--foreground-80);
+  font-size: 0.8125rem;
+  transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
+}
+.settingsHealthRefresh:hover {
+  background: var(--foreground-5);
+  border-color: var(--border-strong);
+  color: var(--foreground);
+}
+.settingsHealthRefresh:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settingsHealthError {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid oklch(from var(--destructive) l c h / 0.30);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  border-radius: 12px;
+  color: var(--destructive-text);
+}
+.settingsHealthError strong {
+  font-size: 0.9rem;
+}
+.settingsHealthError small {
+  color: var(--foreground-70);
+  font-size: 0.8125rem;
+}
+.settingsHealthError button {
+  align-self: flex-start;
+}
+
+.settingsHealthSummary {
+  /* PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): switched from
+     `<section role="list">` to semantic `<ul>`. Reset the UA's
+     default bullet + 40px padding-left so the 5-column grid
+     stays the same. */
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.settingsHealthSummaryTile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+.settingsHealthSummaryTile strong {
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.settingsHealthSummaryTile small {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--foreground-50);
+}
+.settingsHealthSummaryTile[data-empty="true"] {
+  opacity: 0.55;
+}
+.settingsHealthSummaryTile[data-tone="success"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+}
+.settingsHealthSummaryTile[data-tone="success"] strong {
+  color: var(--success-text);
+}
+.settingsHealthSummaryTile[data-tone="info"] {
+  border-color: oklch(from var(--info) l c h / 0.24);
+}
+.settingsHealthSummaryTile[data-tone="info"] strong {
+  color: var(--info-text);
+}
+.settingsHealthSummaryTile[data-tone="warning"] {
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+}
+.settingsHealthSummaryTile[data-tone="warning"] strong {
+  color: var(--warning-text, var(--info-text));
+}
+.settingsHealthSummaryTile[data-tone="destructive"] {
+  border-color: oklch(from var(--destructive) l c h / 0.30);
+}
+.settingsHealthSummaryTile[data-tone="destructive"] strong {
+  color: var(--destructive-text);
+}
+.settingsHealthSummaryTile[data-tone="neutral"] strong {
+  color: var(--foreground-70);
+}
+
+.settingsHealthBlockers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settingsHealthLayer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settingsHealthLayer > header h4 {
+  margin: 0 0 2px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.settingsHealthLayer > header small {
+  color: var(--foreground-60);
+  font-size: 0.78rem;
+}
+
+.settingsHealthSignalList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.settingsHealthSignalRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  transition: border-color var(--duration-base) var(--ease-out-strong);
+}
+.settingsHealthSignalRow[data-status="ok"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+}
+.settingsHealthSignalRow[data-status="warning"] {
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+}
+.settingsHealthSignalRow[data-status="error"] {
+  border-color: oklch(from var(--destructive) l c h / 0.30);
+}
+
+.settingsHealthSignalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.settingsHealthSignalHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settingsHealthSignalHeading strong {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.settingsHealthSignalScope {
+  font-size: 0.72rem;
+  color: var(--foreground-50);
+  letter-spacing: 0.04em;
+}
+
+.settingsHealthSignalMessage {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--foreground-80);
+  line-height: 1.5;
+}
+.settingsHealthSignalDetail {
+  font-size: 0.76rem;
+  color: var(--foreground-60);
+  line-height: 1.45;
+}
+
+.settingsHealthSignalMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  color: var(--foreground-50);
+}
+.settingsHealthSignalMeta code {
+  font-family: var(--font-mono);
+  background: var(--foreground-5);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--foreground-70);
+}
+.settingsHealthSignalBlocker {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.settingsHealthSignalBlocker[data-tone="destructive"] {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  border-color: oklch(from var(--destructive) l c h / 0.22);
+}
+.settingsHealthSignalBlocker[data-tone="warning"] {
+  color: var(--warning-text, var(--info-text));
+  background: oklch(from var(--warning, var(--info)) l c h / 0.10);
+  border-color: oklch(from var(--warning, var(--info)) l c h / 0.22);
+}
+
+.settingsHealthFootnote {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--foreground-3);
+  color: var(--foreground-60);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+

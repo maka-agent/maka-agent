@@ -1,0 +1,356 @@
+/* Reference's round send button is an off-black pill gradient with a 1px
+   inner top highlight — a tiny physical sheen, not flat pure #000 (banned
+   per design-taste rules). Uses oklch off-black (charcoal) so the button
+   reads as premium machined hardware. */
+.maka-composer-send-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(
+    oklch(from var(--accent) calc(l - 0.10) c h),
+    oklch(from var(--accent) calc(l - 0.20) c h)
+  );
+  color: oklch(1 0 0);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.18),
+    0 8px 18px -14px oklch(from var(--accent) l c h / 0.5);
+  transition:
+    background var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    box-shadow 220ms var(--ease-out-strong);
+}
+
+/* PR-FE-BUG-HUNT-7: send button is a primary CTA so it gets a hair
+   more travel than the tool buttons, but still inside the global
+   tactile press range. 1.06→1.03 hover, 0.96→0.97 active. */
+.maka-composer-send-button:hover:not(:disabled) {
+  background: linear-gradient(
+    oklch(from var(--accent) calc(l - 0.05) c h),
+    oklch(from var(--accent) calc(l - 0.15) c h)
+  );
+  color: oklch(1 0 0);
+  transform: scale(1.03);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.18),
+    0 10px 22px -14px oklch(from var(--accent) l c h / 0.55);
+}
+
+.maka-composer-send-button:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.10);
+}
+
+.maka-composer-send-button:disabled {
+  background: oklch(from var(--foreground) 0.72 0 h / 0.18);
+  color: oklch(1 0 0);
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.maka-composer-workspace-row {
+  /* PR-PARCHMENT-HOME-2: must share the new composer card measure
+     (620px) so the "选择工作目录 ▾" pill stays aligned with the card
+     left edge above it. */
+  width: min(var(--maka-chat-measure, 680px), 100%);
+  display: flex;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  margin: 8px auto 0;
+}
+
+.maka-composer-workspace-picker {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  min-width: 0;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground-55);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: left;
+  transition: color var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-composer-workspace-picker:hover {
+  /* PR-REFERENCE-PIXEL-1 (WAWQAQ msg `f79de85f`): same gray-plate hover
+     visibility fix as nav-row — `--foreground-3` (3% mix into
+     background ≈ #f7f7f7) was indistinguishable from the gray plate
+     (≈ #ebebeb). Alpha overlay reads consistently regardless of
+     plate tone. */
+  color: var(--foreground-80);
+  background: oklch(from var(--foreground) l c h / 0.06);
+}
+
+.maka-composer-workspace-picker:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+
+.maka-composer-workspace-picker svg {
+  flex: 0 0 auto;
+}
+
+.maka-composer-workspace-current {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--foreground-45);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Composer streaming hint — replaces the Enter/Shift+Enter help text while
+ * Maka is mid-stream. Pulsing dot signals "live", and the Stop button on
+ * the right swaps in as the only primary action so Send isn't ambiguous. */
+.maka-composer-streaming-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground-70);
+  font-size: 11px;
+}
+
+/* Streaming indicator — 3-dot typing pattern (the center dot is the
+   element itself, the side dots are ::before / ::after). Each dot
+   bounces 4px up on its own offset cycle so the row reads as a
+   talking-back animation rather than a single pulsing blip. */
+.maka-composer-streaming-dot {
+  position: relative;
+  width: 5px;
+  height: 5px;
+  margin-inline: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: maka-composer-stream-bounce 1.05s ease-in-out -0.2s infinite both;
+}
+
+.maka-composer-streaming-dot::before,
+.maka-composer-streaming-dot::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: maka-composer-stream-bounce 1.05s ease-in-out infinite both;
+}
+
+.maka-composer-streaming-dot::before {
+  left: -9px;
+  animation-delay: -0.4s;
+}
+
+.maka-composer-streaming-dot::after {
+  left: 9px;
+  animation-delay: 0s;
+}
+
+@keyframes maka-composer-stream-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-composer-streaming-dot,
+  .maka-composer-streaming-dot::before,
+  .maka-composer-streaming-dot::after {
+    animation: none;
+  }
+}
+
+/* PR-COMPOSER-PERMISSION-PULSE-0 (WAWQAQ msg `ed67a267`, skills
+   round task #116): paired with the 3-dot streaming bounce — when
+   the composer is disabled awaiting human permission decision, the
+   text gets a pulsing accent dot so the user sees "waiting on YOU"
+   instead of plain prose. Uses a slow opacity pulse (different
+   rhythm from streaming's bounce so the two states are not
+   confusable at a glance). Pattern from design-taste-frontend §8.3
+   perpetual micro-interactions. */
+.maka-composer-permission-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.maka-composer-permission-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: maka-composer-permission-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes maka-composer-permission-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-composer-permission-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+.permissionDialog pre {
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.permissionDialog h2 {
+  margin: 0;
+}
+
+.permissionDialog p {
+  margin: 2px 0 0;
+}
+
+.permissionRemember {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  color: var(--foreground-70);
+  font-size: 12px;
+}
+
+/* PR30 Permission dialog: per-reason iconography + per-tool summary block */
+.permissionDialog {
+  width: min(480px, calc(100vw - 48px));
+}
+
+.maka-permission-header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.maka-permission-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+}
+
+.permissionDialog[data-tone="caution"] .maka-permission-icon {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+}
+
+.permissionDialog[data-tone="destructive"] .maka-permission-icon {
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive-text);
+}
+
+.permissionDialog[data-tone="destructive"] {
+  border: 1px solid oklch(from var(--destructive) l c h / 0.32);
+}
+
+.maka-permission-tool {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--foreground-5);
+  color: var(--foreground-80);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-permission-age {
+  color: var(--foreground-55);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.maka-permission-age[data-status="stale"] {
+  color: var(--warning-text);
+}
+
+.maka-permission-age[data-status="expired"] {
+  color: var(--destructive-text);
+}
+
+.maka-permission-body {
+  display: grid;
+  gap: 10px;
+}
+
+.maka-permission-summary {
+  display: grid;
+  gap: 5px;
+}
+
+.maka-permission-line {
+  margin: 0;
+  color: var(--foreground-80);
+  font-size: 11px;
+}
+
+.maka-permission-path {
+  margin: 0;
+}
+
+.maka-permission-path code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--foreground-5);
+  color: var(--foreground);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-permission-command,
+.maka-permission-preview {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.maka-permission-meta {
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: 11px;
+}
+
+.maka-permission-hint {
+  border-radius: 6px;
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Single-line emphasis under the "记住本轮" checkbox when the action is
+ * destructive. Keeps the dialog body readable but draws an extra beat
+ * before the user clicks 我已确认，允许. */
+.maka-permission-danger-note {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+

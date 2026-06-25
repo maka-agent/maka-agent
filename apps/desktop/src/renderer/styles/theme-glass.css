@@ -1,0 +1,131 @@
+/* =============================================================================
+   Glass material on macOS — atlas §1 + §12.1 documents the upstream reference
+   layout's `light-glass` / `dark-glass` themes that paint the sidebar against
+   native vibrancy material. We do the same:
+   - Main process sets BrowserWindow({ vibrancy: 'sidebar' }) on darwin.
+   - Renderer tags <html> with `data-os="darwin"` via window.maka.app.info().
+   - The CSS below makes the window background + sidebar surface translucent
+     so the macOS vibrancy material shows through, then re-tints with a
+     subtle warm overlay (matches reference's 172° linear-gradient on
+     --agents-layout-bg). Non-macOS platforms (Windows / Linux) keep their
+     opaque chrome since vibrancy is a no-op there.
+============================================================================= */
+
+html[data-os="darwin"],
+html[data-os="darwin"] body {
+  background: transparent;
+}
+
+html[data-os="darwin"] .maka-shell-2col {
+  background: transparent;
+}
+
+html[data-os="darwin"] .maka-session-panel {
+  /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): the previous 172deg
+     gradient + 1px border-right reintroduced exactly the
+     "上面灰下面白" + visible seam that WAWQAQ called out in
+     `1e693dee` / `5d3b10e5` / `486b5611`. round-0 only stripped the
+     shell-level gradient; this `[data-os="darwin"]` rule was the
+     other place the gradient still lived. Flat translucent base only
+     — no gradient, no 1px border. The 4px gap around the floating
+     detail panel is the only visible boundary. */
+  background: oklch(from var(--surface-canvas) l c h / 0.50);
+  backdrop-filter: saturate(140%) blur(8px);
+  -webkit-backdrop-filter: saturate(140%) blur(8px);
+}
+
+/* Force opaque-foreground text on every direct sidebar text surface so
+   the glass material doesn't pull legibility down through inheritance
+   (audit finding §6). The wash + 50% base provide enough contrast for
+   foreground @ full alpha; nav rows / list rows / settings button all
+   inherit. */
+html[data-os="darwin"] .maka-session-panel-header,
+html[data-os="darwin"] .maka-session-list,
+html[data-os="darwin"] .maka-nav-row,
+html[data-os="darwin"] .maka-list-row {
+  color: var(--foreground);
+}
+
+html[data-os="darwin"] .maka-session-panel-footer {
+  /* PR-FE-BUG-HUNT-8 (kenji aesthetic-audit reminder 9, finding #2):
+     drop the 180deg footer linear-gradient. Even though it was a
+     subtle transparent→30% surface-canvas fade, it's exactly the
+     "上面灰下面白" pattern WAWQAQ called out twice (`1e693dee` /
+     `5d3b10e5`). The 50% glass base on the panel already provides
+     material depth; the footer only needs a hairline border-top
+     to separate it from the scroll area. No gradient. No seam. */
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  background: oklch(from var(--surface-canvas) l c h / 0.15);
+}
+
+/* The main content column stays on its existing solid `var(--background)` so
+   chat text and cards remain legible. Without this, the page card would also
+   go translucent and hurt readability. */
+html[data-os="darwin"] .maka-panel-detail {
+  background: var(--background);
+}
+
+/* =============================================================================
+   Phase 3 quick-wins — atlas §13.7 + §14.6
+   Pure CSS, no JSX surgery, all gated on theme/attribute selectors.
+============================================================================= */
+
+/* §14.4 — chrome surfaces opt out of text selection. Selectable text is
+   restricted to actual content (Markdown body, composer textarea, readonly
+   pre/code). This prevents accidental "click-drag on nav row starts text
+   selection" footgun and makes click+drag-to-resize feel native. */
+.maka-session-panel,
+.maka-session-panel-header,
+.maka-session-panel-footer,
+.maka-nav-row,
+.maka-list-row,
+.maka-module-main-header,
+.maka-plan-heading,
+.maka-skill-tab,
+.maka-plan-tab,
+.maka-sidebar-search-button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* §13.4 — `[data-parchment-brand-motion]` auto-tints any third-party brand
+   motion (Lottie / SVG / GIF) to match the current theme. Drop the attribute
+   on a brand-motion element and these filters do the per-theme tinting. */
+html[data-theme="light-parchment"] [data-parchment-brand-motion],
+html[data-theme="dark-parchment"] [data-parchment-brand-motion] {
+  filter: hue-rotate(-85deg) saturate(0.65);
+}
+
+html[data-theme="dark"] [data-parchment-brand-motion],
+html[data-theme="dark-glass"] [data-parchment-brand-motion],
+html[data-theme="classic-dark"] [data-parchment-brand-motion] {
+  filter: brightness(0.8);
+}
+
+/* §13.3 — Banner-style SVG color rewrite. Any banner / hero SVG that
+   wears `[data-banner-logo]` or `[data-skill-deco-cover]` gets its brand
+   strokes/fills auto-mapped to parchment-neutral tokens. We don't ship a
+   maka-specific mascot SVG yet, but the rule sits ready for when we do. */
+html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[fill*="accent"],
+html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[fill*="accent"] {
+  fill: oklch(from var(--foreground) l c h / 0.08);
+}
+
+html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"],
+html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"] {
+  stroke: var(--card-border-color);
+}
+
+/* PR-FE-BUG-HUNT-8 (kenji aesthetic-audit reminder 9, finding #3):
+   `[data-gradual-blur-layer]` block removed. Originally ported from
+   atlas §15.2 as a generic linear-gradient mask + `backdrop-filter:
+   blur(6px)` overlay + raw `z-index: 5` that any element could opt
+   into via the data attribute. Kenji called it out as an escape
+   hatch — future surfaces could re-introduce blur and a non-token
+   z-index just by wearing the attr, sidestepping the design system.
+
+   `grep -rn data-gradual-blur-layer --include=*.tsx` confirmed zero
+   consumers in the renderer JSX. The CSS was dead. Removing it
+   eliminates the escape hatch + the raw z-index. If a future scroll
+   edge needs a fade we'll add a named class with an explicit
+   contract instead. */

@@ -1,0 +1,328 @@
+/* Hero mount entrance — opacity 0 + translateY(8px) -> 0. Visible whenever
+   an empty-chat or onboarding hero appears (new session, app boot, blocked
+   state). Ported from the upstream reference design's agents-slide-up cadence. */
+@keyframes maka-hero-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-hero {
+    animation: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-hero {
+  animation: none;
+}
+
+.maka-hero header,
+.maka-hero-empty-chat header {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.maka-hero-visual {
+  position: relative;
+  width: min(520px, 62vw);
+  height: 130px;
+  margin-bottom: 4px;
+}
+
+.maka-hero-bubble {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border-radius: 12px;
+  background: var(--foreground-3);
+  color: var(--foreground-55);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 0 14px;
+}
+
+.maka-hero-bubble-primary {
+  left: 38px;
+  top: 16px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  color: var(--accent);
+}
+
+.maka-hero-bubble-secondary {
+  right: 22px;
+  top: 42px;
+}
+
+.maka-hero-avatar {
+  position: absolute;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px -14px oklch(from var(--foreground) l c h / 0.32);
+}
+
+.maka-hero-avatar-maka {
+  left: calc(50% - 48px);
+  top: 42px;
+  width: 66px;
+  height: 66px;
+  background: oklch(from var(--accent) l c h / 0.18);
+  color: var(--accent);
+}
+
+.maka-hero-avatar-user {
+  left: calc(50% + 4px);
+  top: 52px;
+  width: 62px;
+  height: 62px;
+  border: 4px solid oklch(from var(--accent) l c h / 0.12);
+  background: oklch(0.93 0.035 70);
+  color: var(--foreground);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.maka-hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.maka-hero h1 {
+  margin: 0;
+  max-width: 34ch;
+  /* Phase 4A hero typography — atlas §15 deep RE notes reference uses
+     `.welcome-title` with `Instrument Sans` variable font at wdth:100/
+     wght:500 for hero. Maka uses Geist Variable which also has wdth +
+     wght axes. Pulling the heading to 32px / wght 550 / -0.018em
+     tracking + setting font-variation-settings wdth 105 gives the
+     hero the same "wider, slightly heavier, optically distinct from
+     chrome" feel without adding a second variable font asset. */
+  font-size: 32px;
+  font-weight: 550;
+  letter-spacing: -0.018em;
+  line-height: 1.1;
+  font-variation-settings: "wght" 550, "wdth" 105;
+  text-wrap: balance;
+}
+
+.maka-hero p {
+  margin: 0;
+  max-width: 54ch;
+  color: var(--foreground-60);
+  font-size: 14.5px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+@media (max-width: 820px) {
+  .maka-hero-visual {
+    width: min(420px, 84vw);
+    height: 112px;
+  }
+
+  .maka-hero-bubble {
+    font-size: 11px;
+    padding-inline: 10px;
+  }
+
+  .maka-hero-bubble-primary {
+    left: 0;
+  }
+
+  .maka-hero-bubble-secondary {
+    right: 0;
+  }
+}
+
+/* Chat message mount entrance — opacity 0 + translateY(6px) -> 0, ported
+   from the upstream reference design's agents-slide-up keyframe. Every
+   message slides up gently when it lands, including streaming deltas and
+   session-switch loads. Honored by prefers-reduced-motion below. */
+.maka-message-row {
+  animation: maka-message-row-enter 220ms var(--ease-out-strong) both;
+}
+
+@keyframes maka-message-row-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-message-row {
+    animation: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-message-row {
+  animation: none;
+}
+
+.message > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground-50);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.message.user > span { color: var(--foreground-60); }
+.message.assistant > span { color: var(--accent); }
+.message.system > span { color: var(--info-text); }
+
+/* PR-CHAT-CHROME-FOLLOWUP-0: the relative time is always visible now
+   (it was `opacity: 0` until hover, which hid it on touch + from
+   assistive tech). It stays quiet — 12px at the shared chrome size,
+   muted — and rides in the user turn's meta row beneath the block. */
+.maka-message-time-inline {
+  display: inline-block;
+  color: var(--foreground-40);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* User turn meta row: quiet time + a copy affordance, right-aligned
+   beneath the message block (the parent `.message.user` aligns items
+   to flex-end, so this row shrink-wraps and hugs the right edge). */
+.maka-message-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  /* Separate the meta row from the bubble. Kept below the 8px turn
+     rhythm so the time + copy still read as belonging to the bubble
+     (proximity) rather than floating between turns. */
+  gap: 6px;
+}
+
+.maka-turn > .maka-turn-summary,
+.maka-turn > .maka-turn-lineage-row,
+.message.assistant .maka-turn-lineage-row,
+.message.assistant .maka-turn-footer {
+  display: flex;
+  max-width: var(--maka-chat-measure, 680px);
+  width: 100%;
+  margin-left: 0;
+  margin-right: auto;
+  justify-content: flex-start;
+}
+
+.message.assistant,
+.message.system {
+  max-width: var(--maka-chat-measure, 680px);
+  width: 100%;
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.message pre {
+  margin: 0;
+  font: inherit;
+}
+
+.message.system pre {
+  display: inline-flex;
+  border-radius: 999px;
+  background: oklch(from var(--info) l c h / 0.08);
+  color: var(--info-text);
+  padding: 2px 7px;
+  font-size: 10px;
+}
+
+.toolInline {
+  width: min(680px, 100%);
+  margin: 2px auto 0;
+  padding: 0 16px;
+}
+
+.toolInline > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+  color: var(--foreground-50);
+  font-size: 10px;
+}
+
+.toolItem {
+  overflow: hidden;
+  box-shadow: var(--shadow-minimal-flat);
+}
+
+.toolArgs {
+  margin: 0;
+  max-height: 110px;
+  overflow: auto;
+}
+
+.maka-overlay-preview {
+  margin: 5px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-overlay-close {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding-inline: 7px;
+}
+
+.maka-load-tool-preview {
+  margin: 5px 0 0;
+  padding: 5px 8px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  font-size: 10px;
+  animation: maka-tool-card-enter 350ms var(--ease-out-strong) both;
+}
+
+.maka-load-tool-preview p {
+  margin: 0;
+}
+
+.maka-load-tool-title {
+  font-weight: 600;
+}
+
+.maka-load-tool-count {
+  color: var(--foreground-2);
+}
+
+.maka-load-tool-tools {
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+.maka-load-tool-footer {
+  color: var(--foreground-2);
+  font-size: 11px;
+}
+

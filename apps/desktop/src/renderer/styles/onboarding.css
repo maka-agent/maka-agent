@@ -1,0 +1,998 @@
+/* Onboarding hero — first-run, no real connection configured.
+   PR-ONBOARDING-HERO-STAGGER-0 (WAWQAQ msg `cdfd68eb`, skills round
+   task #116): block-level fade-up was a single 200ms ramp — every
+   child landed at the same moment, reading as a flat reveal. Now
+   the wrapper just sets layout; each direct child fades up + scales
+   from 0.96 with a 60ms cascade (Emil Kowalski "agents-with-taste":
+   start scale at 0.95-ish, not 0; cap entry at <300ms each;
+   transform+opacity only, GPU-accelerated). The block fade is gone
+   so we don't double-animate. */
+.maka-onboarding {
+  width: min(680px, 100%);
+  margin: auto;
+  padding: 12px 16px 16px;
+  display: grid;
+  gap: 10px;
+  color: var(--foreground);
+}
+
+.maka-onboarding > * {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  animation: maka-onboarding-child-enter 280ms var(--ease-out-strong) forwards;
+}
+.maka-onboarding > *:nth-child(1) { animation-delay: 0ms; }
+.maka-onboarding > *:nth-child(2) { animation-delay: 60ms; }
+.maka-onboarding > *:nth-child(3) { animation-delay: 120ms; }
+.maka-onboarding > *:nth-child(4) { animation-delay: 180ms; }
+.maka-onboarding > *:nth-child(n + 5) { animation-delay: 220ms; }
+
+@keyframes maka-onboarding-child-enter {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-onboarding > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+[data-maka-visual-smoke="true"] .maka-onboarding > * {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* PR-AUDIT-CLEANUP-BATCH-2 (WAWQAQ msg `01efbebb`): deleted unused
+   `@keyframes maka-agents-slide-up` and `@keyframes maka-agents-fade-in`.
+   Both were referenced only from rules that previous PRs removed
+   (PR-ONBOARDING-HERO-STAGGER-0 + PR-FRONTEND-AUDIT-CLEANUP-0 F1).
+   `maka-hero-enter` is the live block-level entrance now. */
+
+@keyframes maka-workbench-card-scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* PR-ONBOARDING-HERO-STAGGER-0: the prior `@media reduced-motion` +
+   `[data-maka-visual-smoke]` blocks that targeted the now-removed
+   block-level `.maka-onboarding` fade rule are gone. Per-child
+   stagger has its own guards above. (`maka-hero-enter` keyframe
+   itself is still used by `.maka-hero` / `.emptyChat` elsewhere —
+   self-review corrected an earlier "unused" claim here.) */
+
+.maka-onboarding header {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  text-align: left;
+}
+
+.maka-onboarding-ready header {
+  justify-items: start;
+  text-align: left;
+  gap: 4px;
+}
+
+.maka-onboarding-ready .maka-onboarding-eyebrow {
+  justify-content: flex-start;
+}
+
+.maka-onboarding-eyebrow {
+  display: none;
+}
+
+.maka-onboarding header h1 {
+  margin: 0;
+  max-width: 32ch;
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.maka-onboarding header p {
+  display: none;
+}
+
+/* ============================================================
+   First-run hero (needs_connection) — selection-led redesign.
+   Scoped via `.maka-firstrun` so the other onboarding hero states
+   (SetupHero) keep their existing layout. Title leads, the three
+   setup steps compress to one quiet stepper line, and the provider
+   list is the clear subject.
+   ============================================================ */
+.maka-firstrun {
+  width: min(600px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* PR-FRONTEND-AUDIT-CLEANUP-0 F1 (WAWQAQ msg `dde696a1`): the earlier
+   `maka-agents-fade-in 150ms` block + nth-child delay ladder was
+   completely overridden by the `maka-card-enter 280ms` block below,
+   plus that block's own delay ladder. The dead rules silently caused
+   any "polish" attempt on the upper block to look like a no-op. Deleted. */
+
+.maka-firstrun-title {
+  margin: 0;
+  max-width: none;
+  font-size: 26px;
+  font-weight: 680;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.maka-firstrun-sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--foreground-55);
+}
+
+/* --- compact stepper (numbered nodes + connectors) --- */
+.maka-firstrun-stepper {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maka-firstrun-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 999px;
+}
+
+.maka-firstrun-step-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  border: 1.5px solid var(--border-strong);
+  color: var(--foreground-50);
+}
+
+.maka-firstrun-step-label {
+  font-size: 13px;
+  color: var(--foreground-50);
+  white-space: nowrap;
+}
+
+.maka-firstrun-step[data-state="active"] {
+  background: oklch(from var(--accent) l c h / 0.12);
+}
+.maka-firstrun-step[data-state="active"] .maka-firstrun-step-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--background);
+}
+.maka-firstrun-step[data-state="active"] .maka-firstrun-step-label {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.maka-firstrun-step[data-state="done"] .maka-firstrun-step-dot {
+  background: var(--foreground-8);
+  border-color: transparent;
+  color: var(--foreground-60);
+}
+
+.maka-firstrun-step[data-state="warning"] .maka-firstrun-step-dot {
+  border-color: var(--warning);
+  color: var(--warning-text);
+}
+
+.maka-firstrun-step-line {
+  width: 20px;
+  height: 1.5px;
+  flex: 0 0 auto;
+  margin: 0 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+/* --- section label above the provider list --- */
+.maka-firstrun-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 12px;
+}
+.maka-firstrun-pick-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.maka-firstrun-pick-hint {
+  font-size: 12.5px;
+  color: var(--foreground-50);
+}
+
+/* --- provider list panel (scrolls vertically as the list grows) --- */
+.maka-firstrun-list {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--background-elevated);
+}
+.maka-firstrun-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.maka-firstrun-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* --- "常用" tag inside a provider row title --- */
+.maka-firstrun-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+  background: oklch(from var(--accent) l c h / 0.12);
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+.maka-firstrun .maka-onboarding-footer {
+  margin-top: 22px;
+}
+
+.maka-onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.maka-onboarding-ready .maka-onboarding-footer {
+  /* In-chat ready_empty branch keeps the composer-led left-anchored
+     rhythm — same exception as `.maka-onboarding-ready header`. */
+  justify-content: flex-start;
+}
+
+.maka-onboarding-setup-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 3px;
+}
+
+.maka-onboarding-setup-steps > li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.maka-onboarding-setup-steps > li[data-state="active"] {
+  border-color: oklch(from var(--accent) l c h / 0.34);
+  background: oklch(from var(--accent) l c h / 0.06);
+}
+
+.maka-onboarding-setup-steps > li[data-state="warning"] {
+  border-color: oklch(from var(--destructive-text) l c h / 0.30);
+  background: oklch(from var(--destructive-text) l c h / 0.06);
+}
+
+.maka-onboarding-setup-steps > li[data-state="done"] {
+  border-color: oklch(from var(--success, var(--accent)) l c h / 0.28);
+}
+
+.maka-onboarding-setup-step-marker {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--background-elevated);
+  color: var(--foreground-70);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.maka-onboarding-setup-steps > li[data-state="active"] .maka-onboarding-setup-step-marker {
+  background: var(--accent);
+  color: var(--accent-contrast, var(--background));
+}
+
+.maka-onboarding-setup-steps > li[data-state="warning"] .maka-onboarding-setup-step-marker {
+  background: var(--destructive-text);
+  color: var(--background);
+}
+
+.maka-onboarding-setup-step-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-onboarding-setup-step-copy strong {
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.maka-onboarding-setup-step-copy small {
+  color: var(--foreground-60);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.maka-onboarding-setup-step-state {
+  justify-self: end;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--background-elevated);
+  color: var(--foreground-60);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.maka-onboarding-setup-steps > li[data-state="active"] .maka-onboarding-setup-step-state {
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent);
+}
+
+.maka-onboarding-setup-steps > li[data-state="warning"] .maka-onboarding-setup-step-state {
+  background: oklch(from var(--destructive-text) l c h / 0.12);
+  color: var(--destructive-text);
+}
+
+@media (max-width: 620px) {
+  .maka-onboarding-setup-steps > li {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .maka-onboarding-setup-step-state {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+/* PR110c: extended OnboardingHero variants. The setup variants
+   reuse the base `.maka-onboarding` chrome but skip the provider
+   grid; we add a compact body + a single CTA.
+   PR-UI-LAYOUT-25: clearer tone treatment on the warm canvas.
+   - Headline color stays neutral for `setup` (default), shifts
+     warm/amber for `warning` (info family), shifts destructive
+     for `blocked` so a stranded user immediately sees gravity. */
+.maka-onboarding-setup header h1 {
+  font-size: 22px;
+}
+.maka-onboarding-setup header p {
+  margin-top: 8px;
+  color: var(--foreground-70);
+  line-height: 1.55;
+}
+.maka-onboarding-setup[data-tone="warning"] header h1 {
+  color: var(--warning, var(--info-text));
+}
+.maka-onboarding-setup[data-tone="destructive"] header h1 {
+  color: var(--destructive-text);
+}
+
+/* PR-UI-LAYOUT-25: setup hero eyebrow icon picks up the tone for
+ * each variant so the visual hierarchy reads (icon tone → headline
+ * tone → body) instead of relying on copy alone. */
+.maka-onboarding-setup[data-tone="warning"] .maka-onboarding-eyebrow {
+  color: var(--info-text);
+}
+.maka-onboarding-setup[data-tone="destructive"] .maka-onboarding-eyebrow {
+  color: var(--destructive-text);
+}
+
+.maka-onboarding-slug {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  padding: 2px 6px;
+  /* PR-UI-LAYOUT-25: slug radius 6 → 8 to join the form input
+   * family (same chrome as inline code badges). */
+  border-radius: 8px;
+  background: var(--foreground-5, oklch(from var(--foreground) l c h / 0.06));
+  color: var(--foreground-80, oklch(from var(--foreground) l c h / 0.80));
+}
+
+/* Quick Chat composer (ready_empty branch). Looks similar to the
+   main composer but lives inside the hero card so the first-run
+   surface stays self-contained. */
+.maka-onboarding-ready header h1 {
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 29px;
+  font-weight: 680;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+.maka-onboarding-ready header p {
+  /* Slightly larger subtitle so it carries the meaning without
+     reading like fine print under the now-heavier h1. */
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 56ch;
+}
+.maka-onboarding-quickchat {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 24px;
+  width: min(100%, 620px);
+  margin-inline: auto;
+  position: relative;
+  border-radius: 12px;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  background: var(--background-elevated, var(--background));
+  box-shadow:
+    0 18px 42px oklch(from var(--foreground) l c h / 0.07),
+    0 1px 0 oklch(from var(--foreground) 1 0 h / 0.72) inset;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.maka-onboarding-quickchat-field {
+  display: grid;
+  gap: 8px;
+  padding: 20px 150px 20px 22px;
+}
+
+.maka-onboarding-quickchat:focus-within {
+  border-color: oklch(from var(--accent) l c h / 0.34);
+  box-shadow:
+    0 20px 52px oklch(from var(--foreground) l c h / 0.10),
+    0 0 0 4px oklch(from var(--accent) l c h / 0.08),
+    0 1px 0 oklch(from var(--foreground) 1 0 h / 0.75) inset;
+}
+.maka-onboarding-quickchat-input {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  min-height: 90px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  box-shadow: none !important;
+  outline: none;
+}
+.maka-onboarding-quickchat[data-drag-active="true"] .maka-onboarding-quickchat-input {
+  border-color: oklch(from var(--accent) l c h / 0.46);
+  background: oklch(from var(--accent) 0.98 calc(c * 0.20) h / 0.35);
+  box-shadow:
+    0 0 0 1px oklch(from var(--accent) l c h / 0.22),
+    0 0 0 4px oklch(from var(--accent) l c h / 0.08);
+}
+.maka-onboarding-quickchat-input:focus-visible {
+  /* No per-input outline: the parent `.maka-onboarding-quickchat`
+     surface owns the focus ring via :focus-within, so the
+     textarea reads as part of one card instead of having a
+     second nested focus rectangle. */
+  outline: none;
+  box-shadow: none !important;
+}
+.maka-onboarding-quickchat-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+/* PR-UI-15 (@yuejing 2026-05-22): small example hint shown below the
+ * quickChat textarea so first-run users still see an example of what
+ * to type after we shortened the placeholder to "Message Maka…". */
+.maka-onboarding-quickchat-example {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-inline: 0;
+  color: var(--foreground-50);
+  font-size: 12px;
+  line-height: 1.4;
+  font-style: italic;
+}
+.maka-onboarding-quickchat-example[data-pending="true"] {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 650;
+}
+.maka-onboarding-quickchat-mode {
+  width: fit-content;
+  max-width: calc(100% - 190px);
+  margin: -10px 150px 18px 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+.maka-onboarding-quickchat-submit {
+  min-width: auto;
+}
+
+.maka-onboarding-quickchat-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-foreground, oklch(0.985 0.003 250));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.16),
+    0 10px 20px oklch(from var(--accent) l c h / 0.22);
+}
+
+.maka-onboarding-quickchat-submit {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+}
+
+.maka-onboarding-quickchat-submit:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+  color: var(--accent-foreground, oklch(0.985 0.003 250));
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.18),
+    0 12px 24px oklch(from var(--accent) l c h / 0.26);
+}
+
+.maka-onboarding-quickchat-submit:disabled {
+  background: color-mix(in srgb, var(--accent) 58%, white);
+  color: var(--accent-foreground, oklch(0.985 0.003 250));
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.maka-first-run-task-suggestions {
+  display: grid;
+  justify-items: center;
+  gap: 0;
+  margin-top: 22px;
+  width: min(760px, 100%);
+}
+
+.maka-first-run-task-suggestions-inner {
+  width: min(100%, 760px);
+  display: grid;
+  gap: 10px;
+}
+
+.maka-first-run-task-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.maka-first-run-task-suggestions-header > strong {
+  font-size: 12px;
+  color: var(--foreground-50);
+  font-weight: 600;
+}
+
+.maka-first-run-task-suggestion-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.maka-first-run-task-suggestion-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.maka-first-run-task-suggestion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  flex: 0 0 auto;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  border-radius: 999px;
+  background: oklch(from var(--background-elevated, var(--background)) l c h / 0.78);
+  color: var(--foreground-75);
+  height: auto;
+  min-height: 38px;
+  padding: 9px 18px;
+  font-size: 12.5px;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.04);
+}
+
+.maka-first-run-task-suggestion:hover {
+  background: var(--background-elevated, var(--background));
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+  color: var(--foreground);
+}
+
+.maka-first-run-task-suggestion:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.maka-first-run-task-suggestion:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* @kenji PR110c review: loading slot rendered while the first
+   onboarding snapshot resolves. Empty visual — just blocks the
+   default EmptyChatHero so the user doesn't see prompt suggestions
+   flash before the state-routed hero mounts. */
+.maka-onboarding-loading {
+  min-height: 120px;
+}
+
+.maka-list-row-name {
+  display: flex;
+  align-items: center;
+  /* PR-UI-3: tighten badge gap 8→6 so streaming dot / status icon /
+   * stale pill / name cluster reads as one unit, not 4 disconnected
+   * elements. */
+  gap: 6px;
+  overflow: hidden;
+  /* PR-SIDEBAR-IA-0 Phase 3: 14→13px + 600→500 weight reads as a list
+   * item (Slack/Linear) instead of a card title. Bold cards felt
+   * heavy when stacked 60-deep. */
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 0;
+}
+
+.maka-list-row-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Small pulsing accent dot rendered when a session has live streaming
+ * delta in flight. Replaces the unread halo for streaming sessions so the
+ * indicator hierarchy is: streaming > unread > inactive. Respects
+ * prefers-reduced-motion. */
+.maka-list-row-streaming-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+  animation: maka-list-row-streaming-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes maka-list-row-streaming-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.18);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px oklch(from var(--accent) l c h / 0.05);
+    transform: scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row-streaming-dot {
+    animation: none;
+  }
+}
+
+.maka-list-row[data-streaming="true"] .maka-list-row-name > span {
+  color: var(--foreground);
+}
+
+/* PR-SIDEBAR-IA-0 Phase 3: meta (relative time) now sits inline at
+ * the row's inline-end instead of stacked below the name. Color +
+ * size kept muted so it reads as secondary info, not a competing
+ * label. `margin-top` from the old stacked layout is removed. */
+.maka-list-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Phase 4A — tighten meta typography. 11/50 was reading too loud:
+     the date stamp dominated visual hierarchy when it should sit
+     under the title. 9/42 mirrors reference's secondary-meta tier. */
+  color: var(--foreground-42);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+}
+
+/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-text` collapses to a single
+ * row (name on the inline-start). The previous stack-of-three
+ * layout (name / preview / meta) is gone — preview drops out of the
+ * default DOM, meta moves inline to the row's right column. */
+.maka-list-row-text {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
+ * rendered in the default DOM — preview text is exposed via the row
+ * button's native `title=` tooltip on hover so users can still peek
+ * at the last message without paying the layout cost of a second
+ * stacked line. This rule intentionally remains DELETED (no fallback
+ * style). The `sidebar-row-density-contract.test.ts` gate asserts
+ * the rule is gone so a future "let's bring snippet back" patch
+ * lands as an explicit design discussion, not a silent regression.
+ */
+
+/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
+ * rendered in the default DOM (see comment above). The
+ * `[data-active]` variant of that rule is therefore dead and
+ * removed. */
+
+.maka-list-row-unread {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+}
+
+/* Stale session — `backend='fake'` or `llmConnectionSlug` no longer
+ * resolves. Pairs with the chat-header banner (PR108e) so users can spot
+ * dead sessions in the sidebar list before clicking in. Visual treatment:
+ *
+ * - Row body dimmed via opacity reduction (preserves all underlying tones
+ *   but reads as "secondary"); active state remains fully opaque so the
+ *   currently-selected row never disappears just because it's stale.
+ * - A small amber pill labelled "已过期" sits next to the session name —
+ *   muted-warning tone, not destructive, because @xuan's send-path silent
+ *   rebind makes these sessions still functional.
+ */
+.maka-list-row[data-stale="true"] {
+  opacity: 0.7;
+}
+
+.maka-list-row[data-stale="true"][data-active="true"] {
+  opacity: 1;
+}
+
+/* PR109b: SessionStatusIcon — small inline icon next to session name
+ * representing lifecycle status. Tone-based color from the
+ * design-system token vocabulary; running spins via `animation`
+ * (capped under reduced-motion + visual-smoke per PR-IR-04). */
+.maka-list-row-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 4px;
+  width: 14px;
+  height: 14px;
+  color: var(--foreground-60);
+}
+.maka-list-row-status-icon[data-tone="accent"] {
+  color: var(--accent);
+}
+.maka-list-row-status-icon[data-tone="warning"] {
+  color: var(--info-text);
+}
+.maka-list-row-status-icon[data-tone="destructive"] {
+  color: var(--destructive);
+}
+.maka-list-row-status-icon[data-tone="info"] {
+  color: var(--info-text);
+}
+.maka-list-row-status-icon[data-tone="success"] {
+  /* Success uses the brand-deep tone introduced for Settings hero */
+  color: var(--brand-deep);
+}
+.maka-list-row-status-icon[data-tone="muted"] {
+  color: var(--foreground-40);
+}
+.maka-list-row-status-icon[data-status="running"] svg {
+  animation: maka-status-spin 1.2s linear infinite;
+}
+@keyframes maka-status-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row-status-icon[data-status="running"] svg {
+    animation: none;
+  }
+}
+[data-maka-visual-smoke="true"] .maka-list-row-status-icon[data-status="running"] svg {
+  animation: none;
+}
+
+/* Group label as a toggle button (archived group). Matches existing
+ * maka-list-group-label tone so the toggle doesn't visually fight
+ * non-collapsible groups. */
+.maka-list-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.maka-list-group-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.maka-list-group-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground-35);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.maka-list-row-stale-pill {
+  flex-shrink: 0;
+  /* PR-UI-3: drop margin-left, let parent's gap (6px) handle spacing
+   * so all badges in .maka-list-row-name share the same rhythm. */
+  padding: 1px 6px;
+  border-radius: 999px;
+  /* Reuses the chat-header-alert warning tone tokens (--warning + --warning-text)
+   * for visual consistency with the banner that explains the same state.
+   * Switched from --info (blue) to --warning (amber) per UI audit §2.9 —
+   * "已过期" is a degraded-state signal, not informational. */
+  background: oklch(from var(--warning, var(--info)) l c h / 0.18);
+  color: var(--warning-text, var(--info-text));
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
+.maka-list-row:hover .maka-list-row-name {
+  color: var(--foreground);
+}
+
+.maka-list-row-main {
+  transition: transform 160ms var(--ease-out-strong);
+}
+
+.maka-list-row:hover .maka-list-row-main {
+  transform: none;
+}
+
+.maka-list-row[data-active="true"] .maka-list-row-main {
+  transform: translateX(0);
+}
+
+.maka-empty-state {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: min(205px, calc(100% - 40px));
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--foreground-60);
+}
+
+.maka-empty-state-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--foreground-40);
+  padding: 0;
+}
+
+.maka-empty-state-media .maka-empty-state-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.maka-empty-state-title {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.maka-empty-state-body {
+  max-width: 30ch;
+  color: var(--foreground-45);
+  font-size: 12px;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.maka-session-list .maka-session-empty-state {
+  width: calc(100% - 42px);
+  top: 34%;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  color: var(--foreground-45);
+}
+
+.maka-session-list .maka-session-empty-state .maka-empty-state-media {
+  display: none;
+}
+
+.maka-session-list .maka-session-empty-state .maka-empty-state-title {
+  color: var(--foreground-55);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.maka-session-list .maka-session-empty-state .maka-empty-state-body {
+  max-width: 22ch;
+  color: var(--foreground-40);
+  font-size: 11px;
+}
+
+.maka-empty-state-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--foreground-5);
+  color: var(--foreground-70);
+}
+
+.maka-empty-state-actions {
+  margin-top: 4px;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.maka-empty-state-cta {
+  min-width: 88px;
+}
+

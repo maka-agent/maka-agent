@@ -1,0 +1,1126 @@
+/* =============================================================================
+   PR-UI-12 — Tool live output stream (PR-REAL-4 tool_output_delta consumer)
+
+   Renders typed-stream stdout/stderr below the tool args and above the
+   final tool_result. While the tool is live, the panel auto-scrolls to
+   bottom; once terminal it stops following so users can read history.
+============================================================================= */
+
+.maka-tool-output-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  overflow: hidden;
+}
+.maka-tool-output-stream[data-live="true"] {
+  border-color: oklch(from var(--accent) l c h / 0.40);
+  box-shadow: inset 0 0 0 1px oklch(from var(--accent) l c h / 0.06);
+}
+
+.maka-tool-output-stream-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--foreground-3);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--foreground-50);
+}
+
+.maka-tool-output-stream-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.maka-tool-output-stream-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* Pulse to communicate "live"; collapses to static under
+   * prefers-reduced-motion via the existing global rule. */
+  animation: maka-tool-output-stream-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes maka-tool-output-stream-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  /* PR-FE-BUG-HUNT-6: see reasoning-dot block — unified to 1.1. */
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* PR-UI-12 fixup (@xuan review): the visual-smoke fixture attr collapsed
+ * this pulse via the global `[data-maka-reduced-motion]` wildcard, but
+ * real OS `prefers-reduced-motion: reduce` only had the button:active
+ * rule. Add an explicit suppression so users who set system-level
+ * reduced motion don't see the pulse breathe. */
+@media (prefers-reduced-motion: reduce) {
+  .maka-tool-output-stream-dot {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+.maka-tool-output-stream-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.maka-tool-output-stream-counts span {
+  font-variant-numeric: tabular-nums;
+}
+.maka-tool-output-stream-counts span[data-stream="stderr"] {
+  color: var(--destructive-text);
+}
+.maka-tool-output-stream-counts span[data-redacted="true"] {
+  color: var(--warning-text, var(--info-text));
+}
+/* PR-UI-12 fixup #2 (@kenji A3 msg 365ff8b9) — "已截断" pill fires
+   when applyToolOutputChunk dropped chunks (per-tool cap) or
+   truncated a single oversize chunk. Same chrome family as the
+   redacted tag so it reads as another counts-row signal. */
+.maka-tool-output-stream-counts span[data-truncated="true"] {
+  color: var(--warning-text, var(--info-text));
+  border: 1px solid oklch(from var(--warning) l c h / 0.30);
+  background: oklch(from var(--warning) l c h / 0.06);
+  border-radius: 4px;
+  padding: 0 4px;
+  cursor: help;
+}
+
+.maka-tool-output-stream-body {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  background: var(--background);
+  color: var(--foreground-80);
+  white-space: pre-wrap;
+  word-break: break-word;
+  scroll-behavior: auto;
+}
+
+.maka-tool-output-stream-chunk {
+  display: contents;
+}
+
+.maka-tool-output-stream-chunk[data-stream="stderr"] {
+  color: var(--destructive-text);
+}
+
+.maka-tool-output-stream-chunk[data-redacted="true"] {
+  opacity: 0.65;
+}
+
+.maka-tool-output-stream-redacted-tag {
+  display: inline;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--warning-text, var(--info-text));
+  background: oklch(from var(--warning, var(--info)) l c h / 0.10);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PR-CHAT-WEB-SEARCH-RENDER-0: chat-side WebSearch result preview.
+   Reuses the Settings live-query result card shape so manual verification and the
+   agent-tool result look the same.
+   ──────────────────────────────────────────────────────────────── */
+.maka-web-search-preview {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.maka-web-search-preview > header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-web-search-preview > header strong {
+  font-size: 13px;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.maka-web-search-preview > header small {
+  font-size: 11px;
+  color: var(--foreground-50);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.maka-web-search-preview ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.maka-web-search-preview li {
+  display: grid;
+  gap: 3px;
+  padding: 8px 0;
+  border-top: 1px solid var(--foreground-5);
+}
+
+.maka-web-search-preview li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.maka-web-search-preview a {
+  font-weight: 600;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.maka-web-search-preview a:hover {
+  text-decoration: underline;
+}
+
+.maka-web-search-preview li small {
+  font-size: 11px;
+  color: var(--foreground-50);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.maka-web-search-preview li p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--foreground-70);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-web-search-error {
+  border-color: color-mix(in oklab, var(--destructive-text) 32%, var(--foreground-10));
+  background: color-mix(in oklab, var(--destructive-text) 8%, var(--foreground-3));
+}
+
+.maka-web-search-error-message,
+.maka-web-search-error-repair {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-web-search-error-message {
+  color: var(--destructive-text);
+}
+
+.maka-web-search-error-repair {
+  color: var(--foreground-70);
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PR-WEB-SEARCH-TAVILY-0: Settings → 联网搜索 live-query result list.
+   Plain-text rows only (title + source + snippet); never markdown,
+   never HTML.
+   ──────────────────────────────────────────────────────────────── */
+.settingsWebSearchResults {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.settingsWebSearchControlCluster,
+.settingsWebSearchSearchControls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settingsWebSearchStatusCluster {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.settingsWebSearchStatusCluster small {
+  color: var(--foreground-50);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.settingsWebSearchKeyRow > .settingsPasswordField,
+.settingsWebSearchQueryInputRow > input {
+  width: min(100%, 360px);
+  justify-self: end;
+}
+
+.settingsWebSearchActionButtons {
+  justify-content: flex-end;
+}
+
+.settingsWebSearchQueryIntroRow {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settingsWebSearchDisabledReason {
+  color: var(--foreground-50);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.settingsWebSearchResult {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsWebSearchResult a {
+  font-weight: 600;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.settingsWebSearchResult a:hover {
+  text-decoration: underline;
+}
+
+.settingsWebSearchResult small {
+  color: var(--foreground-50);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settingsWebSearchResult p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--foreground-70);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 720px) {
+  .settingsWebSearchEnableRow,
+  .settingsWebSearchKeyRow,
+  .settingsWebSearchCredentialActionRow,
+  .settingsWebSearchQueryInputRow,
+  .settingsWebSearchSearchRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settingsWebSearchControlCluster,
+  .settingsWebSearchSearchControls,
+  .settingsWebSearchActionButtons {
+    justify-content: flex-start;
+  }
+
+  .settingsWebSearchStatusCluster {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .settingsWebSearchKeyRow > .settingsPasswordField,
+  .settingsWebSearchQueryInputRow > input {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .settingsWebSearchDisabledReason {
+    text-align: left;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PR-MEMORY-MD-MVP-0: Settings → 记忆.
+   Transparent local MEMORY.md surface. Editor is intentionally plain
+   textarea chrome; no rich text, no hidden extraction.
+   ──────────────────────────────────────────────────────────────── */
+.settingsMemoryPreview {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsMemoryPreview strong {
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.settingsMemoryPreview small {
+  font-size: 11px;
+  color: var(--foreground-50);
+}
+
+.settingsMemoryPreview p {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settingsMemoryPromptPreview {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsMemoryPromptPreview[data-active="true"] {
+  border-color: oklch(from var(--accent) l c h / 0.35);
+  background: oklch(from var(--accent) l c h / 0.06);
+}
+
+.settingsMemoryPromptPreviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsMemoryPromptPreviewHeader strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryPromptPreviewHeader div {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settingsMemoryPromptPreviewHeader span {
+  flex-shrink: 0;
+  color: var(--foreground-60);
+  font-size: 11px;
+}
+
+.settingsMemoryPromptPreview[data-active="true"] .settingsMemoryPromptPreviewHeader span {
+  color: var(--accent);
+}
+
+.settingsMemoryPromptPreview small {
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsMemoryPromptPreviewBudget {
+  font-family: var(--font-mono);
+  color: var(--foreground-60);
+}
+
+.settingsMemoryPromptPreview pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground-80);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settingsMemoryPromptPreview p {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settingsMemoryEntryPreviewNotice {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid oklch(from var(--warning) l c h / 0.34);
+  border-radius: 8px;
+  background: oklch(from var(--warning) l c h / 0.08);
+}
+
+.settingsMemoryEntryPreviewNotice strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryEntryPreviewNotice small {
+  color: var(--foreground-70);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsMemorySaveSummary {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid oklch(from var(--success) l c h / 0.28);
+  border-radius: 8px;
+  background: oklch(from var(--success) l c h / 0.08);
+}
+
+.settingsMemorySaveSummary strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemorySaveSummary small {
+  color: var(--foreground-60);
+  font-size: 12px;
+}
+
+.settingsMemorySaveSummaryTime {
+  color: var(--foreground-50);
+  font-size: 11px;
+}
+
+.settingsMemoryBackupState {
+  color: var(--foreground-60);
+}
+
+.settingsMemoryBackupState[data-empty="true"] {
+  color: var(--foreground-40);
+}
+
+.settingsMemoryBackupList {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsMemoryBackupList strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+/* PR-MEMORY-BACKUP-LIST-A11Y-0 (round 16/30): selector
+   targeted the old `<div role="list">`. Container is now a
+   semantic `<ul>` (`.settingsMemoryBackupCandidates`); reset
+   the UA's bullet + padding-left so the flex-wrap layout stays
+   the same as before. */
+.settingsMemoryBackupCandidates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settingsMemoryBackupCandidates > li {
+  margin: 0;
+  padding: 0;
+}
+
+.settingsMemoryBackupList small {
+  color: var(--foreground-50);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsMemoryBackupCandidate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground-60);
+  font-size: 11px;
+}
+
+.settingsMemoryEntryGroups {
+  display: grid;
+  gap: 12px;
+}
+
+.settingsMemoryEntryGroup {
+  display: grid;
+  gap: 8px;
+}
+
+.settingsMemoryEntryGroup[data-archived="true"] {
+  opacity: 0.82;
+}
+
+.settingsMemoryEntryGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--foreground-60);
+}
+
+.settingsMemoryEntryGroupHeader strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryEntryDraftNotice {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid oklch(from var(--warning) l c h / 0.30);
+  border-radius: 8px;
+  background: oklch(from var(--warning) l c h / 0.08);
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settingsMemoryEntryList {
+  /* PR-MEMORY-ENTRY-LIST-A11Y-0 (round 18/30): switched from
+     `<div role="list">` to semantic `<ul>`. Reset the UA's
+     bullet + padding-left so the grouped-card border + radius
+     stays the same. */
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--foreground-2);
+}
+
+.settingsMemoryEntryList > li {
+  margin: 0;
+  padding: 0;
+}
+
+.settingsMemoryEntryCard {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--foreground-8);
+}
+
+/* PR-MEMORY-ENTRY-DIVIDER-FIX-0 (WAWQAQ msg `610c0e5a`): after
+   PR-MEMORY-ENTRY-LIST-A11Y-0 wrapped each card in `<li>`, the
+   prior `.settingsMemoryEntryCard:last-child` selector matched
+   EVERY card (each is the sole child of its `<li>`), so every
+   between-card divider disappeared. Target the last `<li>` in
+   the list instead. */
+.settingsMemoryEntryList > li:last-child .settingsMemoryEntryCard {
+  border-bottom: 0;
+}
+
+.settingsMemoryEntryCard strong {
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.settingsMemoryEntryCard small {
+  font-size: 11px;
+  color: var(--foreground-50);
+}
+
+.settingsMemoryEntryFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.settingsMemoryEntryFacts span {
+  min-width: 0;
+}
+
+.settingsMemoryPromptScope {
+  width: max-content;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--foreground-4);
+  color: var(--foreground-60);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsMemoryPromptScope[data-active="true"] {
+  border-color: oklch(from var(--success) l c h / 0.32);
+  background: oklch(from var(--success) l c h / 0.08);
+  color: var(--foreground-70);
+}
+
+.settingsMemoryDirtyState[data-dirty="true"] {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.settingsMemoryEntryCard p,
+.settingsMemoryEntryEmpty {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settingsMemoryEntryActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settingsMemoryFilter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsMemoryFilter input {
+  width: 100%;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 9px;
+}
+
+.settingsMemoryFilter small {
+  color: var(--foreground-50);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.settingsMemoryFilter input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.settingsMemoryFilterEmpty,
+.settingsMemoryListEmpty {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+}
+
+.settingsMemoryFilterEmpty strong,
+.settingsMemoryListEmpty strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryFilterEmpty small,
+.settingsMemoryListEmpty small {
+  color: var(--foreground-60);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settingsMemoryManualAdd {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-2);
+}
+
+.settingsMemoryManualAddHeader {
+  display: grid;
+  gap: 2px;
+}
+
+.settingsMemoryManualAddHeader strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryManualAddHeader small {
+  color: var(--foreground-50);
+  font-size: 11px;
+}
+
+.settingsMemoryManualAddGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.settingsMemoryManualAddGrid input,
+.settingsMemoryManualAddGrid textarea {
+  width: 100%;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 9px;
+}
+
+.settingsMemoryManualAddGrid textarea {
+  resize: vertical;
+  min-height: 74px;
+}
+
+.settingsMemoryManualAddGrid input:focus-visible,
+.settingsMemoryManualAddGrid textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.settingsMemoryDraftWarning {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid oklch(from var(--warning) l c h / 0.38);
+  border-radius: 8px;
+  background: oklch(from var(--warning) l c h / 0.09);
+}
+
+.settingsMemoryDraftWarning strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.settingsMemoryDraftWarning small {
+  color: var(--foreground-70);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsMemoryEditor {
+  display: grid;
+  gap: 8px;
+}
+
+.settingsMemoryEditor > span {
+  color: var(--foreground-60);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settingsMemoryEditor textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--background-elevated, var(--background));
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.settingsMemoryEditor textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settingsMemoryEditor textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PR-FIRST-RUN-CHECKLIST-0: "接下来可以探索" card.
+   Rendered below OnboardingHero ready_empty hero. Each row is a
+   real jumpable affordance; done rows mute.
+   ──────────────────────────────────────────────────────────────── */
+.maka-onboarding-stack {
+  display: grid;
+  gap: 28px;
+  align-content: start;
+  justify-items: center;
+  width: 100%;
+  min-height: calc(100dvh - 84px);
+  padding: clamp(40px, 7vh, 76px) 28px 48px;
+}
+
+.maka-onboarding-stack > .maka-onboarding-ready {
+  margin: 0;
+}
+
+.maka-onboarding-ready {
+  width: min(760px, 100%);
+  padding: 0;
+  gap: 0;
+}
+
+.maka-onboarding-ready header {
+  justify-items: center;
+  text-align: center;
+}
+
+.maka-onboarding-ready .maka-onboarding-eyebrow {
+  display: none;
+}
+
+.maka-first-run-checklist {
+  width: min(760px, 100%);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  border-radius: 12px;
+  padding: 14px;
+  background: oklch(from var(--background-elevated, var(--background)) l c h / 0.58);
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 10px 30px oklch(from var(--foreground) l c h / 0.04);
+}
+
+.maka-first-run-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground-65);
+  padding: 0 4px 2px;
+}
+
+.maka-first-run-checklist-header strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.maka-first-run-checklist-count {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--foreground-50);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-first-run-checklist-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: 8px;
+  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
+  color: var(--warning-text, var(--info-text));
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.maka-first-run-checklist-error-action {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  height: auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--warning-text, var(--info-text));
+  font-size: 12px;
+}
+
+.maka-first-run-checklist-error-action:hover {
+  background: var(--foreground-5);
+}
+
+.maka-first-run-checklist-error-action:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.maka-first-run-checklist-error-action:disabled:hover {
+  background: var(--background);
+}
+
+.maka-first-run-checklist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.maka-first-run-checklist-row > button {
+  height: auto;
+  min-height: 38px;
+  background: var(--background);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  border-radius: 10px;
+  padding: 7px 10px 7px 8px;
+  display: inline-grid;
+  grid-template-columns: 20px max-content 0;
+  align-items: center;
+  gap: 7px;
+  width: auto;
+  text-align: left;
+  color: var(--foreground-75);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-first-run-checklist-row > button:hover {
+  background: var(--background-elevated, var(--background));
+  border-color: oklch(from var(--foreground) l c h / 0.14);
+  color: var(--foreground);
+}
+
+.maka-first-run-checklist-row[data-done="true"] > button {
+  color: var(--foreground-50);
+  cursor: default;
+}
+
+.maka-first-run-checklist-row[data-done="true"] > button:hover {
+  background: var(--background);
+  border-color: transparent;
+}
+
+.maka-first-run-checklist-status {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--foreground-5);
+  color: var(--foreground-70);
+}
+
+.maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-status {
+  background: oklch(from var(--success, var(--info)) l c h / 0.12);
+  color: var(--success-text, var(--info-text));
+}
+
+.maka-first-run-checklist-copy {
+  display: block;
+  min-width: 0;
+}
+
+.maka-first-run-checklist-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.maka-first-run-checklist-copy small {
+  display: none;
+  font-size: 12px;
+  color: var(--foreground-50);
+  line-height: 1.45;
+}
+
+.maka-first-run-checklist-arrow {
+  display: none;
+  color: var(--foreground-40);
+}
+
+.maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-arrow {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .maka-onboarding-stack {
+    gap: 22px;
+    padding: 28px 16px 32px;
+  }
+
+  .maka-onboarding-ready header h1 {
+    font-size: 24px;
+    line-height: 1.2;
+  }
+
+  .maka-onboarding-ready header p {
+    margin-top: 8px;
+  }
+
+  .maka-onboarding-quickchat-input {
+    min-height: 88px;
+    padding: 0;
+  }
+
+  .maka-onboarding-quickchat-field {
+    padding: 16px 16px 72px;
+  }
+
+  .maka-onboarding-quickchat-example {
+    padding-inline: 0;
+    margin-bottom: 0;
+  }
+
+  .maka-onboarding-quickchat-submit {
+    right: 16px;
+    bottom: 16px;
+    width: calc(100% - 32px);
+    justify-content: center;
+  }
+
+  .maka-first-run-task-suggestions-header {
+    justify-content: center;
+  }
+
+  .maka-first-run-task-suggestion-list,
+  .maka-first-run-checklist-list {
+    justify-content: center;
+  }
+
+  .maka-first-run-checklist {
+    padding: 12px;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   PR-DAILY-REVIEW-MVP-0: 每日回顾 sidebar panel.
+   ──────────────────────────────────────────────────────────────── */
+.maka-daily-review-panel {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 18px 20px 20px;
+}
+

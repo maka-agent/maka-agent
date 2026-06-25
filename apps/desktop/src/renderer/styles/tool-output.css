@@ -1,0 +1,841 @@
+/* File diff: each line tagged with data-line for add / del / hunk / meta /
+ * ctx so we can color the unified-diff payload like GitHub / VS Code. */
+.maka-tool-diff {
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  white-space: normal;
+  animation: maka-tool-card-enter 350ms var(--ease-out-strong) both;
+}
+
+/* Tool-card mount entrance — opacity 0 + scale .97 -> 1, ported from
+   the upstream reference design's compact code-output entrance so each
+   tool result feels like it "lands" instead of popping in. Honored by
+   prefers-reduced-motion via the rule below. */
+@keyframes maka-tool-card-enter {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-tool-diff,
+  .maka-tool-terminal,
+  .maka-load-tool-preview {
+    animation: none;
+  }
+}
+
+.maka-tool-diff-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--foreground-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.maka-tool-diff-paths code {
+  color: var(--foreground-70);
+  background: transparent;
+}
+
+.maka-tool-diff-body {
+  margin: 0;
+  padding: 5px 0;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre;
+  word-break: normal;
+}
+
+.maka-tool-diff-line {
+  display: block;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.maka-tool-diff-line[data-line="add"] {
+  background: oklch(from var(--success) l c h / 0.10);
+  color: var(--success-text);
+}
+
+.maka-tool-diff-line[data-line="del"] {
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive);
+}
+
+.maka-tool-diff-line[data-line="hunk"] {
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--foreground-70);
+  font-weight: 600;
+}
+
+.maka-tool-diff-line[data-line="meta"] {
+  color: var(--foreground-50);
+}
+
+.maka-tool-diff-line[data-line="ctx"] {
+  color: var(--foreground-70);
+}
+
+/* Terminal output: head row (cwd + cmd + exit badge) then optional stdout /
+ * stderr blocks with stderr tinted destructive. */
+.maka-tool-terminal {
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  white-space: normal;
+  animation: maka-tool-card-enter 350ms var(--ease-out-strong) both;
+}
+
+.maka-tool-terminal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--foreground-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.maka-tool-terminal-cwd {
+  color: var(--foreground-50);
+  background: transparent;
+}
+
+.maka-tool-terminal-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--foreground);
+  background: transparent;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maka-tool-terminal-exit {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--foreground-5);
+  color: var(--foreground-60);
+}
+
+.maka-tool-terminal-exit[data-ok="true"] {
+  background: oklch(from var(--success) l c h / 0.14);
+  color: var(--success);
+}
+
+.maka-tool-terminal-exit[data-ok="false"] {
+  background: oklch(from var(--destructive) l c h / 0.14);
+  color: var(--destructive);
+}
+
+.maka-tool-terminal-empty {
+  margin: 0;
+  padding: 8px;
+  color: var(--foreground-50);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.maka-tool-terminal-stream {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-tool-terminal-stream[data-stream="stdout"] {
+  color: var(--foreground);
+}
+
+.maka-tool-terminal-stream[data-stream="stderr"] {
+  border-top: 1px solid var(--border);
+  background: oklch(from var(--destructive) l c h / 0.04);
+  color: var(--destructive);
+}
+
+.maka-tool-terminal-truncated-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  background: oklch(from var(--warning) l c h / 0.06);
+  color: var(--foreground-70);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.maka-tool-terminal-truncated-note > span {
+  min-width: 0;
+}
+
+.maka-tool-terminal-copy {
+  flex: 0 0 auto;
+}
+
+.maka-tool-terminal-copy[data-pending="true"],
+.maka-explore-agent-copy[data-pending="true"] {
+  cursor: progress;
+}
+
+.maka-tool-terminal-copy[data-copy-error="true"],
+.maka-explore-agent-copy[data-copy-error="true"] {
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.35);
+}
+
+.maka-tool-error-copy[data-pending="true"] {
+  cursor: progress;
+}
+
+.maka-tool-error-copy[data-copy-feedback="copied"] {
+  color: var(--accent);
+  border-color: oklch(from var(--accent) l c h / 0.35);
+}
+
+.maka-tool-error-copy[data-copy-feedback="failed"] {
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.35);
+}
+
+.maka-office-document-preview {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+  white-space: normal;
+}
+
+.maka-office-document-preview[data-ok="false"] {
+  border-color: oklch(from var(--destructive) l c h / 0.22);
+}
+
+.maka-office-document-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-office-document-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.maka-office-document-head small,
+.maka-office-document-message small {
+  font-size: 11px;
+  color: var(--foreground-50);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.maka-office-document-args {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground-60);
+  background: transparent;
+  font-size: 11px;
+}
+
+.maka-office-document-message {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: oklch(from var(--destructive) l c h / 0.07);
+  color: var(--destructive);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.maka-office-document-empty {
+  margin: 0;
+  color: var(--foreground-50);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.maka-office-document-stream {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--foreground-10);
+  border-radius: 6px;
+  background: var(--background);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.maka-office-document-stream[data-stream="stderr"] {
+  background: oklch(from var(--destructive) l c h / 0.04);
+  color: var(--destructive);
+}
+
+.maka-explore-agent-preview,
+.maka-subagent-preview {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--foreground-10);
+  border-radius: 8px;
+  background: var(--foreground-3);
+  font-family: var(--font-sans);
+  white-space: normal;
+}
+
+.maka-explore-agent-preview[data-ok="false"],
+.maka-subagent-preview[data-status="failed"],
+.maka-subagent-preview[data-status="cancelled"] {
+  border-color: oklch(from var(--destructive) l c h / 0.22);
+}
+
+.maka-explore-agent-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-explore-agent-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.maka-explore-agent-head small,
+.maka-explore-agent-section small,
+.maka-explore-agent-meta dt {
+  font-size: 11px;
+  color: var(--foreground-50);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.maka-explore-agent-summary-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.maka-explore-agent-summary-line small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-explore-agent-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.maka-explore-agent-message {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: oklch(from var(--destructive) l c h / 0.07);
+  color: var(--destructive);
+  font-size: 12px;
+}
+
+.maka-explore-agent-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.maka-explore-agent-meta div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.maka-explore-agent-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground-70);
+  font-size: 12px;
+}
+
+.maka-explore-agent-section {
+  display: grid;
+  gap: 6px;
+}
+
+.maka-explore-agent-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.maka-explore-agent-section > strong {
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.maka-explore-agent-section-head > strong {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.maka-explore-agent-copy {
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.maka-explore-agent-copy[data-copied="true"] {
+  color: var(--accent);
+  border-color: oklch(from var(--accent) l c h / 0.35);
+}
+
+.maka-explore-agent-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.maka-explore-agent-section li {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 6px 0;
+  border-top: 1px solid var(--foreground-5);
+}
+
+.maka-explore-agent-section li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.maka-explore-agent-section code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.maka-explore-agent-section p,
+.maka-explore-agent-section span {
+  margin: 0;
+  color: var(--foreground-70);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 24px 16px;
+  /* PR-GRAY-CARD-LIFT-5 (WAWQAQ msg `d4277aba` round 3): the composer
+     outer used to paint a vertical white-fade over `--background`,
+     designed for the older parchment shell where the page bg was
+     warm-white. Now that `--background` itself is pure white and the
+     shell is a visibly gray `--surface-canvas`, the composer outer
+     painted itself white-on-white, defeating the gray-plate / white-
+     card lift. Switch to transparent so the gray plate shows around
+     the composer card. */
+  background: transparent;
+}
+
+.composer .maka-composer-inner {
+  --h-composer-min: 56px;
+  position: relative;
+  width: min(var(--maka-chat-measure, 680px), 100%);
+  max-width: var(--maka-chat-measure, 680px);
+  margin-inline: auto;
+  box-sizing: border-box;
+  /* Composer outer chrome uses the universal page-card recipe (atlas §4
+     + maka-tokens.css --card-*) but with a slightly larger 10px radius
+     since the composer reads as a "hero card" rather than a flush page
+     surface — 6px would feel too tight for a 72px+ tall floating panel. */
+  border: 1px solid var(--card-border-color);
+  border-radius: 16px;
+  padding: 10px 12px 8px;
+  background: var(--card-bg);
+  box-shadow:
+    0 10px 30px -24px oklch(from var(--foreground) l c h / 0.25),
+    0 1px 0 oklch(1 0 0 / 0.76);
+  transition:
+    border-color var(--duration-emphasized) var(--ease-out-strong),
+    box-shadow 220ms var(--ease-out-strong);
+}
+
+.composer .maka-composer-inner::before,
+.composer .maka-composer-inner::after {
+  content: none;
+}
+
+.composer .maka-composer-inner::before {
+  box-shadow: none;
+}
+
+.composer .maka-composer-inner::after {
+  box-shadow: none;
+}
+
+/* PR-UI-PIXEL-3: on focus the composer gains a soft lift (ring + faint
+   drop glow), so the input feels alive — the reference's composer breathes
+   rather than sitting flat (study §8.1, §8.4). */
+.composer .maka-composer-inner:focus-within {
+  box-shadow:
+    0 0 0 1px oklch(from var(--accent) l c h / 0.24),
+    0 14px 34px -28px oklch(from var(--foreground) l c h / 0.24);
+}
+
+.composer textarea {
+  /* Auto-resizing textarea: starts at min-height for a single line, grows up
+     to max-height as the user adds lines, then scrolls internally. The JS
+     side caps at 240px (see `COMPOSER_MAX_HEIGHT` in @maka/ui). */
+  min-height: var(--h-composer-min, 84px);
+  max-height: 240px;
+  resize: none;
+  overflow-y: auto;
+}
+
+.composer .maka-composer-textarea {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: var(--h-composer-min, 56px);
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+  padding: 0 !important;
+  color: var(--foreground);
+  font-family: var(--font-default);
+  font-size: 15px;
+  line-height: 1.55;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
+.composer textarea:focus {
+  /* The focus ring lives on the wrapper (.maka-composer-inner:focus-within).
+     The textarea itself stays clean — no double ring. */
+  outline: 0;
+  box-shadow: none !important;
+}
+
+.composer textarea:focus-visible,
+.composer .maka-composer-textarea:focus-visible {
+  outline: 0;
+  box-shadow: none !important;
+}
+
+.maka-composer-streaming-hint .maka-shortcut-kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--foreground-3);
+  border: 1px solid var(--border);
+}
+
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.maka-composer-left-controls,
+.maka-composer-right-controls {
+  display: flex;
+  align-items: center;
+  /* PR-REFERENCE-PIXEL-8 (WAWQAQ msg `f79de85f` round 8): reference implementation's
+     bundle uses gap values centered on 4-8px (extracted from
+     `globals-UfMzAdiO.css` — 4px is the most common gap, 12px never
+     appears as a toolbar gap). Maka's 12px composer toolbar gap
+     read as too loose vs reference implementation's tighter density. 8px keeps
+     individual controls separable while pulling them into one
+     coherent toolbar group. */
+  gap: 6px;
+}
+
+.maka-composer-left-controls {
+  flex: 0 0 auto;
+}
+
+.maka-composer-right-controls {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.maka-composer-status-slot {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--foreground-42);
+  font-size: 10px;
+  text-align: center;
+}
+
+.maka-composer-mode-chip,
+.maka-composer-model-chip {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 999px;
+  padding: 0 9px;
+  background: oklch(from var(--background) l c h / 0.82);
+  color: var(--foreground-62);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    border-color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-composer-mode-chip:hover,
+.maka-composer-model-chip:hover {
+  background: var(--foreground-3);
+  color: var(--foreground);
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+}
+
+.maka-composer-model-chip {
+  max-width: min(180px, 28vw);
+}
+
+/* PR-MOVE-PERMISSION-MODE (WAWQAQ 2026-06-23): permission-mode chip
+   in the composer left-controls + its dropdown menu. The chip reuses
+   the shared `.maka-composer-role-chip` / `.maka-composer-mode-chip`
+   geometry (h-24 pill, foreground-65 ink); only the menu styling
+   below is new. */
+.maka-composer-mode-chip {
+  font-variant-numeric: tabular-nums;
+}
+.maka-composer-mode-chip[data-tone="accent"] {
+  border-color: oklch(from var(--accent) l c h / 0.32);
+  color: oklch(from var(--accent) l c h);
+}
+.maka-composer-mode-chip[data-tone="caution"] {
+  border-color: oklch(from var(--success) l c h / 0.32);
+  color: oklch(from var(--success) l c h);
+}
+.maka-composer-mode-chip[data-tone="info"] {
+  border-color: oklch(from var(--info) l c h / 0.32);
+  color: oklch(from var(--info) l c h);
+}
+.maka-composer-mode-chip[data-pending="true"] {
+  opacity: 0.7;
+}
+.maka-composer-mode-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.maka-composer-mode-menu {
+  min-width: 280px;
+  padding: 4px;
+  border-radius: 8px;
+}
+.maka-composer-mode-menu [role="menuitem"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.maka-composer-mode-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.maka-composer-mode-menu-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.maka-composer-mode-menu-hint {
+  font-size: 11px;
+  color: var(--foreground-55);
+  line-height: 1.4;
+  white-space: normal;
+}
+.maka-composer-mode-menu [data-active="true"] .maka-composer-mode-menu-label {
+  color: oklch(from var(--accent) l c h);
+}
+
+.maka-composer-right-controls .maka-model-switcher {
+  margin: 0;
+  max-width: min(180px, 28vw);
+  font-size: 10.5px;
+}
+
+.maka-composer-right-controls .maka-model-switcher-trigger {
+  min-width: 100px;
+  max-width: min(180px, 28vw);
+  height: 26px;
+  gap: 4px;
+  padding: 0 9px;
+  border-color: var(--color-border-tertiary);
+  background: var(--background);
+  color: var(--foreground-65);
+}
+
+.maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
+  background: var(--foreground-3);
+  color: var(--foreground);
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+}
+
+.maka-composer-right-controls .maka-model-switcher-label {
+  display: none;
+}
+
+.maka-composer-right-controls .maka-model-switcher-value {
+  max-width: 128px;
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.maka-composer-model-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-model-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--destructive);
+  flex: 0 0 auto;
+}
+
+.maka-composer-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground-60);
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong);
+}
+
+.maka-composer-context-plus {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--foreground-20);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.maka-composer-tool-button.maka-composer-mic-button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+}
+
+/* PR-FE-BUG-HUNT-7 (kenji aesthetic-audit reminder 9, finding #1):
+   composer micro-interaction scales drifted way past the global
+   tactile press range (`button:active { scale(0.97) }`). 1.08 hover
+   and 0.94 active read as bouncy and call attention to the wrong
+   thing — these are quiet utility buttons at the bottom of the
+   composer, not primary CTAs. Pull back to 1.02 hover / 0.97 active
+   so they match the rest of the app. */
+.maka-composer-tool-button:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--foreground-5);
+  transform: scale(1.02);
+}
+
+.maka-composer-tool-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.maka-composer-tool-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.maka-composer-tool-button.maka-composer-mic-button:disabled {
+  border: 0;
+  background: transparent;
+  color: var(--foreground-55);
+  opacity: 1;
+}
+
