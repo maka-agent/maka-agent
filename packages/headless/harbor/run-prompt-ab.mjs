@@ -122,7 +122,28 @@ async function toolOutput(command, args) {
   return `${stdout}${stderr}`.trim();
 }
 
-export async function buildToolchainFingerprint(explicitToolchainFingerprint, readToolOutput = toolOutput) {
+async function buildInstalledDependencyFingerprint(repoPath) {
+  const packageLockPath = join(repoPath, 'package-lock.json');
+  const installedLockPath = join(repoPath, 'node_modules/.package-lock.json');
+  let packageLock;
+  let installedLock;
+  try {
+    [packageLock, installedLock] = await Promise.all([
+      readFile(packageLockPath),
+      readFile(installedLockPath),
+    ]);
+  } catch (error) {
+    throw new Error(`prompt A/B toolchain fingerprint requires ${packageLockPath} and ${installedLockPath}. Run npm install in MAKA_PROMPT_AB_MAKA_REPO, or set MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT to an explicit sha256:<64 lowercase hex> dependency snapshot. Cause: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return {
+    packageLockPath: resolve(packageLockPath),
+    packageLockHash: hashBytes(packageLock),
+    installedPackageLockPath: resolve(installedLockPath),
+    installedPackageLockHash: hashBytes(installedLock),
+  };
+}
+
+export async function buildToolchainFingerprint(explicitToolchainFingerprint, readToolOutput = toolOutput, repoPath = resolve(fileURLToPath(new URL('../../..', import.meta.url)))) {
   if (explicitToolchainFingerprint && explicitToolchainFingerprint.trim().length > 0) {
     const value = explicitToolchainFingerprint.trim();
     if (!isSha256Fingerprint(value)) {
@@ -140,6 +161,7 @@ export async function buildToolchainFingerprint(explicitToolchainFingerprint, re
     kind: 'prompt-ab-toolchain',
     node: process.version,
     harborVersion,
+    dependencyInstallFingerprint: await buildInstalledDependencyFingerprint(repoPath),
   });
 }
 
@@ -339,7 +361,7 @@ async function main() {
     harborTimeoutMs,
     subjectFingerprint: await buildSubjectFingerprint(makaRepoPath, subjectFingerprintOverride),
     taskSourceFingerprint: await buildTaskSourceFingerprint(tasksRoot, evaluationTasks),
-    toolchainFingerprint: await buildToolchainFingerprint(process.env.MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT),
+    toolchainFingerprint: await buildToolchainFingerprint(process.env.MAKA_PROMPT_AB_TOOLCHAIN_FINGERPRINT, toolOutput, makaRepoPath),
     evaluationTaskIds: evaluationTasks.map((task) => task.id),
     reps,
     candidateLimit: candidateTaskLimit?.limit ?? null,
