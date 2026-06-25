@@ -25,6 +25,21 @@ export function isRadioGroupNavKey(key: string): boolean {
 }
 
 /**
+ * Resolve the single radio that should stay in the tab order for the current
+ * filtered view. ARIA radiogroups need one tabbable item even when the selected
+ * value is currently filtered out of the DOM; otherwise keyboard users cannot
+ * tab into the visible results to choose a replacement.
+ */
+export function tabbableRadioId(
+  selectedId: string | undefined,
+  visibleIds: readonly string[],
+): string | null {
+  if (visibleIds.length === 0) return null;
+  if (selectedId !== undefined && visibleIds.includes(selectedId)) return selectedId;
+  return visibleIds[0] ?? null;
+}
+
+/**
  * Resolve the next radio id from the radio-group keyboard event. Returns
  * `null` for non-nav keys or empty groups; the caller should bail without
  * intercepting the key in either case.

@@ -18,6 +18,7 @@ import { describe, it } from 'node:test';
 import {
   isRadioGroupNavKey,
   nextRadioId,
+  tabbableRadioId,
 } from '../../renderer/settings/model-table-keyboard.js';
 
 const FIVE = ['glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5'];
@@ -96,5 +97,23 @@ describe('nextRadioId — non-nav keys / edge cases', () => {
     // Default model `glm-4.5` is filtered out; user presses ArrowDown.
     // Should land on the first visible item.
     assert.equal(nextRadioId('glm-4.5', ['glm-5', 'glm-4.6'], 'ArrowDown'), 'glm-5');
+  });
+});
+
+describe('tabbableRadioId', () => {
+  it('keeps the selected visible radio in the tab order', () => {
+    assert.equal(tabbableRadioId('glm-4.6', FIVE), 'glm-4.6');
+  });
+
+  it('falls back to the first visible radio when the selected model is filtered out', () => {
+    assert.equal(tabbableRadioId('glm-4.5', ['glm-4.7', 'glm-5']), 'glm-4.7');
+  });
+
+  it('falls back to the first visible radio when no default model exists yet', () => {
+    assert.equal(tabbableRadioId(undefined, ['glm-4.7', 'glm-5']), 'glm-4.7');
+  });
+
+  it('returns null for an empty filtered result set', () => {
+    assert.equal(tabbableRadioId('glm-4.5', []), null);
   });
 });

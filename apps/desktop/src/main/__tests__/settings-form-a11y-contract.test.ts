@@ -154,6 +154,16 @@ describe('Settings form accessibility labels', () => {
     assert.doesNotMatch(providersPanel, /<textarea\b/, 'ProvidersPanel must use the shared Textarea primitive for Settings text areas');
     assert.doesNotMatch(providersPanel, /<select\b/, 'ProvidersPanel must use the Base UI Select primitive for Settings selects');
     assert.doesNotMatch(providersPanel, /className="maka-button/, 'ProvidersPanel governed Buttons must not layer the legacy maka-button class (inert under the @maka/ui Button utilities, so it is dead weight)');
+    assert.match(
+      providersPanel,
+      /const tabbableModelId = tabbableRadioId\(props\.defaultModel \|\| undefined, visibleModelIds\);/,
+      'ModelTable must keep one visible model row tabbable when the selected default is filtered out',
+    );
+    assert.doesNotMatch(
+      providersPanel,
+      /tabIndex=\{isDefault \|\| \(!props\.defaultModel && filtered\[0\]\?\.id === model\.id\) \? 0 : -1\}/,
+      'ModelTable must not regress to zero tabbable radios when search hides the selected default model',
+    );
     // `Item` rows become real buttons through Base UI's polymorphic
     // `render={<button .../>}` prop, which is a primitive render target rather
     // than a hand-rolled control. Strip those before asserting no raw <button>
