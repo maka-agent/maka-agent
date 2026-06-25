@@ -67,37 +67,36 @@ describe('Settings theme page contract', () => {
 
   it('supports standard radiogroup keyboard navigation for appearance controls', async () => {
     const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
-    const helperBlock = src.match(/function onSettingsRadioGroupKeyDown[\s\S]*?function radioTabIndex/)?.[0] ?? '';
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
-    const segmentedBlock = src.match(/function Segmented[\s\S]*?function Switch/)?.[0] ?? '';
 
-    // `onSettingsRadioGroupKeyDown` + `nextRadioId` + `focusRadioValue` +
-    // `radioTabIndex` still exist because `Segmented` (the inline
-    // [value, label] pill picker) keeps native-button + manual keyboard
-    // nav — it has no card chrome to protect, so flipping it would not
-    // earn its keep here. Verify the helper logic is intact.
-    assert.match(helperBlock, /nextRadioId\(current, values, event\.key\)/);
-    assert.match(helperBlock, /event\.preventDefault\(\)/);
-    assert.match(helperBlock, /onChange\(next\)/);
-    assert.match(helperBlock, /const group = event\.currentTarget/);
-    assert.match(helperBlock, /setTimeout\(\(\) => focusRadioValue\(group, next\), 0\)/);
+    // PR round-c-choice-card-primitive + PR yuejing/settings-segmented-
+    // primitive: Theme/Palette via Base UI `RadioGroup`-backed
+    // `ChoiceCardGroup`; Segmented via Base UI `ToggleGroup`-backed
+    // `SettingsSegmented`. Both primitives provide arrow-key
+    // navigation, focus management, and roving tabindex for free, so
+    // the hand-rolled `onSettingsRadioGroupKeyDown` /
+    // `focusRadioValue` / `radioTabIndex` helpers are gone from
+    // SettingsModal.tsx. `nextRadioId` still lives in
+    // `model-table-keyboard.ts` for ProvidersPanel's model default
+    // picker.
+    assert.doesNotMatch(src, /function onSettingsRadioGroupKeyDown/);
+    assert.doesNotMatch(src, /function focusRadioValue/);
+    assert.doesNotMatch(src, /function radioTabIndex/);
+    assert.doesNotMatch(src, /import \{ nextRadioId \} from '\.\/model-table-keyboard'/);
 
-    // Theme + palette pickers now delegate keyboard navigation to the
-    // Base UI `RadioGroup` inside `ChoiceCardGroup`. Both groups must
-    // pass `value` + `onValueChange` (not `onKeyDown`) and must NOT
-    // reach back to the legacy helpers.
+    // Theme + palette pickers must use `ChoiceCardGroup` with
+    // `value` + `onValueChange` semantics, NOT the legacy keyboard
+    // helpers or `data-radio-value` attribute.
     assert.match(themePage, /<ChoiceCardGroup[\s\S]*aria-label="主题"[\s\S]*value=\{props\.themePref\}[\s\S]*onValueChange/);
     assert.match(themePage, /<ChoiceCardGroup[\s\S]*aria-label=\{group\.label\}[\s\S]*value=\{currentPalette\}[\s\S]*onValueChange/);
     assert.doesNotMatch(themePage, /onSettingsRadioGroupKeyDown|radioTabIndex|data-radio-value/);
     assert.doesNotMatch(themePage, /界面密度|props\.density|setDensity|onDensityChange/);
 
-    // `Segmented` still uses the legacy helpers. Pin them so a future
-    // sweep doesn't accidentally drop them while the Segmented call
-    // sites are still around.
-    assert.match(segmentedBlock, /if \(props\.disabled\) return;[\s\S]*onSettingsRadioGroupKeyDown\(event, values, props\.value, props\.onChange\)/);
-    assert.match(segmentedBlock, /aria-disabled=\{props\.disabled \? 'true' : undefined\}/);
-    assert.match(segmentedBlock, /disabled=\{props\.disabled\}/);
-    assert.match(segmentedBlock, /data-radio-value=\{value\}[\s\S]*tabIndex=\{radioTabIndex\(value, props\.value, values\)\}/);
+    // Segmented now comes from `@maka/ui` as `SettingsSegmented`,
+    // imported aliased as `Segmented`. The local `function Segmented`
+    // declaration must be gone.
+    assert.match(src, /SettingsSegmented as Segmented/);
+    assert.doesNotMatch(src, /^function Segmented</m);
   });
 
   it('uses the ChoiceCard primitive (not native <button> or shared <Button>) for theme + palette cards', async () => {

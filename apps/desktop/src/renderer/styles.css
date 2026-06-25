@@ -8874,7 +8874,7 @@ button:active {
   font-size: 11px;
 }
 
-.settingsSegmented button[data-active="true"] {
+.settingsSegmented button[data-pressed] {
   background: var(--background);
   color: var(--foreground);
   box-shadow: 0 1px 2px oklch(0 0 0 / 0.08);

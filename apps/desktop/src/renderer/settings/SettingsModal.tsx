@@ -93,6 +93,7 @@ import {
   Input,
   OverlayScrollArea,
   RelativeTime,
+  SettingsSegmented as Segmented,
   SettingsSelect,
   SettingsSwitch as Switch,
   PrimitiveBadge,
@@ -121,8 +122,6 @@ import {
   NAV_GROUP_ORDER,
   type SettingsNavGroup,
 } from './nav-group-summary';
-import { nextRadioId } from './model-table-keyboard';
-
 type SettingsNavItem = {
   id: SettingsSection;
   label: string;
@@ -150,30 +149,16 @@ type AccountSecretProbeResult =
   | { slug: string; status: boolean }
   | { slug: string; status: 'error'; message: string };
 
-function focusRadioValue(container: HTMLElement, value: string) {
-  container
-    .querySelector<HTMLButtonElement>(`button[data-radio-value="${CSS.escape(value)}"]`)
-    ?.focus({ preventScroll: true });
-}
-
-function onSettingsRadioGroupKeyDown<T extends string>(
-  event: KeyboardEvent<HTMLElement>,
-  values: readonly T[],
-  current: T,
-  onChange: (next: T) => void,
-) {
-  const next = nextRadioId(current, values, event.key) as T | null;
-  if (next === null || next === current) return;
-  event.preventDefault();
-  onChange(next);
-  const group = event.currentTarget;
-  window.setTimeout(() => focusRadioValue(group, next), 0);
-}
-
-function radioTabIndex<T extends string>(value: T, current: T, values: readonly T[]): 0 | -1 {
-  if (value === current) return 0;
-  return !values.includes(current) && values[0] === value ? 0 : -1;
-}
+// `focusRadioValue`, `onSettingsRadioGroupKeyDown`, `radioTabIndex` were
+// the manual roving-tabindex / arrow-key handlers for the Theme,
+// Palette, and Segmented radiogroups. Theme + Palette migrated to the
+// Base UI `RadioGroup`-backed `ChoiceCard` primitive in PR #263;
+// Segmented migrated to the Base UI `ToggleGroup`-backed
+// `SettingsSegmented` primitive in PR yuejing/settings-segmented-primitive.
+// Both primitives now provide the same keyboard contract for free, so
+// these helpers are gone. `nextRadioId` still lives in
+// `./model-table-keyboard.ts` because ProvidersPanel.tsx's model
+// default picker keeps its hand-rolled radiogroup.
 
 // `SettingsSelect` moved to `packages/ui/src/primitives/settings-select.tsx`
 // in PR round-AB-shared-select (yuejing 2026-06-25). The Plan Reminder
@@ -6077,37 +6062,11 @@ function MetricCard(props: { title: string; value: string; detail?: string }) {
   );
 }
 
-function Segmented<T extends string>(props: { value: T; options: Array<[T, string]>; onChange(value: T): void; ariaLabel?: string; disabled?: boolean }) {
-  const values = props.options.map(([value]) => value);
-  return (
-    <div
-      className="settingsSegmented"
-      role="radiogroup"
-      aria-label={props.ariaLabel}
-      aria-disabled={props.disabled ? 'true' : undefined}
-      onKeyDown={(event) => {
-        if (props.disabled) return;
-        onSettingsRadioGroupKeyDown(event, values, props.value, props.onChange);
-      }}
-    >
-      {props.options.map(([value, label]) => (
-        <Button
-          key={value}
-          type="button"
-          role="radio"
-          aria-checked={props.value === value}
-          data-active={props.value === value}
-          data-radio-value={value}
-          tabIndex={radioTabIndex(value, props.value, values)}
-          disabled={props.disabled}
-          onClick={() => props.onChange(value)}
-        >
-          {label}
-        </Button>
-      ))}
-    </div>
-  );
-}
+// `Segmented` moved to `packages/ui/src/primitives/settings-segmented.tsx`
+// as `SettingsSegmented` (Base UI `ToggleGroup`-backed). Imported above
+// aliased as `Segmented` so the 3 call sites in this file are
+// byte-identical. PR yuejing/settings-segmented-primitive
+// (WAWQAQ msg `f1461d30` 用库的应该用库).
 
 /**
  * PR-USE-SHADCN-BASE-UI-BADGE — map the project's status-tone vocabulary
