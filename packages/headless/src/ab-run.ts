@@ -11,6 +11,7 @@ import { assertPositiveInt } from './numeric-guards.js';
 import { summarizeAbComparison } from './ab-summary.js';
 
 export async function runAbComparison(input: RunAbComparisonInput): Promise<AbComparisonSummary> {
+  assertUniqueArmRoundIdSuffixes(input.arms);
   const reps = input.reps ?? 3;
   assertPositiveInt('reps', reps);
   const maxConcurrency = input.maxConcurrency !== undefined ? assertPositiveInt('maxConcurrency', input.maxConcurrency) : 1;
@@ -103,6 +104,18 @@ async function runComparisonTaskArm(
 
 function roundIdArmSuffix(armId: string): string {
   return armId.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'arm';
+}
+
+function assertUniqueArmRoundIdSuffixes(arms: readonly AbArmSpec[]): void {
+  const suffixes = new Map<string, string>();
+  for (const arm of arms) {
+    const suffix = roundIdArmSuffix(arm.id);
+    const existingArmId = suffixes.get(suffix);
+    if (existingArmId !== undefined) {
+      throw new Error(`A/B arm ids must produce unique round id suffixes: ${JSON.stringify(existingArmId)} and ${JSON.stringify(arm.id)} both map to ${JSON.stringify(suffix)}`);
+    }
+    suffixes.set(suffix, arm.id);
+  }
 }
 
 function roundIdTaskSuffix(taskId: string): string {

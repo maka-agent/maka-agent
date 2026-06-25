@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +23,7 @@ import {
   type FixedPromptTaskCompletedEvent,
   type HarborTaskRunOutput,
 } from '../fixed-prompt-controller.js';
+import type { PromptAbRunManifestInput } from '../prompt-ab-types.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 const config: Config = {
@@ -173,9 +175,62 @@ describe('prompt A/B run manifest', () => {
       );
     });
   });
+
+  test('resumes a prompt manifest written before the generic A/B core split', async () => {
+    await withDir(async (dir) => {
+      const manifestPath = join(dir, 'prompt-ab-manifest.json');
+      const input = promptManifestInput();
+      const legacyManifest = buildLegacyPromptAbRunManifest(input);
+      await writeFile(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, 'utf8');
+
+      const current = buildPromptAbRunManifest(input);
+      const resumed = await ensurePromptAbRunManifest(manifestPath, current);
+
+      assert.equal(resumed.fingerprint, legacyManifest.fingerprint);
+      await assert.rejects(
+        ensurePromptAbRunManifest(manifestPath, buildPromptAbRunManifest({
+          ...input,
+          taskBudgetSec: input.taskBudgetSec + 1,
+        })),
+        /prompt A\/B run manifest does not match existing run id/,
+      );
+      await assert.rejects(
+        ensurePromptAbRunManifest(manifestPath, buildPromptAbRunManifest({
+          ...input,
+          subjectFingerprint: 'subject:path=/repo;maka-head=def456;dirty=false',
+        })),
+        /prompt A\/B run manifest does not match existing run id/,
+      );
+      await assert.rejects(
+        ensurePromptAbRunManifest(manifestPath, buildPromptAbRunManifest({
+          ...input,
+          taskSourceFingerprint: 'tasks:path=/other-cache/tasks;selected=task-a:/other-cache/tasks/a,task-b:/other-cache/tasks/b',
+        })),
+        /prompt A\/B run manifest does not match existing run id/,
+      );
+    });
+  });
 });
 
 describe('runAbComparison', () => {
+  test('rejects arm ids that collapse to the same round id suffix', async () => {
+    await assert.rejects(
+      runAbComparison({
+        runId: 'ab-run',
+        arms: [
+          { id: 'tools.off', kind: 'tools', fingerprint: sha256('tools-off') },
+          { id: 'tools/off', kind: 'tools', fingerprint: sha256('tools-on') },
+        ],
+        evaluationTasks: [
+          { id: 't1', path: '/tasks/t1' },
+        ],
+        reps: 1,
+        runArm: async ({ task }) => completed(task.id, true),
+      }),
+      /A\/B arm ids must produce unique round id suffixes/,
+    );
+  });
+
   test('runs generic arms adjacent for each task-rep pair', async () => {
     const calls: string[] = [];
     const result = await runAbComparison({
@@ -341,6 +396,75 @@ describe('prompt A/B source fingerprints', () => {
 });
 
 const promptAbScriptUrl = new URL('../../harbor/run-prompt-ab.mjs', import.meta.url).href;
+
+function promptManifestInput(): PromptAbRunManifestInput {
+  return {
+    baselinePromptHash: 'sha256:baseline',
+    candidatePromptHash: 'sha256:candidate',
+    provider: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek/deepseek-v4-flash',
+    taskBudgetSec: 30 * 60,
+    harborTimeoutMs: 35 * 60 * 1000,
+    subjectFingerprint: 'subject:path=/repo;maka-head=abc123;dirty=false',
+    taskSourceFingerprint: 'tasks:path=/cache/tasks;selected=task-a:/cache/tasks/a,task-b:/cache/tasks/b',
+    toolchainFingerprint: sha256('c'),
+    evaluationTaskIds: ['task-a', 'task-b'],
+    reps: 3,
+    candidateLimit: null,
+    maxConcurrency: 16,
+  };
+}
+
+type LegacyPromptAbRunManifest = PromptAbRunManifestInput & {
+  schemaVersion: 'maka.prompt_ab.run_manifest.v1';
+  fingerprint: string;
+  evaluationTaskIds: string[];
+  candidateTaskIds?: string[];
+};
+
+function buildLegacyPromptAbRunManifest(input: PromptAbRunManifestInput): LegacyPromptAbRunManifest {
+  const manifestWithoutFingerprint = withoutUndefined({
+    schemaVersion: 'maka.prompt_ab.run_manifest.v1' as const,
+    baselinePromptHash: input.baselinePromptHash,
+    candidatePromptHash: input.candidatePromptHash,
+    provider: input.provider,
+    baseUrl: input.baseUrl,
+    model: input.model,
+    taskBudgetSec: input.taskBudgetSec,
+    harborTimeoutMs: input.harborTimeoutMs,
+    subjectFingerprint: input.subjectFingerprint,
+    taskSourceFingerprint: input.taskSourceFingerprint,
+    toolchainFingerprint: input.toolchainFingerprint,
+    evaluationTaskIds: [...input.evaluationTaskIds],
+    reps: input.reps,
+    candidateLimit: input.candidateLimit,
+    maxConcurrency: input.maxConcurrency,
+    selectionMode: input.selectionMode,
+    candidateTaskIds: input.candidateTaskIds ? [...input.candidateTaskIds] : undefined,
+    maxExpertTimeEstimateMin: input.maxExpertTimeEstimateMin,
+    targetEvaluationTaskCount: input.targetEvaluationTaskCount,
+  });
+  return {
+    ...manifestWithoutFingerprint,
+    fingerprint: `sha256:${createHash('sha256').update(canonicalJson(manifestWithoutFingerprint)).digest('hex')}`,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function withoutUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as T;
+}
 
 describe('summarizePromptAbComparison', () => {
   test('summarizes fixed A/B as task-level deltas without RSI acceptance semantics', () => {

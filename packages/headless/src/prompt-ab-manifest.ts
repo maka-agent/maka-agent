@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ensureAbRunManifest, buildAbRunManifest } from './ab-manifest.js';
 import type {
   PromptAbRunManifest,
@@ -5,6 +6,27 @@ import type {
 } from './prompt-ab-types.js';
 
 export function buildPromptAbRunManifest(input: PromptAbRunManifestInput): PromptAbRunManifest {
+  const promptManifestWithoutFingerprint = withoutUndefined({
+    schemaVersion: 'maka.prompt_ab.run_manifest.v1' as const,
+    baselinePromptHash: input.baselinePromptHash,
+    candidatePromptHash: input.candidatePromptHash,
+    provider: input.provider,
+    baseUrl: input.baseUrl,
+    model: input.model,
+    taskBudgetSec: input.taskBudgetSec,
+    harborTimeoutMs: input.harborTimeoutMs,
+    subjectFingerprint: input.subjectFingerprint,
+    taskSourceFingerprint: input.taskSourceFingerprint,
+    toolchainFingerprint: input.toolchainFingerprint,
+    evaluationTaskIds: [...input.evaluationTaskIds],
+    reps: input.reps,
+    candidateLimit: input.candidateLimit,
+    maxConcurrency: input.maxConcurrency,
+    selectionMode: input.selectionMode,
+    candidateTaskIds: input.candidateTaskIds ? [...input.candidateTaskIds] : undefined,
+    maxExpertTimeEstimateMin: input.maxExpertTimeEstimateMin,
+    targetEvaluationTaskCount: input.targetEvaluationTaskCount,
+  });
   const genericManifest = buildAbRunManifest({
     experimentKind: 'prompt',
     arms: [
@@ -44,28 +66,10 @@ export function buildPromptAbRunManifest(input: PromptAbRunManifestInput): Promp
     targetEvaluationTaskCount: input.targetEvaluationTaskCount,
   });
   return {
-    schemaVersion: 'maka.prompt_ab.run_manifest.v1' as const,
-    baselinePromptHash: input.baselinePromptHash,
-    candidatePromptHash: input.candidatePromptHash,
+    ...promptManifestWithoutFingerprint,
     experimentKind: 'prompt',
     arms: genericManifest.arms,
-    provider: input.provider,
-    baseUrl: input.baseUrl,
-    model: input.model,
-    taskBudgetSec: input.taskBudgetSec,
-    harborTimeoutMs: input.harborTimeoutMs,
-    subjectFingerprint: input.subjectFingerprint,
-    taskSourceFingerprint: input.taskSourceFingerprint,
-    toolchainFingerprint: input.toolchainFingerprint,
-    evaluationTaskIds: [...input.evaluationTaskIds],
-    reps: input.reps,
-    candidateLimit: input.candidateLimit,
-    maxConcurrency: input.maxConcurrency,
-    selectionMode: input.selectionMode,
-    candidateTaskIds: input.candidateTaskIds ? [...input.candidateTaskIds] : undefined,
-    maxExpertTimeEstimateMin: input.maxExpertTimeEstimateMin,
-    targetEvaluationTaskCount: input.targetEvaluationTaskCount,
-    fingerprint: genericManifest.fingerprint,
+    fingerprint: `sha256:${createHash('sha256').update(canonicalJson(promptManifestWithoutFingerprint)).digest('hex')}`,
   };
 }
 
@@ -81,4 +85,19 @@ export async function ensurePromptAbRunManifest(
     }
     throw error;
   }
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function withoutUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as T;
 }
