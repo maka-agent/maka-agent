@@ -338,7 +338,7 @@ function Count(props: { value: number }) {
   return <small>{props.value}</small>;
 }
 
-interface SkillEntry {
+export interface SkillEntry {
   id: string;
   name: string;
   description: string;
@@ -3452,10 +3452,19 @@ const STATUS_LABEL_BY_STATUS = {
   aborted: '已中止',
 } as const;
 
+// `blocked` was 'destructive' (red), which read as a hard error in the
+// chat header even when the session was just waiting on permission or a
+// connection retry. The chat top-right cluster sits visually alongside
+// monochrome quiet-icon buttons, so the bright red pill clashed. Most
+// blocked sessions are recoverable (permission_required, auth retry,
+// missing connection), so 'warning' (warm yellow) is the honest tone —
+// "you need to do something" rather than "this failed". The destructive
+// red is reserved for hard failures (e.g. permanent connection / auth
+// rejection), which surface through ChatHeaderAlertBadge instead.
 const STATUS_TONE_BY_STATUS = {
   running: 'accent',
   waiting_for_user: 'warning',
-  blocked: 'destructive',
+  blocked: 'warning',
   review: 'info',
   done: 'success',
   archived: 'muted',

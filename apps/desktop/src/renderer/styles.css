@@ -424,26 +424,13 @@ button:active {
   display: none;
 }
 
-.maka-workspace-feedback-action,
 .maka-workspace-icon-action {
+  width: 24px;
   height: 24px;
   border-radius: 6px;
   color: var(--foreground-65);
 }
 
-.maka-workspace-feedback-action {
-  gap: 4px;
-  padding-inline: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--foreground-55);
-}
-
-.maka-workspace-icon-action {
-  width: 24px;
-}
-
-.maka-workspace-feedback-action:hover,
 .maka-workspace-icon-action:hover {
   color: var(--foreground);
   background: var(--foreground-5);

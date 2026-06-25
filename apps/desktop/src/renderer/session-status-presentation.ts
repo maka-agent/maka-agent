@@ -49,7 +49,15 @@ const STATUS_PRESENTATION: Record<SessionStatus, SessionStatusPresentation> = {
   active: { label: '可继续', tone: 'neutral', interactive: true },
   running: { label: '进行中', tone: 'accent', interactive: true },
   waiting_for_user: { label: '等你确认', tone: 'warning', interactive: true },
-  blocked: { label: '已阻塞', tone: 'destructive', interactive: true },
+  // `blocked` was destructive (red) but most blocked states are
+  // recoverable (permission_required, auth retry, missing connection
+  // selection) — the chat header pill ended up sitting beside monochrome
+  // quiet-icon utility buttons, where the bright red read as a hard
+  // error in a row that did not deserve one. 'warning' (warm yellow)
+  // honestly conveys "you need to do something" without screaming
+  // failure. Real hard failures surface through ChatHeaderAlertBadge,
+  // which still uses destructive.
+  blocked: { label: '已阻塞', tone: 'warning', interactive: true },
   review: { label: '待审核', tone: 'info', interactive: true },
   done: { label: '已完成', tone: 'success', interactive: true },
   archived: { label: '已归档', tone: 'muted', interactive: false },

@@ -2847,15 +2847,15 @@ function AppShell() {
           )}
           <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
             <UiButton
-              className="maka-workspace-feedback-action"
+              className="maka-workspace-icon-action"
               variant="quiet"
-              size="sm"
+              size="icon-sm"
               type="button"
               onClick={() => openSettingsSection('about')}
+              aria-label="问题反馈"
               title="问题反馈 · 打开关于与环境信息"
             >
               <MessageCircleQuestion size={15} strokeWidth={1.7} aria-hidden="true" />
-              <span>问题反馈</span>
             </UiButton>
             <UiButton
               className="maka-workspace-icon-action"

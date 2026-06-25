@@ -58,8 +58,8 @@ describe('presentSessionStatus', () => {
     }
   });
 
-  it('blocked is destructive', () => {
-    assert.equal(presentSessionStatus('blocked').tone, 'destructive');
+  it('blocked is warning (recoverable, not a hard failure)', () => {
+    assert.equal(presentSessionStatus('blocked').tone, 'warning');
   });
 
   it('done is success', () => {
