@@ -33,11 +33,29 @@
 
 import { Icon, addCollection } from '@iconify/react';
 import { icons as phData } from '@iconify-json/ph';
+import {
+  MAKA_BOT_ICON_BODIES,
+  MAKA_BOT_ICON_PREFIX,
+} from './bot-brand-icons.js';
 import type { ComponentType } from 'react';
 
 // Register the Phosphor icon collection once at module load so every
 // `<Icon icon="ph:…">` renders synchronously without a CDN fetch.
 addCollection(phData);
+
+// Register the local bot brand SVG collection so
+// `<IconifyIcon icon="maka-bot:telegram">` etc. resolve synchronously,
+// without hitting `api.iconify.design` at runtime. See
+// `bot-brand-icons.ts` for the source provenance and why only 4 of the
+// 6 bot brands are local today (kenji audit msg `e4cfbfb0` round-2 #2).
+addCollection({
+  prefix: MAKA_BOT_ICON_PREFIX,
+  width: 24,
+  height: 24,
+  icons: Object.fromEntries(
+    Object.entries(MAKA_BOT_ICON_BODIES).map(([name, body]) => [name, { body }]),
+  ),
+});
 
 /**
  * Re-export of `@iconify/react`'s `<Icon>` for cases where a caller
