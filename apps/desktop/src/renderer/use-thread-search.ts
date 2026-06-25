@@ -96,6 +96,10 @@ export interface UseThreadSearchResult {
   state: ThreadSearchState;
 }
 
+export function isThreadSearchQueryDispatchable(query: string): boolean {
+  return Array.from(query.trim()).length >= THREAD_SEARCH_MIN_QUERY_CODE_POINTS;
+}
+
 /**
  * React-less poller. Owns the ticket counter + unmount flag so the
  * stale-response defense and lifecycle gating are testable without a
@@ -132,9 +136,7 @@ export function createThreadSearchPoller(
 
   return {
     setQuery(query: string): void {
-      const trimmed = query.trim();
-      const codePointCount = Array.from(trimmed).length;
-      if (codePointCount < THREAD_SEARCH_MIN_QUERY_CODE_POINTS) {
+      if (!isThreadSearchQueryDispatchable(query)) {
         // Every keystroke below threshold invalidates any inflight
         // ticket so a previously-dispatched result cannot land on top.
         inflightTicket += 1;
@@ -142,6 +144,7 @@ export function createThreadSearchPoller(
         return;
       }
 
+      const trimmed = query.trim();
       const ticket = ++inflightTicket;
       emit({ kind: 'loading', query: trimmed });
 
@@ -207,6 +210,10 @@ export function useThreadSearchImpl(query: string, deps: UseThreadSearchDeps): U
   // Debounce keystrokes before dispatching.
   useEffect(() => {
     const poller = pollerRef.current!;
+    if (!isThreadSearchQueryDispatchable(query)) {
+      poller.setQuery(query);
+      return;
+    }
     const timer = setTimeout(() => {
       poller.setQuery(query);
     }, THREAD_SEARCH_DEBOUNCE_MS);

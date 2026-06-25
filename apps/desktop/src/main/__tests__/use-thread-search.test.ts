@@ -15,6 +15,8 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type {
   SearchErrorReason,
@@ -25,10 +27,13 @@ import type {
 import {
   THREAD_SEARCH_MIN_QUERY_CODE_POINTS,
   createThreadSearchPoller,
+  isThreadSearchQueryDispatchable,
   normalizeHits,
   type ThreadSearchState,
 } from '../../renderer/use-thread-search.js';
 import { buildContentSearchCommands } from '../../renderer/command-palette-content-search.js';
+
+const repoRoot = join(process.cwd(), '..', '..');
 
 // ---------------------------------------------------------------------------
 // normalizeHits — pure
@@ -148,6 +153,14 @@ describe('createThreadSearchPoller — race + lifecycle (xuan 6e7372c5)', () => 
 
   it('MIN constant is at least 2 (avoid one-char churn)', () => {
     assert.ok(THREAD_SEARCH_MIN_QUERY_CODE_POINTS >= 2);
+  });
+
+  it('isThreadSearchQueryDispatchable mirrors the min-length code-point threshold', () => {
+    assert.equal(isThreadSearchQueryDispatchable(''), false);
+    assert.equal(isThreadSearchQueryDispatchable(' a '), false);
+    assert.equal(isThreadSearchQueryDispatchable('你'), false);
+    assert.equal(isThreadSearchQueryDispatchable('ab'), true);
+    assert.equal(isThreadSearchQueryDispatchable('你好'), true);
   });
 
   it('valid query → loading → results', async () => {
@@ -355,6 +368,17 @@ describe('createThreadSearchPoller — race + lifecycle (xuan 6e7372c5)', () => 
       // ticket. So `postDisposeCalls` must be empty.
       assert.fail('unexpected state after dispose: ' + s.kind);
     }
+  });
+});
+
+describe('useThreadSearchImpl debounce boundary', () => {
+  it('invalidates below-threshold queries before scheduling the debounce timer', async () => {
+    const source = await readFile(join(repoRoot, 'apps/desktop/src/renderer/use-thread-search.ts'), 'utf8');
+    assert.match(
+      source,
+      /useEffect\(\(\) => \{\s*const poller = pollerRef\.current!;\s*if \(!isThreadSearchQueryDispatchable\(query\)\) \{\s*poller\.setQuery\(query\);\s*return;\s*\}\s*const timer = setTimeout/s,
+      'short or empty queries must synchronously invalidate stale in-flight content-search results before debounce',
+    );
   });
 });
 
