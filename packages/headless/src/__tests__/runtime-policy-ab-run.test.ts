@@ -57,6 +57,31 @@ describe('runRuntimePolicyAbComparison', () => {
     ]);
   });
 
+  test('rejects unsupported context env keys before fingerprinting runtime-policy arms', () => {
+    assert.throws(
+      () => buildRuntimePolicyAbRunManifest({
+        arms: [
+          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on', MAKA_CONTEXT_FOO: '1' } as never },
+        ],
+        promptHash: sha256('p'),
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek/deepseek-v4-flash',
+        taskBudgetSec: 1800,
+        harborTimeoutMs: 2_100_000,
+        subjectFingerprint: sha256('s'),
+        taskSourceFingerprint: sha256('t'),
+        toolchainFingerprint: sha256('c'),
+        evaluationTaskIds: ['t1'],
+        reps: 1,
+        candidateLimit: null,
+        maxConcurrency: 1,
+      }),
+      /unsupported Harbor context env key: MAKA_CONTEXT_FOO/,
+    );
+  });
+
   test('runs prune off against prune on with only arm-local context env changed', async () => {
     await withDir(async (dir) => {
       const promptPath = join(dir, 'system-prompt.md');

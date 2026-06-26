@@ -17,7 +17,6 @@
     "#prompt-optimization-env": "./dist/prompt-optimization-env.js",
     "#prompt-optimization-run": "./dist/prompt-optimization-run.js",
     "#prompt-ab-run": "./dist/prompt-ab-run.js",
-    "#runtime-policy-ab-run": "./dist/runtime-policy-ab-run.js",
     "#harbor-task-runner": "./dist/harbor-task-runner.js",
     "#harbor-cell": "./dist/harbor-cell.js",
     "#prompt-structural-smoke": "./dist/prompt-structural-smoke.js"

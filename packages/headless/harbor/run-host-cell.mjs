@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
+  normalizeHarborCellContextEnv,
   runHarborCell,
 } from '#harbor-cell';
 
@@ -20,28 +21,14 @@ const HOST_BACKEND_ENV_KEYS = [
   'MAKA_OUTPUT_DIR',
   'MAKA_STORAGE_ROOT',
 ];
-export const CONTEXT_ENV_KEYS = [
-  'MAKA_CONTEXT_BUDGET',
-  'MAKA_CONTEXT_HISTORY_BUDGET_TOKENS',
-  'MAKA_CONTEXT_HISTORY_BUDGET_TURNS',
-  'MAKA_CONTEXT_MIN_RECENT_TURNS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
-];
-
 export async function main() {
   const env = process.env;
   const provider = env.MAKA_PROVIDER || providerFromModel(env.MAKA_MODEL || env.HARBOR_MODEL || 'deepseek/deepseek-v4-flash');
   const model = env.MAKA_MODEL || stripProvider(env.HARBOR_MODEL || 'deepseek/deepseek-v4-flash', provider);
   const outputDir = env.MAKA_OUTPUT_DIR || join(process.cwd(), 'agent');
   const storageRoot = env.MAKA_STORAGE_ROOT || join(outputDir, 'maka-storage');
-  const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(env);
+  const contextEnv = normalizeHarborCellContextEnv(env);
+  const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(contextEnv);
   const now = Date.now;
   const newId = randomId;
 
@@ -85,6 +72,7 @@ export async function main() {
 export async function backendEnv(env, provider) {
   const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || defaultKeyEnvName(provider);
   const apiKey = await hostApiKey(env);
+  const contextEnv = normalizeHarborCellContextEnv(env);
   const result = {
     MAKA_LLM_CONNECTION_SLUG: env.MAKA_LLM_CONNECTION_SLUG || provider,
     [keyEnvName]: apiKey,
@@ -93,9 +81,7 @@ export async function backendEnv(env, provider) {
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];
   }
-  for (const key of CONTEXT_ENV_KEYS) {
-    if (env[key] !== undefined) result[key] = env[key];
-  }
+  Object.assign(result, contextEnv);
   return result;
 }
 

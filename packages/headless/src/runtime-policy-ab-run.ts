@@ -9,23 +9,15 @@ import { buildAbRunManifest } from './ab-manifest.js';
 import { runAbComparison } from './ab-run.js';
 import type { AbArmSpec, AbComparisonSummary, AbRunManifest, AbRunManifestInput } from './ab-types.js';
 import type { Config } from './contracts.js';
+import {
+  HARBOR_CELL_CONTEXT_ENV_KEYS,
+  normalizeHarborCellContextEnv,
+  type HarborCellContextEnvKey,
+} from './harbor-cell.js';
 
-export const RUNTIME_POLICY_CONTEXT_ENV_KEYS = [
-  'MAKA_CONTEXT_BUDGET',
-  'MAKA_CONTEXT_HISTORY_BUDGET_TOKENS',
-  'MAKA_CONTEXT_HISTORY_BUDGET_TURNS',
-  'MAKA_CONTEXT_MIN_RECENT_TURNS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
-] as const;
+export const RUNTIME_POLICY_CONTEXT_ENV_KEYS = HARBOR_CELL_CONTEXT_ENV_KEYS;
 
-export type RuntimePolicyContextEnvKey = typeof RUNTIME_POLICY_CONTEXT_ENV_KEYS[number];
+export type RuntimePolicyContextEnvKey = HarborCellContextEnvKey;
 
 export interface RuntimePolicyAbArmInput {
   id: string;
@@ -132,13 +124,10 @@ function runtimeArmSpec(arm: RuntimePolicyAbArmInput, sharedMetadata: Record<str
 function sanitizeContextEnv(
   env: Partial<Record<RuntimePolicyContextEnvKey, string>>,
 ): Record<RuntimePolicyContextEnvKey, string> | Partial<Record<RuntimePolicyContextEnvKey, string>> {
-  const allowed = new Set<string>(RUNTIME_POLICY_CONTEXT_ENV_KEYS);
-  const result: Partial<Record<RuntimePolicyContextEnvKey, string>> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (!allowed.has(key)) throw new Error(`unsupported runtime policy env key: ${key}`);
-    if (value !== undefined) result[key as RuntimePolicyContextEnvKey] = value;
+  for (const key of Object.keys(env)) {
+    if (!key.startsWith('MAKA_CONTEXT_')) throw new Error(`unsupported runtime policy env key: ${key}`);
   }
-  return result;
+  return normalizeHarborCellContextEnv(env);
 }
 
 function contextEnvFingerprint(env: Partial<Record<RuntimePolicyContextEnvKey, string>>): string {

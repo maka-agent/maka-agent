@@ -94,6 +94,50 @@ export interface HarborCellContextBudgetBackendOptions {
   readToolResultArchive?: ToolResultArchiveReader;
 }
 
+export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
+  'MAKA_CONTEXT_BUDGET',
+  'MAKA_CONTEXT_BUDGET_NAME',
+  'MAKA_CONTEXT_CHARS_PER_TOKEN',
+  'MAKA_CONTEXT_MAX_HISTORY_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_MAX_HISTORY_TURNS',
+  'MAKA_CONTEXT_HISTORY_BUDGET_TOKENS',
+  'MAKA_CONTEXT_HISTORY_BUDGET_TURNS',
+  'MAKA_CONTEXT_MIN_RECENT_TURNS',
+  'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
+  'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS',
+  'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL',
+  'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS',
+  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
+  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
+  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
+  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE',
+  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS',
+  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
+  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
+  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
+  'MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR',
+] as const;
+
+export type HarborCellContextEnvKey = typeof HARBOR_CELL_CONTEXT_ENV_KEYS[number];
+
+const HARBOR_CELL_CONTEXT_ENV_KEY_SET = new Set<string>(HARBOR_CELL_CONTEXT_ENV_KEYS);
+
+export function normalizeHarborCellContextEnv(
+  env: RunHarborCellEnv,
+): Partial<Record<HarborCellContextEnvKey, string>> {
+  const result: Partial<Record<HarborCellContextEnvKey, string>> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!key.startsWith('MAKA_CONTEXT_')) continue;
+    if (!HARBOR_CELL_CONTEXT_ENV_KEY_SET.has(key)) throw new Error(`unsupported Harbor context env key: ${key}`);
+    if (value !== undefined) result[key as HarborCellContextEnvKey] = value;
+  }
+  return result;
+}
+
 interface HarborCellToolResultArchiveRecord {
   version: 1;
   sessionId: string;
@@ -386,6 +430,7 @@ export function buildHarborCellAiSdkTools(
 export function buildHarborCellContextBudgetBackendOptions(
   env: RunHarborCellEnv = process.env,
 ): HarborCellContextBudgetBackendOptions {
+  normalizeHarborCellContextEnv(env);
   if (env.MAKA_CONTEXT_BUDGET === 'off') return {};
   const pruneEnabled = booleanEnv(
     env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
