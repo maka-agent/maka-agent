@@ -133,7 +133,7 @@ describe('runRuntimePolicyAbComparison', () => {
         id: 'prune-on',
         contextEnv: {
           MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
-          MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS: '4096',
+          MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '4096',
         },
       } as const;
       const calls: string[] = [];
@@ -162,7 +162,7 @@ describe('runRuntimePolicyAbComparison', () => {
       calls.length = 0;
       await run([pruneOff, pruneOnChanged]);
       assert.deepEqual(calls, [
-        'ab-prune-on-r0-t1:{"MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE":"on","MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS":"4096"}',
+        'ab-prune-on-r0-t1:{"MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE":"on","MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS":"4096"}',
       ]);
 
       calls.length = 0;

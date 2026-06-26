@@ -93,6 +93,7 @@ export interface RunTaskOnceDeps extends RunExperimentDeps {
   createTaskRun?: boolean;
   closeTaskRun?: boolean;
   instructionOverride?: string;
+  priorRuntimeContext?: readonly RuntimeEvent[];
   permissionMode?: 'execute';
   interventionPolicy?: TaskInterventionPolicy;
   permissionGrants?: readonly TaskPermissionGrant[];
@@ -312,6 +313,7 @@ export async function runTaskOnce(
         run,
         header,
         instruction,
+        ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
         now,
         newId,
       });
@@ -719,6 +721,7 @@ interface RunRuntimeAttemptInput {
   run: AgentRun;
   header: SessionHeader;
   instruction: string;
+  priorRuntimeContext?: readonly RuntimeEvent[];
   now: () => number;
   newId: () => string;
 }
@@ -753,6 +756,10 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<Invocat
     onInitialRuntimeEvent: (event) => input.run.recordRuntimeEvents([event]),
     stopOnTerminal: false,
   });
+  const runtimeContext = [
+    ...(input.priorRuntimeContext ?? []),
+    ...(begin.backendInput.runtimeContext ?? []),
+  ];
 
   const invocation = await runner.run({
     sessionId: input.header.id,
@@ -760,7 +767,7 @@ async function runRuntimeAttempt(input: RunRuntimeAttemptInput): Promise<Invocat
     turnId: input.run.turnId,
     text: input.instruction,
     context: begin.backendInput.context,
-    ...(begin.backendInput.runtimeContext !== undefined ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
+    ...(runtimeContext.length > 0 ? { runtimeContext } : {}),
     ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
     source: 'test',
     lineage: input.run.lineage,

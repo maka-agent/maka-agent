@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { exec as nodeExec } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -23,12 +23,12 @@ import {
   runShellWithBoundedTail,
   type MakaTool,
   type InvocationResult,
-  type AiSdkBackendInput,
   type ContextBudgetPolicy,
+  type ToolResultArchiveReader,
+  type ToolResultArchiveRecorder,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
-  createArtifactStore,
   createRuntimeEventStore,
   createSessionStore,
 } from '@maka/storage';
@@ -86,6 +86,24 @@ export interface RunHarborCellFromEnvOptions {
 export interface ResolvedHarborCellAiSdkEnv {
   connection: LlmConnection;
   apiKey: string;
+}
+
+export interface HarborCellContextBudgetBackendOptions {
+  contextBudget?: ContextBudgetPolicy;
+  archiveToolResult?: ToolResultArchiveRecorder;
+  readToolResultArchive?: ToolResultArchiveReader;
+}
+
+interface HarborCellToolResultArchiveRecord {
+  version: 1;
+  sessionId: string;
+  runtimeEventId: string;
+  toolCallId: string;
+  toolName: string;
+  bodySha256: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  serializedResult: string;
 }
 
 const PI_BASE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'TMPDIR', 'TMP', 'TEMP', 'SHELL', 'SystemRoot', 'COMSPEC'];
@@ -208,43 +226,48 @@ export async function runHarborCellFromEnv(
   const now = options.now ?? Date.now;
   const newId = options.newId ?? randomId;
   const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
-  const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(env);
-  const backend = backendFromEnv(env.MAKA_BACKEND);
+  const storageRoot = env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage');
+  const resolvedEnv: RunHarborCellEnv = { ...env, MAKA_OUTPUT_DIR: outputDir, MAKA_STORAGE_ROOT: storageRoot };
+  const backend = backendFromEnv(resolvedEnv.MAKA_BACKEND);
+  const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(resolvedEnv);
   const baseConfig = {
-    id: env.MAKA_CONFIG_ID ?? 'harbor-cell',
+    id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
-    ...(env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: env.MAKA_SYSTEM_PROMPT } : {}),
+    ...(resolvedEnv.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: resolvedEnv.MAKA_SYSTEM_PROMPT } : {}),
   };
   let config: Config;
   let registerBackends = options.registerBackends;
 
   switch (backend) {
     case 'ai-sdk': {
-      const modelSpec = parseModelSpec(env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'deepseek/deepseek-v4-flash', env.MAKA_PROVIDER);
+      const modelSpec = parseModelSpec(
+        resolvedEnv.MAKA_MODEL ?? resolvedEnv.HARBOR_MODEL ?? 'deepseek/deepseek-v4-flash',
+        resolvedEnv.MAKA_PROVIDER,
+      );
       config = {
         ...baseConfig,
-        llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
+        llmConnectionSlug: resolvedEnv.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
         model: modelSpec.model,
       };
       registerBackends ??= buildAiSdkCellBackendRegistration({
         provider: modelSpec.provider,
         model: modelSpec.model,
-        env,
+        env: resolvedEnv,
         now,
         newId,
       });
       break;
     }
     case 'pi-agent': {
-      const model = env.MAKA_PI_MODEL ?? env.MAKA_MODEL ?? env.HARBOR_MODEL;
+      const model = resolvedEnv.MAKA_PI_MODEL ?? resolvedEnv.MAKA_MODEL ?? resolvedEnv.HARBOR_MODEL;
       if (!model) throw new Error('MAKA_PI_MODEL, MAKA_MODEL, or HARBOR_MODEL must include a model id');
-      const piProvider = env.MAKA_PI_PROVIDER;
+      const piProvider = resolvedEnv.MAKA_PI_PROVIDER;
       if (!registerBackends && !piProvider) {
         throw new Error('MAKA_PI_PROVIDER is required when using the default Pi CLI transport');
       }
       config = {
         ...baseConfig,
-        llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? piProvider ?? 'pi-agent',
+        llmConnectionSlug: resolvedEnv.MAKA_LLM_CONNECTION_SLUG ?? piProvider ?? 'pi-agent',
         model,
       };
       registerBackends ??= (registry) => {
@@ -255,10 +278,10 @@ export async function runHarborCellFromEnv(
             appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
             permissionEngine: new PermissionEngine({ newId, now }),
             transport: new PiCliJsonTransport({
-              command: env.MAKA_PI_COMMAND ?? 'pi',
+              command: resolvedEnv.MAKA_PI_COMMAND ?? 'pi',
               ...(piProvider ? { provider: piProvider } : {}),
               model,
-              env: buildPiCliEnv(env, piProvider),
+              env: buildPiCliEnv(resolvedEnv, piProvider),
             }),
           }),
         );
@@ -268,18 +291,18 @@ export async function runHarborCellFromEnv(
     case 'fake':
       config = {
         ...baseConfig,
-        llmConnectionSlug: env.MAKA_LLM_CONNECTION_SLUG ?? 'fake',
-        model: env.MAKA_MODEL ?? env.HARBOR_MODEL ?? 'fake',
+        llmConnectionSlug: resolvedEnv.MAKA_LLM_CONNECTION_SLUG ?? 'fake',
+        model: resolvedEnv.MAKA_MODEL ?? resolvedEnv.HARBOR_MODEL ?? 'fake',
       };
       break;
   }
 
   return await runHarborCell({
     config,
-    instruction: await instructionFromEnv(env),
-    cwd: env.MAKA_WORKDIR ?? process.cwd(),
+    instruction: await instructionFromEnv(resolvedEnv),
+    cwd: resolvedEnv.MAKA_WORKDIR ?? process.cwd(),
     outputDir,
-    storageRoot: env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage'),
+    storageRoot,
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(registerBackends ? { registerBackends } : {}),
     ...(backendNeedsIsolation(backend)
@@ -287,7 +310,7 @@ export async function runHarborCellFromEnv(
           realBackendIsolation: {
             kind: 'external',
             label: 'Harbor task container',
-            toolExecutor: createHarborCellLocalToolExecutor(env),
+            toolExecutor: createHarborCellLocalToolExecutor(resolvedEnv),
           },
         }
       : {}),
@@ -314,9 +337,8 @@ export function buildAiSdkCellBackendRegistration(input: {
   const lookupPricing = pricingOverride
     ? (key: string): PricingConfig | null => (key === modelKey ? pricingOverride : getBuiltinPricing(key))
     : getBuiltinPricing;
-  const contextBudget = buildHarborCellContextBudgetPolicy(input.env);
-  const archiveHooks = contextBudget ? buildHarborCellToolResultArchiveHooks(input.env) : {};
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
+  const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
   return (registry, context) => {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
@@ -340,8 +362,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         providerOptions: buildProviderOptions(connection, input.model),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
         lookupPricing,
-        ...(contextBudget ? { contextBudget } : {}),
-        ...archiveHooks,
+        ...contextBudgetBackendOptions,
         newId: input.newId,
         now: input.now,
         recordRunTrace: ctx.recordRunTrace,
@@ -360,6 +381,186 @@ export function buildHarborCellAiSdkTools(
       ? { ...tool, permissionRequired: false }
       : tool
   ));
+}
+
+export function buildHarborCellContextBudgetBackendOptions(
+  env: RunHarborCellEnv = process.env,
+): HarborCellContextBudgetBackendOptions {
+  if (env.MAKA_CONTEXT_BUDGET === 'off') return {};
+  const pruneEnabled = booleanEnv(
+    env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
+    env.MAKA_HARBOR_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
+    env.MAKA_TOOL_RESULT_PRUNE,
+  );
+  const activePruneEnabled = booleanEnv(
+    env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
+    env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
+    env.MAKA_ACTIVE_TOOL_RESULT_PRUNE,
+  );
+  const archiveRetrievalEnabled = booleanEnv(
+    env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL ??
+    env.MAKA_HARBOR_CONTEXT_ARCHIVE_RETRIEVAL,
+  );
+  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled) return {};
+
+  const contextBudget: ContextBudgetPolicy = {
+    name: env.MAKA_CONTEXT_BUDGET_NAME ?? 'harbor-cell-context-budget',
+  };
+  const charsPerToken = numericEnv(env.MAKA_CONTEXT_CHARS_PER_TOKEN);
+  const maxHistoryEstimatedTokens = numericEnv(
+    env.MAKA_CONTEXT_MAX_HISTORY_ESTIMATED_TOKENS ??
+    env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS,
+  );
+  const maxHistoryTurns = numericEnv(env.MAKA_CONTEXT_MAX_HISTORY_TURNS ?? env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
+  const minRecentTurns = numericEnv(env.MAKA_CONTEXT_MIN_RECENT_TURNS);
+  if (charsPerToken !== undefined) contextBudget.charsPerToken = charsPerToken;
+  if (maxHistoryEstimatedTokens !== undefined) contextBudget.maxHistoryEstimatedTokens = maxHistoryEstimatedTokens;
+  if (maxHistoryTurns !== undefined) contextBudget.maxHistoryTurns = maxHistoryTurns;
+  if (minRecentTurns !== undefined) contextBudget.minRecentTurns = minRecentTurns;
+
+  if (pruneEnabled) {
+    const maxResultEstimatedTokens = positiveIntEnv(
+      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
+      env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS ??
+      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
+      'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
+    );
+    const minRecentTurnsFull = numericEnv(
+      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL ??
+      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS,
+    );
+    contextBudget.staleToolResultPrune = {
+      enabled: true,
+      ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
+      ...(minRecentTurnsFull !== undefined ? { minRecentTurnsFull } : {}),
+    };
+  }
+
+  if (activePruneEnabled) {
+    const maxCurrentResultEstimatedTokens = positiveIntEnv(
+      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
+      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS,
+      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
+    );
+    const minStepNumber = numericEnv(env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER);
+    const archiveRequiredRaw =
+      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_ARCHIVE_REQUIRED ??
+      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_ARCHIVE_REQUIRED;
+    contextBudget.activeToolResultPrune = {
+      enabled: true,
+      ...(maxCurrentResultEstimatedTokens !== undefined ? { maxCurrentResultEstimatedTokens } : {}),
+      ...(minStepNumber !== undefined ? { minStepNumber } : {}),
+      ...(archiveRequiredRaw !== undefined ? { archiveRequired: booleanEnv(archiveRequiredRaw) } : {}),
+    };
+  }
+
+  if (archiveRetrievalEnabled) {
+    const mode = archiveRetrievalModeEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE);
+    const maxResults = positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS');
+    const maxEstimatedTokens = positiveIntEnv(
+      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS ??
+      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
+      'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
+    );
+    const maxBytes = positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES');
+    contextBudget.archiveRetrieval = {
+      enabled: true,
+      ...(mode ? { mode } : {}),
+      ...(maxResults !== undefined ? { maxResults } : {}),
+      ...(maxEstimatedTokens !== undefined ? { maxEstimatedTokens } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
+    };
+  }
+
+  const archiveDir = harborCellToolResultArchiveDir(env);
+  if (!archiveDir) return { contextBudget };
+  return {
+    contextBudget,
+    archiveToolResult: async (input) => {
+      await mkdir(archiveDir, { recursive: true });
+      const artifactId = harborCellToolResultArchiveArtifactId(input);
+      const record: HarborCellToolResultArchiveRecord = {
+        version: 1,
+        sessionId: input.sessionId,
+        runtimeEventId: input.runtimeEventId,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        bodySha256: input.bodySha256,
+        originalEstimatedTokens: input.originalEstimatedTokens,
+        originalBytes: input.originalBytes,
+        serializedResult: input.serializedResult,
+      };
+      await writeFile(join(archiveDir, artifactId), `${JSON.stringify(record)}\n`, 'utf8');
+      return { artifactId };
+    },
+    readToolResultArchive: async (input) => {
+      if (!isSafeHarborCellArchiveArtifactId(input.artifactId)) return { ok: false, reason: 'not_allowed' };
+      let raw: string;
+      try {
+        raw = await readFile(join(archiveDir, input.artifactId), 'utf8');
+      } catch {
+        return { ok: false, reason: 'not_found' };
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return { ok: false, reason: 'corrupt' };
+      }
+      if (!isHarborCellToolResultArchiveRecord(parsed)) return { ok: false, reason: 'corrupt' };
+      if (parsed.sessionId !== input.sessionId) return { ok: false, reason: 'session_mismatch' };
+      if (parsed.runtimeEventId !== input.runtimeEventId || parsed.toolCallId !== input.toolCallId) {
+        return { ok: false, reason: 'source_mismatch' };
+      }
+      if (parsed.originalBytes !== input.originalBytes) return { ok: false, reason: 'size_mismatch' };
+      if (parsed.bodySha256 !== input.bodySha256) return { ok: false, reason: 'source_mismatch' };
+      const actualSha = createHash('sha256').update(parsed.serializedResult).digest('hex');
+      if (actualSha !== input.bodySha256) return { ok: false, reason: 'corrupt' };
+      if (Buffer.byteLength(parsed.serializedResult, 'utf8') !== input.originalBytes) {
+        return { ok: false, reason: 'size_mismatch' };
+      }
+      return { ok: true, serializedResult: parsed.serializedResult };
+    },
+  };
+}
+
+export function buildHarborCellContextBudgetPolicySnapshot(
+  env: RunHarborCellEnv,
+): HarborCellContextBudgetPolicySnapshot | undefined {
+  if (env.MAKA_CONTEXT_BUDGET === 'off') return { enabled: false };
+  const contextBudget = buildHarborCellContextBudgetBackendOptions(env).contextBudget;
+  if (!contextBudget) return undefined;
+  const minRecentTurns = contextBudget.minRecentTurns ?? 2;
+  return {
+    enabled: true,
+    name: contextBudget.name,
+    ...(contextBudget.maxHistoryTurns !== undefined ? { maxHistoryTurns: contextBudget.maxHistoryTurns } : {}),
+    ...(contextBudget.maxHistoryEstimatedTokens !== undefined
+      ? { maxHistoryEstimatedTokens: contextBudget.maxHistoryEstimatedTokens }
+      : {}),
+    ...(contextBudget.staleToolResultPrune
+      ? {
+          staleToolResultPrune: {
+            enabled: contextBudget.staleToolResultPrune.enabled,
+            maxResultEstimatedTokens: contextBudget.staleToolResultPrune.maxResultEstimatedTokens ?? 2048,
+            minRecentTurnsFull: contextBudget.staleToolResultPrune.minRecentTurnsFull ?? minRecentTurns,
+          },
+        }
+      : {}),
+    ...(contextBudget.archiveRetrieval
+      ? {
+          archiveRetrieval: {
+            enabled: contextBudget.archiveRetrieval.enabled,
+            ...(contextBudget.archiveRetrieval.mode ? { mode: contextBudget.archiveRetrieval.mode } : {}),
+            maxResults: contextBudget.archiveRetrieval.maxResults ?? 3,
+            maxEstimatedTokens: contextBudget.archiveRetrieval.maxEstimatedTokens ?? 8192,
+            maxBytes: contextBudget.archiveRetrieval.maxBytes ?? 1024 * 1024,
+            order: 'newest_first',
+          },
+        }
+      : {}),
+    minRecentTurns,
+  };
 }
 
 export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
@@ -457,146 +658,85 @@ function resolveHarborCellPricingOverride(env: RunHarborCellEnv, modelKey: strin
   };
 }
 
-function buildHarborCellContextBudgetPolicy(env: RunHarborCellEnv): ContextBudgetPolicy | undefined {
-  if (env.MAKA_CONTEXT_BUDGET === 'off') return undefined;
-  const maxHistoryEstimatedTokens = positiveIntEnv(
-    env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS,
-    'MAKA_CONTEXT_HISTORY_BUDGET_TOKENS',
-  );
-  const maxHistoryTurns = positiveIntEnv(env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS, 'MAKA_CONTEXT_HISTORY_BUDGET_TURNS');
-  const minRecentTurns = positiveIntEnv(env.MAKA_CONTEXT_MIN_RECENT_TURNS, 'MAKA_CONTEXT_MIN_RECENT_TURNS', 2);
-  const staleToolResultPrune = buildHarborCellStaleToolResultPrunePolicy(env, minRecentTurns);
-  const archiveRetrieval = buildHarborCellArchiveRetrievalPolicy(env);
-
-  if (
-    maxHistoryEstimatedTokens === undefined &&
-    maxHistoryTurns === undefined &&
-    staleToolResultPrune === undefined &&
-    archiveRetrieval === undefined
-  ) {
-    return undefined;
-  }
-
-  return {
-    name: 'harbor-cell-context-budget',
-    ...(maxHistoryTurns !== undefined ? { maxHistoryTurns } : {}),
-    ...(maxHistoryEstimatedTokens !== undefined ? { maxHistoryEstimatedTokens } : {}),
-    ...(staleToolResultPrune !== undefined ? { staleToolResultPrune } : {}),
-    ...(archiveRetrieval !== undefined ? { archiveRetrieval } : {}),
-    minRecentTurns,
-  };
-}
-
-export function buildHarborCellContextBudgetPolicySnapshot(
-  env: RunHarborCellEnv,
-): HarborCellContextBudgetPolicySnapshot | undefined {
-  if (env.MAKA_CONTEXT_BUDGET === 'off') return { enabled: false };
-  const policy = buildHarborCellContextBudgetPolicy(env);
-  return policy ? { enabled: true, ...policy } : undefined;
-}
-
-function buildHarborCellStaleToolResultPrunePolicy(
-  env: RunHarborCellEnv,
-  minRecentTurns: number,
-): NonNullable<ContextBudgetPolicy['staleToolResultPrune']> | undefined {
-  if (env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE !== 'on') return undefined;
-  return {
-    enabled: true,
-    maxResultEstimatedTokens: positiveIntEnv(
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
-      'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS',
-      2048,
-    ),
-    minRecentTurnsFull: positiveIntEnv(
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS,
-      'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS',
-      minRecentTurns,
-    ),
-  };
-}
-
-function buildHarborCellArchiveRetrievalPolicy(
-  env: RunHarborCellEnv,
-): NonNullable<ContextBudgetPolicy['archiveRetrieval']> | undefined {
-  if (env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL !== 'on') return undefined;
-  const mode = parseArchiveRetrievalMode(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE);
-  return {
-    enabled: true,
-    ...(mode ? { mode } : {}),
-    maxResults: positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS', 3),
-    maxEstimatedTokens: positiveIntEnv(
-      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
-      'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
-      8192,
-    ),
-    maxBytes: positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES', 1024 * 1024),
-    order: 'newest_first',
-  };
-}
-
-function positiveIntEnv(raw: string | undefined, name: string): number | undefined;
-function positiveIntEnv(raw: string | undefined, name: string, fallback: number): number;
-function positiveIntEnv(raw: string | undefined, name: string, fallback?: number): number | undefined {
-  const value = raw?.trim();
-  if (value === undefined || value === '') return fallback;
-  if (!/^[1-9]\d*$/.test(value)) throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
-  return Number(value);
-}
-
-function parseArchiveRetrievalMode(
-  value: string | undefined,
-): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
-  const trimmed = value?.trim();
-  if (trimmed === undefined || trimmed === '') return undefined;
-  if (trimmed === 'eager' || trimmed === 'history_search_gated') return trimmed;
-  throw new Error(`MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE must be one of eager, history_search_gated, got ${JSON.stringify(value)}`);
-}
-
-function buildHarborCellToolResultArchiveHooks(env: RunHarborCellEnv): {
-  archiveToolResult: NonNullable<AiSdkBackendInput['archiveToolResult']>;
-  readToolResultArchive: NonNullable<AiSdkBackendInput['readToolResultArchive']>;
-} {
-  const artifactStore = createArtifactStore(resolveHarborCellStorageRoot(env));
-  return {
-    archiveToolResult: async (event) => {
-      const artifact = await artifactStore.create({
-        sessionId: event.sessionId,
-        turnId: event.turnId,
-        name: `tool-result-${event.runtimeEventId}.json`,
-        kind: 'file',
-        content: event.serializedResult,
-        mimeType: 'application/json',
-        source: 'tool_result_archive',
-        summary: `${event.toolName} tool result archive`,
-      });
-      return { artifactId: artifact.id };
-    },
-    readToolResultArchive: async (event) => {
-      const artifact = await artifactStore.get(event.artifactId);
-      if (!artifact) return { ok: false, reason: 'not_found' };
-      if (artifact.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
-      if (artifact.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
-      if (artifact.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
-      const read = await artifactStore.readText(event.artifactId, { maxBytes: event.maxBytes });
-      if (!read.ok) return read;
-      if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
-      return { ok: true, serializedResult: read.text };
-    },
-  };
-}
-
-function resolveHarborCellStorageRoot(env: RunHarborCellEnv): string {
-  return env.MAKA_STORAGE_ROOT ?? join(env.MAKA_OUTPUT_DIR ?? '/logs/agent', 'maka-storage');
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
-
 function numericEnv(raw: string | undefined): number | undefined {
   if (raw === undefined || raw.trim() === '') return undefined;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function positiveIntEnv(raw: string | undefined, name: string): number | undefined {
+  const value = raw?.trim();
+  if (value === undefined || value === '') return undefined;
+  if (!/^[1-9]\d*$/.test(value)) throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  return Number(value);
+}
+
+function archiveRetrievalModeEnv(
+  raw: string | undefined,
+): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
+  const value = raw?.trim();
+  if (value === undefined || value === '') return undefined;
+  if (value === 'eager' || value === 'history_search_gated') return value;
+  throw new Error(`MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE must be one of eager, history_search_gated, got ${JSON.stringify(raw)}`);
+}
+
+function booleanEnv(raw: string | undefined): boolean {
+  if (raw === undefined) return false;
+  switch (raw.trim().toLowerCase()) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+    case 'enabled':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function harborCellToolResultArchiveDir(env: RunHarborCellEnv): string | undefined {
+  return (
+    env.MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR ??
+    env.MAKA_TOOL_RESULT_ARCHIVE_DIR ??
+    env.MAKA_HARBOR_TOOL_RESULT_ARCHIVE_DIR ??
+    (env.MAKA_OUTPUT_DIR ? join(env.MAKA_OUTPUT_DIR, 'tool-result-archives') : undefined)
+  );
+}
+
+function harborCellToolResultArchiveArtifactId(input: {
+  sessionId: string;
+  runtimeEventId: string;
+  bodySha256: string;
+}): string {
+  return [
+    safeArtifactIdPart(input.sessionId),
+    safeArtifactIdPart(input.runtimeEventId),
+    safeArtifactIdPart(input.bodySha256.slice(0, 16)),
+  ].join('--') + '.json';
+}
+
+function safeArtifactIdPart(value: string): string {
+  const safe = value.replace(/[^A-Za-z0-9_.=-]/g, '_').slice(0, 96);
+  return safe || 'unknown';
+}
+
+function isSafeHarborCellArchiveArtifactId(value: string): boolean {
+  return /^[A-Za-z0-9_.=-]+\.json$/.test(value);
+}
+
+function isHarborCellToolResultArchiveRecord(value: unknown): value is HarborCellToolResultArchiveRecord {
+  return (
+    isRecord(value) &&
+    value.version === 1 &&
+    typeof value.sessionId === 'string' &&
+    typeof value.runtimeEventId === 'string' &&
+    typeof value.toolCallId === 'string' &&
+    typeof value.toolName === 'string' &&
+    typeof value.bodySha256 === 'string' &&
+    typeof value.originalEstimatedTokens === 'number' &&
+    typeof value.originalBytes === 'number' &&
+    typeof value.serializedResult === 'string'
+  );
 }
 
 /** Provider secrets the LLM backend already captured; task tool subprocesses must

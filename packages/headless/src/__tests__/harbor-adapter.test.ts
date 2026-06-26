@@ -17,7 +17,7 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /^#!\/usr\/bin\/env node/);
     assert.match(source, /runHarborCellFromEnv/);
     assert.match(source, /process\.env/);
-    assert.match(cellSource, /env\.MAKA_WORKDIR \?\? process\.cwd\(\)/);
+    assert.match(cellSource, /resolvedEnv\.MAKA_WORKDIR \?\? process\.cwd\(\)/);
   });
 
   test('maka_agent.py invokes run-cell with the shared artifact contract', async () => {
