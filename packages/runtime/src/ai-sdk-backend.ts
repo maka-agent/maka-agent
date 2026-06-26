@@ -1026,7 +1026,14 @@ export class AiSdkBackend implements AgentBackend {
       historySearchSource,
       input.text,
       contextBudget?.historySearch,
-      { charsPerToken: contextBudget?.charsPerToken },
+      {
+        charsPerToken: contextBudget?.charsPerToken,
+        // Match archived-result body text for gated retrieval without making
+        // the full pre-prune result model-visible through history replay.
+        ...(contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
+          ? { searchEvents: priorRuntimeContext }
+          : {}),
+      },
     );
     const archiveRetrievalAllowedTurnIds = contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
       ? new Set(historyAround.events.map((event) => runtimeEventTurnKey(event)))

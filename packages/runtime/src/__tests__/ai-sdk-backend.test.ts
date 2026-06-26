@@ -534,6 +534,120 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.historySearchMatches, 1);
   });
 
+  test('gates archive hydration using searchable original tool result content', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const archivedBodies = new Map<string, string>();
+    const readRuntimeEventIds: string[] = [];
+    const selectedResult = { body: 'zzztokenbodyonly777'.repeat(20) };
+    const unselectedResult = { body: 'other_payload'.repeat(20) };
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'archive-retrieval-body-search-test',
+        maxHistoryTurns: 1,
+        minRecentTurns: 0,
+        staleToolResultPrune: {
+          enabled: true,
+          maxResultEstimatedTokens: 1,
+          minRecentTurnsFull: 0,
+        },
+        archiveRetrieval: {
+          enabled: true,
+          mode: 'history_search_gated',
+          maxResults: 2,
+          maxEstimatedTokens: 4096,
+          maxBytes: 4096,
+        },
+        historySearch: {
+          enabled: true,
+          maxResults: 1,
+          around: 1,
+          maxEstimatedTokens: 4096,
+        },
+        charsPerToken: 1,
+      },
+      archiveToolResult: async (event) => {
+        archivedBodies.set(event.runtimeEventId, event.serializedResult);
+        return { artifactId: `artifact-${event.runtimeEventId}` };
+      },
+      readToolResultArchive: async (event) => {
+        readRuntimeEventIds.push(event.runtimeEventId);
+        const body = archivedBodies.get(event.runtimeEventId);
+        assert.ok(body);
+        return event.bodySha256 === sha256(body)
+          ? { ok: true, serializedResult: body }
+          : { ok: false, reason: 'corrupt' };
+      },
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'zzztokenbodyonly777',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-call-b',
+          turnId: 'turn-b',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-b', name: 'Read', args: { path: 'unselected.txt' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result-b',
+          turnId: 'turn-b',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-b', name: 'Read', result: unselectedResult, isError: false },
+        }),
+        runtimeEvent({
+          id: 'rt-call-a',
+          turnId: 'turn-a',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-a', name: 'Read', args: { path: 'selected.txt' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result-a',
+          turnId: 'turn-a',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-a', name: 'Read', result: selectedResult, isError: false },
+        }),
+        runtimeTextEvent({
+          id: 'rt-new',
+          turnId: 'turn-new',
+          role: 'user',
+          author: 'user',
+          text: 'newer retained context',
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    assert.deepEqual(readRuntimeEventIds, ['rt-result-a']);
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /zzztokenbodyonly777/);
+    assert.equal(prompt.includes('other_payload'), false);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.archiveRetrievalMode, 'history_search_gated');
+    assert.equal(usage?.contextBudget?.retrievedArchiveToolResults, 1);
+    assert.equal(usage?.contextBudget?.historySearchMatches, 1);
+  });
+
   test('uses selected synthesis block instead of hydrating covered archived payload', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
