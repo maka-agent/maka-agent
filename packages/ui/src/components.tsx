@@ -2060,6 +2060,8 @@ function PlanReminderPanel(props: {
   const [submitPending, setSubmitPending] = useState(false);
   const [pendingActionKeys, setPendingActionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const planReminderMountedRef = useRef(true);
+  const submitPendingRef = useRef(false);
+  const refreshPendingRef = useRef(false);
   const pendingActionKeysRef = useRef<Set<string>>(new Set());
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [planView, setPlanView] = useState<PlanReminderView>('tasks');
@@ -2109,6 +2111,8 @@ function PlanReminderPanel(props: {
     planReminderMountedRef.current = true;
     return () => {
       planReminderMountedRef.current = false;
+      submitPendingRef.current = false;
+      refreshPendingRef.current = false;
       pendingActionKeysRef.current = new Set();
     };
   }, []);
@@ -2148,7 +2152,7 @@ function PlanReminderPanel(props: {
   }
 
   function closeReminderDialog() {
-    if (submitPending) return;
+    if (submitPendingRef.current) return;
     setFormDialogOpen(false);
     resetForm();
   }
@@ -2195,7 +2199,8 @@ function PlanReminderPanel(props: {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitDisabled) return;
+    if (submitDisabled || submitPendingRef.current) return;
+    submitPendingRef.current = true;
     const input = {
       title: title.trim(),
       note: note.trim(),
@@ -2217,6 +2222,7 @@ function PlanReminderPanel(props: {
         setFormDialogOpen(false);
       }
     } finally {
+      submitPendingRef.current = false;
       if (planReminderMountedRef.current) setSubmitPending(false);
     }
   }
@@ -2241,11 +2247,13 @@ function PlanReminderPanel(props: {
   }
 
   async function refreshFromPanel() {
-    if (!props.onRefresh || refreshPending) return;
+    if (!props.onRefresh || refreshPendingRef.current) return;
+    refreshPendingRef.current = true;
     setRefreshPending(true);
     try {
       await props.onRefresh();
     } finally {
+      refreshPendingRef.current = false;
       if (planReminderMountedRef.current) setRefreshPending(false);
     }
   }
