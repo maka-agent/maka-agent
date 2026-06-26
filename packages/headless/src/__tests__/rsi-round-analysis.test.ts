@@ -51,6 +51,42 @@ describe('RSI round analysis', () => {
     ]);
   });
 
+  test('only reports coverage regression when last kept was covered', async () => {
+    const analysis = await analyzeRsiRound({
+      heldInTaskIds: ['task-a', 'task-b', 'task-c'],
+      lastKeptEvents: [
+        completed({ taskId: 'task-a', passed: true }),
+        completed({ taskId: 'task-c', passed: false, scored: false, errorClass: 'max_tokens' }),
+      ],
+      candidateEvents: [
+        completed({ taskId: 'task-a', passed: false, scored: false, errorClass: 'max_tokens' }),
+        completed({ taskId: 'task-b', passed: false, scored: false, errorClass: 'max_tokens' }),
+        completed({ taskId: 'task-c', passed: false, scored: false, errorClass: 'max_tokens' }),
+      ],
+    });
+
+    assert.deepEqual(analysis.coverageRegressionTaskIds, ['task-a']);
+  });
+
+  test('sanitizes prompt-visible error classes before grouping and signaling', async () => {
+    const analysis = await analyzeRsiRound({
+      heldInTaskIds: ['task-a'],
+      lastKeptEvents: [],
+      candidateEvents: [
+        completed({ taskId: 'task-a', passed: false, errorClass: '<unsafe verifier clue /app/tests/secret.md>' }),
+      ],
+    });
+
+    assert.deepEqual(analysis.errorClassDistribution, [{ errorClass: 'unknown_error', count: 1 }]);
+    assert.equal(JSON.stringify(analysis).includes('<unsafe verifier clue'), false);
+    assert.deepEqual(
+      analysis.signals
+        .filter((signal) => signal.kind === 'error_class')
+        .map(({ id: _id, ...signal }) => signal),
+      [{ kind: 'error_class', taskIds: ['task-a'], errorClass: 'unknown_error', count: 1 }],
+    );
+  });
+
   test('aggregates bounded prompt-safe tool failure clusters from held-in traces', async () => {
     await withDir(async (dir) => {
       const taskARuntime = join(dir, 'task-a-runtime.jsonl');
@@ -101,6 +137,109 @@ describe('RSI round analysis', () => {
       ]);
       assert.equal(JSON.stringify(analysis).includes('held-out'), false);
       assert.equal(JSON.stringify(analysis).includes('<unsafe'), false);
+    });
+  });
+
+  test('aggregates tool failure clusters from plumbing events with traces', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime.jsonl');
+      const traceEventsPath = join(dir, 'trace.jsonl');
+
+      await writeJsonl(runtimeEventsPath, [functionCall('call-a', 'Bash', { z: 1, a: 1, b: 1 })]);
+      await writeJsonl(traceEventsPath, [
+        toolFailed('call-a', 'Bash', 'TimeoutError'),
+        toolFailed('call-a', 'Bash', 'TimeoutError'),
+      ]);
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['task-a'],
+        lastKeptEvents: [],
+        candidateEvents: [
+          plumbingFailed({ taskId: 'task-a', errorClass: 'missing_prompt_hash', runtimeEventsPath, traceEventsPath }),
+        ],
+        limits: { maxToolFailureArgsKeys: 2, maxToolFailureEventsPerTask: 1 },
+      });
+
+      assert.deepEqual(analysis.toolFailureClusters, [
+        { name: 'Bash', errorClass: 'TimeoutError', argsPreview: 'a,b', count: 1, taskIds: ['task-a'] },
+      ]);
+    });
+  });
+
+  test('keeps trace parsing bounded and tolerant per task', async () => {
+    await withDir(async (dir) => {
+      const taskARuntime = join(dir, 'task-a-runtime.jsonl');
+      const taskATrace = join(dir, 'task-a-trace.jsonl');
+      const taskBRuntime = join(dir, 'task-b-runtime.jsonl');
+      const taskBTrace = join(dir, 'task-b-trace.jsonl');
+      const taskCRuntime = join(dir, 'task-c-missing-runtime.jsonl');
+      const taskCTrace = join(dir, 'task-c-trace.jsonl');
+      const taskDRuntime = join(dir, 'task-d-runtime.jsonl');
+      const taskDTrace = join(dir, 'task-d-trace.jsonl');
+
+      await writeJsonl(taskARuntime, [functionCall('call-a', 'Read', { path: '/app/file.txt' })]);
+      await writeFile(taskATrace, '{not-json}\n', 'utf8');
+      await writeJsonl(taskBRuntime, [functionCall('call-b', 'Bash', { command: 'exit 1' })]);
+      await writeJsonl(taskBTrace, [
+        toolFailed('call-b', 'Bash', 'TimeoutError'),
+        toolFailed('call-b', 'Bash', 'TimeoutError'),
+      ]);
+      await writeJsonl(taskCTrace, [toolFailed('call-c', 'Read', 'FileError')]);
+      await writeJsonl(taskDRuntime, [functionCall('call-d', 'Glob', { pattern: '*.ts' })]);
+      await writeFile(taskDTrace, `${'x'.repeat(240)}\n`, 'utf8');
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['task-a', 'task-b', 'task-c', 'task-d'],
+        lastKeptEvents: [],
+        candidateEvents: [
+          completed({ taskId: 'task-a', passed: false, runtimeEventsPath: taskARuntime, traceEventsPath: taskATrace }),
+          completed({ taskId: 'task-b', passed: false, runtimeEventsPath: taskBRuntime, traceEventsPath: taskBTrace }),
+          completed({ taskId: 'task-c', passed: false, runtimeEventsPath: taskCRuntime, traceEventsPath: taskCTrace }),
+          completed({ taskId: 'task-d', passed: false, runtimeEventsPath: taskDRuntime, traceEventsPath: taskDTrace }),
+        ],
+        limits: { maxToolFailureJsonlBytes: 180, maxToolFailureJsonlLines: 1 },
+      });
+
+      assert.deepEqual(analysis.toolFailureClusters, []);
+      assert.deepEqual(
+        analysis.signals
+          .filter((signal) => (signal as { kind: string }).kind === 'trace_unavailable')
+          .map(({ id: _id, ...signal }) => signal),
+        [
+          { kind: 'trace_unavailable', taskIds: ['task-c'], source: 'runtime', reason: 'missing_file' },
+          { kind: 'trace_unavailable', taskIds: ['task-b', 'task-d'], source: 'trace', reason: 'input_limit_exceeded' },
+          { kind: 'trace_unavailable', taskIds: ['task-a'], source: 'trace', reason: 'invalid_jsonl' },
+        ],
+      );
+    });
+  });
+
+  test('treats non-positive tool failure cluster limits as zero', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime.jsonl');
+      const traceEventsPath = join(dir, 'trace.jsonl');
+
+      await writeJsonl(runtimeEventsPath, [
+        functionCall('call-a', 'Bash', { command: 'exit 1' }),
+        functionCall('call-b', 'Read', { path: '/app/file.txt' }),
+      ]);
+      await writeJsonl(traceEventsPath, [
+        toolFailed('call-a', 'Bash', 'TimeoutError'),
+        toolFailed('call-b', 'Read', 'FileError'),
+      ]);
+
+      for (const maxToolFailureClusters of [0, -1]) {
+        const analysis = await analyzeRsiRound({
+          heldInTaskIds: ['task-a'],
+          lastKeptEvents: [],
+          candidateEvents: [
+            completed({ taskId: 'task-a', passed: false, runtimeEventsPath, traceEventsPath }),
+          ],
+          limits: { maxToolFailureClusters },
+        });
+
+        assert.deepEqual(analysis.toolFailureClusters, []);
+      }
     });
   });
 
@@ -168,7 +307,12 @@ function completed(input: {
   };
 }
 
-function plumbingFailed(input: { taskId: string; errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' }): FixedPromptTaskWalEvent {
+function plumbingFailed(input: {
+  taskId: string;
+  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash';
+  runtimeEventsPath?: string;
+  traceEventsPath?: string;
+}): FixedPromptTaskWalEvent {
   return {
     schemaVersion: 1,
     type: 'task_plumbing_failed',
@@ -187,7 +331,8 @@ function plumbingFailed(input: { taskId: string; errorClass: 'zero_cost_with_tok
     tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd: 0.01 }),
     steps: 1,
     durationMs: 10,
-    runtimeEventsPath: '/tmp/runtime-events.jsonl',
+    runtimeEventsPath: input.runtimeEventsPath ?? '/tmp/runtime-events.jsonl',
+    ...(input.traceEventsPath ? { traceEventsPath: input.traceEventsPath } : {}),
     harbor: { reward: 0 },
   };
 }

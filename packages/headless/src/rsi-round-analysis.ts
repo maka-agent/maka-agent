@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import type { FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
+
+const DEFAULT_MAX_TOOL_FAILURE_CLUSTERS = 10;
+const DEFAULT_MAX_TOOL_FAILURE_JSONL_BYTES = 1_000_000;
+const DEFAULT_MAX_TOOL_FAILURE_JSONL_LINES = 10_000;
+const DEFAULT_MAX_TOOL_FAILURE_EVENTS_PER_TASK = 1_000;
+const DEFAULT_MAX_TOOL_FAILURE_ARGS_KEYS = 8;
 
 export type RsiTaskOutcome = 'pass' | 'fail' | 'unscored' | 'infra' | 'budget' | 'plumbing' | 'missing';
 
@@ -22,6 +28,10 @@ export interface RsiToolFailureCluster {
   errorClass?: string;
   argsPreview?: string;
 }
+
+export type RsiTraceUnavailableSource = 'runtime' | 'trace';
+
+export type RsiTraceUnavailableReason = 'missing_file' | 'invalid_jsonl' | 'input_limit_exceeded' | 'unreadable';
 
 export type RsiAnalysisSignal =
   | {
@@ -48,6 +58,13 @@ export type RsiAnalysisSignal =
     kind: 'tool_failure_cluster';
     taskIds: string[];
     cluster: RsiToolFailureCluster;
+  }
+  | {
+    id: string;
+    kind: 'trace_unavailable';
+    taskIds: string[];
+    source: RsiTraceUnavailableSource;
+    reason: RsiTraceUnavailableReason;
   };
 
 export interface RsiRoundAnalysis {
@@ -67,15 +84,51 @@ export interface AnalyzeRsiRoundInput {
   candidateEvents: readonly FixedPromptTaskWalEvent[];
   limits?: {
     maxToolFailureClusters?: number;
+    maxToolFailureJsonlBytes?: number;
+    maxToolFailureJsonlLines?: number;
+    maxToolFailureEventsPerTask?: number;
+    maxToolFailureArgsKeys?: number;
   };
 }
 
+interface RsiErrorClassGroup extends RsiErrorClassCount {
+  taskIds: string[];
+}
+
+interface RsiTraceUnavailableGroup {
+  taskIds: string[];
+  source: RsiTraceUnavailableSource;
+  reason: RsiTraceUnavailableReason;
+}
+
+interface NormalizedToolFailureLimits {
+  maxClusters: number;
+  maxJsonlBytes: number;
+  maxJsonlLines: number;
+  maxEventsPerTask: number;
+  maxArgsKeys: number;
+}
+
+interface ToolFailureClusterResult {
+  clusters: RsiToolFailureCluster[];
+  traceUnavailable: RsiTraceUnavailableGroup[];
+}
+
+type BoundedJsonlResult =
+  | { ok: true; events: unknown[] }
+  | { ok: false; reason: RsiTraceUnavailableReason };
+
+type FunctionCallsByIdResult =
+  | { ok: true; value: Map<string, { name: string; argsPreview: string }> }
+  | { ok: false; reason: RsiTraceUnavailableReason };
+
 export async function analyzeRsiRound(input: AnalyzeRsiRoundInput): Promise<RsiRoundAnalysis> {
   const heldInTaskIds = sortedUnique(input.heldInTaskIds);
+  const lastKeptByTask = eventsByHeldInTask(input.lastKeptEvents, heldInTaskIds);
   const candidateByTask = eventsByHeldInTask(input.candidateEvents, heldInTaskIds);
   const transitionVsLastKept = taskTransitions(
     heldInTaskIds,
-    eventsByHeldInTask(input.lastKeptEvents, heldInTaskIds),
+    lastKeptByTask,
     candidateByTask,
   );
   const transitionVsPreviousCandidate = input.previousCandidateEvents
@@ -85,26 +138,29 @@ export async function analyzeRsiRound(input: AnalyzeRsiRoundInput): Promise<RsiR
       candidateByTask,
     )
     : [];
-  const coverageRegressionTaskIds = heldInTaskIds.filter((taskId) => !isCovered(candidateByTask.get(taskId)));
-  const errors = errorClassDistribution(heldInTaskIds, candidateByTask);
+  const coverageRegressionTaskIds = heldInTaskIds.filter((taskId) => (
+    isCovered(lastKeptByTask.get(taskId)) && !isCovered(candidateByTask.get(taskId))
+  ));
+  const errorGroups = safeErrorClassGroups(heldInTaskIds, candidateByTask);
   const toolFailures = await toolFailureClusters(
     heldInTaskIds,
     candidateByTask,
-    input.limits?.maxToolFailureClusters ?? 10,
+    normalizeToolFailureLimits(input.limits),
   );
   return {
     heldInTaskSetHash: heldInTaskSetHash(heldInTaskIds),
     transitionVsLastKept,
     transitionVsPreviousCandidate,
     coverageRegressionTaskIds,
-    errorClassDistribution: errors,
-    toolFailureClusters: toolFailures,
+    errorClassDistribution: errorGroups.map(({ taskIds: _taskIds, ...group }) => group),
+    toolFailureClusters: toolFailures.clusters,
     signals: analysisSignals({
       transitionVsLastKept,
       transitionVsPreviousCandidate,
       coverageRegressionTaskIds,
-      errorClassTaskIds: errorClassTaskIds(heldInTaskIds, candidateByTask),
-      toolFailureClusters: toolFailures,
+      errorGroups,
+      toolFailureClusters: toolFailures.clusters,
+      traceUnavailable: toolFailures.traceUnavailable,
     }),
   };
 }
@@ -138,41 +194,32 @@ function isCovered(event: FixedPromptTaskWalEvent | undefined): boolean {
   return event?.type === 'task_completed' && event.eligible && event.scored;
 }
 
-function errorClassDistribution(
+function safeErrorClassGroups(
   heldInTaskIds: readonly string[],
   events: ReadonlyMap<string, FixedPromptTaskWalEvent>,
-): RsiErrorClassCount[] {
-  const counts = new Map<string, number>();
-  for (const taskId of heldInTaskIds) {
-    const errorClass = events.get(taskId)?.errorClass;
-    if (errorClass) counts.set(errorClass, (counts.get(errorClass) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([errorClass, count]) => ({ errorClass, count }))
-    .sort((a, b) => b.count - a.count || a.errorClass.localeCompare(b.errorClass));
-}
-
-function errorClassTaskIds(
-  heldInTaskIds: readonly string[],
-  events: ReadonlyMap<string, FixedPromptTaskWalEvent>,
-): Map<string, string[]> {
-  const byErrorClass = new Map<string, string[]>();
+): RsiErrorClassGroup[] {
+  const groups = new Map<string, RsiErrorClassGroup>();
   for (const taskId of heldInTaskIds) {
     const errorClass = events.get(taskId)?.errorClass;
     if (!errorClass) continue;
-    const tasks = byErrorClass.get(errorClass) ?? [];
-    tasks.push(taskId);
-    byErrorClass.set(errorClass, tasks);
+    const safeErrorClass = promptSafeToken(errorClass, 'unknown_error');
+    const current = groups.get(safeErrorClass) ?? { errorClass: safeErrorClass, count: 0, taskIds: [] };
+    current.count += 1;
+    current.taskIds.push(taskId);
+    groups.set(safeErrorClass, current);
   }
-  return byErrorClass;
+  return [...groups.values()]
+    .map((group) => ({ ...group, taskIds: [...group.taskIds].sort(compareStrings) }))
+    .sort((a, b) => b.count - a.count || compareStrings(a.errorClass, b.errorClass));
 }
 
 function analysisSignals(input: {
   transitionVsLastKept: readonly RsiTaskTransition[];
   transitionVsPreviousCandidate: readonly RsiTaskTransition[];
   coverageRegressionTaskIds: readonly string[];
-  errorClassTaskIds: ReadonlyMap<string, readonly string[]>;
+  errorGroups: readonly RsiErrorClassGroup[];
   toolFailureClusters: readonly RsiToolFailureCluster[];
+  traceUnavailable: readonly RsiTraceUnavailableGroup[];
 }): RsiAnalysisSignal[] {
   return [
     ...input.transitionVsLastKept.map((transition) => transitionSignal('last_kept', transition)),
@@ -180,18 +227,23 @@ function analysisSignals(input: {
     ...(input.coverageRegressionTaskIds.length > 0
       ? [withSignalId({ kind: 'coverage_regression' as const, taskIds: [...input.coverageRegressionTaskIds] })]
       : []),
-    ...[...input.errorClassTaskIds.entries()]
-      .map(([errorClass, taskIds]) => withSignalId({
+    ...input.errorGroups
+      .map(({ errorClass, count, taskIds }) => withSignalId({
         kind: 'error_class' as const,
         taskIds: [...taskIds],
         errorClass,
-        count: taskIds.length,
-      }))
-      .sort((a, b) => b.count - a.count || a.errorClass.localeCompare(b.errorClass)),
+        count,
+      })),
     ...input.toolFailureClusters.map((cluster) => withSignalId({
       kind: 'tool_failure_cluster' as const,
       taskIds: cluster.taskIds,
       cluster,
+    })),
+    ...input.traceUnavailable.map((unavailable) => withSignalId({
+      kind: 'trace_unavailable' as const,
+      taskIds: unavailable.taskIds,
+      source: unavailable.source,
+      reason: unavailable.reason,
     })),
   ];
 }
@@ -230,17 +282,30 @@ function eventsByHeldInTask(
 async function toolFailureClusters(
   heldInTaskIds: readonly string[],
   events: ReadonlyMap<string, FixedPromptTaskWalEvent>,
-  limit: number,
-): Promise<RsiToolFailureCluster[]> {
+  limits: NormalizedToolFailureLimits,
+): Promise<ToolFailureClusterResult> {
   const clusters = new Map<string, RsiToolFailureCluster & { taskIdSet: Set<string> }>();
+  const traceUnavailable = new Map<string, RsiTraceUnavailableGroup & { taskIdSet: Set<string> }>();
+  if (limits.maxClusters === 0) return { clusters: [], traceUnavailable: [] };
   for (const taskId of heldInTaskIds) {
     const event = events.get(taskId);
-    if (!event || event.type !== 'task_completed' || !event.traceEventsPath) continue;
-    const callsById = await functionCallsById(event.runtimeEventsPath);
-    const traceEvents = await readJsonl(event.traceEventsPath);
-    for (const traceEvent of traceEvents) {
-      const failure = toolFailureDigest(traceEvent, callsById);
+    if (!event || !hasToolFailureArtifacts(event)) continue;
+    const callsById = await functionCallsById(event.runtimeEventsPath, limits);
+    if (!callsById.ok) {
+      addTraceUnavailable(traceUnavailable, taskId, 'runtime', callsById.reason);
+      continue;
+    }
+    const traceEvents = await readBoundedJsonl(event.traceEventsPath, limits);
+    if (!traceEvents.ok) {
+      addTraceUnavailable(traceUnavailable, taskId, 'trace', traceEvents.reason);
+      continue;
+    }
+    let failureEvents = 0;
+    for (const traceEvent of traceEvents.events) {
+      if (failureEvents >= limits.maxEventsPerTask) break;
+      const failure = toolFailureDigest(traceEvent, callsById.value);
       if (!failure) continue;
+      failureEvents += 1;
       const key = [failure.name, failure.errorClass ?? '', failure.argsPreview ?? ''].join('\0');
       const current = clusters.get(key) ?? {
         ...failure,
@@ -254,36 +319,72 @@ async function toolFailureClusters(
     }
   }
 
-  return [...clusters.values()]
-    .map(({ taskIdSet, ...cluster }) => ({
-      ...cluster,
-      taskIds: [...taskIdSet].sort((a, b) => a.localeCompare(b)),
-    }))
-    .sort(compareToolFailureClusters)
-    .slice(0, limit);
+  return {
+    clusters: [...clusters.values()]
+      .map(({ taskIdSet, ...cluster }) => ({
+        ...cluster,
+        taskIds: [...taskIdSet].sort(compareStrings),
+      }))
+      .sort(compareToolFailureClusters)
+      .slice(0, limits.maxClusters),
+    traceUnavailable: [...traceUnavailable.values()]
+      .map(({ taskIdSet, ...group }) => ({
+        ...group,
+        taskIds: [...taskIdSet].sort(compareStrings),
+      }))
+      .sort(compareTraceUnavailable),
+  };
 }
 
-async function functionCallsById(path: string): Promise<Map<string, { name: string; argsPreview: string }>> {
+async function functionCallsById(
+  path: string,
+  limits: NormalizedToolFailureLimits,
+): Promise<FunctionCallsByIdResult> {
+  const runtimeEvents = await readBoundedJsonl(path, limits);
+  if (!runtimeEvents.ok) return runtimeEvents;
   const calls = new Map<string, { name: string; argsPreview: string }>();
-  const runtimeEvents = await readJsonl(path);
-  for (const event of runtimeEvents) {
+  for (const event of runtimeEvents.events) {
     if (!isRecord(event) || !isRecord(event.content)) continue;
     const content = event.content;
     if (content.kind !== 'function_call' || typeof content.id !== 'string' || typeof content.name !== 'string') continue;
     calls.set(content.id, {
       name: promptSafeToken(content.name, 'unknown_tool'),
-      argsPreview: argsPreview(content.args),
+      argsPreview: argsPreview(content.args, limits.maxArgsKeys),
     });
   }
-  return calls;
+  return { ok: true, value: calls };
 }
 
-async function readJsonl(path: string): Promise<unknown[]> {
-  const raw = await readFile(path, 'utf8');
-  return raw
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as unknown);
+async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimits): Promise<BoundedJsonlResult> {
+  let size: number;
+  try {
+    size = (await stat(path)).size;
+  } catch (error) {
+    return { ok: false, reason: isNotFound(error) ? 'missing_file' : 'unreadable' };
+  }
+  if (size > limits.maxJsonlBytes) return { ok: false, reason: 'input_limit_exceeded' };
+
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    return { ok: false, reason: isNotFound(error) ? 'missing_file' : 'unreadable' };
+  }
+  if (Buffer.byteLength(raw, 'utf8') > limits.maxJsonlBytes) {
+    return { ok: false, reason: 'input_limit_exceeded' };
+  }
+  const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+  if (lines.length > limits.maxJsonlLines) return { ok: false, reason: 'input_limit_exceeded' };
+
+  const events: unknown[] = [];
+  for (const line of lines) {
+    try {
+      events.push(JSON.parse(line) as unknown);
+    } catch {
+      return { ok: false, reason: 'invalid_jsonl' };
+    }
+  }
+  return { ok: true, events };
 }
 
 function toolFailureDigest(
@@ -303,18 +404,66 @@ function toolFailureDigest(
 
 function compareToolFailureClusters(a: RsiToolFailureCluster, b: RsiToolFailureCluster): number {
   return b.count - a.count
-    || a.name.localeCompare(b.name)
-    || (a.errorClass ?? '').localeCompare(b.errorClass ?? '')
-    || (a.argsPreview ?? '').localeCompare(b.argsPreview ?? '')
-    || a.taskIds.join(',').localeCompare(b.taskIds.join(','));
+    || compareStrings(a.name, b.name)
+    || compareStrings(a.errorClass ?? '', b.errorClass ?? '')
+    || compareStrings(a.argsPreview ?? '', b.argsPreview ?? '')
+    || compareStrings(a.taskIds.join(','), b.taskIds.join(','));
 }
 
-function argsPreview(args: unknown): string {
+function compareTraceUnavailable(a: RsiTraceUnavailableGroup, b: RsiTraceUnavailableGroup): number {
+  return compareStrings(a.source, b.source)
+    || compareStrings(a.reason, b.reason)
+    || compareStrings(a.taskIds.join(','), b.taskIds.join(','));
+}
+
+function argsPreview(args: unknown, maxKeys: number): string {
   if (!isRecord(args)) return typeof args;
+  if (maxKeys === 0) return '';
   return Object.keys(args)
     .map((key) => promptSafeToken(key, 'arg'))
-    .sort((a, b) => a.localeCompare(b))
+    .sort(compareStrings)
+    .slice(0, maxKeys)
     .join(',');
+}
+
+function addTraceUnavailable(
+  groups: Map<string, RsiTraceUnavailableGroup & { taskIdSet: Set<string> }>,
+  taskId: string,
+  source: RsiTraceUnavailableSource,
+  reason: RsiTraceUnavailableReason,
+): void {
+  const key = `${source}\0${reason}`;
+  const current = groups.get(key) ?? { source, reason, taskIds: [], taskIdSet: new Set<string>() };
+  current.taskIdSet.add(taskId);
+  groups.set(key, current);
+}
+
+function hasToolFailureArtifacts(event: FixedPromptTaskWalEvent): event is FixedPromptTaskWalEvent & {
+  runtimeEventsPath: string;
+  traceEventsPath: string;
+} {
+  return 'runtimeEventsPath' in event
+    && typeof event.runtimeEventsPath === 'string'
+    && typeof event.traceEventsPath === 'string';
+}
+
+function normalizeToolFailureLimits(limits: AnalyzeRsiRoundInput['limits']): NormalizedToolFailureLimits {
+  return {
+    maxClusters: nonNegativeInt(limits?.maxToolFailureClusters, DEFAULT_MAX_TOOL_FAILURE_CLUSTERS),
+    maxJsonlBytes: nonNegativeInt(limits?.maxToolFailureJsonlBytes, DEFAULT_MAX_TOOL_FAILURE_JSONL_BYTES),
+    maxJsonlLines: nonNegativeInt(limits?.maxToolFailureJsonlLines, DEFAULT_MAX_TOOL_FAILURE_JSONL_LINES),
+    maxEventsPerTask: nonNegativeInt(limits?.maxToolFailureEventsPerTask, DEFAULT_MAX_TOOL_FAILURE_EVENTS_PER_TASK),
+    maxArgsKeys: nonNegativeInt(limits?.maxToolFailureArgsKeys, DEFAULT_MAX_TOOL_FAILURE_ARGS_KEYS),
+  };
+}
+
+function nonNegativeInt(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.trunc(value));
+}
+
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function promptSafeToken(value: string, fallback: string): string {
@@ -322,10 +471,14 @@ function promptSafeToken(value: string, fallback: string): string {
   return fallback;
 }
 
+function isNotFound(error: unknown): boolean {
+  return isRecord(error) && error.code === 'ENOENT';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+  return [...new Set(values)].sort(compareStrings);
 }
