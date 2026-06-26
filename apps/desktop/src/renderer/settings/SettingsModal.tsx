@@ -1490,11 +1490,15 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   const [defaultConnectionSlug, setDefaultConnectionSlug] = useState<string | null>(null);
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const savingKeyRef = useRef<string | null>(null);
+  const runningModeRef = useRef<DailyReviewMode | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      savingKeyRef.current = null;
+      runningModeRef.current = null;
     };
   }, []);
 
@@ -1554,33 +1558,47 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   }, []);
 
   async function patchConfig(key: string, patch: Partial<DailyReviewConfig>) {
-    if (!dailyReviewIpc.setConfig || !config) return;
+    if (!dailyReviewIpc.setConfig || !config || savingKeyRef.current !== null) return;
+    savingKeyRef.current = key;
     setSavingKey(key);
     try {
       const next = await dailyReviewIpc.setConfig(patch);
-      if (mountedRef.current) setConfig(next);
+      if (mountedRef.current && savingKeyRef.current === key) setConfig(next);
     } catch (err) {
-      toast.error('保存每日回顾设置失败', settingsActionErrorMessage(err));
+      if (mountedRef.current && savingKeyRef.current === key) {
+        toast.error('保存每日回顾设置失败', settingsActionErrorMessage(err));
+      }
     } finally {
+      if (savingKeyRef.current === key) {
+        savingKeyRef.current = null;
+      }
       if (mountedRef.current) setSavingKey(null);
     }
   }
 
   async function triggerRun(mode: DailyReviewMode) {
-    if (!dailyReviewIpc.runOnce) return;
+    if (!dailyReviewIpc.runOnce || runningModeRef.current !== null) return;
+    runningModeRef.current = mode;
     setRunningMode(mode);
     try {
       await dailyReviewIpc.runOnce({ mode });
-      toast.success(mode === 'daily' ? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。');
+      if (mountedRef.current && runningModeRef.current === mode) {
+        toast.success(mode === 'daily' ? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。');
+      }
     } catch (err) {
-      toast.error('生成回顾失败', settingsActionErrorMessage(err));
+      if (mountedRef.current && runningModeRef.current === mode) {
+        toast.error('生成回顾失败', settingsActionErrorMessage(err));
+      }
     } finally {
+      if (runningModeRef.current === mode) {
+        runningModeRef.current = null;
+      }
       if (mountedRef.current) setRunningMode(null);
     }
   }
 
   const effectiveConfig = config;
-  const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig;
+  const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig || savingKey !== null;
   const modelOptions = useMemo(
     () => buildDailyReviewModelOptions(modelConnections, defaultConnectionSlug, effectiveConfig?.modelKey ?? ''),
     [defaultConnectionSlug, effectiveConfig?.modelKey, modelConnections],
