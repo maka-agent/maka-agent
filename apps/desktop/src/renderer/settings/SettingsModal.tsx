@@ -6654,7 +6654,27 @@ function OsPermissionRow(props: {
           <small className="settingsOsPermissionReason">{snapshot.reason}</small>
         ) : null}
       </div>
+      {/* PR-PERMISSIONS-UNIFIED-CARD-0 (WAWQAQ msg `d3ea9a33`
+          2026-06-26): the action buttons used to stack vertically with
+          two competing button styles (primary + secondary). Order so
+          the primary "请求授权" anchors the right edge, with the
+          system-settings link as a quieter ghost variant on the left.
+          When only one button is shown (e.g. the OS doesn't expose a
+          request flow for the permission), it still falls under the
+          primary slot — no awkward "lonely secondary" state. */}
       <div className="settingsOsPermissionActions">
+        {showOpenSettings && (
+          <Button
+            type="button"
+            variant={showRequest ? 'ghost' : 'default'}
+            size="sm"
+            onClick={props.onOpenSettings}
+            disabled={busy}
+            aria-busy={pendingKey === 'openSettings' ? 'true' : undefined}
+          >
+            {pendingKey === 'openSettings' ? '打开中…' : '前往系统设置'}
+          </Button>
+        )}
         {showRequest && (
           <Button
             type="button"
@@ -6664,18 +6684,6 @@ function OsPermissionRow(props: {
             aria-busy={pendingKey === 'request' ? 'true' : undefined}
           >
             {pendingKey === 'request' ? '请求中…' : '请求授权'}
-          </Button>
-        )}
-        {showOpenSettings && (
-          <Button
-            type="button"
-            variant={showRequest ? 'secondary' : 'default'}
-            size="sm"
-            onClick={props.onOpenSettings}
-            disabled={busy}
-            aria-busy={pendingKey === 'openSettings' ? 'true' : undefined}
-          >
-            {pendingKey === 'openSettings' ? '打开中…' : '前往系统设置'}
           </Button>
         )}
       </div>

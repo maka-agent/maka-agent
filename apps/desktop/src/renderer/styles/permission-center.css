@@ -333,34 +333,47 @@
     color: var(--foreground-70);
   }
 
+  /* PR-PERMISSIONS-UNIFIED-CARD-0 (WAWQAQ msg `d3ea9a33` 2026-06-26):
+     "权限与能力，里面的权限部分都是应该并在一块的，现在不是一个单独
+     的权限组件，和其他的组件不一样". The OS-permission rows used to
+     each render as their own bordered card with a 12px gap between
+     them, so the section read as 4 floating chips instead of one
+     grouped settings card. Wrap them in a single outer card (border +
+     radius + background) and have each row contribute just a bottom
+     hairline divider — same shape as `.settingsRows` on the General /
+     Bot Chat / Daily Review pages. */
   .settingsOsPermissionList {
     list-style: none;
     padding: 0;
     margin: 0;
-    display: grid;
-    /* PR-SETTINGS-PERMISSION-POLISH-0 (WAWQAQ msg `6a04b077` reference
-       comparison): cards looked cramped at 6px gap; reference has ~12px
-       between cards so each row breathes. */
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
+    overflow: hidden;
   }
 
-  /* PR-PERMISSION-PAGE-REDESIGN: card layout with icon + body + actions.
-     PR-SETTINGS-PERMISSION-POLISH-0 (round 16): bumped padding 12/14 → 16/18,
-     icon track 32 → 36, label 14 → 15, purpose 12.5 → 13 + 1.5 line-height.
-     Status-tinted icon bg so reference's pastel chip-icon feel survives. */
+  /* Per-row hairline divider — last child drops it so the outer card
+     border closes cleanly. */
+  .settingsOsPermissionRow + .settingsOsPermissionRow {
+    border-top: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  }
+
+  /* PR-PERMISSION-PAGE-REDESIGN: icon + body + actions row layout.
+     PR-PERMISSIONS-UNIFIED-CARD-0: dropped the per-row border + radius
+     + shadow that ran against the outer grouped card. The status-tinted
+     border now lives as a left-edge accent stripe (see status rules
+     below) so denied / granted / not_determined still read at a glance. */
   .settingsOsPermissionRow {
+    position: relative;
     display: grid;
     grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: flex-start;
     gap: 14px;
     padding: 16px 18px;
-    border: 1px solid var(--card-border-color, var(--border));
-    border-radius: var(--card-radius, 10px);
-    background: var(--card-bg, var(--background));
-    box-shadow:
-      var(--card-shadow, none),
-      var(--card-highlight, none);
-    transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong);
+    background: var(--background);
+    transition: background 160ms var(--ease-out-strong);
   }
 
   .settingsOsPermissionIcon {
@@ -434,22 +447,47 @@
     font-style: italic;
   }
 
+  /* PR-PERMISSIONS-UNIFIED-CARD-0: action buttons used to stack
+     vertically (column / align-items: flex-end / 6px gap), which read
+     as "two separate options" rather than a primary + secondary pair.
+     Lay them out horizontally with the primary "请求授权" on the right
+     so the eye-tracking matches `.settingsPageFooterActions` and the
+     reference Settings rows elsewhere. The two buttons share size="sm"
+     so the row height stays flush; the secondary "前往系统设置" uses
+     `variant="ghost"` (less competing chrome) so the primary visibly
+     anchors the row. */
   .settingsOsPermissionActions {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: flex-end;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
     flex-shrink: 0;
   }
 
-  .settingsOsPermissionRow[data-state="denied"] {
-    border-color: oklch(from var(--destructive) l c h / 0.30);
+  /* PR-PERMISSIONS-UNIFIED-CARD-0: status accents live as left-edge
+     stripes on the outer grouped card so denied / not_determined /
+     granted are visible at a glance without re-introducing per-row
+     borders that fight the unified card. */
+  .settingsOsPermissionRow[data-state="denied"]::before,
+  .settingsOsPermissionRow[data-state="not_determined"]::before,
+  .settingsOsPermissionRow[data-state="granted"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
   }
-  .settingsOsPermissionRow[data-state="not_determined"] {
-    border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
+  .settingsOsPermissionRow[data-state="denied"]::before {
+    background: oklch(from var(--destructive) l c h / 0.55);
   }
-  .settingsOsPermissionRow[data-state="granted"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
+  .settingsOsPermissionRow[data-state="not_determined"]::before {
+    background: oklch(from var(--warning, var(--info)) l c h / 0.55);
+  }
+  .settingsOsPermissionRow[data-state="granted"]::before {
+    background: oklch(from var(--success) l c h / 0.45);
   }
   .settingsOsPermissionRow[data-state="granted"] .settingsOsPermissionIcon {
     background: oklch(from var(--success) l c h / 0.08);
