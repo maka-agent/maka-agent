@@ -3677,10 +3677,10 @@ async function streamEvents(
       if (isTurnStatusChangingSessionEvent(event)) {
         emitSessionsChanged('turn-status-change', sessionId);
       }
-      if (!finalAppendBroadcasted && isFinalSessionEvent(event)) {
-        emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
+    }
+    if (!finalAppendBroadcasted) {
+      emitSessionsChanged('message-appended', sessionId);
+      finalAppendBroadcasted = true;
     }
   } catch (error) {
     const event = {
@@ -3699,6 +3699,7 @@ async function streamEvents(
     emitSessionsChanged('turn-status-change', sessionId);
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
+      finalAppendBroadcasted = true;
     }
   }
 }
@@ -4020,10 +4021,10 @@ async function collectBotReply(
       if (isTurnStatusChangingSessionEvent(event)) {
         emitSessionsChanged('turn-status-change', sessionId);
       }
-      if (!finalAppendBroadcasted && isFinalSessionEvent(event)) {
-        emitSessionsChanged('message-appended', sessionId);
-        finalAppendBroadcasted = true;
-      }
+    }
+    if (!finalAppendBroadcasted) {
+      emitSessionsChanged('message-appended', sessionId);
+      finalAppendBroadcasted = true;
     }
   } catch (error) {
     safeSendToRenderer(`sessions:event:${sessionId}`, {
@@ -4038,7 +4039,10 @@ async function collectBotReply(
     } satisfies SessionEvent);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
-    if (!finalAppendBroadcasted) emitSessionsChanged('message-appended', sessionId);
+    if (!finalAppendBroadcasted) {
+      emitSessionsChanged('message-appended', sessionId);
+      finalAppendBroadcasted = true;
+    }
     return `Maka 处理失败：${errorMessage(error)}`;
   }
   return latestText;
