@@ -23,6 +23,7 @@ export interface SessionStore {
   appendMessage(sessionId: string, message: StoredMessage): Promise<void>;
   appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void>;
   updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader>;
+  markSessionReadThrough(sessionId: string, readThroughTs: number): Promise<SessionHeader>;
   archive(sessionId: string): Promise<void>;
   unarchive(sessionId: string): Promise<void>;
   setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
@@ -163,6 +164,22 @@ class FileSessionStore implements SessionStore {
     await this.withQueue(sessionId, async () => {
       const { header, messages } = await this.readFilePartsUnlocked(sessionId);
       nextHeader = { ...header, ...patch };
+      const lines = [JSON.stringify(nextHeader), ...messages.map((message) => JSON.stringify(message))];
+      await this.writeAtomic(this.sessionPath(sessionId), lines.join('\n') + '\n');
+    });
+    if (!nextHeader) throw new Error(`Failed to update session ${sessionId}`);
+    return nextHeader;
+  }
+
+  async markSessionReadThrough(sessionId: string, readThroughTs: number): Promise<SessionHeader> {
+    let nextHeader: SessionHeader | undefined;
+    await this.withQueue(sessionId, async () => {
+      const { header, messages } = await this.readFilePartsUnlocked(sessionId);
+      if (!Number.isFinite(readThroughTs) || !header.hasUnread || (header.lastMessageAt !== undefined && header.lastMessageAt > readThroughTs)) {
+        nextHeader = header;
+        return;
+      }
+      nextHeader = { ...header, hasUnread: false };
       const lines = [JSON.stringify(nextHeader), ...messages.map((message) => JSON.stringify(message))];
       await this.writeAtomic(this.sessionPath(sessionId), lines.join('\n') + '\n');
     });

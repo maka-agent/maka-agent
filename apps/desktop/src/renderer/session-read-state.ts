@@ -7,7 +7,7 @@ export interface SessionListRefresher {
 }
 
 export interface SessionListRefresherOptions {
-  listSessions: () => Promise<readonly SessionSummary[]>;
+  listSessions: () => Promise<SessionSummary[]>;
   readBoundaries: () => Readonly<SessionReadBoundaries>;
   currentSessions: () => SessionSummary[];
   commitSessions: (sessions: SessionSummary[]) => void;
@@ -25,7 +25,7 @@ export function rememberSessionReadBoundary(
 }
 
 export function applySessionReadOverrides(
-  sessions: readonly SessionSummary[],
+  sessions: SessionSummary[],
   boundaries: Readonly<SessionReadBoundaries>,
 ): SessionSummary[] {
   let changed = false;
@@ -36,12 +36,12 @@ export function applySessionReadOverrides(
     changed = true;
     return { ...session, hasUnread: false };
   });
-  return changed ? next : [...sessions];
+  return changed ? next : sessions;
 }
 
 export function applyLocalSessionRead(
   boundaries: SessionReadBoundaries,
-  sessions: readonly SessionSummary[],
+  sessions: SessionSummary[],
   sessionId: string,
   readMessages: readonly StoredMessage[],
 ): SessionSummary[] {

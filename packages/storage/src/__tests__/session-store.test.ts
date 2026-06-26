@@ -69,6 +69,23 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('markSessionReadThrough clears unread only through the current last message', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Unread' }));
+      await store.updateHeader(header.id, { hasUnread: true, lastMessageAt: 250 });
+
+      const unchanged = await store.markSessionReadThrough(header.id, 200);
+      assert.equal(unchanged.lastMessageAt, 250);
+      assert.equal(unchanged.hasUnread, true);
+      assert.equal((await store.readHeader(header.id)).hasUnread, true);
+
+      const cleared = await store.markSessionReadThrough(header.id, 250);
+      assert.equal(cleared.lastMessageAt, 250);
+      assert.equal(cleared.hasUnread, false);
+      assert.equal((await store.readHeader(header.id)).hasUnread, false);
+    });
+  });
+
   test('rename trims whitespace, rejects empty strings, and caps absurd lengths', async () => {
     await withStore(async (store) => {
       const header = await store.create(makeInput({ name: 'Old' }));

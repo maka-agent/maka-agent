@@ -378,11 +378,29 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(session.id)).hasUnread).toBe(true);
   });
 
-  test('markSessionRead rejects when the unread header write fails', async () => {
+  test('markSessionRead keeps unread when a newer message finalizes between the read check and write', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_633) });
+    const session = await manager.createSession(makeInput());
+    await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
+    store.interleaveBeforeMarkSessionReadWriteFor.set(session.id, async () => {
+      await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 250 });
+    });
+
+    await manager.markSessionRead(session.id, 200);
+
+    const header = await store.readHeader(session.id);
+    expect(header.lastMessageAt).toBe(250);
+    expect(header.hasUnread).toBe(true);
+  });
+
+  test('markSessionRead rejects when the unread header write fails', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_634) });
     const session = await manager.createSession(makeInput());
     await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
     store.failUpdateHeaderFor.add(session.id);
@@ -3045,6 +3063,7 @@ class MemorySessionStore implements SessionStore {
   readonly failNextReadMessagesFor = new Map<string, number>();
   readonly failListTurnsFor = new Set<string>();
   readonly failUpdateHeaderFor = new Set<string>();
+  readonly interleaveBeforeMarkSessionReadWriteFor = new Map<string, () => Promise<void> | void>();
   disposeCount = 0;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
@@ -3083,6 +3102,7 @@ class MemorySessionStore implements SessionStore {
   async readHeader(sessionId: string): Promise<SessionHeader> {
     const header = this.headers.get(sessionId);
     if (!header) throw new Error(`Unknown session ${sessionId}`);
+    await this.runMarkSessionReadInterleave(sessionId);
     return header;
   }
 
@@ -3116,6 +3136,24 @@ class MemorySessionStore implements SessionStore {
     const next = { ...current, ...patch };
     this.headers.set(sessionId, next);
     return next;
+  }
+
+  async markSessionReadThrough(sessionId: string, readThroughTs: number): Promise<SessionHeader> {
+    await this.runMarkSessionReadInterleave(sessionId);
+    if (this.failUpdateHeaderFor.has(sessionId)) throw new Error(`Cannot update header for ${sessionId}`);
+    const current = await this.readHeader(sessionId);
+    if (!current.hasUnread) return current;
+    if (current.lastMessageAt !== undefined && current.lastMessageAt > readThroughTs) return current;
+    const next = { ...current, hasUnread: false };
+    this.headers.set(sessionId, next);
+    return next;
+  }
+
+  private async runMarkSessionReadInterleave(sessionId: string): Promise<void> {
+    const hook = this.interleaveBeforeMarkSessionReadWriteFor.get(sessionId);
+    if (!hook) return;
+    this.interleaveBeforeMarkSessionReadWriteFor.delete(sessionId);
+    await hook();
   }
 
   async archive(sessionId: string): Promise<void> {

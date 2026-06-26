@@ -32,6 +32,14 @@ describe('renderer session read state', () => {
     assert.equal(next?.hasUnread, true);
   });
 
+  it('keeps the same list reference when no read override applies', () => {
+    const sessions = [session({ id: 's1', hasUnread: true, lastMessageAt: 250 })];
+
+    const next = applySessionReadOverrides(sessions, {});
+
+    assert.equal(next, sessions);
+  });
+
   it('keeps newer unread when an older local read result arrives later', () => {
     const readBoundaries: SessionReadBoundaries = {};
 
