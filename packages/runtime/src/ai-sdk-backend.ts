@@ -116,9 +116,12 @@ import {
   rawEvidenceRequestReason,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
+  searchRuntimeEventHistory,
   selectSynthesisCacheForReplay,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
+  type RuntimeEventHistoryAroundResult,
+  type RuntimeEventHistorySearchPolicy,
   type StaleToolResultArchiveCandidate,
   type SynthesisCacheBlock,
   type SynthesisSourceRef,
@@ -1022,19 +1025,20 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     const historySearchSource = buildHistorySearchSource(priorRuntimeContext, contextBudget);
-    const historyAround = retrieveRuntimeEventHistoryAround(
-      historySearchSource,
-      input.text,
-      contextBudget?.historySearch,
-      {
-        charsPerToken: contextBudget?.charsPerToken,
-        // Match archived-result body text for gated retrieval without making
-        // the full pre-prune result model-visible through history replay.
-        ...(contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
-          ? { searchEvents: priorRuntimeContext }
-          : {}),
-      },
-    );
+    const historyAround = contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
+      ? retrieveReplayHistoryAroundSearchSource(
+          historySearchSource,
+          priorRuntimeContext,
+          input.text,
+          contextBudget?.historySearch,
+          { charsPerToken: contextBudget?.charsPerToken },
+        )
+      : retrieveRuntimeEventHistoryAround(
+          historySearchSource,
+          input.text,
+          contextBudget?.historySearch,
+          { charsPerToken: contextBudget?.charsPerToken },
+        );
     const archiveRetrievalAllowedTurnIds = contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
       ? new Set(historyAround.events.map((event) => runtimeEventTurnKey(event)))
       : undefined;
@@ -1721,6 +1725,63 @@ function buildContextBudgetDiagnosticShell(
 
 function runtimeEventTurnKey(event: RuntimeEvent): string {
   return event.turnId || '<unknown-turn>';
+}
+
+function retrieveReplayHistoryAroundSearchSource(
+  replayEvents: readonly RuntimeEvent[],
+  searchEvents: readonly RuntimeEvent[],
+  query: string,
+  policy: RuntimeEventHistorySearchPolicy | undefined,
+  options: { charsPerToken?: number } = {},
+): RuntimeEventHistoryAroundResult {
+  if (policy?.enabled !== true) {
+    return { events: [], hits: [], diagnosticPatch: {} };
+  }
+  const charsPerToken = options.charsPerToken ?? 4;
+  const around = Math.max(0, Math.floor(policy.around ?? 1));
+  const maxEstimatedTokens = typeof policy.maxEstimatedTokens === 'number'
+    && Number.isFinite(policy.maxEstimatedTokens)
+    && policy.maxEstimatedTokens > 0
+    ? Math.floor(policy.maxEstimatedTokens)
+    : 4_096;
+  const hits = searchRuntimeEventHistory(searchEvents, policy.query ?? query, policy);
+  const selectedIndexes = new Set<number>();
+  const indexesByEventId = new Map(replayEvents.map((event, index) => [event.id, index]));
+  let skipped = 0;
+  for (const hit of hits) {
+    const index = indexesByEventId.get(hit.eventId);
+    if (index === undefined) {
+      skipped += 1;
+      continue;
+    }
+    for (let cursor = Math.max(0, index - around); cursor <= Math.min(replayEvents.length - 1, index + around); cursor += 1) {
+      selectedIndexes.add(cursor);
+    }
+  }
+
+  const selectedEvents: RuntimeEvent[] = [];
+  let selectedTokens = 0;
+  for (const index of [...selectedIndexes].sort((a, b) => a - b)) {
+    const event = replayEvents[index]!;
+    const estimate = estimateRuntimeEventsTokens([event], charsPerToken);
+    if (selectedTokens + estimate > maxEstimatedTokens) {
+      skipped += 1;
+      continue;
+    }
+    selectedEvents.push(event);
+    selectedTokens += estimate;
+  }
+
+  return {
+    events: selectedEvents,
+    hits,
+    diagnosticPatch: {
+      historySearchMatches: hits.length,
+      historyAroundRetrievedEvents: selectedEvents.length,
+      historyAroundEstimatedTokens: selectedTokens,
+      ...(skipped > 0 ? { historyAroundSkippedEvents: skipped } : {}),
+    },
+  };
 }
 
 function buildHistorySearchSource(

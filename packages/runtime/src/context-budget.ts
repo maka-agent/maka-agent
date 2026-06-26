@@ -839,7 +839,7 @@ export function retrieveRuntimeEventHistoryAround(
   events: readonly RuntimeEvent[],
   query: string,
   policy: RuntimeEventHistorySearchPolicy | undefined,
-  options: { charsPerToken?: number; searchEvents?: readonly RuntimeEvent[] } = {},
+  options: { charsPerToken?: number } = {},
 ): RuntimeEventHistoryAroundResult {
   if (policy?.enabled !== true) {
     return { events: [], hits: [], diagnosticPatch: {} };
@@ -847,7 +847,7 @@ export function retrieveRuntimeEventHistoryAround(
   const charsPerToken = options.charsPerToken ?? 4;
   const around = Math.max(0, Math.floor(policy.around ?? 1));
   const maxEstimatedTokens = finitePositive(policy.maxEstimatedTokens) ?? 4_096;
-  const hits = searchRuntimeEventHistory(options.searchEvents ?? events, policy.query ?? query, policy);
+  const hits = searchRuntimeEventHistory(events, policy.query ?? query, policy);
   const selectedIndexes = new Set<number>();
   const indexesByEventId = new Map(events.map((event, index) => [event.id, index]));
   for (const hit of hits) {
