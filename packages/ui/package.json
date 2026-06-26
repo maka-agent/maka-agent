@@ -16,7 +16,8 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run clean && npm run build && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

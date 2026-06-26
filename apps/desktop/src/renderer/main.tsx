@@ -208,13 +208,11 @@ function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModel
       const trimmed = model.trim();
       if (!trimmed || seen.has(trimmed)) continue;
       seen.add(trimmed);
-      /* PR-CHAT-MODEL-CHOICE-DROP-LABEL-0 (round 23/30): dropped
-         `label: ${connection.name} · ${trimmed}` — the model
-         switcher no longer renders this string (PR-CHAT-CHROME-
-         FIX-0 changed items to show just `choice.model`). */
+      /* No connection name/label here: `connection.name` embeds the OAuth
+         account email (PR-CHAT-CHROME-FIX-0). The menu heading is derived
+         from `providerType` (+ slug on collision) in `modelMenuGroups`. */
       choices.push({
         connectionSlug: connection.slug,
-        connectionLabel: connection.name,
         providerType: connection.providerType,
         model: trimmed,
       });

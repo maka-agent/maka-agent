@@ -28,43 +28,40 @@ import {
 import { Settings } from './icons.js';
 import {
   type ChatModelChoice,
-  groupModelChoices,
+  type ModelMenuGroup,
+  modelMenuGroups,
   modelChoiceValue,
   parseModelChoiceValue,
 } from './chat-model-helpers.js';
-import { type SessionSummary, providerTypeLabel } from '@maka/core';
+import { type SessionSummary } from '@maka/core';
 
 /**
  * Shared grouped option rows for both model pickers: one `<SelectItem>` per
- * model, grouped under a provider heading. The heading text comes from the
- * provider TYPE (`providerTypeLabel`), never the connection name — connection
- * names embed the OAuth account email, which must not surface here. The
- * selected-row check is the `SelectItem` primitive's built-in `ItemIndicator`.
+ * model, grouped under a leak-safe heading from `modelMenuGroups` — the short
+ * provider label, disambiguated by connection slug when the same provider has
+ * multiple connections. The heading never derives from the connection name
+ * (which embeds the OAuth account email). The selected-row check is the
+ * `SelectItem` primitive's built-in `ItemIndicator`.
  */
-function ModelChoiceOptions({ groups }: { groups: ReturnType<typeof groupModelChoices> }) {
+function ModelChoiceOptions({ groups }: { groups: ModelMenuGroup[] }) {
   return (
     <>
-      {groups.map((group) => {
-        const providerType = group.choices[0]?.providerType;
-        return (
-          <SelectGroup key={group.connectionSlug} className="maka-model-switcher-group">
-            {providerType && (
-              <SelectGroupLabel className="maka-model-switcher-group-label">
-                {providerTypeLabel(providerType)}
-                <span className="maka-model-switcher-group-count">{group.choices.length}</span>
-              </SelectGroupLabel>
-            )}
-            {group.choices.map((choice) => (
-              <SelectItem
-                key={modelChoiceValue(choice.connectionSlug, choice.model)}
-                value={modelChoiceValue(choice.connectionSlug, choice.model)}
-              >
-                <span className="maka-model-switcher-item-main">{choice.model}</span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        );
-      })}
+      {groups.map((group) => (
+        <SelectGroup key={group.connectionSlug} className="maka-model-switcher-group">
+          <SelectGroupLabel className="maka-model-switcher-group-label">
+            {group.heading}
+            <span className="maka-model-switcher-group-count">{group.choices.length}</span>
+          </SelectGroupLabel>
+          {group.choices.map((choice) => (
+            <SelectItem
+              key={modelChoiceValue(choice.connectionSlug, choice.model)}
+              value={modelChoiceValue(choice.connectionSlug, choice.model)}
+            >
+              <span className="maka-model-switcher-item-main">{choice.model}</span>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      ))}
     </>
   );
 }
@@ -88,7 +85,7 @@ export function ChatModelSwitcher(props: {
   const currentValue = modelChoiceValue(props.activeSession.llmConnectionSlug, currentModel);
   const pending = props.pending || localPending;
   const disabled = pending || Boolean(props.disabledReason) || !props.onChange || props.choices.length === 0;
-  const grouped = groupModelChoices(props.choices);
+  const grouped = modelMenuGroups(props.choices);
   const currentKnownChoice = props.choices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue);
   const modelSelectItems = useMemo(
     () => [
@@ -223,7 +220,7 @@ export function NewChatModelPicker(props: {
   currentValue?: string;
   onPick(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
 }) {
-  const grouped = groupModelChoices(props.choices);
+  const grouped = modelMenuGroups(props.choices);
   return (
     <SelectRoot<string>
       items={props.choices.map((choice) => ({

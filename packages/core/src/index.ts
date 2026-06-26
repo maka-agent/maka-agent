@@ -580,11 +580,9 @@ export type {
 export {
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,
-  PROVIDER_TYPE_LABEL,
   CATALOG_PROVIDER_TYPES,
   READY_PROVIDER_TYPES,
   backendKindOf,
-  providerTypeLabel,
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,

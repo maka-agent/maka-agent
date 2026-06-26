@@ -23,36 +23,6 @@ export type ProviderType =
   | 'codex-subscription'
   | 'gemini-cli';
 
-/**
- * Short, human-facing provider names, safe to show anywhere.
- *
- * Keyed by `ProviderType` (an enum), so it can NEVER leak the per-connection
- * `LlmConnection.name`, which for OAuth/subscription connections embeds the
- * account email (e.g. `Codex OAuth · user@example.com`). Use this for grouping
- * labels and chips; use `connection.name` only where the account identity is
- * intentionally shown. Exhaustive `Record` so adding a `ProviderType` forces a
- * label here.
- */
-export const PROVIDER_TYPE_LABEL: Record<ProviderType, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  google: 'Google',
-  deepseek: 'DeepSeek',
-  moonshot: 'Moonshot',
-  ollama: 'Ollama',
-  'kimi-coding-plan': 'Kimi',
-  'zai-coding-plan': 'Z.AI',
-  'openai-compatible': '自定义',
-  'claude-subscription': 'Claude 订阅',
-  'codex-subscription': 'Codex 订阅',
-  'gemini-cli': 'Gemini CLI',
-};
-
-/** Display name for a provider type, falling back to the raw type if unknown. */
-export function providerTypeLabel(type: ProviderType): string {
-  return PROVIDER_TYPE_LABEL[type] ?? type;
-}
-
 export type ProviderCategory = 'oauth' | 'domestic' | 'overseas' | 'local' | 'custom';
 
 export type ConnectionAuth =
