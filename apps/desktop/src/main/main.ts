@@ -52,6 +52,7 @@ import type {
   SessionEvent,
   SessionHeader,
   SessionListFilter,
+  StoredMessage,
   SettingsTestResult,
   UpdateAppSettingsResult,
   UpdateConnectionInput,
@@ -2625,7 +2626,7 @@ function registerIpc(): void {
   ipcMain.handle('sessions:readMessages', async (_event, sessionId: string) => {
     if (visualSmokeFixture) return store.readMessages(sessionId);
     const messages = await runtime.getMessages(sessionId);
-    await runtime.markSessionRead(sessionId);
+    await runtime.markSessionRead(sessionId, latestStoredMessageTs(messages));
     return messages;
   });
   ipcMain.handle('sessions:listTurns', (_event, sessionId: string) => runtime.listTurns(sessionId));
@@ -4055,6 +4056,14 @@ function isStatusChangingSessionEvent(event: SessionEvent): boolean {
     event.type === 'complete' ||
     event.type === 'abort' ||
     event.type === 'error';
+}
+
+function latestStoredMessageTs(messages: readonly StoredMessage[]): number | undefined {
+  let latest: number | undefined;
+  for (const message of messages) {
+    if (Number.isFinite(message.ts)) latest = latest === undefined ? message.ts : Math.max(latest, message.ts);
+  }
+  return latest;
 }
 
 function isTurnStatusChangingSessionEvent(event: SessionEvent): boolean {

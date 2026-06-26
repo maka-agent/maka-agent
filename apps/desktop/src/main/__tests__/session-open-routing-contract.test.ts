@@ -98,15 +98,6 @@ describe('session open routing contract', () => {
     );
   });
 
-  it('clears the local unread marker after loading the active session messages', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
-    const activeLoad = main.match(/void window\.maka\.sessions\.readMessages\(activeId\)[\s\S]*?\.catch/)?.[0] ?? '';
-    const refreshMessages = main.match(/async function refreshMessages\(sessionId: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
-
-    assert.match(activeLoad, /markSessionReadLocally\(activeId, next\);/);
-    assert.match(refreshMessages, /markSessionReadLocally\(sessionId, next\);/);
-  });
-
   it('keeps persisted mark-read at the renderer message-read IPC boundary', async () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
     const readMessagesHandler = main.match(/ipcMain\.handle\('sessions:readMessages'[\s\S]*?\n  \}\);/)?.[0] ?? '';
@@ -114,7 +105,7 @@ describe('session open routing contract', () => {
     const gatewayDeps = main.match(/const openGateway = new OpenGatewayService\(\{[\s\S]*?\n\}\);/)?.[0] ?? '';
 
     assert.match(readMessagesHandler, /runtime\.getMessages\(sessionId\)/);
-    assert.match(readMessagesHandler, /runtime\.markSessionRead\(sessionId\)/);
+    assert.match(readMessagesHandler, /runtime\.markSessionRead\(sessionId, latestStoredMessageTs\(messages\)\)/);
     assert.doesNotMatch(readMessagesHandler, /markSessionRead\(sessionId\)\.catch/);
     assert.doesNotMatch(searchHandler, /markSessionRead/);
     assert.match(gatewayDeps, /readMessages: \(sessionId\) => runtime\.getMessages\(sessionId\)/);

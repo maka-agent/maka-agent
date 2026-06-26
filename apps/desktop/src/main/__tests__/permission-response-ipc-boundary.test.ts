@@ -322,12 +322,6 @@ describe('permission response IPC boundary', () => {
       'session refresh failures must preserve the last successful list instead of clearing the sidebar',
     );
     assert.ok(refreshSessions, 'refreshSessions() must exist');
-    assert.match(
-      refreshSessions[0],
-      /try \{[\s\S]*window\.maka\.sessions\.list\(\)[\s\S]*sessionsRef\.current = next[\s\S]*setSessions\(next\)[\s\S]*return next[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新会话列表失败', generalizedErrorMessageChinese\(error, '刷新会话列表失败，请稍后重试。'\)\)[\s\S]*return sessionsRef\.current/,
-      'refreshSessions() is called fire-and-forget and must catch list failures without dropping the current list',
-    );
-    assert.doesNotMatch(refreshSessions[0], /toastApi\.error\('刷新会话列表失败', cleanErrorMessage\(error\)\)/);
     assert.doesNotMatch(
       refreshSessions[0],
       /setActiveId\(/,

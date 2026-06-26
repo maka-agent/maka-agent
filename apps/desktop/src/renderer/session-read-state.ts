@@ -2,6 +2,18 @@ import type { SessionSummary, StoredMessage } from '@maka/core';
 
 export type SessionReadBoundaries = Record<string, number>;
 
+export interface SessionListRefresher {
+  refresh(): Promise<SessionSummary[]>;
+}
+
+export interface SessionListRefresherOptions {
+  listSessions: () => Promise<readonly SessionSummary[]>;
+  readBoundaries: () => Readonly<SessionReadBoundaries>;
+  currentSessions: () => SessionSummary[];
+  commitSessions: (sessions: SessionSummary[]) => void;
+  onError: (error: unknown) => void;
+}
+
 export function rememberSessionReadBoundary(
   boundaries: SessionReadBoundaries,
   sessionId: string,
@@ -26,6 +38,25 @@ export function applySessionReadOverrides(
     return { ...session, hasUnread: false };
   });
   return changed ? next : [...sessions];
+}
+
+export function createSessionListRefresher(options: SessionListRefresherOptions): SessionListRefresher {
+  let latestRequestId = 0;
+  return {
+    async refresh(): Promise<SessionSummary[]> {
+      const requestId = ++latestRequestId;
+      try {
+        const listed = await options.listSessions();
+        if (requestId !== latestRequestId) return options.currentSessions();
+        const next = applySessionReadOverrides(listed, options.readBoundaries());
+        options.commitSessions(next);
+        return next;
+      } catch (error) {
+        if (requestId === latestRequestId) options.onError(error);
+        return options.currentSessions();
+      }
+    },
+  };
 }
 
 function latestMessageTs(messages: readonly StoredMessage[]): number | undefined {

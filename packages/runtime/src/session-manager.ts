@@ -354,9 +354,11 @@ export class SessionManager {
     if (header) this.runtimeKernel.updateCachedHeader(sessionId, header);
   }
 
-  async markSessionRead(sessionId: string): Promise<void> {
+  async markSessionRead(sessionId: string, readThroughTs: number | undefined): Promise<void> {
+    if (readThroughTs === undefined || !Number.isFinite(readThroughTs)) return;
     const header = await this.deps.store.readHeader(sessionId);
     if (!header.hasUnread) return;
+    if (header.lastMessageAt !== undefined && header.lastMessageAt > readThroughTs) return;
     const next = await this.deps.store.updateHeader(sessionId, { hasUnread: false });
     this.runtimeKernel.updateCachedHeader(sessionId, next);
   }

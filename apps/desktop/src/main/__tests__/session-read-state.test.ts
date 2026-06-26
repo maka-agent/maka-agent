@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import type { SessionSummary, StoredMessage } from '@maka/core';
 import {
   applySessionReadOverrides,
+  createSessionListRefresher,
   rememberSessionReadBoundary,
   type SessionReadBoundaries,
 } from '../../renderer/session-read-state.js';
@@ -28,6 +29,60 @@ describe('renderer session read state', () => {
     ], readBoundaries);
 
     assert.equal(next?.hasUnread, true);
+  });
+
+  it('keeps a newer unread list when an older list response arrives later', async () => {
+    const readBoundaries: SessionReadBoundaries = {};
+    const staleList = deferred<SessionSummary[]>();
+    const newerList = deferred<SessionSummary[]>();
+    const listCalls = [staleList.promise, newerList.promise];
+    let currentSessions: SessionSummary[] = [];
+    const refresher = createSessionListRefresher({
+      listSessions: async () => listCalls.shift() ?? [],
+      readBoundaries: () => readBoundaries,
+      currentSessions: () => currentSessions,
+      commitSessions: (next) => {
+        currentSessions = next;
+      },
+      onError: () => {},
+    });
+
+    rememberSessionReadBoundary(readBoundaries, 's1', [messageAt(200)]);
+    const staleRefresh = refresher.refresh();
+    const newerRefresh = refresher.refresh();
+    newerList.resolve([session({ id: 's1', hasUnread: true, lastMessageAt: 250 })]);
+    await newerRefresh;
+    staleList.resolve([session({ id: 's1', hasUnread: true, lastMessageAt: 200 })]);
+    await staleRefresh;
+
+    assert.equal(currentSessions[0]?.lastMessageAt, 250);
+    assert.equal(currentSessions[0]?.hasUnread, true);
+  });
+
+  it('keeps the current list when the latest list refresh fails', async () => {
+    const readBoundaries: SessionReadBoundaries = {};
+    const original = [session({ id: 's1', hasUnread: true, lastMessageAt: 250 })];
+    const errors: unknown[] = [];
+    let currentSessions = original;
+    const refresher = createSessionListRefresher({
+      listSessions: async () => {
+        throw new Error('list failed');
+      },
+      readBoundaries: () => readBoundaries,
+      currentSessions: () => currentSessions,
+      commitSessions: (next) => {
+        currentSessions = next;
+      },
+      onError: (error) => {
+        errors.push(error);
+      },
+    });
+
+    const result = await refresher.refresh();
+
+    assert.equal(result, original);
+    assert.equal(currentSessions, original);
+    assert.equal(errors.length, 1);
   });
 });
 

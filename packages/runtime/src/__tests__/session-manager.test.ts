@@ -358,23 +358,36 @@ describe('SessionManager permission mode updates', () => {
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_631) });
     const session = await manager.createSession(makeInput());
-    await store.updateHeader(session.id, { hasUnread: true });
+    await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
 
-    await manager.markSessionRead(session.id);
+    await manager.markSessionRead(session.id, 200);
 
     expect((await store.readHeader(session.id)).hasUnread).toBe(false);
+  });
+
+  test('markSessionRead keeps unread when a newer message arrives after the read boundary', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_632) });
+    const session = await manager.createSession(makeInput());
+    await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 250 });
+
+    await manager.markSessionRead(session.id, 200);
+
+    expect((await store.readHeader(session.id)).hasUnread).toBe(true);
   });
 
   test('markSessionRead rejects when the unread header write fails', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_632) });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(6_633) });
     const session = await manager.createSession(makeInput());
-    await store.updateHeader(session.id, { hasUnread: true });
+    await store.updateHeader(session.id, { hasUnread: true, lastMessageAt: 200 });
     store.failUpdateHeaderFor.add(session.id);
 
-    await expectRejects(manager.markSessionRead(session.id), /Cannot update header/);
+    await expectRejects(manager.markSessionRead(session.id, 200), /Cannot update header/);
 
     store.failUpdateHeaderFor.delete(session.id);
     expect((await store.readHeader(session.id)).hasUnread).toBe(true);

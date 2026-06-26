@@ -99,7 +99,7 @@ import {
   recordSessionEventStreamEvent,
 } from './session-event-health';
 import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
-import { applySessionReadOverrides, rememberSessionReadBoundary, type SessionReadBoundaries } from './session-read-state';
+import { createSessionListRefresher, rememberSessionReadBoundary, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import './styles.css';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
@@ -257,6 +257,21 @@ function AppShell() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const sessionReadBoundariesRef = useRef<SessionReadBoundaries>({});
+  const sessionListRefresherRef = useRef<SessionListRefresher | null>(null);
+  if (!sessionListRefresherRef.current) {
+    sessionListRefresherRef.current = createSessionListRefresher({
+      listSessions: () => window.maka.sessions.list(),
+      readBoundaries: () => sessionReadBoundariesRef.current,
+      currentSessions: () => sessionsRef.current,
+      commitSessions: (next) => {
+        sessionsRef.current = next;
+        setSessions(next);
+      },
+      onError: (error) => {
+        toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
+      },
+    });
+  }
   const [activeId, setActiveIdState] = useState<string | undefined>();
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
@@ -1245,16 +1260,7 @@ function AppShell() {
   }, [navSelection]);
 
   async function refreshSessions(): Promise<SessionSummary[]> {
-    try {
-      const listed = await window.maka.sessions.list();
-      const next = applySessionReadOverrides(listed, sessionReadBoundariesRef.current);
-      sessionsRef.current = next;
-      setSessions(next);
-      return next;
-    } catch (error) {
-      toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
-      return sessionsRef.current;
-    }
+    return sessionListRefresherRef.current!.refresh();
   }
 
   async function refreshShellSettings() {
