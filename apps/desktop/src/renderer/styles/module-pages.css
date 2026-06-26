@@ -2098,9 +2098,6 @@
    weight + muted ink, not from a different size. Replaces the former
    hairline between groups. */
 .maka-model-switcher-popup .maka-model-switcher-group-label {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
   padding: 6px 12px 4px;
   font-size: 0.875rem;
   font-weight: 600;
@@ -2108,13 +2105,6 @@
   text-transform: uppercase;
   line-height: 1.4;
   color: var(--muted-foreground);
-}
-
-.maka-model-switcher-group-count {
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  opacity: 0.7;
 }
 
 .maka-model-switcher-popup [role="option"] {

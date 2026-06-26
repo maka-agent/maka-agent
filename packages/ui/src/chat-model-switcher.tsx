@@ -48,10 +48,7 @@ function ModelChoiceOptions({ groups }: { groups: ModelMenuGroup[] }) {
     <>
       {groups.map((group) => (
         <SelectGroup key={group.connectionSlug} className="maka-model-switcher-group">
-          <SelectGroupLabel className="maka-model-switcher-group-label">
-            {group.heading}
-            <span className="maka-model-switcher-group-count">{group.choices.length}</span>
-          </SelectGroupLabel>
+          <SelectGroupLabel className="maka-model-switcher-group-label">{group.heading}</SelectGroupLabel>
           {group.choices.map((choice) => (
             <SelectItem
               key={modelChoiceValue(choice.connectionSlug, choice.model)}
