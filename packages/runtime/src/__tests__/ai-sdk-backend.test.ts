@@ -1717,6 +1717,8 @@ describe('AiSdkBackend usage telemetry', () => {
   });
 
   test('records active tool-result prune diagnostics in usage telemetry', async () => {
+    const messages: unknown[] = [];
+    const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(200);
     let streamCalls = 0;
@@ -1748,7 +1750,9 @@ describe('AiSdkBackend usage telemetry', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -1772,13 +1776,23 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
 
-    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
 
-    const contextBudget = llmRecords[0]?.contextBudget as Record<string, unknown> | undefined;
+    const usageMessage = messages.find((message) =>
+      (message as { type?: string }).type === 'token_usage'
+    ) as { contextBudget?: Record<string, unknown> } | undefined;
+    const usageEvent = events.find((event) => event.type === 'token_usage') as
+      | (Extract<SessionEvent, { type: 'token_usage' }> & { contextBudget?: Record<string, unknown> })
+      | undefined;
+    const recordContextBudget = llmRecords[0]?.contextBudget as Record<string, unknown> | undefined;
     assert.equal(streamCalls, 2);
-    assert.equal(contextBudget?.activePrunedToolResults, 1);
-    assert.equal(contextBudget?.activeArchiveFailures, undefined);
-    assert.ok((contextBudget?.activeEstimatedTokensSaved as number | undefined ?? 0) > 0);
+    for (const contextBudget of [usageMessage?.contextBudget, usageEvent?.contextBudget, recordContextBudget]) {
+      assert.equal(contextBudget?.activePrunedToolResults, 1);
+      assert.equal(contextBudget?.activeArchiveFailures, undefined);
+      assert.ok((contextBudget?.activeEstimatedTokensSaved as number | undefined ?? 0) > 0);
+    }
   });
 
   test('normalizes cache and reasoning tokens to messages, events, and telemetry', async () => {

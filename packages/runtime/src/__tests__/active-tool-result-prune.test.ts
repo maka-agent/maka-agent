@@ -24,7 +24,6 @@ describe('active current-turn tool-result pruning', () => {
         messages: originalMessages,
         policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
         stepNumber: 1,
-        sessionId: 'session-1',
         turnId: 'turn-1',
         charsPerToken: 1,
         archiveToolResult: () => ({ artifactId: 'artifact-tool-1' }),
@@ -90,7 +89,6 @@ describe('active current-turn tool-result pruning', () => {
           messages: options.messages,
           policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
           stepNumber: options.stepNumber,
-          sessionId: 'session-1',
           turnId: 'turn-1',
           charsPerToken: 1,
           archivedPlaceholders,
@@ -126,7 +124,6 @@ describe('active current-turn tool-result pruning', () => {
       messages,
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => {
@@ -147,7 +144,6 @@ describe('active current-turn tool-result pruning', () => {
       messages,
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1, archiveRequired: false } as never,
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => undefined,
@@ -166,7 +162,6 @@ describe('active current-turn tool-result pruning', () => {
       messages,
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => ({ artifactId: '' }),
@@ -179,13 +174,72 @@ describe('active current-turn tool-result pruning', () => {
     assert.doesNotMatch(JSON.stringify(rewritten.messages), /maka\.active_archived_tool_result/);
   });
 
+  test('blank archive artifact id keeps the original tool result', async () => {
+    const messages = [largeToolMessage('Read', 'tool-1', 'KEEP_ME'.repeat(20))];
+    const rewritten = await rewriteActiveToolResultsInMessages({
+      messages,
+      policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
+      stepNumber: 1,
+      turnId: 'turn-1',
+      charsPerToken: 1,
+      archiveToolResult: () => ({ artifactId: '   ' }),
+    });
+
+    assert.equal(rewritten.rewritten, 0);
+    assert.equal(rewritten.archiveFailures, 1);
+    assert.deepEqual(rewritten.messages, messages);
+    assert.match(JSON.stringify(rewritten.messages), /KEEP_ME/);
+    assert.doesNotMatch(JSON.stringify(rewritten.messages), /maka\.active_archived_tool_result/);
+  });
+
+  test('empty-artifact placeholders are not treated as idempotent', async () => {
+    const placeholder = invalidActivePlaceholder();
+    const messages: ModelMessage[] = [
+      {
+        role: 'tool',
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'tool-json',
+          toolName: 'Read',
+          output: { type: 'json', value: placeholder as never },
+        }],
+      },
+      {
+        role: 'tool',
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'tool-text',
+          toolName: 'Read',
+          output: { type: 'text', value: JSON.stringify(placeholder) },
+        }],
+      },
+    ];
+    const archivedToolCallIds: string[] = [];
+
+    const rewritten = await rewriteActiveToolResultsInMessages({
+      messages,
+      policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
+      stepNumber: 1,
+      turnId: 'turn-1',
+      charsPerToken: 1,
+      archiveToolResult: (candidate) => {
+        archivedToolCallIds.push(candidate.toolCallId);
+        return { artifactId: `artifact-${candidate.toolCallId}` };
+      },
+    });
+
+    assert.equal(rewritten.rewritten, 2);
+    assert.deepEqual(archivedToolCallIds, ['tool-json', 'tool-text']);
+    assert.match(JSON.stringify(rewritten.messages), /artifact-tool-json/);
+    assert.match(JSON.stringify(rewritten.messages), /artifact-tool-text/);
+  });
+
   test('text placeholder output is idempotent across active prune passes', async () => {
     const messages = [largeTextToolMessage('Read', 'tool-1', 'SECRET'.repeat(20))];
     const first = await rewriteActiveToolResultsInMessages({
       messages,
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => ({ artifactId: 'artifact-tool-1' }),
@@ -194,7 +248,6 @@ describe('active current-turn tool-result pruning', () => {
       messages: first.messages,
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 2,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => {
@@ -213,7 +266,6 @@ describe('active current-turn tool-result pruning', () => {
       messages: [largeToolMessage('Read', 'tool-1', 'SECRET'.repeat(200))],
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => ({ artifactId: 'artifact-tool-1' }),
@@ -222,7 +274,6 @@ describe('active current-turn tool-result pruning', () => {
       messages: [largeToolMessage('Read', 'tool-2', 'KEEP_ME'.repeat(20))],
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       archiveToolResult: () => undefined,
@@ -246,7 +297,6 @@ describe('active current-turn tool-result pruning', () => {
       ],
       policy: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       stepNumber: 1,
-      sessionId: 'session-1',
       turnId: 'turn-1',
       charsPerToken: 1,
       eligibleToolCallIds: new Set(['current-tool-call']),
@@ -303,7 +353,6 @@ describe('active current-turn tool-result pruning', () => {
         messages: options.messages,
         policy: { enabled: true, maxCurrentResultEstimatedTokens: 1024 },
         stepNumber: options.stepNumber,
-        sessionId: 'session-1',
         turnId: 'turn-1',
         archiveToolResult: () => ({ artifactId: 'unused' }),
       });
@@ -347,6 +396,21 @@ function largeTextToolMessage(toolName: string, toolCallId: string, body: string
       toolName,
       output: { type: 'text', value: body },
     }],
+  };
+}
+
+function invalidActivePlaceholder(): Record<string, unknown> {
+  return {
+    kind: 'maka.active_archived_tool_result',
+    rewriteVersion: 1,
+    artifactId: '',
+    turnId: 'turn-1',
+    toolCallId: 'tool-old',
+    toolName: 'Read',
+    bodySha256: 'a'.repeat(64),
+    originalEstimatedTokens: 100,
+    originalBytes: 400,
+    reason: 'active_current_turn_tool_result_pruned_before_next_step',
   };
 }
 

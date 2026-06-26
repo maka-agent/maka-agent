@@ -22,7 +22,6 @@ export interface ActiveToolResultPruneInput {
   messages: readonly ModelMessage[];
   policy: ActiveToolResultPrunePolicy | undefined;
   stepNumber: number;
-  sessionId: string;
   turnId: string;
   charsPerToken?: number;
   eligibleToolCallIds?: ReadonlySet<string>;
@@ -188,7 +187,7 @@ async function rewriteToolResultPart(input: {
     } catch {
       archived = undefined;
     }
-    if (!isNonEmptyString(archived?.artifactId)) {
+    if (!isUsableArtifactId(archived?.artifactId)) {
       return { changed: false, archiveFailure: true };
     }
     placeholder = {
@@ -274,6 +273,7 @@ export function isActiveArchivedToolResultPlaceholder(
   return candidate.kind === ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND
     && candidate.rewriteVersion === ARCHIVED_TOOL_RESULT_REWRITE_VERSION
     && typeof candidate.artifactId === 'string'
+    && isUsableArtifactId(candidate.artifactId)
     && typeof candidate.turnId === 'string'
     && candidate.turnId.length > 0
     && typeof candidate.toolCallId === 'string'
@@ -307,8 +307,8 @@ function isActiveArchivedToolResultPlaceholderText(value: string): boolean {
   }
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
+function isUsableArtifactId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function utf8ByteLength(value: string): number {

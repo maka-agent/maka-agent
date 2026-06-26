@@ -804,6 +804,10 @@ export class AiSdkBackend implements AgentBackend {
                 ? { toolAvailability: turnDiagnostics.requestShape.toolAvailability }
                 : {}),
             });
+            const contextBudgetForUsage = contextBudgetWithActiveToolResultPruneDiagnostics(
+              contextBudgetForTelemetry,
+              activeToolResultPruneDiagnosticPatch,
+            );
             const tu: TokenUsageMessage = {
               type: 'token_usage',
               id: this.newId(),
@@ -827,7 +831,7 @@ export class AiSdkBackend implements AgentBackend {
               requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
               requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
               promptSegments: turnDiagnostics.promptSegments,
-              ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
+              ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
             queue.push({
@@ -853,7 +857,7 @@ export class AiSdkBackend implements AgentBackend {
               requestShapeHash: turnDiagnostics.requestShape.requestShapeHash,
               requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
               promptSegments: turnDiagnostics.promptSegments,
-              ...(priorReplay.contextBudget ? { contextBudget: priorReplay.contextBudget } : {}),
+              ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
             } satisfies TokenUsageEvent);
           }
         } catch {
@@ -904,12 +908,10 @@ export class AiSdkBackend implements AgentBackend {
       } finally {
         watchdog?.stop();
         if (this.currentWatchdog === watchdog) this.currentWatchdog = null;
-        if (hasActiveToolResultPruneDiagnosticPatch(activeToolResultPruneDiagnosticPatch)) {
-          contextBudgetForTelemetry = {
-            ...(contextBudgetForTelemetry ?? minimalContextBudgetDiagnostic()),
-            ...activeToolResultPruneDiagnosticPatch,
-          } as ContextBudgetDiagnostic;
-        }
+        contextBudgetForTelemetry = contextBudgetWithActiveToolResultPruneDiagnostics(
+          contextBudgetForTelemetry,
+          activeToolResultPruneDiagnosticPatch,
+        );
         this.input.recordLlmCall?.({
           sessionId: this.sessionId,
           turnId,
@@ -1328,7 +1330,6 @@ export class AiSdkBackend implements AgentBackend {
         messages: options.messages,
         policy,
         stepNumber: options.stepNumber,
-        sessionId: this.sessionId,
         turnId,
         charsPerToken: this.input.contextBudget?.charsPerToken,
         eligibleToolCallIds,
@@ -1989,6 +1990,17 @@ function hasActiveToolResultPruneDiagnosticPatch(
   return (patch.activePrunedToolResults ?? 0) > 0
     || (patch.activeArchiveFailures ?? 0) > 0
     || (patch.activeEstimatedTokensSaved ?? 0) > 0;
+}
+
+function contextBudgetWithActiveToolResultPruneDiagnostics(
+  base: ContextBudgetDiagnostic | undefined,
+  patch: ActiveToolResultPruneDiagnosticPatch,
+): ContextBudgetDiagnostic | undefined {
+  if (!hasActiveToolResultPruneDiagnosticPatch(patch)) return base;
+  return {
+    ...(base ?? minimalContextBudgetDiagnostic()),
+    ...patch,
+  } as ContextBudgetDiagnostic;
 }
 
 function minimalContextBudgetDiagnostic(): ContextBudgetDiagnostic {
