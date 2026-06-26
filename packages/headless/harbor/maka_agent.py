@@ -35,6 +35,21 @@ _HOST_NODE_ENV_ALLOWLIST = {
     "NODE_EXTRA_CA_CERTS",
 }
 
+_CONTEXT_ENV_KEYS = (
+    "MAKA_CONTEXT_BUDGET",
+    "MAKA_CONTEXT_HISTORY_BUDGET_TOKENS",
+    "MAKA_CONTEXT_HISTORY_BUDGET_TURNS",
+    "MAKA_CONTEXT_MIN_RECENT_TURNS",
+    "MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE",
+    "MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS",
+    "MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS",
+    "MAKA_CONTEXT_ARCHIVE_RETRIEVAL",
+    "MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE",
+    "MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS",
+    "MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS",
+    "MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES",
+)
+
 
 def _host_node_process_env(cell_env: dict[str, str]) -> dict[str, str]:
     env = {key: value for key in _HOST_NODE_ENV_ALLOWLIST if (value := os.environ.get(key))}
@@ -283,6 +298,13 @@ class MakaAgent(BaseInstalledAgent):
         ):
             value = self._get_env(key)
             if value:
+                env[key] = value
+        for key in _CONTEXT_ENV_KEYS:
+            value = self._get_env(key)
+            if value:
+                env[key] = value
+        for key, value in os.environ.items():
+            if key.startswith("MAKA_CONTEXT_") and value and key not in env:
                 env[key] = value
         return env
 

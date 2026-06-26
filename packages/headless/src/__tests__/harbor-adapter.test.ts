@@ -34,6 +34,7 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /run-host-cell\.mjs/);
     assert.match(source, /MAKA_HOST_API_KEY_FILE/);
     assert.match(source, /MAKA_HARBOR_TOOL_EXECUTOR_URL/);
+    assert.match(source, /key\.startswith\("MAKA_CONTEXT_"\)/);
     assert.match(source, /_run_host_cell/);
     assert.match(source, /_ToolExecutorServer/);
     assert.match(source, /upload_file\(local_instruction_path, instruction_path\.as_posix\(\)\)/);
@@ -675,6 +676,8 @@ with tempfile.TemporaryDirectory() as tmp:
         "MAKA_TRIAL_OUTPUT_USD_PER_1M": "0.29",
         "MAKA_TRIAL_CACHE_READ_USD_PER_1M": "0.0029",
         "MAKA_TRIAL_PRICING_SOURCE": "deepseek-v4-flash",
+        "MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE": "on",
+        "MAKA_CONTEXT_ARCHIVE_RETRIEVAL": "on",
     })
     gateway_env = gateway_agent._cell_env(Path("/logs/agent/instruction.txt"))
     assert gateway_env["MAKA_PROVIDER"] == "openai-compatible", gateway_env
@@ -685,6 +688,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert gateway_env["MAKA_TRIAL_OUTPUT_USD_PER_1M"] == "0.29", gateway_env
     assert gateway_env["MAKA_TRIAL_CACHE_READ_USD_PER_1M"] == "0.0029", gateway_env
     assert gateway_env["MAKA_TRIAL_PRICING_SOURCE"] == "deepseek-v4-flash", gateway_env
+    assert gateway_env["MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE"] == "on", gateway_env
+    assert gateway_env["MAKA_CONTEXT_ARCHIVE_RETRIEVAL"] == "on", gateway_env
 
     # Cell wall-clock timeout is operator-configurable with a safe default and a
     # fallback for malformed or non-positive values.
