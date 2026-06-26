@@ -560,6 +560,45 @@ describe('prompt structural smoke report', () => {
     assert.deepEqual(report.failures, ['rsi_attribution_malformed']);
     assert.deepEqual(report.roundsWithMalformedRsiAttribution, ['round-1']);
   });
+
+  test('passes R2 smoke when safety-plane decision reasons stay out of prompt projection', () => {
+    const events = [
+      committedEvent('round-1'),
+      completedEvent('round-1', 'task-1', 0.1),
+      decisionEvent('round-1', 'discard', 'held_out_regressed', 'run-1', { decision: 'clean' }),
+      attributionEvent('round-1', { decision: { decision: 'discard', reason: 'held_out_regressed' } }),
+    ];
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 1,
+      requireRsiR2Evidence: true,
+    });
+
+    assert.equal(report.status, 'pass');
+    assert.deepEqual(report.failures, []);
+  });
+
+  test('fails R2 smoke when prompt attribution projection contains held-out markers', () => {
+    const events = [
+      committedEvent('round-1', 'run-1', promptHashForRound('round-1'), ['held-out-secret']),
+      completedEvent('round-1', 'held-out-secret', 0.1),
+      decisionEvent('round-1', 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      attributionEvent('round-1', {
+        unexpectedHeldInFlips: [{ taskId: 'held-out-secret', from: 'fail', to: 'pass' }],
+      }),
+    ];
+
+    const report = promptStructuralSmokeReport({
+      events,
+      minimumRounds: 1,
+      requireRsiR2Evidence: true,
+    });
+
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.failures, ['rsi_attribution_malformed']);
+    assert.deepEqual(report.roundsWithMalformedRsiAttribution, ['round-1']);
+  });
 });
 
 function committedEvent(

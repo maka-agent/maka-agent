@@ -27,10 +27,16 @@ export interface RsiControllerAttribution {
 }
 
 export interface RsiPromptAttribution {
-  candidateCommitSha: string;
-  predictedFixes: Array<{ taskId: string; outcome: RsiPredictedFixOutcome }>;
-  riskTasks: Array<{ taskId: string; outcome: RsiRiskTaskOutcome }>;
-  unexpectedHeldInFlips: RsiTaskTransition[];
+  predictedFixes: ReadonlyArray<{ taskId: string; outcome: RsiPredictedFixOutcome }>;
+  riskTasks: ReadonlyArray<{ taskId: string; outcome: RsiRiskTaskOutcome }>;
+  unexpectedHeldInFlips: ReadonlyArray<{ taskId: string; from: string; to: string }>;
+  rootCauseSignalMatch: RsiRootCauseSignalMatch;
+}
+
+export interface ProjectRsiPromptAttributionInput {
+  predictedFixes: ReadonlyArray<{ taskId: string; outcome: RsiPredictedFixOutcome }>;
+  riskTasks: ReadonlyArray<{ taskId: string; outcome: RsiRiskTaskOutcome }>;
+  unexpectedHeldInFlips: ReadonlyArray<{ taskId: string; from: string; to: string }>;
   rootCauseSignalMatch: RsiRootCauseSignalMatch;
 }
 
@@ -84,9 +90,8 @@ export function buildRsiControllerAttribution(
   };
 }
 
-export function projectRsiPromptAttribution(attribution: RsiControllerAttribution): RsiPromptAttribution {
+export function projectRsiPromptAttribution(attribution: ProjectRsiPromptAttributionInput): RsiPromptAttribution {
   return {
-    candidateCommitSha: attribution.candidateCommitSha,
     predictedFixes: attribution.predictedFixes,
     riskTasks: attribution.riskTasks,
     unexpectedHeldInFlips: attribution.unexpectedHeldInFlips,
@@ -146,12 +151,18 @@ function rootCauseSignalMatch(
   if (rationale.failurePattern === 'tool_failed') {
     return signalKinds.has('tool_failure_cluster') ? 'matched' : 'contradicted';
   }
-  if (rationale.failurePattern === 'max_tokens' || rationale.failurePattern === 'verification_failed') {
+  if (isErrorClassBackedFailurePattern(rationale.failurePattern)) {
     return referencedSignals.some((signal) => signal.kind === 'error_class' && signal.errorClass === rationale.failurePattern)
       ? 'matched'
       : 'contradicted';
   }
   return 'unknown';
+}
+
+function isErrorClassBackedFailurePattern(failurePattern: PromptCandidateRationale['failurePattern']): boolean {
+  return failurePattern === 'max_tokens'
+    || failurePattern === 'runtime_error'
+    || failurePattern === 'verification_failed';
 }
 
 function sortedUnique(values: readonly string[]): string[] {

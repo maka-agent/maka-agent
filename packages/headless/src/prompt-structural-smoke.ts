@@ -1,5 +1,6 @@
 import type { FixedPromptTaskWalEvent, FixedPromptWalEvent } from './fixed-prompt-controller.js';
 import { PROMPT_REWARD_HACK_QUARANTINE_REASON } from './prompt-acceptance-policy.js';
+import { projectRsiPromptAttribution } from './rsi-controller-attribution.js';
 
 export type PromptStructuralSmokeFailure =
   | 'minimum_rounds_not_met'
@@ -222,11 +223,24 @@ function malformedRsiAttributionRounds(events: readonly FixedPromptWalEvent[]): 
       || !sameStringSet(event.riskTasks.map((item) => item.taskId), commit.candidateRationale.riskTasks)
       || event.decision.decision !== decision.decision
       || event.decision.reason !== decision.reason
+      || hasUnsafePromptAttributionProjection(event)
     ) {
       rounds.set(roundEvidenceKey(event), event.roundId);
     }
   }
   return [...rounds.values()];
+}
+
+function hasUnsafePromptAttributionProjection(event: Extract<FixedPromptWalEvent, { type: 'rsi_controller_attribution' }>): boolean {
+  const projection = projectRsiPromptAttribution(event);
+  const allowedFields = new Set([
+    'predictedFixes',
+    'riskTasks',
+    'unexpectedHeldInFlips',
+    'rootCauseSignalMatch',
+  ]);
+  if (Object.keys(projection).some((field) => !allowedFields.has(field))) return true;
+  return /decisionReason|held[-_ ]?out|coverage_regressed|held_out_regressed/i.test(JSON.stringify(projection));
 }
 
 function promptCandidateDecisionsByCandidateKey(events: readonly FixedPromptWalEvent[]): Map<string, Extract<FixedPromptWalEvent, { type: 'prompt_candidate_decided' }>> {

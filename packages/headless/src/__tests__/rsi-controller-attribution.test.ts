@@ -103,7 +103,12 @@ describe('RSI controller attribution', () => {
 
     const promptAttribution = projectRsiPromptAttribution(attribution);
 
+    assert.equal('candidateCommitSha' in promptAttribution, false);
     assert.equal('decisionReason' in promptAttribution, false);
+    assert.deepEqual(promptAttribution.predictedFixes, []);
+    assert.deepEqual(promptAttribution.riskTasks, []);
+    assert.deepEqual(promptAttribution.unexpectedHeldInFlips, []);
+    assert.equal(promptAttribution.rootCauseSignalMatch, 'unknown');
     assert.equal(JSON.stringify(promptAttribution).includes('held_out_regressed'), false);
     assert.equal(JSON.stringify(promptAttribution).includes('coverage_regressed'), false);
   });
@@ -191,6 +196,64 @@ describe('RSI controller attribution', () => {
       heldInTaskIds: ['task-a'],
       lastKeptEvents: [completed({ taskId: 'task-a', passed: true })],
       candidateEvents: [completed({ taskId: 'task-a', passed: false, scored: false })],
+      decision: acceptanceResult({ decision: 'discard', reason: 'coverage_regressed' }),
+    });
+
+    assert.equal(matched.rootCauseSignalMatch, 'matched');
+    assert.equal(contradicted.rootCauseSignalMatch, 'contradicted');
+  });
+
+  test('matches runtime error root cause against cited error-class signals', () => {
+    const analysis: RsiRoundAnalysis = {
+      heldInTaskSetHash: 'sha256:held-in',
+      transitionVsLastKept: [],
+      transitionVsPreviousCandidate: [],
+      coverageRegressionTaskIds: [],
+      errorClassDistribution: [{ errorClass: 'runtime_error', count: 1 }],
+      toolFailureClusters: [],
+      signals: [
+        { id: 'rsi-sig:runtime', kind: 'error_class', taskIds: ['task-a'], errorClass: 'runtime_error', count: 1 },
+        { id: 'rsi-sig:max-tokens', kind: 'error_class', taskIds: ['task-b'], errorClass: 'max_tokens', count: 1 },
+      ],
+    };
+
+    const matched = buildRsiControllerAttribution({
+      runId: 'run-1',
+      roundId: 'round-0',
+      candidateCommitSha: 'commit-1',
+      candidateRationaleHash: 'sha256:rationale',
+      candidateRationale: {
+        failurePattern: 'runtime_error',
+        evidenceRefs: ['rsi-sig:runtime'],
+        hypothesis: 'runtime errors block held-in progress',
+        targetedFix: 'make execution constraints explicit',
+        predictedFixes: [],
+        riskTasks: [],
+      },
+      analysis,
+      heldInTaskIds: ['task-a'],
+      lastKeptEvents: [completed({ taskId: 'task-a', passed: true })],
+      candidateEvents: [completed({ taskId: 'task-a', passed: false, errorClass: 'runtime_error' })],
+      decision: acceptanceResult({ decision: 'discard', reason: 'coverage_regressed' }),
+    });
+
+    const contradicted = buildRsiControllerAttribution({
+      runId: 'run-1',
+      roundId: 'round-0',
+      candidateCommitSha: 'commit-1',
+      candidateRationaleHash: 'sha256:rationale',
+      candidateRationale: {
+        failurePattern: 'runtime_error',
+        evidenceRefs: ['rsi-sig:max-tokens'],
+        hypothesis: 'runtime errors block held-in progress',
+        targetedFix: 'make execution constraints explicit',
+        predictedFixes: [],
+        riskTasks: [],
+      },
+      analysis,
+      heldInTaskIds: ['task-a'],
+      lastKeptEvents: [completed({ taskId: 'task-a', passed: true })],
+      candidateEvents: [completed({ taskId: 'task-a', passed: false, errorClass: 'runtime_error' })],
       decision: acceptanceResult({ decision: 'discard', reason: 'coverage_regressed' }),
     });
 
