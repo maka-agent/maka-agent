@@ -128,10 +128,6 @@ const ALL_SCENARIOS = [
   // Reviewers should see the 4 action icons cleanly painted with
   // NO `Nm ago` peeking through and NO unread dot stacked behind.
   'sidebar-row-actions-visible',
-  // PR-MODEL-PICKER-GROUP: in-session Composer with the model switcher
-  // dropdown auto-opened (modelSwitcherOpen). Baselines the grouped
-  // popup — provider headings + governed type scale.
-  'model-switcher-open',
 ];
 
 const VARIANTS = [

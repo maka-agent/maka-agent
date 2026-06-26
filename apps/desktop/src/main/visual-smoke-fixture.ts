@@ -104,11 +104,6 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // Captures the actions-revealed state so reviewers can verify
   // the time meta + unread dot are hidden underneath (no overlap).
   'sidebar-row-actions-visible',
-  // PR-MODEL-PICKER-GROUP: in-session Composer (TURN_SESSION_ID, on the
-  // multi-provider connection seed) with the model switcher dropdown
-  // auto-opened via `modelSwitcherOpen: true`. Baselines the grouped
-  // popup; reuses the standard connection/session seed, no extra disk.
-  'model-switcher-open',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -442,16 +437,6 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',
         sidebarCollapsed: false,
         focusActiveRow: true,
-      };
-    case 'model-switcher-open':
-      // PR-MODEL-PICKER-GROUP: in-session Composer on the multi-provider
-      // connection seed; `modelSwitcherOpen: true` makes the renderer
-      // click the model switcher trigger after mount so the grouped
-      // Base UI Select popup is open for the capture.
-      return {
-        ...state,
-        activeSessionId: TURN_SESSION_ID,
-        modelSwitcherOpen: true,
       };
     case 'all':
       return {

@@ -1497,21 +1497,6 @@ function AppShell() {
         });
       });
     }
-    // PR-MODEL-PICKER-GROUP: when the fixture sets `modelSwitcherOpen`,
-    // click the Composer's model switcher trigger after the next paints
-    // so the Base UI Select popup opens and the auto-capture shows the
-    // grouped model menu (provider headings + governed type scale).
-    // Two RAFs let React commit the in-session Composer (and its
-    // trigger) before we query the DOM.
-    if (state.modelSwitcherOpen) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          document
-            .querySelector<HTMLButtonElement>('.maka-model-switcher-trigger')
-            ?.click();
-        });
-      });
-    }
     // PR-IR-01: when MAKA_VISUAL_SMOKE_AUTO_CAPTURE is set, snap a
     // screenshot once the fixture has settled and the renderer has
     // committed. We wait two RAFs + a small idle delay so async layout
@@ -1538,14 +1523,7 @@ function AppShell() {
             // whole point of the capture. Skip the blur in that
             // narrow case; other captures still get a clean (focusless)
             // baseline.
-            // PR-MODEL-PICKER-GROUP also opts out: blurring the trigger
-            // of an open Base UI Select would dismiss the popup we want
-            // to capture.
-            if (
-              !state.focusActiveRow &&
-              !state.modelSwitcherOpen &&
-              document.activeElement instanceof HTMLElement
-            ) {
+            if (!state.focusActiveRow && document.activeElement instanceof HTMLElement) {
               document.activeElement.blur();
             }
             if ('fonts' in document) {

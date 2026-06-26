@@ -96,13 +96,7 @@ export type VisualSmokeScenario =
   // becomes visible (via `:focus-within`). Verifies that the
   // time meta + unread dot do NOT leak through the action icons
   // — the bug WAWQAQ flagged.
-  | 'sidebar-row-actions-visible'
-  // PR-MODEL-PICKER-GROUP: seed the in-session Composer with the
-  // multi-provider connection list and auto-open the model switcher
-  // dropdown at mount, so the screenshot pipeline baselines the
-  // grouped popup (provider headings + governed type scale) without
-  // requiring a click. Uses `VisualSmokeState.modelSwitcherOpen=true`.
-  | 'model-switcher-open';
+  | 'sidebar-row-actions-visible';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;
@@ -231,15 +225,6 @@ export interface VisualSmokeState {
    * scenario.
    */
   focusActiveRow?: boolean;
-  /**
-   * PR-MODEL-PICKER-GROUP: when `true`, the renderer clicks the
-   * Composer's `.maka-model-switcher-trigger` after mount so the
-   * Base UI Select popup opens and the capture shows the grouped
-   * model menu. Set only by `model-switcher-open`; the settle step's
-   * pre-capture blur is suppressed for this flag so the open popup
-   * survives to the capture.
-   */
-  modelSwitcherOpen?: boolean;
   /**
    * Fixture-only sidebar module override. Used by scenarios that need
    * to screenshot non-session sidebar content without adding a real
