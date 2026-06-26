@@ -1058,6 +1058,86 @@ function SettingsSurface(props: {
   );
 }
 
+/**
+ * PR-GENERAL-DEFAULTS-CONFIGURABLE-0 (WAWQAQ msg `d3ea9a33` 2026-06-26):
+ * the General page used to ship three read-only `<SettingRow>` lines
+ * (启动 / 新对话模式 / 默认模型) that read like settings but had no
+ * configurable backing — the static text was the entire UI. Drop the
+ * two without backing storage; replace the third with a real
+ * `<SettingsSelect>` that lets the user pick the default LLM
+ * connection inline. The `connections.setDefault(slug)` IPC already
+ * exists; this just wires it up.
+ */
+function GeneralDefaultsCard(props: {
+  connections: readonly LlmConnection[];
+  defaultSlug: string | null;
+  onRefresh(): Promise<void>;
+}) {
+  const toast = useToast();
+  const mountedRef = useRef(true);
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      savingRef.current = false;
+    };
+  }, []);
+
+  const options = useMemo<ReadonlyArray<readonly [string, string]>>(() => {
+    const opts: Array<readonly [string, string]> = [['', '未设置']];
+    for (const connection of props.connections) {
+      if (!connection.enabled) continue;
+      opts.push([connection.slug, connection.name]);
+    }
+    return opts;
+  }, [props.connections]);
+
+  const selectedValue = props.defaultSlug ?? '';
+
+  async function persistDefault(nextSlug: string) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await window.maka.connections.setDefault(nextSlug || null);
+      if (!mountedRef.current) return;
+      await props.onRefresh();
+    } catch (error) {
+      if (mountedRef.current) {
+        toast.error('保存默认模型失败', settingsActionErrorMessage(error));
+      }
+    } finally {
+      if (savingRef.current) {
+        savingRef.current = false;
+      }
+      if (mountedRef.current) setSaving(false);
+    }
+  }
+
+  return (
+    <SettingsRows>
+      <div className="settingsRow" data-control-width="select">
+        <div>
+          <strong>默认模型</strong>
+          <small>新对话默认使用的模型连接；可在「模型」页里管理具体连接。</small>
+        </div>
+        <SettingsSelect
+          value={selectedValue}
+          ariaLabel="默认模型连接"
+          options={options}
+          disabled={saving}
+          onChange={(value) => {
+            void persistDefault(value);
+          }}
+        />
+      </div>
+    </SettingsRows>
+  );
+}
+
 function SettingsPage(props: {
   section: SettingsSection;
   settings: AppSettings;
@@ -1134,11 +1214,11 @@ function SettingsPage(props: {
               />
             </div>
           </SettingsRows>
-          <SettingsRows>
-            <SettingRow title="启动" detail="打开应用后回到最近一次对话。" value="已启用" />
-            <SettingRow title="新对话模式" detail="新对话默认从询问权限开始。" value="询问权限" />
-            <SettingRow title="默认模型" detail="新对话默认使用的模型连接。" value={props.defaultSlug ?? '未设置'} />
-          </SettingsRows>
+          <GeneralDefaultsCard
+            connections={props.connections}
+            defaultSlug={props.defaultSlug}
+            onRefresh={props.onRefreshConnections}
+          />
           <SettingsRows>
             <NetworkProxySection settings={props.settings} onUpdate={props.onUpdateSettings} />
           </SettingsRows>
