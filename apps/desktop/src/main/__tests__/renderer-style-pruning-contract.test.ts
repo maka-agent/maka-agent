@@ -74,6 +74,25 @@ const DYNAMIC_STYLE_HOOKS = new Set([
   'shadow-modal',
   'smooth-corners',
   'task-list-item',
+  // PR-PALETTE-SWATCH-VISIBLE-0 (WAWQAQ msg `d3ea9a33` 2026-06-26):
+  // ThemeSettingsPage composes the palette swatch class with a template
+  // string — `settingsPaletteSwatch settingsPaletteSwatch-${palette}` —
+  // so the literal `.settingsPaletteSwatch-{name}` selector for each
+  // palette never appears verbatim in the renderer source. The CSS
+  // rules in `styles/settings/theme-preview.css` are real and consumed
+  // at runtime; allowlist them so the orphan-selector guard doesn't
+  // delete the colored backgrounds again.
+  'settingsPaletteSwatch-default',
+  'settingsPaletteSwatch-onedark',
+  'settingsPaletteSwatch-catppuccin-mocha',
+  'settingsPaletteSwatch-tokyo-night',
+  'settingsPaletteSwatch-nord',
+  'settingsPaletteSwatch-coral',
+  'settingsPaletteSwatch-azure',
+  'settingsPaletteSwatch-forest',
+  'settingsPaletteSwatch-dusk',
+  'settingsPaletteSwatch-sand',
+  'settingsPaletteSwatch-mono',
 ]);
 
 async function readSourceFiles(dir: string): Promise<string[]> {
