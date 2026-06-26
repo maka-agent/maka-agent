@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ import type { Config } from '../contracts.js';
 import type { HeadlessBackendContext, IsolatedToolExecutor } from '../isolation.js';
 import {
   buildAiSdkCellBackendRegistration,
+  buildHarborCellContextBudgetBackendOptions,
   buildHarborCellAiSdkTools,
   createHarborCellLocalToolExecutor,
   HARBOR_CELL_OUTPUT_FILENAME,
@@ -390,6 +392,96 @@ describe('runHarborCell', () => {
         outputUsdPer1M: 0.29,
         cacheReadUsdPer1M: 0.0029,
       });
+    });
+  });
+
+  test('Harbor ai-sdk backend wires env-driven tool-result archive pruning', async () => {
+    await withDirs(async ({ workspaceDir, outputDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_OUTPUT_DIR: outputDir,
+          MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+          MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '1',
+          MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL: '0',
+          MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+          MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2',
+          MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: '1',
+          MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'on',
+          MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS: '1',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as {
+        input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
+      }).input;
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.maxResultEstimatedTokens, 1);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 0);
+      assert.equal(backendInput.contextBudget?.activeToolResultPrune?.enabled, true);
+      assert.equal(backendInput.contextBudget?.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 2);
+      assert.equal(backendInput.contextBudget?.activeToolResultPrune?.minStepNumber, 1);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.maxResults, 1);
+      assert.ok(backendInput.archiveToolResult, 'expected archive writer');
+      assert.ok(backendInput.readToolResultArchive, 'expected archive reader');
+
+      const serializedResult = JSON.stringify({ body: 'large tool result' });
+      const bodySha256 = createHash('sha256').update(serializedResult).digest('hex');
+      const originalBytes = Buffer.byteLength(serializedResult, 'utf8');
+      const archived = await backendInput.archiveToolResult({
+        sessionId: 'session-1',
+        runtimeEventId: 'rt-result',
+        turnId: 'turn-old',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        result: { body: 'large tool result' },
+        serializedResult,
+        originalEstimatedTokens: 99,
+        originalBytes,
+        rewriteVersion: 1,
+        reason: 'stale_tool_result_pruned_before_compact',
+        bodySha256,
+      });
+      assert.ok(archived?.artifactId);
+      assert.match(
+        await readFile(join(outputDir, 'tool-result-archives', archived.artifactId), 'utf8'),
+        /"runtimeEventId":"rt-result"/,
+      );
+
+      const read = await backendInput.readToolResultArchive({
+        kind: 'maka.archived_tool_result',
+        rewriteVersion: 1,
+        artifactId: archived.artifactId,
+        runtimeEventId: 'rt-result',
+        toolCallId: 'tool-1',
+        toolName: 'Read',
+        bodySha256,
+        originalEstimatedTokens: 99,
+        originalBytes,
+        reason: 'stale_tool_result_pruned_before_compact',
+        sessionId: 'session-1',
+      });
+      assert.deepEqual(read, { ok: true, serializedResult });
     });
   });
 

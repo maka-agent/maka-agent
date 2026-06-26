@@ -84,8 +84,12 @@ import {
   type ModelFactory,
   type ModelFactoryInput,
   type NormalizedAiSdkUsage,
+  type PrepareStepFunctionLike,
+  type PrepareStepLike,
+  type PrepareStepResultLike,
   type RepairableAiSdkToolCall,
 } from './model-adapter.js';
+import { rewriteActiveToolResultsInMessages } from './active-tool-result-prune.js';
 import type { ToolArtifactRecorder } from './tool-artifacts.js';
 import { RunTrace, type RunTraceRecorder } from './run-trace.js';
 import { computeCost } from './telemetry/cost.js';
@@ -120,6 +124,8 @@ import {
   selectSynthesisCacheForReplay,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
+  type ActiveArchivedToolResultPlaceholder,
+  type ActiveToolResultArchiveCandidate,
   type RuntimeEventHistoryAroundResult,
   type RuntimeEventHistorySearchPolicy,
   type StaleToolResultArchiveCandidate,
@@ -162,6 +168,42 @@ export interface AgentBackend {
 
 export const INVALID_TOOL_NAME = 'invalid';
 
+export function composePrepareStep(
+  toolAvailability: PrepareStepFunctionLike | undefined,
+  activeToolResultPrune: PrepareStepFunctionLike | undefined,
+): PrepareStepFunctionLike | undefined {
+  if (!toolAvailability && !activeToolResultPrune) return undefined;
+  return async (options: PrepareStepLike): Promise<PrepareStepResultLike | undefined> => {
+    const availabilityResult = await Promise.resolve(toolAvailability?.(options));
+    const pruneResult = await Promise.resolve(activeToolResultPrune?.(options));
+    if (!availabilityResult) return pruneResult;
+    if (!pruneResult) return availabilityResult;
+    return {
+      ...availabilityResult,
+      ...pruneResult,
+      activeTools: pruneResult.activeTools ?? availabilityResult.activeTools,
+    };
+  };
+}
+
+function activeToolResultArchiveKey(
+  candidate: ActiveToolResultArchiveCandidate & { bodySha256: string },
+): string {
+  return `active:${candidate.turnId}:${candidate.toolCallId}:${candidate.bodySha256}`;
+}
+
+function collectPrepareStepToolCallIds(steps: PrepareStepLike['steps']): Set<string> {
+  const out = new Set<string>();
+  for (const step of steps) {
+    for (const call of step.toolCalls ?? []) {
+      if (typeof call.toolCallId === 'string' && call.toolCallId.length > 0) {
+        out.add(call.toolCallId);
+      }
+    }
+  }
+  return out;
+}
+
 // ============================================================================
 // Constructor input — single object matches @kabi's BackendRegistry call site
 // ============================================================================
@@ -173,10 +215,13 @@ export const INVALID_TOOL_NAME = 'invalid';
 export type AppendMessageFn = (m: StoredMessage) => Promise<void>;
 export type LlmTelemetryRecorder = (record: LlmCallRecord) => void;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
-export interface ToolResultArchiveRecorderInput extends StaleToolResultArchiveCandidate {
+export type ToolResultArchiveRecorderInput = (
+  | StaleToolResultArchiveCandidate
+  | (ActiveToolResultArchiveCandidate & { runtimeEventId: string })
+) & {
   sessionId: string;
   bodySha256: string;
-}
+};
 export type ToolResultArchiveRecorder = (
   input: ToolResultArchiveRecorderInput,
 ) => Promise<{ artifactId: string } | void> | { artifactId: string } | void;
@@ -502,7 +547,10 @@ export class AiSdkBackend implements AgentBackend {
       (input.runtimeContext ?? []).filter((event) => event.turnId !== turnId),
     );
     const providerTools = plan.providerTools;
-    const prepareStep = plan.prepareStep;
+    const prepareStep = composePrepareStep(
+      plan.prepareStep,
+      this.buildActiveToolResultPrunePrepareStep(turnId),
+    );
     // Tool names the repair path matches a mis-cased call against — follows the
     // current step's snapshot so a group loaded mid-turn is repairable on the
     // step it becomes active, not routed to `invalid`.
@@ -1247,6 +1295,35 @@ export class AiSdkBackend implements AgentBackend {
     return {
       policy: nextPolicy,
       ...(diagnosticPatch ? { diagnosticPatch } : {}),
+    };
+  }
+
+  private buildActiveToolResultPrunePrepareStep(turnId: string): PrepareStepFunctionLike | undefined {
+    const policy = this.input.contextBudget?.activeToolResultPrune;
+    if (policy?.enabled !== true) return undefined;
+
+    const archivedPlaceholders = new Map<string, ActiveArchivedToolResultPlaceholder>();
+    return async (options) => {
+      const eligibleToolCallIds = collectPrepareStepToolCallIds(options.steps);
+      if (eligibleToolCallIds.size === 0) return undefined;
+      const rewritten = await rewriteActiveToolResultsInMessages({
+        messages: options.messages,
+        policy,
+        stepNumber: options.stepNumber,
+        sessionId: this.sessionId,
+        turnId,
+        charsPerToken: this.input.contextBudget?.charsPerToken,
+        eligibleToolCallIds,
+        archivedPlaceholders,
+        archiveToolResult: async (candidate) => {
+          return await Promise.resolve(this.input.archiveToolResult?.({
+            ...candidate,
+            sessionId: this.sessionId,
+            runtimeEventId: candidate.runtimeEventId ?? activeToolResultArchiveKey(candidate),
+          }));
+        },
+      });
+      return rewritten.rewritten > 0 ? { messages: rewritten.messages } : undefined;
     };
   }
 

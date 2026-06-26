@@ -22,6 +22,11 @@ export interface ContextBudgetPolicy {
   charsPerToken?: number;
   /** Optional replay-only pruning for stale oversized tool results before whole-turn compaction. */
   staleToolResultPrune?: StaleToolResultPrunePolicy;
+  /**
+   * Optional current-turn, provider-visible tool-result pruning before the next
+   * AI SDK step. Defaults off and does not mutate persisted session messages.
+   */
+  activeToolResultPrune?: ActiveToolResultPrunePolicy;
   /** Optional replay-only archive hydration after pruning. Defaults off. */
   archiveRetrieval?: ArchiveRetrievalPolicy;
   /** Optional deterministic prior-history search used to re-add bounded around-context. Defaults off. */
@@ -45,6 +50,16 @@ export interface StaleToolResultPrunePolicy {
    * matching ref exists, so archive-write failure keeps original content.
    */
   archiveRefs?: readonly ToolResultArchiveRef[] | Readonly<Record<string, ToolResultArchiveRef>>;
+}
+
+export interface ActiveToolResultPrunePolicy {
+  enabled: boolean;
+  /** Tool result payloads above this estimate are archived and replaced. Defaults to 8192. */
+  maxCurrentResultEstimatedTokens?: number;
+  /** Do not rewrite before this SDK step. Defaults to 1, so step 0 is untouched. */
+  minStepNumber?: number;
+  /** Defaults to true: archive failure keeps the original payload. */
+  archiveRequired?: boolean;
 }
 
 export interface ArchiveRetrievalPolicy {
@@ -270,9 +285,11 @@ export interface HistoryRewriteGatePolicy {
 }
 
 export const ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND = 'maka.archived_tool_result';
+export const ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND = 'maka.active_archived_tool_result';
 export const ARCHIVED_TOOL_RESULT_REWRITE_VERSION = 1;
 const DEFAULT_MAX_TOOL_RESULT_ESTIMATED_TOKENS = 2048;
 export type ArchivedToolResultReason = 'stale_tool_result_pruned_before_compact';
+export type ActiveArchivedToolResultReason = 'active_current_turn_tool_result_pruned_before_next_step';
 
 export interface ArchivedToolResultPlaceholder {
   kind: typeof ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND;
@@ -298,6 +315,32 @@ export interface StaleToolResultArchiveCandidate {
   originalBytes: number;
   rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
   reason: ArchivedToolResultReason;
+}
+
+export interface ActiveToolResultArchiveCandidate {
+  turnId: string;
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  serializedResult: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  reason: ActiveArchivedToolResultReason;
+  runtimeEventId?: string;
+}
+
+export interface ActiveArchivedToolResultPlaceholder {
+  kind: typeof ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  artifactId: string;
+  turnId: string;
+  toolCallId: string;
+  toolName: string;
+  bodySha256: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  reason: ActiveArchivedToolResultReason;
 }
 
 export interface ToolResultArchiveRef {

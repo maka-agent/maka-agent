@@ -48,8 +48,28 @@ export interface ModelAdapterInput {
 }
 
 export interface PrepareStepLike {
-  steps?: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolName: string; input?: unknown }> }>;
+  steps: ReadonlyArray<{
+    toolCalls?: ReadonlyArray<{ toolCallId?: string; toolName: string; input?: unknown }>;
+  }>;
+  stepNumber: number;
+  model: unknown;
+  messages: ModelMessage[];
+  experimental_context: unknown;
 }
+
+export interface PrepareStepResultLike {
+  activeTools?: string[];
+  messages?: ModelMessage[];
+  model?: unknown;
+  toolChoice?: unknown;
+  system?: unknown;
+  providerOptions?: Record<string, unknown>;
+  experimental_context?: unknown;
+}
+
+export type PrepareStepFunctionLike = (
+  options: PrepareStepLike,
+) => PrepareStepResultLike | undefined | PromiseLike<PrepareStepResultLike | undefined>;
 
 export interface ModelAdapterStreamInput {
   model: unknown;
@@ -67,7 +87,7 @@ export interface ModelAdapterStreamInput {
    * `activeTools` before each step so a tool loaded mid-turn becomes advertised
    * on the next step without mutating the cached tools prefix.
    */
-  prepareStep?: (options: PrepareStepLike) => { activeTools: string[] };
+  prepareStep?: PrepareStepFunctionLike;
 }
 
 export interface ModelAdapterStreamCallbacks {

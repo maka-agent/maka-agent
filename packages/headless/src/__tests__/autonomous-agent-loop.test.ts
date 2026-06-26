@@ -57,6 +57,32 @@ const registerPermissionRequestBackend = (registry: BackendRegistry): void => {
   registry.register('fake', (ctx) => new PermissionRequestBackend(ctx.sessionId));
 };
 
+class RuntimeContextCapturingBackend implements AgentBackend {
+  readonly kind: BackendKind = 'fake';
+  readonly sessionId: string;
+
+  constructor(
+    sessionId: string,
+    private readonly runtimeContextCounts: number[],
+  ) {
+    this.sessionId = sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.runtimeContextCounts.push(input.runtimeContext?.length ?? 0);
+    const ts = Date.now();
+    yield { type: 'complete', id: `context-complete-${this.runtimeContextCounts.length}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerRuntimeContextCapturingBackend = (runtimeContextCounts: number[]) => (registry: BackendRegistry): void => {
+  registry.register('fake', (ctx) => new RuntimeContextCapturingBackend(ctx.sessionId, runtimeContextCounts));
+};
+
 class PromptCapturingProgressBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
@@ -220,6 +246,30 @@ describe('runAutonomousTask', () => {
         result.projection.events.filter((event) => event.type === 'task_run_budget_exhausted').length,
         1,
       );
+    });
+  });
+
+  test('can replay prior attempt runtime events into the next autonomous attempt', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const runtimeContextCounts: number[] = [];
+      const task: Task = {
+        id: 'replay-prior-runtime-context',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f missing.txt', protectedPaths: [] },
+      };
+
+      const result = await runAutonomousTask(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerRuntimeContextCapturingBackend(runtimeContextCounts),
+        replayPriorAttemptRuntimeContext: true,
+        budget: { maxAttempts: 2 },
+        newId: idFactory(),
+      });
+
+      assert.equal(result.attempts.length, 2);
+      assert.equal(runtimeContextCounts[0], 0);
+      assert.ok((runtimeContextCounts[1] ?? 0) > 0, 'expected second attempt to receive prior runtime events');
     });
   });
 

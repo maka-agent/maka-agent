@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "description": "Structured Terminal-Bench sample run profiles for the local Harbor smoke harness.",
+  "defaults": {
+    "jobsDir": "terminal-bench-smoke/jobs",
+    "generatedConfigDir": "terminal-bench-smoke/generated-configs",
+    "dataset": {
+      "name": "terminal-bench-sample",
+      "version": "2.0"
+    },
+    "taskPattern": "*sqlite-with-gcov",
+    "nAttempts": 1,
+    "nConcurrentTrials": 1,
+    "timeoutMultiplier": 1.0,
+    "retryMaxRetries": 0,
+    "modelExtraInstructionPaths": [
+      "terminal-bench-smoke/prompts/self-check-cleanup.md"
+    ]
+  },
+  "profiles": {
+    "maka-basic": {
+      "description": "Maka Harbor bridge against terminal-bench-sample, matching the successful sqlite-with-gcov DeepSeek V4 Pro sample run shape.",
+      "agentTimeoutMultiplier": 4.0,
+      "agent": {
+        "importPath": "maka_harbor_agent:MakaHarborAgent",
+        "env": {
+          "MAKA_HARBOR_USE_TASK_RUN": "0",
+          "MAKA_HARBOR_AUTONOMOUS": "0",
+          "MAKA_MODEL": "deepseek-v4-pro",
+          "MAKA_MAX_STEPS": "80",
+          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "3600"
+        }
+      }
+    },
+    "maka-heavy": {
+      "description": "Maka task-run heavy-task bridge for public sample trace/evidence experiments.",
+      "agentTimeoutMultiplier": 8.0,
+      "agent": {
+        "importPath": "maka_harbor_agent:MakaHarborAgent",
+        "env": {
+          "MAKA_HARBOR_USE_TASK_RUN": "1",
+          "MAKA_HARBOR_AUTONOMOUS": "0",
+          "MAKA_HEAVY_TASK_MODE": "1",
+          "MAKA_MODEL": "deepseek-v4-pro",
+          "MAKA_MAX_STEPS": "100",
+          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "7200"
+        }
+      }
+    },
+    "maka-heavy-prune": {
+      "description": "Maka heavy-task bridge with autonomous prior-attempt runtime replay and stale tool-result archive pruning enabled.",
+      "agentTimeoutMultiplier": 8.0,
+      "agent": {
+        "importPath": "maka_harbor_agent:MakaHarborAgent",
+        "env": {
+          "MAKA_HARBOR_USE_TASK_RUN": "1",
+          "MAKA_HARBOR_AUTONOMOUS": "1",
+          "MAKA_HARBOR_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT": "1",
+          "MAKA_HEAVY_TASK_MODE": "1",
+          "MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE": "on",
+          "MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS": "2048",
+          "MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL": "0",
+          "MAKA_MODEL": "deepseek-v4-pro",
+          "MAKA_MAX_STEPS": "100",
+          "MAKA_AUTONOMOUS_MAX_ATTEMPTS": "3",
+          "MAKA_HARBOR_AGENT_TIMEOUT_SEC": "7200"
+        }
+      }
+    },
+    "opencode": {
+      "description": "OpenCode Harbor wrapper against terminal-bench-sample for Maka/OpenCode comparison.",
+      "agentTimeoutMultiplier": 4.0,
+      "agent": {
+        "importPath": "opencode_title_harbor_agent:OpenCodeTitleAgent",
+        "modelName": "deepseek/deepseek-v4-pro",
+        "env": {}
+      }
+    },
+    "oracle": {
+      "description": "Harbor built-in oracle agent for cheap wrapper/dataset smoke tests.",
+      "agentTimeoutMultiplier": null,
+      "extraInstructionPaths": [],
+      "agent": {
+        "name": "oracle",
+        "env": {}
+      }
+    }
+  }
+}

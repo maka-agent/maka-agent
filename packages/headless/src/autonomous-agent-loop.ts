@@ -92,6 +92,7 @@ export type AutonomousDecisionPolicy = (
 
 export interface RunAutonomousTaskOptions extends RunTaskOnceDeps {
   budget: AutonomousLoopBudget;
+  replayPriorAttemptRuntimeContext?: boolean;
   selfCheck?: false | SelfCheckPolicy;
   feedbackPrompt?: (input: FeedbackPromptInput) => string;
   decision?: AutonomousDecisionPolicy;
@@ -180,6 +181,7 @@ export async function runAutonomousTask(
   let instructionOverride: string | undefined = options.instructionOverride;
   let runtimeStepsUsed = 0;
   let latestResultRecord: ResultRecord | undefined;
+  let priorRuntimeContext = options.priorRuntimeContext ? [...options.priorRuntimeContext] : [];
 
   while (attempts.length < options.budget.maxAttempts) {
     const beforeAttemptBudget = budgetSnapshot(options.budget, attempts.length, runtimeStepsUsed, startedAt, now());
@@ -225,10 +227,14 @@ export async function runAutonomousTask(
       createTaskRun: false,
       closeTaskRun: false,
       ...(instructionOverride ? { instructionOverride } : {}),
+      ...(priorRuntimeContext.length > 0 ? { priorRuntimeContext } : {}),
     });
     attempts.push(attempt);
     latestResultRecord = attempt.resultRecord;
     runtimeStepsUsed += attempt.resultRecord.steps;
+    if (options.replayPriorAttemptRuntimeContext) {
+      priorRuntimeContext = [...priorRuntimeContext, ...attempt.invocation.events];
+    }
 
     const afterAttemptBudget = budgetSnapshot(options.budget, attempts.length, runtimeStepsUsed, startedAt, now());
     const selfCheck = isWallTimeExhausted(afterAttemptBudget)
