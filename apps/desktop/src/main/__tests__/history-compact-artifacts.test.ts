@@ -110,6 +110,44 @@ describe('desktop history compact artifact lifecycle', () => {
     });
   });
 
+  test('does not leave source artifacts when the compact block exceeds the total token limit', async () => {
+    await withStore(async (store) => {
+      const foldedEvents = [
+        textEvent('old-1', 'turn-1', 'alpha fact'),
+        textEvent('old-2', 'turn-2', 'beta fact'),
+      ];
+      const input: HistoryCompactWriteInput = {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: historyCompactBlock(foldedEvents, 'deterministic fallback'),
+          foldedRuntimeEvents: foldedEvents,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 1,
+          charsPerToken: 4,
+        },
+      };
+
+      const createdArtifacts: string[] = [];
+      const write = await persistHistoryCompactBlocksToArtifacts(store, input, {
+        now: () => 1_800_000_000_100,
+        summarize: () => 'summary that cannot fit in one estimated token',
+        onArtifactCreated: (artifact) => {
+          createdArtifacts.push(artifact.id);
+        },
+      });
+
+      assert.equal(write.blocks.length, 0);
+      assert.equal(write.skipped, 1);
+      assert.deepEqual(write.skippedReasonCounts, { max_total_tokens: 1 });
+      assert.deepEqual(createdArtifacts, []);
+      assert.deepEqual(await store.list('session-1'), []);
+    });
+  });
+
   test('rejects deleted, wrong-source, wrong-session, malformed, wrong-version, and oversized blocks', async () => {
     await withStore(async (store) => {
       await store.create({
