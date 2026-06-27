@@ -1354,9 +1354,12 @@ async function runDailyReview(input: {
   mode: DailyReviewMode;
   day?: number;
   trigger: DailyReviewTrigger;
+  modelKeyOverride?: string;
 }): Promise<{ archiveId: string }> {
   const config = await dailyReviewArchiveStore.getConfig();
   const mode = input.mode === 'deep' ? 'deep' : 'daily';
+  const modelKeyOverride = input.modelKeyOverride?.trim();
+  const effectiveModelKey = modelKeyOverride ? modelKeyOverride : config.modelKey;
   const summary = await buildDailyReviewSummaryForRange(input.day ?? 0, mode === 'deep' ? 7 : 1);
   const archiveId = dailyReviewArchiveId(summary.day, mode);
   const baseArchive: Omit<DailyReviewArchive, 'status' | 'sections' | 'errorMessage'> = {
@@ -1365,7 +1368,7 @@ async function runDailyReview(input: {
     mode,
     generatedAt: Date.now(),
     trigger: input.trigger,
-    modelKey: config.modelKey,
+    modelKey: effectiveModelKey,
     totals: summary.totals,
   };
 
@@ -1381,7 +1384,7 @@ async function runDailyReview(input: {
   }
 
   try {
-    const modelContext = await resolveDailyReviewModelContext(config.modelKey);
+    const modelContext = await resolveDailyReviewModelContext(effectiveModelKey);
     if (!modelContext) {
       await dailyReviewArchiveStore.putArchive({
         ...baseArchive,
@@ -3522,10 +3525,11 @@ function registerIpc(): void {
   );
   ipcMain.handle(
     'daily-review:runOnce',
-    (_event, input: { mode?: DailyReviewMode; day?: number } | undefined) =>
+    (_event, input: { mode?: DailyReviewMode; day?: number; modelKey?: string } | undefined) =>
       runDailyReview({
         mode: input?.mode === 'deep' ? 'deep' : 'daily',
         day: Number.isFinite(input?.day) ? Math.trunc(input!.day!) : undefined,
+        modelKeyOverride: typeof input?.modelKey === 'string' ? input.modelKey : undefined,
         trigger: 'manual',
       }),
   );

@@ -1353,7 +1353,8 @@ interface DailyReviewBridge {
    * for presence before exposing the matching UI. When undefined, the
    * panel still works as the MVP telemetry view.
    */
-  runOnce?(opts: { mode: DailyReviewMode }): Promise<{ archiveId: string }>;
+  runOnce?(opts: { mode: DailyReviewMode; modelKey?: string }): Promise<{ archiveId: string }>;
+  modelOptions?: ReadonlyArray<SettingsSelectOption<string>>;
   listArchives?(): Promise<DailyReviewArchiveSummary[]>;
   getArchive?(archiveId: string): Promise<DailyReviewArchive>;
   deleteArchive?(archiveId: string): Promise<void>;
@@ -1421,6 +1422,8 @@ function DailyReviewPanel(props: {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveReloadToken, setArchiveReloadToken] = useState(0);
+  const modelOptions = props.bridge.modelOptions ?? [];
+  const [selectedModelKey, setSelectedModelKey] = useState<string>(modelOptions[0]?.[0] ?? '');
   const dailyReviewMountedRef = useRef(true);
   const summaryScopeKeyRef = useRef<string | null>(null);
   const pendingDailyReviewActionRef = useRef<string | null>(null);
@@ -1536,6 +1539,16 @@ function DailyReviewPanel(props: {
     };
   }, [archiveReloadToken, selectedArchiveId, props.bridge]);
 
+  useEffect(() => {
+    if (modelOptions.length === 0) {
+      setSelectedModelKey('');
+      return;
+    }
+    setSelectedModelKey((current) =>
+      modelOptions.some(([value]) => value === current) ? current : modelOptions[0]![0],
+    );
+  }, [modelOptions]);
+
   const dayLabel = (() => {
     if (range === 1) {
       if (offsetDays === 0) return '今天';
@@ -1585,7 +1598,7 @@ function DailyReviewPanel(props: {
     const actionKey = `run:${mode}`;
     await runDailyReviewAction(actionKey, async () => {
       try {
-        const result = await runOnce({ mode });
+        const result = await runOnce({ mode, modelKey: selectedModelKey });
         if (!isDailyReviewActionCurrent(actionKey)) return;
         chooseDailyReviewArchive(result.archiveId);
         setArchiveReloadToken((n) => n + 1);
@@ -1635,6 +1648,17 @@ function DailyReviewPanel(props: {
       </section>
       {canManualRun && (
         <div className="maka-daily-review-quick-runs" aria-label="手动触发回顾">
+          {modelOptions.length > 0 && (
+            <SettingsSelect
+              value={selectedModelKey}
+              ariaLabel="每日回顾分析模型"
+              options={modelOptions}
+              onChange={setSelectedModelKey}
+              disabled={dailyReviewActionBusy}
+              width="select"
+              className="maka-daily-review-model-select"
+            />
+          )}
           <UiButton
             type="button"
             variant="default"

@@ -653,7 +653,7 @@ contextBridge.exposeInMainWorld('maka', {
     setConfig(patch: Partial<DailyReviewConfig>): Promise<DailyReviewConfig> {
       return ipcRenderer.invoke('daily-review:setConfig', patch);
     },
-    runOnce(input: { mode: DailyReviewMode; day?: number }): Promise<{ archiveId: string }> {
+    runOnce(input: { mode: DailyReviewMode; day?: number; modelKey?: string }): Promise<{ archiveId: string }> {
       return ipcRenderer.invoke('daily-review:runOnce', input);
     },
     list(): Promise<DailyReviewArchiveSummary[]> {

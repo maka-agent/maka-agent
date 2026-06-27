@@ -148,7 +148,7 @@ describe('Daily Review copy feedback contract', () => {
     );
     assert.match(
       manualRunBlock,
-      /const result = await runOnce\(\{ mode \}\);\s*if \(!isDailyReviewActionCurrent\(actionKey\)\) return;\s*chooseDailyReviewArchive\(result\.archiveId\);\s*setArchiveReloadToken\(\(n\) => n \+ 1\);\s*setReloadToken\(\(n\) => n \+ 1\);/,
+      /const result = await runOnce\(\{ mode, modelKey: selectedModelKey \}\);\s*if \(!isDailyReviewActionCurrent\(actionKey\)\) return;\s*chooseDailyReviewArchive\(result\.archiveId\);\s*setArchiveReloadToken\(\(n\) => n \+ 1\);\s*setReloadToken\(\(n\) => n \+ 1\);/,
       'Late manual-run success must not select archives or reload a closed/superseded panel',
     );
     assert.match(

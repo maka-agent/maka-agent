@@ -44,4 +44,32 @@ describe('model catalog picker contract', () => {
     assert.doesNotMatch(settings, /connectionName/);
     assert.doesNotMatch(helper, /connection\.name|connectionName/);
   });
+
+  it('lets the main Daily Review panel choose and pass a model for manual runs', async () => {
+    const ui = await readFile(
+      resolve(REPO_ROOT, 'packages/ui/src/components.tsx'),
+      'utf8',
+    );
+    const main = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'),
+      'utf8',
+    );
+    const preload = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'),
+      'utf8',
+    );
+    const mainProcess = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'),
+      'utf8',
+    );
+
+    assert.match(ui, /modelOptions\?:\s*ReadonlyArray<SettingsSelectOption<string>>/);
+    assert.match(ui, /<SettingsSelect[\s\S]*ariaLabel="每日回顾分析模型"[\s\S]*onChange=\{setSelectedModelKey\}/);
+    assert.match(ui, /runOnce\(\{\s*mode,\s*modelKey:\s*selectedModelKey/);
+    assert.match(main, /buildCatalogDailyReviewModelOptions\(connections,/);
+    assert.match(main, /runOnce\(input:\s*\{\s*mode:\s*DailyReviewMode;\s*modelKey\?:\s*string\s*\}\)/);
+    assert.match(preload, /runOnce\(input:\s*\{\s*mode:\s*DailyReviewMode;\s*day\?:\s*number;\s*modelKey\?:\s*string\s*\}/);
+    assert.match(mainProcess, /modelKeyOverride\?:\s*string/);
+    assert.match(mainProcess, /resolveDailyReviewModelContext\(effectiveModelKey\)/);
+  });
 });

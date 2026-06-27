@@ -73,10 +73,16 @@
      align them with `justify-content: flex-end` so they read as the
      panel's primary actions. */
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 2px 0 6px;
   border-bottom: 1px solid var(--foreground-10);
+}
+
+.maka-daily-review-model-select {
+  margin-right: auto;
 }
 
 .maka-daily-review-quick-run {
