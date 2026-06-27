@@ -93,7 +93,7 @@ import {
 import { deriveTurnFooterActions } from './turn-footer-actions';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { buildCatalogChatModelChoices, buildCatalogDailyReviewModelChoices } from './model-catalog-choices';
+import { buildCatalogChatModelChoices, buildCatalogDailyReviewModelOptions } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import {
@@ -185,6 +185,13 @@ function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModel
 }
 
 const DAILY_REVIEW_CONFIG_MODEL_VALUE = '__maka_daily_review_config_model__';
+
+function buildDailyReviewRunModelOptions(connections: readonly LlmConnection[]): Array<readonly [string, string]> {
+  return [
+    [DAILY_REVIEW_CONFIG_MODEL_VALUE, '使用设置中的分析模型'],
+    ...buildCatalogDailyReviewModelOptions(connections, ''),
+  ];
+}
 
 function normalizeActiveChatModel(
   session: SessionSummary | undefined,
@@ -397,8 +404,7 @@ function AppShell() {
   // off a stable reference instead of refetching on every render.
   const dailyReviewBridge = useMemo(
     () => ({
-      modelChoices: buildCatalogDailyReviewModelChoices(connections),
-      defaultModelValue: DAILY_REVIEW_CONFIG_MODEL_VALUE,
+      modelOptions: buildDailyReviewRunModelOptions(connections),
       async fetchDay(offsetDays: number, daySpan?: number) {
         const result = await window.maka.dailyReview.day(offsetDays, daySpan);
         if (!result.ok) throw new Error(result.error.message);

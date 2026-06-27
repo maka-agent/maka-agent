@@ -1190,7 +1190,7 @@ function SettingsPage(props: {
         />
       );
     case 'daily-review':
-      return <DailyReviewSettingsPage onOpenDailyReview={props.onOpenDailyReview} />;
+      return <DailyReviewSettingsPage connections={props.connections} onOpenDailyReview={props.onOpenDailyReview} />;
     case 'voice-gateway':
       // PR-SETTINGS-IA-CONSOLIDATE-0: 语音模型 + 开放网关 → 语音与网关.
       // PR-SETTINGS-SWEEP-0: section heading per sub-block.
@@ -1434,7 +1434,7 @@ function buildDailyReviewModelOptions(
   return options;
 }
 
-function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
+function DailyReviewSettingsPage(props: { connections: readonly LlmConnection[]; onOpenDailyReview?: () => void }) {
   const toast = useToast();
   const dailyReviewIpc = window.maka.dailyReview;
   const hasConfigIpc = Boolean(dailyReviewIpc.getConfig && dailyReviewIpc.setConfig);
@@ -1445,8 +1445,6 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [runningMode, setRunningMode] = useState<DailyReviewMode | null>(null);
-  const [modelConnections, setModelConnections] = useState<LlmConnection[]>([]);
-  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const savingKeyRef = useRef<string | null>(null);
   const runningModeRef = useRef<DailyReviewMode | null>(null);
@@ -1487,29 +1485,6 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
       cancelled = true;
     };
   }, [hasConfigIpc, dailyReviewIpc]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function reloadModelConnections() {
-      try {
-        const connections = await window.maka.connections.list();
-        if (cancelled || !mountedRef.current) return;
-        setModelConnections(connections);
-        setModelLoadError(null);
-      } catch (err) {
-        if (cancelled || !mountedRef.current) return;
-        setModelLoadError(settingsActionErrorMessage(err));
-      }
-    }
-    void reloadModelConnections();
-    const unsubscribe = window.maka.connections.subscribeEvents(() => {
-      void reloadModelConnections();
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
 
   async function patchConfig(key: string, patch: Partial<DailyReviewConfig>) {
     if (!dailyReviewIpc.setConfig || !config || savingKeyRef.current !== null) return;
@@ -1554,8 +1529,8 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   const effectiveConfig = config;
   const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig || savingKey !== null;
   const modelOptions = useMemo(
-    () => buildDailyReviewModelOptions(modelConnections, effectiveConfig?.modelKey ?? ''),
-    [effectiveConfig?.modelKey, modelConnections],
+    () => buildDailyReviewModelOptions(props.connections, effectiveConfig?.modelKey ?? ''),
+    [effectiveConfig?.modelKey, props.connections],
   );
   const selectedModelValue = effectiveConfig?.modelKey?.trim()
     ? effectiveConfig.modelKey.trim()
@@ -1652,7 +1627,6 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
             <strong>分析模型</strong>
             <small>
               用于生成回顾和分析的模型连接；默认跟随当前对话默认模型。
-              {modelLoadError ? ` 模型列表读取失败：${modelLoadError}` : ''}
             </small>
           </div>
           <SettingsSelect

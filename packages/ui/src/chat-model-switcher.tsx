@@ -215,37 +215,26 @@ export function NewChatModelPicker(props: {
   label: string;
   choices: ChatModelChoice[];
   currentValue?: string;
-  leadingOption?: { value: string; label: string };
-  ariaLabel?: string;
-  title?: string;
-  className?: string;
-  disabled?: boolean;
-  onValue?(value: string): void | Promise<void>;
   onPick(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
 }) {
   const grouped = modelMenuGroups(props.choices);
-  const choiceItems = props.choices.map((choice) => ({
-    value: modelChoiceValue(choice.connectionSlug, choice.model),
-    label: choice.model,
-  }));
-  const items = props.leadingOption ? [props.leadingOption, ...choiceItems] : choiceItems;
   return (
     <SelectRoot<string>
-      items={items}
+      items={props.choices.map((choice) => ({
+        value: modelChoiceValue(choice.connectionSlug, choice.model),
+        label: choice.model,
+      }))}
       value={props.currentValue}
-      disabled={props.disabled}
       onValueChange={(value) => {
         if (typeof value !== 'string') return;
-        void props.onValue?.(value);
-        if (props.leadingOption && value === props.leadingOption.value) return;
         const next = parseModelChoiceValue(value);
         if (next) void props.onPick(next);
       }}
     >
       <SelectTrigger
-        className={props.className ? `maka-composer-model-chip ${props.className}` : 'maka-composer-model-chip'}
-        aria-label={props.ariaLabel ?? `选择新对话模型，当前 ${props.label}`}
-        title={props.title ?? `新对话使用的模型：${props.label}`}
+        className="maka-composer-model-chip"
+        aria-label={`选择新对话模型，当前 ${props.label}`}
+        title={`新对话使用的模型：${props.label}`}
       >
         <span className="maka-composer-model-chip-text">{props.label}</span>
         <span className="maka-composer-model-status" aria-hidden="true" />
@@ -255,14 +244,6 @@ export function NewChatModelPicker(props: {
         <SelectPositioner alignItemWithTrigger={false} sideOffset={8} className="maka-model-switcher-positioner">
           <SelectPopup className="maka-model-switcher-popup">
             <SelectList>
-              {props.leadingOption && (
-                <>
-                  <SelectItem value={props.leadingOption.value}>
-                    <span className="maka-model-switcher-item-main">{props.leadingOption.label}</span>
-                  </SelectItem>
-                  {grouped.length > 0 && <SelectSeparator />}
-                </>
-              )}
               <ModelChoiceOptions groups={grouped} />
             </SelectList>
           </SelectPopup>

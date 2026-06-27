@@ -26,21 +26,6 @@ export function buildCatalogChatModelChoices(connections: readonly LlmConnection
   return choices;
 }
 
-export function buildCatalogDailyReviewModelChoices(connections: readonly LlmConnection[]): ChatModelChoice[] {
-  const choices: ChatModelChoice[] = [];
-  for (const connection of connections) {
-    if (!isEnabledModelConnection(connection)) continue;
-    for (const entry of selectableCatalogEntries(connection)) {
-      choices.push({
-        connectionSlug: connection.slug,
-        providerType: connection.providerType,
-        model: entry.id,
-      });
-    }
-  }
-  return choices;
-}
-
 export function buildCatalogModelChoices(connection: Pick<
   LlmConnection,
   'slug' | 'providerType' | 'defaultModel' | 'models' | 'modelSource' | 'modelsFetchedAt'
