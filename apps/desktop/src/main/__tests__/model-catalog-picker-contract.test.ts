@@ -39,11 +39,9 @@ describe('model catalog picker contract', () => {
       resolve(REPO_ROOT, 'apps/desktop/src/renderer/model-catalog-choices.ts'),
       'utf8',
     );
-    const dailyReviewBlock = settings.match(
-      /buildCatalogDailyReviewModelOptions\([\s\S]*?effectiveConfig\?\.modelKey \?\? ''\)/,
-    )?.[0] ?? settings;
 
-    assert.doesNotMatch(dailyReviewBlock, /connection\.name|connectionName/);
+    assert.match(settings, /buildDailyReviewModelOptions\(modelConnections, effectiveConfig\?\.modelKey \?\? ''\)/);
+    assert.doesNotMatch(settings, /connectionName/);
     assert.doesNotMatch(helper, /connection\.name|connectionName/);
   });
 });

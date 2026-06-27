@@ -1422,10 +1422,8 @@ const DAILY_REVIEW_DEFAULT_MODEL_VALUE = '__maka_daily_review_default_model__';
 
 function buildDailyReviewModelOptions(
   connections: readonly LlmConnection[],
-  defaultConnectionSlug: string | null,
   currentModelKey: string,
 ): Array<readonly [string, string]> {
-  void defaultConnectionSlug;
   const options: Array<readonly [string, string]> = [
     [DAILY_REVIEW_DEFAULT_MODEL_VALUE, '跟随对话默认'],
   ];
@@ -1561,8 +1559,8 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   const effectiveConfig = config;
   const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig || savingKey !== null;
   const modelOptions = useMemo(
-    () => buildDailyReviewModelOptions(modelConnections, defaultConnectionSlug, effectiveConfig?.modelKey ?? ''),
-    [defaultConnectionSlug, effectiveConfig?.modelKey, modelConnections],
+    () => buildDailyReviewModelOptions(modelConnections, effectiveConfig?.modelKey ?? ''),
+    [effectiveConfig?.modelKey, modelConnections],
   );
   const selectedModelValue = effectiveConfig?.modelKey?.trim()
     ? effectiveConfig.modelKey.trim()

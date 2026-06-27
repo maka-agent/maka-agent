@@ -43,7 +43,7 @@ export function buildCatalogDailyReviewModelOptions(
   const providerCounts = enabledProviderCounts(connections);
 
   for (const connection of connections) {
-    if (!isModelConsumerConnection(connection)) continue;
+    if (!isEnabledModelConnection(connection)) continue;
     const savedModelIds = current?.connectionSlug === connection.slug ? [current.model] : [];
     const safeSourceLabel = safeConnectionLabel(connection.providerType, connection.slug, providerCounts);
     for (const entry of selectableCatalogEntries(connection, savedModelIds)) {
@@ -132,10 +132,14 @@ function isModelConsumerConnection(connection: Pick<LlmConnection, 'enabled' | '
 function enabledProviderCounts(connections: readonly LlmConnection[]): Map<ProviderType, number> {
   const counts = new Map<ProviderType, number>();
   for (const connection of connections) {
-    if (!isModelConsumerConnection(connection)) continue;
+    if (!isEnabledModelConnection(connection)) continue;
     counts.set(connection.providerType, (counts.get(connection.providerType) ?? 0) + 1);
   }
   return counts;
+}
+
+function isEnabledModelConnection(connection: Pick<LlmConnection, 'enabled' | 'providerType'>): boolean {
+  return connection.enabled && PROVIDER_DEFAULTS[connection.providerType].backendKind === 'ai-sdk';
 }
 
 function safeConnectionLabel(

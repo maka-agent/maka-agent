@@ -107,13 +107,15 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(renderer, /onModelChange=\{\(input\) => setSessionModel\(input\)\}/);
     assert.doesNotMatch(renderer, /onModelChange=\{\(input\) => void setSessionModel\(input\)\}/);
     assert.match(renderer, /modelChangePending=\{activeId \? pendingSessionModelBySession\[activeId\] === true : false\}/);
-    assert.match(renderer, /PROVIDER_DEFAULTS\[connection\.providerType\]/);
+    assert.match(renderer, /buildCatalogChatModelChoices\(connections\)/);
+    const catalogChoices = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/model-catalog-choices.ts'), 'utf8');
+    assert.match(catalogChoices, /PROVIDER_DEFAULTS\[connection\.providerType\]/);
     assert.match(
-      renderer,
-      /const rawModels = connection\.models !== undefined[\s\S]*\? connection\.models\.map\(\(model\) => model\.id\)[\s\S]*: connection\.defaultModel[\s\S]*\? \[connection\.defaultModel\][\s\S]*: defaults\.fallbackModels;/,
-      'chat model choices must fall back to provider defaults only when the connection has no explicit model list/default yet',
+      catalogChoices,
+      /buildConnectionModelCatalogEntries\(\{ connection, savedModelIds \}\)/,
+      'chat model choices must derive candidates from the shared model catalog',
     );
-    assert.match(renderer, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(model\.trim\(\)\)/);
+    assert.match(catalogChoices, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(entry\.id\.trim\(\)\)/);
     assert.match(ui, /function ChatModelSwitcher/);
     assert.match(ui, /modelChangePending\?: boolean/);
     assert.match(ui, /pending=\{props\.modelChangePending\}/);
