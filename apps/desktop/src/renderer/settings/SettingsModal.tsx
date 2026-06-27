@@ -1446,7 +1446,6 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [runningMode, setRunningMode] = useState<DailyReviewMode | null>(null);
   const [modelConnections, setModelConnections] = useState<LlmConnection[]>([]);
-  const [defaultConnectionSlug, setDefaultConnectionSlug] = useState<string | null>(null);
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const savingKeyRef = useRef<string | null>(null);
@@ -1493,13 +1492,9 @@ function DailyReviewSettingsPage(props: { onOpenDailyReview?: () => void }) {
     let cancelled = false;
     async function reloadModelConnections() {
       try {
-        const [connections, defaultSlug] = await Promise.all([
-          window.maka.connections.list(),
-          window.maka.connections.getDefault(),
-        ]);
+        const connections = await window.maka.connections.list();
         if (cancelled || !mountedRef.current) return;
         setModelConnections(connections);
-        setDefaultConnectionSlug(defaultSlug);
         setModelLoadError(null);
       } catch (err) {
         if (cancelled || !mountedRef.current) return;
