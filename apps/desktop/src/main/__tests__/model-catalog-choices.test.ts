@@ -20,7 +20,13 @@ type ModelCatalogChoicesModule = {
     connections: readonly LlmConnection[],
     currentModelKey: string,
   ): Array<readonly [string, string]>;
-  buildCatalogModelChoices(connection: LlmConnection): Array<{ id: string }>;
+  buildCatalogModelChoices(connection: LlmConnection): Array<{
+    id: string;
+    displayName?: string;
+    availability: string;
+    unavailableReason: string;
+    isDefault: boolean;
+  }>;
 };
 
 async function importModelCatalogChoices(): Promise<ModelCatalogChoicesModule> {
@@ -75,7 +81,7 @@ describe('model catalog picker helpers', () => {
     );
   });
 
-  it('keeps Daily Review enabled OAuth model choices while using leak-safe duplicate labels', async () => {
+  it('keeps Daily Review runtime-wired model choices while using leak-safe duplicate labels', async () => {
     const { buildCatalogDailyReviewModelOptions } = await importModelCatalogChoices();
 
     const options = buildCatalogDailyReviewModelOptions([
@@ -112,9 +118,9 @@ describe('model catalog picker helpers', () => {
     assert.deepEqual(options, [
       ['claude-work::shared-model', 'Shared Model · Claude Subscription (Pro / Max OAuth) · claude-work'],
       ['claude-home::shared-model', 'Shared Model · Claude Subscription (Pro / Max OAuth) · claude-home'],
-      ['gemini-account::gemini-2.5-pro', 'Gemini 2.5 Pro'],
       ['deepseek-api::deepseek-v4-flash', 'DeepSeek V4 Flash'],
     ]);
+    assert.ok(options.every(([value]) => !value.startsWith('gemini-account::')));
     assert.ok(options.every(([, label]) => !label.includes('@example.com')));
   });
 
@@ -136,17 +142,41 @@ describe('model catalog picker helpers', () => {
     ]);
   });
 
-  it('includes a missing Settings default in catalog-derived model choices', async () => {
+  it('keeps Settings model choices as catalog entries with missing-default state', async () => {
     const { buildCatalogModelChoices } = await importModelCatalogChoices();
 
     const choices = buildCatalogModelChoices(connection({
-      slug: 'zai-live',
-      providerType: 'zai-coding-plan',
-      defaultModel: 'glm-saved',
-      models: [{ id: 'glm-4.7' }],
+      slug: 'openai-api',
+      providerType: 'openai',
+      defaultModel: 'gpt-5',
+      models: [{ id: 'gpt-4o-mini' }],
       modelSource: 'fetched',
     }));
 
-    assert.deepEqual(choices.map((choice) => choice.id), ['glm-saved', 'glm-4.7']);
+    assert.deepEqual(
+      choices.map((choice) => ({
+        id: choice.id,
+        displayName: choice.displayName,
+        availability: choice.availability,
+        unavailableReason: choice.unavailableReason,
+        isDefault: choice.isDefault,
+      })),
+      [
+        {
+          id: 'gpt-5',
+          displayName: 'GPT-5',
+          availability: 'blocked',
+          unavailableReason: 'not_in_live_list',
+          isDefault: true,
+        },
+        {
+          id: 'gpt-4o-mini',
+          displayName: 'GPT-4o mini',
+          availability: 'available',
+          unavailableReason: 'none',
+          isDefault: false,
+        },
+      ],
+    );
   });
 });

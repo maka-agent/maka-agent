@@ -397,14 +397,37 @@
   background: var(--accent);
 }
 
+.modelTableRowText {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.modelTableRowName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+
 .modelTableRowId {
   background: transparent;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--foreground);
+  color: var(--foreground-60);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.modelTableRowWarning {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--warning-text);
+  font-size: 12px;
 }
 
 .modelTableChips {
@@ -592,4 +615,3 @@
 
 .enabledEmptyChip strong { font-size: 12px; font-weight: 700; }
 .enabledEmptyChip small { margin-top: 2px; color: var(--foreground-50); font-size: 11px; }
-

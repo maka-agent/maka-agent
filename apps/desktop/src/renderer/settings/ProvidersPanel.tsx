@@ -10,6 +10,7 @@ import {
   type ConnectionTestResult,
   type CreateConnectionInput,
   type LlmConnection,
+  type ModelCatalogEntry,
   type ModelDiscoveryResult,
   type ModelInfo,
   type ProviderCategory,
@@ -1828,7 +1829,7 @@ function modelListsEqual(left: ModelInfo[], right: ModelInfo[]): boolean {
  * with. The picker is now a workspace, not a form field.
  */
 function ModelTable(props: {
-  modelChoices: ModelInfo[];
+  modelChoices: ModelCatalogEntry[];
   defaultModel: string;
   onPickDefault(id: string): void;
   modelSource: 'fetched' | 'fallback';
@@ -1844,7 +1845,10 @@ function ModelTable(props: {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return props.modelChoices;
-    return props.modelChoices.filter((m) => m.id.toLowerCase().includes(q));
+    return props.modelChoices.filter((m) => {
+      const displayName = modelTableDisplayLabel(m).toLowerCase();
+      return m.id.toLowerCase().includes(q) || displayName.includes(q);
+    });
   }, [props.modelChoices, query]);
   const visibleModelIds = useMemo(() => filtered.map((m) => m.id), [filtered]);
   const tabbableModelId = tabbableRadioId(props.defaultModel || undefined, visibleModelIds);
@@ -1952,6 +1956,9 @@ function ModelTable(props: {
         >
           {filtered.map((model) => {
             const isDefault = model.id === props.defaultModel;
+            const displayName = modelTableDisplayLabel(model);
+            const showRawId = displayName !== model.id;
+            const warning = modelTableEntryWarning(model);
             return (
               <li key={model.id} role="none">
                 <Button
@@ -1969,7 +1976,11 @@ function ModelTable(props: {
                   onClick={() => props.onPickDefault(model.id)}
                 >
                   <span className="modelTableRowRadio" aria-hidden="true" />
-                  <code className="modelTableRowId">{model.id}</code>
+                  <span className="modelTableRowText">
+                    <span className="modelTableRowName">{displayName}</span>
+                    {showRawId && <code className="modelTableRowId">{model.id}</code>}
+                    {warning && <span className="modelTableRowWarning">{warning}</span>}
+                  </span>
                   <ModelCapabilityChips model={model} />
                   {isDefault && <span className="modelTableDefaultBadge">默认</span>}
                 </Button>
@@ -1982,9 +1993,21 @@ function ModelTable(props: {
   );
 }
 
-function ModelCapabilityChips(props: { model: ModelInfo }) {
+function modelTableDisplayLabel(model: Pick<ModelCatalogEntry, 'id' | 'displayName'>): string {
+  return model.displayName?.trim() || model.id;
+}
+
+function modelTableEntryWarning(model: Pick<ModelCatalogEntry, 'unavailableReason' | 'availability'>): string | null {
+  if (model.unavailableReason === 'not_in_live_list') {
+    return '已保存，但当前模型列表未返回，可能不可用。';
+  }
+  if (model.availability === 'blocked') return '当前不可用。';
+  if (model.availability === 'warning') return '模型列表可能已过期。';
+  return null;
+}
+
+function ModelCapabilityChips(props: { model: Pick<ModelCatalogEntry, 'capabilities' | 'contextWindow'> }) {
   const caps = props.model.capabilities;
-  if (!caps) return null;
   const chips: string[] = [];
   if (caps.vision) chips.push('vision');
   if (caps.reasoning) chips.push('reasoning');

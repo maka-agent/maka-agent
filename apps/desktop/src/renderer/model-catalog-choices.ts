@@ -4,7 +4,6 @@ import {
   buildConnectionModelCatalogEntries,
   type LlmConnection,
   type ModelCatalogEntry,
-  type ModelInfo,
   type ProviderType,
 } from '@maka/core';
 import type { ChatModelChoice } from '@maka/ui';
@@ -30,8 +29,8 @@ export function buildCatalogChatModelChoices(connections: readonly LlmConnection
 export function buildCatalogModelChoices(connection: Pick<
   LlmConnection,
   'slug' | 'providerType' | 'defaultModel' | 'models' | 'modelSource' | 'modelsFetchedAt'
->): ModelInfo[] {
-  return buildConnectionModelCatalogEntries({ connection }).map(entryToModelInfo);
+>): ModelCatalogEntry[] {
+  return buildConnectionModelCatalogEntries({ connection });
 }
 
 export function buildCatalogDailyReviewModelOptions(
@@ -44,7 +43,7 @@ export function buildCatalogDailyReviewModelOptions(
   const providerCounts = enabledProviderCounts(connections);
 
   for (const connection of connections) {
-    if (!isEnabledModelConnection(connection)) continue;
+    if (!isModelConsumerConnection(connection)) continue;
     const savedModelIds = current?.connectionSlug === connection.slug ? [current.model] : [];
     const safeSourceLabel = safeConnectionLabel(connection.providerType, connection.slug, providerCounts);
     for (const entry of selectableCatalogEntries(connection, savedModelIds)) {
@@ -107,17 +106,6 @@ function filterUnsupportedCodexModels(providerType: ProviderType, entries: Model
   return entries.filter((entry) => !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id.trim()));
 }
 
-function entryToModelInfo(entry: ModelCatalogEntry): ModelInfo {
-  const capabilities = Object.keys(entry.capabilities).length > 0 ? entry.capabilities : undefined;
-  return {
-    id: entry.id,
-    ...(entry.displayName ? { displayName: entry.displayName } : {}),
-    ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}),
-    ...(entry.maxOutputTokens ? { maxOutputTokens: entry.maxOutputTokens } : {}),
-    ...(capabilities ? { capabilities } : {}),
-  };
-}
-
 function modelDisplayLabel(entry: Pick<ModelCatalogEntry, 'id' | 'displayName'>): string {
   return entry.displayName?.trim() || entry.id;
 }
@@ -138,14 +126,10 @@ function isModelConsumerConnection(connection: Pick<LlmConnection, 'enabled' | '
 function enabledProviderCounts(connections: readonly LlmConnection[]): Map<ProviderType, number> {
   const counts = new Map<ProviderType, number>();
   for (const connection of connections) {
-    if (!isEnabledModelConnection(connection)) continue;
+    if (!isModelConsumerConnection(connection)) continue;
     counts.set(connection.providerType, (counts.get(connection.providerType) ?? 0) + 1);
   }
   return counts;
-}
-
-function isEnabledModelConnection(connection: Pick<LlmConnection, 'enabled' | 'providerType'>): boolean {
-  return connection.enabled && PROVIDER_DEFAULTS[connection.providerType].backendKind === 'ai-sdk';
 }
 
 function safeConnectionLabel(
