@@ -19,17 +19,25 @@
 }
 
 @layer components {
-  /* PR-SIDEBAR-GLASS-VIBRANCY-0 (WAWQAQ msg `6c0b8a7c` 2026-06-27):
-     `vibrancy: 'sidebar'` was being set on the BrowserWindow and the
-     shell-level `background: transparent` rule was already here, BUT
-     the parent `.appFrame` was still painting solid `--surface-canvas`
-     (see PR-CHAT-CHROME-FIX-1) — so the vibrancy material was rendered
-     behind an opaque cover. Force the appFrame transparent on darwin so
-     the native blur substrate actually shows through. This is the
-     reference-atlas `light-glass` / `dark-glass` mode that we documented
-     but never wired all the way through. */
+  /* PR-QODERWORK-GLASS-LAYERED-0 (WAWQAQ msg `9e9eb5e5` 2026-06-27, after
+     `@maka-审美专家` delta report). The previous fix (PR-SIDEBAR-GLASS-
+     VIBRANCY-0) made the appFrame transparent so the native vibrancy
+     substrate could come through, but the actual blur was painting on
+     `.maka-session-panel` at 8px — which means each panel did its own
+     micro-blur, the layout root stayed transparent, and you got "frosted
+     panels floating in nothing" rather than QoderWork's "whole layout is
+     glass, panels are calm surfaces on top of it" feel.
+
+     Move the blur up the stacking context to the layout root (.appFrame
+     has `class="appFrame agents-layout-root"` in main.tsx) and bump it
+     to 24px. The session panel gets a calm 50% wash + thin hairline
+     border instead of its own blur. End result: the whole window paints
+     one consistent piece of glass; the chat / settings panel-detail
+     surface sits opaque on top so chat text stays legible. */
   html[data-os="darwin"] .appFrame {
-    background: transparent;
+    background: #ffffff80;
+    backdrop-filter: saturate(140%) blur(24px);
+    -webkit-backdrop-filter: saturate(140%) blur(24px);
   }
 
   html[data-os="darwin"] .maka-shell-2col {
@@ -37,18 +45,72 @@
   }
 
   html[data-os="darwin"] .maka-session-panel {
-    /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): the previous 172deg
-       gradient + 1px border-right reintroduced exactly the
-       "上面灰下面白" + visible seam that WAWQAQ called out in
-       `1e693dee` / `5d3b10e5` / `486b5611`. round-0 only stripped the
-       shell-level gradient; this `[data-os="darwin"]` rule was the
-       other place the gradient still lived. Flat translucent base only
-       — no gradient, no 1px border. The 4px gap around the floating
-       detail panel is the only visible boundary. */
-    background: oklch(from var(--surface-canvas) l c h / 0.50);
-    backdrop-filter: saturate(140%) blur(8px);
-    -webkit-backdrop-filter: saturate(140%) blur(8px);
+    /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): no gradient, no
+       1px border. Layout root owns the glass; panel is calm. */
+    background: transparent;
+    border-right: 1px solid oklch(from var(--foreground) l c h / 0.06);
   }
+}
+
+/* Accessibility: respect prefers-reduced-transparency / prefers-reduced-
+   motion. On systems where the user opted out of transparency at the OS
+   level (macOS System Settings → Accessibility → Display → Reduce
+   transparency), drop the backdrop-filter + translucent wash and fall
+   back to a flat opaque surface. Saves GPU on lower-tier hardware too. */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-os="darwin"] .appFrame {
+    background: #fdfcfa;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* L6 — warm-toned color tokens that QoderWork's light-glass theme exposes.
+   These plug into `var(--color-bg-layout / highlight / container / element)`
+   in component-level CSS so we don't have to rewrite each callsite when
+   the palette swaps. Scoped to macOS so non-glass platforms keep their
+   existing neutral tokens. */
+@layer base {
+  html[data-os="darwin"] {
+    --color-bg-layout: #fdfcfa;
+    --color-bg-highlight: #c9c4b8;
+    --color-bg-container: #faf9f6;
+    --color-bg-element: #f5f3ee;
+    --color-primary: #8ee5a1;
+    --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
+  }
+}
+
+/* L3 — selected list-row uses the QoderWork mint primary fill instead of
+   the previous 6% foreground wash that was indistinguishable from
+   :hover. The hover-vs-selected legibility was punch-list-polish-2 #2:
+   row state was only signaled by font-weight, which is invisible in a
+   wall of rows. With a real color block, the active session reads at a
+   glance.
+
+   Scoped to macOS glass so non-glass builds keep the neutral selection.
+   Font-weight stays normal (500 default) — the color block is the
+   signal, not the weight stacking on top. */
+html[data-os="darwin"] .maka-list-row[data-active="true"] {
+  background: var(--color-primary);
+  color: var(--foreground);
+  font-weight: 500;
+}
+html[data-os="darwin"] .maka-list-row[data-active="true"] .maka-list-row-name {
+  font-weight: 500;
+}
+
+/* L7 — group label was over-stylized: 9.5px UPPERCASE + 0.08em tracking
+   reads as "old Windows admin tool", not "macOS native sidebar". QoderWork
+   uses plain quaternary text at the body size. Drop the size / transform /
+   tracking on macOS; the natural color step from --color-text-quaternary
+   is enough hierarchy. */
+html[data-os="darwin"] .maka-list-group-label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-quaternary);
 }
 
 /* Force opaque-foreground text on every direct sidebar text surface so
