@@ -594,6 +594,15 @@ export function buildHarborCellContextBudgetPolicySnapshot(
           },
         }
       : {}),
+    ...(contextBudget.activeToolResultPrune
+      ? {
+          activeToolResultPrune: {
+            enabled: contextBudget.activeToolResultPrune.enabled,
+            maxCurrentResultEstimatedTokens: contextBudget.activeToolResultPrune.maxCurrentResultEstimatedTokens ?? 8192,
+            minStepNumber: contextBudget.activeToolResultPrune.minStepNumber ?? 1,
+          },
+        }
+      : {}),
     ...(contextBudget.archiveRetrieval
       ? {
           archiveRetrieval: {

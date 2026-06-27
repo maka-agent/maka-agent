@@ -27,6 +27,9 @@ export interface HarborCellContextBudgetSummary {
   keptEvents: number;
   droppedEvents: number;
   prunedToolResults: number;
+  activePrunedToolResults: number;
+  activeEstimatedTokensSaved: number;
+  activeArchiveFailures: number;
   archivePlaceholders: number;
   archiveWriteFailures: number;
   retrievedArchiveToolResults: number;
@@ -229,6 +232,9 @@ export function summarizeCellContextBudget(
     keptEvents: 0,
     droppedEvents: 0,
     prunedToolResults: 0,
+    activePrunedToolResults: 0,
+    activeEstimatedTokensSaved: 0,
+    activeArchiveFailures: 0,
     archivePlaceholders: 0,
     archiveWriteFailures: 0,
     retrievedArchiveToolResults: 0,
@@ -249,6 +255,9 @@ export function summarizeCellContextBudget(
     summary.keptEvents += diagnostic.keptEvents;
     summary.droppedEvents += diagnostic.droppedEvents;
     summary.prunedToolResults += diagnostic.prunedToolResults ?? 0;
+    summary.activePrunedToolResults += diagnostic.activePrunedToolResults ?? 0;
+    summary.activeEstimatedTokensSaved += diagnostic.activeEstimatedTokensSaved ?? 0;
+    summary.activeArchiveFailures += diagnostic.activeArchiveFailures ?? 0;
     summary.archivePlaceholders += diagnostic.archivePlaceholders ?? 0;
     summary.archiveWriteFailures += diagnostic.archiveWriteFailures ?? 0;
     summary.retrievedArchiveToolResults += diagnostic.retrievedArchiveToolResults ?? 0;
@@ -320,6 +329,18 @@ function validateContextBudgetSummary(value: unknown): HarborCellContextBudgetSu
     keptEvents: requireNumber(value.keptEvents, 'contextBudgetSummary.keptEvents'),
     droppedEvents: requireNumber(value.droppedEvents, 'contextBudgetSummary.droppedEvents'),
     prunedToolResults: requireNumber(value.prunedToolResults, 'contextBudgetSummary.prunedToolResults'),
+    activePrunedToolResults: optionalNumber(
+      value.activePrunedToolResults,
+      'contextBudgetSummary.activePrunedToolResults',
+    ) ?? 0,
+    activeEstimatedTokensSaved: optionalNumber(
+      value.activeEstimatedTokensSaved,
+      'contextBudgetSummary.activeEstimatedTokensSaved',
+    ) ?? 0,
+    activeArchiveFailures: optionalNumber(
+      value.activeArchiveFailures,
+      'contextBudgetSummary.activeArchiveFailures',
+    ) ?? 0,
     archivePlaceholders: requireNumber(value.archivePlaceholders, 'contextBudgetSummary.archivePlaceholders'),
     archiveWriteFailures: requireNumber(value.archiveWriteFailures, 'contextBudgetSummary.archiveWriteFailures'),
     retrievedArchiveToolResults: requireNumber(
@@ -357,6 +378,9 @@ function validateContextBudgetPolicySnapshot(value: unknown): HarborCellContextB
     ...(value.staleToolResultPrune !== undefined
       ? { staleToolResultPrune: validateStaleToolResultPruneSnapshot(value.staleToolResultPrune) }
       : {}),
+    ...(value.activeToolResultPrune !== undefined
+      ? { activeToolResultPrune: validateActiveToolResultPruneSnapshot(value.activeToolResultPrune) }
+      : {}),
     ...(value.archiveRetrieval !== undefined
       ? { archiveRetrieval: validateArchiveRetrievalSnapshot(value.archiveRetrieval) }
       : {}),
@@ -370,6 +394,15 @@ function validateStaleToolResultPruneSnapshot(value: unknown): NonNullable<Conte
     enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.staleToolResultPrune.enabled'),
     maxResultEstimatedTokens: requireNumber(value.maxResultEstimatedTokens, 'contextBudgetPolicy.staleToolResultPrune.maxResultEstimatedTokens'),
     minRecentTurnsFull: requireNumber(value.minRecentTurnsFull, 'contextBudgetPolicy.staleToolResultPrune.minRecentTurnsFull'),
+  };
+}
+
+function validateActiveToolResultPruneSnapshot(value: unknown): NonNullable<ContextBudgetPolicy['activeToolResultPrune']> {
+  if (!isRecord(value)) throw new Error('contextBudgetPolicy.activeToolResultPrune must be a JSON object');
+  return {
+    enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.activeToolResultPrune.enabled'),
+    maxCurrentResultEstimatedTokens: requireNumber(value.maxCurrentResultEstimatedTokens, 'contextBudgetPolicy.activeToolResultPrune.maxCurrentResultEstimatedTokens'),
+    minStepNumber: requireNumber(value.minStepNumber, 'contextBudgetPolicy.activeToolResultPrune.minStepNumber'),
   };
 }
 

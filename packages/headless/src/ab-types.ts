@@ -92,6 +92,9 @@ export interface AbContextBudgetSummary {
   activatedAttemptIds: string[];
   diagnosticEvents: number;
   prunedToolResults: number;
+  activePrunedToolResults: number;
+  activeEstimatedTokensSaved: number;
+  activeArchiveFailures: number;
   archivePlaceholders: number;
   archiveWriteFailures: number;
   retrievedArchiveToolResults: number;

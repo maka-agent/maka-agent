@@ -18,6 +18,7 @@ import type {
   AbTokenCostSummary,
   SummarizeAbComparisonInput,
 } from './ab-types.js';
+import type { HarborCellContextBudgetSummary } from './cell-output.js';
 
 const DEFAULT_NON_INFERIORITY_MARGIN = 0.10;
 const NON_INFERIORITY_CONFIDENCE_LEVEL = 0.95;
@@ -160,14 +161,17 @@ function summarizeContextBudget(attempts: readonly ObservedAttempt[]): AbContext
     .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined);
   if (summaries.length === 0) return undefined;
   const activatedAttemptIds = attempts
-    .filter((attempt) => ('contextBudgetSummary' in attempt.event && (attempt.event.contextBudgetSummary?.prunedToolResults ?? 0) > 0))
+    .filter((attempt) => ('contextBudgetSummary' in attempt.event && isContextBudgetActivated(attempt.event.contextBudgetSummary)))
     .map((attempt) => attempt.event.id);
   return {
     diagnosticAttempts: summaries.length,
-    activatedAttempts: summaries.filter((summary) => summary.prunedToolResults > 0).length,
+    activatedAttempts: summaries.filter(isContextBudgetActivated).length,
     activatedAttemptIds,
     diagnosticEvents: sum(summaries.map((summary) => summary.diagnosticEvents)),
     prunedToolResults: sum(summaries.map((summary) => summary.prunedToolResults)),
+    activePrunedToolResults: sum(summaries.map((summary) => summary.activePrunedToolResults)),
+    activeEstimatedTokensSaved: sum(summaries.map((summary) => summary.activeEstimatedTokensSaved)),
+    activeArchiveFailures: sum(summaries.map((summary) => summary.activeArchiveFailures)),
     archivePlaceholders: sum(summaries.map((summary) => summary.archivePlaceholders)),
     archiveWriteFailures: sum(summaries.map((summary) => summary.archiveWriteFailures)),
     retrievedArchiveToolResults: sum(summaries.map((summary) => summary.retrievedArchiveToolResults)),
@@ -175,6 +179,10 @@ function summarizeContextBudget(attempts: readonly ObservedAttempt[]): AbContext
     archiveRetrievalSkipped: sum(summaries.map((summary) => summary.archiveRetrievalSkipped)),
     archiveRetrievalFailures: sum(summaries.map((summary) => summary.archiveRetrievalFailures)),
   };
+}
+
+function isContextBudgetActivated(summary: HarborCellContextBudgetSummary | undefined): boolean {
+  return (summary?.prunedToolResults ?? 0) > 0 || (summary?.activePrunedToolResults ?? 0) > 0;
 }
 
 function summarizeInvestigationRefs(
@@ -188,7 +196,7 @@ function summarizeInvestigationRefs(
   const budgetDiscordantPairs: AbPairInvestigationRef[] = [];
   const infraOrPlumbingDiscordantPairs: AbPairInvestigationRef[] = [];
   const activatedAttempts = [...baselineByPair.values(), ...candidateByPair.values()]
-    .filter((attempt) => ('contextBudgetSummary' in attempt.event && (attempt.event.contextBudgetSummary?.prunedToolResults ?? 0) > 0))
+    .filter((attempt) => ('contextBudgetSummary' in attempt.event && isContextBudgetActivated(attempt.event.contextBudgetSummary)))
     .map(attemptRef);
 
   for (let rep = 0; rep < baselineRuns.length; rep += 1) {

@@ -106,7 +106,7 @@ function renderContextBudgetLine(summary: AbComparisonSummary): string | undefin
   if (!summary.baseline.contextBudget && !summary.candidate.contextBudget) return undefined;
   const baseline = contextBudgetOrZero(summary.baseline.contextBudget);
   const candidate = contextBudgetOrZero(summary.candidate.contextBudget);
-  return `- Context budget: A activated=${baseline.activatedAttempts}/${baseline.diagnosticAttempts} pruned=${baseline.prunedToolResults} retrieved=${baseline.retrievedArchiveToolResults}, B activated=${candidate.activatedAttempts}/${candidate.diagnosticAttempts} pruned=${candidate.prunedToolResults} retrieved=${candidate.retrievedArchiveToolResults}`;
+  return `- Context budget: A activated=${baseline.activatedAttempts}/${baseline.diagnosticAttempts} stale_pruned=${baseline.prunedToolResults} active_pruned=${baseline.activePrunedToolResults} active_tokens_saved=${baseline.activeEstimatedTokensSaved} active_archive_failures=${baseline.activeArchiveFailures} retrieved=${baseline.retrievedArchiveToolResults}, B activated=${candidate.activatedAttempts}/${candidate.diagnosticAttempts} stale_pruned=${candidate.prunedToolResults} active_pruned=${candidate.activePrunedToolResults} active_tokens_saved=${candidate.activeEstimatedTokensSaved} active_archive_failures=${candidate.activeArchiveFailures} retrieved=${candidate.retrievedArchiveToolResults}`;
 }
 
 function contextBudgetOrZero(summary: AbContextBudgetSummary | undefined): AbContextBudgetSummary {
@@ -116,6 +116,9 @@ function contextBudgetOrZero(summary: AbContextBudgetSummary | undefined): AbCon
     activatedAttemptIds: [],
     diagnosticEvents: 0,
     prunedToolResults: 0,
+    activePrunedToolResults: 0,
+    activeEstimatedTokensSaved: 0,
+    activeArchiveFailures: 0,
     archivePlaceholders: 0,
     archiveWriteFailures: 0,
     retrievedArchiveToolResults: 0,

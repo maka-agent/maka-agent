@@ -534,6 +534,9 @@ describe('summarizePromptAbComparison', () => {
     const baselineInactive = contextBudgetSummary({ prunedToolResults: 0 });
     const candidateActive = contextBudgetSummary({
       prunedToolResults: 2,
+      activePrunedToolResults: 3,
+      activeEstimatedTokensSaved: 450,
+      activeArchiveFailures: 1,
       archivePlaceholders: 2,
       retrievedArchiveToolResults: 1,
       retrievedArchiveEstimatedTokens: 120,
@@ -581,6 +584,9 @@ describe('summarizePromptAbComparison', () => {
       activatedAttemptIds: ['event-t1-pass'],
       diagnosticEvents: 2,
       prunedToolResults: 2,
+      activePrunedToolResults: 3,
+      activeEstimatedTokensSaved: 450,
+      activeArchiveFailures: 1,
       archivePlaceholders: 2,
       archiveWriteFailures: 0,
       retrievedArchiveToolResults: 1,
@@ -590,7 +596,7 @@ describe('summarizePromptAbComparison', () => {
     });
     assert.match(
       renderPromptAbComparisonMarkdown(result),
-      /Context budget: A activated=0\/2 pruned=0 retrieved=0, B activated=1\/2 pruned=2 retrieved=1/,
+      /Context budget: A activated=0\/2 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 retrieved=0, B activated=1\/2 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 retrieved=1/,
     );
     assert.match(
       renderPromptAbComparisonMarkdown(result),
@@ -648,7 +654,7 @@ describe('summarizePromptAbComparison', () => {
   });
 
   test('records activated attempts and investigation refs for follow-up', () => {
-    const activatedSummary = contextBudgetSummary({ prunedToolResults: 1, archivePlaceholders: 1 });
+    const activatedSummary = contextBudgetSummary({ activePrunedToolResults: 1, activeEstimatedTokensSaved: 50 });
     const result = summarizePromptAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
@@ -1176,6 +1182,9 @@ function contextBudgetSummary(
     keptEvents: 8,
     droppedEvents: 2,
     prunedToolResults: 0,
+    activePrunedToolResults: 0,
+    activeEstimatedTokensSaved: 0,
+    activeArchiveFailures: 0,
     archivePlaceholders: 0,
     archiveWriteFailures: 0,
     retrievedArchiveToolResults: 0,

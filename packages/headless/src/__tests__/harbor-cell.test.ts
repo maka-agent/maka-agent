@@ -189,6 +189,9 @@ describe('runHarborCell', () => {
         MAKA_STORAGE_ROOT: storageRoot,
         MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
         MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS: '256',
+        MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+        MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '512',
+        MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: '1',
         MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'on',
         MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE: 'eager',
       }, {
@@ -201,6 +204,11 @@ describe('runHarborCell', () => {
           enabled: true,
           maxResultEstimatedTokens: 256,
           minRecentTurnsFull: 2,
+        },
+        activeToolResultPrune: {
+          enabled: true,
+          maxCurrentResultEstimatedTokens: 512,
+          minStepNumber: 1,
         },
         archiveRetrieval: {
           enabled: true,
