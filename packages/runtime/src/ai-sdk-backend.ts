@@ -58,7 +58,12 @@ import type {
 import type { AgentSpec } from '@maka/core/runtime-inputs';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type {
+  CompactionDecisionDiagnostic,
+  LlmCallRecord,
+  PricingConfig,
+  ToolInvocationRecord,
+} from '@maka/core/usage-stats/types';
 import type {
   ContextBudgetDiagnostic,
   PromptSegmentEstimate,
@@ -93,6 +98,10 @@ import {
   rewriteActiveToolResultsInMessages,
   type ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
+import {
+  compactionDecisionDiagnosticPatch,
+  historyCompactBlockToCompactionBoundary,
+} from './compaction-boundary.js';
 import type { ToolArtifactRecorder } from './tool-artifacts.js';
 import { RunTrace, type RunTraceRecorder } from './run-trace.js';
 import { computeCost } from './telemetry/cost.js';
@@ -1562,6 +1571,28 @@ export class AiSdkBackend implements AgentBackend {
         }
       }
       const estimatedTokens = replacementBlocks.reduce((total, block) => total + (block.estimatedTokens ?? 0), 0);
+      const replacementRuntimeEventIds = new Set(replacementBlocks.flatMap((block) => block.coverage.runtimeEventIds));
+      const estimatedTokensBefore = estimateRuntimeEventsTokens(
+        input.priorRuntimeContext.filter((event) => replacementRuntimeEventIds.has(event.id)),
+        limits.charsPerToken,
+      );
+      const replacementDecisionPatch = replacementBlocks.length > 0
+        ? compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'replaced',
+            boundaryKind: 'historyCompact',
+            boundaryIds: replacementBlocks.map((block) => historyCompactBlockToCompactionBoundary(block).boundaryId),
+            coverage: {
+              turnIds: Array.from(new Set(replacementBlocks.flatMap((block) => block.coverage.turnIds))),
+              runtimeEventIds: Array.from(replacementRuntimeEventIds),
+              contentKinds: Array.from(new Set(replacementBlocks.flatMap((block) => block.coverage.contentKinds))),
+              bodySha256: replacementBlocks.flatMap((block) => block.coverage.bodySha256),
+            },
+            estimatedTokensBefore,
+            estimatedTokensAfter: estimatedTokens,
+          })
+        : {};
       return {
         replacementBlocks,
         diagnosticPatch: {
@@ -1584,6 +1615,7 @@ export class AiSdkBackend implements AgentBackend {
           ...(Object.keys(skippedReasonCounts).length > 0
             ? { historyCompactWriteSkippedReasonCounts: skippedReasonCounts }
             : {}),
+          ...replacementDecisionPatch,
         },
       };
     } catch {
@@ -1951,6 +1983,7 @@ function mergeContextBudgetDiagnostic(
       base.historyCompactWriteSkippedReasonCounts,
       patch.historyCompactWriteSkippedReasonCounts,
     ),
+    ...mergeCompactionDecisionDiagnostics(base.compactionDecisions, patch.compactionDecisions),
   };
 }
 
@@ -2025,6 +2058,29 @@ function mergeCountRecords(
     out[key] = (out[key] ?? 0) + value;
   }
   return out;
+}
+
+function mergeCompactionDecisionDiagnostics(
+  left: readonly CompactionDecisionDiagnostic[] | undefined,
+  right: readonly CompactionDecisionDiagnostic[] | undefined,
+): { compactionDecisions: CompactionDecisionDiagnostic[] } | Record<string, never> {
+  if (!left && !right) return {};
+  if (!right || right.length === 0) return { compactionDecisions: [...(left ?? [])] };
+  const replacesHistoryCompact = right.some((decision) =>
+    decision.stage === 'priorReplay'
+    && decision.boundaryKind === 'historyCompact'
+    && decision.decision === 'replaced'
+  );
+  const retainedLeft = replacesHistoryCompact
+    ? (left ?? []).filter((decision) =>
+        !(
+          decision.stage === 'priorReplay'
+          && decision.boundaryKind === 'historyCompact'
+          && decision.decision === 'replaced'
+        )
+      )
+    : (left ?? []);
+  return { compactionDecisions: [...retainedLeft, ...right] };
 }
 
 function replaceHistoryCompactReplayBlocks(

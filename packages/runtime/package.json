@@ -32,6 +32,7 @@
     "./runtime-event-read-model": "./dist/runtime-event-read-model.js",
     "./runtime-kernel": "./dist/runtime-kernel.js",
     "./agent-run-inspect": "./dist/agent-run-inspect.js",
+    "./compaction-boundary": "./dist/compaction-boundary.js",
     "./model-history": "./dist/model-history.js",
     "./invocation-context": "./dist/invocation-context.js",
     "./runtime-runner": "./dist/runtime-runner.js",

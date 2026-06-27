@@ -151,6 +151,21 @@ export type { StreamWatchdogInput, StreamWatchdogPhase, StreamWatchdogTimeout } 
 export { getAIModel, buildProviderOptions } from './model-factory.js';
 export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';
 export {
+  compactionDecisionDiagnosticPatch,
+  compactionDecisionToDiagnostic,
+  historyCompactBlockToCompactionBoundary,
+} from './compaction-boundary.js';
+export type {
+  CompactionArchiveRef,
+  CompactionBoundary,
+  CompactionBoundaryKind,
+  CompactionCoverage,
+  CompactionDecision,
+  CompactionDecisionKind,
+  CompactionSourceKind,
+  CompactionStage,
+} from './compaction-boundary.js';
+export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,

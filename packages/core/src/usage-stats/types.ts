@@ -196,6 +196,29 @@ export interface PromptSegmentEstimate {
   toolCount?: number;
 }
 
+export type CompactionStageDiagnostic = 'priorReplay' | 'activeStep';
+export type CompactionSourceDiagnosticKind = 'runtimeEvents' | 'providerMessages';
+export type CompactionDecisionDiagnosticKind = 'unchanged' | 'replaced' | 'failedOpen';
+
+export interface CompactionDecisionDiagnostic {
+  stage: CompactionStageDiagnostic;
+  sourceKind: CompactionSourceDiagnosticKind;
+  decision: CompactionDecisionDiagnosticKind;
+  boundaryKind?: string;
+  boundaryIds?: string[];
+  coveredTurns?: number;
+  coveredRuntimeEvents?: number;
+  coveredToolCalls?: number;
+  coverageHashes?: string[];
+  estimatedTokensBefore?: number;
+  estimatedTokensAfter?: number;
+  estimatedTokensSaved?: number;
+  reason?: string;
+  failOpenReason?: string;
+  skippedReasonCounts?: Record<string, number>;
+  validationReasonCounts?: Record<string, number>;
+}
+
 export interface ContextBudgetDiagnostic {
   enabled: boolean;
   policyName?: string;
@@ -217,6 +240,7 @@ export interface ContextBudgetDiagnostic {
   activePrunedToolResults?: number;
   activeArchiveFailures?: number;
   activeEstimatedTokensSaved?: number;
+  compactionDecisions?: CompactionDecisionDiagnostic[];
   archiveRetrievalMode?: 'eager' | 'history_search_gated';
   archiveRetrievalEligibleTurns?: number;
   retrievedArchiveToolResults?: number;

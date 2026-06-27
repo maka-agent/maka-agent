@@ -21,6 +21,7 @@ import {
   validateSynthesisCacheBlockShape,
   type SynthesisCacheBlock,
 } from '../context-budget.js';
+import { historyCompactBlockToCompactionBoundary } from '../compaction-boundary.js';
 
 describe('context-budget archive retrieval', () => {
   test('deserializes JSON, undefined, and fallback strings', () => {
@@ -956,6 +957,25 @@ describe('context-budget history compact', () => {
     assert.equal(result.diagnostic.droppedTurns, 3);
     assert.equal(result.diagnostic.droppedEvents, 3);
     assert.equal(result.diagnostic.historyCompactBlockIds?.length, 1);
+    assert.deepEqual(result.diagnostic.compactionDecisions, [
+      {
+        stage: 'priorReplay',
+        sourceKind: 'runtimeEvents',
+        decision: 'replaced',
+        boundaryKind: 'historyCompact',
+        boundaryIds: result.diagnostic.historyCompactBlockIds,
+        coveredTurns: 3,
+        coveredRuntimeEvents: 4,
+        coverageHashes: result.diagnostic.historyCompactCoverageHashes,
+        estimatedTokensBefore: result.diagnostic.historyCompactedEstimatedTokensBefore,
+        estimatedTokensAfter: result.diagnostic.historyCompactedEstimatedTokensAfter,
+        estimatedTokensSaved: Math.max(
+          0,
+          (result.diagnostic.historyCompactedEstimatedTokensBefore ?? 0)
+          - (result.diagnostic.historyCompactedEstimatedTokensAfter ?? 0),
+        ),
+      },
+    ]);
     assert.equal(result.events.some((event) => event.id === 'old-1'), false);
     assert.equal(result.events.some((event) => event.id === 'old-result'), false);
     assert.equal(result.events.some((event) => event.id === 'recent-1'), true);
@@ -989,6 +1009,16 @@ describe('context-budget history compact', () => {
     assert.deepEqual(result.events.map((event) => event.id), ['short-1', 'short-2']);
     assert.equal(result.diagnostic.historyCompactEnabled, true);
     assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { below_high_water: 1 });
+    assert.deepEqual(result.diagnostic.compactionDecisions, [
+      {
+        stage: 'priorReplay',
+        sourceKind: 'runtimeEvents',
+        decision: 'unchanged',
+        boundaryKind: 'historyCompact',
+        reason: 'below_high_water',
+        skippedReasonCounts: { below_high_water: 1 },
+      },
+    ]);
     assert.equal(result.diagnostic.highWaterReason, undefined);
   });
 
@@ -1015,6 +1045,17 @@ describe('context-budget history compact', () => {
     assert.equal(result.events.some((event) => event.id.startsWith('history-compact:')), false);
     assert.equal(result.diagnostic.historyCompactSkipped, 1);
     assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { archive_missing: 1 });
+    assert.deepEqual(result.diagnostic.compactionDecisions, [
+      {
+        stage: 'priorReplay',
+        sourceKind: 'runtimeEvents',
+        decision: 'failedOpen',
+        boundaryKind: 'historyCompact',
+        reason: 'archive_missing',
+        failOpenReason: 'archive_missing',
+        skippedReasonCounts: { archive_missing: 1 },
+      },
+    ]);
     assert.equal(result.diagnostic.highWaterReason, undefined);
   });
 
@@ -1050,6 +1091,17 @@ describe('context-budget history compact', () => {
     assert.equal(validateHistoryCompactBlockShape(first.blocks[0], 'session-1'), true);
     assert.match(renderHistoryCompactBlock(first.blocks[0]!), /bodySha256=/);
     assert.equal(first.events[0]?.id, `history-compact:${first.blocks[0]?.blockId}`);
+    const boundary = historyCompactBlockToCompactionBoundary(first.blocks[0]!, {
+      renderedText: renderHistoryCompactBlock(first.blocks[0]!),
+      preservedAnchor: { tailTurnIds: ['turn-3'] },
+      validationStatus: 'valid',
+    });
+    assert.equal(boundary.kind, 'historyCompact');
+    assert.equal(boundary.stage, 'priorReplay');
+    assert.equal(boundary.boundaryId, first.blocks[0]?.blockId);
+    assert.deepEqual(boundary.coverage.runtimeEventIds, ['old-1', 'old-2']);
+    assert.deepEqual(boundary.preservedAnchor?.tailTurnIds, ['turn-3']);
+    assert.equal(boundary.validationStatus, 'valid');
   });
 
   test('selects a loaded compact block instead of rebuilding the folded region', () => {
@@ -1090,6 +1142,8 @@ describe('context-budget history compact', () => {
     assert.equal(result.diagnostic.historyCompactBlocksAvailable, 1);
     assert.equal(result.diagnostic.historyCompactBlocksSelected, 1);
     assert.deepEqual(result.diagnostic.historyCompactBlockIds, [loadedBlock.blockId]);
+    assert.equal(result.diagnostic.compactionDecisions?.[0]?.decision, 'replaced');
+    assert.deepEqual(result.diagnostic.compactionDecisions?.[0]?.boundaryIds, [loadedBlock.blockId]);
     assert.match(
       result.events[0]?.content?.kind === 'text' ? result.events[0].content.text : '',
       /LOADED_CONTEXT_COMPACT_SENTINEL/,

@@ -1117,6 +1117,12 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.historyCompactWritesAttempted, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksWritten, 1);
     assert.equal(usage?.contextBudget?.highWaterReason, 'history_compact');
+    assert.deepEqual(
+      usage?.contextBudget?.compactionDecisions?.[0]?.boundaryIds,
+      usage?.contextBudget?.historyCompactWrittenBlockIds,
+    );
+    assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
+    assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
   });
 
   test('loads persisted history compact blocks before replay and does not rewrite them', async () => {
