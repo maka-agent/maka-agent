@@ -29,6 +29,7 @@ import { formatRelativeTimestamp } from '@maka/core';
 import { PasswordInput } from './password-input';
 import { ProviderBrandMark } from './provider-brand-marks';
 import { chipStatusText, rollupForGroup } from './provider-connection-status';
+import { buildCatalogModelChoices } from '../model-catalog-choices';
 
 export interface ConnectionsBridge {
   list(): Promise<LlmConnection[]>;
@@ -1466,14 +1467,16 @@ function ConnectionDetail(props: {
     models,
   ]);
 
-  // Picker entries: when source is 'fetched', use the fetched list verbatim
-  // (even if empty — that's the truthful state and the small empty-state
-  // hint below tells the user). When 'fallback', merge fallback IDs in so
-  // the dropdown isn't empty before first save / fetch.
-  const modelChoices =
-    modelSource === 'fetched' || models.length > 0
-      ? models
-      : fallbackModels.map((id) => ({ id }));
+  // Picker entries come from the same catalog merge path as Chat and Daily
+  // Review, but use the local unsaved editor draft for model/default changes.
+  const modelChoices = buildCatalogModelChoices({
+    slug: connection.slug,
+    providerType: connection.providerType,
+    defaultModel,
+    models: modelSource === 'fetched' || models.length > 0 ? models : undefined,
+    modelSource,
+    modelsFetchedAt: connection.modelsFetchedAt,
+  });
 
   async function save() {
     if (busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;

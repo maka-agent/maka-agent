@@ -31,7 +31,6 @@ import {
   MAX_IMPORTED_TEXT_FILE_SAMPLE_BYTES,
   preflightDroppedTextFilesForPromptImport,
 } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core';
 import {
   applyAssistantComplete,
   applyAssistantDelta,
@@ -94,6 +93,7 @@ import {
 import { deriveTurnFooterActions } from './turn-footer-actions';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
+import { buildCatalogChatModelChoices } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import {
@@ -181,44 +181,7 @@ function commandPaletteConnectionTestFailureFallback(result: ConnectionTestResul
 }
 
 function buildChatModelChoices(connections: readonly LlmConnection[]): ChatModelChoice[] {
-  const choices: ChatModelChoice[] = [];
-  for (const connection of connections) {
-    const defaults = PROVIDER_DEFAULTS[connection.providerType];
-    if (!connection.enabled || defaults.backendKind !== 'ai-sdk') continue;
-    if (
-      defaults.authKind === 'oauth_token' &&
-      connection.providerType !== 'claude-subscription' &&
-      connection.providerType !== 'codex-subscription'
-    ) {
-      continue;
-    }
-    const seen = new Set<string>();
-    const rawModels = connection.models !== undefined
-      ? connection.models.map((model) => model.id)
-      : connection.defaultModel
-        ? [connection.defaultModel]
-        : defaults.fallbackModels;
-    const safeModels = connection.providerType === 'codex-subscription'
-      ? rawModels.filter((model) => !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(model.trim()))
-      : rawModels;
-    const models = safeModels.length || connection.providerType !== 'codex-subscription'
-      ? safeModels
-      : defaults.fallbackModels;
-    for (const model of models) {
-      const trimmed = model.trim();
-      if (!trimmed || seen.has(trimmed)) continue;
-      seen.add(trimmed);
-      /* No connection name/label here: `connection.name` embeds the OAuth
-         account email (PR-CHAT-CHROME-FIX-0). The menu heading is derived
-         from `providerType` (+ slug on collision) in `modelMenuGroups`. */
-      choices.push({
-        connectionSlug: connection.slug,
-        providerType: connection.providerType,
-        model: trimmed,
-      });
-    }
-  }
-  return choices;
+  return buildCatalogChatModelChoices(connections);
 }
 
 function normalizeActiveChatModel(
