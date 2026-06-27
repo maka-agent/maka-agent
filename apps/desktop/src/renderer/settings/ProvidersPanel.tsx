@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { ChevronRight, X } from '@maka/ui/icons';
-import { nextRadioId, tabbableRadioId } from './model-table-keyboard';
+import {
+  canPickDefaultModel,
+  canSaveDefaultModelChange,
+  nextRadioId,
+  selectableDefaultModelIds,
+  tabbableRadioId,
+} from './model-table-keyboard';
 import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
@@ -1481,6 +1487,13 @@ function ConnectionDetail(props: {
 
   async function save() {
     if (busyRef.current || testingRef.current || fetchingModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    if (!canSaveDefaultModelChange(connection.defaultModel, defaultModel, modelChoices)) {
+      toast.error(
+        '默认模型不可用',
+        '请选择一个当前可用于聊天的模型后再保存。',
+      );
+      return;
+    }
     const lifecycle = connectionDetailLifecycleRef.current;
     busyRef.current = true;
     setBusy(true);
@@ -1850,8 +1863,8 @@ function ModelTable(props: {
       return m.id.toLowerCase().includes(q) || displayName.includes(q);
     });
   }, [props.modelChoices, query]);
-  const visibleModelIds = useMemo(() => filtered.map((m) => m.id), [filtered]);
-  const tabbableModelId = tabbableRadioId(props.defaultModel || undefined, visibleModelIds);
+  const selectableModelIds = useMemo(() => selectableDefaultModelIds(filtered), [filtered]);
+  const tabbableModelId = tabbableRadioId(props.defaultModel || undefined, selectableModelIds);
 
   const headerLine =
     props.modelSource === 'fetched'
@@ -1872,11 +1885,10 @@ function ModelTable(props: {
     if (radios.length === 0) return;
     const focusedRadio = (document.activeElement as HTMLElement | null)?.closest<HTMLButtonElement>('button[role="radio"]');
     const currentId = focusedRadio?.dataset.modelId;
-    const nextId = nextRadioId(currentId, visibleModelIds, event.key);
+    const nextId = nextRadioId(currentId, selectableModelIds, event.key);
     if (nextId === null || nextId === currentId) return;
     event.preventDefault();
-    const nextIndex = visibleModelIds.indexOf(nextId);
-    const next = radios[nextIndex];
+    const next = radios.find((radio) => radio.dataset.modelId === nextId);
     next?.focus({ preventScroll: false });
     next?.scrollIntoView({ block: 'nearest' });
     // ARIA radiogroup pattern (per @xuan PR92 follow-up): arrow keys move
@@ -1959,6 +1971,7 @@ function ModelTable(props: {
             const displayName = modelTableDisplayLabel(model);
             const showRawId = displayName !== model.id;
             const warning = modelTableEntryWarning(model);
+            const canPickDefault = canPickDefaultModel(model);
             return (
               <li key={model.id} role="none">
                 <Button
@@ -1967,13 +1980,18 @@ function ModelTable(props: {
                   variant="ghost"
                   role="radio"
                   aria-checked={isDefault}
+                  aria-disabled={!canPickDefault || props.disabled ? true : undefined}
                   data-default={isDefault ? 'true' : undefined}
+                  data-disabled={!canPickDefault ? 'true' : undefined}
                   data-model-id={model.id}
-                  disabled={props.disabled}
+                  disabled={props.disabled || !canPickDefault}
                   // Only the active radio is in the tab order; arrow keys
                   // move focus inside the group. Standard ARIA radiogroup.
                   tabIndex={tabbableModelId === model.id ? 0 : -1}
-                  onClick={() => props.onPickDefault(model.id)}
+                  onClick={() => {
+                    if (!canPickDefault) return;
+                    props.onPickDefault(model.id);
+                  }}
                 >
                   <span className="modelTableRowRadio" aria-hidden="true" />
                   <span className="modelTableRowText">

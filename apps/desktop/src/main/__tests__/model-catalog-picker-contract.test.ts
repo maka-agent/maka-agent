@@ -77,4 +77,19 @@ describe('model catalog picker contract', () => {
     assert.match(mainProcess, /modelKeyOverride\?:\s*string/);
     assert.match(mainProcess, /resolveDailyReviewModelContext\(effectiveModelKey\)/);
   });
+
+  it('keeps unavailable Settings model catalog entries visible but unselectable', async () => {
+    const providers = await readFile(
+      resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/ProvidersPanel.tsx'),
+      'utf8',
+    );
+    const tableBlock = providers.match(/function ModelTable[\s\S]*?function modelTableDisplayLabel/)?.[0] ?? '';
+    const detailBlock = providers.match(/function ConnectionDetail[\s\S]*?function connectionDetailSnapshot/)?.[0] ?? '';
+
+    assert.match(tableBlock, /selectableDefaultModelIds\(filtered\)/);
+    assert.match(tableBlock, /canPickDefaultModel\(model\)/);
+    assert.match(tableBlock, /disabled=\{props\.disabled \|\| !canPickDefault\}/);
+    assert.match(tableBlock, /aria-disabled=\{!canPickDefault \|\| props\.disabled \? true : undefined\}/);
+    assert.match(detailBlock, /canSaveDefaultModelChange\(connection\.defaultModel, defaultModel, modelChoices\)/);
+  });
 });

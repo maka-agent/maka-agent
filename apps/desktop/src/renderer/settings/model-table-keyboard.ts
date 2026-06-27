@@ -1,5 +1,6 @@
 /**
- * Pure ARIA radiogroup keyboard helpers for the Settings ModelTable.
+ * Pure selection and ARIA radiogroup keyboard helpers for the Settings
+ * ModelTable.
  *
  * Extracted from ProvidersPanel.tsx so the keyboard transition logic can be
  * unit-tested with node:test directly — the .tsx file pulls in React and
@@ -7,7 +8,7 @@
  * Per @kenji's PR93 follow-up: lock down the a11y behavior so future
  * refactors don't regress to "focus-only, no select".
  *
- * The helpers take only the data needed to compute the transition:
+ * The keyboard helpers take only the data needed to compute the transition:
  *   - `currentId` — id of the currently focused/selected radio (or undefined
  *     when no radio is focused yet, e.g. user just tabbed into the group)
  *   - `visibleIds` — radio ids in display order; what the user sees
@@ -20,8 +21,33 @@
 
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End']);
 
+export interface DefaultModelCandidate {
+  id: string;
+  canUseAsChatDefault: boolean;
+}
+
 export function isRadioGroupNavKey(key: string): boolean {
   return NAV_KEYS.has(key);
+}
+
+export function selectableDefaultModelIds(candidates: readonly DefaultModelCandidate[]): string[] {
+  return candidates
+    .filter((candidate) => candidate.canUseAsChatDefault)
+    .map((candidate) => candidate.id);
+}
+
+export function canPickDefaultModel(candidate: DefaultModelCandidate): boolean {
+  return candidate.canUseAsChatDefault;
+}
+
+export function canSaveDefaultModelChange(
+  savedDefaultModel: string,
+  draftDefaultModel: string,
+  candidates: readonly DefaultModelCandidate[],
+): boolean {
+  if (draftDefaultModel === savedDefaultModel) return true;
+  const target = candidates.find((candidate) => candidate.id === draftDefaultModel);
+  return target?.canUseAsChatDefault === true;
 }
 
 /**

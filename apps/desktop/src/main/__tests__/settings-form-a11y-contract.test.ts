@@ -163,8 +163,8 @@ describe('Settings form accessibility labels', () => {
     assert.doesNotMatch(providersPanel, /className="maka-button/, 'ProvidersPanel governed Buttons must not layer the legacy maka-button class (inert under the @maka/ui Button utilities, so it is dead weight)');
     assert.match(
       providersPanel,
-      /const tabbableModelId = tabbableRadioId\(props\.defaultModel \|\| undefined, visibleModelIds\);/,
-      'ModelTable must keep one visible model row tabbable when the selected default is filtered out',
+      /const tabbableModelId = tabbableRadioId\(props\.defaultModel \|\| undefined, selectableModelIds\);/,
+      'ModelTable must keep one selectable visible model row tabbable when the selected default is filtered out',
     );
     assert.doesNotMatch(
       providersPanel,

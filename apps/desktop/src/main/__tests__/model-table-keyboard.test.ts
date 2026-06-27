@@ -16,12 +16,21 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
+  canSaveDefaultModelChange,
   isRadioGroupNavKey,
   nextRadioId,
+  selectableDefaultModelIds,
   tabbableRadioId,
 } from '../../renderer/settings/model-table-keyboard.js';
 
 const FIVE = ['glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5'];
+
+const MODEL_CANDIDATES = [
+  { id: 'chat-model', canUseAsChatDefault: true },
+  { id: 'image-only', canUseAsChatDefault: false },
+  { id: 'missing-default', canUseAsChatDefault: false },
+  { id: 'stale-chat-model', canUseAsChatDefault: true },
+];
 
 describe('isRadioGroupNavKey', () => {
   it('recognizes all four arrows + Home/End', () => {
@@ -115,5 +124,39 @@ describe('tabbableRadioId', () => {
 
   it('returns null for an empty filtered result set', () => {
     assert.equal(tabbableRadioId('glm-4.5', []), null);
+  });
+});
+
+describe('selectableDefaultModelIds', () => {
+  it('keeps blocked and missing catalog entries out of the radio keyboard candidates', () => {
+    assert.deepEqual(selectableDefaultModelIds(MODEL_CANDIDATES), [
+      'chat-model',
+      'stale-chat-model',
+    ]);
+  });
+
+  it('makes arrow navigation skip blocked entries when callers pass selectable ids', () => {
+    const selectable = selectableDefaultModelIds(MODEL_CANDIDATES);
+
+    assert.equal(nextRadioId('chat-model', selectable, 'ArrowDown'), 'stale-chat-model');
+    assert.equal(nextRadioId('stale-chat-model', selectable, 'ArrowUp'), 'chat-model');
+  });
+});
+
+describe('canSaveDefaultModelChange', () => {
+  it('allows an already-saved blocked default to remain unchanged', () => {
+    assert.equal(
+      canSaveDefaultModelChange('missing-default', 'missing-default', MODEL_CANDIDATES),
+      true,
+    );
+  });
+
+  it('rejects changing the draft default to a blocked or missing model', () => {
+    assert.equal(canSaveDefaultModelChange('chat-model', 'image-only', MODEL_CANDIDATES), false);
+    assert.equal(canSaveDefaultModelChange('chat-model', 'missing-default', MODEL_CANDIDATES), false);
+  });
+
+  it('allows changing the draft default to a usable chat model', () => {
+    assert.equal(canSaveDefaultModelChange('chat-model', 'stale-chat-model', MODEL_CANDIDATES), true);
   });
 });
