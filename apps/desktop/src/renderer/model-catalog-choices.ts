@@ -20,6 +20,14 @@ export function buildCatalogRecommendedDefaultModel(providerType: ProviderType):
   return entry?.id ?? '';
 }
 
+export function pickCatalogDefaultChatModel(connection: Pick<
+  LlmConnection,
+  'slug' | 'providerType' | 'defaultModel' | 'models' | 'modelSource' | 'modelsFetchedAt'
+>): { llmConnectionSlug: string; model: string } | undefined {
+  const entry = selectableCatalogEntries(connection).find((choice) => choice.isDefault && choice.canUseAsChatDefault);
+  return entry ? { llmConnectionSlug: connection.slug, model: entry.id } : undefined;
+}
+
 export function buildCatalogChatModelChoices(connections: readonly LlmConnection[]): ChatModelChoice[] {
   const choices: ChatModelChoice[] = [];
   for (const connection of connections) {
@@ -76,6 +84,12 @@ export function buildCatalogDailyReviewModelOptions(
       ? `${candidate.label} · ${candidate.safeSourceLabel}`
       : candidate.label;
     options.push([candidate.key, label]);
+  }
+
+  const trimmedCurrent = currentModelKey.trim();
+  if (trimmedCurrent && !options.some(([value]) => value === trimmedCurrent)) {
+    const label = current?.model || trimmedCurrent.split(DAILY_REVIEW_MODEL_KEY_SEPARATOR).pop() || trimmedCurrent;
+    options.push([trimmedCurrent, `${label} · 当前不可用`]);
   }
 
   return options;

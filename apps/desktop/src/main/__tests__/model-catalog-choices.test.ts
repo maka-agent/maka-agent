@@ -17,6 +17,10 @@ type ModelCatalogChoicesModule = {
     model: string;
     label: string;
   }>;
+  pickCatalogDefaultChatModel(connection: LlmConnection): {
+    llmConnectionSlug: string;
+    model: string;
+  } | undefined;
   buildCatalogDailyReviewModelOptions(
     connections: readonly LlmConnection[],
     currentModelKey: string,
@@ -24,6 +28,7 @@ type ModelCatalogChoicesModule = {
   buildCatalogModelChoices(connection: LlmConnection): Array<{
     id: string;
     displayName?: string;
+    source: string;
     recommendedRank?: number;
     lifecycle: string;
     docsUrl?: string;
@@ -146,11 +151,66 @@ describe('model catalog picker helpers', () => {
     ]);
   });
 
+  it('keeps the current Daily Review value visible when its connection is unavailable', async () => {
+    const { buildCatalogDailyReviewModelOptions } = await importModelCatalogChoices();
+
+    assert.deepEqual(
+      buildCatalogDailyReviewModelOptions([
+        connection({
+          slug: 'openai-api',
+          providerType: 'openai',
+          enabled: false,
+          models: [{ id: 'gpt-4o-mini' }],
+          modelSource: 'fetched',
+        }),
+      ], 'openai-api::gpt-4o-mini'),
+      [['openai-api::gpt-4o-mini', 'gpt-4o-mini · 当前不可用']],
+    );
+
+    assert.deepEqual(
+      buildCatalogDailyReviewModelOptions([], 'deleted-openai::gpt-4o-mini'),
+      [['deleted-openai::gpt-4o-mini', 'gpt-4o-mini · 当前不可用']],
+    );
+
+    assert.deepEqual(
+      buildCatalogDailyReviewModelOptions([
+        connection({
+          slug: 'openai-api',
+          providerType: 'openai',
+          models: [{ id: 'gpt-4o-mini' }],
+          modelSource: 'fetched',
+        }),
+      ], 'openai-api::custom-model'),
+      [
+        ['openai-api::gpt-4o-mini', 'GPT-4o mini'],
+        ['openai-api::custom-model', 'custom-model · 当前不可用'],
+      ],
+    );
+  });
+
   it('derives new-connection defaults from catalog recommendations', async () => {
     const { buildCatalogRecommendedDefaultModel } = await importModelCatalogChoices();
 
     assert.equal(buildCatalogRecommendedDefaultModel('deepseek'), 'deepseek-v4-flash');
     assert.equal(buildCatalogRecommendedDefaultModel('openai-compatible'), '');
+  });
+
+  it('picks the new-chat default from the normalized catalog default entry', async () => {
+    const { pickCatalogDefaultChatModel } = await importModelCatalogChoices();
+
+    assert.deepEqual(
+      pickCatalogDefaultChatModel(connection({
+        slug: 'openai-api',
+        providerType: 'openai',
+        defaultModel: '  gpt-4o-mini  ',
+        models: [{ id: 'gpt-4o-mini' }],
+        modelSource: 'fetched',
+      })),
+      {
+        llmConnectionSlug: 'openai-api',
+        model: 'gpt-4o-mini',
+      },
+    );
   });
 
   it('keeps Settings model choices as catalog entries with missing-default state', async () => {
@@ -198,5 +258,18 @@ describe('model catalog picker helpers', () => {
         },
       ],
     );
+  });
+
+  it('derives static fallback counts from catalog entries', async () => {
+    const { buildCatalogModelChoices } = await importModelCatalogChoices();
+
+    const choices = buildCatalogModelChoices(connection({
+      slug: 'deepseek-api',
+      providerType: 'deepseek',
+      defaultModel: 'deepseek-v4-flash',
+      modelSource: 'fallback',
+    }));
+
+    assert.equal(choices.filter((choice) => choice.source === 'static_catalog').length, 4);
   });
 });

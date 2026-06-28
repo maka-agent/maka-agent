@@ -106,21 +106,6 @@ describe('home composer new-chat model picker', () => {
     );
   });
 
-  it('derives the no-session default from catalog choices, not raw connection models', async () => {
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
-
-    assert.match(
-      renderer,
-      /const catalogDefaultNewChatModel\s*=[\s\S]*?chatModelChoices\.find\(/,
-      'the empty composer default must be selected from catalog-backed ChatModelChoice entries',
-    );
-    assert.doesNotMatch(
-      renderer,
-      /defaultConnModel|models\?\.\[0\]\?\.id|models\?\.\[0\]\.id/,
-      'main.tsx must not fall back to connection.models[0] when showing or creating the no-session default model',
-    );
-  });
-
   it('does not let stale new-chat send creation steal the active session after navigation', async () => {
     const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
     const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';

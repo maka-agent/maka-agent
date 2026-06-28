@@ -93,7 +93,11 @@ import {
 import { deriveTurnFooterActions } from './turn-footer-actions';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { buildCatalogChatModelChoices, buildCatalogDailyReviewModelOptions } from './model-catalog-choices';
+import {
+  buildCatalogChatModelChoices,
+  buildCatalogDailyReviewModelOptions,
+  pickCatalogDefaultChatModel,
+} from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { openPathActionLabel, openPathFailureCopy } from './open-path';
 import {
@@ -514,15 +518,11 @@ function AppShell() {
       ? pendingNewChatModel
       : null;
   const catalogDefaultNewChatModel = defaultConnectionEntry
-    ? chatModelChoices.find(
-      (choice) =>
-        choice.connectionSlug === defaultConnectionEntry.slug &&
-        choice.model === defaultConnectionEntry.defaultModel,
-    )
+    ? pickCatalogDefaultChatModel(defaultConnectionEntry)
     : undefined;
   const newChatModel = validPendingNewChatModel
     ?? (catalogDefaultNewChatModel
-      ? { llmConnectionSlug: catalogDefaultNewChatModel.connectionSlug, model: catalogDefaultNewChatModel.model }
+      ? { llmConnectionSlug: catalogDefaultNewChatModel.llmConnectionSlug, model: catalogDefaultNewChatModel.model }
       : undefined);
   const activeConnectionLabel = activeSession?.backend === 'fake'
     ? '本地模拟连接'
