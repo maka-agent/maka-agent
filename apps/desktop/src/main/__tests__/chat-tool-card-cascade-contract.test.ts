@@ -1,0 +1,181 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { describe, it } from 'node:test';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+
+/**
+ * Zero-visual governance contract for issue #332 PR3b — the `ToolActivity` card
+ * shell (the inline section + count pill, the `<details>` card, its `<summary>`
+ * header row + status dot, the body / intent, and the args `<pre>` override)
+ * moved onto the `@maka/ui` chat substrate's `toolVariants` literalize table.
+ *
+ * The SHELL halves of "zero visual change" are proven by the computed-style diff
+ * harness (`npm run check:chat-visual`): each retired `.maka-tool*` / `.toolInline`
+ * / `.toolItem` / `.toolArgs` declaration compiles 1:1 to its literal utility, so
+ * this test does NOT re-assert those literals — that would only mirror the
+ * implementation. It locks the three things the diff cannot cover:
+ *   1. the ABSENCE of the retired selectors (a diff of computed styles can't show
+ *      a selector is gone), scoped so the still-bespoke `.maka-tool-error*`
+ *      (PR3c), `.maka-tool-diff*` / `.maka-tool-terminal*` (result previews, out
+ *      of scope), and shared `.maka-code` base survive untouched;
+ *   2. the running status dot's `@keyframes maka-tool-pulse` ring frames — an
+ *      animation can't be a leaf-literal and `getComputedStyle` reads a phase-
+ *      dependent value, so the breath is pinned here + by the `chat.tsx` literal;
+ *   3. the card mount entrance (`transition` + `@starting-style`) and native
+ *      `<summary>` marker reset — re-keyed off the retired `.maka-tool` class onto
+ *      the governed `[data-slot="tool"]` hook, kept as a named CSS residue because
+ *      `@starting-style` paints only on the first frame and pseudo-element resets
+ *      have no leaf-utility form.
+ */
+describe('chat tool-card migration contract (#332 PR3b)', () => {
+  it('retires the bespoke tool-card shell selectors (without touching error/preview/maka-code)', async () => {
+    const css = stripCssComments(await readAllRendererCss());
+    for (const selector of [
+      // inline section + args override (styles/tool-output.css)
+      '.toolInline',
+      '.toolItem',
+      '.toolArgs',
+      // summary header row + status dot + body / intent / count (maka-tokens.css)
+      '.maka-tool-header',
+      '.maka-tool-name',
+      '.maka-tool-meta',
+      '.maka-tool-duration',
+      '.maka-tool-status-label',
+      '.maka-tool-status-dot',
+      '.maka-tool-body',
+      '.maka-tool-intent',
+      '.maka-tool-count',
+      // the `<details>` card base + its status / open / summary selectors
+      '.maka-tool {',
+      '.maka-tool >',
+      '.maka-tool[open]',
+      '.maka-tool[data-status',
+    ]) {
+      assert.ok(
+        !css.includes(selector),
+        `retired tool-card selector "${selector}" still present in renderer CSS`,
+      );
+    }
+
+    // Adjacent concerns that PR3b must leave alone: the error banner (PR3c), the
+    // result-preview renderers (out of scope), and the shared inline-code base.
+    for (const kept of [
+      '.maka-tool-error',
+      '.maka-tool-diff',
+      '.maka-tool-terminal',
+      '.maka-code',
+    ]) {
+      assert.ok(
+        css.includes(kept),
+        `PR3b must not retire the out-of-scope selector "${kept}"`,
+      );
+    }
+  });
+
+  it('keeps the @keyframes maka-tool-pulse ring frames (the dot breath the diff cannot see)', async () => {
+    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    assert.ok(
+      tokens.includes('@keyframes maka-tool-pulse'),
+      '`@keyframes maka-tool-pulse` must stay in maka-tokens.css — a keyframe is a global rule, not an element property',
+    );
+    const pulse = tokens.slice(
+      tokens.indexOf('@keyframes maka-tool-pulse'),
+      tokens.indexOf('@keyframes maka-tool-pulse') + 220,
+    );
+    // The box-shadow RING grows 3px → 5px and fades 0.15 → 0.06. This is the
+    // running dot's zero-visual proof; it can't be machine-diffed, so it is pinned.
+    for (const frame of [
+      'box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15)',
+      'box-shadow: 0 0 0 5px oklch(from var(--accent) l c h / 0.06)',
+    ]) {
+      assert.ok(pulse.includes(frame), `maka-tool-pulse must pin the retired ring frame "${frame}"`);
+    }
+  });
+
+  it('keeps the card entrance + marker reset residue, re-keyed onto [data-slot="tool"]', async () => {
+    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    // The retired `.maka-tool` class no longer carries the entrance — it moved to
+    // the governed slot hook. (The class form lives only as `.maka-tool-error*`
+    // now, asserted out-of-scope above.)
+    assert.ok(
+      !tokens.includes('.maka-tool {') && !tokens.includes('@starting-style {\n    .maka-tool'),
+      'the entrance must no longer hang off the retired `.maka-tool` class',
+    );
+    for (const residue of [
+      // the mount entrance: explicit rest values + the transition…
+      '[data-slot="tool"] {',
+      'transform: translateY(0)',
+      'transition:\n      opacity 200ms ease-out,\n      transform 200ms var(--ease-out-strong),\n      border-color 160ms ease;',
+      // …and the `@starting-style` first-frame start (no at-rest computed style)
+      '[data-slot="tool"] { opacity: 0; transform: translateY(4px); }',
+      // the native disclosure-triangle suppression (pseudo-elements, no utility form)
+      '[data-slot="tool"] > summary::-webkit-details-marker { display: none; }',
+      "[data-slot=\"tool\"] > summary::marker { content: ''; }",
+    ]) {
+      assert.ok(
+        tokens.includes(residue),
+        `tool-card residue must keep "${residue}" on the [data-slot="tool"] hook`,
+      );
+    }
+  });
+
+  it('pins the running-dot escape literals in chat.tsx + guards against scale drift', async () => {
+    const rawSrc = await readFile(
+      resolve(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'chat.tsx'),
+      'utf8',
+    );
+    const chatSrc = rawSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const start = chatSrc.indexOf('const toolVariants');
+    const block = chatSrc.slice(start, chatSrc.indexOf('export { toolVariants }', start));
+    assert.ok(start !== -1 && block.length > 0, 'toolVariants table must exist in chat.tsx');
+
+    // The diff harness proves the static shell; the running dot's animation is the
+    // one part it cannot reach. Pin the breath + its leaf box-shadow ring here.
+    for (const literal of [
+      '[animation:maka-tool-pulse_1.5s_ease-in-out_infinite]',
+      '[box-shadow:0_0_0_3px_oklch(from_var(--accent)_l_c_h_/_0.15)]',
+    ]) {
+      assert.ok(
+        block.includes(literal),
+        `running dot must carry the literal "${literal}" mirroring the retired CSS`,
+      );
+    }
+    // The dot must never fall back to Tailwind's built-in `animate-pulse` (a
+    // different opacity-only keyframe) nor reuse the LiveIndicator breath — the
+    // tool dot's ring pulse is a distinct keyframe.
+    for (const banned of ['animate-pulse', 'maka-pulse_']) {
+      assert.ok(
+        !block.includes(banned),
+        `tool dot must use the governed maka-tool-pulse ring, not "${banned}"`,
+      );
+    }
+    // Anti-drift: the literalize vehicle stays arbitrary-value (immune to a later
+    // scale/token re-tuning silently shifting pixels). Pin the distinctive
+    // literals and ban the semantic-scale forms they would be swapped for.
+    for (const literal of ['rounded-[10px]', 'text-[12.5px]', 'gap-[10px]', 'min-w-[22px]']) {
+      assert.ok(block.includes(literal), `toolVariants must keep the literal "${literal}"`);
+    }
+    for (const scale of ['rounded-lg', 'rounded-xl', 'text-sm', 'text-xs']) {
+      assert.ok(
+        !block.includes(scale),
+        `toolVariants must stay literal, not adopt the semantic-scale "${scale}"`,
+      );
+    }
+
+    // The `waiting_permission` status must keep the `String.raw` `\_` escape: a
+    // bare `data-[status=waiting_permission]` compiles to `[data-status="waiting
+    // permission"]` (Tailwind `_`→space) and silently falls back to the base
+    // color — a zero-visual break the diff harness caught but a careless
+    // "simplification" could reintroduce. Assert the escaped form is present and
+    // the bare form is absent across the whole module.
+    assert.ok(
+      chatSrc.includes('waiting\\_permission'),
+      'waiting_permission must keep its `String.raw` `\\_` escape so the emitted class matches',
+    );
+    assert.ok(
+      !chatSrc.includes('data-[status=waiting_permission]'),
+      'the bare (underscore-as-space) `data-[status=waiting_permission]` form must never appear',
+    );
+  });
+});

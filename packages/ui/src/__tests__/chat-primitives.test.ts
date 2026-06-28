@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Bubble, LiveIndicator, Marker, markerVariants, Message, streamVariants } from '../primitives/chat.js';
+import { Bubble, LiveIndicator, Marker, markerVariants, Message, streamVariants, toolVariants } from '../primitives/chat.js';
 import { buttonVariants, cn } from '../ui.js';
 
 // The re-anchored renderer selectors key off the primitives' own `data-slot` /
@@ -163,4 +163,33 @@ test('LiveIndicator pins the canonical pulse + reduced-motion fallback over conf
   assert.match(className, /motion-reduce:opacity-\[0\.8\]/);
   // never the Tailwind `animate-pulse` (a different opacity-only keyframe).
   assert.ok(!className.split(/\s+/).includes('animate-pulse'), 'must use the governed maka-pulse, not animate-pulse');
+});
+
+// PR3b — the tool-activity card shell. The full per-part shell is proven by the
+// computed-style diff harness (20 rows, 0 delta), so this does NOT enumerate the
+// leaf literals. It keeps two guards the diff can't make at the source level:
+// the shell stays LITERAL (no semantic scale a refactor could swap in), and —
+// the subtle one — cva's RUNTIME output must preserve the `waiting_permission`
+// `\_` escape as a SINGLE backslash. Tailwind turns a bare `_` in an arbitrary
+// value into a space; the `String.raw` source keeps source==runtime at one `\_`,
+// and any build/refactor that re-doubles or drops it silently breaks the
+// `waiting_permission` border/dot tint (invisible until rendered — the diff
+// harness caught exactly this).
+test('toolVariants stays literal and emits the single-backslash waiting_permission escape', () => {
+  const item = toolVariants({ part: 'item' });
+  const dot = toolVariants({ part: 'dot' });
+  for (const cls of [item, dot]) {
+    assert.ok(
+      !cls.split(/\s+/).some((u) => ['rounded-lg', 'rounded-md', 'rounded-xl', 'text-sm', 'text-xs', 'bg-primary'].includes(u)),
+      'tool shell must stay literal, not the semantic scale / a recolor',
+    );
+  }
+  // exactly one backslash before the underscore (source == runtime via String.raw)
+  assert.ok(item.includes('data-[status=waiting\\_permission]:[border-color:'), 'item must keep the single-backslash waiting_permission border escape');
+  assert.ok(dot.includes('data-[status=waiting\\_permission]:bg-[var(--info)]'), 'dot must keep the single-backslash waiting_permission bg escape');
+  // never the bare underscore form (Tailwind would read it as a space)
+  assert.ok(!item.includes('data-[status=waiting_permission]') && !dot.includes('data-[status=waiting_permission]'), 'the bare waiting_permission form must never reach the className');
+  // the running dot keeps the governed ring keyframe, never Tailwind animate-pulse
+  assert.match(dot, /\[animation:maka-tool-pulse_1\.5s_ease-in-out_infinite\]/);
+  assert.ok(!dot.split(/\s+/).includes('animate-pulse'), 'running dot must use the governed maka-tool-pulse ring');
 });

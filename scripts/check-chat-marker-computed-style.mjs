@@ -84,7 +84,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { buttonVariants, cn } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/ui.js')).href);
-const { markerVariants, streamVariants } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/chat.js')).href);
+const { markerVariants, streamVariants, toolVariants } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/chat.js')).href);
 
 const mainCssPath = process.argv[2] && resolve(process.argv[2]);
 const headCssPath = process.argv[3] && resolve(process.argv[3]);
@@ -135,6 +135,50 @@ const streamPanel = (el, id, attrs) =>
         + el('span', `${id}-chunk-redacted`, pair('maka-tool-output-stream-chunk', sv('chunk')), 'data-redacted="true"',
             'x' + el('span', `${id}-redacted-tag`, pair('maka-tool-output-stream-redacted-tag', sv('redacted-tag')), '', '[已脱敏]'))));
 
+// PR3b — the `ToolActivity` card shell. Resting, non-interactive; the only part
+// NOT diffed is the RUNNING status dot (its `maka-tool-pulse` ring is animated →
+// phase-dependent `getComputedStyle`), pinned by the cascade contract's keyframe
+// frames + chat.tsx literal instead. Every other surface — the inline section +
+// count, all five `[data-status]` card containers (border / bg / opacity swaps),
+// the summary header grid, the four static dot colors, name / meta / duration /
+// status-label / body / intent, and the args `<pre>` override layered over the
+// shared `.maka-code` base — is static and diffed in full. On `main` the inline
+// `<header>` and the args `<pre>` carry their bespoke classes; the head side uses
+// the `toolVariants` parts (+ the shared `maka-code` on args). `data-slot="tool"`
+// + `open` on each card activate the head residue (entrance transition) and the
+// `[open]>summary` divider on both sides.
+const tv = (part) => toolVariants({ part });
+const toolCardSection = (el) => {
+  const STAT = ['waiting_permission', 'running', 'completed', 'errored', 'interrupted'];
+  const item = pair('maka-tool toolItem', tv('item'));
+  const hdr = pair('maka-tool-header', tv('header'));
+  const dot = pair('maka-tool-status-dot', tv('dot'));
+  // The representative `completed` card is fully expanded so the status-invariant
+  // inner parts (name / meta / duration / status-label / body / intent / args)
+  // are each measured once; the other four cards exercise only the container +
+  // dot status swaps.
+  const innerFor = (s) => {
+    const dotId = s === 'running' ? `tool-dot-${s}` : `tool-dot-${s}`; // id always set; running excluded from IDS
+    const dotEl = el('span', dotId, dot, `data-status="${s}" aria-hidden="true"`);
+    if (s !== 'completed') return el('summary', `tool-sum-${s}`, hdr, '', dotEl);
+    return el('summary', 'tool-summary', hdr, '',
+        dotEl
+        + el('span', 'tool-name', pair('maka-tool-name', tv('name')), '', 'Bash')
+        + el('span', 'tool-meta', pair('maka-tool-meta', tv('meta')), '',
+            el('span', 'tool-duration', pair('maka-tool-duration', tv('duration')), '', '1.2s')
+            + el('span', 'tool-statuslabel', pair('maka-tool-status-label', tv('status-label')), '', '已完成')))
+      + el('div', 'tool-body', pair('maka-tool-body', tv('body')), '',
+          el('p', 'tool-intent', pair('maka-tool-intent', tv('intent')), '', 'run a command')
+          + el('pre', 'tool-args', pair('maka-code toolArgs', cn('maka-code', tv('args'))), '', '{ "cmd": "ls" }'));
+  };
+  const card = (s) => el('details', `tool-item-${s}`, item, `data-slot="tool" data-status="${s}" open`, innerFor(s));
+  return el('section', 'tool-section', pair('toolInline', tv('container')), 'aria-label="工具调用记录"',
+    el('header', 'tool-section-header', pair('', tv('container-header')), '',
+      '<strong>工具调用</strong>'
+      + el('span', 'tool-count', pair('maka-tool-count', tv('count')), '', '5'))
+    + STAT.map(card).join('\n'));
+};
+
 // DOM tree mirroring TurnView nesting.
 const TREE = (side) => {
   const C = (p) => p[side];
@@ -178,14 +222,23 @@ const TREE = (side) => {
     // so the accent border + inset ring are diffed too.
     streamPanel(el, 'stream', ''),
     streamPanel(el, 'stream-live', 'data-live="true"'),
+    // The PR3b tool-activity card shell.
+    toolCardSection(el),
   ].join('\n');
 };
 
-const PROPS = ['display', 'height', 'minHeight', 'width', 'maxWidth', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderTopColor', 'borderBottomColor', 'borderTopStyle', 'borderTopLeftRadius', 'boxShadow', 'overflowX', 'overflowY', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight', 'textTransform', 'columnGap', 'color', 'backgroundColor', 'opacity', 'transition', 'justifyContent', 'alignItems', 'flexWrap', 'flexDirection', 'fontVariantNumeric', 'whiteSpace', 'wordBreak', 'textAlign', 'cursor'];
+const PROPS = ['display', 'height', 'minHeight', 'width', 'maxWidth', 'maxHeight', 'minWidth', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderTopColor', 'borderBottomColor', 'borderTopStyle', 'borderTopLeftRadius', 'boxShadow', 'overflowX', 'overflowY', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight', 'textTransform', 'gridTemplateColumns', 'columnGap', 'color', 'backgroundColor', 'opacity', 'transition', 'justifyContent', 'alignItems', 'flexWrap', 'flexDirection', 'fontVariantNumeric', 'whiteSpace', 'wordBreak', 'textOverflow', 'textAlign', 'cursor'];
 const IDS = ['summary', 'summary-chip-1', 'summary-chip-2', 'summary-chip-tools', 'summary-chip-duration', 'summary-chip-tokens', 'summary-chip-inprogress', 'summary-chip-switched', 'summary-switched', 'footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', 'footer-copied', 'footer-failed', 'lineage-row', 'lineage-fwd', 'lineage-row-reverse', 'lineage-rev', 'aborted', 'failed-banner', 'failed-recovery',
   // PR3 stream shell (resting + live border ring). The pulse dot is excluded
   // (animated → phase-dependent computed style).
-  'stream', 'stream-header', 'stream-label', 'stream-counts', 'stream-count', 'stream-count-stderr', 'stream-count-redacted', 'stream-count-truncated', 'stream-body', 'stream-chunk', 'stream-chunk-stderr', 'stream-chunk-redacted', 'stream-redacted-tag', 'stream-live'];
+  'stream', 'stream-header', 'stream-label', 'stream-counts', 'stream-count', 'stream-count-stderr', 'stream-count-redacted', 'stream-count-truncated', 'stream-body', 'stream-chunk', 'stream-chunk-stderr', 'stream-chunk-redacted', 'stream-redacted-tag', 'stream-live',
+  // PR3b tool-card shell: section + count, all five `[data-status]` card
+  // containers, the summary header grid, the four STATIC dot colors (running dot
+  // excluded — animated ring), and the status-invariant inner parts.
+  'tool-section', 'tool-section-header', 'tool-count',
+  'tool-item-waiting_permission', 'tool-item-running', 'tool-item-completed', 'tool-item-errored', 'tool-item-interrupted',
+  'tool-summary', 'tool-name', 'tool-meta', 'tool-duration', 'tool-statuslabel', 'tool-body', 'tool-intent', 'tool-args',
+  'tool-dot-waiting_permission', 'tool-dot-completed', 'tool-dot-errored', 'tool-dot-interrupted'];
 // `::before` middot separators are now diffed for real (they render once the
 // CSS is inlined — the old `<link>` build couldn't apply them, masking this).
 // summary-chip-2 is a non-first chip (`[&:not(:first-child)]:before:…`);
