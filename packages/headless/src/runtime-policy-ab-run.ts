@@ -16,8 +16,14 @@ import {
 } from './harbor-cell.js';
 
 export const RUNTIME_POLICY_CONTEXT_ENV_KEYS = HARBOR_CELL_CONTEXT_ENV_KEYS;
+export const RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS = [
+  'MAKA_HARBOR_CONTINUATION',
+  'MAKA_HARBOR_CONTINUATION_MAX_TURNS',
+  'MAKA_HARBOR_CONTINUATION_PROMPT',
+] as const;
 
 export type RuntimePolicyContextEnvKey = HarborCellContextEnvKey;
+export type RuntimePolicySharedAgentEnvKey = typeof RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS[number];
 
 export interface RuntimePolicyAbArmInput {
   id: string;
@@ -36,6 +42,7 @@ export interface RunRuntimePolicyAbComparisonInput {
   resumeFingerprint?: string;
   budgetMs?: number;
   nonInferiorityMargin?: number;
+  sharedAgentEnv?: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>;
   harborRunner: HarborTaskRunner;
   now?: () => number;
   newId?: () => string;
@@ -49,13 +56,15 @@ export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput
   provider: string;
   baseUrl: string;
   model: string;
+  sharedAgentEnv?: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>;
 }
 
 export type RuntimePolicyAbRunManifest = AbRunManifest;
 
 export function buildRuntimePolicyAbRunManifest(input: RuntimePolicyAbRunManifestInput): RuntimePolicyAbRunManifest {
-  const { arms, promptHash, provider, baseUrl, model, ...abInput } = input;
-  const sharedMetadata = { promptHash, provider, baseUrl, model };
+  const { arms, promptHash, provider, baseUrl, model, sharedAgentEnv: rawSharedAgentEnv, ...abInput } = input;
+  const sharedAgentEnv = sanitizeSharedAgentEnv(rawSharedAgentEnv ?? {});
+  const sharedMetadata = { promptHash, provider, baseUrl, model, sharedAgentEnv };
   return buildAbRunManifest({
     ...abInput,
     experimentKind: 'runtime',
@@ -70,6 +79,7 @@ export async function runRuntimePolicyAbComparison(
   input: RunRuntimePolicyAbComparisonInput,
 ): Promise<RuntimePolicyAbComparisonSummary> {
   const sharedConfigFingerprint = runtimePolicySharedConfigFingerprint(input.config);
+  const sharedAgentEnv = sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {});
   return runAbComparison({
     runId: input.runId,
     arms: [runtimeArmSpec(input.arms[0]), runtimeArmSpec(input.arms[1])],
@@ -84,9 +94,11 @@ export async function runRuntimePolicyAbComparison(
       const contextEnv = sanitizeContextEnv(runtimeArm.contextEnv);
       const resumeFingerprint = runtimePolicyResumeFingerprint({
         sharedConfigFingerprint,
+        sharedAgentEnvFingerprint: sharedAgentEnvFingerprint(sharedAgentEnv),
         armContextEnvFingerprint: contextEnvFingerprint(contextEnv),
         callerResumeFingerprint: input.resumeFingerprint,
       });
+      const agentEnv = { ...sharedAgentEnv, ...contextEnv };
       const result = await runFixedPromptController({
         runId: input.runId,
         roundId,
@@ -96,7 +108,7 @@ export async function runRuntimePolicyAbComparison(
         resultsTsvPath: `${input.resultsJsonlPath}.${roundId}.tsv`,
         tasks: [task],
         resumeFingerprint,
-        harborRunner: (runnerInput) => input.harborRunner({ ...runnerInput, agentEnv: contextEnv }),
+        harborRunner: (runnerInput) => input.harborRunner({ ...runnerInput, agentEnv }),
         ...(input.now ? { now: input.now } : {}),
         ...(input.newId ? { newId: input.newId } : {}),
       });
@@ -130,8 +142,28 @@ function sanitizeContextEnv(
   return normalizeHarborCellContextEnv(env);
 }
 
+function sanitizeSharedAgentEnv(
+  env: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>,
+): Partial<Record<RuntimePolicySharedAgentEnvKey, string>> {
+  const allowed = new Set<string>(RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS);
+  const result: Partial<Record<RuntimePolicySharedAgentEnvKey, string>> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!allowed.has(key)) {
+      throw new Error(`unsupported runtime policy shared agent env key: ${key}`);
+    }
+    if (value !== undefined) {
+      result[key as RuntimePolicySharedAgentEnvKey] = value;
+    }
+  }
+  return result;
+}
+
 function contextEnvFingerprint(env: Partial<Record<RuntimePolicyContextEnvKey, string>>): string {
   return `sha256:${createHash('sha256').update(canonicalJson(sanitizeContextEnv(env))).digest('hex')}`;
+}
+
+function sharedAgentEnvFingerprint(env: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>): string {
+  return `sha256:${createHash('sha256').update(canonicalJson(sanitizeSharedAgentEnv(env))).digest('hex')}`;
 }
 
 function runtimePolicySharedConfigFingerprint(config: Config): string {
@@ -141,12 +173,14 @@ function runtimePolicySharedConfigFingerprint(config: Config): string {
 
 function runtimePolicyResumeFingerprint(input: {
   sharedConfigFingerprint: string;
+  sharedAgentEnvFingerprint: string;
   armContextEnvFingerprint: string;
   callerResumeFingerprint?: string;
 }): string {
   return `sha256:${createHash('sha256').update(canonicalJson({
     version: 'maka-runtime-policy-resume-v1',
     sharedConfigFingerprint: input.sharedConfigFingerprint,
+    sharedAgentEnvFingerprint: input.sharedAgentEnvFingerprint,
     armContextEnvFingerprint: input.armContextEnvFingerprint,
     callerResumeFingerprint: input.callerResumeFingerprint,
   })).digest('hex')}`;

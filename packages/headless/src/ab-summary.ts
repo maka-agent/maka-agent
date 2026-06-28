@@ -6,6 +6,7 @@ import type {
   AbAttemptRef,
   AbAttemptPairSummary,
   AbComparisonSummary,
+  AbContinuationSummary,
   AbContextBudgetSummary,
   AbContextBudgetPolicySummary,
   AbDecision,
@@ -86,6 +87,7 @@ function summarizeArm(
   const passed = valid.filter((event) => event.passed).length;
   const durations = budgetedRuns.map((event) => event.durationMs);
   const contextBudget = summarizeContextBudget(observedAttempts);
+  const continuation = summarizeContinuation(observed);
   const activePruneSubset = summarizeActivePruneSubset(observedAttempts, activePrunePairIds);
   const contextBudgetPolicy = summarizeContextBudgetPolicy(observed);
   const tokenCostSummary = summarizeTokenCost(budgetedRuns);
@@ -106,6 +108,7 @@ function summarizeArm(
     tokenCostSummary,
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(contextBudget ? { contextBudget } : {}),
+    ...(continuation ? { continuation } : {}),
     ...(activePruneSubset ? { activePruneSubset } : {}),
   };
 }
@@ -226,12 +229,42 @@ function summarizeContextBudget(attempts: readonly ObservedAttempt[]): AbContext
     activeEstimatedTokensSaved: sum(summaries.map((summary) => summary.activeEstimatedTokensSaved)),
     activeArchiveFailures: sum(summaries.map((summary) => summary.activeArchiveFailures)),
     archivePlaceholders: sum(summaries.map((summary) => summary.archivePlaceholders)),
+    archivePlaceholderReasonCounts: sumCountRecords(summaries.map((summary) => summary.archivePlaceholderReasonCounts)),
     archiveWriteFailures: sum(summaries.map((summary) => summary.archiveWriteFailures)),
     retrievedArchiveToolResults: sum(summaries.map((summary) => summary.retrievedArchiveToolResults)),
     retrievedArchiveEstimatedTokens: sum(summaries.map((summary) => summary.retrievedArchiveEstimatedTokens)),
     archiveRetrievalSkipped: sum(summaries.map((summary) => summary.archiveRetrievalSkipped)),
+    archiveRetrievalSkippedReasonCounts: sumCountRecords(summaries.map((summary) => summary.archiveRetrievalSkippedReasonCounts)),
     archiveRetrievalFailures: sum(summaries.map((summary) => summary.archiveRetrievalFailures)),
+    archiveRetrievalFailureReasonCounts: sumCountRecords(summaries.map((summary) => summary.archiveRetrievalFailureReasonCounts)),
   };
+}
+
+function summarizeContinuation(events: readonly FixedPromptTaskWalEvent[]): AbContinuationSummary | undefined {
+  const summaries = events
+    .map((event) => ('continuationSummary' in event ? event.continuationSummary : undefined))
+    .filter((summary): summary is NonNullable<typeof summary> => summary !== undefined);
+  if (summaries.length === 0) return undefined;
+  return {
+    attempts: summaries.length,
+    enabledAttempts: summaries.filter((summary) => summary.enabled).length,
+    turnsUsed: sum(summaries.map((summary) => summary.turnsUsed)),
+    continuedTurns: sum(summaries.map((summary) => summary.continuedTurns)),
+    stepCapHits: sum(summaries.map((summary) => summary.stepCapHits)),
+    capExhaustedAttempts: summaries.filter((summary) => summary.capExhausted).length,
+    totalRuntimeSteps: sum(summaries.map((summary) => summary.totalRuntimeSteps)),
+    maxTurns: summaries.length > 0 ? Math.max(...summaries.map((summary) => summary.maxTurns)) : null,
+  };
+}
+
+function sumCountRecords(records: readonly Record<string, number>[]): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      result[key] = (result[key] ?? 0) + value;
+    }
+  }
+  return Object.fromEntries(Object.entries(result).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function isActivePruneActivated(summary: HarborCellContextBudgetSummary | undefined): boolean {

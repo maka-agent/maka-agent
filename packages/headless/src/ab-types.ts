@@ -65,6 +65,7 @@ export interface AbArmSummary {
   tokenCostSummary: AbTokenCostSummary;
   contextBudgetPolicy?: AbContextBudgetPolicySummary;
   contextBudget?: AbContextBudgetSummary;
+  continuation?: AbContinuationSummary;
   activePruneSubset?: AbActivePruneSubsetSummary;
 }
 
@@ -116,11 +117,25 @@ export interface AbContextBudgetSummary {
   activeEstimatedTokensSaved: number;
   activeArchiveFailures: number;
   archivePlaceholders: number;
+  archivePlaceholderReasonCounts: Record<string, number>;
   archiveWriteFailures: number;
   retrievedArchiveToolResults: number;
   retrievedArchiveEstimatedTokens: number;
   archiveRetrievalSkipped: number;
+  archiveRetrievalSkippedReasonCounts: Record<string, number>;
   archiveRetrievalFailures: number;
+  archiveRetrievalFailureReasonCounts: Record<string, number>;
+}
+
+export interface AbContinuationSummary {
+  attempts: number;
+  enabledAttempts: number;
+  turnsUsed: number;
+  continuedTurns: number;
+  stepCapHits: number;
+  capExhaustedAttempts: number;
+  totalRuntimeSteps: number;
+  maxTurns: number | null;
 }
 
 export interface AbTaskArmSummary {

@@ -269,6 +269,48 @@ describe('runAbComparison', () => {
       'ab-tools-on-r1-t2:tools-on:t2',
     ]);
   });
+
+  test('starts both arms for the same task-rep pair before waiting for either arm to finish', async () => {
+    const calls: string[] = [];
+    const waiters: Array<() => void> = [];
+    let released = false;
+    const releaseAll = () => {
+      released = true;
+      for (const resolve of waiters.splice(0)) resolve();
+    };
+
+    const runPromise = runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'tools-off', kind: 'tools', fingerprint: sha256('tools-off') },
+        { id: 'tools-on', kind: 'tools', fingerprint: sha256('tools-on') },
+      ],
+      evaluationTasks: [{ id: 't1', path: '/tasks/t1' }],
+      reps: 1,
+      maxConcurrency: 1,
+      runArm: async ({ roundId, task }) => {
+        calls.push(roundId);
+        if (!released) {
+          await new Promise<void>((resolve) => waiters.push(resolve));
+        }
+        return completed(task.id, true);
+      },
+    });
+
+    while (calls.length === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const callsStartedBeforeFirstFinish = calls.length;
+    releaseAll();
+    await runPromise;
+
+    assert.equal(callsStartedBeforeFirstFinish, 2);
+    assert.deepEqual(calls, [
+      'ab-tools-off-r0-t1',
+      'ab-tools-on-r0-t1',
+    ]);
+  });
 });
 
 describe('prompt A/B source fingerprints', () => {
@@ -538,8 +580,13 @@ describe('summarizePromptAbComparison', () => {
       activeEstimatedTokensSaved: 450,
       activeArchiveFailures: 1,
       archivePlaceholders: 2,
+      archivePlaceholderReasonCounts: { active_prune: 2 },
       retrievedArchiveToolResults: 1,
       retrievedArchiveEstimatedTokens: 120,
+      archiveRetrievalSkipped: 3,
+      archiveRetrievalSkippedReasonCounts: { max_bytes: 2, max_results: 1 },
+      archiveRetrievalFailures: 1,
+      archiveRetrievalFailureReasonCounts: { not_found: 1 },
     });
     const candidateInactive = contextBudgetSummary({ prunedToolResults: 0 });
     const result = summarizePromptAbComparison({
@@ -588,11 +635,14 @@ describe('summarizePromptAbComparison', () => {
       activeEstimatedTokensSaved: 450,
       activeArchiveFailures: 1,
       archivePlaceholders: 2,
+      archivePlaceholderReasonCounts: { active_prune: 2 },
       archiveWriteFailures: 0,
       retrievedArchiveToolResults: 1,
       retrievedArchiveEstimatedTokens: 120,
-      archiveRetrievalSkipped: 0,
-      archiveRetrievalFailures: 0,
+      archiveRetrievalSkipped: 3,
+      archiveRetrievalSkippedReasonCounts: { max_bytes: 2, max_results: 1 },
+      archiveRetrievalFailures: 1,
+      archiveRetrievalFailureReasonCounts: { not_found: 1 },
     });
     assert.deepEqual(result.candidate.activePruneSubset, {
       taskCount: 1,
@@ -631,11 +681,14 @@ describe('summarizePromptAbComparison', () => {
         activeEstimatedTokensSaved: 450,
         activeArchiveFailures: 1,
         archivePlaceholders: 2,
+        archivePlaceholderReasonCounts: { active_prune: 2 },
         archiveWriteFailures: 0,
         retrievedArchiveToolResults: 1,
         retrievedArchiveEstimatedTokens: 120,
-        archiveRetrievalSkipped: 0,
-        archiveRetrievalFailures: 0,
+        archiveRetrievalSkipped: 3,
+        archiveRetrievalSkippedReasonCounts: { max_bytes: 2, max_results: 1 },
+        archiveRetrievalFailures: 1,
+        archiveRetrievalFailureReasonCounts: { not_found: 1 },
       },
     });
     assert.deepEqual(result.baseline.activePruneSubset, {
@@ -675,20 +728,23 @@ describe('summarizePromptAbComparison', () => {
         activeEstimatedTokensSaved: 0,
         activeArchiveFailures: 0,
         archivePlaceholders: 0,
+        archivePlaceholderReasonCounts: {},
         archiveWriteFailures: 0,
         retrievedArchiveToolResults: 0,
         retrievedArchiveEstimatedTokens: 0,
         archiveRetrievalSkipped: 0,
+        archiveRetrievalSkippedReasonCounts: {},
         archiveRetrievalFailures: 0,
+        archiveRetrievalFailureReasonCounts: {},
       },
     });
     assert.match(
       renderPromptAbComparisonMarkdown(result),
-      /Context budget: A activated=0\/2 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_failures=0, B activated=1\/2 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=0 retrieval_failures=0/,
+      /Context budget: A activated=0\/2 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B activated=1\/2 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_placeholder_reasons=\{"active_prune":2\} archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=3 retrieval_skipped_reasons=\{"max_bytes":2,"max_results":1\} retrieval_failures=1 retrieval_failure_reasons=\{"not_found":1\}/,
     );
     assert.match(
       renderPromptAbComparisonMarkdown(result),
-      /Active prune subset: A tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=0\/1 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_failures=0, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=1\/1 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=0 retrieval_failures=0/,
+      /Active prune subset: A tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=0\/1 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=1\/1 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_placeholder_reasons=\{"active_prune":2\} archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=3 retrieval_skipped_reasons=\{"max_bytes":2,"max_results":1\} retrieval_failures=1 retrieval_failure_reasons=\{"not_found":1\}/,
     );
     assert.match(
       renderPromptAbComparisonMarkdown(result),
@@ -724,7 +780,7 @@ describe('summarizePromptAbComparison', () => {
 
     assert.match(
       renderPromptAbComparisonMarkdown(result),
-      /Active prune subset: A tasks=1 attempts=1 observed=0 missing=1 coverage=0 pass_rate=null passed=0\/0 completed=0 timed_out=0 infra_failed=0 plumbing_failed=0 input=0 cache_hit=0 cache_miss=0 cache_write=0 output=0 total=0 cost_usd=0 mean_duration_ms=null activated=0\/0 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_failures=0, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=10 cache_hit=3 cache_miss=4 cache_write=2 output=5 total=16 cost_usd=0\.02 mean_duration_ms=250 activated=1\/1 stale_pruned=0 active_pruned=1 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_failures=0/,
+      /Active prune subset: A tasks=1 attempts=1 observed=0 missing=1 coverage=0 pass_rate=null passed=0\/0 completed=0 timed_out=0 infra_failed=0 plumbing_failed=0 input=0 cache_hit=0 cache_miss=0 cache_write=0 output=0 total=0 cost_usd=0 mean_duration_ms=null activated=0\/0 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=10 cache_hit=3 cache_miss=4 cache_write=2 output=5 total=16 cost_usd=0\.02 mean_duration_ms=250 activated=1\/1 stale_pruned=0 active_pruned=1 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}/,
     );
   });
 
@@ -775,6 +831,48 @@ describe('summarizePromptAbComparison', () => {
     const markdown = renderPromptAbComparisonMarkdown(result);
     assert.match(markdown, /Token\/cost: A input=100000 cache_hit=20000 cache_miss=70000 cache_write=10000 output=30000 total=135000 cost_usd=3000 mean_duration_ms=1000/);
     assert.match(markdown, /B input=60000 cache_hit=15000 cache_miss=40000 cache_write=5000 output=25000 total=90000 cost_usd=2000 mean_duration_ms=800/);
+  });
+
+  test('summarizes continuation cap diagnostics for A/B validity review', () => {
+    const result = summarizePromptAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselinePromptId: 'prune-off',
+      candidatePromptId: 'prune-on',
+      evaluationTaskIds: ['t1', 't2'],
+      baselineRuns: [[
+        { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 42 }) },
+        { ...completed('t2', false), continuationSummary: continuationSummary({ capExhausted: true, turnsUsed: 3, continuedTurns: 2, stepCapHits: 3, totalRuntimeSteps: 60 }) },
+      ]],
+      candidateRuns: [[
+        { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 1, totalRuntimeSteps: 20 }) },
+        { ...completed('t2', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 44 }) },
+      ]],
+    });
+
+    assert.deepEqual(result.baseline.continuation, {
+      attempts: 2,
+      enabledAttempts: 2,
+      turnsUsed: 5,
+      continuedTurns: 3,
+      stepCapHits: 4,
+      capExhaustedAttempts: 1,
+      totalRuntimeSteps: 102,
+      maxTurns: 3,
+    });
+    assert.deepEqual(result.candidate.continuation, {
+      attempts: 2,
+      enabledAttempts: 2,
+      turnsUsed: 3,
+      continuedTurns: 1,
+      stepCapHits: 1,
+      capExhaustedAttempts: 0,
+      totalRuntimeSteps: 64,
+      maxTurns: 3,
+    });
+
+    const markdown = renderPromptAbComparisonMarkdown(result);
+    assert.match(markdown, /Continuation: A enabled=2\/2 turns=5 continued=3 step_cap_hits=4 cap_exhausted=1 runtime_steps=102 max_turns=3, B enabled=2\/2 turns=3 continued=1 step_cap_hits=1 cap_exhausted=0 runtime_steps=64 max_turns=3/);
   });
 
   test('records activated attempts and investigation refs for follow-up', () => {
@@ -1319,11 +1417,29 @@ function contextBudgetSummary(
     activeEstimatedTokensSaved: 0,
     activeArchiveFailures: 0,
     archivePlaceholders: 0,
+    archivePlaceholderReasonCounts: {},
     archiveWriteFailures: 0,
     retrievedArchiveToolResults: 0,
     retrievedArchiveEstimatedTokens: 0,
     archiveRetrievalSkipped: 0,
+    archiveRetrievalSkippedReasonCounts: {},
     archiveRetrievalFailures: 0,
+    archiveRetrievalFailureReasonCounts: {},
+    ...input,
+  };
+}
+
+function continuationSummary(
+  input: Partial<NonNullable<FixedPromptTaskCompletedEvent['continuationSummary']>>,
+): NonNullable<FixedPromptTaskCompletedEvent['continuationSummary']> {
+  return {
+    enabled: true,
+    maxTurns: 3,
+    turnsUsed: 1,
+    continuedTurns: 0,
+    stepCapHits: 0,
+    capExhausted: false,
+    totalRuntimeSteps: 1,
     ...input,
   };
 }

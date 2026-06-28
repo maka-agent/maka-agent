@@ -40,6 +40,10 @@ describe('runRuntimePolicyAbComparison', () => {
       candidateLimit: null,
       maxConcurrency: 4,
       nonInferiorityMargin: 0.1,
+      sharedAgentEnv: {
+        MAKA_HARBOR_CONTINUATION: 'on',
+        MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+      },
     });
 
     assert.equal(manifest.experimentKind, 'runtime');
@@ -49,6 +53,10 @@ describe('runRuntimePolicyAbComparison', () => {
     assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.model), [
       'deepseek/deepseek-v4-flash',
       'deepseek/deepseek-v4-flash',
+    ]);
+    assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.sharedAgentEnv), [
+      { MAKA_HARBOR_CONTINUATION: 'on', MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3' },
+      { MAKA_HARBOR_CONTINUATION: 'on', MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3' },
     ]);
     assert.notEqual(manifest.arms[0].fingerprint, manifest.arms[1].fingerprint);
     assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.contextEnv), [
@@ -82,6 +90,32 @@ describe('runRuntimePolicyAbComparison', () => {
     );
   });
 
+  test('rejects unsupported shared agent env keys before fingerprinting runtime-policy arms', () => {
+    assert.throws(
+      () => buildRuntimePolicyAbRunManifest({
+        arms: [
+          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+        ],
+        sharedAgentEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } as never,
+        promptHash: sha256('p'),
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek/deepseek-v4-flash',
+        taskBudgetSec: 1800,
+        harborTimeoutMs: 2_100_000,
+        subjectFingerprint: sha256('s'),
+        taskSourceFingerprint: sha256('t'),
+        toolchainFingerprint: sha256('c'),
+        evaluationTaskIds: ['t1'],
+        reps: 1,
+        candidateLimit: null,
+        maxConcurrency: 1,
+      }),
+      /unsupported runtime policy shared agent env key: MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE/,
+    );
+  });
+
   test('runs prune off against prune on with only arm-local context env changed', async () => {
     await withDir(async (dir) => {
       const promptPath = join(dir, 'system-prompt.md');
@@ -109,6 +143,10 @@ describe('runRuntimePolicyAbComparison', () => {
           calls.push(input);
           return harborOutput(input);
         },
+        sharedAgentEnv: {
+          MAKA_HARBOR_CONTINUATION: 'on',
+          MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+        },
         now: () => 100,
         newId: idFactory(),
       });
@@ -134,8 +172,14 @@ describe('runRuntimePolicyAbComparison', () => {
       assert.deepEqual(calls.map((call) => call.config.model), [config.model, config.model]);
       assert.deepEqual(calls.map((call) => call.task.id), ['t1', 't1']);
       assert.deepEqual(calls.map((call) => call.agentEnv), [
-        { MAKA_CONTEXT_BUDGET: 'off' },
         {
+          MAKA_HARBOR_CONTINUATION: 'on',
+          MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+          MAKA_CONTEXT_BUDGET: 'off',
+        },
+        {
+          MAKA_HARBOR_CONTINUATION: 'on',
+          MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
           MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
           MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'on',
         },
@@ -161,7 +205,7 @@ describe('runRuntimePolicyAbComparison', () => {
           MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS: '4096',
         },
       } as const;
-      const calls: string[] = [];
+      let calls: string[] = [];
       const run = async (arms: Parameters<typeof runRuntimePolicyAbComparison>[0]['arms']) => {
         await runRuntimePolicyAbComparison({
           runId: 'runtime-ab-run',
@@ -171,6 +215,7 @@ describe('runRuntimePolicyAbComparison', () => {
           evaluationTasks: [task],
           reps: 1,
           arms,
+          sharedAgentEnv: { MAKA_HARBOR_CONTINUATION: 'on' },
           resumeFingerprint: 'caller-salt',
           harborRunner: async (input) => {
             calls.push(`${input.roundId}:${JSON.stringify(input.agentEnv ?? {})}`);
@@ -184,15 +229,41 @@ describe('runRuntimePolicyAbComparison', () => {
       await run([pruneOff, pruneOn]);
       assert.equal(calls.length, 2);
 
-      calls.length = 0;
+      calls = [];
       await run([pruneOff, pruneOnChanged]);
       assert.deepEqual(calls, [
-        'ab-prune-on-r0-t1:{"MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE":"on","MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS":"4096"}',
+        'ab-prune-on-r0-t1:{"MAKA_HARBOR_CONTINUATION":"on","MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE":"on","MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS":"4096"}',
       ]);
 
-      calls.length = 0;
+      calls = [];
       await run([pruneOff, pruneOnChanged]);
       assert.deepEqual(calls, []);
+
+      calls = [];
+      await runRuntimePolicyAbComparison({
+        runId: 'runtime-ab-run',
+        config,
+        systemPromptPath: promptPath,
+        resultsJsonlPath,
+        evaluationTasks: [task],
+        reps: 1,
+        arms: [pruneOff, pruneOnChanged],
+        sharedAgentEnv: {
+          MAKA_HARBOR_CONTINUATION: 'on',
+          MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+        },
+        resumeFingerprint: 'caller-salt',
+        harborRunner: async (input) => {
+          calls.push(`${input.roundId}:${JSON.stringify(input.agentEnv ?? {})}`);
+          return harborOutput(input);
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+      assert.deepEqual(calls, [
+        'ab-prune-off-r0-t1:{"MAKA_HARBOR_CONTINUATION":"on","MAKA_HARBOR_CONTINUATION_MAX_TURNS":"3","MAKA_CONTEXT_BUDGET":"off"}',
+        'ab-prune-on-r0-t1:{"MAKA_HARBOR_CONTINUATION":"on","MAKA_HARBOR_CONTINUATION_MAX_TURNS":"3","MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE":"on","MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS":"4096"}',
+      ]);
     });
   });
 });

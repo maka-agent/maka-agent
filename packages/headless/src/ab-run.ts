@@ -67,22 +67,17 @@ async function runComparisonPair(
   input: RunAbComparisonInput,
   pair: { rep: number; taskIndex: number; task: FixedPromptTask },
 ): Promise<{ rep: number; baseline: FixedPromptTaskWalEvent; candidate: FixedPromptTaskWalEvent }> {
-  let baseline: FixedPromptTaskWalEvent | undefined;
-  let candidate: FixedPromptTaskWalEvent | undefined;
-  const runBaseline = async () => {
-    baseline = await runComparisonTaskArm(input, input.arms[0], pair);
-  };
-  const runCandidate = async () => {
-    candidate = await runComparisonTaskArm(input, input.arms[1], pair);
-  };
   if ((pair.rep + pair.taskIndex) % 2 === 0) {
-    await runBaseline();
-    await runCandidate();
-  } else {
-    await runCandidate();
-    await runBaseline();
+    const [baseline, candidate] = await Promise.all([
+      runComparisonTaskArm(input, input.arms[0], pair),
+      runComparisonTaskArm(input, input.arms[1], pair),
+    ]);
+    return { rep: pair.rep, baseline, candidate };
   }
-  if (!baseline || !candidate) throw new Error(`A/B pair did not produce both arms for ${pair.task.id} rep ${pair.rep}`);
+  const [candidate, baseline] = await Promise.all([
+    runComparisonTaskArm(input, input.arms[1], pair),
+    runComparisonTaskArm(input, input.arms[0], pair),
+  ]);
   return { rep: pair.rep, baseline, candidate };
 }
 
