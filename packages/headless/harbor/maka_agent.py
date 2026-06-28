@@ -279,6 +279,11 @@ class MakaAgent(BaseInstalledAgent):
             # Default per-command timeout floor for the in-container Bash tool, so
             # long builds/tests do not hit a hard-coded 2-minute ceiling.
             "MAKA_CELL_COMMAND_TIMEOUT_MS",
+            # Benchmark-safe deterministic continuation. These are consumed by
+            # run-host-cell.mjs/run-cell.mjs, not by the provider backend.
+            "MAKA_HARBOR_CONTINUATION",
+            "MAKA_HARBOR_CONTINUATION_MAX_TURNS",
+            "MAKA_HARBOR_CONTINUATION_PROMPT",
         ):
             value = self._get_env(key)
             if value:

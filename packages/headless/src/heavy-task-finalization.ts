@@ -180,7 +180,12 @@ function classifyCapKind(input: HeavyTaskCompletionInput, reason: string | undef
     ...decisionReasons(input.decisions),
   ].filter((value): value is string => typeof value === 'string' && value.length > 0).join(' ').toLowerCase();
 
-  if (haystack.includes('incomplete_tool_calls') || haystack.includes('tool_call_step') || haystack.includes('tool call step')) {
+  if (
+    haystack.includes('incomplete_tool_calls')
+    || haystack.includes('tool_step_cap')
+    || haystack.includes('tool_call_step')
+    || haystack.includes('tool call step')
+  ) {
     return 'tool_call_step_cap';
   }
   if (haystack.includes('max_tokens') || haystack.includes('max token') || haystack.includes('token cap') || haystack.includes('truncated')) {

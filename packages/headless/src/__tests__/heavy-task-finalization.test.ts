@@ -163,7 +163,8 @@ describe('heavy-task finalization status', () => {
       { name: 'runtime step cap', status: 'failed', errorClass: 'max_steps', message: 'runtime step cap reached', capKind: 'runtime_step_cap' },
       { name: 'wall time cap', status: 'failed', message: 'wall time cap reached', capKind: 'wall_time_cap' },
       { name: 'max attempts', status: 'failed', reason: 'max attempts exhausted', capKind: 'max_attempts' },
-      { name: 'tool calls', status: 'incomplete', errorClass: 'incomplete_tool_calls', capKind: 'tool_call_step_cap' },
+      { name: 'legacy tool calls', status: 'incomplete', errorClass: 'incomplete_tool_calls', capKind: 'tool_call_step_cap' },
+      { name: 'tool step cap', status: 'incomplete', errorClass: 'tool_step_cap_reached', capKind: 'tool_call_step_cap' },
       { name: 'max tokens', status: 'incomplete', errorClass: 'max_tokens', capKind: 'token_cap' },
       { name: 'timeout', status: 'failed', errorClass: 'timeout', capKind: 'timeout' },
     ];

@@ -374,7 +374,7 @@ function failureFromRawFinishReason(rawFinishReason: string | undefined): Invoca
   const normalized = rawFinishReason.toLowerCase().replace(/_/g, '-');
   if (normalized === 'tool-calls') {
     return {
-      class: 'incomplete_tool_calls',
+      class: 'tool_step_cap_reached',
       message: 'model stopped at the tool-call step cap before completing the invocation',
     };
   }

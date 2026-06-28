@@ -106,7 +106,12 @@ function taxonomyFromFailureClass(errorClass: string | undefined): AutonomousRes
   if (normalized.includes('budget') || normalized.includes('limit') || normalized.includes('max_tokens')) return 'budget_exhausted';
   if (normalized.includes('blocked')) return 'blocked';
   if (normalized.includes('policy') || normalized.includes('permission') || normalized.includes('denied')) return 'policy_denied';
-  if (normalized.includes('incomplete') || normalized.includes('tool_calls') || normalized.includes('truncated')) return 'agent_incomplete';
+  if (
+    normalized.includes('incomplete')
+    || normalized.includes('tool_calls')
+    || normalized.includes('tool_step_cap')
+    || normalized.includes('truncated')
+  ) return 'agent_incomplete';
   if (normalized.includes('infra')) return 'infra_failed';
   return 'agent_failed';
 }

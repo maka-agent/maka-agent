@@ -341,7 +341,7 @@ describe('RuntimeRunner', () => {
     expect(result.events.at(-1)?.status).toBe('completed');
   });
 
-  test('raw tool-calls finish reason marks a completed terminal event incomplete', async () => {
+  test('raw tool-calls finish reason marks a completed terminal event as a tool step cap', async () => {
     const providers = makeProviders();
     const flow = new ScriptFlow((ctx) => [
       flowTokenUsageEvent(ctx, 'tool-calls'),
@@ -352,7 +352,7 @@ describe('RuntimeRunner', () => {
     const result = await runner.run(makeRequest());
 
     expect(result.status).toBe('failed');
-    expect(result.failure?.class).toBe('incomplete_tool_calls');
+    expect(result.failure?.class).toBe('tool_step_cap_reached');
     expect(result.failure?.message).toMatch(/tool-call step cap/);
   });
 
@@ -442,7 +442,7 @@ describe('RuntimeRunner', () => {
     // the terminal RuntimeEvent has status='failed' but no error content.
     // Previously this returned class='failed', indistinguishable from other
     // failures; now it returns 'runtime_error' so benchmark scoring can
-    // distinguish runtime failures from max_tokens / incomplete_tool_calls.
+    // distinguish runtime failures from max_tokens / tool_step_cap_reached.
     const providers = makeProviders();
     const flow = new ScriptFlow((ctx) => [flowTerminalEvent(ctx, 'failed')]);
     const runner = new RuntimeRunner({ flow, providers });

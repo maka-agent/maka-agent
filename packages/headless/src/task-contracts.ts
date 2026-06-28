@@ -88,7 +88,7 @@ export function taxonomyFromResultRecord(record: ResultRecord): AutonomousResult
   }
   if (includesAny(failureText, ['blocked', 'waiting_permission'])) return 'blocked';
   if (includesAny(failureText, ['policy', 'permission', 'denied'])) return 'policy_denied';
-  if (includesAny(failureText, ['incomplete', 'tool_calls', 'no_submit', 'truncated'])) return 'agent_incomplete';
+  if (includesAny(failureText, ['incomplete', 'tool_calls', 'tool_step_cap', 'no_submit', 'truncated'])) return 'agent_incomplete';
   if (includesAny(failureText, ['verification_error'])) return 'verification_error';
   if (includesAny(failureText, ['verification_failed'])) return 'verification_failed';
   if (includesAny(failureText, ['unsupported_adapter'])) return 'unsupported_adapter';

@@ -916,11 +916,14 @@ describe('fixed prompt controller', () => {
         activeEstimatedTokensSaved: 0,
         activeArchiveFailures: 0,
         archivePlaceholders: 2,
+        archivePlaceholderReasonCounts: {},
         archiveWriteFailures: 0,
         retrievedArchiveToolResults: 1,
         retrievedArchiveEstimatedTokens: 120,
         archiveRetrievalSkipped: 0,
+        archiveRetrievalSkippedReasonCounts: {},
         archiveRetrievalFailures: 0,
+        archiveRetrievalFailureReasonCounts: {},
       };
       const contextBudgetPolicy = {
         enabled: true as const,
@@ -950,6 +953,43 @@ describe('fixed prompt controller', () => {
       const event = JSON.parse((await readFile(resultsJsonlPath, 'utf8')).trimEnd());
       assert.deepEqual(event.contextBudgetPolicy, contextBudgetPolicy);
       assert.deepEqual(event.contextBudgetSummary, contextBudgetSummary);
+    });
+  });
+
+  test('records continuation summary in completed task WAL events', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const continuationSummary = {
+        enabled: true,
+        maxTurns: 3,
+        turnsUsed: 2,
+        continuedTurns: 1,
+        stepCapHits: 1,
+        capExhausted: false,
+        totalRuntimeSteps: 42,
+      };
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({ taskId: 'task-a', continuationSummary }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      if (result.events[0]?.type === 'task_completed') {
+        assert.deepEqual(result.events[0].continuationSummary, continuationSummary);
+      }
+      const event = JSON.parse((await readFile(resultsJsonlPath, 'utf8')).trimEnd());
+      assert.deepEqual(event.continuationSummary, continuationSummary);
     });
   });
 
@@ -1115,6 +1155,7 @@ function harborOutput(input: {
   tokenSummary?: HarborTaskRunOutput['cell']['tokenSummary'];
   contextBudgetPolicy?: HarborTaskRunOutput['cell']['contextBudgetPolicy'];
   contextBudgetSummary?: HarborTaskRunOutput['cell']['contextBudgetSummary'];
+  continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
 }): HarborTaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1 },
@@ -1127,6 +1168,7 @@ function harborOutput(input: {
       tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
       ...(input.contextBudgetSummary ? { contextBudgetSummary: input.contextBudgetSummary } : {}),
+      ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
       toolSummary: {
         providerVisibleToolCount: 0,
         actualToolCalls: 0,

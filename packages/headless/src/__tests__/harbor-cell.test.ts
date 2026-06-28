@@ -23,6 +23,7 @@ import type { HeadlessBackendContext, IsolatedToolExecutor } from '../isolation.
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetBackendOptions,
+  buildHarborCellContextBudgetPolicySnapshot,
   buildHarborCellAiSdkTools,
   createHarborCellLocalToolExecutor,
   HARBOR_CELL_OUTPUT_FILENAME,
@@ -114,6 +115,65 @@ const registerThrowingBackend = (registry: BackendRegistry): void => {
   registry.register('fake', (ctx) => new ThrowingBackend({ sessionId: ctx.sessionId }));
 };
 
+class StepCapThenCompleteBackend implements AgentBackend {
+  readonly kind: BackendKind = 'fake';
+  readonly sessionId: string;
+  readonly prompts: string[] = [];
+  readonly cwds: string[] = [];
+
+  constructor(private readonly ctx: { sessionId: string; header: SessionHeader }) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const ts = Date.now();
+    this.prompts.push(input.text);
+    this.cwds.push(this.ctx.header.cwd);
+    if (this.prompts.length === 1) {
+      yield {
+        type: 'token_usage',
+        id: 'usage-step-cap',
+        turnId: input.turnId,
+        ts,
+        input: 10,
+        output: 1,
+        total: 11,
+        costUsd: 0.01,
+        rawFinishReason: 'tool-calls',
+      };
+      yield { type: 'complete', id: 'complete-step-cap', turnId: input.turnId, ts, stopReason: 'end_turn' };
+      return;
+    }
+    await writeFile(join(this.ctx.header.cwd, 'continued-proof.txt'), input.text, 'utf8');
+    yield {
+      type: 'token_usage',
+      id: 'usage-done',
+      turnId: input.turnId,
+      ts,
+      input: 3,
+      output: 2,
+      total: 5,
+      costUsd: 0.02,
+      rawFinishReason: 'stop',
+    };
+    yield { type: 'complete', id: 'complete-done', turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+function registerStepCapThenCompleteBackend(seen: { backend?: StepCapThenCompleteBackend }) {
+  return (registry: BackendRegistry): void => {
+    registry.register('fake', (ctx) => {
+      const backend = new StepCapThenCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header });
+      seen.backend = backend;
+      return backend;
+    });
+  };
+}
+
 describe('runHarborCell', () => {
   test('runs in the provided workspace and writes the shared cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
@@ -162,6 +222,48 @@ describe('runHarborCell', () => {
         JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8')),
         result.output,
       );
+    });
+  });
+
+  test('continues after a tool-call step cap without verifier feedback', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seen: { backend?: StepCapThenCompleteBackend } = {};
+      const result = await runHarborCell({
+        config,
+        instruction: 'solve the benchmark task',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: registerStepCapThenCompleteBackend(seen),
+        continuationPolicy: {
+          enabled: true,
+          maxTurns: 3,
+          prompt: 'Continue neutrally from current workspace.',
+        },
+      });
+
+      assert.equal(result.output.status, 'completed');
+      assert.deepEqual(seen.backend?.prompts, [
+        'solve the benchmark task',
+        'Continue neutrally from current workspace.',
+      ]);
+      assert.deepEqual(seen.backend?.cwds, [workspaceDir, workspaceDir]);
+      assert.equal(await readFile(join(workspaceDir, 'continued-proof.txt'), 'utf8'), 'Continue neutrally from current workspace.');
+      assert.deepEqual(result.output.continuationSummary, {
+        enabled: true,
+        maxTurns: 3,
+        turnsUsed: 2,
+        continuedTurns: 1,
+        stepCapHits: 1,
+        capExhausted: false,
+        totalRuntimeSteps: 6,
+      });
+      assert.equal(result.output.tokenSummary.input, 13);
+      assert.equal(result.output.tokenSummary.costUsd, 0.03);
+      const runtimeEvents = await readFile(join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME), 'utf8');
+      assert.match(runtimeEvents, /usage-step-cap/);
+      assert.match(runtimeEvents, /usage-done/);
+      assert.doesNotMatch(seen.backend?.prompts[1] ?? '', /verifier|verification|failed|taxonomy|retry/i);
     });
   });
 
@@ -760,6 +862,16 @@ describe('runHarborCell', () => {
       }).contextBudget?.activeToolResultPrune,
       { enabled: true },
     );
+  });
+
+  test('Harbor active tool result prune defaults to the measured 2048-token threshold in policy snapshots', () => {
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+    });
+
+    assert.equal(snapshot?.enabled, true);
+    if (!snapshot?.enabled) throw new Error('expected context budget snapshot to be enabled');
+    assert.equal(snapshot.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 2048);
   });
 
   test('Harbor tool builder keeps the six container-native tools non-interactive', () => {

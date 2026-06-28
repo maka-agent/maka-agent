@@ -127,6 +127,7 @@ describe('taskEventsFromResultRecord', () => {
   test('maps incomplete, policy, budget, aborted, blocked, and infra failures explicitly', () => {
     const cases = [
       ['incomplete_tool_calls', 'agent_incomplete', 'incomplete'],
+      ['tool_step_cap_reached', 'agent_incomplete', 'incomplete'],
       ['permission_denied', 'policy_denied', 'policy_denied'],
       ['max_steps_exceeded', 'budget_exhausted', 'budget_exhausted'],
       ['user_aborted', 'aborted', 'aborted'],

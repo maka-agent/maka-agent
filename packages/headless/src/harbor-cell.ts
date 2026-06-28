@@ -9,6 +9,7 @@ import type {
   LlmConnection,
   PricingConfig,
   ProviderType,
+  RuntimeEvent,
 } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core';
 import {
@@ -64,8 +65,25 @@ export interface RunHarborCellInput {
   ) => void | Promise<void>;
   realBackendIsolation?: RealBackendIsolation;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
+  continuationPolicy?: HarborCellContinuationPolicy;
   now?: () => number;
   newId?: () => string;
+}
+
+export interface HarborCellContinuationPolicy {
+  enabled: boolean;
+  maxTurns: number;
+  prompt: string;
+}
+
+export interface HarborCellContinuationSummary {
+  enabled: boolean;
+  maxTurns: number;
+  turnsUsed: number;
+  continuedTurns: number;
+  stepCapHits: number;
+  capExhausted: boolean;
+  totalRuntimeSteps: number;
 }
 
 export interface RunHarborCellResult {
@@ -76,6 +94,8 @@ export interface RunHarborCellResult {
 }
 
 export type RunHarborCellEnv = Record<string, string | undefined>;
+
+export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT = 'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
 
 export interface RunHarborCellFromEnvOptions {
   registerBackends?: RunHarborCellInput['registerBackends'];
@@ -232,35 +252,63 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     name: `harbor-cell:${input.config.id}`,
   });
 
-  const turnId = newId();
+  const continuationPolicy = input.continuationPolicy ?? { enabled: false, maxTurns: 1, prompt: HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT };
+  const invocations: InvocationResult[] = [];
   let sendMessageError: unknown;
+  let nextText = input.instruction;
+  let stepCapHits = 0;
+  let attemptedTurnId: string | undefined;
   try {
-    for await (const event of manager.sendMessage(session.id, { turnId, text: input.instruction })) {
-      if ((event as { type?: string }).type === 'permission_request') {
-        const { requestId } = event as { requestId: string };
-        await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
+    for (let turnIndex = 0; turnIndex < continuationPolicy.maxTurns; turnIndex += 1) {
+      const turnId = newId();
+      attemptedTurnId = turnId;
+      invocation = undefined;
+      for await (const event of manager.sendMessage(session.id, { turnId, text: nextText })) {
+        if ((event as { type?: string }).type === 'permission_request') {
+          const { requestId } = event as { requestId: string };
+          await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
+        }
       }
+      if (!invocation) throw new Error('Harbor cell turn finished without a runtime invocation result');
+      invocations.push(invocation);
+      if (!isToolCallStepCap(invocation)) break;
+      stepCapHits += 1;
+      if (!continuationPolicy.enabled || turnIndex + 1 >= continuationPolicy.maxTurns) break;
+      nextText = continuationPolicy.prompt;
     }
   } catch (error) {
     sendMessageError = error;
   }
-  if (!invocation) {
-    if (sendMessageError) throw sendMessageError;
-    throw new Error('Harbor cell finished without a runtime invocation result');
+  if (invocations.length === 0) {
+    if (sendMessageError) {
+      invocations.push(failedInvocationFromError(sendMessageError, {
+        newId,
+        now,
+        sessionId: session.id,
+        turnId: attemptedTurnId ?? newId(),
+      }));
+    } else {
+      throw new Error('Harbor cell finished without a runtime invocation result');
+    }
   }
+  const combinedInvocation = combineInvocations(invocations);
+  const continuationSummary = continuationPolicy.enabled
+    ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
+    : undefined;
 
   await mkdir(input.outputDir, { recursive: true });
   const runtimeEventsPath = join(input.outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME);
   const outputPath = join(input.outputDir, HARBOR_CELL_OUTPUT_FILENAME);
-  await writeFile(runtimeEventsPath, runtimeEventsJsonl(invocation), 'utf8');
+  await writeFile(runtimeEventsPath, runtimeEventsJsonl(combinedInvocation), 'utf8');
   const output = validateHarborCellOutput(buildHarborCellOutput({
-    invocation,
+    invocation: combinedInvocation,
     runtimeEventsPath,
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
+    ...(continuationSummary ? { continuationSummary } : {}),
   }));
   await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 
-  return { invocation, output, outputPath, runtimeEventsPath };
+  return { invocation: combinedInvocation, output, outputPath, runtimeEventsPath };
 }
 
 export async function runHarborCellFromEnv(
@@ -274,6 +322,7 @@ export async function runHarborCellFromEnv(
   const resolvedEnv: RunHarborCellEnv = { ...env, MAKA_OUTPUT_DIR: outputDir, MAKA_STORAGE_ROOT: storageRoot };
   const backend = backendFromEnv(resolvedEnv.MAKA_BACKEND);
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(resolvedEnv);
+  const continuationPolicy = buildHarborCellContinuationPolicy(resolvedEnv);
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
@@ -348,6 +397,7 @@ export async function runHarborCellFromEnv(
     outputDir,
     storageRoot,
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
+    ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(registerBackends ? { registerBackends } : {}),
     ...(backendNeedsIsolation(backend)
       ? {
@@ -361,6 +411,80 @@ export async function runHarborCellFromEnv(
     ...(options.now ? { now: options.now } : {}),
     ...(options.newId ? { newId: options.newId } : {}),
   });
+}
+
+export function buildHarborCellContinuationPolicy(
+  env: RunHarborCellEnv = process.env,
+): HarborCellContinuationPolicy | undefined {
+  const enabled = booleanEnv(env.MAKA_HARBOR_CONTINUATION, 'MAKA_HARBOR_CONTINUATION') ?? false;
+  if (!enabled) return undefined;
+  return {
+    enabled: true,
+    maxTurns: positiveIntEnv(env.MAKA_HARBOR_CONTINUATION_MAX_TURNS, 'MAKA_HARBOR_CONTINUATION_MAX_TURNS') ?? 3,
+    prompt: env.MAKA_HARBOR_CONTINUATION_PROMPT ?? HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT,
+  };
+}
+
+function isToolCallStepCap(invocation: InvocationResult): boolean {
+  return invocation.failure?.class === 'tool_step_cap_reached'
+    || invocation.failure?.class === 'incomplete_tool_calls';
+}
+
+function combineInvocations(invocations: readonly InvocationResult[]): InvocationResult {
+  const first = invocations[0];
+  const last = invocations[invocations.length - 1];
+  if (!first || !last) throw new Error('cannot combine empty Harbor invocations');
+  return {
+    invocationId: last.invocationId,
+    sessionId: last.sessionId,
+    runId: last.runId,
+    turnId: last.turnId,
+    status: last.status,
+    ...(last.failure ? { failure: last.failure } : {}),
+    events: invocations.flatMap((candidate) => candidate.events),
+    startedAt: first.startedAt,
+    finishedAt: last.finishedAt,
+  };
+}
+
+function buildContinuationSummary(
+  policy: HarborCellContinuationPolicy,
+  invocations: readonly InvocationResult[],
+  stepCapHits: number,
+): HarborCellContinuationSummary {
+  return {
+    enabled: policy.enabled,
+    maxTurns: policy.maxTurns,
+    turnsUsed: invocations.length,
+    continuedTurns: Math.max(0, invocations.length - 1),
+    stepCapHits,
+    capExhausted: stepCapHits > 0 && isToolCallStepCap(invocations[invocations.length - 1]!) && invocations.length >= policy.maxTurns,
+    totalRuntimeSteps: invocations.reduce((sum, candidate) => sum + candidate.events.length, 0),
+  };
+}
+
+function failedInvocationFromError(error: unknown, input: {
+  newId: () => string;
+  now: () => number;
+  sessionId: string;
+  turnId: string;
+}): InvocationResult {
+  const ts = input.now();
+  const failureClass = error instanceof Error ? error.name : 'Error';
+  return {
+    invocationId: input.newId(),
+    sessionId: input.sessionId,
+    runId: input.newId(),
+    turnId: input.turnId,
+    status: 'failed',
+    failure: {
+      class: failureClass,
+      message: error instanceof Error ? error.message : String(error),
+    },
+    events: [],
+    startedAt: ts,
+    finishedAt: ts,
+  };
 }
 
 export function buildAiSdkCellBackendRegistration(input: {
@@ -598,7 +722,7 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           activeToolResultPrune: {
             enabled: contextBudget.activeToolResultPrune.enabled,
-            maxCurrentResultEstimatedTokens: contextBudget.activeToolResultPrune.maxCurrentResultEstimatedTokens ?? 8192,
+            maxCurrentResultEstimatedTokens: contextBudget.activeToolResultPrune.maxCurrentResultEstimatedTokens ?? 2048,
             minStepNumber: contextBudget.activeToolResultPrune.minStepNumber ?? 1,
           },
         }

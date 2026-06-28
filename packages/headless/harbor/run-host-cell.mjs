@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
+  buildHarborCellContinuationPolicy,
   normalizeHarborCellContextEnv,
   runHarborCell,
 } from '#harbor-cell';
@@ -29,6 +30,7 @@ export async function main() {
   const storageRoot = env.MAKA_STORAGE_ROOT || join(outputDir, 'maka-storage');
   const contextEnv = normalizeHarborCellContextEnv(env);
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(contextEnv);
+  const continuationPolicy = buildHarborCellContinuationPolicy(env);
   const now = Date.now;
   const newId = randomId;
 
@@ -45,6 +47,7 @@ export async function main() {
     outputDir,
     storageRoot,
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
+    ...(continuationPolicy ? { continuationPolicy } : {}),
     registerBackends: buildAiSdkCellBackendRegistration({
       provider,
       model,
