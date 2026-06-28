@@ -59,6 +59,14 @@ export interface HarborCellContinuationSummary {
   stepCapHits: number;
   capExhausted: boolean;
   totalRuntimeSteps: number;
+  turns: HarborCellContinuationTurnSummary[];
+}
+
+export interface HarborCellContinuationTurnSummary {
+  turnIndex: number;
+  status: 'completed' | 'failed';
+  stepCapHit: boolean;
+  runtimeSteps: number;
 }
 
 export interface HarborCellToolSummary {
@@ -176,7 +184,21 @@ function validateContinuationSummary(value: unknown): HarborCellContinuationSumm
     stepCapHits: requireNumber(value.stepCapHits, 'continuationSummary.stepCapHits'),
     capExhausted: requireBoolean(value.capExhausted, 'continuationSummary.capExhausted'),
     totalRuntimeSteps: requireNumber(value.totalRuntimeSteps, 'continuationSummary.totalRuntimeSteps'),
+    turns: requireContinuationTurns(value.turns),
   };
+}
+
+function requireContinuationTurns(value: unknown): HarborCellContinuationTurnSummary[] {
+  if (!Array.isArray(value)) throw new Error('continuationSummary.turns must be a JSON array');
+  return value.map((turn, index) => {
+    if (!isRecord(turn)) throw new Error(`continuationSummary.turns[${index}] must be a JSON object`);
+    return {
+      turnIndex: requireNumber(turn.turnIndex, `continuationSummary.turns[${index}].turnIndex`),
+      status: requireStringUnion(turn.status, `continuationSummary.turns[${index}].status`, ['completed', 'failed'] as const),
+      stepCapHit: requireBoolean(turn.stepCapHit, `continuationSummary.turns[${index}].stepCapHit`),
+      runtimeSteps: requireNumber(turn.runtimeSteps, `continuationSummary.turns[${index}].runtimeSteps`),
+    };
+  });
 }
 
 export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCellTokenSummary {

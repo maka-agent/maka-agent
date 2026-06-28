@@ -841,12 +841,22 @@ describe('summarizePromptAbComparison', () => {
       candidatePromptId: 'prune-on',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [[
-        { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 42 }) },
-        { ...completed('t2', false), continuationSummary: continuationSummary({ capExhausted: true, turnsUsed: 3, continuedTurns: 2, stepCapHits: 3, totalRuntimeSteps: 60 }) },
+        { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 42, turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 42 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+        ] }) },
+        { ...completed('t2', false), continuationSummary: continuationSummary({ capExhausted: true, turnsUsed: 3, continuedTurns: 2, stepCapHits: 3, totalRuntimeSteps: 60, turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
+          { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
+          { turnIndex: 2, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
+        ] }) },
       ]],
       candidateRuns: [[
         { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 1, totalRuntimeSteps: 20 }) },
-        { ...completed('t2', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 44 }) },
+        { ...completed('t2', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 44, turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 44 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+        ] }) },
       ]],
     });
 
@@ -858,6 +868,7 @@ describe('summarizePromptAbComparison', () => {
       stepCapHits: 4,
       capExhaustedAttempts: 1,
       totalRuntimeSteps: 102,
+      perTurnStepCapHits: [true, false, true, true, true],
       maxTurns: 3,
       maxTotalRuntimeSteps: 150,
     });
@@ -869,12 +880,13 @@ describe('summarizePromptAbComparison', () => {
       stepCapHits: 1,
       capExhaustedAttempts: 0,
       totalRuntimeSteps: 64,
+      perTurnStepCapHits: [false, true, false],
       maxTurns: 3,
       maxTotalRuntimeSteps: 150,
     });
 
     const markdown = renderPromptAbComparisonMarkdown(result);
-    assert.match(markdown, /Continuation: A enabled=2\/2 turns=5 continued=3 step_cap_hits=4 cap_exhausted=1 runtime_steps=102 max_turns=3 max_total_steps=150, B enabled=2\/2 turns=3 continued=1 step_cap_hits=1 cap_exhausted=0 runtime_steps=64 max_turns=3 max_total_steps=150/);
+    assert.match(markdown, /Continuation: A enabled=2\/2 turns=5 continued=3 step_cap_hits=4 per_turn_step_cap_hits=\[true,false,true,true,true\] cap_exhausted=1 runtime_steps=102 max_turns=3 max_total_steps=150, B enabled=2\/2 turns=3 continued=1 step_cap_hits=1 per_turn_step_cap_hits=\[false,true,false\] cap_exhausted=0 runtime_steps=64 max_turns=3 max_total_steps=150/);
   });
 
   test('records activated attempts and investigation refs for follow-up', () => {
@@ -1450,6 +1462,7 @@ function continuationSummary(
     stepCapHits: 0,
     capExhausted: false,
     totalRuntimeSteps: 1,
+    turns: [{ turnIndex: 0, status: 'completed', stepCapHit: false, runtimeSteps: 1 }],
     ...input,
   };
 }

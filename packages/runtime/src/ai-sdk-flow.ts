@@ -312,6 +312,7 @@ export function mapSessionEventToRuntimeEvent(
             ...(event.reasoning !== undefined ? { reasoning: event.reasoning } : {}),
             ...(event.total !== undefined ? { total: event.total } : {}),
             ...(event.rawFinishReason !== undefined ? { rawFinishReason: event.rawFinishReason } : {}),
+            ...(event.runtimeSteps !== undefined ? { runtimeSteps: event.runtimeSteps } : {}),
             ...(event.cacheRead !== undefined ? { cacheRead: event.cacheRead } : {}),
             ...(event.cacheCreation !== undefined ? { cacheCreation: event.cacheCreation } : {}),
             ...(event.costUsd !== undefined ? { costUsd: event.costUsd } : {}),

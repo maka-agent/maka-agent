@@ -583,6 +583,7 @@ function projectTokenUsage(
     ...(usage.reasoning !== undefined ? { reasoning: usage.reasoning } : {}),
     ...(usage.total !== undefined ? { total: usage.total } : {}),
     ...(usage.rawFinishReason !== undefined ? { rawFinishReason: usage.rawFinishReason } : {}),
+    ...(usage.runtimeSteps !== undefined ? { runtimeSteps: usage.runtimeSteps } : {}),
     ...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
     ...(usage.cacheCreation !== undefined ? { cacheCreation: usage.cacheCreation } : {}),
     ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),

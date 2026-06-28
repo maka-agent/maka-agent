@@ -970,6 +970,10 @@ describe('fixed prompt controller', () => {
         stepCapHits: 1,
         capExhausted: false,
         totalRuntimeSteps: 42,
+        turns: [
+          { turnIndex: 0, status: 'failed' as const, stepCapHit: true, runtimeSteps: 42 },
+          { turnIndex: 1, status: 'completed' as const, stepCapHit: false, runtimeSteps: 0 },
+        ],
       };
 
       const result = await runFixedPromptController({

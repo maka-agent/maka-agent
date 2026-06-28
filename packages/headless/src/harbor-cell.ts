@@ -86,6 +86,14 @@ export interface HarborCellContinuationSummary {
   stepCapHits: number;
   capExhausted: boolean;
   totalRuntimeSteps: number;
+  turns: HarborCellContinuationTurnSummary[];
+}
+
+export interface HarborCellContinuationTurnSummary {
+  turnIndex: number;
+  status: InvocationResult['status'];
+  stepCapHit: boolean;
+  runtimeSteps: number;
 }
 
 export interface RunHarborCellResult {
@@ -464,7 +472,8 @@ function buildContinuationSummary(
   invocations: readonly InvocationResult[],
   stepCapHits: number,
 ): HarborCellContinuationSummary {
-  const runtimeSteps = totalRuntimeSteps(invocations);
+  const turns = invocations.map((invocation, index) => continuationTurnSummary(invocation, index));
+  const runtimeSteps = turns.reduce((sum, turn) => sum + turn.runtimeSteps, 0);
   return {
     enabled: policy.enabled,
     maxTurns: policy.maxTurns,
@@ -476,11 +485,31 @@ function buildContinuationSummary(
       && isToolCallStepCap(invocations[invocations.length - 1]!)
       && (invocations.length >= policy.maxTurns || runtimeSteps >= policy.maxTotalRuntimeSteps),
     totalRuntimeSteps: runtimeSteps,
+    turns,
   };
 }
 
 function totalRuntimeSteps(invocations: readonly InvocationResult[]): number {
-  return invocations.reduce((sum, candidate) => sum + candidate.events.length, 0);
+  return invocations.reduce((sum, candidate) => sum + invocationRuntimeSteps(candidate), 0);
+}
+
+function continuationTurnSummary(
+  invocation: InvocationResult,
+  turnIndex: number,
+): HarborCellContinuationTurnSummary {
+  return {
+    turnIndex,
+    status: invocation.status,
+    stepCapHit: isToolCallStepCap(invocation),
+    runtimeSteps: invocationRuntimeSteps(invocation),
+  };
+}
+
+function invocationRuntimeSteps(invocation: InvocationResult): number {
+  return invocation.events.reduce((sum, event) => {
+    const runtimeSteps = event.actions?.tokenUsage?.runtimeSteps;
+    return sum + (runtimeSteps ?? 0);
+  }, 0);
 }
 
 function failedInvocationFromError(error: unknown, input: {

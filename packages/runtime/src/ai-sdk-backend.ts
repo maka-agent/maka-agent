@@ -503,6 +503,7 @@ export class AiSdkBackend implements AgentBackend {
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
+    let runtimeSteps = 0;
     let requestShapeForTelemetry: RequestShapeDiagnostic | undefined;
     let promptSegmentsForTelemetry: PromptSegmentEstimate[] = [];
     let contextBudgetForTelemetry: ContextBudgetDiagnostic | undefined;
@@ -711,6 +712,9 @@ export class AiSdkBackend implements AgentBackend {
         for await (const chunk of result.fullStream) {
           if (this.aborted) break;
           watchdog.markActivity();
+          if (chunk.type === 'step-finish') {
+            runtimeSteps += 1;
+          }
           if (chunk.type === 'finish' || chunk.type === 'step-finish') {
             rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
           }
@@ -743,6 +747,9 @@ export class AiSdkBackend implements AgentBackend {
         // user can choose to send "继续" for a fresh turn.
         const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
+        if (finishReasonForGrace === 'tool-calls' && runtimeSteps < this.maxSteps) {
+          runtimeSteps = this.maxSteps;
+        }
         if (
           !this.aborted
           && assistantText.length === 0
@@ -822,6 +829,7 @@ export class AiSdkBackend implements AgentBackend {
               reasoning: tokenUsage.reasoningTokens,
               total: tokenUsage.totalTokens,
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+              ...(runtimeSteps > 0 ? { runtimeSteps } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
               ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
@@ -848,6 +856,7 @@ export class AiSdkBackend implements AgentBackend {
               reasoning: tokenUsage.reasoningTokens,
               total: tokenUsage.totalTokens,
               ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+              ...(runtimeSteps > 0 ? { runtimeSteps } : {}),
               ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
               ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
               ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),

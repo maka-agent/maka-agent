@@ -140,6 +140,7 @@ class StepCapThenCompleteBackend implements AgentBackend {
         total: 11,
         costUsd: 0.01,
         rawFinishReason: 'tool-calls',
+        runtimeSteps: 50,
       };
       yield { type: 'complete', id: 'complete-step-cap', turnId: input.turnId, ts, stopReason: 'end_turn' };
       return;
@@ -189,6 +190,100 @@ function registerStepCapThenThrowBackend(seen: { backend?: StepCapThenThrowBacke
   return (registry: BackendRegistry): void => {
     registry.register('fake', (ctx) => {
       const backend = new StepCapThenThrowBackend({ sessionId: ctx.sessionId, header: ctx.header });
+      seen.backend = backend;
+      return backend;
+    });
+  };
+}
+
+class NoisyStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const ts = Date.now();
+    if (this.prompts.length > 0) {
+      yield* super.send(input);
+      return;
+    }
+
+    this.prompts.push(input.text);
+    this.cwds.push(this.ctx.header.cwd);
+    for (let index = 0; index < 60; index += 1) {
+      yield {
+        type: 'token_usage',
+        id: `noise-${index}`,
+        turnId: input.turnId,
+        ts,
+        input: 0,
+        output: 0,
+        total: 0,
+      };
+    }
+    yield {
+      type: 'token_usage',
+      id: 'usage-step-cap-noisy',
+      turnId: input.turnId,
+      ts,
+      input: 10,
+      output: 1,
+      total: 11,
+      costUsd: 0.01,
+      rawFinishReason: 'tool-calls',
+      runtimeSteps: 50,
+    };
+    yield { type: 'complete', id: 'complete-step-cap-noisy', turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+}
+
+function registerNoisyStepCapThenCompleteBackend(seen: { backend?: NoisyStepCapThenCompleteBackend }) {
+  return (registry: BackendRegistry): void => {
+    registry.register('fake', (ctx) => {
+      const backend = new NoisyStepCapThenCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header });
+      seen.backend = backend;
+      return backend;
+    });
+  };
+}
+
+class StepCapTwiceThenCompleteBackend extends StepCapThenCompleteBackend {
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const ts = Date.now();
+    this.prompts.push(input.text);
+    this.cwds.push(this.ctx.header.cwd);
+    if (this.prompts.length <= 2) {
+      yield {
+        type: 'token_usage',
+        id: `usage-step-cap-${this.prompts.length}`,
+        turnId: input.turnId,
+        ts,
+        input: 10,
+        output: 1,
+        total: 11,
+        costUsd: 0.01,
+        rawFinishReason: 'tool-calls',
+        runtimeSteps: 50,
+      };
+      yield { type: 'complete', id: `complete-step-cap-${this.prompts.length}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+      return;
+    }
+    await writeFile(join(this.ctx.header.cwd, 'continued-proof.txt'), input.text, 'utf8');
+    yield {
+      type: 'token_usage',
+      id: 'usage-done',
+      turnId: input.turnId,
+      ts,
+      input: 3,
+      output: 2,
+      total: 5,
+      costUsd: 0.02,
+      rawFinishReason: 'stop',
+    };
+    yield { type: 'complete', id: 'complete-done', turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+}
+
+function registerStepCapTwiceThenCompleteBackend(seen: { backend?: StepCapTwiceThenCompleteBackend }) {
+  return (registry: BackendRegistry): void => {
+    registry.register('fake', (ctx) => {
+      const backend = new StepCapTwiceThenCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header });
       seen.backend = backend;
       return backend;
     });
@@ -279,7 +374,11 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 6,
+        totalRuntimeSteps: 50,
+        turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+        ],
       });
       assert.equal(result.output.tokenSummary.input, 13);
       assert.equal(result.output.tokenSummary.costUsd, 0.03);
@@ -323,7 +422,11 @@ describe('runHarborCell', () => {
         continuedTurns: 1,
         stepCapHits: 1,
         capExhausted: false,
-        totalRuntimeSteps: 3,
+        totalRuntimeSteps: 50,
+        turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+          { turnIndex: 1, status: 'failed', stepCapHit: false, runtimeSteps: 0 },
+        ],
       });
     });
   });
@@ -357,7 +460,93 @@ describe('runHarborCell', () => {
         continuedTurns: 0,
         stepCapHits: 1,
         capExhausted: true,
-        totalRuntimeSteps: 3,
+        totalRuntimeSteps: 50,
+        turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+        ],
+      });
+    });
+  });
+
+  test('does not spend continuation step budget from diagnostic event count', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seen: { backend?: NoisyStepCapThenCompleteBackend } = {};
+      const result = await runHarborCell({
+        config,
+        instruction: 'solve the benchmark task',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: registerNoisyStepCapThenCompleteBackend(seen),
+        continuationPolicy: {
+          enabled: true,
+          maxTurns: 3,
+          maxTotalRuntimeSteps: 51,
+          prompt: 'Continue neutrally from current workspace.',
+        },
+      });
+
+      assert.equal(result.output.status, 'completed');
+      assert.deepEqual(seen.backend?.prompts, [
+        'solve the benchmark task',
+        'Continue neutrally from current workspace.',
+      ]);
+      assert.deepEqual(result.output.continuationSummary, {
+        enabled: true,
+        maxTurns: 3,
+        maxTotalRuntimeSteps: 51,
+        turnsUsed: 2,
+        continuedTurns: 1,
+        stepCapHits: 1,
+        capExhausted: false,
+        totalRuntimeSteps: 50,
+        turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+        ],
+      });
+    });
+  });
+
+  test('records per-turn step-cap hits across continuation turns', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const seen: { backend?: StepCapTwiceThenCompleteBackend } = {};
+      const result = await runHarborCell({
+        config,
+        instruction: 'solve the benchmark task',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: registerStepCapTwiceThenCompleteBackend(seen),
+        continuationPolicy: {
+          enabled: true,
+          maxTurns: 3,
+          maxTotalRuntimeSteps: 150,
+          prompt: 'Continue neutrally from current workspace.',
+        },
+      });
+
+      assert.equal(result.output.status, 'completed');
+      assert.deepEqual(seen.backend?.prompts, [
+        'solve the benchmark task',
+        'Continue neutrally from current workspace.',
+        'Continue neutrally from current workspace.',
+      ]);
+      assert.deepEqual(result.output.continuationSummary?.turns.map((turn) => turn.stepCapHit), [true, true, false]);
+      assert.deepEqual(result.output.continuationSummary, {
+        enabled: true,
+        maxTurns: 3,
+        maxTotalRuntimeSteps: 150,
+        turnsUsed: 3,
+        continuedTurns: 2,
+        stepCapHits: 2,
+        capExhausted: false,
+        totalRuntimeSteps: 100,
+        turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+          { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+          { turnIndex: 2, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+        ],
       });
     });
   });
@@ -389,7 +578,10 @@ describe('runHarborCell', () => {
         continuedTurns: 0,
         stepCapHits: 1,
         capExhausted: true,
-        totalRuntimeSteps: 3,
+        totalRuntimeSteps: 50,
+        turns: [
+          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 50 },
+        ],
       });
     });
   });

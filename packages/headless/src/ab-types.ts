@@ -135,6 +135,7 @@ export interface AbContinuationSummary {
   stepCapHits: number;
   capExhaustedAttempts: number;
   totalRuntimeSteps: number;
+  perTurnStepCapHits: boolean[];
   maxTurns: number | null;
   maxTotalRuntimeSteps: number | null;
 }

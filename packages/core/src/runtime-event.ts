@@ -178,6 +178,8 @@ export interface RuntimeEventTokenUsage {
   reasoning?: number;
   total?: number;
   rawFinishReason?: string;
+  /** Number of provider runtime/tool-loop steps represented by this usage. */
+  runtimeSteps?: number;
   /** Backward-compatible alias for cacheHitInput. */
   cacheRead?: number;
   /** Backward-compatible alias for cacheWriteInput. */
