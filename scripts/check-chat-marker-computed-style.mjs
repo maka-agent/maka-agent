@@ -89,8 +89,11 @@ const { markerVariants, streamVariants } = await import(pathToFileURL(resolve(RE
 const mainCssPath = process.argv[2] && resolve(process.argv[2]);
 const headCssPath = process.argv[3] && resolve(process.argv[3]);
 if (!mainCssPath || !headCssPath || !existsSync(mainCssPath) || !existsSync(headCssPath)) {
-  console.error('usage: npx electron scripts/check-chat-marker-computed-style.mjs <main.css> <head.css>');
-  console.error('(see the file header for how to build the two renderer CSS bundles)');
+  console.error('usage: npm run check:chat-visual -- <baseline.css> <head.css>');
+  console.error('  <baseline.css>  pre-PR2 renderer CSS — still carries the bespoke');
+  console.error('                  .maka-turn-* / .maka-tool-output-stream-* rules (build it');
+  console.error('                  from a checkout at e033a8c4~1; see this file\'s header).');
+  console.error('  <head.css>      this branch\'s built renderer CSS (npm -w @maka/desktop run build:renderer).');
   process.exit(2);
 }
 
