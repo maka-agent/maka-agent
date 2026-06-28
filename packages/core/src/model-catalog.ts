@@ -138,6 +138,7 @@ const DEFAULT_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCatalogEntry[] {
   const liveModels = input.models;
   const modelSource = input.modelSource ?? (liveModels ? 'fetched' : 'fallback');
+  const normalizedDefaultModel = input.defaultModel?.trim();
   const source = liveModels
     ? modelSource === 'fetched' ? 'provider_api' : 'static_catalog'
     : 'static_catalog';
@@ -154,18 +155,17 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
       seen.add(id);
       return true;
     })
-    .map((model) => makeEntry(input, model, source, modelSource, savedChoiceSources));
+    .map((model) => makeEntry(input, model, source, modelSource, savedChoiceSources, normalizedDefaultModel));
 
-  const defaultModel = input.defaultModel?.trim();
-  if (defaultModel && !seen.has(defaultModel)) {
-    entries.unshift(makeMissingDefaultEntry(input, defaultModel, modelSource, savedChoiceSources));
-    seen.add(defaultModel);
+  if (normalizedDefaultModel && !seen.has(normalizedDefaultModel)) {
+    entries.unshift(makeMissingDefaultEntry(input, normalizedDefaultModel, modelSource, savedChoiceSources, normalizedDefaultModel));
+    seen.add(normalizedDefaultModel);
   }
 
   for (const id of savedChoiceSources.keys()) {
     if (seen.has(id)) continue;
     seen.add(id);
-    entries.push(makeMissingUserChoiceEntry(input, id, modelSource, savedChoiceSources));
+    entries.push(makeMissingUserChoiceEntry(input, id, modelSource, savedChoiceSources, normalizedDefaultModel));
   }
 
   return entries;
@@ -270,12 +270,14 @@ function makeEntry(
   source: ModelCatalogEntry['source'],
   modelSource: ModelDiscoverySource,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
+  normalizedDefaultModel: string | undefined,
 ): ModelCatalogEntry {
-  const unavailableReason = deriveUnavailableReason(input, model);
-  const pricing = findPricing(input, model.id);
+  const normalizedModel = { ...model, id: model.id.trim() };
+  const unavailableReason = deriveUnavailableReason(input, normalizedModel);
+  const pricing = findPricing(input, normalizedModel.id);
   return {
-    id: model.id,
-    ...displayNameForModel(input.providerType, model),
+    id: normalizedModel.id,
+    ...displayNameForModel(input.providerType, normalizedModel),
     providerType: input.providerType,
     ...(input.connectionSlug ? { connectionSlug: input.connectionSlug } : {}),
     source,
@@ -283,16 +285,16 @@ function makeEntry(
     unavailableReason,
     availability: availabilityOf(unavailableReason),
     canUseAsChatDefault: canUseUnavailableReasonAsDefault(unavailableReason),
-    isDefault: model.id === input.defaultModel,
-    capabilities: normalizeCapabilities(model),
+    isDefault: normalizedModel.id === normalizedDefaultModel,
+    capabilities: normalizeCapabilities(normalizedModel),
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
     ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
     ...(pricing ? { pricing } : {}),
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
-      ...(pricing ? { pricingModelKey: `${input.providerType}:${model.id}` } : {}),
-      sources: provenanceSources(input, model.id, source, savedChoiceSources),
+      ...(pricing ? { pricingModelKey: `${input.providerType}:${normalizedModel.id}` } : {}),
+      sources: provenanceSources(input, normalizedModel.id, source, savedChoiceSources, normalizedDefaultModel),
     },
   };
 }
@@ -302,6 +304,7 @@ function makeMissingDefaultEntry(
   id: string,
   modelSource: ModelDiscoverySource,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
+  normalizedDefaultModel: string | undefined,
 ): ModelCatalogEntry {
   const unavailableReason = missingEntryUnavailableReason(input, modelSource);
   return {
@@ -319,7 +322,7 @@ function makeMissingDefaultEntry(
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
-      sources: provenanceSources(input, id, 'unknown', savedChoiceSources),
+      sources: provenanceSources(input, id, 'unknown', savedChoiceSources, normalizedDefaultModel),
     },
   };
 }
@@ -329,6 +332,7 @@ function makeMissingUserChoiceEntry(
   id: string,
   modelSource: ModelDiscoverySource,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
+  normalizedDefaultModel: string | undefined,
 ): ModelCatalogEntry {
   const unavailableReason = missingEntryUnavailableReason(input, modelSource);
   return {
@@ -341,13 +345,13 @@ function makeMissingUserChoiceEntry(
     unavailableReason,
     availability: availabilityOf(unavailableReason),
     canUseAsChatDefault: canUseUnavailableReasonAsDefault(unavailableReason),
-    isDefault: id === input.defaultModel,
+    isDefault: id === normalizedDefaultModel,
     capabilities: {},
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
       userChoice: true,
-      sources: provenanceSources(input, id, 'unknown', savedChoiceSources),
+      sources: provenanceSources(input, id, 'unknown', savedChoiceSources, normalizedDefaultModel),
     },
   };
 }
@@ -364,12 +368,13 @@ function displayNameForKnownModel(providerType: ProviderType, id: string): { dis
 }
 
 function provenanceSources(
-  input: Pick<BuildModelCatalogInput, 'providerType' | 'defaultModel'>,
+  input: Pick<BuildModelCatalogInput, 'providerType'>,
   id: string,
   source: ModelCatalogEntry['source'],
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
+  normalizedDefaultModel: string | undefined,
 ): ModelCatalogProvenanceSources {
-  const userChoice = userChoiceSources(input, id, savedChoiceSources);
+  const userChoice = userChoiceSources(id, savedChoiceSources, normalizedDefaultModel);
   return {
     ...(source === 'provider_api' ? { providerInventory: true as const } : {}),
     ...(source === 'static_catalog' || hasStaticModelMetadata(input.providerType, id)
@@ -384,12 +389,12 @@ function hasStaticModelMetadata(providerType: ProviderType, id: string): boolean
 }
 
 function userChoiceSources(
-  input: Pick<BuildModelCatalogInput, 'defaultModel'>,
   id: string,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
+  normalizedDefaultModel: string | undefined,
 ): ModelCatalogUserChoiceSource[] {
   const sources: ModelCatalogUserChoiceSource[] = [];
-  if (id === input.defaultModel?.trim()) sources.push('connection_default');
+  if (id === normalizedDefaultModel) sources.push('connection_default');
   for (const source of savedChoiceSources.get(id) ?? []) {
     if (!sources.includes(source)) sources.push(source);
   }

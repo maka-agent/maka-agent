@@ -135,6 +135,20 @@ describe('ModelCatalogEntry', () => {
     assert.equal(entry?.displayName, 'GPT-5.5');
   });
 
+  it('marks a fetched model as default when the saved default id has surrounding whitespace', () => {
+    const entries = buildModelCatalogEntries({
+      providerType: 'openai',
+      defaultModel: ' gpt-4.1 ',
+      models: [{ id: 'gpt-4.1' }],
+      modelSource: 'fetched',
+    });
+
+    assert.deepEqual(
+      entries.map((entry) => [entry.id, entry.isDefault, entry.provenance.sources?.userChoice]),
+      [['gpt-4.1', true, ['connection_default']]],
+    );
+  });
+
   it('adds a blocked default entry when a live provider list no longer contains the selected model', () => {
     const entries = buildModelCatalogEntries({
       providerType: 'zai-coding-plan',
