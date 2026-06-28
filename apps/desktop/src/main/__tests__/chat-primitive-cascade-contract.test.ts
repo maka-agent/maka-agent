@@ -48,12 +48,10 @@ describe('chat primitive shell migration contract (#332 PR1)', () => {
     const css = await readAllRendererCss();
     // The centered reading column / entrance animation stay authored.
     assert.ok(css.includes('.maka-message-row'), '.maka-message-row row base must stay');
-    // Lineage row + footer (PR2, still hand-written) ride the primitive's
-    // data hook so their measure column survives until they migrate.
-    assert.ok(
-      css.includes('[data-slot="message"][data-role="assistant"] .maka-turn-footer'),
-      'turn footer layout must be re-anchored to the Message primitive',
-    );
+    // The turn lineage row + footer measure column that PR1 parked on this
+    // primitive's data hook migrated onto the `@maka/ui` Marker variants in PR2
+    // (chat-marker-cascade-contract.test.ts), so the re-anchor is gone now.
+    // The system-note `pre` re-anchor stays — that prose is still hand-written.
     assert.ok(
       css.includes('[data-slot="message"][data-role="system"] pre'),
       'system note pre styling must be re-anchored to the Message primitive',

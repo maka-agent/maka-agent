@@ -495,22 +495,29 @@ describe('turn footer copy feedback contract', () => {
   });
 
   it('styles footer copy pending and failure states', async () => {
-    const src = await readRendererContractCss();
+    // The footer action shell migrated onto the `@maka/ui` Marker primitive
+    // (issue #332 PR2): the pending / copy-feedback styling now lives as literal
+    // arbitrary utilities in `markerVariants('footer-action')` instead of
+    // `.maka-turn-footer-action[…]` CSS. Asserting them on the primitive source
+    // (which compiles 1:1) keeps the same "pending/failure is visibly styled"
+    // guarantee — see chat-marker-cascade-contract.test.ts for the full set.
+    const chatPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'primitives', 'chat.tsx');
+    const src = await readFile(chatPath, 'utf8');
 
     assert.match(
       src,
-      /\.maka-turn-footer-action\[data-pending\]\s*\{[\s\S]*cursor:\s*progress;/,
+      /data-\[pending=true\]:cursor-progress/,
       'Turn footer pending copy should visibly indicate in-progress work.',
     );
     assert.match(
       src,
-      /\.maka-turn-footer-action\[data-copy-feedback="copied"\]/,
-      'Turn footer copied state should have a stable CSS selector.',
+      /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\]/,
+      'Turn footer copied state should have a stable styling hook.',
     );
     assert.match(
       src,
-      /\.maka-turn-footer-action\[data-copy-feedback="failed"\]/,
-      'Turn footer failed copy state should have a stable CSS selector.',
+      /data-\[copy-feedback=failed\]:text-\[color:var\(--destructive\)\]/,
+      'Turn footer failed copy state should have a stable styling hook.',
     );
   });
 });

@@ -906,88 +906,10 @@
     padding: 0 8px 0 0;
   }
 
-  /* Compact turn summary chips between the user message and the rest of
-   * the turn. Surfaces "用了哪个模型，跑了几个工具，耗时多少，token 多少"
-   * inline so each turn answers @kenji's UI-04 follow-up questions. */
-  /* PR-CHAT-CHROME-FOLLOWUP-0: the summary reads as ONE quiet caption
-     line (model · tools · duration · tokens) at the shared 12px chrome
-     size, not a cluster of 9-10px pills. Middot separators carry the
-     rhythm; the chips themselves drop their pill chrome. */
-  .maka-turn-summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 2px;
-    color: var(--foreground-50);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .maka-turn-summary-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--foreground-50);
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1.4;
-  }
-
-  .maka-turn-summary-chip:not(:first-child)::before {
-    content: "·";
-    margin-right: 4px;
-    color: var(--foreground-40);
-    font-weight: 400;
-  }
-
-  .maka-turn-summary-chip code {
-    background: transparent;
-    color: inherit;
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .maka-turn-summary-chip[data-kind="model"] code {
-    color: var(--foreground-60);
-    font-weight: 600;
-  }
-
-  .maka-turn-summary-chip[data-kind="tools"] {
-    color: var(--foreground-50);
-  }
-
-  .maka-turn-summary-chip[data-kind="duration"] {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .maka-turn-summary-chip[data-kind="tokens"] {
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .maka-turn-summary-chip[data-state="in-progress"] {
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  /* PR-CHAT-NON-DEFAULT-MODEL-CHIP-0: emphasize a per-turn model
-     switch — the "切换" pill renders inside the chip in a muted tone
-     so the user notices that this turn departed from the sticky
-     session model (kenji 3-way decision lock). */
-  .maka-turn-summary-chip[data-kind="model"][data-switched="true"] code {
-    color: var(--foreground-60);
-  }
-
-  .maka-turn-summary-chip-switched {
-    margin-left: 4px;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: oklch(from var(--foreground) l c h / 0.06);
-    color: var(--foreground-60);
-    font-size: 11px;
-    font-weight: 600;
-  }
+  /* Turn summary strip + chips (model · tools · duration · tokens) and the
+   * "切换" pill retired to the `@maka/ui` Marker chat primitive
+   * (`summary` / `summary-chip` / `summary-switched`), issue #332 PR2 —
+   * packages/ui/src/primitives/chat.tsx. */
 
   /* Optional reasoning block — collapsed by default, expandable to inspect
    * the model's chain of thought without cluttering the answer.
@@ -1475,8 +1397,9 @@
     background: transparent;
   }
   /* (The user-turn meta-row copy renders via MessageCopyButton's
-     `footerStyle`, so it reuses `.maka-turn-footer-action` directly and
-     needs no bespoke override here.) */
+     `footerStyle`, so it reuses the Marker `footer-action` shell
+     (`markerVariants('footer-action')`) directly and needs no bespoke
+     override here.) */
   .maka-bubble-with-actions:hover .maka-message-copy,
   .maka-bubble-with-actions:focus-within .maka-message-copy,
   .maka-message-copy:focus-visible {

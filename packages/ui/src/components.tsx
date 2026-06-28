@@ -194,7 +194,7 @@ import {
   cn,
 } from './ui.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
-import { Bubble, Message } from './primitives/chat.js';
+import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
 import { Button as PrimitiveButton } from './primitives/button.js';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './primitives/empty.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
@@ -4446,7 +4446,7 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
     // The time is no longer hover-gated (was `opacity: 0` until hover, which
     // hid it from touch + assistive tech). Copy reuses MessageCopyButton in
     // `footerStyle`, so it's the same quiet ghost action as the assistant
-    // turn footer's copy (same primitive + `.maka-turn-footer-action`).
+    // turn footer's copy (same primitive + `markerVariants('footer-action')`).
     return (
       <>
         <Bubble variant="user">
@@ -4481,8 +4481,8 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
   }
 
   // `footerStyle` renders this copy as the SAME quiet ghost action the
-  // assistant turn footer uses (`.maka-turn-footer-action`, also a UiButton
-  // variant="quiet" size="sm" with icon + "复制"). The user-message copy and
+  // assistant turn footer uses (`markerVariants('footer-action')`, also a
+  // UiButton variant="quiet" size="sm" with icon + "复制"). The user-message copy and
   // the assistant copy then read as one button by construction — same
   // primitive, same class, same icon metrics — instead of a look-alike
   // bespoke treatment.
@@ -4501,7 +4501,7 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
   return (
     <UiButton
       type="button"
-      className={footer ? 'maka-turn-footer-action' : 'maka-message-copy'}
+      className={footer ? markerVariants({ variant: 'footer-action' }) : 'maka-message-copy'}
       variant="quiet"
       size={footer ? 'sm' : 'icon-sm'}
       onClick={() => void copy()}
@@ -4640,10 +4640,11 @@ function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
   const hasCost = turn.tokens?.costUsd !== undefined && turn.tokens.costUsd > 0;
   if (!hasModel && !hasTools && !hasDuration && !hasTokens && !inProgress) return null;
   return (
-    <div className="maka-turn-summary" aria-label="本轮对话摘要">
+    <Marker variant="summary" aria-label="本轮对话摘要">
       {hasModel && (
-        <span
-          className="maka-turn-summary-chip"
+        <Marker
+          as="span"
+          variant="summary-chip"
           data-kind="model"
           data-switched={modelSwitched ? 'true' : undefined}
           title={
@@ -4654,36 +4655,37 @@ function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
         >
           <code>{turn.modelId}</code>
           {modelSwitched && (
-            <span className="maka-turn-summary-chip-switched" aria-label="本轮切换了模型">
+            <Marker as="span" variant="summary-switched" aria-label="本轮切换了模型">
               切换
-            </span>
+            </Marker>
           )}
-        </span>
+        </Marker>
       )}
       {hasTools && (
-        <span className="maka-turn-summary-chip" data-kind="tools">
+        <Marker as="span" variant="summary-chip" data-kind="tools">
           {turn.tools.length} 个工具
-        </span>
+        </Marker>
       )}
       {hasDuration ? (
-        <span className="maka-turn-summary-chip" data-kind="duration">
+        <Marker as="span" variant="summary-chip" data-kind="duration">
           {formatTurnDuration(turn.durationMs!)}
-        </span>
+        </Marker>
       ) : inProgress ? (
-        <span className="maka-turn-summary-chip" data-kind="duration" data-state="in-progress">
+        <Marker as="span" variant="summary-chip" data-kind="duration" data-state="in-progress">
           进行中
-        </span>
+        </Marker>
       ) : null}
       {hasTokens && (
-        <span
-          className="maka-turn-summary-chip"
+        <Marker
+          as="span"
+          variant="summary-chip"
           data-kind="tokens"
           title={hasCost ? `$${turn.tokens!.costUsd!.toFixed(4)}` : undefined}
         >
           {turn.tokens!.input.toLocaleString()} → {turn.tokens!.output.toLocaleString()} tok
-        </span>
+        </Marker>
       )}
-    </div>
+    </Marker>
   );
 }
 
@@ -4750,12 +4752,12 @@ function TurnView(props: {
       tabIndex={props.searchHighlighted ? -1 : undefined}
     >
       {forwardBadges.length > 0 && (
-        <div className="maka-turn-lineage-row" aria-label="本轮回答的来源">
+        <Marker variant="lineage-row" aria-label="本轮回答的来源">
           {forwardBadges.map((badge) => (
             <UiButton
               key={badge.id}
               type="button"
-              className="maka-turn-lineage-badge"
+              className={markerVariants({ variant: 'lineage-badge' })}
               variant="quiet"
               size="sm"
               data-direction="forward"
@@ -4766,7 +4768,7 @@ function TurnView(props: {
               <span>{badge.label}</span>
             </UiButton>
           ))}
-        </div>
+        </Marker>
       )}
       {turn.user && (
         <Message
@@ -4822,10 +4824,10 @@ function TurnView(props: {
                 Copy button below still copies the assistant text without
                 the prefix. */}
             {turn.status === 'aborted' && (
-              <div className="maka-turn-aborted-marker" role="status">
+              <Marker variant="aborted" role="status">
                 <Ban size={12} strokeWidth={2} aria-hidden="true" />
                 <em>{turnAbortMarkerLabel(turn.abortSource)}</em>
-              </div>
+              </Marker>
             )}
             {/* PR109e-d: failed turn AlertOctagon banner with generalized
                 Chinese copy (no raw `errorClass` leak per @kenji gate #3).
@@ -4834,25 +4836,25 @@ function TurnView(props: {
                 that mapping lives in `session-status-presentation.ts`
                 via `describeTurnErrorClass()`. */}
             {turn.status === 'failed' && props.failedReasonLabel && (
-              <div className="maka-turn-failed-banner" role="alert">
-                <span className="maka-turn-failed-icon" aria-hidden="true">
+              <Marker variant="failed-banner" role="alert">
+                <Marker as="span" variant="failed-icon" aria-hidden="true">
                   <AlertOctagon size={14} strokeWidth={2} />
-                </span>
+                </Marker>
                 <span>{props.failedReasonLabel}</span>
                 {props.failedRecoveryLabel && (
-                  <span className="maka-turn-failed-recovery">{props.failedRecoveryLabel}</span>
+                  <Marker as="span" variant="failed-recovery">{props.failedRecoveryLabel}</Marker>
                 )}
-              </div>
+              </Marker>
             )}
             <MessageBody role="assistant" text={turn.assistant.text} ts={turn.assistant.ts} />
           </div>
           {reverseBadges.length > 0 && (
-            <div className="maka-turn-lineage-row maka-turn-lineage-row-reverse" aria-label="本轮回答的衍生">
+            <Marker variant="lineage-row-reverse" aria-label="本轮回答的衍生">
               {reverseBadges.map((badge) => (
                 <UiButton
                   key={badge.id}
                   type="button"
-                  className="maka-turn-lineage-badge"
+                  className={markerVariants({ variant: 'lineage-badge' })}
                   variant="quiet"
                   size="sm"
                   data-direction="reverse"
@@ -4863,7 +4865,7 @@ function TurnView(props: {
                   <span>{badge.label}</span>
                 </UiButton>
               ))}
-            </div>
+            </Marker>
           )}
           {props.footerActions && props.footerActions.length > 0 && (
             <TurnFooterActions
@@ -5014,7 +5016,7 @@ function TurnFooterActions(props: {
     props.onAction?.(action.id);
   }
   return (
-    <div className="maka-turn-footer" role="toolbar" aria-label="本轮回答操作">
+    <Marker variant="footer" role="toolbar" aria-label="本轮回答操作">
       {props.actions.map((action) => {
         // Per @kenji review: pending state must keep the original button
         // label visible (not a spinner-only) so screen readers can hear
@@ -5040,7 +5042,7 @@ function TurnFooterActions(props: {
           <UiButton
             key={action.id}
             type="button"
-            className="maka-turn-footer-action"
+            className={markerVariants({ variant: 'footer-action' })}
             variant={priority === 'primary' ? 'secondary' : 'quiet'}
             size="sm"
             data-action={action.id}
@@ -5058,7 +5060,7 @@ function TurnFooterActions(props: {
           </UiButton>
         );
       })}
-    </div>
+    </Marker>
   );
 }
 

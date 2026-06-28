@@ -955,10 +955,10 @@
 }
 
 
-/* PR109d-c: Aborted turn marker. Sits above the assistant message body
- * to surface "(已中断)" + muted Ban icon when turn.status === aborted.
- * Uses muted tone — aborted is dormant history, NOT an error state
- * (per @kenji review #2: aborted does NOT use destructive red). */
+/* Search-highlight ring on the turn the search panel just navigated to.
+ * This styles the `.maka-turn` container (NOT a per-turn marker), so it
+ * stays hand-written here alongside the other model-catalog-preview turn
+ * chrome. */
 .maka-turn[data-search-highlight="true"] {
   border-radius: 12px;
   outline: 1px solid oklch(from var(--accent) l c h / 0.34);
@@ -966,167 +966,15 @@
   background: oklch(from var(--accent) l c h / 0.045);
 }
 
-.maka-turn-aborted-marker {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 2px 0 4px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--foreground-5);
-  color: var(--foreground-60);
-  font-size: 12px;
-  font-style: italic;
-  width: fit-content;
-}
-.maka-turn-aborted-marker em {
-  font-style: italic;
-}
-
-
-/* PR109d-b: Turn footer action row. Sits below the assistant message
- * bubble; icon+text buttons for 重试/重新生成/分支/复制. Disabled
- * buttons remain rendered (per @kenji review: user should see what
- * actions exist on the turn) but click handlers no-op. */
-.maka-turn-footer {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: 2px;
-  padding: 0;
-  flex-wrap: wrap;
-  opacity: 0.72;
-}
-/* PR-UI-PIXEL-6 (2026-06-21): turn-footer actions read as subtle borderless
-   ghost buttons (reference's footer is icon-light, no bordered pills) — the
-   border only appears implicitly via the hover fill. */
-.maka-turn-footer-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 0;
-  background: transparent;
-  color: var(--foreground-50);
-  font-size: 12px;
-  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
-}
-.maka-turn-footer:hover,
-.maka-turn-footer:focus-within {
-  opacity: 1;
-}
-.maka-turn-footer-action:hover:not(:disabled) {
-  background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground);
-}
-.maka-turn-footer-action:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.maka-turn-footer-action:disabled,
-.maka-turn-footer-action[aria-disabled="true"] {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.maka-turn-footer-action[data-pending] {
-  opacity: 0.78;
-  cursor: progress;
-}
-.maka-turn-footer-action[data-copy-feedback="copied"] {
-  color: var(--accent);
-}
-.maka-turn-footer-action[data-copy-feedback="failed"] {
-  color: var(--destructive);
-}
-
-/* PR-CHAT-CHROME-FOLLOWUP-0: footer actions render uniformly — icon +
- * label, always visible, at the shared 12px chrome size. This supersedes
- * the PR-UI-17 primary/secondary collapse, which hid branch/copy (and,
- * after #212, retry/regenerate too) behind a hover-to-expand width
- * animation. That left an unclear, undeclared priority split and made
- * the most common action — copy — hard to find. The strip stays quiet at
- * rest via the toolbar's 0.72 opacity and lifts to full on hover/focus;
- * the label is no longer width-collapsed. `data-priority` is retained on
- * the element for downstream styling but no longer drives visibility. */
-
-
-/* PR109e-d: Failed turn banner. Lives above the assistant message body
- * when turn.status === failed. Uses destructive tone — failed IS a
- * fault state (distinct from aborted which is dormant muted).
- * Copy is generalized Chinese (errorClass → Chinese phrase) per
- * @kenji gate #3 — never exposes the raw enum identifier. */
-.maka-turn-failed-banner {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 2px 0 6px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: oklch(from var(--destructive) l c h / 0.10);
-  border: 1px solid oklch(from var(--destructive) l c h / 0.28);
-  color: var(--destructive);
-  font-size: 12px;
-  width: fit-content;
-}
-.maka-turn-failed-icon {
-  display: inline-flex;
-  align-items: center;
-}
-.maka-turn-failed-recovery {
-  color: var(--text-muted);
-}
-.maka-turn-failed-recovery::before {
-  content: "·";
-  margin-right: 6px;
-  color: var(--border-strong);
-}
-
-/* PR109e-e: Lineage badges. Forward badges sit at the top of the turn
- * ("重试自 turn X"); reverse badges sit at the bottom ("已重试 →
- * turn Y"). Same visual treatment + interactive button so screen
- * readers and keyboard users can navigate. */
-.maka-turn-lineage-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 3px;
-  margin: 2px 0 4px;
-  opacity: 0.82;
-}
-.maka-turn-lineage-row-reverse {
-  margin-top: 4px;
-}
-.maka-turn-lineage-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  border: 0;
-  background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-48);
-  font-size: 9px;
-  transition: background 150ms var(--ease-out-strong), color 150ms var(--ease-out-strong);
-}
-.maka-turn-lineage-badge:hover {
-  background: oklch(from var(--foreground) l c h / 0.08);
-  color: var(--foreground);
-}
-.maka-turn-lineage-badge:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.maka-turn-lineage-badge[data-direction="forward"] {
-  background: oklch(from var(--info) l c h / 0.06);
-  color: oklch(from var(--info-text) calc(l - 0.06) c h);
-}
-.maka-turn-lineage-badge[data-direction="reverse"] {
-  background: oklch(from var(--brand-deep) l c h / 0.06);
-  color: oklch(from var(--brand-deep) calc(l - 0.04) c h);
-}
+/* Turn aborted marker / failed banner / lineage rows + badges / footer +
+ * footer actions retired to the `@maka/ui` Marker chat primitive
+ * (`aborted` / `failed-banner` / `failed-icon` / `failed-recovery` /
+ * `lineage-row` / `lineage-row-reverse` / `lineage-badge` / `footer` /
+ * `footer-action`), issue #332 PR2 — packages/ui/src/primitives/chat.tsx.
+ * The measure-column geometry the `tool-output.css` re-anchor used to add
+ * to the summary / lineage rows / footer is folded into those Marker
+ * variants. `data-priority` is still emitted on footer actions for any
+ * downstream styling but no longer drives visibility. */
 
 /* PR109f: branched session banner. Renders above the chat scroll area
    when the active session has a parentSessionId. Inline button-styled

@@ -44,21 +44,10 @@
   gap: 6px;
 }
 
-/* Turn summary / lineage / footer share the assistant turn's left-anchored
-   measure column. The `[data-role="assistant"]` parts ride the chat Message
-   primitive (issue #332 PR1) — the lineage row + footer are still hand-written
-   (PR2), so this rule keeps their layout until they migrate. */
-.maka-turn > .maka-turn-summary,
-.maka-turn > .maka-turn-lineage-row,
-[data-slot="message"][data-role="assistant"] .maka-turn-lineage-row,
-[data-slot="message"][data-role="assistant"] .maka-turn-footer {
-  display: flex;
-  max-width: var(--maka-chat-measure, 680px);
-  width: 100%;
-  margin-left: 0;
-  margin-right: auto;
-  justify-content: flex-start;
-}
+/* Turn summary / lineage rows / footer measure column folded into the
+   `@maka/ui` Marker chat primitive's own variants (issue #332 PR2 —
+   packages/ui/src/primitives/chat.tsx); the layout is now location-
+   independent instead of keyed on a `[data-role="assistant"]` descendant. */
 
 [data-slot="message"] pre {
   margin: 0;
