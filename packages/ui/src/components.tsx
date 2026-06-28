@@ -5384,6 +5384,9 @@ export const Composer = forwardRef<
     activeModel?: string;
     activeModelLabel?: string;
     modelChoices?: ChatModelChoice[];
+    /** Renders the provider brand mark on each group heading of the model menus;
+     *  injected by the desktop app to keep the provider SVG library out of @maka/ui. */
+    renderProviderMark?(type: ProviderType): ReactNode;
     modelChangePending?: boolean;
     onModelChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
     /**
@@ -5911,6 +5914,7 @@ export const Composer = forwardRef<
                     choices={props.modelChoices ?? []}
                     pending={props.modelChangePending}
                     disabledReason={modelSwitcherDisabledReason}
+                    renderProviderMark={props.renderProviderMark}
                     onChange={props.onModelChange}
                   />
                 ) : props.onPickNewChatModel && (props.modelChoices?.length ?? 0) > 0 ? (
@@ -5922,6 +5926,7 @@ export const Composer = forwardRef<
                         ? modelChoiceValue(props.newChatModel.llmConnectionSlug, props.newChatModel.model)
                         : undefined
                     }
+                    renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
                   />
                 ) : (

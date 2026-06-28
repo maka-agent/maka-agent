@@ -67,8 +67,8 @@ describe('home composer new-chat model picker', () => {
       (await readRepo('packages/ui/src/components.tsx')) +
       '\n' +
       (await readRepo('packages/ui/src/chat-model-switcher.tsx'));
-    assert.match(ui, /function ModelChoiceOptions\(\{ groups \}/, 'shared ModelChoiceOptions list component must exist');
-    const usages = ui.match(/<ModelChoiceOptions groups=\{grouped\} \/>/g) ?? [];
+    assert.match(ui, /function ModelChoiceOptions\(\{\s*groups,/, 'shared ModelChoiceOptions list component must exist');
+    const usages = ui.match(/<ModelChoiceOptions groups=\{grouped\} renderProviderMark=\{props\.renderProviderMark\} \/>/g) ?? [];
     assert.equal(
       usages.length,
       2,

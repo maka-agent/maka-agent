@@ -79,6 +79,7 @@ import { OnboardingHero } from './OnboardingHero';
 import { FirstRunChecklist } from './FirstRunChecklist';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import { ProviderLogo } from './settings/ProvidersPanel';
+import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { ArtifactPane } from './artifact-pane';
 import { BrowserPanel } from './browser-panel';
 import { deriveChatHeaderAlert } from './chat-header-alert';
@@ -3180,6 +3181,7 @@ function AppShell() {
                 activeModel={activeModel}
                 activeModelLabel={activeModelLabel}
                 modelChoices={chatModelChoices}
+                renderProviderMark={(type) => <ProviderBrandMark type={type} />}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
                 onModelChange={(input) => setSessionModel(input)}
                 newChatModel={newChatModel}

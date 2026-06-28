@@ -151,7 +151,12 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /<SelectRoot<string>[\s\S]*items=\{modelSelectItems\}[\s\S]*value=\{currentValue\}[\s\S]*onValueChange=\{\(value\) => \{/);
     assert.match(ui, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{8\}/);
     assert.match(ui, /<SelectList>/);
-    assert.match(ui, /<SelectGroup key=\{group\.connectionSlug\}/);
+    // The grouped menu body now renders through the shared SettingsSelectGroups
+    // form — one governed list, keyed by connection, with the provider brand
+    // mark injected on each heading (kept out of @maka/ui via renderProviderMark).
+    assert.match(ui, /<SettingsSelectGroups\b/);
+    assert.match(ui, /key: group\.connectionSlug,/);
+    assert.match(ui, /logo: renderProviderMark\?\.\(group\.providerType\)/);
     assert.match(uiPrimitives, /<span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">[\s\S]*<BaseSelect\.ItemIndicator>/);
     assert.match(uiPrimitives, /<span className="min-w-0">[\s\S]*<BaseSelect\.ItemText>\{children\}<\/BaseSelect\.ItemText>/);
     assert.doesNotMatch(ui, /<select\b[\s\S]*aria-label="切换当前会话模型"/);
@@ -159,8 +164,11 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(styles, /\.maka-model-switcher\s*\{/);
     assert.match(styles, /\.maka-model-switcher\[data-pending="true"\]\s*\{[\s\S]*cursor: progress;[\s\S]*\}/);
     assert.match(styles, /\.maka-model-switcher-trigger\s*\{/);
-    assert.match(styles, /\.maka-model-switcher-positioner\s*\{[\s\S]*z-index: var\(--z-dropdown\);[\s\S]*\}/);
-    assert.match(styles, /\.maka-model-switcher-popup\s*\{/);
+    // Popup/positioner/rows now come from the shared settings-select menu recipe
+    // (the bespoke `.maka-model-switcher-popup` chrome was folded into it); the
+    // trigger above stays the composer pill.
+    assert.match(styles, /\.settingsSelectMenuPopup\s*\{/);
+    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[\s\S]*min-height: 32px;[\s\S]*\}/);
   });
 
   it('flags per-turn model departures against the session sticky model', async () => {

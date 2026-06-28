@@ -56,6 +56,8 @@ const PROVIDER_SHORT_LABEL = {
 
 export interface ModelMenuGroup {
   connectionSlug: string;
+  /** Provider of this group, so the menu can render its brand mark on the heading. */
+  providerType: ProviderType;
   /**
    * Leak-safe, de-duplicated heading. Derived from `providerType` (plus the
    * slug when the same provider has multiple connections); never from
@@ -97,6 +99,7 @@ export function modelMenuGroups(choices: ChatModelChoice[]): ModelMenuGroup[] {
     const ambiguous = (connectionsPerType.get(group.providerType) ?? 0) > 1;
     return {
       connectionSlug: group.connectionSlug,
+      providerType: group.providerType,
       heading: ambiguous ? `${label} · ${group.connectionSlug}` : label,
       choices: group.choices,
     };
