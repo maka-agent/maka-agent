@@ -150,6 +150,14 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
         `tool dot must use the governed maka-tool-pulse ring, not "${banned}"`,
       );
     }
+    // The open/collapsed divider — the one card surface that differs by state
+    // (the collapsed default has no bottom border). The computed-diff proves both
+    // states, but that harness is manual (no CI), so pin the `[open]>summary`
+    // literal here as the automated guard.
+    assert.ok(
+      block.includes('[&[open]>summary]:[border-bottom:1px_solid_var(--border)]'),
+      'item must keep the `[open]>summary` divider literal (collapsed default has none)',
+    );
     // Anti-drift: the literalize vehicle stays arbitrary-value (immune to a later
     // scale/token re-tuning silently shifting pixels). Pin the distinctive
     // literals and ban the semantic-scale forms they would be swapped for.
