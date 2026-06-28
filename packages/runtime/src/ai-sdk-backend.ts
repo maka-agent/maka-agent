@@ -1475,12 +1475,18 @@ export class AiSdkBackend implements AgentBackend {
   private recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void {
     const recorder = this.input.recordActiveFullCompactBlock;
     if (!recorder) return;
-    void Promise.resolve()
-      .then(() => recorder(block))
-      .catch(() => {
-        // Active compact persistence is diagnostic/storage-only and must never
-        // perturb provider request projection or tool-loop progress.
-      });
+    try {
+      const result = recorder(block);
+      if (result && typeof (result as PromiseLike<void>).then === 'function') {
+        void Promise.resolve(result).catch(() => {
+          // Active compact persistence is diagnostic/storage-only and must never
+          // perturb provider request projection or tool-loop progress.
+        });
+      }
+    } catch {
+      // Active compact persistence is diagnostic/storage-only and must never
+      // perturb provider request projection or tool-loop progress.
+    }
   }
 
   private async loadHistoryCompactBlocks(
