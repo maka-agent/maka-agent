@@ -6,7 +6,7 @@ import type {
 } from './llm-connections.js';
 import { PROVIDER_DEFAULTS } from './llm-connections.js';
 import type { PricingConfig } from './usage-stats/types.js';
-import { catalogFallbackModelsForProvider, lookupModelMetadata } from './model-metadata.js';
+import { curatedCatalogFallbackModelsForProvider, lookupModelMetadata } from './model-metadata.js';
 
 export type ModelCapabilitySource =
   | 'provider_api'
@@ -161,7 +161,7 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
 export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCatalogInput): ModelCatalogEntry[] {
   const { connection } = input;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
-  const catalogFallbackModels = catalogFallbackModelsForProvider(connection.providerType);
+  const catalogFallbackModels = curatedCatalogFallbackModelsForProvider(connection.providerType);
   return buildModelCatalogEntries({
     providerType: connection.providerType,
     connectionSlug: connection.slug,
@@ -374,7 +374,7 @@ function recommendedRanksForProvider(
   providerType: ProviderType,
   fallbackModels: readonly string[] | undefined,
 ): Map<string, number> {
-  const ids = catalogFallbackModelsForProvider(providerType) ?? fallbackModels ?? [];
+  const ids = curatedCatalogFallbackModelsForProvider(providerType) ?? fallbackModels ?? [];
   const result = new Map<string, number>();
   for (const id of ids) {
     const trimmed = id.trim();

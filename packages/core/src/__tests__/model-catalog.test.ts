@@ -224,7 +224,7 @@ describe('ModelCatalogEntry', () => {
     assert.equal(apiEntry?.maxOutputTokens, 128_000);
     assert.equal(subscriptionEntry?.contextWindow, undefined);
     assert.equal(subscriptionEntry?.maxOutputTokens, undefined);
-    assert.deepEqual(subscriptionEntry?.capabilities, { reasoning: true, functionCalling: true });
+    assert.deepEqual(subscriptionEntry?.capabilities, {});
   });
 
   it('keeps static model facts on missing default entries without making them sendable', () => {
@@ -481,7 +481,7 @@ describe('ModelCatalogEntry', () => {
     assert.deepEqual(entries[3]?.provenance.sources?.userChoice, ['daily_review_model']);
   });
 
-  it('falls back to provider defaults for a connection without fetched models', () => {
+  it('uses curated catalog fallbacks for a connection without fetched models', () => {
     const connection: LlmConnection = {
       slug: 'openai-api',
       name: 'OpenAI',

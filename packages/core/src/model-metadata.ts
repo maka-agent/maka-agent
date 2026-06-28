@@ -13,8 +13,8 @@ export function lookupModelMetadata(providerType: ProviderType, modelId: string)
   return MODELS_DEV_METADATA[providerType]?.[modelId.trim()] ?? {};
 }
 
-export function catalogFallbackModelsForProvider(providerType: ProviderType): readonly string[] | undefined {
-  return CATALOG_FALLBACK_MODELS[providerType];
+export function curatedCatalogFallbackModelsForProvider(providerType: ProviderType): readonly string[] | undefined {
+  return CURATED_CATALOG_FALLBACK_MODELS[providerType];
 }
 
 const REASONING_FUNCTION_CALLING = { reasoning: true, functionCalling: true } satisfies ModelInfo['capabilities'];
@@ -99,11 +99,10 @@ function displayMetadataOnly(source: Record<string, ModelMetadata>): Record<stri
     displayName: metadata.displayName,
     lifecycle: metadata.lifecycle,
     docsUrl: metadata.docsUrl,
-    capabilities: metadata.capabilities,
   }])) as Record<string, ModelMetadata>;
 }
 
-const CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly string[]>> = {
+const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly string[]>> = {
   anthropic: [
     'claude-sonnet-4-6',
     'claude-opus-4-8',
