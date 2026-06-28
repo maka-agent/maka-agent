@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
+import { harborCommand } from './harbor-cli.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
 import { planMatrixRetry, readMatrixPriorRecords } from './matrix-resume.js';
 import { writeTaskRunExport } from './result-export.js';
@@ -353,6 +354,7 @@ function printUsage(): void {
   console.error('  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table');
   console.error('  maka-headless compare <results.jsonl>          print the comparison table');
   console.error('  maka-headless task <command> ...               run, inspect, resume, retry, export task runs');
+  console.error('  maka-headless harbor <command> ...             run Harbor real-backend task/cell flows');
 }
 
 function printTaskUsage(): void {
@@ -369,6 +371,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'eval') return evalCommand(rest);
   if (cmd === 'compare') return compareCommand(rest);
   if (cmd === 'task') return taskCommand(rest);
+  if (cmd === 'harbor') return harborCommand(rest);
   printUsage();
   return cmd ? 1 : 0;
 }

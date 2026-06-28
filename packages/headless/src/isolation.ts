@@ -130,6 +130,13 @@ export interface ExternalRealBackendIsolation {
    */
   label: string;
   /**
+   * Agent-visible workspace path when the external boundary owns the real
+   * filesystem. For Harbor HTTP this is the container cwd (for example `/app`),
+   * while the task-run control plane may still keep a local empty source
+   * workspace for ledger snapshots.
+   */
+  workspaceDir?: string;
+  /**
    * Optional command executor for callers that want to reuse the built-in
    * headless Bash tool. A caller may omit this when its registered backend is
    * already isolated internally.

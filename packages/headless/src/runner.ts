@@ -96,6 +96,7 @@ export async function runExperiment(
 
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
+    const agentWorkspaceDir = deps.realBackendIsolation?.workspaceDir ?? workspace.dir;
     const verifier = normalizeVerifier(task);
     const backends = new BackendRegistry();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
@@ -103,7 +104,7 @@ export async function runExperiment(
     await registerBackends(backends, {
       config,
       task,
-      workspaceDir: workspace.dir,
+      workspaceDir: agentWorkspaceDir,
       ...(backendNeedsIsolation(config.backend)
         ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
         : {}),
@@ -127,7 +128,7 @@ export async function runExperiment(
     });
 
     const session = await manager.createSession({
-      cwd: workspace.dir,
+      cwd: agentWorkspaceDir,
       backend: config.backend,
       llmConnectionSlug: config.llmConnectionSlug,
       model: config.model,

@@ -16,7 +16,7 @@ from harbor.models.agent.context import AgentContext
 
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
-NODE_RUNNER = ROOT / "maka_harbor_runner.mjs"
+HEADLESS_CLI = REPO_ROOT / "packages" / "headless" / "dist" / "cli.js"
 DEFAULT_RUNNER_ENV = Path(
     os.environ.get(
         "MAKA_HARBOR_RUNNER_ENV_FILE",
@@ -44,7 +44,7 @@ def _load_env_file(path: Path) -> dict[str, str]:
 class MakaHarborAgent(BaseAgent):
     def __init__(self, *args: Any, extra_env: dict[str, str] | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        self.extra_env = extra_env or {}
+        self._extra_env = extra_env or {}
 
     @staticmethod
     def name() -> str:
@@ -75,9 +75,10 @@ class MakaHarborAgent(BaseAgent):
 
         env = os.environ.copy()
         env.update(_load_env_file(DEFAULT_RUNNER_ENV))
-        env.update(self.extra_env)
-        env["MAKA_HARBOR_BRIDGE_URL"] = f"http://{host}:{port}"
-        env["MAKA_HARBOR_BRIDGE_TOKEN"] = bridge_token
+        env.update(self._extra_env)
+        env["MAKA_HARBOR_TOOL_EXECUTOR_URL"] = f"http://{host}:{port}"
+        env["MAKA_HARBOR_TOOL_EXECUTOR_TOKEN"] = bridge_token
+        _normalize_cli_env(env)
         env.setdefault("MAKA_REPO_DIR", str(REPO_ROOT))
         env.setdefault("MAKA_MODEL", "deepseek-chat")
         env.setdefault("MAKA_MAX_STEPS", "35")
@@ -88,17 +89,14 @@ class MakaHarborAgent(BaseAgent):
             env["MAKA_TASK_RUN_OUT_DIR"] = str(task_run_out_dir)
 
         task_workdir, workdir_probe = await self._resolve_task_workdir(environment)
-        payload = {
-            "instruction": instruction,
-            "cwd": task_workdir,
-            "taskId": environment.session_id,
-        }
 
         stdout_path = self.logs_dir / "maka-harbor.stdout.json"
         stderr_path = self.logs_dir / "maka-harbor.stderr.log"
         status_path = self.logs_dir / "maka-harbor.status.json"
+        instruction_path = self.logs_dir / "instruction.txt"
         started_at = _utc_now()
         task_run_out_dir.mkdir(parents=True, exist_ok=True)
+        instruction_path.write_text(instruction, encoding="utf-8")
         stdout_path.write_bytes(b"")
         stderr_path.write_bytes(b"")
         self._write_status(
@@ -170,10 +168,17 @@ class MakaHarborAgent(BaseAgent):
 
         proc: asyncio.subprocess.Process | None = None
         timeout_sec = int(env.get("MAKA_HARBOR_AGENT_TIMEOUT_SEC", "1800"))
+        command = _headless_harbor_command(
+            instruction_path=instruction_path,
+            task_workdir=task_workdir,
+            task_id=environment.session_id,
+            out_dir=task_run_out_dir,
+            env=env,
+        )
         try:
             proc = await asyncio.create_subprocess_exec(
-                "node",
-                str(NODE_RUNNER),
+                *command,
+                cwd=str(REPO_ROOT),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -193,11 +198,12 @@ class MakaHarborAgent(BaseAgent):
                     "resolvedCwd": task_workdir,
                     "workdirProbe": workdir_probe,
                     "runnerEnv": _runner_env_summary(env),
+                    "command": _redacted_command(command),
                 },
             )
             stdout, stderr = await self._communicate_streaming(
                 proc=proc,
-                stdin_payload=json.dumps(payload).encode("utf-8"),
+                stdin_payload=b"",
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 timeout_sec=timeout_sec,
@@ -218,6 +224,7 @@ class MakaHarborAgent(BaseAgent):
                     "resolvedCwd": task_workdir,
                     "workdirProbe": workdir_probe,
                     "runnerEnv": _runner_env_summary(env),
+                    "command": _redacted_command(command),
                 },
             )
             raise
@@ -237,6 +244,7 @@ class MakaHarborAgent(BaseAgent):
                     "resolvedCwd": task_workdir,
                     "workdirProbe": workdir_probe,
                     "runnerEnv": _runner_env_summary(env),
+                    "command": _redacted_command(command),
                 },
             )
             raise
@@ -264,6 +272,7 @@ class MakaHarborAgent(BaseAgent):
                 "resolvedCwd": task_workdir,
                 "workdirProbe": workdir_probe,
                 "runnerEnv": _runner_env_summary(env),
+                "command": _redacted_command(command),
             },
         )
         context.metadata = {
@@ -284,7 +293,7 @@ class MakaHarborAgent(BaseAgent):
                 "tool_call_count": parsed.get("toolCallCount"),
                 "error": parsed.get("error"),
                 "benchmark_failure_kind": parsed.get("benchmarkFailureKind"),
-                "task_run": parsed.get("taskRun"),
+                "task_run": parsed.get("taskRun") or _task_run_summary(parsed),
                 "resolved_cwd": task_workdir,
                 "workdir_probe": workdir_probe,
             }
@@ -451,12 +460,13 @@ class MakaHarborAgent(BaseAgent):
             result = await environment.exec(
                 command=command,
                 cwd=str(cwd) if cwd else None,
-                timeout_sec=timeout_sec,
+                timeout_sec=timeout_sec_from_request(req),
             )
             await _write_json(
                 writer,
                 200,
                 {
+                    "exitCode": result.return_code,
                     "returnCode": result.return_code,
                     "stdout": result.stdout,
                     "stderr": result.stderr,
@@ -511,9 +521,15 @@ def _runner_env_summary(env: dict[str, str]) -> dict[str, str]:
         "MAKA_MODEL",
         "MAKA_MAX_STEPS",
         "MAKA_TASK_RUN_OUT_DIR",
+        "MAKA_OUTPUT_DIR",
+        "MAKA_STORAGE_ROOT",
+        "MAKA_BACKEND",
+        "MAKA_PROVIDER",
         "MAKA_HARBOR_USE_TASK_RUN",
         "MAKA_HARBOR_AUTONOMOUS",
+        "MAKA_AUTONOMOUS",
         "MAKA_HARBOR_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT",
+        "MAKA_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT",
         "MAKA_HEAVY_TASK_MODE",
         "MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE",
         "MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS",
@@ -543,6 +559,124 @@ def _runner_env_summary(env: dict[str, str]) -> dict[str, str]:
         "MAKA_HARBOR_DIRECT_MAKE_MIPS_SMOKE",
     ]
     return {key: env[key] for key in allowed_keys if key in env}
+
+
+def _normalize_cli_env(env: dict[str, str]) -> None:
+    provider = env.get("MAKA_PROVIDER") or env.get("MAKA_PROVIDER_TYPE")
+    if provider:
+        env.setdefault("MAKA_PROVIDER", provider)
+    if env.get("MAKA_API_KEY"):
+        env.setdefault(_provider_api_key_env(env.get("MAKA_PROVIDER") or provider or "deepseek"), env["MAKA_API_KEY"])
+    if env.get("MAKA_TASK_RUN_OUT_DIR"):
+        env.setdefault("MAKA_OUTPUT_DIR", env["MAKA_TASK_RUN_OUT_DIR"])
+        env.setdefault("MAKA_STORAGE_ROOT", str(Path(env["MAKA_TASK_RUN_OUT_DIR"]) / "runs"))
+    if env.get("MAKA_HARBOR_MAX_ATTEMPTS"):
+        env.setdefault("MAKA_MAX_ATTEMPTS", env["MAKA_HARBOR_MAX_ATTEMPTS"])
+    if env.get("MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS"):
+        env.setdefault("MAKA_MAX_RUNTIME_STEPS", env["MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS"])
+    if env.get("MAKA_AUTONOMOUS_MAX_WALL_TIME_SEC"):
+        env.setdefault("MAKA_MAX_WALL_TIME_SEC", env["MAKA_AUTONOMOUS_MAX_WALL_TIME_SEC"])
+    if env.get("MAKA_HARBOR_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT"):
+        env.setdefault(
+            "MAKA_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT",
+            env["MAKA_HARBOR_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT"],
+        )
+    if env.get("MAKA_HARBOR_HEAVY_TASK_MODE"):
+        env.setdefault("MAKA_HEAVY_TASK_MODE", env["MAKA_HARBOR_HEAVY_TASK_MODE"])
+    env.setdefault("MAKA_BACKEND", "ai-sdk")
+
+
+def _provider_api_key_env(provider: str) -> str:
+    if provider == "zai-coding-plan":
+        return "ZAI_API_KEY"
+    if provider == "moonshot":
+        return "MOONSHOT_API_KEY"
+    if provider == "google":
+        return "GOOGLE_API_KEY"
+    if provider in {"anthropic", "kimi-coding-plan", "claude-subscription"}:
+        return "ANTHROPIC_API_KEY"
+    if provider in {"openai", "openai-compatible"}:
+        return "OPENAI_API_KEY"
+    return "DEEPSEEK_API_KEY"
+
+
+def _headless_harbor_command(
+    *,
+    instruction_path: Path,
+    task_workdir: str,
+    task_id: str,
+    out_dir: Path,
+    env: dict[str, str],
+) -> list[str]:
+    command = [
+        "node",
+        str(HEADLESS_CLI),
+        "harbor",
+        "run",
+        "--mode",
+        "task-run",
+        "--backend",
+        env.get("MAKA_BACKEND", "ai-sdk"),
+        "--isolation",
+        "harbor-http",
+        "--instruction-file",
+        str(instruction_path),
+        "--workdir",
+        task_workdir,
+        "--task-id",
+        task_id,
+        "--task-run-id",
+        env.get("MAKA_TASK_RUN_ID", f"harbor-{task_id}"),
+        "--out",
+        str(out_dir),
+        "--storage-root",
+        env.get("MAKA_STORAGE_ROOT", str(out_dir / "runs")),
+        "--include-events",
+    ]
+    if env.get("MAKA_PROVIDER"):
+        command.extend(["--provider", env["MAKA_PROVIDER"]])
+    if env.get("MAKA_MODEL"):
+        command.extend(["--model", env["MAKA_MODEL"]])
+    if env.get("MAKA_HARBOR_USE_TASK_RUN") == "1" and env.get("MAKA_HARBOR_AUTONOMOUS", "1") != "0":
+        command.append("--autonomous")
+    if env.get("MAKA_HEAVY_TASK_MODE") in {"1", "true", "TRUE", "yes", "on", "enabled"}:
+        command.append("--heavy-task")
+    return command
+
+
+def _redacted_command(command: list[str]) -> list[str]:
+    redacted: list[str] = []
+    skip_next = False
+    for arg in command:
+        if skip_next:
+            redacted.append("<redacted>")
+            skip_next = False
+            continue
+        redacted.append(arg)
+        if arg in {"--api-key", "--api-key-file"}:
+            skip_next = True
+    return redacted
+
+
+def _task_run_summary(parsed: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "taskRunId": parsed.get("taskRunId"),
+        "status": parsed.get("status"),
+        "taxonomy": parsed.get("taxonomy"),
+        "scored": parsed.get("scored"),
+        "authoritative": parsed.get("authoritative"),
+        "exportDir": parsed.get("exportDir"),
+        "files": parsed.get("files"),
+        "result": parsed.get("result"),
+    }
+
+
+def timeout_sec_from_request(req: dict[str, Any]) -> int:
+    if req.get("timeoutSec"):
+        return int(req["timeoutSec"])
+    if req.get("timeoutMs"):
+        return max(1, (int(req["timeoutMs"]) + 999) // 1000)
+    return 120
 
 
 def _direct_make_mips_smoke_command() -> str:

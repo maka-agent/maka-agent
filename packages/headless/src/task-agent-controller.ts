@@ -217,6 +217,7 @@ export async function runTaskOnce(
 
   const workspace = await prepareWorkspace(task.workspaceDir);
   try {
+    const agentWorkspaceDir = deps.realBackendIsolation?.workspaceDir ?? workspace.dir;
     await appendTaskEvent(taskRunStore, taskRunId, {
       type: 'workspace_lease_recorded',
       id: newId(),
@@ -254,7 +255,7 @@ export async function runTaskOnce(
     await registerBackends(backends, {
       config: effectiveConfig,
       task,
-      workspaceDir: workspace.dir,
+      workspaceDir: agentWorkspaceDir,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
       ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
@@ -265,7 +266,7 @@ export async function runTaskOnce(
     });
 
     const header = await sessionStore.create({
-      cwd: workspace.dir,
+      cwd: agentWorkspaceDir,
       backend: config.backend,
       llmConnectionSlug: effectiveConfig.llmConnectionSlug,
       model: effectiveConfig.model,

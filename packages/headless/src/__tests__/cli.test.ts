@@ -9,9 +9,14 @@ import { readResults } from '../results.js';
 
 const cliPath = fileURLToPath(new URL('../cli.js', import.meta.url));
 
-function runCli(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function runCli(
+  args: string[],
+  options: { env?: NodeJS.ProcessEnv } = {},
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cliPath, ...args]);
+    const child = spawn(process.execPath, [cliPath, ...args], {
+      env: { ...process.env, ...options.env },
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
@@ -104,6 +109,157 @@ describe('maka-headless CLI', () => {
       const result = await runCli(['eval', specPath, '--out', join(dir, 'out')]);
       assert.equal(result.code, 1);
       assert.match(result.stderr, /isolated executor/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('harbor run refuses real backend without explicit isolation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
+    try {
+      await mkdir(join(dir, 'fixture'), { recursive: true });
+      const result = await runCli([
+        'harbor',
+        'run',
+        '--backend',
+        'ai-sdk',
+        '--instruction',
+        'solve it',
+        '--workdir',
+        join(dir, 'fixture'),
+      ]);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /requires --isolation harbor-local\|harbor-http/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('harbor run preflights host bridge URL and token', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
+    try {
+      await mkdir(join(dir, 'fixture'), { recursive: true });
+      const missingUrl = await runCli([
+        'harbor',
+        'run',
+        '--backend',
+        'fake',
+        '--isolation',
+        'harbor-http',
+        '--instruction',
+        'solve it',
+        '--workdir',
+        join(dir, 'fixture'),
+      ]);
+      assert.equal(missingUrl.code, 1);
+      assert.match(missingUrl.stderr, /MAKA_HARBOR_TOOL_EXECUTOR_URL is required/);
+
+      const missingToken = await runCli([
+        'harbor',
+        'run',
+        '--backend',
+        'fake',
+        '--isolation',
+        'harbor-http',
+        '--instruction',
+        'solve it',
+        '--workdir',
+        join(dir, 'fixture'),
+      ], { env: { MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1' } });
+      assert.equal(missingToken.code, 1);
+      assert.match(missingToken.stderr, /MAKA_HARBOR_TOOL_EXECUTOR_TOKEN is required/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('harbor run task-run writes external Harbor verifier export without fake verifier authority', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
+    try {
+      const fixture = join(dir, 'fixture');
+      const outDir = join(dir, 'out');
+      await mkdir(fixture, { recursive: true });
+      await writeFile(join(fixture, 'README.txt'), 'Harbor owns the task workspace.\n', 'utf8');
+
+      const result = await runCli([
+        'harbor',
+        'run',
+        '--backend',
+        'fake',
+        '--isolation',
+        'none',
+        '--instruction',
+        'solve it',
+        '--workdir',
+        fixture,
+        '--task-id',
+        'tb-real-backend',
+        '--task-run-id',
+        'harbor-run-1',
+        '--out',
+        outDir,
+        '--include-events',
+      ]);
+      assert.equal(result.code, 0, result.stderr);
+      const summary = JSON.parse(result.stdout);
+      assert.equal(summary.taskRunId, 'harbor-run-1');
+      assert.equal(summary.mode, 'task-run');
+      assert.equal(summary.scored, false);
+      assert.equal(summary.authoritative, false);
+
+      const taskRunJson = JSON.parse(await readFile(join(outDir, 'exports', 'harbor-run-1', 'task-run.json'), 'utf8'));
+      assert.equal(taskRunJson.verifier.kind, 'terminal_bench');
+      assert.equal(taskRunJson.verifier.benchmark.instanceId, 'tb-real-backend');
+      assert.equal(taskRunJson.verifier.benchmark.pendingExternalHarborVerifier, true);
+      assert.equal(taskRunJson.verifier.authority.authoritative, false);
+      assert.equal(taskRunJson.verifier.authority.label, 'external Harbor verifier pending');
+      const events = await readFile(join(outDir, 'exports', 'harbor-run-1', 'events.jsonl'), 'utf8');
+      assert.doesNotMatch(events, /"testCommand":"false"/);
+      assert.doesNotMatch(events, /"placeholder":true/);
+      assert.doesNotMatch(events, /verificationPlaceholder/);
+      assert.doesNotMatch(events, /unsupported local benchmark placeholder/);
+      const resultJson = await readFile(join(outDir, 'exports', 'harbor-run-1', 'result.json'), 'utf8');
+      assert.doesNotMatch(resultJson, /verificationPlaceholder/);
+      assert.doesNotMatch(resultJson, /unsupported local benchmark placeholder/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('harbor-http task-run accepts a remote workspace path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
+    try {
+      const outDir = join(dir, 'out');
+      const result = await runCli([
+        'harbor',
+        'run',
+        '--backend',
+        'fake',
+        '--isolation',
+        'harbor-http',
+        '--instruction',
+        'solve it',
+        '--workdir',
+        '/app',
+        '--task-id',
+        'tb-remote-workspace',
+        '--task-run-id',
+        'harbor-remote-run-1',
+        '--out',
+        outDir,
+        '--include-events',
+      ], {
+        env: {
+          MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+          MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+        },
+      });
+      assert.equal(result.code, 0, result.stderr);
+
+      const taskRunJson = JSON.parse(await readFile(join(outDir, 'exports', 'harbor-remote-run-1', 'task-run.json'), 'utf8'));
+      assert.match(taskRunJson.workspace.lease.sourceWorkspaceDir, /host-workspace-source$/);
+      assert.notEqual(taskRunJson.workspace.lease.sourceWorkspaceDir, '/app');
+      assert.equal(taskRunJson.isolation.policy.label, 'Harbor task container via host adapter');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

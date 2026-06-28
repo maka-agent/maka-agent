@@ -556,6 +556,7 @@ export function buildAiSdkCellBackendRegistration(input: {
   env: RunHarborCellEnv;
   now: () => number;
   newId: () => string;
+  maxSteps?: number;
 }): NonNullable<RunHarborCellInput['registerBackends']> {
   const { connection, apiKey } = resolveHarborCellAiSdkEnv({
     provider: input.provider,
@@ -594,6 +595,7 @@ export function buildAiSdkCellBackendRegistration(input: {
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
         lookupPricing,
         ...contextBudgetBackendOptions,
+        ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
         newId: input.newId,
         now: input.now,
         recordRunTrace: ctx.recordRunTrace,
@@ -602,6 +604,8 @@ export function buildAiSdkCellBackendRegistration(input: {
     );
   };
 }
+
+export const buildHarborAiSdkBackendRegistration = buildAiSdkCellBackendRegistration;
 
 export function buildHarborCellAiSdkTools(
   executor: IsolatedToolExecutor,
@@ -892,6 +896,39 @@ export function buildHarborCellContextBudgetPolicySnapshot(
 
 export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 
+export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
+  const baseUrl = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
+  const token = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
+  return {
+    exec: async (input) => {
+      const timeoutSec = input.timeoutMs === undefined
+        ? undefined
+        : Math.max(1, Math.ceil(input.timeoutMs / 1000));
+      const response = await fetch(new URL('/exec', baseUrl), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...input,
+          ...(timeoutSec !== undefined ? { timeoutSec } : {}),
+        }),
+      });
+      const body = await response.text();
+      if (!response.ok) return { exitCode: 1, stdout: '', stderr: body };
+      const parsed: unknown = JSON.parse(body);
+      if (!isRecord(parsed)) return { exitCode: 1, stdout: '', stderr: 'Harbor bridge returned a non-object response' };
+      const exitCode = parsed.exitCode ?? parsed.returnCode;
+      return {
+        exitCode: typeof exitCode === 'number' && Number.isInteger(exitCode) ? exitCode : 1,
+        stdout: typeof parsed.stdout === 'string' ? parsed.stdout : '',
+        stderr: typeof parsed.stderr === 'string' ? parsed.stderr : '',
+      };
+    },
+  };
+}
+
 export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
   const childEnv = childProcessEnv(env);
   // A command that does not request its own timeout falls back to this. Some
@@ -947,6 +984,12 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
       }
     },
   };
+}
+
+function requiredHarborEnv(env: RunHarborCellEnv, name: string): string {
+  const value = env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
 }
 
 // When the cell is given an explicit system prompt (MAKA_SYSTEM_PROMPT), it is

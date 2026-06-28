@@ -61,7 +61,7 @@ export const defaultFinalScorer: FinalScorer = (input) => {
       excludedReason: 'official benchmark verifier result is missing',
       details: {
         verifierAuthority: verifier.authority,
-        verificationPlaceholder: verifier.details?.verificationPlaceholder === true,
+        ...(verifier.details?.verificationPlaceholder === true ? { verificationPlaceholder: true } : {}),
       },
     };
   }
