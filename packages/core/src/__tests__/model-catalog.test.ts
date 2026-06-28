@@ -83,6 +83,58 @@ describe('ModelCatalogEntry', () => {
     assert.equal(entry?.displayName, 'GPT-5.5');
   });
 
+  it('keeps static recommendation metadata separate from provider availability', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'deepseek-api',
+        providerType: 'deepseek',
+        defaultModel: '',
+      },
+    });
+
+    assert.deepEqual(
+      entries.slice(0, 2).map((entry) => ({
+        id: entry.id,
+        displayName: entry.displayName,
+        recommendedRank: entry.recommendedRank,
+        lifecycle: entry.lifecycle,
+        docsUrl: entry.docsUrl,
+        source: entry.source,
+      })),
+      [
+        {
+          id: 'deepseek-v4-flash',
+          displayName: 'DeepSeek V4 Flash',
+          recommendedRank: 1,
+          lifecycle: 'active',
+          docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
+          source: 'static_catalog',
+        },
+        {
+          id: 'deepseek-v4-pro',
+          displayName: 'DeepSeek V4 Pro',
+          recommendedRank: 2,
+          lifecycle: 'active',
+          docsUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
+          source: 'static_catalog',
+        },
+      ],
+    );
+  });
+
+  it('marks deprecated metadata without blocking live availability', () => {
+    const [entry] = buildModelCatalogEntries({
+      providerType: 'deepseek',
+      defaultModel: 'deepseek-chat',
+      models: [{ id: 'deepseek-chat' }],
+      modelSource: 'fetched',
+    });
+
+    assert.equal(entry?.lifecycle, 'deprecated');
+    assert.equal(entry?.availability, 'available');
+    assert.equal(entry?.canUseAsChatDefault, true);
+  });
+
   it('marks a fetched model as default when the saved default id has surrounding whitespace', () => {
     const entries = buildModelCatalogEntries({
       providerType: 'openai',

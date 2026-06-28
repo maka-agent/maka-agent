@@ -648,6 +648,7 @@ export type {
   ModelCapabilitySource,
   ModelCatalogAvailability,
   ModelCatalogEntry,
+  ModelCatalogLifecycle,
   ModelCatalogPricing,
   ModelCatalogProvenanceSources,
   ModelCatalogUserChoiceSource,

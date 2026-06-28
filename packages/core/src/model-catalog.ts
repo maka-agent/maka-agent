@@ -23,6 +23,7 @@ export type ModelUnavailableReason =
   | 'stale';
 
 export type ModelCatalogAvailability = 'available' | 'warning' | 'blocked';
+export type ModelCatalogLifecycle = 'active' | 'deprecated' | 'retired' | 'unknown';
 
 export interface KnownModelCapabilities {
   chat?: true;
@@ -71,6 +72,9 @@ export interface ModelCatalogEntry {
   canUseAsChatDefault: boolean;
   isDefault: boolean;
   capabilities: KnownModelCapabilities;
+  lifecycle: ModelCatalogLifecycle;
+  recommendedRank?: number;
+  docsUrl?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
   pricing?: ModelCatalogPricing;
@@ -121,6 +125,7 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
   const liveModels = input.models;
   const modelSource = input.modelSource ?? (liveModels ? 'fetched' : 'fallback');
   const normalizedDefaultModel = input.defaultModel?.trim();
+  const recommendedRanks = recommendedRanksForProvider(input.providerType, input.fallbackModels);
   const source = liveModels
     ? modelSource === 'fetched' ? 'provider_api' : 'static_catalog'
     : 'static_catalog';
@@ -137,17 +142,17 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
       seen.add(id);
       return true;
     })
-    .map((model) => makeEntry(input, model, source, modelSource, savedChoiceSources, normalizedDefaultModel));
+    .map((model) => makeEntry(input, model, source, modelSource, savedChoiceSources, normalizedDefaultModel, recommendedRanks));
 
   if (normalizedDefaultModel && !seen.has(normalizedDefaultModel)) {
-    entries.unshift(makeMissingDefaultEntry(input, normalizedDefaultModel, modelSource, savedChoiceSources, normalizedDefaultModel));
+    entries.unshift(makeMissingDefaultEntry(input, normalizedDefaultModel, modelSource, savedChoiceSources, normalizedDefaultModel, recommendedRanks));
     seen.add(normalizedDefaultModel);
   }
 
   for (const id of savedChoiceSources.keys()) {
     if (seen.has(id)) continue;
     seen.add(id);
-    entries.push(makeMissingUserChoiceEntry(input, id, modelSource, savedChoiceSources, normalizedDefaultModel));
+    entries.push(makeMissingUserChoiceEntry(input, id, modelSource, savedChoiceSources, normalizedDefaultModel, recommendedRanks));
   }
 
   return entries;
@@ -205,10 +210,13 @@ function makeEntry(
   modelSource: ModelDiscoverySource,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
   normalizedDefaultModel: string | undefined,
+  recommendedRanks: ReadonlyMap<string, number>,
 ): ModelCatalogEntry {
   const normalizedModel = { ...model, id: model.id.trim() };
   const unavailableReason = deriveModelUnavailableReason(input, normalizedModel);
   const pricing = findPricing(input, normalizedModel.id);
+  const metadata = lookupModelMetadata(input.providerType, normalizedModel.id);
+  const recommendedRank = recommendedRanks.get(normalizedModel.id);
   return {
     id: normalizedModel.id,
     ...displayNameForModel(input.providerType, normalizedModel),
@@ -221,6 +229,9 @@ function makeEntry(
     canUseAsChatDefault: canUseUnavailableReasonAsDefault(unavailableReason),
     isDefault: normalizedModel.id === normalizedDefaultModel,
     capabilities: normalizeCapabilities(normalizedModel),
+    lifecycle: metadata.lifecycle ?? 'unknown',
+    ...(recommendedRank ? { recommendedRank } : {}),
+    ...(metadata.docsUrl ? { docsUrl: metadata.docsUrl } : {}),
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
     ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
     ...(pricing ? { pricing } : {}),
@@ -239,8 +250,11 @@ function makeMissingDefaultEntry(
   modelSource: ModelDiscoverySource,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
   normalizedDefaultModel: string | undefined,
+  recommendedRanks: ReadonlyMap<string, number>,
 ): ModelCatalogEntry {
   const unavailableReason = missingEntryUnavailableReason(input, modelSource);
+  const metadata = lookupModelMetadata(input.providerType, id);
+  const recommendedRank = recommendedRanks.get(id);
   return {
     id,
     ...displayNameForKnownModel(input.providerType, id),
@@ -253,6 +267,9 @@ function makeMissingDefaultEntry(
     canUseAsChatDefault: canUseUnavailableReasonAsDefault(unavailableReason),
     isDefault: true,
     capabilities: {},
+    lifecycle: metadata.lifecycle ?? 'unknown',
+    ...(recommendedRank ? { recommendedRank } : {}),
+    ...(metadata.docsUrl ? { docsUrl: metadata.docsUrl } : {}),
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
@@ -267,8 +284,11 @@ function makeMissingUserChoiceEntry(
   modelSource: ModelDiscoverySource,
   savedChoiceSources: ReadonlyMap<string, ModelCatalogUserChoiceSource[]>,
   normalizedDefaultModel: string | undefined,
+  recommendedRanks: ReadonlyMap<string, number>,
 ): ModelCatalogEntry {
   const unavailableReason = missingEntryUnavailableReason(input, modelSource);
+  const metadata = lookupModelMetadata(input.providerType, id);
+  const recommendedRank = recommendedRanks.get(id);
   return {
     id,
     ...displayNameForKnownModel(input.providerType, id),
@@ -281,6 +301,9 @@ function makeMissingUserChoiceEntry(
     canUseAsChatDefault: canUseUnavailableReasonAsDefault(unavailableReason),
     isDefault: id === normalizedDefaultModel,
     capabilities: {},
+    lifecycle: metadata.lifecycle ?? 'unknown',
+    ...(recommendedRank ? { recommendedRank } : {}),
+    ...(metadata.docsUrl ? { docsUrl: metadata.docsUrl } : {}),
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
@@ -320,6 +343,20 @@ function provenanceSources(
 
 function hasStaticModelMetadata(providerType: ProviderType, id: string): boolean {
   return Object.keys(lookupModelMetadata(providerType, id)).length > 0;
+}
+
+function recommendedRanksForProvider(
+  providerType: ProviderType,
+  fallbackModels: readonly string[] | undefined,
+): Map<string, number> {
+  const ids = catalogFallbackModelsForProvider(providerType) ?? fallbackModels ?? [];
+  const result = new Map<string, number>();
+  for (const id of ids) {
+    const trimmed = id.trim();
+    if (!trimmed || result.has(trimmed)) continue;
+    result.set(trimmed, result.size + 1);
+  }
+  return result;
 }
 
 function userChoiceSources(
