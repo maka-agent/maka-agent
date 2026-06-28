@@ -6,6 +6,30 @@ import { describe, test } from 'node:test';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
+  test('keeps provider create defaults independent from catalog recommendation refreshes', async () => {
+    await withConnectionStore(async (store) => {
+      const openai = await store.create({
+        slug: 'openai-default',
+        name: 'OpenAI',
+        providerType: 'openai',
+      });
+      const google = await store.create({
+        slug: 'google-default',
+        name: 'Google',
+        providerType: 'google',
+      });
+      const zai = await store.create({
+        slug: 'zai-default',
+        name: 'Z.AI',
+        providerType: 'zai-coding-plan',
+      });
+
+      assert.equal(openai.defaultModel, 'gpt-4o-mini');
+      assert.equal(google.defaultModel, 'gemini-2.5-flash');
+      assert.equal(zai.defaultModel, 'glm-4.7');
+    });
+  });
+
   test('persists explicit connection test status updates', async () => {
     await withConnectionStore(async (store) => {
       const created = await store.create({

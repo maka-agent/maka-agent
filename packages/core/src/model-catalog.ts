@@ -6,7 +6,7 @@ import type {
 } from './llm-connections.js';
 import { PROVIDER_DEFAULTS } from './llm-connections.js';
 import type { PricingConfig } from './usage-stats/types.js';
-import { lookupModelMetadata } from './model-metadata.js';
+import { catalogFallbackModelsForProvider, lookupModelMetadata } from './model-metadata.js';
 
 export type ModelCapabilitySource =
   | 'provider_api'
@@ -135,6 +135,7 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
 export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCatalogInput): ModelCatalogEntry[] {
   const { connection } = input;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
+  const catalogFallbackModels = catalogFallbackModelsForProvider(connection.providerType);
   return buildModelCatalogEntries({
     providerType: connection.providerType,
     connectionSlug: connection.slug,
@@ -142,7 +143,7 @@ export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCa
     models: connection.models,
     modelSource: connection.modelSource,
     modelsFetchedAt: connection.modelsFetchedAt,
-    fallbackModels: input.fallbackModels ?? defaults.fallbackModels,
+    fallbackModels: input.fallbackModels ?? [...(catalogFallbackModels ?? defaults.fallbackModels)],
     now: input.now,
     staleAfterMs: input.staleAfterMs,
     providerAvailable: input.providerAvailable,

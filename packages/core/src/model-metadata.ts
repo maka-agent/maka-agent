@@ -8,6 +8,10 @@ export function lookupModelMetadata(providerType: ProviderType, modelId: string)
   return MODELS_DEV_METADATA[providerType]?.[modelId.trim()] ?? {};
 }
 
+export function catalogFallbackModelsForProvider(providerType: ProviderType): readonly string[] | undefined {
+  return CATALOG_FALLBACK_MODELS[providerType];
+}
+
 const ANTHROPIC_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
   'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6' },
   'claude-opus-4-8': { displayName: 'Claude Opus 4.8' },
@@ -74,4 +78,25 @@ const MODELS_DEV_METADATA: Partial<Record<ProviderType, Record<string, ModelMeta
     'glm-4.7': { displayName: 'GLM-4.7' },
     'glm-4.5-air': { displayName: 'GLM-4.5-Air' },
   },
+};
+
+const CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly string[]>> = {
+  anthropic: [
+    'claude-sonnet-4-6',
+    'claude-opus-4-8',
+    'claude-haiku-4-5',
+    'claude-sonnet-4-5',
+    'claude-sonnet-4-5-20250929',
+    'claude-opus-4-1-20250805',
+  ],
+  'claude-subscription': [
+    'claude-sonnet-4-6',
+    'claude-opus-4-8',
+    'claude-haiku-4-5',
+    'claude-sonnet-4-5-20250929',
+  ],
+  openai: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5'],
+  google: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  'gemini-cli': ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  'zai-coding-plan': ['glm-5.2', 'glm-5.1', 'glm-5-turbo', 'glm-4.7', 'glm-4.5-air'],
 };
