@@ -11,7 +11,7 @@ import {
   type ActiveToolResultPrunePolicy,
 } from './context-budget.js';
 
-const DEFAULT_MAX_CURRENT_RESULT_ESTIMATED_TOKENS = 8192;
+const DEFAULT_MAX_CURRENT_RESULT_ESTIMATED_TOKENS = 2048;
 const DEFAULT_CHARS_PER_TOKEN = 4;
 
 export interface ActiveToolResultPruneArchiveInput extends ActiveToolResultArchiveCandidate {

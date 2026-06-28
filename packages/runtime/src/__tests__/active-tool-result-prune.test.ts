@@ -17,6 +17,27 @@ const ZERO_USAGE: LanguageModelV3Usage = {
 };
 
 describe('active current-turn tool-result pruning', () => {
+  test('defaults to pruning current-turn tool results above 2048 estimated tokens', async () => {
+    const belowDefault = await rewriteActiveToolResultsInMessages({
+      messages: [largeTextToolMessage('Read', 'tool-small', 'a'.repeat(1000 * 4))],
+      policy: { enabled: true },
+      stepNumber: 1,
+      turnId: 'turn-1',
+      archiveToolResult: () => ({ artifactId: 'unused' }),
+    });
+    const aboveDefault = await rewriteActiveToolResultsInMessages({
+      messages: [largeTextToolMessage('Read', 'tool-large', 'a'.repeat((2048 * 4) + 4))],
+      policy: { enabled: true },
+      stepNumber: 1,
+      turnId: 'turn-1',
+      archiveToolResult: () => ({ artifactId: 'artifact-tool-large' }),
+    });
+
+    assert.equal(belowDefault.rewritten, 0);
+    assert.equal(aboveDefault.rewritten, 1);
+    assert.equal(aboveDefault.diagnosticPatch.activePrunedToolResults, 1);
+  });
+
   test('prepareStep composition returns both activeTools and rewritten messages', async () => {
     const originalMessages = [largeToolMessage('Read', 'tool-1', 'SECRET'.repeat(20))];
     const activePrune = async () => {

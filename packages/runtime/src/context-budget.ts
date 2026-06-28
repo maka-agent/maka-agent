@@ -54,7 +54,7 @@ export interface StaleToolResultPrunePolicy {
 
 export interface ActiveToolResultPrunePolicy {
   enabled: boolean;
-  /** Tool result payloads above this estimate are archived and replaced. Defaults to 8192. */
+  /** Tool result payloads above this estimate are archived and replaced. Defaults to 2048. */
   maxCurrentResultEstimatedTokens?: number;
   /** Do not rewrite before this SDK step. Defaults to 1, so step 0 is untouched. */
   minStepNumber?: number;
