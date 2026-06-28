@@ -1005,6 +1005,7 @@ function harborCellSystemPrompt(configPrompt: string | undefined): string {
     'Prefer Read, Glob, and Grep for file inspection and search.',
     'Prefer Edit and Write for file changes.',
     'Use Bash for running programs, tests, and shell-specific debugging only.',
+    'Do not use Bash for broad deletes, process kills, or service control; guarded commands fail. Use Edit/Write for targeted file changes.',
   ].join('\n');
 }
 

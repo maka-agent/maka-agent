@@ -86,6 +86,31 @@ describe('isolated headless tools', () => {
     assert.ok(result.stdout.length < big.length);
   });
 
+  test('Bash destructive-command guard refuses dangerous commands before executor invocation', async () => {
+    const emitted: Array<{ stream: string; chunk: string }> = [];
+    const bash = buildIsolatedBashTool({
+      async exec() {
+        throw new Error('destructive commands must not reach the isolated executor');
+      },
+    });
+
+    const result = await bash.impl(
+      { command: 'rm -f *.gcda *.gcno *.gcov' },
+      {
+        sessionId: 's',
+        turnId: 't',
+        cwd: '/workspace',
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: (stream, chunk) => emitted.push({ stream, chunk }),
+      },
+    ) as { exitCode: number; stderr: string };
+
+    assert.equal(result.exitCode, 126);
+    assert.match(result.stderr, /destructive-command guard refused/);
+    assert.deepEqual(emitted, [{ stream: 'stderr', chunk: result.stderr }]);
+  });
+
   test('only Bash opts into bounded-tail; Read/Glob/Grep request full output', async () => {
     // Records the boundedTail flag of every exec() and returns empty output, so
     // the command-backed Read/Glob/Grep complete without running anything.
