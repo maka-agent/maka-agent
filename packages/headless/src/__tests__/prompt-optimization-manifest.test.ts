@@ -64,6 +64,30 @@ describe('prompt optimization run manifest', () => {
     });
   });
 
+  test('changes subject fingerprint when ignored runtime dist artifacts change', async () => {
+    await withDir(async (dir) => {
+      await mkdir(join(dir, 'packages', 'headless', 'dist'), { recursive: true });
+      await writeFile(join(dir, '.gitignore'), 'packages/headless/dist/\n', 'utf8');
+      await writeFile(join(dir, 'tracked.txt'), 'clean\n', 'utf8');
+      const distFile = join(dir, 'packages', 'headless', 'dist', 'harbor-cell.js');
+      await writeFile(distFile, 'export const value = 1;\n', 'utf8');
+      await git(dir, 'init', '-q');
+      await git(dir, 'config', 'user.email', 'test@example.com');
+      await git(dir, 'config', 'user.name', 'Test User');
+      await git(dir, 'add', '.gitignore', 'tracked.txt');
+      await git(dir, 'commit', '-q', '-m', 'initial');
+
+      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      const first = await buildPromptOptimizationSubjectFingerprint(dir);
+
+      await writeFile(distFile, 'export const value = 2;\n', 'utf8');
+
+      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      const second = await buildPromptOptimizationSubjectFingerprint(dir);
+      assert.notEqual(second, first);
+    });
+  });
+
   test('changes toolchain fingerprint when execution headless source changes', async () => {
     await withDir(async (dir) => {
       await makeExecutionRepo(dir);
@@ -73,6 +97,21 @@ describe('prompt optimization run manifest', () => {
       await git(dir, 'add', 'packages/headless/src/runner.ts');
       await git(dir, 'commit', '-q', '-m', 'change headless source');
 
+      const second = await buildPromptOptimizationToolchainFingerprint(dir);
+      assert.notEqual(second, first);
+    });
+  });
+
+  test('changes toolchain fingerprint when ignored runtime dist artifacts change', async () => {
+    await withDir(async (dir) => {
+      await makeExecutionRepo(dir);
+      const distFile = join(dir, 'packages', 'headless', 'dist', 'harbor-cell.js');
+      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
+      const first = await buildPromptOptimizationToolchainFingerprint(dir);
+
+      await writeFile(distFile, 'export const value = 2;\n', 'utf8');
+
+      assert.equal(await gitOutput(dir, 'status', '--porcelain=v1', '--untracked-files=normal'), '');
       const second = await buildPromptOptimizationToolchainFingerprint(dir);
       assert.notEqual(second, first);
     });
@@ -144,15 +183,21 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync('git', args, { cwd });
 }
 
+async function gitOutput(cwd: string, ...args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8' });
+  return stdout.trimEnd();
+}
+
 async function makeExecutionRepo(dir: string): Promise<void> {
   await mkdir(join(dir, 'packages', 'headless', 'src'), { recursive: true });
   await mkdir(join(dir, 'packages', 'headless', 'harbor'), { recursive: true });
   await mkdir(join(dir, 'packages', 'headless', 'dist'), { recursive: true });
+  await writeFile(join(dir, '.gitignore'), 'packages/headless/dist/\n', 'utf8');
   await writeFile(join(dir, 'package-lock.json'), '{"lockfileVersion":3}\n', 'utf8');
   await writeFile(join(dir, 'packages', 'headless', 'package.json'), '{"name":"@maka/headless"}\n', 'utf8');
   await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 1;\n', 'utf8');
   await writeFile(join(dir, 'packages', 'headless', 'harbor', 'run-prompt-optimization.mjs'), 'console.log("runner");\n', 'utf8');
-  await writeFile(join(dir, 'packages', 'headless', 'dist', 'runner.js'), 'export const value = 1;\n', 'utf8');
+  await writeFile(join(dir, 'packages', 'headless', 'dist', 'harbor-cell.js'), 'export const value = 1;\n', 'utf8');
   await git(dir, 'init', '-q');
   await git(dir, 'config', 'user.email', 'test@example.com');
   await git(dir, 'config', 'user.name', 'Test User');

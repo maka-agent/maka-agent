@@ -151,6 +151,7 @@ export async function buildPromptOptimizationSubjectFingerprint(repoPath: string
     gitRoot: resolve(gitRoot),
     head,
     dirty: false,
+    runtimeArtifactFingerprint: await buildPromptOptimizationRuntimeArtifactFingerprint(gitRoot),
   });
 }
 
@@ -171,13 +172,23 @@ export async function buildPromptOptimizationToolchainFingerprint(repoRoot: stri
     gitRoot: resolve(gitRoot),
     head,
     node: process.version,
-    packageLockHash: await hashOptionalFile(join(repoRoot, 'package-lock.json')),
-    headlessPackageHash: await hashOptionalFile(join(repoRoot, 'packages/headless/package.json')),
-    headlessSourceEntries: await hashOptionalDirectory(join(repoRoot, 'packages/headless/src')),
-    promptOptimizationRunnerEntries: await hashOptionalPath(
-      join(repoRoot, 'packages/headless/harbor/run-prompt-optimization.mjs'),
-    ),
-    headlessDistEntries: await hashOptionalDirectory(join(repoRoot, 'packages/headless/dist')),
+    runtimeArtifactFingerprint: await buildPromptOptimizationRuntimeArtifactFingerprint(gitRoot),
+  });
+}
+
+async function buildPromptOptimizationRuntimeArtifactFingerprint(repoRoot: string): Promise<string> {
+  const artifactRoots = [
+    'packages/headless/dist',
+    'packages/core/dist',
+    'packages/runtime/dist',
+    'packages/storage/dist',
+  ];
+  return buildRunManifestFingerprint({
+    kind: 'prompt-optimization-runtime-artifacts',
+    artifacts: await Promise.all(artifactRoots.map(async (artifactPath) => ({
+      path: artifactPath,
+      entries: await hashOptionalDirectory(join(repoRoot, artifactPath)),
+    }))),
   });
 }
 
@@ -245,40 +256,9 @@ async function walkTaskDirectory(
   }
 }
 
-async function hashOptionalFile(path: string): Promise<string | null> {
-  try {
-    return hashBytes(await readFile(path));
-  } catch (error) {
-    if (isNotFound(error)) return null;
-    throw error;
-  }
-}
-
 async function hashOptionalDirectory(path: string): Promise<TaskDirectoryEntry[]> {
   try {
     return await hashTaskDirectory(path);
-  } catch (error) {
-    if (isNotFound(error)) return [{ path: '.', type: 'other' }];
-    throw error;
-  }
-}
-
-async function hashOptionalPath(path: string): Promise<TaskDirectoryEntry[]> {
-  try {
-    const stats = await lstat(path);
-    if (stats.isDirectory()) return await hashTaskDirectory(path);
-    if (stats.isFile()) {
-      return [{
-        path: '.',
-        type: 'file',
-        executable: (stats.mode & 0o111) !== 0,
-        hash: hashBytes(await readFile(path)),
-      }];
-    }
-    if (stats.isSymbolicLink()) {
-      throw new Error(`toolchain source symlink is not supported in prompt optimization fingerprints: ${path} -> ${await readlink(path)}`);
-    }
-    return [{ path: '.', type: 'other' }];
   } catch (error) {
     if (isNotFound(error)) return [{ path: '.', type: 'other' }];
     throw error;

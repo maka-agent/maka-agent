@@ -336,6 +336,10 @@ describe('Harbor adapter contract', () => {
       await writeFile(resolve(runRoot, 'prompt-optimization-manifest.json'), '{"fingerprint":"sha256:old"}\n', 'utf8');
       await writeFile(resolve(promptRepoDir, 'program.md'), 'old program\n', 'utf8');
       await writeFile(resolve(promptRepoDir, 'system_prompt.md'), 'old prompt\n', 'utf8');
+      if ((await gitOutput(repoRoot, 'status', '--porcelain=v1', '--untracked-files=normal')).length > 0) {
+        t.skip('requires a clean execution checkout to prove manifest mismatch ordering');
+        return;
+      }
 
       const result = spawnSync(process.execPath, [resolve(repoRoot, 'packages/headless/harbor/run-prompt-optimization.mjs')], {
         cwd: repoRoot,
@@ -363,7 +367,7 @@ describe('Harbor adapter contract', () => {
       assert.notEqual(result.status, 0);
       assert.match(
         result.stderr,
-        /prompt optimization run manifest does not match existing run id|execution checkout must be clean/,
+        /prompt optimization run manifest does not match existing run id/,
       );
       assert.equal(await readFile(resolve(promptRepoDir, 'program.md'), 'utf8'), 'old program\n');
       assert.equal(await readFile(resolve(promptRepoDir, 'system_prompt.md'), 'utf8'), 'old prompt\n');
@@ -498,6 +502,11 @@ async function readRepoFile(path: string): Promise<string> {
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync('git', args, { cwd });
+}
+
+async function gitOutput(cwd: string, ...args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8' });
+  return stdout.trimEnd();
 }
 
 function sha256(char: string): string {
