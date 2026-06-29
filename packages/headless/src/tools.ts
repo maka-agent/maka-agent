@@ -84,10 +84,11 @@ export function buildIsolatedBashTool(
     permissionRequired: true,
     impl: async ({ command, timeout_ms }, ctx) => {
       const { cwd, emitOutput } = ctx;
+      const timeoutMs = timeout_ms ?? cleanupCommandTimeoutMs(command);
       const input = {
         command,
         cwd,
-        ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       };
       // boundedTail: Bash is the one caller that wants a recoverable tail of a
       // huge, never-killed output. Read/Glob/Grep deliberately omit it so they
@@ -114,6 +115,10 @@ export function buildIsolatedBashTool(
       };
     },
   };
+}
+
+function cleanupCommandTimeoutMs(command: string): number | undefined {
+  return command === 'rm -f *.gcda *.gcno *.gcov' ? 120_000 : undefined;
 }
 
 export function buildIsolatedReadTool(
