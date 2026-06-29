@@ -163,6 +163,8 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /from '#prompt-optimization-run'/);
     assert.match(source, /from '#prompt-structural-smoke'/);
     assert.doesNotMatch(source, /from '#prompt-optimization-env'/);
+    assert.match(source, /const outDir = envPath\('MAKA_PROMPT_OUT_DIR', join\(repoRoot, 'maka-eval', 'rsi-runs'\)\);/);
+    assert.match(source, /const keyFile = envPath\('MAKA_PROMPT_KEY_FILE', join\(repoRoot, '\.local-secrets', 'deepseek-key'\)\);/);
     // The secret travels as a file path only — never a raw key on argv/env here.
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
