@@ -40,6 +40,33 @@ export interface RsiPromptAttribution {
 
 export type ProjectRsiPromptAttributionInput = RsiPromptAttribution;
 
+export interface RsiControllerAttributionValidationTarget {
+  evidenceRefs: readonly string[];
+  predictedFixes: ReadonlyArray<{ taskId: string; outcome: RsiPredictedFixOutcome }>;
+  riskTasks: ReadonlyArray<{ taskId: string; outcome: RsiRiskTaskOutcome }>;
+  unexpectedHeldInFlips: ReadonlyArray<{ taskId: string; from: string; to: string }>;
+  decision: {
+    decision: PromptAcceptanceResult['decision'];
+    reason: string;
+  };
+  rootCauseSignalMatch: RsiRootCauseSignalMatch;
+}
+
+export interface RsiControllerAttributionValidationInput {
+  attribution: RsiControllerAttributionValidationTarget;
+  candidateRationale: PromptCandidateRationale;
+  heldInTaskIds: readonly string[];
+  decision: {
+    decision: PromptAcceptanceResult['decision'];
+    reason: string;
+  };
+}
+
+export interface RsiControllerAttributionValidation {
+  malformed: boolean;
+  outOfScope: boolean;
+}
+
 export interface BuildRsiControllerAttributionInput {
   runId: string;
   roundId: string;
@@ -98,6 +125,45 @@ export function projectRsiPromptAttribution(attribution: ProjectRsiPromptAttribu
     unexpectedHeldInFlips: attribution.unexpectedHeldInFlips.map(({ taskId, from, to }) => ({ taskId, from, to })),
     rootCauseSignalMatch: attribution.rootCauseSignalMatch,
   };
+}
+
+export function validateRsiControllerAttribution(
+  input: RsiControllerAttributionValidationInput,
+): RsiControllerAttributionValidation {
+  const attribution = input.attribution;
+  const outOfScope = rsiControllerAttributionOutOfScope(attribution, input.heldInTaskIds);
+  const malformed = !sameStringSet(attribution.evidenceRefs, input.candidateRationale.evidenceRefs)
+    || !sameStringSet(attribution.predictedFixes.map((item) => item.taskId), input.candidateRationale.predictedFixes)
+    || !sameStringSet(attribution.riskTasks.map((item) => item.taskId), input.candidateRationale.riskTasks)
+    || attribution.decision.decision !== input.decision.decision
+    || attribution.decision.reason !== input.decision.reason
+    || hasUnsafePromptAttributionProjection(attribution);
+  return { malformed, outOfScope };
+}
+
+function rsiControllerAttributionOutOfScope(
+  attribution: RsiControllerAttributionValidationTarget,
+  heldInTaskIds: readonly string[],
+): boolean {
+  const heldIn = new Set(heldInTaskIds);
+  const taskIds = [
+    ...attribution.predictedFixes.map((item) => item.taskId),
+    ...attribution.riskTasks.map((item) => item.taskId),
+    ...attribution.unexpectedHeldInFlips.map((item) => item.taskId),
+  ];
+  return taskIds.some((taskId) => !heldIn.has(taskId));
+}
+
+function hasUnsafePromptAttributionProjection(attribution: RsiControllerAttributionValidationTarget): boolean {
+  const projection = projectRsiPromptAttribution(attribution);
+  const allowedFields = new Set([
+    'predictedFixes',
+    'riskTasks',
+    'unexpectedHeldInFlips',
+    'rootCauseSignalMatch',
+  ]);
+  if (Object.keys(projection).some((field) => !allowedFields.has(field))) return true;
+  return /decisionReason|held[-_ ]?out|coverage_regressed|held_out_regressed/i.test(JSON.stringify(projection));
 }
 
 function eventsByTask(
@@ -168,6 +234,13 @@ function isErrorClassBackedFailurePattern(failurePattern: PromptCandidateRationa
 
 function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort(compareStrings);
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  const sortedLeft = sortedUnique(left);
+  const sortedRight = sortedUnique(right);
+  return sortedLeft.length === sortedRight.length
+    && sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function compareStrings(a: string, b: string): number {

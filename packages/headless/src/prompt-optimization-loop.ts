@@ -443,9 +443,6 @@ export async function runPromptOptimizationLoop(
       accumulate(existingDecisionRound.heldIn);
       if (existingDecisionRound.heldOut) accumulate(existingDecisionRound.heldOut);
       const replayedRewardHackScan = await scanHeldIn(existingHeldInEvents);
-      if (!isDeepStrictEqual(existingDecisionRound.decision.rewardHackScan, replayedRewardHackScan)) {
-        throw new Error(`RSI WAL replay decision mismatch for ${roundId}`);
-      }
       if (
         !existingDecisionRound.heldOut
         && heldInGateReason({

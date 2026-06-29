@@ -11,6 +11,7 @@ import type {
   PromptCandidateDecisionEvent,
   RsiControllerAttributionEvent,
 } from './fixed-prompt-controller.js';
+import { validateRsiControllerAttribution } from './rsi-controller-attribution.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -302,6 +303,15 @@ function replayDecisionAttribution(input: {
   }
   if (!attribution) {
     throw new Error(`RSI WAL replay missing post-decision RSI attribution evidence for ${input.roundId}`);
+  }
+  const attributionValidation = validateRsiControllerAttribution({
+    attribution,
+    candidateRationale: input.candidate.candidateRationale,
+    heldInTaskIds: input.candidate.heldInTaskIds,
+    decision: input.decision,
+  });
+  if (attributionValidation.malformed || attributionValidation.outOfScope) {
+    throw new Error(`RSI WAL replay invalid RSI attribution evidence for ${input.roundId}`);
   }
   return attribution;
 }
