@@ -197,11 +197,25 @@ export async function runPromptOptimizationLoop(
     strictRoundState: true,
   });
   const replayState = replayPlan.state;
+  const recoverablePendingCandidate = [...replayState.candidateByRoundId.values()].find((candidate) =>
+    candidate.commitSha === replayState.expectedPromptRepoHead
+    && !replayState.decisionByRoundId.has(candidate.roundId));
+  const hasRecoverablePendingCandidateEvidence = recoverablePendingCandidate !== undefined
+    && resumeEvents.some((event) =>
+      event.runId === input.runId
+      && event.roundId === recoverablePendingCandidate.roundId
+      && (
+        event.type === 'task_completed'
+        || event.type === 'task_infra_failed'
+        || event.type === 'task_budget_exhausted'
+        || event.type === 'task_plumbing_failed'
+      ));
   await assertPromptRepoMatchesReplayState({
     gitRootPath: input.git.gitRootPath,
     expectedHead: replayState.expectedPromptRepoHead,
     programPath: input.programPath,
     systemPromptGitPath: input.git.systemPromptGitPath,
+    ...(hasRecoverablePendingCandidateEvidence ? { recoverExpectedHeadFromParent: true } : {}),
   });
 
   const heldInTaskIds = input.heldInTasks.map((task) => task.id);

@@ -156,6 +156,107 @@ describe('runPromptOptimizationLoop resume replay', () => {
     });
   });
 
+  test('resumes after discard rollback happened before the decision was written', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 8);
+      const rewardFor = (roundId: string, taskId: string): number => {
+        const index = taskIndex(taskId);
+        if (taskId.startsWith('hout-')) return index < 4 ? 1 : 0;
+        if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
+        return 0;
+      };
+
+      await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 1,
+      });
+      const events = await readFixedPromptWal(harness.resultsJsonlPath);
+      const tornEvents = events.filter((event) =>
+        !(event.type === 'prompt_candidate_decided' && event.roundId === 'round-0')
+        && !(event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'));
+      await writeFile(
+        harness.resultsJsonlPath,
+        `${tornEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
+        'utf8',
+      );
+      const rolledBackHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      assert.equal(rolledBackHead, harness.originalCommitSha);
+
+      const resumedMetaAgentRounds: string[] = [];
+      const resumed = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 1,
+        metaAgent: async (promptInput) => {
+          resumedMetaAgentRounds.push(promptInput.roundId);
+          return fakeMetaAgent()(promptInput);
+        },
+      });
+
+      assert.deepEqual(resumedMetaAgentRounds, []);
+      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['discard']);
+      assert.equal(resumed.lastKeptCommitSha, harness.originalCommitSha);
+      const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      assert.equal(head, harness.originalCommitSha);
+    });
+  });
+
+  test('resumes a pre-held-out budget stop after candidate rollback', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 8);
+      const rewardFor = (roundId: string, taskId: string): number => {
+        const index = taskIndex(taskId);
+        if (taskId.startsWith('hout-')) return index < 4 ? 1 : 0;
+        if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
+        return 1;
+      };
+
+      const stopped = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 2,
+        costCeilingUsd: 1.5,
+      });
+      assert.equal(stopped.stopReason, 'cost_ceiling_exceeded');
+      assert.deepEqual(stopped.decisions, []);
+      const rolledBackHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      assert.equal(rolledBackHead, harness.originalCommitSha);
+
+      const resumedMetaAgentRounds: string[] = [];
+      const resumedTaskRuns: string[] = [];
+      const resumed = await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 2,
+        costCeilingUsd: 10,
+        onTaskRun: (roundId, taskId) => resumedTaskRuns.push(`${roundId}:${taskId}`),
+        metaAgent: async (promptInput) => {
+          resumedMetaAgentRounds.push(promptInput.roundId);
+          return fakeMetaAgent()(promptInput);
+        },
+      });
+
+      assert.deepEqual(resumedMetaAgentRounds, []);
+      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['keep']);
+      assert.equal(resumed.stopReason, 'rounds_complete');
+      assert.ok(
+        resumedTaskRuns.every((call) => call.startsWith('round-0:hout-')),
+        `unexpected resumed task runs: ${JSON.stringify(resumedTaskRuns)}`,
+      );
+    });
+  });
+
   test('rebuilds held-in TSV from WAL before prompting the next resumed round', async () => {
     await withHarness(async (harness) => {
       const heldInTasks = makeTasks('hin', 20);

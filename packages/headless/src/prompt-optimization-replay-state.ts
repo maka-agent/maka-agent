@@ -32,10 +32,16 @@ export async function assertPromptRepoMatchesReplayState(input: {
   expectedHead: string;
   programPath: string;
   systemPromptGitPath: string;
+  recoverExpectedHeadFromParent?: boolean;
 }): Promise<void> {
-  const head = await gitOutput(input.gitRootPath, 'rev-parse', 'HEAD');
+  let head = await gitOutput(input.gitRootPath, 'rev-parse', 'HEAD');
   if (head !== input.expectedHead) {
-    throw new Error(`prompt repo HEAD does not match resumed RSI WAL state: expected ${input.expectedHead}, got ${head}`);
+    if (input.recoverExpectedHeadFromParent && await commitParentMatchesHead(input.gitRootPath, input.expectedHead, head)) {
+      await git(input.gitRootPath, 'reset', '--hard', input.expectedHead);
+      head = input.expectedHead;
+    } else {
+      throw new Error(`prompt repo HEAD does not match resumed RSI WAL state: expected ${input.expectedHead}, got ${head}`);
+    }
   }
   const programGitPath = await toGitRelativePath(input.gitRootPath, input.programPath);
   const promptGitPaths = [
@@ -336,6 +342,10 @@ async function gitOutput(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+async function git(cwd: string, ...args: string[]): Promise<void> {
+  await execFileAsync('git', args, { cwd });
+}
+
 async function gitBlob(cwd: string, refPath: string): Promise<string> {
   const { stdout } = await execFileAsync('git', ['show', refPath], { cwd, encoding: 'utf8' });
   return stdout;
@@ -360,4 +370,12 @@ async function toGitRelativePath(gitRootPath: string, filePath: string): Promise
     throw new Error(`prompt repo prompt file must stay inside git root: ${filePath}`);
   }
   return gitPath;
+}
+
+async function commitParentMatchesHead(cwd: string, commitSha: string, headSha: string): Promise<boolean> {
+  try {
+    return await gitOutput(cwd, 'rev-parse', `${commitSha}^`) === headSha;
+  } catch {
+    return false;
+  }
 }
