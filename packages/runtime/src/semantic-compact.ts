@@ -25,6 +25,9 @@ const DEFAULT_CHARS_PER_TOKEN = 4;
 const DEFAULT_MAX_SUMMARY_TOKENS = 768;
 const DEFAULT_MIN_SAVINGS_TOKENS = 256;
 const DEFAULT_MIN_SAVINGS_RATIO = 0.05;
+const DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT = 1;
+const DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES = 2;
+const DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS = 8;
 const PRIVATE_VERIFIER_PATTERN = /\b(hidden|private|official)\s+(verifier|evaluation|eval|test|assertion|oracle)\b/i;
 const SUMMARY_FIELD_LABELS = {
   objective: ['current_objective', 'current objective'],
@@ -44,7 +47,11 @@ export interface SemanticCompactPolicy {
   maxSummaryEstimatedTokens?: number;
   minSavingsTokens?: number;
   minSavingsRatio?: number;
+  minNetSavingsTokens?: number;
+  compactCallTokenCostWeight?: number;
   maxCompactCallTokens?: number;
+  maxConsecutiveInvalidSummaries?: number;
+  invalidSummaryCooldownSteps?: number;
   summarizerModel?: string;
   timeoutMs?: number;
   archiveRequired?: boolean;
@@ -64,10 +71,34 @@ export type SemanticCompactSummarizer = (
   request: SemanticCompactSummaryRequest,
 ) => Promise<CompactSummaryResult> | CompactSummaryResult;
 
+export interface SemanticCompactControllerState {
+  consecutiveInvalidSummaries: number;
+  totalInvalidSummaries: number;
+  compactCallCount: number;
+  compactCallTotalTokens: number;
+  acceptedEstimatedTokensSaved: number;
+  suppressedUntilStep?: number;
+  lastInvalidReason?: string;
+}
+
 export interface SemanticCompactStateCard {
   kind: 'process' | 'vm' | 'artifact' | 'command' | 'constraint' | 'verifier' | 'next_action' | 'generic';
   text: string;
   sourceIds: string[];
+}
+
+export interface SemanticCompactStructuredSummary {
+  currentObjective: string;
+  userConstraints: string[];
+  importantFilesAndArtifacts: string[];
+  commandsAndResults: string[];
+  errorsAndFixes: string[];
+  failedHypotheses: string[];
+  operationalState: string[];
+  publicVerificationState: string;
+  remainingWork: string[];
+  nextAction: string;
+  archiveRefsToRereadIfNeeded: string[];
 }
 
 export interface SemanticCompactBlock {
@@ -107,6 +138,7 @@ export interface SemanticCompactBlock {
   preActiveContextEstimatedTokens: number;
   postReplacementEstimatedTokens: number;
   estimatedTokensSavedSigned: number;
+  estimatedNetTokensSavedSigned?: number;
   compactCallUsage?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -134,6 +166,7 @@ export interface SemanticCompactRewriteInput {
   policy: SemanticCompactPolicy | undefined;
   runtimeEvents?: readonly RuntimeEvent[];
   stepNumber: number;
+  controllerState?: SemanticCompactControllerState;
   now?: number;
   charsPerToken?: number;
   requestShapeHashBefore?: string;
@@ -159,6 +192,10 @@ export async function rewriteSemanticCompactInMessages(
   const charsPerToken = input.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
   if (policy?.enabled !== true || policy.mode === 'off') {
     return unchanged(messages, 'disabled');
+  }
+  const brakeReason = semanticCompactBrakeReason(policy, input.controllerState, input.stepNumber);
+  if (brakeReason) {
+    return unchanged(messages, brakeReason);
   }
 
   const index = buildActiveFullCompactSourceIndex({
@@ -261,19 +298,26 @@ export async function rewriteSemanticCompactInMessages(
       abortSignal: input.abortSignal,
     }, policy.timeoutMs);
   } catch {
+    recordInvalidSummary(input.controllerState, policy, 'summarizer_failed', input.stepNumber);
     return rejected(messages, index, 'summarizer_failed');
   }
 
   const compactCallUsage = summary.usage ? compactUsage(summary.usage) : undefined;
-  const summaryText = normalizeSummaryText(summary.text);
-  if (!summaryText) return rejected(messages, index, 'summary_missing', compactCallUsage);
+  recordCompactCall(input.controllerState, compactCallUsage);
+  const parsedSummary = parseSemanticCompactSummary(summary.text);
+  if (!parsedSummary.ok) {
+    recordInvalidSummary(input.controllerState, policy, parsedSummary.reason, input.stepNumber);
+    return rejected(messages, index, parsedSummary.reason, compactCallUsage);
+  }
+  recordValidSummary(input.controllerState);
+  const summaryText = renderStructuredSemanticSummary(parsedSummary.summary);
   const maxSummaryTokens = Math.floor(policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS);
   if (estimateTokens(summaryText.length, charsPerToken) > maxSummaryTokens) {
+    recordInvalidSummary(input.controllerState, policy, 'summary_too_large', input.stepNumber);
     return rejected(messages, index, 'summary_too_large', compactCallUsage);
   }
-  const summaryContractReason = semanticSummaryContractRejectionReason(summaryText);
-  if (summaryContractReason) return rejected(messages, index, summaryContractReason, compactCallUsage);
-  if (newPrivateVerifierSurface(summaryText, selectedSourceText(selection, messages))) {
+  if (newPrivateVerifierSurface(`${summary.text}\n${summaryText}`, selectedSourceText(selection, messages))) {
+    recordInvalidSummary(input.controllerState, policy, 'private_verifier_surface', input.stepNumber);
     return rejected(messages, index, 'private_verifier_surface', compactCallUsage);
   }
 
@@ -282,6 +326,7 @@ export async function rewriteSemanticCompactInMessages(
     input,
     index,
     selection,
+    structuredSummary: parsedSummary.summary,
     summaryText,
     stateCards,
     usage: summary.usage,
@@ -300,6 +345,7 @@ export async function rewriteSemanticCompactInMessages(
   if (requestShapeHashAfter) block.requestShapeHashAfter = requestShapeHashAfter;
   block.postReplacementEstimatedTokens = estimatePostReplacementTokens(index, selection.estimatedTokens, renderSemanticCompactBlock(block), charsPerToken);
   block.estimatedTokensSavedSigned = index.estimatedTokens - block.postReplacementEstimatedTokens;
+  block.estimatedNetTokensSavedSigned = estimateSemanticNetTokensSaved(block, policy);
 
   const economicsReason = semanticSavingsRejectionReason(block, policy);
   if (economicsReason) {
@@ -347,6 +393,7 @@ export async function rewriteSemanticCompactInMessages(
   }
 
   block.acceptance = { decision: 'accepted' };
+  recordAcceptedSemanticCompact(input.controllerState, block);
   return {
     messages: replacementMessages,
     decision: 'replaced',
@@ -381,21 +428,18 @@ export function semanticCompactBlockToModelMessage(block: SemanticCompactBlock):
 }
 
 export function renderSemanticCompactBlock(block: SemanticCompactBlock): string {
-  const archiveLines = (block.archiveRefs ?? []).slice(0, 12).map((ref) =>
-    `- ${ref.artifactId} tool=${ref.toolName ?? 'unknown'} call=${ref.toolCallId ?? 'unknown'} sha256=${ref.bodySha256.slice(0, 16)}`
-  );
   const stateLines = (block.stateCards ?? []).map((card) =>
     `- ${card.kind}: ${singleLine(card.text)}`
   );
+  const archiveCount = block.archiveRefs?.length ?? 0;
   return [
     `<maka_semantic_compact_block id="${escapeAttribute(block.blockId)}" high_water="${escapeAttribute(block.highWaterName)}" seq="${block.highWaterSeq}" version="${block.version}">`,
     'summary:',
     block.summary.text,
     stateLines.length > 0 ? 'restoration_state_cards:' : '',
     ...stateLines,
-    archiveLines.length > 0 ? 'archives:' : '',
-    ...archiveLines,
-    `coverage: ${block.coverage.providerMessageSourceIds.length} provider source entries, ${block.coverage.toolCallIds.length} tool calls, ${block.coverage.bodySha256.length} source hashes retained in durable compact block.`,
+    archiveCount > 0 ? `durable_archives_available: ${archiveCount} raw evidence refs retained outside provider-visible context.` : '',
+    `durable_coverage: ${block.coverage.providerMessageSourceIds.length} provider source entries and ${block.coverage.toolCallIds.length} tool calls retained in the compact audit side-channel.`,
     `preserved_tail: messages=${block.preservedTail.messageIndexes.join(',') || 'none'} toolCalls=${block.preservedTail.toolCallIds.join(',') || 'none'}`,
     'instructions: Continue from this semantic summary plus the exact preserved recent messages that follow it. Use archive refs for raw evidence recovery when needed.',
     '</maka_semantic_compact_block>',
@@ -475,22 +519,42 @@ function buildSummarizerMessages(input: {
   policy: SemanticCompactPolicy;
   charsPerToken: number;
 }): ModelMessage[] {
-  const sourceManifest = {
-    providerMessageSourceIds: input.selection.coverage.providerMessageSourceIds,
-    toolCallIds: input.selection.coverage.toolCallIds,
+  const contextBoundary = {
+    coveredProviderSourceEntries: input.selection.coverage.providerMessageSourceIds.length,
+    coveredToolCalls: input.selection.coverage.toolCallIds.length,
     contentKinds: input.selection.coverage.contentKinds,
-    archiveRefs: input.selection.entries.map((entry) => entry.archiveRef?.artifactId).filter(Boolean),
+    durableArchiveRefCount: input.selection.entries.filter((entry) => entry.archiveRef).length,
+  };
+  const restorationCards = input.stateCards.map((card) => ({
+    kind: card.kind,
+    text: card.text,
+  }));
+  const schema = {
+    current_objective: 'string, required, one sentence',
+    user_constraints: ['strings, public constraints only'],
+    important_files_and_artifacts: ['strings, paths/artifacts that matter'],
+    commands_and_results: ['strings, only commands/results needed for continuity'],
+    errors_and_fixes: ['strings'],
+    failed_hypotheses: ['strings'],
+    operational_state: ['strings, process/build/vm/service state'],
+    public_verification_state: 'string, public verifier/test state only',
+    remaining_work: ['strings'],
+    next_action: 'string, required, exact next action',
+    archive_refs_to_reread_if_needed: ['strings, names/descriptions only'],
   };
   const request = [
     'Create a concise semantic compact summary for the Maka agent to continue this same task.',
-    'Return structured plain text with these exact labels: current_objective:, user_constraints:, important_files_and_artifacts:, commands_and_results:, errors_and_fixes:, failed_hypotheses:, operational_state:, public_verification_state:, remaining_work:, next_action:, archive_refs_to_reread_if_needed:.',
-    'The current_objective and next_action fields are required and must be non-empty.',
-    'Use only the public provider-visible messages above, source manifest, archive placeholders, and restoration hints.',
+    'Return ONLY a valid JSON object. Do not wrap it in markdown. Do not add prose before or after JSON.',
+    `JSON schema: ${JSON.stringify(schema)}`,
+    'The current_objective and next_action string fields are required and must be non-empty.',
+    'Use arrays for list fields. Keep each list to at most 6 short items.',
+    'Use only the public provider-visible messages above and the bounded restoration cards below.',
     'Do not invent command results, file contents, process state, credentials, verifier results, or hidden/private evaluation facts.',
-    'Preserve objective, constraints, decisions, failed attempts, commands/results that matter, files/artifacts, active process/build state, and exact next action.',
+    'Summarize continuity only. Durable source refs, hashes, and archive audit metadata are stored outside this provider-visible summary.',
+    'Preserve objective, constraints, decisions, failed attempts, commands/results that matter, files/artifacts, active process/build state, public verification state, and exact next action.',
     `Keep the answer under ${input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens.`,
-    `source_manifest: ${JSON.stringify(sourceManifest)}`,
-    `restoration_hints: ${JSON.stringify(input.stateCards)}`,
+    `context_boundary: ${JSON.stringify(contextBoundary)}`,
+    `restoration_cards: ${JSON.stringify(restorationCards)}`,
   ].join('\n');
   return [
     ...input.messages.slice(input.selection.startMessageIndex, input.selection.endMessageIndex + 1),
@@ -501,9 +565,9 @@ function buildSummarizerMessages(input: {
 function semanticCompactSystemPrompt(policy: SemanticCompactPolicy): string {
   return [
     'You compress a Maka agent session for current-turn context compaction.',
-    'No tools are available. Return only concise structured summary text.',
+    'No tools are available. Return only valid JSON matching the requested schema.',
     'Do not include hidden/private verifier material unless it was explicitly present in public provider-visible input.',
-    `Prompt version: ${policy.promptVersion ?? 'maka-semantic-compact-v1'}.`,
+    `Prompt version: ${policy.promptVersion ?? 'maka-semantic-compact-json-v2'}.`,
   ].join('\n');
 }
 
@@ -542,6 +606,7 @@ function buildSemanticCompactBlock(input: {
   input: SemanticCompactRewriteInput;
   index: ActiveFullCompactSourceIndex;
   selection: Extract<ReturnType<typeof selectActiveFullCompactCoveredSpan>, { decision: 'selected' }>;
+  structuredSummary: SemanticCompactStructuredSummary;
   summaryText: string;
   stateCards: readonly SemanticCompactStateCard[];
   usage?: NormalizedAiSdkUsage;
@@ -572,10 +637,10 @@ function buildSemanticCompactBlock(input: {
     sessionId: input.input.sessionId,
     turnId: input.input.turnId,
     coverage: activeFullCompactCoverageFromEntries(input.selection.entries),
-    summaryText: input.summaryText,
+    summaryText: input.structuredSummary.currentObjective,
+    nextAction: input.structuredSummary.nextAction,
     highWaterSeq: input.input.stepNumber,
   };
-  const nextAction = extractSummaryField(input.summaryText, SUMMARY_FIELD_LABELS.nextAction);
   const block: SemanticCompactBlock = {
     kind: 'maka.semantic_compact_block',
     version: 1,
@@ -604,10 +669,10 @@ function buildSemanticCompactBlock(input: {
       sourceIds: uniqueSorted(preservedTailEntries.map((entry) => entry.sourceId)),
     },
     summary: {
-      promptVersion: policy.promptVersion ?? 'maka-semantic-compact-v1',
+      promptVersion: policy.promptVersion ?? 'maka-semantic-compact-json-v2',
       text: input.summaryText,
       limitations: ['LLM semantic compact summary is bounded by public provider-visible context and deterministic restoration cards.'],
-      ...(nextAction !== undefined ? { nextAction } : {}),
+      nextAction: input.structuredSummary.nextAction,
     },
     ...(input.stateCards.length > 0 ? { stateCards: [...input.stateCards] } : {}),
     ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
@@ -637,7 +702,80 @@ function semanticSavingsRejectionReason(block: SemanticCompactBlock, policy: Sem
     ? block.estimatedTokensSavedSigned / block.preActiveContextEstimatedTokens
     : 0;
   if (savingsRatio < minSavingsRatio) return 'below_min_savings_ratio';
+  const minNetSavingsTokens = Math.max(0, Math.floor(policy.minNetSavingsTokens ?? minSavingsTokens));
+  if ((block.estimatedNetTokensSavedSigned ?? block.estimatedTokensSavedSigned) < minNetSavingsTokens) {
+    return 'below_min_net_savings_tokens';
+  }
   return undefined;
+}
+
+function estimateSemanticNetTokensSaved(block: SemanticCompactBlock, policy: SemanticCompactPolicy): number {
+  const compactCallTokens = block.compactCallUsage?.totalTokens ?? 0;
+  const weight = finiteNonNegativeNumber(policy.compactCallTokenCostWeight, DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT);
+  return block.estimatedTokensSavedSigned - Math.ceil(compactCallTokens * weight);
+}
+
+function semanticCompactBrakeReason(
+  policy: SemanticCompactPolicy,
+  state: SemanticCompactControllerState | undefined,
+  stepNumber: number,
+): string | undefined {
+  if (!state) return undefined;
+  if (state.suppressedUntilStep !== undefined) {
+    if (stepNumber <= state.suppressedUntilStep) return 'semantic_compact_cooldown';
+    delete state.suppressedUntilStep;
+    state.consecutiveInvalidSummaries = 0;
+    delete state.lastInvalidReason;
+  }
+  const maxConsecutiveInvalid = Math.floor(policy.maxConsecutiveInvalidSummaries ?? DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES);
+  if (maxConsecutiveInvalid > 0 && state.consecutiveInvalidSummaries >= maxConsecutiveInvalid) {
+    const cooldownSteps = Math.floor(policy.invalidSummaryCooldownSteps ?? DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS);
+    if (cooldownSteps > 0) {
+      state.suppressedUntilStep = Math.max(state.suppressedUntilStep ?? 0, stepNumber + cooldownSteps);
+      return 'semantic_compact_cooldown';
+    }
+  }
+  return undefined;
+}
+
+function recordCompactCall(
+  state: SemanticCompactControllerState | undefined,
+  usage: SemanticCompactBlock['compactCallUsage'] | undefined,
+): void {
+  if (!state) return;
+  state.compactCallCount += 1;
+  state.compactCallTotalTokens += usage?.totalTokens ?? 0;
+}
+
+function recordInvalidSummary(
+  state: SemanticCompactControllerState | undefined,
+  policy: SemanticCompactPolicy,
+  reason: string,
+  stepNumber: number,
+): void {
+  if (!state) return;
+  state.consecutiveInvalidSummaries += 1;
+  state.totalInvalidSummaries += 1;
+  state.lastInvalidReason = reason;
+  const maxConsecutiveInvalid = Math.floor(policy.maxConsecutiveInvalidSummaries ?? DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES);
+  const cooldownSteps = Math.floor(policy.invalidSummaryCooldownSteps ?? DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS);
+  if (maxConsecutiveInvalid > 0 && cooldownSteps > 0 && state.consecutiveInvalidSummaries >= maxConsecutiveInvalid) {
+    state.suppressedUntilStep = Math.max(state.suppressedUntilStep ?? 0, stepNumber + cooldownSteps);
+  }
+}
+
+function recordValidSummary(state: SemanticCompactControllerState | undefined): void {
+  if (!state) return;
+  state.consecutiveInvalidSummaries = 0;
+  delete state.lastInvalidReason;
+}
+
+function recordAcceptedSemanticCompact(
+  state: SemanticCompactControllerState | undefined,
+  block: SemanticCompactBlock,
+): void {
+  if (!state) return;
+  state.acceptedEstimatedTokensSaved += block.estimatedTokensSavedSigned;
 }
 
 function semanticCompactDecisionDiagnosticPatch(input: {
@@ -727,18 +865,144 @@ function selectedSourceText(
   return stableStringify(messages.slice(selection.startMessageIndex, selection.endMessageIndex + 1));
 }
 
-function normalizeSummaryText(text: string): string {
-  return text.trim().replace(/\n{4,}/g, '\n\n\n');
+function parseSemanticCompactSummary(text: string): {
+  ok: true;
+  summary: SemanticCompactStructuredSummary;
+} | {
+  ok: false;
+  reason: string;
+} {
+  const raw = text.trim();
+  if (!raw) return { ok: false, reason: 'summary_missing' };
+  const jsonText = extractJsonObjectText(raw);
+  if (jsonText) {
+    try {
+      const parsed = JSON.parse(jsonText);
+      const normalized = normalizeStructuredSummary(parsed);
+      if (normalized.ok) return normalized;
+      return { ok: false, reason: normalized.reason };
+    } catch {
+      return { ok: false, reason: 'summary_invalid_json' };
+    }
+  }
+  const legacy = parseLegacyLabeledSummary(raw);
+  if (legacy.ok) return legacy;
+  return { ok: false, reason: 'summary_invalid_json' };
 }
 
-function semanticSummaryContractRejectionReason(summaryText: string): string | undefined {
-  if (!extractSummaryField(summaryText, SUMMARY_FIELD_LABELS.objective)) {
-    return 'summary_missing_current_objective';
-  }
-  if (!extractSummaryField(summaryText, SUMMARY_FIELD_LABELS.nextAction)) {
-    return 'summary_missing_next_action';
-  }
+function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSummary): string {
+  return [
+    `current_objective: ${summary.currentObjective}`,
+    ...renderSummaryList('user_constraints', summary.userConstraints),
+    ...renderSummaryList('important_files_and_artifacts', summary.importantFilesAndArtifacts),
+    ...renderSummaryList('commands_and_results', summary.commandsAndResults),
+    ...renderSummaryList('errors_and_fixes', summary.errorsAndFixes),
+    ...renderSummaryList('failed_hypotheses', summary.failedHypotheses),
+    ...renderSummaryList('operational_state', summary.operationalState),
+    `public_verification_state: ${summary.publicVerificationState || 'No public verification state claimed.'}`,
+    ...renderSummaryList('remaining_work', summary.remainingWork),
+    `next_action: ${summary.nextAction}`,
+    ...renderSummaryList('archive_refs_to_reread_if_needed', summary.archiveRefsToRereadIfNeeded),
+  ].join('\n').trim();
+}
+
+function renderSummaryList(label: string, values: readonly string[]): string[] {
+  const clean = values.map(singleLine).filter(nonEmpty).slice(0, 8);
+  if (clean.length === 0) return [`${label}: none`];
+  if (clean.length === 1) return [`${label}: ${clean[0]}`];
+  return [`${label}:`, ...clean.map((value) => `- ${value}`)];
+}
+
+function extractJsonObjectText(raw: string): string | undefined {
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fence?.[1]?.trim() ?? raw;
+  if (candidate.startsWith('{') && candidate.endsWith('}')) return candidate;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start >= 0 && end > start) return candidate.slice(start, end + 1);
   return undefined;
+}
+
+function normalizeStructuredSummary(value: unknown): {
+  ok: true;
+  summary: SemanticCompactStructuredSummary;
+} | {
+  ok: false;
+  reason: string;
+} {
+  if (!isRecord(value)) return { ok: false, reason: 'summary_schema_invalid' };
+  const currentObjective = stringField(value, 'current_objective');
+  if (!currentObjective) return { ok: false, reason: 'summary_missing_current_objective' };
+  const nextAction = stringField(value, 'next_action');
+  if (!nextAction) return { ok: false, reason: 'summary_missing_next_action' };
+  return {
+    ok: true,
+    summary: {
+      currentObjective,
+      userConstraints: stringListField(value, 'user_constraints'),
+      importantFilesAndArtifacts: stringListField(value, 'important_files_and_artifacts'),
+      commandsAndResults: stringListField(value, 'commands_and_results'),
+      errorsAndFixes: stringListField(value, 'errors_and_fixes'),
+      failedHypotheses: stringListField(value, 'failed_hypotheses'),
+      operationalState: stringListField(value, 'operational_state'),
+      publicVerificationState: stringField(value, 'public_verification_state') ?? '',
+      remainingWork: stringListField(value, 'remaining_work'),
+      nextAction,
+      archiveRefsToRereadIfNeeded: stringListField(value, 'archive_refs_to_reread_if_needed'),
+    },
+  };
+}
+
+function parseLegacyLabeledSummary(raw: string): {
+  ok: true;
+  summary: SemanticCompactStructuredSummary;
+} | {
+  ok: false;
+  reason: string;
+} {
+  const currentObjective = extractSummaryField(raw, SUMMARY_FIELD_LABELS.objective);
+  if (!currentObjective) return { ok: false, reason: 'summary_missing_current_objective' };
+  const nextAction = extractSummaryField(raw, SUMMARY_FIELD_LABELS.nextAction);
+  if (!nextAction) return { ok: false, reason: 'summary_missing_next_action' };
+  return {
+    ok: true,
+    summary: {
+      currentObjective,
+      userConstraints: fieldListFromLegacy(raw, ['user_constraints', 'user constraints']),
+      importantFilesAndArtifacts: fieldListFromLegacy(raw, ['important_files_and_artifacts', 'important files and artifacts']),
+      commandsAndResults: fieldListFromLegacy(raw, ['commands_and_results', 'commands and results']),
+      errorsAndFixes: fieldListFromLegacy(raw, ['errors_and_fixes', 'errors and fixes']),
+      failedHypotheses: fieldListFromLegacy(raw, ['failed_hypotheses', 'failed hypotheses']),
+      operationalState: fieldListFromLegacy(raw, ['operational_state', 'operational state']),
+      publicVerificationState: extractSummaryField(raw, ['public_verification_state', 'public verification state']) ?? '',
+      remainingWork: fieldListFromLegacy(raw, ['remaining_work', 'remaining work']),
+      nextAction,
+      archiveRefsToRereadIfNeeded: fieldListFromLegacy(raw, ['archive_refs_to_reread_if_needed', 'archive refs to reread if needed']),
+    },
+  };
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  if (typeof field !== 'string') return undefined;
+  const trimmed = singleLine(field);
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function stringListField(value: Record<string, unknown>, key: string): string[] {
+  const field = value[key];
+  if (Array.isArray(field)) return field.map((item) => typeof item === 'string' ? singleLine(item) : '').filter(nonEmpty).slice(0, 8);
+  if (typeof field === 'string') {
+    const trimmed = singleLine(field);
+    return trimmed.length > 0 && trimmed.toLowerCase() !== 'none' ? [trimmed] : [];
+  }
+  return [];
+}
+
+function fieldListFromLegacy(raw: string, labels: readonly string[]): string[] {
+  const field = extractSummaryField(raw, labels);
+  if (!field || field.toLowerCase() === 'none') return [];
+  return field.split(/\n|;|\u2022/g).map((part) => singleLine(part.replace(/^-+\s*/, ''))).filter(nonEmpty).slice(0, 8);
 }
 
 function extractSummaryField(summaryText: string, labels: readonly string[]): string | undefined {
@@ -830,6 +1094,11 @@ function isArchiveRef(value: unknown): value is ActiveFullCompactArchiveRef {
 function finiteRatio(value: number | undefined, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback;
   return Math.max(0, Math.min(1, value));
+}
+
+function finiteNonNegativeNumber(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
+  return value;
 }
 
 function stableStringify(value: unknown): string {

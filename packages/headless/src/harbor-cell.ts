@@ -172,7 +172,11 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_BENCHMARK_STATE_CARDS',
@@ -799,10 +803,13 @@ export function buildHarborCellContextBudgetBackendOptions(
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
     );
     const minSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS']);
+    const minNetSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS']);
     const maxCompactCallTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
     );
+    const maxConsecutiveInvalidSummaries = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES']);
+    const invalidSummaryCooldownSteps = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS']);
     const timeoutMs = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS',
@@ -819,6 +826,7 @@ export function buildHarborCellContextBudgetBackendOptions(
     const forceRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_FORCE_RATIO);
     const targetRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_TARGET_RATIO);
     const minSavingsRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO);
+    const compactCallTokenCostWeight = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT);
     contextBudget.semanticCompact = {
       enabled: true,
       ...(mode ? { mode } : {}),
@@ -832,7 +840,11 @@ export function buildHarborCellContextBudgetBackendOptions(
       ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
       ...(minSavingsTokens !== undefined ? { minSavingsTokens } : {}),
       ...(minSavingsRatio !== undefined ? { minSavingsRatio } : {}),
+      ...(minNetSavingsTokens !== undefined ? { minNetSavingsTokens } : {}),
+      ...(compactCallTokenCostWeight !== undefined ? { compactCallTokenCostWeight } : {}),
       ...(maxCompactCallTokens !== undefined ? { maxCompactCallTokens } : {}),
+      ...(maxConsecutiveInvalidSummaries !== undefined ? { maxConsecutiveInvalidSummaries } : {}),
+      ...(invalidSummaryCooldownSteps !== undefined ? { invalidSummaryCooldownSteps } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(archiveRequired !== undefined ? { archiveRequired } : {}),
       ...(benchmarkStateCards !== undefined ? { benchmarkStateCards } : {}),
@@ -1005,8 +1017,20 @@ export function buildHarborCellContextBudgetPolicySnapshot(
             ...(contextBudget.semanticCompact.minSavingsRatio !== undefined
               ? { minSavingsRatio: contextBudget.semanticCompact.minSavingsRatio }
               : {}),
+            ...(contextBudget.semanticCompact.minNetSavingsTokens !== undefined
+              ? { minNetSavingsTokens: contextBudget.semanticCompact.minNetSavingsTokens }
+              : {}),
+            ...(contextBudget.semanticCompact.compactCallTokenCostWeight !== undefined
+              ? { compactCallTokenCostWeight: contextBudget.semanticCompact.compactCallTokenCostWeight }
+              : {}),
             ...(contextBudget.semanticCompact.maxCompactCallTokens !== undefined
               ? { maxCompactCallTokens: contextBudget.semanticCompact.maxCompactCallTokens }
+              : {}),
+            ...(contextBudget.semanticCompact.maxConsecutiveInvalidSummaries !== undefined
+              ? { maxConsecutiveInvalidSummaries: contextBudget.semanticCompact.maxConsecutiveInvalidSummaries }
+              : {}),
+            ...(contextBudget.semanticCompact.invalidSummaryCooldownSteps !== undefined
+              ? { invalidSummaryCooldownSteps: contextBudget.semanticCompact.invalidSummaryCooldownSteps }
               : {}),
             ...(contextBudget.semanticCompact.timeoutMs !== undefined
               ? { timeoutMs: contextBudget.semanticCompact.timeoutMs }

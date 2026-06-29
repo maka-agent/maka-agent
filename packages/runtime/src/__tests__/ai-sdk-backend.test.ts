@@ -2097,19 +2097,19 @@ describe('AiSdkBackend usage telemetry', () => {
       doGenerate: {
         content: [{
           type: 'text',
-          text: [
-            'current_objective: Finish the benchmark task.',
-            'user_constraints: Continue from public provider-visible context only.',
-            'important_files_and_artifacts: none',
-            'commands_and_results: Read returned a large raw tool output.',
-            'errors_and_fixes: none',
-            'failed_hypotheses: none',
-            'operational_state: Continue in the same session.',
-            'public_verification_state: No verifier result claimed.',
-            'remaining_work: Continue after compact.',
-            'next_action: Use the preserved recent tail to continue.',
-            'archive_refs_to_reread_if_needed: none',
-          ].join('\n'),
+          text: JSON.stringify({
+            current_objective: 'Finish the benchmark task.',
+            user_constraints: ['Continue from public provider-visible context only.'],
+            important_files_and_artifacts: [],
+            commands_and_results: ['Read returned a large raw tool output.'],
+            errors_and_fixes: [],
+            failed_hypotheses: [],
+            operational_state: ['Continue in the same session.'],
+            public_verification_state: 'No verifier result claimed.',
+            remaining_work: ['Continue after compact.'],
+            next_action: 'Use the preserved recent tail to continue.',
+            archive_refs_to_reread_if_needed: [],
+          }),
         }],
         finishReason: { unified: 'stop', raw: 'stop' },
         usage: {

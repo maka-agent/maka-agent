@@ -619,8 +619,20 @@ function validateSemanticCompactSnapshot(value: unknown): NonNullable<ContextBud
     ...(optionalNumber(value.minSavingsRatio, 'contextBudgetPolicy.semanticCompact.minSavingsRatio') !== undefined
       ? { minSavingsRatio: optionalNumber(value.minSavingsRatio, 'contextBudgetPolicy.semanticCompact.minSavingsRatio') }
       : {}),
+    ...(optionalNumber(value.minNetSavingsTokens, 'contextBudgetPolicy.semanticCompact.minNetSavingsTokens') !== undefined
+      ? { minNetSavingsTokens: optionalNumber(value.minNetSavingsTokens, 'contextBudgetPolicy.semanticCompact.minNetSavingsTokens') }
+      : {}),
+    ...(optionalNumber(value.compactCallTokenCostWeight, 'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight') !== undefined
+      ? { compactCallTokenCostWeight: optionalNumber(value.compactCallTokenCostWeight, 'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight') }
+      : {}),
     ...(optionalNumber(value.maxCompactCallTokens, 'contextBudgetPolicy.semanticCompact.maxCompactCallTokens') !== undefined
       ? { maxCompactCallTokens: optionalNumber(value.maxCompactCallTokens, 'contextBudgetPolicy.semanticCompact.maxCompactCallTokens') }
+      : {}),
+    ...(optionalNumber(value.maxConsecutiveInvalidSummaries, 'contextBudgetPolicy.semanticCompact.maxConsecutiveInvalidSummaries') !== undefined
+      ? { maxConsecutiveInvalidSummaries: optionalNumber(value.maxConsecutiveInvalidSummaries, 'contextBudgetPolicy.semanticCompact.maxConsecutiveInvalidSummaries') }
+      : {}),
+    ...(optionalNumber(value.invalidSummaryCooldownSteps, 'contextBudgetPolicy.semanticCompact.invalidSummaryCooldownSteps') !== undefined
+      ? { invalidSummaryCooldownSteps: optionalNumber(value.invalidSummaryCooldownSteps, 'contextBudgetPolicy.semanticCompact.invalidSummaryCooldownSteps') }
       : {}),
     ...(optionalNumber(value.timeoutMs, 'contextBudgetPolicy.semanticCompact.timeoutMs') !== undefined
       ? { timeoutMs: optionalNumber(value.timeoutMs, 'contextBudgetPolicy.semanticCompact.timeoutMs') }

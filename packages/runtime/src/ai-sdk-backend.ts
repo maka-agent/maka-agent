@@ -105,6 +105,7 @@ import {
 import {
   rewriteSemanticCompactInMessages,
   type SemanticCompactBlock,
+  type SemanticCompactControllerState,
 } from './semantic-compact.js';
 import {
   compactionDecisionDiagnosticPatch,
@@ -1466,6 +1467,13 @@ export class AiSdkBackend implements AgentBackend {
     if (policy?.enabled !== true || policy.mode === 'off') return undefined;
 
     let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
+    const controllerState: SemanticCompactControllerState = {
+      consecutiveInvalidSummaries: 0,
+      totalInvalidSummaries: 0,
+      compactCallCount: 0,
+      compactCallTotalTokens: 0,
+      acceptedEstimatedTokensSaved: 0,
+    };
     return async (options) => {
       const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] }).activeTools;
       const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
@@ -1487,6 +1495,7 @@ export class AiSdkBackend implements AgentBackend {
         turnId,
         messages: messagesForRewrite,
         policy,
+        controllerState,
         runtimeEvents: runtimeEvents?.filter((event) => event.turnId === turnId),
         stepNumber: options.stepNumber,
         now: this.now(),
