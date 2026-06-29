@@ -76,24 +76,9 @@
    styles/tool-stream.css), and the separate `.maka-load-tool-*` result card —
    moved onto the `@maka/ui` `previewVariants` literalize table (issue #332 PR4 —
    packages/ui/src/primitives/chat.tsx). The card-entrance `@keyframes
-   maka-tool-card-enter` moved to maka-tokens.css (canonical motion home). The
-   `.maka-tool-error-copy` copy-state rules below are the PR3c error banner's
-   residue and stay; `.maka-tool-diff*` co-migrated for apps/desktop's non-chat
-   artifact-preview.tsx too, so nothing here renders a result preview anymore. */
-
-.maka-tool-error-copy[data-pending="true"] {
-  cursor: progress;
-}
-
-.maka-tool-error-copy[data-copy-feedback="copied"] {
-  color: var(--accent);
-  border-color: oklch(from var(--accent) l c h / 0.35);
-}
-
-.maka-tool-error-copy[data-copy-feedback="failed"] {
-  color: var(--destructive);
-  border-color: oklch(from var(--destructive) l c h / 0.35);
-}
+   maka-tool-card-enter` moved to maka-tokens.css (canonical motion home).
+   `.maka-tool-diff*` co-migrated for apps/desktop's non-chat artifact-preview.tsx
+   too, so nothing here renders a result preview anymore. */
 
 .composer {
   flex: 0 0 auto;

@@ -552,22 +552,39 @@ describe('tool error copy feedback contract', () => {
   });
 
   it('styles tool-error copy pending and failure states', async () => {
-    const src = await readRendererContractCss();
+    // `.maka-tool-error-copy[…]` retired onto the `@maka/ui` Alert primitive
+    // (issue #332 PR3c): the pending / copy-feedback chrome — which lived UNLAYERED
+    // in tool-output.css so it out-ranked the ghost button — now lives as literal
+    // arbitrary utilities inlined on the copy button's `className`. We slice the
+    // `ToolErrorBanner` block and require the utilities to appear on an actual
+    // `className="maka-button …"` so the assertion proves BOTH that the state
+    // utilities exist AND that the banner's copy button wears them — a whole-file
+    // scan would false-pass if the string drifted to another component. These are
+    // arbitrary-value utilities (source == computed), so this source contract is the
+    // proof; the computed-style harness only re-diffs the non-trivial container box.
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const src = await readFile(componentsPath, 'utf8');
+    const block = src.match(/function ToolErrorBanner[\s\S]*?export function OverlayHost/)?.[0] ?? '';
 
     assert.match(
-      src,
-      /\.maka-tool-error-copy\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/,
+      block,
+      /className="maka-button \[align-self:start\] data-\[pending=true\]:cursor-progress/,
+      'The tool-error copy button must wear the leaf state utilities inline on its className.',
+    );
+    assert.match(
+      block,
+      /data-\[pending=true\]:cursor-progress/,
       'Tool-error pending copy should visibly indicate in-progress work.',
     );
     assert.match(
-      src,
-      /\.maka-tool-error-copy\[data-copy-feedback="copied"\]/,
-      'Tool-error copied state should have a stable CSS selector.',
+      block,
+      /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\] data-\[copy-feedback=copied\]:border-\[oklch\(from_var\(--accent\)_l_c_h_\/_0\.35\)\]/,
+      'Tool-error copied state should have a stable color + border styling hook.',
     );
     assert.match(
-      src,
-      /\.maka-tool-error-copy\[data-copy-feedback="failed"\]/,
-      'Tool-error failed copy state should have a stable CSS selector.',
+      block,
+      /data-\[copy-feedback=failed\]:text-\[color:var\(--destructive\)\] data-\[copy-feedback=failed\]:border-\[oklch\(from_var\(--destructive\)_l_c_h_\/_0\.35\)\]/,
+      'Tool-error failed copy state should have a stable color + border styling hook.',
     );
   });
 });

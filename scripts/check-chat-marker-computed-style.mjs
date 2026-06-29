@@ -85,6 +85,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { buttonVariants, cn } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/ui.js')).href);
 const { markerVariants, streamVariants, toolVariants } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/chat.js')).href);
+const { Alert, AlertTitle, AlertDescription, AlertAction } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/alert.js')).href);
 
 const mainCssPath = process.argv[2] && resolve(process.argv[2]);
 const headCssPath = process.argv[3] && resolve(process.argv[3]);
@@ -206,6 +207,36 @@ const toolCardSection = (el) => {
     + STAT.map(card).join('\n'));
 };
 
+// PR3c — the tool-error banner CONTAINER. The ONE thing this harness uniquely proves
+// is that the retired `.maka-tool-error` CONTAINER declarations were INERT:
+// `.maka-tool-error*` sat in `@layer components` while Alert's slot utilities sit in
+// `@layer utilities` (which win regardless of specificity), so its bespoke 18px grid /
+// 10px radius / padding / border / background never rendered. The main side (real Alert
+// error class + `.maka-tool-error`) and the head side (same Alert class + `mb-[10px]`)
+// must therefore compute identically; a wrongly-surviving `.maka-tool-error`
+// declaration would surface as a real DIFF here, not a false green. The Alert slot
+// classes come from CALLING the real primitive components — single source of truth, no
+// hand-copy, no production-API change (a function component is a plain function, so
+// `.props.className` is exactly what it renders). The description / copy-button LEAF
+// utilities are NOT re-diffed here: they are arbitrary-value Tailwind (source ==
+// computed by construction) pinned by visible-copy-hygiene-contract instead.
+const ALERT_ERR = Alert({ variant: 'error' }).props.className;
+const ALERT_DESC = AlertDescription({}).props.className;
+const ALERT_ACTION = AlertAction({}).props.className;
+const ALERT_TITLE = AlertTitle({}).props.className;
+const errorBanner = (el) => {
+  const cont = pair(cn(ALERT_ERR, 'maka-tool-error'), cn(ALERT_ERR, 'mb-[10px]'));
+  // The svg + title / description / action slot children carry their real Alert slot
+  // classes only so Alert's `has-[>svg]:has-data-[slot=alert-action]` 3-col grid
+  // resolves on the container exactly as in production; only `err-banner` is diffed.
+  return el('div', 'err-banner', cont, 'data-slot="alert" role="alert"',
+      '<svg width="16" height="16" aria-hidden="true"></svg>'
+      + el('div', 'err-title', pair(ALERT_TITLE, ALERT_TITLE), 'data-slot="alert-title"', '工具调用失败')
+      + el('div', 'err-text', pair(ALERT_DESC, ALERT_DESC), 'data-slot="alert-description"', 'boom: command not found')
+      + el('div', 'err-action', pair(ALERT_ACTION, ALERT_ACTION), 'data-slot="alert-action"',
+          el('button', 'err-copy', pair(bv('ghost', 'sm'), bv('ghost', 'sm')), 'type="button"', '<svg width="11" height="11"></svg><span>复制</span>')));
+};
+
 // DOM tree mirroring TurnView nesting.
 const TREE = (side) => {
   const C = (p) => p[side];
@@ -251,6 +282,8 @@ const TREE = (side) => {
     streamPanel(el, 'stream-live', 'data-live="true"'),
     // The PR3b tool-activity card shell.
     toolCardSection(el),
+    // The PR3c tool-error banner (Alert primitive).
+    errorBanner(el),
   ].join('\n');
 };
 
@@ -272,7 +305,12 @@ const IDS = ['summary', 'summary-chip-1', 'summary-chip-2', 'summary-chip-tools'
   'tool-summary-collapsed', 'tool-name-collapsed', 'tool-body-collapsed',
   // …and every static dot, EXCEPT running's (its `maka-tool-pulse` ring is
   // animated → phase-dependent `getComputedStyle`; pinned by the keyframe contract).
-  ...STAT.filter((s) => s !== 'running').map((s) => `tool-dot-${s}`)];
+  ...STAT.filter((s) => s !== 'running').map((s) => `tool-dot-${s}`),
+  // PR3c tool-error banner: the CONTAINER box only — proves `.maka-tool-error` was
+  // inert (shadowed by Alert's `@layer utilities`). The description / copy-button leaf
+  // utilities are arbitrary-value (source == computed) and pinned by
+  // visible-copy-hygiene-contract, so they are not re-diffed here.
+  'err-banner'];
 // `::before` middot separators are now diffed for real (they render once the
 // CSS is inlined — the old `<link>` build couldn't apply them, masking this).
 // summary-chip-2 is a non-first chip (`[&:not(:first-child)]:before:…`);

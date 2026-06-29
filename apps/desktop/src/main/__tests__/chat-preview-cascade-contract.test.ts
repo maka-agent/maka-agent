@@ -52,7 +52,6 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
   it('leaves adjacent out-of-scope surfaces untouched', async () => {
     const css = stripCssComments(await readAllRendererCss());
     for (const kept of [
-      '.maka-tool-error', // PR3c error banner + its copy-state residue
       '.maka-code', // shared inline-code base (Markdown / args / previews)
       '.maka-message-row', // PR1 message row
       '.composer', // out of scope — the next component
