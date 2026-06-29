@@ -47,7 +47,7 @@ import {
 } from './rsi-controller-attribution.js';
 import {
   assertCandidateMatchesStableTaskSet,
-  assertPromptRepoMatchesReplayState,
+  reconcilePromptRepoWithReplayState,
   assertReplayedDecisionMatchesResult,
   buildPromptOptimizationReplayPlan,
   replayStateHasRecoverablePendingCandidateEvidence,
@@ -198,7 +198,7 @@ export async function runPromptOptimizationLoop(
     strictRoundState: true,
   });
   const replayState = replayPlan.state;
-  await assertPromptRepoMatchesReplayState({
+  await reconcilePromptRepoWithReplayState({
     gitRootPath: input.git.gitRootPath,
     expectedHead: replayState.expectedPromptRepoHead,
     programPath: input.programPath,

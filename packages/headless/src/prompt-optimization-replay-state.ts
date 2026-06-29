@@ -27,7 +27,7 @@ export interface PromptOptimizationReplayPlan {
   historicalBaselineEvidenceRequired: boolean;
 }
 
-export async function assertPromptRepoMatchesReplayState(input: {
+export async function reconcilePromptRepoWithReplayState(input: {
   gitRootPath: string;
   expectedHead: string;
   programPath: string;

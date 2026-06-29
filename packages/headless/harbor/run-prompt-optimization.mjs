@@ -39,7 +39,7 @@ import {
   smokeExitCode,
 } from '#headless-run-env';
 import {
-  assertPromptOptimizationResumeSupported,
+  preparePromptOptimizationResume,
   ensurePromptOptimizationPromptRepo,
 } from '#prompt-optimization-bootstrap';
 import {
@@ -323,7 +323,7 @@ async function main() {
     program: PROGRAM,
     systemPrompt: `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`,
   });
-  await assertPromptOptimizationResumeSupported({ promptRepoDir, resultsJsonlPath });
+  await preparePromptOptimizationResume({ promptRepoDir, resultsJsonlPath });
 
   const connection = {
     slug: provider,

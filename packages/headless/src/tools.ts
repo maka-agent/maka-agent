@@ -118,6 +118,8 @@ export function buildIsolatedBashTool(
 }
 
 function cleanupCommandTimeoutMs(command: string): number | undefined {
+  // Existing Harbor cleanup can exceed the default in large gcov tasks. Keep the
+  // match exact so only the known generated cleanup command gets the allowance.
   return command === 'rm -f *.gcda *.gcno *.gcov' ? 120_000 : undefined;
 }
 

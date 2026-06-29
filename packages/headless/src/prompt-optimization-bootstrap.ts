@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { readFixedPromptWal } from './fixed-prompt-controller.js';
 import {
-  assertPromptRepoMatchesReplayState,
+  reconcilePromptRepoWithReplayState,
   derivePromptOptimizationReplayState,
   replayStateHasRecoverablePendingCandidateEvidence,
 } from './prompt-optimization-replay.js';
@@ -48,7 +48,7 @@ export async function ensurePromptOptimizationPromptRepo(
   return { agentCwdPath, programPath, systemPromptPath };
 }
 
-export async function assertPromptOptimizationResumeSupported(input: {
+export async function preparePromptOptimizationResume(input: {
   promptRepoDir: string;
   resultsJsonlPath: string;
 }): Promise<void> {
@@ -57,7 +57,7 @@ export async function assertPromptOptimizationResumeSupported(input: {
     events,
     promptRepoDir: input.promptRepoDir,
   });
-  await assertPromptRepoMatchesReplayState({
+  await reconcilePromptRepoWithReplayState({
     gitRootPath: input.promptRepoDir,
     expectedHead: replayState.expectedPromptRepoHead,
     programPath: join(input.promptRepoDir, 'program.md'),

@@ -1,6 +1,6 @@
 export {
   assertCandidateMatchesStableTaskSet,
-  assertPromptRepoMatchesReplayState,
+  reconcilePromptRepoWithReplayState,
   buildPromptOptimizationReplayPlan,
   derivePromptOptimizationReplayState,
   replayStateHasRecoverablePendingCandidateEvidence,

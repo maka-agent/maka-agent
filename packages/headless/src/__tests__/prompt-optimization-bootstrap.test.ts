@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import {
-  assertPromptOptimizationResumeSupported,
+  preparePromptOptimizationResume,
   ensurePromptOptimizationPromptRepo,
 } from '../prompt-optimization-bootstrap.js';
 
@@ -121,7 +121,7 @@ describe('ensurePromptOptimizationPromptRepo', () => {
 
       await assert.doesNotReject(ensurePromptOptimizationPromptRepo(input));
       await assert.doesNotReject(
-        assertPromptOptimizationResumeSupported({ promptRepoDir, resultsJsonlPath }),
+        preparePromptOptimizationResume({ promptRepoDir, resultsJsonlPath }),
       );
     });
   });
@@ -163,7 +163,7 @@ describe('ensurePromptOptimizationPromptRepo', () => {
       })}\n`, 'utf8');
 
       await assert.rejects(
-        assertPromptOptimizationResumeSupported({ promptRepoDir, resultsJsonlPath }),
+        preparePromptOptimizationResume({ promptRepoDir, resultsJsonlPath }),
         /prompt repo HEAD does not match resumed RSI WAL state/,
       );
     });
@@ -231,7 +231,7 @@ describe('ensurePromptOptimizationPromptRepo', () => {
       await git(promptRepoDir, 'reset', '--hard', seedSha);
 
       await assert.doesNotReject(
-        assertPromptOptimizationResumeSupported({ promptRepoDir, resultsJsonlPath }),
+        preparePromptOptimizationResume({ promptRepoDir, resultsJsonlPath }),
       );
       assert.equal(await gitOutput(promptRepoDir, 'rev-parse', 'HEAD'), candidateSha);
     });
@@ -268,7 +268,7 @@ describe('ensurePromptOptimizationPromptRepo', () => {
       })}\n{"schemaVersion":`, 'utf8');
 
       await assert.doesNotReject(
-        assertPromptOptimizationResumeSupported({ promptRepoDir, resultsJsonlPath }),
+        preparePromptOptimizationResume({ promptRepoDir, resultsJsonlPath }),
       );
     });
   });
