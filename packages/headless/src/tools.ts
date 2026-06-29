@@ -85,7 +85,7 @@ export function buildIsolatedBashTool(
       const input = {
         command,
         cwd,
-        timeoutMs: timeout_ms ?? 120_000,
+        ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
       };
       // boundedTail: Bash is the one caller that wants a recoverable tail of a
       // huge, never-killed output. Read/Glob/Grep deliberately omit it so they
@@ -93,7 +93,7 @@ export function buildIsolatedBashTool(
       const result = await executor.exec({
         command: input.command,
         cwd: input.cwd,
-        timeoutMs: input.timeoutMs,
+        ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
         boundedTail: true,
       });
       // The isolated executor returns a single (already tail-bounded) result —

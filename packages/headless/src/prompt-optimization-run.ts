@@ -146,6 +146,9 @@ export interface PromptOptimizationRunInput {
   jobsDir: string;
   harborBin?: string;
   agentEnv?: Record<string, string>;
+  harborTimeoutMs?: number;
+  resumeFingerprint?: string;
+  runtimeProfile?: PromptOptimizationRuntimeProfile;
 
   rewardHackVerifierPatternsByTaskId: Readonly<Record<string, readonly string[]>>;
 
@@ -163,6 +166,50 @@ export interface PromptOptimizationRunInput {
   newId?: () => string;
 }
 
+export interface PromptOptimizationRuntimeProfile {
+  taskBudgetSec?: number;
+  commandTimeoutMs?: number;
+  continuation?: PromptOptimizationContinuationProfile;
+}
+
+export interface PromptOptimizationContinuationProfile {
+  enabled: boolean;
+  maxTurns?: number;
+  maxTotalRuntimeSteps?: number;
+  prompt?: string;
+}
+
+export function buildPromptOptimizationTaskAgentEnv(
+  baseAgentEnv: Record<string, string> | undefined,
+  task: FixedPromptTask,
+  profile: PromptOptimizationRuntimeProfile | undefined,
+): Record<string, string> {
+  const env = { ...(baseAgentEnv ?? {}) };
+  if (profile?.taskBudgetSec !== undefined) {
+    const taskTimeoutSec = task.metadata?.agentTimeoutSec;
+    const timeoutSec = taskTimeoutSec !== undefined
+      ? Math.min(taskTimeoutSec, profile.taskBudgetSec)
+      : profile.taskBudgetSec;
+    env.MAKA_CELL_TIMEOUT_SEC = String(timeoutSec);
+  }
+  if (profile?.commandTimeoutMs !== undefined) {
+    env.MAKA_CELL_COMMAND_TIMEOUT_MS = String(profile.commandTimeoutMs);
+  }
+  if (profile?.continuation) {
+    env.MAKA_HARBOR_CONTINUATION = profile.continuation.enabled ? 'on' : 'off';
+    if (profile.continuation.maxTurns !== undefined) {
+      env.MAKA_HARBOR_CONTINUATION_MAX_TURNS = String(profile.continuation.maxTurns);
+    }
+    if (profile.continuation.maxTotalRuntimeSteps !== undefined) {
+      env.MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS = String(profile.continuation.maxTotalRuntimeSteps);
+    }
+    if (profile.continuation.prompt !== undefined) {
+      env.MAKA_HARBOR_CONTINUATION_PROMPT = profile.continuation.prompt;
+    }
+  }
+  return env;
+}
+
 export async function runPromptOptimizationRun(
   input: PromptOptimizationRunInput,
 ): Promise<PromptOptimizationRunResult> {
@@ -170,7 +217,7 @@ export async function runPromptOptimizationRun(
 
   const modelId = resolvePromptOptimizationModelId(input.model, input.provider);
 
-  const harborRunner = input.harborRunner ?? createHarborTaskRunner({
+  const baseHarborRunner = input.harborRunner ?? createHarborTaskRunner({
     makaRepoPath: input.makaRepoPath,
     jobsDir: input.jobsDir,
     model: input.model,
@@ -179,6 +226,14 @@ export async function runPromptOptimizationRun(
     pricing: input.pricing,
     ...(input.harborBin ? { harborBin: input.harborBin } : {}),
     ...(input.agentEnv ? { agentEnv: input.agentEnv } : {}),
+    ...(input.harborTimeoutMs !== undefined ? { harborTimeoutMs: input.harborTimeoutMs } : {}),
+  });
+  const harborRunner: HarborTaskRunner = async (runInput) => baseHarborRunner({
+    ...runInput,
+    agentEnv: {
+      ...buildPromptOptimizationTaskAgentEnv(input.agentEnv, runInput.task, input.runtimeProfile),
+      ...(runInput.agentEnv ?? {}),
+    },
   });
 
   const metaAgent = input.metaAgent ?? createAiSdkMetaAgent({
@@ -219,6 +274,7 @@ export async function runPromptOptimizationRun(
     git,
     originalCommitSha,
     rewardHackVerifierPatternsByTaskId: input.rewardHackVerifierPatternsByTaskId,
+    ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
     ...(input.maxInfraFailureRate !== undefined ? { maxInfraFailureRate: input.maxInfraFailureRate } : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),

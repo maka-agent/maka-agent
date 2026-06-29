@@ -14,7 +14,8 @@
 // Full run: drop the count/round overrides (defaults 60/20, 3 baseline, 10 rounds).
 
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +41,7 @@ import {
   resolveMinStable,
   smokeExitCode,
 } from '#headless-run-env';
+import { ensureAbRunManifest } from '#ab-manifest';
 
 const execFileAsync = promisify(execFile);
 
@@ -89,6 +91,26 @@ const envInt = (name, fallback) => envNonNegativeInt(name, process.env[name], fa
 const envPosInt = (name, fallback) => envPositiveInt(name, process.env[name], fallback);
 const envNum = (name, fallback) => envFinitePositiveNumber(name, process.env[name], fallback);
 const envRatioOf = (name, fallback) => envRatio(name, process.env[name], fallback);
+const envBool = (name, fallback) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  switch (raw.trim().toLowerCase()) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+    case 'enabled':
+      return true;
+    case '0':
+    case 'false':
+    case 'no':
+    case 'off':
+    case 'disabled':
+      return false;
+    default:
+      throw new Error(`${name} must be a boolean, got ${JSON.stringify(raw)}`);
+  }
+};
 
 // Comma-separated explicit task ids (controlled smokes). Empty -> undefined.
 function envIds(name) {
@@ -111,6 +133,148 @@ function selectTasksByIds(allTasks, ids) {
 
 async function git(cwd, ...args) {
   await execFileAsync('git', args, { cwd });
+}
+
+async function gitOutput(cwd, ...args) {
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024,
+  });
+  return stdout.trimEnd();
+}
+
+function hashPayload(payload) {
+  return `sha256:${createHash('sha256').update(canonicalJson(payload)).digest('hex')}`;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function buildPromptOptimizationRunManifest(input) {
+  const manifestWithoutFingerprint = {
+    schemaVersion: 'maka.prompt_optimization.run_manifest.v1',
+    runId: input.runId,
+    provider: input.provider,
+    baseUrl: input.baseUrl,
+    model: input.model,
+    rounds: input.rounds,
+    baselineRuns: input.baselineRuns,
+    costCeilingUsd: input.costCeilingUsd,
+    maxConcurrency: input.maxConcurrency ?? null,
+    maxInfraFailureRate: input.maxInfraFailureRate ?? null,
+    maxStableTaskDurationMs: input.maxStableTaskDurationMs ?? null,
+    minStableRatio: input.minStableRatio,
+    minStableHeldInTasks: input.minStableHeldInTasks,
+    minStableHeldOutTasks: input.minStableHeldOutTasks,
+    runtimeProfile: input.runtimeProfile,
+    subjectFingerprint: input.subjectFingerprint,
+    taskSourceFingerprint: input.taskSourceFingerprint,
+    toolchainFingerprint: input.toolchainFingerprint,
+    heldInTaskIds: input.heldInTasks.map((task) => task.id),
+    heldOutTaskIds: input.heldOutTasks.map((task) => task.id),
+    droppedHeldInNoPatternTaskIds: input.heldInNoPattern.map((task) => task.id),
+    heldOutNoPatternTaskIds: input.heldOutNoPattern.map((task) => task.id),
+  };
+  return {
+    ...manifestWithoutFingerprint,
+    fingerprint: hashPayload(manifestWithoutFingerprint),
+  };
+}
+
+async function buildSubjectFingerprint(repoPath) {
+  const [gitRoot, head, status] = await Promise.all([
+    gitOutput(repoPath, 'rev-parse', '--show-toplevel'),
+    gitOutput(repoPath, 'rev-parse', 'HEAD'),
+    gitOutput(repoPath, 'status', '--porcelain=v1', '--untracked-files=normal'),
+  ]);
+  return hashPayload({
+    kind: 'prompt-optimization-subject',
+    repoPath: resolve(repoPath),
+    gitRoot: resolve(gitRoot),
+    head,
+    dirty: status.length > 0,
+    statusHash: hashPayload({ status }),
+  });
+}
+
+async function buildToolchainFingerprint(repoRoot) {
+  return hashPayload({
+    kind: 'prompt-optimization-toolchain',
+    node: process.version,
+    packageLockHash: await hashOptionalFile(join(repoRoot, 'package-lock.json')),
+    headlessPackageHash: await hashOptionalFile(join(repoRoot, 'packages/headless/package.json')),
+  });
+}
+
+function buildTaskSourceFingerprint(tasksRoot, heldInTasks, heldOutTasks) {
+  const taskPayload = (task) => ({
+    id: task.id,
+    path: resolve(task.path),
+    metadata: task.metadata ?? null,
+  });
+  return hashPayload({
+    kind: 'prompt-optimization-task-source',
+    tasksRoot: resolve(tasksRoot),
+    heldInTasks: heldInTasks.map(taskPayload),
+    heldOutTasks: heldOutTasks.map(taskPayload),
+  });
+}
+
+async function hashOptionalFile(path) {
+  try {
+    return hashPayload({ bytes: await readFile(path, 'utf8') });
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function ensurePromptOptimizationRunManifest(path, manifest, runRoot) {
+  if (!(await pathExists(path))) {
+    const legacyArtifacts = [
+      join(runRoot, 'controller', 'results.jsonl'),
+      join(runRoot, 'prompt-repo'),
+    ];
+    const existing = [];
+    for (const artifactPath of legacyArtifacts) {
+      if (await pathExists(artifactPath)) existing.push(artifactPath);
+    }
+    if (existing.length > 0) {
+      throw new Error(
+        `prompt optimization run root already has artifacts but no prompt-optimization-manifest.json: ${existing.join(', ')}. Use a new MAKA_PROMPT_RUN_ID or move the legacy artifacts aside.`,
+      );
+    }
+  }
+  try {
+    return await ensureAbRunManifest(path, manifest);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('A/B run manifest does not match existing run id:')) {
+      throw new Error(error.message.replace(
+        'A/B run manifest does not match existing run id:',
+        'prompt optimization run manifest does not match existing run id:',
+      ));
+    }
+    throw error;
+  }
 }
 
 async function main() {
@@ -148,6 +312,32 @@ async function main() {
   const maxConcurrency = envPosInt('MAKA_PROMPT_MAX_CONCURRENCY', undefined);
   const maxInfraFailureRate = envRatioOf('MAKA_PROMPT_MAX_INFRA_FAILURE_RATE', undefined);
   const maxStableTaskDurationMs = envNum('MAKA_PROMPT_MAX_STABLE_TASK_MS', undefined);
+  const taskBudgetSec = envPosInt('MAKA_PROMPT_TASK_BUDGET_SEC', 30 * 60);
+  const harborTimeoutMs = envPosInt('MAKA_PROMPT_HARBOR_TIMEOUT_MS', (taskBudgetSec + 300) * 1000);
+  const commandTimeoutMs = envPosInt('MAKA_CELL_COMMAND_TIMEOUT_MS', 300_000);
+  const continuationEnabled = envBool('MAKA_HARBOR_CONTINUATION', true);
+  const continuationMaxTurns = envPosInt('MAKA_HARBOR_CONTINUATION_MAX_TURNS', 3);
+  const continuationMaxTotalRuntimeSteps = envPosInt(
+    'MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS',
+    continuationMaxTurns * 50,
+  );
+  const runtimeProfile = {
+    taskBudgetSec,
+    harborTimeoutMs,
+    commandTimeoutMs,
+    runtimeEnvKeys: [
+      'MAKA_CELL_TIMEOUT_SEC',
+      'MAKA_CELL_COMMAND_TIMEOUT_MS',
+      'MAKA_HARBOR_CONTINUATION',
+      'MAKA_HARBOR_CONTINUATION_MAX_TURNS',
+      'MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS',
+    ],
+    continuation: {
+      enabled: continuationEnabled,
+      maxTurns: continuationMaxTurns,
+      maxTotalRuntimeSteps: continuationMaxTotalRuntimeSteps,
+    },
+  };
   // Min-stable floors scale with the actual post-drop partition sizes; resolved
   // below once the no-canary drop has settled heldInTasks/heldOutTasks.
   const minStableRatio = envRatioOf('MAKA_PROMPT_MIN_STABLE_RATIO', 0.5);
@@ -209,6 +399,37 @@ async function main() {
     'MAKA_PROMPT_MIN_STABLE_HELD_OUT', heldOutTasks.length, process.env.MAKA_PROMPT_MIN_STABLE_HELD_OUT, minStableRatio);
   console.log(`Min-stable floors: held-in ${minStableHeldInTasks}/${heldInTasks.length}, held-out ${minStableHeldOutTasks}/${heldOutTasks.length}`);
 
+  const manifestPath = join(runRoot, 'prompt-optimization-manifest.json');
+  const runManifest = await ensurePromptOptimizationRunManifest(
+    manifestPath,
+    buildPromptOptimizationRunManifest({
+      runId,
+      provider,
+      baseUrl,
+      model,
+      rounds,
+      baselineRuns,
+      costCeilingUsd,
+      maxConcurrency,
+      maxInfraFailureRate,
+      maxStableTaskDurationMs,
+      minStableRatio,
+      minStableHeldInTasks,
+      minStableHeldOutTasks,
+      runtimeProfile,
+      subjectFingerprint: await buildSubjectFingerprint(makaRepoPath),
+      taskSourceFingerprint: buildTaskSourceFingerprint(tasksRoot, heldInTasks, heldOutTasks),
+      toolchainFingerprint: await buildToolchainFingerprint(repoRoot),
+      heldInTasks,
+      heldOutTasks,
+      heldInNoPattern,
+      heldOutNoPattern,
+    }),
+    runRoot,
+  );
+  console.log(`Run manifest: ${runManifest.fingerprint}`);
+  console.log(`Runtime profile: taskBudget=${taskBudgetSec}s, harborTimeout=${harborTimeoutMs}ms, commandTimeout=${commandTimeoutMs}ms, continuation=${continuationEnabled ? 'on' : 'off'} (${continuationMaxTurns} turn(s))`);
+
   // Prompt repo: program.md + system_prompt.md committed; agent-cwd/ is the empty
   // isolation root; controller artifacts live OUTSIDE it.
   const promptRepoDir = join(runRoot, 'prompt-repo');
@@ -261,6 +482,9 @@ async function main() {
     makaRepoPath,
     jobsDir,
     agentEnv: { DEEPSEEK_BASE_URL: baseUrl },
+    harborTimeoutMs,
+    resumeFingerprint: runManifest.fingerprint,
+    runtimeProfile,
     rewardHackVerifierPatternsByTaskId,
     minStableHeldInTasks,
     minStableHeldOutTasks,

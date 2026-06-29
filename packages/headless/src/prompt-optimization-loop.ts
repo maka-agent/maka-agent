@@ -121,6 +121,8 @@ export interface PromptOptimizationLoopInput {
   maxInfraFailureRate?: number;
   /** Per-sweep harbor concurrency (default 1). */
   maxConcurrency?: number;
+  /** Stable run-identity fingerprint for WAL resume safety. */
+  resumeFingerprint?: string;
 
   now?: () => number;
   newId?: () => string;
@@ -206,6 +208,7 @@ export async function runPromptOptimizationLoop(
     resultsTsvPath,
     tasks,
     harborRunner: input.harborRunner,
+    ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
     now,
     newId,

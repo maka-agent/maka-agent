@@ -16,6 +16,7 @@
     "#headless-run-env": "./dist/headless-run-env.js",
     "#prompt-optimization-env": "./dist/prompt-optimization-env.js",
     "#prompt-optimization-run": "./dist/prompt-optimization-run.js",
+    "#ab-manifest": "./dist/ab-manifest.js",
     "#prompt-ab-run": "./dist/prompt-ab-run.js",
     "#harbor-task-runner": "./dist/harbor-task-runner.js",
     "#harbor-cell": "./dist/harbor-cell.js",

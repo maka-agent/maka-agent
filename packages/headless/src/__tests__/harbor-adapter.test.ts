@@ -163,6 +163,22 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
 
+  test('run-prompt-optimization.mjs declares an auditable runtime profile for full RSI runs', async () => {
+    const source = await readRepoFile('packages/headless/harbor/run-prompt-optimization.mjs');
+
+    assert.match(source, /MAKA_PROMPT_TASK_BUDGET_SEC/);
+    assert.match(source, /MAKA_PROMPT_HARBOR_TIMEOUT_MS/);
+    assert.match(source, /MAKA_HARBOR_CONTINUATION/);
+    assert.match(source, /MAKA_HARBOR_CONTINUATION_MAX_TURNS/);
+    assert.match(source, /MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS/);
+    assert.match(source, /MAKA_CELL_TIMEOUT_SEC/);
+    assert.match(source, /MAKA_CELL_COMMAND_TIMEOUT_MS/);
+      assert.match(source, /prompt-optimization-manifest\.json/);
+      assert.match(source, /already has artifacts but no prompt-optimization-manifest\.json/);
+      assert.match(source, /resumeFingerprint: runManifest\.fingerprint/);
+      assert.match(source, /harborTimeoutMs/);
+    });
+
   test('run-prompt-ab.mjs wires direct A/B comparison with a manifest and key file', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-prompt-ab.mjs');
     assert.match(source, /filterPromptAbCandidateTasksByMetadata/);

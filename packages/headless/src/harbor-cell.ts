@@ -909,7 +909,7 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
           const result = await runShellWithBoundedTail(command, {
             cwd,
             env: childEnv,
-            timeoutMs: timeoutMs ?? 120_000,
+            timeoutMs: timeoutMs ?? defaultTimeoutMs,
           });
           return {
             exitCode: result.timedOut ? 124 : result.exitCode,

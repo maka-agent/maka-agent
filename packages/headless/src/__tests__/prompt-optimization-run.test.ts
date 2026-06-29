@@ -9,6 +9,7 @@ import {
 } from '../fixed-prompt-task-source.js';
 import type { FixedPromptTask } from '../fixed-prompt-controller.js';
 import {
+  buildPromptOptimizationTaskAgentEnv,
   buildRewardHackVerifierPatterns,
   extractRewardHackVerifierPatterns,
   partitionPromptTasks,
@@ -165,6 +166,49 @@ describe('resolvePromptOptimizationModelId', () => {
       resolvePromptOptimizationModelId('anthropic/claude-sonnet-4-5', 'openai-compatible'),
       'anthropic/claude-sonnet-4-5',
     );
+  });
+});
+
+describe('buildPromptOptimizationTaskAgentEnv', () => {
+  test('builds an auditable runtime env from task metadata and the run profile cap', () => {
+    const baseAgentEnv = { DEEPSEEK_BASE_URL: 'https://api.deepseek.com' };
+    const longTask: FixedPromptTask = {
+      id: 'long',
+      path: '/tasks/long',
+      metadata: { agentTimeoutSec: 3600 },
+    };
+    const shortTask: FixedPromptTask = {
+      id: 'short',
+      path: '/tasks/short',
+      metadata: { agentTimeoutSec: 900 },
+    };
+
+    const profile = {
+      taskBudgetSec: 1800,
+      commandTimeoutMs: 300_000,
+      continuation: {
+        enabled: true,
+        maxTurns: 3,
+        maxTotalRuntimeSteps: 150,
+      },
+    };
+
+    assert.deepEqual(buildPromptOptimizationTaskAgentEnv(baseAgentEnv, longTask, profile), {
+      DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+      MAKA_CELL_TIMEOUT_SEC: '1800',
+      MAKA_CELL_COMMAND_TIMEOUT_MS: '300000',
+      MAKA_HARBOR_CONTINUATION: 'on',
+      MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+      MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150',
+    });
+    assert.deepEqual(buildPromptOptimizationTaskAgentEnv(baseAgentEnv, shortTask, profile), {
+      DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+      MAKA_CELL_TIMEOUT_SEC: '900',
+      MAKA_CELL_COMMAND_TIMEOUT_MS: '300000',
+      MAKA_HARBOR_CONTINUATION: 'on',
+      MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
+      MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150',
+    });
   });
 });
 

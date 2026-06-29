@@ -55,6 +55,23 @@ describe('isolated headless tools', () => {
     });
   });
 
+  test('Bash leaves the default timeout to the isolated executor', async () => {
+    const calls: unknown[] = [];
+    const bash = buildIsolatedBashTool({
+      async exec(input) {
+        calls.push(input);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+
+    await bash.impl(
+      { command: 'long build' },
+      toolCtx('/workspace'),
+    );
+
+    assert.deepEqual(calls, [{ command: 'long build', cwd: '/workspace', boundedTail: true }]);
+  });
+
   test('Bash surfaces the executor result to history and bounds it for the model', async () => {
     const big = Array.from({ length: 5000 }, (_, i) => `line${i + 1}`).join('\n') + '\n';
     const emitted: Array<{ stream: string; chunk: string }> = [];

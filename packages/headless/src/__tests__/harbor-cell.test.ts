@@ -1704,6 +1704,12 @@ describe('createHarborCellLocalToolExecutor', () => {
     assert.notEqual(result.exitCode, 0);
   });
 
+  test('lets MAKA_CELL_COMMAND_TIMEOUT_MS lower the bounded-tail Bash default timeout', async () => {
+    const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '50' });
+    const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd(), boundedTail: true });
+    assert.notEqual(result.exitCode, 0);
+  });
+
   test('honors an explicit per-command timeout over the configured default', async () => {
     const executor = createHarborCellLocalToolExecutor({ MAKA_CELL_COMMAND_TIMEOUT_MS: '60000' });
     const result = await executor.exec({ command: 'sleep 1', cwd: process.cwd(), timeoutMs: 50 });
