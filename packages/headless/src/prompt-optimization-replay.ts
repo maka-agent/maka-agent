@@ -176,10 +176,7 @@ function replayControllerSweep(input: {
     if (!taskEventMatchesPromptIdentity(event, input.expectedPromptHash)) {
       throw new Error(`RSI WAL replay prompt hash mismatch for ${event.roundId}/${event.taskId}`);
     }
-    if (byTaskId.has(event.taskId)) {
-      throw new Error(`RSI WAL replay duplicate task event for ${event.roundId}/${event.taskId}`);
-    }
-    byTaskId.set(event.taskId, event);
+    mergeReplayedTaskEvent(byTaskId, event);
   }
 
   if (byTaskId.size !== input.taskIds.length) return undefined;
@@ -323,6 +320,11 @@ export async function derivePromptOptimizationReplayState(input: {
         if (!input.systemPromptGitPath) {
           throw new Error('RSI WAL replay requires system prompt path for strict candidate replay');
         }
+        await assertCandidateChangesOnlySystemPrompt({
+          candidate: event,
+          promptRepoDir: input.promptRepoDir,
+          systemPromptGitPath: input.systemPromptGitPath,
+        });
         await assertCandidatePromptHashMatchesCommit({
           candidate: event,
           promptRepoDir: input.promptRepoDir,
@@ -444,6 +446,30 @@ async function assertCandidatePromptHashMatchesCommit(input: {
   }
 }
 
+async function assertCandidateChangesOnlySystemPrompt(input: {
+  candidate: PromptCandidateCommittedEvent;
+  promptRepoDir: string;
+  systemPromptGitPath: string;
+}): Promise<void> {
+  let changedFiles: string[];
+  try {
+    const output = await gitOutput(
+      input.promptRepoDir,
+      'diff-tree',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      input.candidate.commitSha,
+    );
+    changedFiles = output === '' ? [] : output.split('\n');
+  } catch {
+    throw new Error(`RSI WAL replay candidate changed unexpected files for ${input.candidate.roundId}`);
+  }
+  if (changedFiles.length !== 1 || changedFiles[0] !== input.systemPromptGitPath) {
+    throw new Error(`RSI WAL replay candidate changed unexpected files for ${input.candidate.roundId}`);
+  }
+}
+
 function replayDecisionAttribution(input: {
   events: readonly FixedPromptWalEvent[];
   runId: string;
@@ -529,6 +555,22 @@ function promptHashForReplayIdentity(event: FixedPromptTaskWalEvent): string | u
   if (event.type === 'task_plumbing_failed') return event.promptHash ?? event.expectedPromptHash;
   if (event.type === 'task_budget_exhausted') return event.expectedPromptHash;
   return undefined;
+}
+
+function mergeReplayedTaskEvent(
+  byTaskId: Map<string, FixedPromptTaskWalEvent>,
+  event: FixedPromptTaskWalEvent,
+): void {
+  const existing = byTaskId.get(event.taskId);
+  if (!existing) {
+    byTaskId.set(event.taskId, event);
+    return;
+  }
+  if (existing.type === 'task_infra_failed') {
+    byTaskId.set(event.taskId, event);
+    return;
+  }
+  throw new Error(`RSI WAL replay duplicate task event for ${event.roundId}/${event.taskId}`);
 }
 
 function taskEventMatchesPromptIdentity(

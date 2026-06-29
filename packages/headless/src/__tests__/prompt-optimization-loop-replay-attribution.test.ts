@@ -129,7 +129,7 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const attribution = events.find((event) =>
+      const attribution = events.find((event): event is Extract<typeof event, { type: 'rsi_controller_attribution' }> =>
         event.type === 'rsi_controller_attribution' && event.roundId === 'round-0');
       const decisionIndex = events.findIndex((event) =>
         event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
@@ -282,6 +282,75 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
           },
         }),
         /RSI WAL replay invalid RSI attribution evidence for round-0/,
+      );
+      assert.equal(nextRoundPrompted, false);
+    });
+  });
+
+  test('fails closed before prompting when replayed RSI attribution outcome is stale', async () => {
+    await withHarness(async (harness) => {
+      const heldInTasks = makeTasks('hin', 20);
+      const heldOutTasks = makeTasks('hout', 8);
+      const rewardFor = (roundId: string, taskId: string): number => {
+        const index = taskIndex(taskId);
+        if (taskId.startsWith('hout-')) return index < 4 ? 1 : 0;
+        if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
+        return 1;
+      };
+      const metaAgent = async (promptInput: Parameters<ReturnType<typeof fakeMetaAgent>>[0]) => {
+        const signal = promptInput.rsiAnalysis?.signals[0];
+        return {
+          systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
+          summary: `tuned for ${promptInput.roundId}`,
+          candidateRationale: {
+            failurePattern: 'coverage_regression' as const,
+            evidenceRefs: signal ? [signal.id] : [],
+            hypothesis: 'make hin-0 pass reliably',
+            targetedFix: 'clarify the success criteria',
+            predictedFixes: ['hin-0'],
+            riskTasks: [],
+          },
+        };
+      };
+
+      await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor,
+        rounds: 1,
+        baselineRuns: 1,
+        metaAgent,
+      });
+      const events = await readFixedPromptWal(harness.resultsJsonlPath);
+      const attribution = events.find((event): event is Extract<typeof event, { type: 'rsi_controller_attribution' }> =>
+        event.type === 'rsi_controller_attribution' && event.roundId === 'round-0');
+      assert.ok(attribution);
+      assert.deepEqual(attribution.predictedFixes, [{ taskId: 'hin-0', outcome: 'unchanged' }]);
+      const tamperedEvents = events.map((event) => (
+        event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'
+          ? { ...event, predictedFixes: [{ taskId: 'hin-0', outcome: 'improved' }] }
+          : event
+      ));
+      await writeFile(
+        harness.resultsJsonlPath,
+        `${tamperedEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
+        'utf8',
+      );
+
+      let nextRoundPrompted = false;
+      await assert.rejects(
+        runLoop(harness, {
+          heldInTasks,
+          heldOutTasks,
+          rewardFor,
+          rounds: 2,
+          baselineRuns: 1,
+          metaAgent: async (promptInput) => {
+            if (promptInput.roundId === 'round-1') nextRoundPrompted = true;
+            return metaAgent(promptInput);
+          },
+        }),
+        /RSI WAL replay attribution mismatch for round-0/,
       );
       assert.equal(nextRoundPrompted, false);
     });

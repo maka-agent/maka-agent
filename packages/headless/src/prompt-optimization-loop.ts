@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { Config } from './contracts.js';
 import {
   appendFixedPromptWalEvent,
@@ -41,6 +42,7 @@ import { analyzeRsiRound } from './rsi-round-analysis.js';
 import {
   buildRsiControllerAttribution,
   projectRsiPromptAttribution,
+  type RsiControllerAttribution,
   type RsiPromptAttribution,
 } from './rsi-controller-attribution.js';
 import {
@@ -419,6 +421,12 @@ export async function runPromptOptimizationLoop(
       break;
     }
     const roundId = `round-${round}`;
+    const promptAnalysis = await analyzeRsiRound({
+      heldInTaskIds: stableHeldInTaskIds,
+      lastKeptEvents: lastKeptHeldInEvents,
+      ...(previousCandidateHeldInEvents ? { previousCandidateEvents: previousCandidateHeldInEvents } : {}),
+      candidateEvents: latestHeldInFeedbackEvents,
+    });
     const existingDecisionRound = replayPromptDecisionRound({
       events: resumeEvents,
       state: replayState,
@@ -470,6 +478,29 @@ export async function runPromptOptimizationLoop(
         rewardHackScan: replayedRewardHackScan,
       });
       assertReplayedDecisionMatchesResult(existingDecisionRound.decision, replayedResult);
+      const replayedCandidate = replayState.candidateByRoundId.get(roundId);
+      if (!replayedCandidate) {
+        throw new Error(`RSI WAL replay missing candidate commit for decided ${roundId}`);
+      }
+      const replayedAttribution = buildRsiControllerAttribution({
+        runId: input.runId,
+        roundId,
+        candidateCommitSha: existingDecisionRound.decision.candidateCommitSha,
+        candidateRationaleHash: replayedCandidate.candidateRationaleHash,
+        candidateRationale: replayedCandidate.candidateRationale,
+        promptTimeAnalysis: promptAnalysis,
+        analysis: await analyzeRsiRound({
+          heldInTaskIds: stableHeldInTaskIds,
+          lastKeptEvents: lastKeptHeldInEvents,
+          ...(previousCandidateHeldInEvents ? { previousCandidateEvents: previousCandidateHeldInEvents } : {}),
+          candidateEvents: existingHeldInEvents,
+        }),
+        heldInTaskIds: stableHeldInTaskIds,
+        lastKeptEvents: lastKeptHeldInEvents,
+        candidateEvents: existingHeldInEvents,
+        decision: replayedResult,
+      });
+      assertReplayedAttributionMatchesResult(existingDecisionRound.attribution, replayedAttribution);
       decisions.push(replayedResult);
       if (replayedResult.decision === 'keep') {
         lastKeptCommitSha = replayedResult.lastKeptCommitSha;
@@ -483,12 +514,6 @@ export async function runPromptOptimizationLoop(
       continue;
     }
 
-    const promptAnalysis = await analyzeRsiRound({
-      heldInTaskIds: stableHeldInTaskIds,
-      lastKeptEvents: lastKeptHeldInEvents,
-      ...(previousCandidateHeldInEvents ? { previousCandidateEvents: previousCandidateHeldInEvents } : {}),
-      candidateEvents: latestHeldInFeedbackEvents,
-    });
     const existingCandidate = replayState.candidateByRoundId.get(roundId);
     if (existingCandidate) {
       assertCandidateMatchesStableTaskSet(existingCandidate, stableHeldInTaskIds);
@@ -660,5 +685,27 @@ function assertDisjointTaskIds(heldInTaskIds: readonly string[], heldOutTaskIds:
   const overlap = [...new Set(heldOutTaskIds.filter((taskId) => heldIn.has(taskId)))].sort();
   if (overlap.length > 0) {
     throw new Error(`held-in and held-out tasks overlap: ${overlap.join(', ')}`);
+  }
+}
+
+function assertReplayedAttributionMatchesResult(
+  event: RsiControllerAttributionEvent,
+  expected: RsiControllerAttribution,
+): void {
+  const actual = {
+    runId: event.runId,
+    roundId: event.roundId,
+    candidateCommitSha: event.candidateCommitSha,
+    heldInTaskSetHash: event.heldInTaskSetHash,
+    candidateRationaleHash: event.candidateRationaleHash,
+    evidenceRefs: event.evidenceRefs,
+    predictedFixes: event.predictedFixes,
+    riskTasks: event.riskTasks,
+    unexpectedHeldInFlips: event.unexpectedHeldInFlips,
+    decision: event.decision,
+    rootCauseSignalMatch: event.rootCauseSignalMatch,
+  };
+  if (!isDeepStrictEqual(actual, expected)) {
+    throw new Error(`RSI WAL replay attribution mismatch for ${event.roundId}`);
   }
 }
