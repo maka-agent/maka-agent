@@ -556,19 +556,21 @@ describe('tool error copy feedback contract', () => {
     // `.maka-tool-error-copy[…]` retired onto the `@maka/ui` Alert primitive
     // (issue #332 PR3c): the pending / copy-feedback chrome — which lived UNLAYERED
     // in tool-output.css so it out-ranked the ghost button — now lives as literal
-    // arbitrary utilities in the `TOOL_ERROR_COPY` constant. We slice the block from
-    // that constant through `ToolErrorBanner` so the assertion proves BOTH that the
-    // state utilities exist AND that the banner's copy button actually wears them —
-    // a whole-file scan would false-pass if the string drifted to another component.
-    // The resting render is diffed by check-chat-marker-computed-style.mjs (err-copy-* rows).
+    // arbitrary utilities inlined on the copy button's `className`. We slice the
+    // `ToolErrorBanner` block and require the utilities to appear on an actual
+    // `className="maka-button …"` so the assertion proves BOTH that the state
+    // utilities exist AND that the banner's copy button wears them — a whole-file
+    // scan would false-pass if the string drifted to another component. These are
+    // arbitrary-value utilities (source == computed), so this source contract is the
+    // proof; the computed-style harness only re-diffs the non-trivial container box.
     const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
     const src = await readFile(componentsPath, 'utf8');
-    const block = src.match(/const TOOL_ERROR_TEXT[\s\S]*?export function OverlayHost/)?.[0] ?? '';
+    const block = src.match(/function ToolErrorBanner[\s\S]*?export function OverlayHost/)?.[0] ?? '';
 
     assert.match(
       block,
-      /className=\{TOOL_ERROR_COPY\}/,
-      'The tool-error copy button must actually wear the TOOL_ERROR_COPY state utilities.',
+      /className="maka-button \[align-self:start\] data-\[pending=true\]:cursor-progress/,
+      'The tool-error copy button must wear the leaf state utilities inline on its className.',
     );
     assert.match(
       block,

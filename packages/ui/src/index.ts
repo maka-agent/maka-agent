@@ -26,12 +26,7 @@ export * from './utils.js';
 // by our shared component-style wrappers in `./ui.js` re-export here so
 // consumers can `import { Alert, Empty, Sidebar, ... } from '@maka/ui'`.
 export * from './bot-brand.js';
-// `alertVariants` is deliberately NOT re-exported here (named re-export, not
-// `export *`): its only consumer is the chat computed-style fixture, which imports
-// it via the primitive module, so keeping it off the barrel preserves the #332
-// governance goal — renamable/removable without a public-API break — exactly like
-// the chat styling tables below.
-export { Alert, AlertTitle, AlertDescription, AlertAction } from './primitives/alert.js';
+export * from './primitives/alert.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
 // deliberately NOT re-exported here: they are internal styling tables / a
 // single-consumer dot that the chat call sites apply via relative import, so
