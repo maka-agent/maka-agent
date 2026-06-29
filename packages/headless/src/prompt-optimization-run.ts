@@ -170,6 +170,7 @@ export interface PromptOptimizationRuntimeProfile {
   taskBudgetSec?: number;
   commandTimeoutMs?: number;
   continuation?: PromptOptimizationContinuationProfile;
+  contextEnv?: Record<string, string>;
 }
 
 export interface PromptOptimizationContinuationProfile {
@@ -207,6 +208,7 @@ export function buildPromptOptimizationTaskAgentEnv(
       env.MAKA_HARBOR_CONTINUATION_PROMPT = profile.continuation.prompt;
     }
   }
+  Object.assign(env, profile?.contextEnv ?? {});
   return env;
 }
 

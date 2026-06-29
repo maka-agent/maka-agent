@@ -321,6 +321,15 @@ async function main() {
     'MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS',
     continuationMaxTurns * 50,
   );
+  const activeToolResultPrune = envBool('MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE', true);
+  const activeToolResultMaxEstimatedTokens = envPosInt(
+    'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
+    2048,
+  );
+  const activeToolResultMinStepNumber = envInt(
+    'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
+    1,
+  );
   const runtimeProfile = {
     taskBudgetSec,
     harborTimeoutMs,
@@ -331,11 +340,19 @@ async function main() {
       'MAKA_HARBOR_CONTINUATION',
       'MAKA_HARBOR_CONTINUATION_MAX_TURNS',
       'MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS',
+      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
+      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
+      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
     ],
     continuation: {
       enabled: continuationEnabled,
       maxTurns: continuationMaxTurns,
       maxTotalRuntimeSteps: continuationMaxTotalRuntimeSteps,
+    },
+    contextEnv: {
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: activeToolResultPrune ? 'on' : 'off',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: String(activeToolResultMaxEstimatedTokens),
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(activeToolResultMinStepNumber),
     },
   };
   // Min-stable floors scale with the actual post-drop partition sizes; resolved
@@ -428,7 +445,7 @@ async function main() {
     runRoot,
   );
   console.log(`Run manifest: ${runManifest.fingerprint}`);
-  console.log(`Runtime profile: taskBudget=${taskBudgetSec}s, harborTimeout=${harborTimeoutMs}ms, commandTimeout=${commandTimeoutMs}ms, continuation=${continuationEnabled ? 'on' : 'off'} (${continuationMaxTurns} turn(s))`);
+  console.log(`Runtime profile: taskBudget=${taskBudgetSec}s, harborTimeout=${harborTimeoutMs}ms, commandTimeout=${commandTimeoutMs}ms, continuation=${continuationEnabled ? 'on' : 'off'} (${continuationMaxTurns} turn(s)), activeToolPrune=${activeToolResultPrune ? 'on' : 'off'}`);
 
   // Prompt repo: program.md + system_prompt.md committed; agent-cwd/ is the empty
   // isolation root; controller artifacts live OUTSIDE it.

@@ -191,6 +191,11 @@ describe('buildPromptOptimizationTaskAgentEnv', () => {
         maxTurns: 3,
         maxTotalRuntimeSteps: 150,
       },
+      contextEnv: {
+        MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+        MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2048',
+        MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: '1',
+      },
     };
 
     assert.deepEqual(buildPromptOptimizationTaskAgentEnv(baseAgentEnv, longTask, profile), {
@@ -200,6 +205,9 @@ describe('buildPromptOptimizationTaskAgentEnv', () => {
       MAKA_HARBOR_CONTINUATION: 'on',
       MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
       MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2048',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: '1',
     });
     assert.deepEqual(buildPromptOptimizationTaskAgentEnv(baseAgentEnv, shortTask, profile), {
       DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
@@ -208,6 +216,9 @@ describe('buildPromptOptimizationTaskAgentEnv', () => {
       MAKA_HARBOR_CONTINUATION: 'on',
       MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
       MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS: '150',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS: '2048',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: '1',
     });
   });
 });
