@@ -26,9 +26,9 @@ export async function ensurePromptOptimizationPromptRepo(
   await mkdir(agentCwdPath, { recursive: true });
 
   if (await pathExists(join(input.promptRepoDir, '.git'))) {
+    await assertPromptRepoHeadIsSeed(input.promptRepoDir);
     await assertExistingSeedFile(programPath, input.program);
     await assertExistingSeedFile(systemPromptPath, input.systemPrompt);
-    await gitOutput(input.promptRepoDir, 'rev-parse', 'HEAD');
     return { agentCwdPath, programPath, systemPromptPath };
   }
 
@@ -40,6 +40,35 @@ export async function ensurePromptOptimizationPromptRepo(
   await git(input.promptRepoDir, 'add', 'program.md', 'system_prompt.md');
   await git(input.promptRepoDir, 'commit', '-q', '-m', 'seed prompt');
   return { agentCwdPath, programPath, systemPromptPath };
+}
+
+export async function assertPromptOptimizationResumeSupported(input: {
+  promptRepoDir: string;
+  resultsJsonlPath: string;
+}): Promise<void> {
+  await assertPromptRepoHeadIsSeed(input.promptRepoDir);
+  let raw: string;
+  try {
+    raw = await readFile(input.resultsJsonlPath, 'utf8');
+  } catch (error) {
+    if (isNotFound(error)) return;
+    throw error;
+  }
+  for (const line of raw.split('\n')) {
+    if (line.trim().length === 0) continue;
+    const event = JSON.parse(line) as { type?: unknown };
+    if (event.type === 'prompt_candidate_committed' || event.type === 'prompt_candidate_decided') {
+      throw unsupportedPostCandidateResumeError();
+    }
+  }
+}
+
+async function assertPromptRepoHeadIsSeed(promptRepoDir: string): Promise<void> {
+  const head = await gitOutput(promptRepoDir, 'rev-parse', 'HEAD');
+  const seedCommitSha = await gitOutput(promptRepoDir, 'rev-list', '--max-parents=0', 'HEAD');
+  if (head !== seedCommitSha) {
+    throw unsupportedPostCandidateResumeError();
+  }
 }
 
 async function assertExistingSeedFile(path: string, expected: string): Promise<void> {
@@ -63,14 +92,22 @@ async function pathExists(path: string): Promise<boolean> {
     await stat(path);
     return true;
   } catch (error) {
-    if (
-      typeof error === 'object'
-      && error !== null
-      && 'code' in error
-      && (error as { code?: unknown }).code === 'ENOENT'
-    ) {
+    if (isNotFound(error)) {
       return false;
     }
     throw error;
   }
+}
+
+function unsupportedPostCandidateResumeError(): Error {
+  return new Error(
+    'post-candidate RSI resume is not supported yet; use a new MAKA_PROMPT_RUN_ID or implement whole-loop WAL replay before resuming after candidate commits/decisions',
+  );
+}
+
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'ENOENT';
 }

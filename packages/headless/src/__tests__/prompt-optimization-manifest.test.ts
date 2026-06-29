@@ -10,6 +10,7 @@ import {
   buildPromptOptimizationRunManifest,
   buildPromptOptimizationSubjectFingerprint,
   buildPromptOptimizationTaskSourceFingerprint,
+  buildPromptOptimizationToolchainFingerprint,
 } from '../prompt-optimization-manifest.js';
 
 const execFileAsync = promisify(execFile);
@@ -61,6 +62,32 @@ describe('prompt optimization run manifest', () => {
       );
     });
   });
+
+  test('changes toolchain fingerprint when execution headless source changes', async () => {
+    await withDir(async (dir) => {
+      await makeExecutionRepo(dir);
+      const first = await buildPromptOptimizationToolchainFingerprint(dir);
+
+      await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 2;\n', 'utf8');
+      await git(dir, 'add', 'packages/headless/src/runner.ts');
+      await git(dir, 'commit', '-q', '-m', 'change headless source');
+
+      const second = await buildPromptOptimizationToolchainFingerprint(dir);
+      assert.notEqual(second, first);
+    });
+  });
+
+  test('rejects dirty execution checkouts before building a toolchain fingerprint', async () => {
+    await withDir(async (dir) => {
+      await makeExecutionRepo(dir);
+      await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 2;\n', 'utf8');
+
+      await assert.rejects(
+        buildPromptOptimizationToolchainFingerprint(dir),
+        /execution checkout must be clean for resume-safe prompt optimization runs/,
+      );
+    });
+  });
 });
 
 function buildManifest(taskSourceFingerprint: string, heldInTasks: FixedPromptTask[]) {
@@ -91,6 +118,22 @@ function buildManifest(taskSourceFingerprint: string, heldInTasks: FixedPromptTa
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync('git', args, { cwd });
+}
+
+async function makeExecutionRepo(dir: string): Promise<void> {
+  await mkdir(join(dir, 'packages', 'headless', 'src'), { recursive: true });
+  await mkdir(join(dir, 'packages', 'headless', 'harbor'), { recursive: true });
+  await mkdir(join(dir, 'packages', 'headless', 'dist'), { recursive: true });
+  await writeFile(join(dir, 'package-lock.json'), '{"lockfileVersion":3}\n', 'utf8');
+  await writeFile(join(dir, 'packages', 'headless', 'package.json'), '{"name":"@maka/headless"}\n', 'utf8');
+  await writeFile(join(dir, 'packages', 'headless', 'src', 'runner.ts'), 'export const value = 1;\n', 'utf8');
+  await writeFile(join(dir, 'packages', 'headless', 'harbor', 'run-prompt-optimization.mjs'), 'console.log("runner");\n', 'utf8');
+  await writeFile(join(dir, 'packages', 'headless', 'dist', 'runner.js'), 'export const value = 1;\n', 'utf8');
+  await git(dir, 'init', '-q');
+  await git(dir, 'config', 'user.email', 'test@example.com');
+  await git(dir, 'config', 'user.name', 'Test User');
+  await git(dir, 'add', '.');
+  await git(dir, 'commit', '-q', '-m', 'initial');
 }
 
 async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {

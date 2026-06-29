@@ -38,7 +38,10 @@ import {
   resolveMinStable,
   smokeExitCode,
 } from '#headless-run-env';
-import { ensurePromptOptimizationPromptRepo } from '#prompt-optimization-bootstrap';
+import {
+  assertPromptOptimizationResumeSupported,
+  ensurePromptOptimizationPromptRepo,
+} from '#prompt-optimization-bootstrap';
 import {
   buildPromptOptimizationRunManifest,
   buildPromptOptimizationSubjectFingerprint,
@@ -292,7 +295,7 @@ async function main() {
       runtimeProfile,
       subjectFingerprint: await buildPromptOptimizationSubjectFingerprint(makaRepoPath),
       taskSourceFingerprint: await buildPromptOptimizationTaskSourceFingerprint(tasksRoot, heldInTasks, heldOutTasks),
-      toolchainFingerprint: await buildPromptOptimizationToolchainFingerprint(makaRepoPath),
+      toolchainFingerprint: await buildPromptOptimizationToolchainFingerprint(repoRoot),
       heldInTasks,
       heldOutTasks,
       heldInNoPattern,
@@ -310,6 +313,7 @@ async function main() {
   const jobsDir = join(runRoot, 'jobs');
   await mkdir(controllerDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
+  const resultsJsonlPath = join(controllerDir, 'results.jsonl');
   const {
     agentCwdPath,
     programPath,
@@ -319,6 +323,7 @@ async function main() {
     program: PROGRAM,
     systemPrompt: `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`,
   });
+  await assertPromptOptimizationResumeSupported({ promptRepoDir, resultsJsonlPath });
 
   const connection = {
     slug: provider,
@@ -340,7 +345,7 @@ async function main() {
     agentCwdPath,
     programPath,
     systemPromptPath,
-    resultsJsonlPath: join(controllerDir, 'results.jsonl'),
+    resultsJsonlPath,
     heldInResultsTsvPath: join(controllerDir, 'held-in.tsv'),
     heldOutResultsTsvPath: join(controllerDir, 'held-out.tsv'),
     heldInTasks,

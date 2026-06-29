@@ -155,11 +155,29 @@ export async function buildPromptOptimizationSubjectFingerprint(repoPath: string
 }
 
 export async function buildPromptOptimizationToolchainFingerprint(repoRoot: string): Promise<string> {
+  const [gitRoot, head, status] = await Promise.all([
+    gitOutput(repoRoot, 'rev-parse', '--show-toplevel'),
+    gitOutput(repoRoot, 'rev-parse', 'HEAD'),
+    gitOutput(repoRoot, 'status', '--porcelain=v1', '--untracked-files=normal'),
+  ]);
+  if (status.length > 0) {
+    throw new Error(
+      `execution checkout must be clean for resume-safe prompt optimization runs. Commit/stash the changes before running. Dirty git status:\n${status}`,
+    );
+  }
   return buildRunManifestFingerprint({
     kind: 'prompt-optimization-toolchain',
+    repoRoot: resolve(repoRoot),
+    gitRoot: resolve(gitRoot),
+    head,
     node: process.version,
     packageLockHash: await hashOptionalFile(join(repoRoot, 'package-lock.json')),
     headlessPackageHash: await hashOptionalFile(join(repoRoot, 'packages/headless/package.json')),
+    headlessSourceEntries: await hashOptionalDirectory(join(repoRoot, 'packages/headless/src')),
+    promptOptimizationRunnerEntries: await hashOptionalPath(
+      join(repoRoot, 'packages/headless/harbor/run-prompt-optimization.mjs'),
+    ),
+    headlessDistEntries: await hashOptionalDirectory(join(repoRoot, 'packages/headless/dist')),
   });
 }
 
@@ -232,6 +250,37 @@ async function hashOptionalFile(path: string): Promise<string | null> {
     return hashBytes(await readFile(path));
   } catch (error) {
     if (isNotFound(error)) return null;
+    throw error;
+  }
+}
+
+async function hashOptionalDirectory(path: string): Promise<TaskDirectoryEntry[]> {
+  try {
+    return await hashTaskDirectory(path);
+  } catch (error) {
+    if (isNotFound(error)) return [{ path: '.', type: 'other' }];
+    throw error;
+  }
+}
+
+async function hashOptionalPath(path: string): Promise<TaskDirectoryEntry[]> {
+  try {
+    const stats = await lstat(path);
+    if (stats.isDirectory()) return await hashTaskDirectory(path);
+    if (stats.isFile()) {
+      return [{
+        path: '.',
+        type: 'file',
+        executable: (stats.mode & 0o111) !== 0,
+        hash: hashBytes(await readFile(path)),
+      }];
+    }
+    if (stats.isSymbolicLink()) {
+      throw new Error(`toolchain source symlink is not supported in prompt optimization fingerprints: ${path} -> ${await readlink(path)}`);
+    }
+    return [{ path: '.', type: 'other' }];
+  } catch (error) {
+    if (isNotFound(error)) return [{ path: '.', type: 'other' }];
     throw error;
   }
 }

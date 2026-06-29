@@ -298,7 +298,7 @@ describe('Harbor adapter contract', () => {
     }
   });
 
-  test('run-prompt-optimization.mjs does not rewrite prompt repo before manifest mismatch fails', async (t: TestContext) => {
+  test('run-prompt-optimization.mjs does not rewrite prompt repo before early safety failure', async (t: TestContext) => {
     const tmp = mkdtempSync(resolve(tmpdir(), 'maka-prompt-opt-run-'));
     try {
       const outDir = resolve(tmp, 'out');
@@ -361,7 +361,10 @@ describe('Harbor adapter contract', () => {
       }
 
       assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /prompt optimization run manifest does not match existing run id/);
+      assert.match(
+        result.stderr,
+        /prompt optimization run manifest does not match existing run id|execution checkout must be clean/,
+      );
       assert.equal(await readFile(resolve(promptRepoDir, 'program.md'), 'utf8'), 'old program\n');
       assert.equal(await readFile(resolve(promptRepoDir, 'system_prompt.md'), 'utf8'), 'old prompt\n');
     } finally {
