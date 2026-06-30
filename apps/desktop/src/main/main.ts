@@ -10,6 +10,7 @@ import {
   generalizedErrorMessageChinese,
   redactSecrets,
   buildHealthSnapshot,
+  buildConnectionModelCatalogEntries,
   healthSignalFromCapability,
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
@@ -3236,6 +3237,32 @@ function registerIpc(): void {
       throw new Error(`No such connection: ${normalizedSlug}`);
     }
     await connectionStore.setDefault(normalizedSlug);
+    emitConnectionListChanged();
+  });
+  ipcMain.handle('connections:setDefaultModel', async (_event, input: { slug: string; model: string } | null) => {
+    if (input === null) {
+      await connectionStore.setDefault(null);
+      emitConnectionListChanged();
+      return;
+    }
+    if (!input || typeof input !== 'object' || typeof input.slug !== 'string' || typeof input.model !== 'string') {
+      throw new Error('Default model input must include slug and model');
+    }
+    const slug = normalizeConnectionSlugForIpc(input.slug, 'connection slug');
+    const model = input.model.trim();
+    if (!model) throw new Error('Default model must not be empty');
+    const connection = await connectionStore.get(slug);
+    if (!connection) throw new Error(`No such connection: ${slug}`);
+    if (!connection.enabled) throw new Error(`Connection is disabled: ${slug}`);
+    const selectable = buildConnectionModelCatalogEntries({ connection })
+      .some((entry) => entry.id === model && entry.canUseAsChatDefault);
+    if (!selectable) {
+      throw new Error(`Model is not available for chat default: ${model}`);
+    }
+    if (connection.defaultModel !== model) {
+      await connectionStore.update(slug, { defaultModel: model });
+    }
+    await connectionStore.setDefault(slug);
     emitConnectionListChanged();
   });
   ipcMain.handle('connections:create', async (_event, input: CreateConnectionInput) => {

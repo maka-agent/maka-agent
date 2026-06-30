@@ -95,6 +95,9 @@ import {
   RelativeTime,
   SettingsSegmented as Segmented,
   SettingsSelect,
+  modelChoiceValue,
+  modelMenuGroups,
+  parseModelChoiceValue,
   SettingsSwitch as Switch,
   PrimitiveBadge,
   Textarea,
@@ -103,7 +106,7 @@ import {
   useToast,
 } from '@maka/ui';
 import { normalizeSearchUrl } from '@maka/core';
-import { ProvidersPanel } from './ProvidersPanel';
+import { ProviderLogo, ProvidersPanel } from './ProvidersPanel';
 import { PasswordInput } from './password-input';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { applyUiLocale, type UiLocalePreference } from '../theme';
@@ -118,7 +121,7 @@ import {
   presentConnectionUiStatus,
   type ConnectionUiStatus,
 } from '../connection-status';
-import { buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
+import { buildCatalogChatModelChoices, buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
 import {
   NAV_GROUP_ORDER,
   type SettingsNavGroup,
@@ -1067,9 +1070,9 @@ function SettingsSurface(props: {
  * (启动 / 新对话模式 / 默认模型) that read like settings but had no
  * configurable backing — the static text was the entire UI. Drop the
  * two without backing storage; replace the third with a real
- * `<SettingsSelect>` that lets the user pick the default LLM
- * connection inline. The `connections.setDefault(slug)` IPC already
- * exists; this just wires it up.
+ * `<SettingsSelect>` that lets the user pick the default LLM model
+ * inline. The selection is grouped by connection, but the persisted
+ * default is the pair `{ slug, model }` via `connections.setDefaultModel`.
  */
 function GeneralDefaultsCard(props: {
   connections: readonly LlmConnection[];
@@ -1089,23 +1092,41 @@ function GeneralDefaultsCard(props: {
     };
   }, []);
 
+  const modelChoices = useMemo(() => buildCatalogChatModelChoices(props.connections), [props.connections]);
+  const optionGroups = useMemo(() => {
+    return modelMenuGroups(modelChoices).map((group) => ({
+      label: group.heading,
+      icon: <ProviderLogo type={group.providerType} compact />,
+      options: group.choices.map((choice) => [
+        modelChoiceValue(choice.connectionSlug, choice.model),
+        choice.label,
+      ] as const),
+    }));
+  }, [modelChoices]);
   const options = useMemo<ReadonlyArray<readonly [string, string]>>(() => {
-    const opts: Array<readonly [string, string]> = [['', '未设置']];
-    for (const connection of props.connections) {
-      if (!connection.enabled) continue;
-      opts.push([connection.slug, connection.name]);
-    }
-    return opts;
-  }, [props.connections]);
+    return [
+      ['', '未设置'],
+      ...optionGroups.flatMap((group) => group.options),
+    ];
+  }, [optionGroups]);
+  const selectedValue = useMemo(() => {
+    if (!props.defaultSlug) return '';
+    const connection = props.connections.find((candidate) => candidate.slug === props.defaultSlug);
+    if (!connection?.defaultModel) return '';
+    const value = modelChoiceValue(connection.slug, connection.defaultModel);
+    return options.some(([candidate]) => candidate === value) ? value : '';
+  }, [options, props.connections, props.defaultSlug]);
 
-  const selectedValue = props.defaultSlug ?? '';
-
-  async function persistDefault(nextSlug: string) {
+  async function persistDefault(nextValue: string) {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     try {
-      await window.maka.connections.setDefault(nextSlug || null);
+      const parsed = parseModelChoiceValue(nextValue);
+      await window.maka.connections.setDefaultModel(parsed ? {
+        slug: parsed.llmConnectionSlug,
+        model: parsed.model,
+      } : null);
       if (!mountedRef.current) return;
       await props.onRefresh();
     } catch (error) {
@@ -1125,12 +1146,13 @@ function GeneralDefaultsCard(props: {
       <div className="settingsRow" data-control-width="select">
         <div>
           <strong>默认模型</strong>
-          <small>新对话默认使用的模型连接；可在「模型」页里管理具体连接。</small>
+          <small>新对话默认使用的具体模型；按连接分组，不显示 OAuth 账号邮箱。</small>
         </div>
         <SettingsSelect
           value={selectedValue}
-          ariaLabel="默认模型连接"
+          ariaLabel="默认模型"
           options={options}
+          optionGroups={optionGroups}
           disabled={saving}
           onChange={(value) => {
             void persistDefault(value);

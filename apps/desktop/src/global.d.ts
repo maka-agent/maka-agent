@@ -153,6 +153,7 @@ declare global {
         list(): Promise<LlmConnection[]>;
         getDefault(): Promise<string | null>;
         setDefault(slug: string | null): Promise<void>;
+        setDefaultModel(input: { slug: string; model: string } | null): Promise<void>;
         create(input: CreateConnectionInput): Promise<LlmConnection>;
         update(slug: string, patch: UpdateConnectionInput): Promise<LlmConnection>;
         delete(slug: string): Promise<void>;

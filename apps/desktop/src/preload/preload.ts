@@ -216,6 +216,9 @@ contextBridge.exposeInMainWorld('maka', {
     setDefault(slug: string | null): Promise<void> {
       return ipcRenderer.invoke('connections:setDefault', slug);
     },
+    setDefaultModel(input: { slug: string; model: string } | null): Promise<void> {
+      return ipcRenderer.invoke('connections:setDefaultModel', input);
+    },
     create(input: CreateConnectionInput): Promise<LlmConnection> {
       return ipcRenderer.invoke('connections:create', input);
     },
