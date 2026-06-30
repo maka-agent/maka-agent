@@ -1,0 +1,9 @@
+use maka_agent::harbor::{HarborAgent, HarborConfig};
+
+// Option 1: Explicit economy mode
+let agent = HarborAgent::new(HarborConfig::economy());
+let result = agent.execute("summarize log dates").await?;
+
+// Option 2: Auto-detect based on task characteristics
+let agent = HarborAgent::auto("transform", 5000, "simple csv");
+let result = agent.execute("convert log to csv").await?;
