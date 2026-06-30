@@ -91,17 +91,10 @@ import {
   normalizePricingModelKey,
 } from '@maka/core/usage-stats/pricing';
 import type {
-  NetworkSettings as ContractNetworkSettings,
-  ProxySettings,
   TestProxyInput,
   TestProxyResult,
 } from '@maka/core/settings/network-settings';
-import {
-  NETWORK_DEFAULTS,
-  SENSITIVE_PLACEHOLDER,
-  applySensitivePatch,
-  maskSensitive,
-} from '@maka/core/settings/network-settings';
+import { SENSITIVE_PLACEHOLDER } from '@maka/core/settings/network-settings';
 import { err, ok, tryResult, type Result } from '@maka/core/settings/result';
 import {
   AiSdkBackend,
@@ -220,6 +213,12 @@ import {
   CODEX_SUBSCRIPTION_CONNECTION_SLUG,
   createOAuthModelConnectionsMainService,
 } from './oauth-model-connections-main.js';
+import {
+  applyNetworkPatch,
+  maskNetworkSettings,
+  toAppNetworkPatch,
+  toContractNetworkSettings,
+} from './network-settings-main.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -2708,73 +2707,6 @@ async function recoverInterruptedSessionsOnStartup(): Promise<void> {
     // Best-effort: startup should still reach the renderer so users can inspect
     // and repair any remaining local session state.
   }
-}
-
-function toContractNetworkSettings(network: Awaited<ReturnType<typeof settingsStore.get>>['network']): ContractNetworkSettings {
-  const proxy = network.proxy;
-  return {
-    ...NETWORK_DEFAULTS,
-    proxy: {
-      ...NETWORK_DEFAULTS.proxy,
-      enabled: proxy.enabled,
-      type: proxy.protocol,
-      host: proxy.host,
-      port: proxy.port,
-      username: proxy.authEnabled && proxy.username ? proxy.username : undefined,
-      password: proxy.authEnabled && proxy.password ? proxy.password : undefined,
-      bypassList: proxy.bypassList.length > 0 ? proxy.bypassList : NETWORK_DEFAULTS.proxy.bypassList,
-    },
-  };
-}
-
-function toAppNetworkPatch(network: ContractNetworkSettings): NonNullable<UpdateAppSettingsInput['network']> {
-  return {
-    proxy: {
-      enabled: network.proxy.enabled,
-      protocol: network.proxy.type,
-      host: network.proxy.host,
-      port: network.proxy.port,
-      authEnabled: Boolean(network.proxy.username || network.proxy.password),
-      username: network.proxy.username ?? '',
-      password: typeof network.proxy.password === 'string' ? network.proxy.password : '',
-      bypassList: network.proxy.bypassList,
-    },
-  };
-}
-
-function applyNetworkPatch(
-  prev: ContractNetworkSettings,
-  patch: Partial<ContractNetworkSettings>,
-): ContractNetworkSettings {
-  const proxyPatch: Partial<ProxySettings> = patch.proxy ?? {};
-  const nextProxy: ProxySettings = {
-    ...prev.proxy,
-    ...stripUndefined(proxyPatch),
-    password: applySensitivePatch(
-      typeof prev.proxy.password === 'string' ? prev.proxy.password : undefined,
-      proxyPatch.password,
-    ),
-    bypassList: Array.isArray(proxyPatch.bypassList) ? proxyPatch.bypassList : prev.proxy.bypassList,
-  };
-  return {
-    ...prev,
-    ...stripUndefined(patch),
-    proxy: nextProxy,
-  };
-}
-
-function maskNetworkSettings(settings: ContractNetworkSettings): ContractNetworkSettings {
-  return {
-    ...settings,
-    proxy: {
-      ...settings.proxy,
-      password: maskSensitive(typeof settings.proxy.password === 'string' ? settings.proxy.password : undefined),
-    },
-  };
-}
-
-function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
 async function ensureBootstrapConnection(): Promise<void> {
