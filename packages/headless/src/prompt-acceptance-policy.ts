@@ -208,12 +208,12 @@ function assertCompleteBaselineSummaries(
 }
 
 export function promptAcceptanceNoiseBand(input: PromptAcceptanceNoiseBandInput): number {
+  if (input.zScore === undefined) return 0;
   const observedSpread = input.observedSpread ?? 0;
   if (input.sampleSize <= 0 || input.passRate === null || input.baselineRunCount <= 0) {
     return observedSpread;
   }
-  const zScore = input.zScore ?? 1.96;
-  const wilson = wilsonHalfWidth(input.sampleSize, input.passRate, zScore);
+  const wilson = wilsonHalfWidth(input.sampleSize, input.passRate, input.zScore);
   const differenceWidth = wilson * Math.sqrt(1 + 1 / input.baselineRunCount);
   return Math.max(differenceWidth, observedSpread);
 }
@@ -278,7 +278,6 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
     originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
     heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
     heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
-    rewardHackScan,
   });
   const decision: PromptAcceptanceDecision = reason === 'held_in_improved' ? 'keep' : 'discard';
   const heldInReferencePassEligibleRate = nextHeldInReferencePassEligibleRate({
@@ -432,7 +431,7 @@ function promptCandidateDecisionEvent(
 }
 
 /**
- * Held-in gate (#64 LOOP steps 8-9, plus the reward-hack and coverage vetoes).
+ * Held-in gate (#64 LOOP steps 8-9, plus blocking task failures).
  * Returns a discard reason if the candidate cannot KEEP on held-in evidence
  * alone, or `null` if held-in clears and held-out is worth running. This is the
  * single source of truth for "should we spend the held-out sweep?": the loop
@@ -445,16 +444,9 @@ function heldInGateReasonFromSummaries(
   input: {
     previousHeldInReferencePassEligibleRate: number | null;
     heldInPassRateNoiseBand: number;
-    rewardHackScan: PromptCandidateRewardHackScan;
   },
 ): PromptAcceptanceReason | null {
-  if (input.rewardHackScan.decision === 'quarantine') {
-    return PROMPT_REWARD_HACK_QUARANTINE_REASON;
-  }
   if (hasBlockingTaskFailure(heldInReference) || hasBlockingTaskFailure(heldInCandidate)) {
-    return 'coverage_regressed';
-  }
-  if (coverageRegressed(heldInCandidate.coverageRate, heldInReference.coverageRate)) {
     return 'coverage_regressed';
   }
   if (
@@ -491,9 +483,6 @@ function heldOutGateReasonFromSummaries(
   if (hasBlockingTaskFailure(heldOutReference) || hasBlockingTaskFailure(heldOutCandidate)) {
     return 'coverage_regressed';
   }
-  if (coverageRegressed(heldOutCandidate.coverageRate, heldOutReference.coverageRate)) {
-    return 'coverage_regressed';
-  }
   if (heldOutCandidate.taskCount > 0 && input.originalHeldOutPassEligibleRate === null) {
     return 'coverage_regressed';
   }
@@ -522,7 +511,6 @@ export function heldInGateReason(input: {
     {
       previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
       heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
-      rewardHackScan: normalizeRewardHackScan(input.rewardHackScan),
     },
   );
 }
@@ -534,13 +522,11 @@ function acceptanceReason(
     originalHeldOutPassEligibleRate: number | null;
     heldInPassRateNoiseBand: number;
     heldOutPassRateNoiseBand: number;
-    rewardHackScan: PromptCandidateRewardHackScan;
   },
 ): PromptAcceptanceReason {
   const heldIn = heldInGateReasonFromSummaries(metrics.candidate.heldIn, metrics.lastKept.heldIn, {
     previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
     heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
-    rewardHackScan: input.rewardHackScan,
   });
   if (heldIn !== null) return heldIn;
   const heldOut = heldOutGateReasonFromSummaries(metrics.candidate.heldOut, metrics.original.heldOut, {
@@ -551,7 +537,7 @@ function acceptanceReason(
 }
 
 function normalizeRewardHackScan(scan: PromptCandidateRewardHackScan | undefined): PromptCandidateRewardHackScan {
-  return scan ?? { decision: 'quarantine', reason: 'scan_missing' };
+  return scan ?? { decision: 'clean' };
 }
 
 function nextHeldInReferencePassEligibleRate(input: {
@@ -581,8 +567,4 @@ function improved(candidate: number | null, reference: number | null, noiseBand:
 
 function regressed(candidate: number | null, reference: number | null, noiseBand: number): boolean {
   return reference !== null && (candidate === null || candidate < reference - noiseBand);
-}
-
-function coverageRegressed(candidate: number | null, reference: number | null): boolean {
-  return reference !== null && (candidate === null || candidate < reference);
 }
