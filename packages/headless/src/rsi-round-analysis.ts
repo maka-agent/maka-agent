@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import type { FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
 
 const DEFAULT_MAX_TOOL_FAILURE_CLUSTERS = 10;
@@ -344,7 +346,7 @@ async function functionCallsById(
   path: string,
   limits: NormalizedToolFailureLimits,
 ): Promise<FunctionCallsByIdResult> {
-  const runtimeEvents = await readBoundedJsonl(path, limits);
+  const runtimeEvents = await readProjectedJsonl(path, limits, isFunctionCallEvent);
   if (!runtimeEvents.ok) return runtimeEvents;
   const calls = new Map<string, { name: string; argsPreview: string }>();
   for (const event of runtimeEvents.events) {
@@ -357,6 +359,40 @@ async function functionCallsById(
     });
   }
   return { ok: true, value: calls };
+}
+
+async function readProjectedJsonl(
+  path: string,
+  limits: NormalizedToolFailureLimits,
+  keepEvent: (event: unknown) => boolean,
+): Promise<BoundedJsonlResult> {
+  const events: unknown[] = [];
+  let keptBytes = 0;
+  const stream = createReadStream(path, { encoding: 'utf8' });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      if (line.trim().length === 0) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(line) as unknown;
+      } catch {
+        return { ok: false, reason: 'invalid_jsonl' };
+      }
+      if (!keepEvent(event)) continue;
+      keptBytes += Buffer.byteLength(line, 'utf8');
+      if (keptBytes > limits.maxJsonlBytes || events.length + 1 > limits.maxJsonlLines) {
+        return { ok: false, reason: 'input_limit_exceeded' };
+      }
+      events.push(event);
+    }
+  } catch (error) {
+    return { ok: false, reason: isNotFound(error) ? 'missing_file' : 'unreadable' };
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+  return { ok: true, events };
 }
 
 async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimits): Promise<BoundedJsonlResult> {
@@ -389,6 +425,12 @@ async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimit
     }
   }
   return { ok: true, events };
+}
+
+function isFunctionCallEvent(event: unknown): boolean {
+  return isRecord(event)
+    && isRecord(event.content)
+    && event.content.kind === 'function_call';
 }
 
 function toolFailureDigest(

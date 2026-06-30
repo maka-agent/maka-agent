@@ -407,7 +407,7 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
     input.currentSystemPrompt,
     '# Results TSV',
     input.resultsTsv,
-    ...renderToolFailureSummary(input.heldInDigests),
+    ...renderToolFailureSummary(input.heldInDigests, input.resultsTsv),
     ...renderRsiAnalysis(input.rsiAnalysis),
     ...renderPromptAttribution(input.promptAttribution),
     '# Held-In Digests',
@@ -835,9 +835,11 @@ async function extractToolFailureDigests(
     .slice(0, 5);
 }
 
-function renderToolFailureSummary(digests: readonly TrajectoryDigest[]): string[] {
+function renderToolFailureSummary(digests: readonly TrajectoryDigest[], resultsTsv: string): string[] {
+  const passedByTask = passedResultsByTask(resultsTsv);
   const failures = new Map<string, { digest: TrajectoryToolFailureDigest; taskIds: Set<string> }>();
   for (const digest of digests) {
+    if (passedByTask?.get(digest.taskId) === true) continue;
     for (const failure of digest.toolFailures ?? []) {
       const key = [failure.name, failure.errorClass ?? '', failure.argsPreview ?? ''].join('\0');
       const current = failures.get(key) ?? { digest: { ...failure, count: 0 }, taskIds: new Set<string>() };
@@ -856,6 +858,23 @@ function renderToolFailureSummary(digests: readonly TrajectoryDigest[]): string[
       `tasks=${[...taskIds].sort((a, b) => a.localeCompare(b)).join(',')}`,
     ].join(' '));
   return lines.length > 0 ? ['# Held-In Tool Failure Summary', ...lines] : [];
+}
+
+function passedResultsByTask(resultsTsv: string): ReadonlyMap<string, boolean> | undefined {
+  const lines = resultsTsv.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const header = lines[0]?.split('\t');
+  if (!header) return undefined;
+  const taskIdIndex = header.indexOf('task_id');
+  const passedIndex = header.indexOf('passed');
+  if (taskIdIndex === -1 || passedIndex === -1) return undefined;
+  const passedByTask = new Map<string, boolean>();
+  for (const line of lines.slice(1)) {
+    const columns = line.split('\t');
+    const taskId = columns[taskIdIndex];
+    if (!taskId) continue;
+    passedByTask.set(taskId, columns[passedIndex] === 'true');
+  }
+  return passedByTask;
 }
 
 function functionCallDigest(event: unknown): TrajectoryToolCallDigest | undefined {

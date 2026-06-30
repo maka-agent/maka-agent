@@ -232,6 +232,34 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('does not summarize recovered tool failures from passed held-in tasks', () => {
+    const rendered = renderMetaAgentPrompt({
+      runId: 'run-1',
+      roundId: 'round-1',
+      program: 'Improve the prompt conservatively.\n',
+      currentSystemPrompt: 'original prompt\n',
+      resultsTsv: 'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\n',
+      heldInDigests: [
+        {
+          taskId: 'passed-task',
+          summary: 'passed after retry',
+          toolFailures: [{ name: 'Write', count: 1, errorClass: 'Validation', argsPreview: 'path' }],
+        },
+        {
+          taskId: 'failed-task',
+          errorClass: 'verification_failed',
+          summary: 'failed verification',
+          toolFailures: [{ name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' }],
+        },
+      ],
+    });
+
+    assert.match(rendered, /Bash x1 error=RuntimeError args=command tasks=failed-task/);
+    assert.equal(rendered.includes('passed-task'), true);
+    assert.equal(rendered.includes('Write x1'), false);
+    assert.equal(rendered.includes('tasks=passed-task'), false);
+  });
+
   test('rejects meta-agent output without candidateRationale before writing or committing', async () => {
     await withDir(async (dir) => {
       const programPath = join(dir, 'program.md');

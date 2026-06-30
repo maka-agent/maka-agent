@@ -305,6 +305,33 @@ describe('RSI round analysis', () => {
     });
   });
 
+  test('keeps useful runtime calls when partial events exceed raw JSONL limits', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime.jsonl');
+      const traceEventsPath = join(dir, 'trace.jsonl');
+      const noisyPartial = { content: { kind: 'thinking', text: 'x'.repeat(50_000), partial: true } };
+
+      await writeJsonl(runtimeEventsPath, [
+        ...Array.from({ length: 25 }, () => noisyPartial),
+        functionCall('call-a', 'Write', { path: '/app/output.txt', content: 'done' }),
+      ]);
+      await writeJsonl(traceEventsPath, [toolFailed('call-a', 'Write', 'Validation')]);
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['task-a'],
+        lastKeptEvents: [],
+        candidateEvents: [
+          completed({ taskId: 'task-a', passed: false, runtimeEventsPath, traceEventsPath }),
+        ],
+      });
+
+      assert.deepEqual(analysis.toolFailureClusters, [
+        { name: 'Write', errorClass: 'Validation', argsPreview: 'content,path', count: 1, taskIds: ['task-a'] },
+      ]);
+      assert.deepEqual(traceUnavailableSignals(analysis), []);
+    });
+  });
+
   test('treats non-positive tool failure cluster limits as zero', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime.jsonl');
