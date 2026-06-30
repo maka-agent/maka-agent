@@ -625,6 +625,12 @@ function validateSemanticCompactSnapshot(value: unknown): NonNullable<ContextBud
     ...(optionalNumber(value.compactCallTokenCostWeight, 'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight') !== undefined
       ? { compactCallTokenCostWeight: optionalNumber(value.compactCallTokenCostWeight, 'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight') }
       : {}),
+    ...(optionalNumber(value.toolCallInterval, 'contextBudgetPolicy.semanticCompact.toolCallInterval') !== undefined
+      ? { toolCallInterval: optionalNumber(value.toolCallInterval, 'contextBudgetPolicy.semanticCompact.toolCallInterval') }
+      : {}),
+    ...(value.relaxedAcceptance !== undefined
+      ? { relaxedAcceptance: requireBoolean(value.relaxedAcceptance, 'contextBudgetPolicy.semanticCompact.relaxedAcceptance') }
+      : {}),
     ...(optionalNumber(value.maxCompactCallTokens, 'contextBudgetPolicy.semanticCompact.maxCompactCallTokens') !== undefined
       ? { maxCompactCallTokens: optionalNumber(value.maxCompactCallTokens, 'contextBudgetPolicy.semanticCompact.maxCompactCallTokens') }
       : {}),

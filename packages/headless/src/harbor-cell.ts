@@ -175,6 +175,7 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_TOOL_CALL_INTERVAL',
+  'MAKA_CONTEXT_SEMANTIC_COMPACT_RELAXED_ACCEPTANCE',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES',
   'MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS',
@@ -809,6 +810,10 @@ export function buildHarborCellContextBudgetBackendOptions(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_TOOL_CALL_INTERVAL,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_TOOL_CALL_INTERVAL',
     );
+    const relaxedAcceptance = booleanEnv(
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_RELAXED_ACCEPTANCE,
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_RELAXED_ACCEPTANCE',
+    );
     const maxCompactCallTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
@@ -848,6 +853,7 @@ export function buildHarborCellContextBudgetBackendOptions(
       ...(minNetSavingsTokens !== undefined ? { minNetSavingsTokens } : {}),
       ...(compactCallTokenCostWeight !== undefined ? { compactCallTokenCostWeight } : {}),
       ...(toolCallInterval !== undefined ? { toolCallInterval } : {}),
+      ...(relaxedAcceptance !== undefined ? { relaxedAcceptance } : {}),
       ...(maxCompactCallTokens !== undefined ? { maxCompactCallTokens } : {}),
       ...(maxConsecutiveInvalidSummaries !== undefined ? { maxConsecutiveInvalidSummaries } : {}),
       ...(invalidSummaryCooldownSteps !== undefined ? { invalidSummaryCooldownSteps } : {}),
@@ -1031,6 +1037,9 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               : {}),
             ...(contextBudget.semanticCompact.toolCallInterval !== undefined
               ? { toolCallInterval: contextBudget.semanticCompact.toolCallInterval }
+              : {}),
+            ...(contextBudget.semanticCompact.relaxedAcceptance !== undefined
+              ? { relaxedAcceptance: contextBudget.semanticCompact.relaxedAcceptance }
               : {}),
             ...(contextBudget.semanticCompact.maxCompactCallTokens !== undefined
               ? { maxCompactCallTokens: contextBudget.semanticCompact.maxCompactCallTokens }

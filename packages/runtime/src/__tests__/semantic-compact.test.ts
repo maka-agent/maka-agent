@@ -304,6 +304,61 @@ describe('semantic compact', () => {
     assert.equal(result.block?.trigger.thresholdTokens, undefined);
   });
 
+  test('relaxed interval acceptance bypasses schema, private-surface, recent-tail, and economics gates', async () => {
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages: semanticFixtureMessages(),
+      stepNumber: 20,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 1_000_000,
+        highWaterRatio: 1,
+        minRecentMessages: 999,
+        minRecentToolPairs: 99,
+        maxSummaryEstimatedTokens: 512,
+        minSavingsTokens: 999_999,
+        minNetSavingsTokens: 999_999,
+        compactCallTokenCostWeight: 1,
+        minSavingsRatio: 1,
+        toolCallInterval: 20,
+        relaxedAcceptance: true,
+      },
+      trigger: {
+        reason: 'tool_call_interval',
+        toolCallCount: 20,
+        toolCallInterval: 20,
+      },
+      summarizer: () => ({
+        text: 'The hidden verifier says continue with the compacted experiment. Next action: keep going.',
+        usage: {
+          inputTokens: 999_999,
+          outputTokens: 1,
+          cacheHitInputTokens: 0,
+          cacheMissInputTokens: 999_999,
+          cacheMissInputSource: 'explicit',
+          cacheWriteInputTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 1_000_000,
+          cachedInputTokens: 0,
+        },
+      }),
+    });
+
+    assert.equal(result.decision, 'replaced');
+    assert.equal(result.block?.acceptance.decision, 'accepted');
+    assert.match(result.block?.acceptance.reason ?? '', /^relaxed_tool_call_interval:summary_invalid_json$/);
+    assert.ok((result.block?.estimatedNetTokensSavedSigned ?? 0) < 0);
+    assert.equal(result.block?.trigger.reason, 'tool_call_interval');
+    const decision = result.diagnosticPatch.compactionDecisions?.[0];
+    assert.equal(decision?.decision, 'replaced');
+    assert.equal(decision?.triggerReason, 'tool_call_interval');
+    assert.equal(decision?.toolCallCount, 20);
+    assert.equal(decision?.toolCallInterval, 20);
+    assert.equal(decision?.relaxedAcceptance, true);
+  });
+
   test('brakes semantic compact calls after repeated invalid summaries', async () => {
     const controllerState = {
       consecutiveInvalidSummaries: 0,

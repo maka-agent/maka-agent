@@ -54,6 +54,13 @@ export interface SemanticCompactPolicy {
    * current AI SDK turn, attempt semantic compact even if high-water is not met.
    */
   toolCallInterval?: number;
+  /**
+   * Experimental acceptance mode for tool-call-interval attempts. When enabled,
+   * interval-triggered compaction uses best-effort summaries and skips the
+   * production acceptance gates so benchmark experiments can observe actual
+   * provider-visible replacement behavior.
+   */
+  relaxedAcceptance?: boolean;
   maxCompactCallTokens?: number;
   maxConsecutiveInvalidSummaries?: number;
   invalidSummaryCooldownSteps?: number;
@@ -206,9 +213,11 @@ export async function rewriteSemanticCompactInMessages(
   if (policy?.enabled !== true || policy.mode === 'off') {
     return unchanged(messages, 'disabled');
   }
-  const brakeReason = semanticCompactBrakeReason(policy, input.controllerState, input.stepNumber);
+  const relaxedAcceptance = isRelaxedIntervalAcceptance(policy, input.trigger);
+  const triggerDiagnostic = semanticCompactTriggerDiagnostic(input.trigger, relaxedAcceptance);
+  const brakeReason = relaxedAcceptance ? undefined : semanticCompactBrakeReason(policy, input.controllerState, input.stepNumber);
   if (brakeReason) {
-    return unchanged(messages, brakeReason);
+    return unchanged(messages, brakeReason, triggerDiagnostic);
   }
 
   const index = buildActiveFullCompactSourceIndex({
@@ -221,7 +230,7 @@ export async function rewriteSemanticCompactInMessages(
     stepNumber: input.stepNumber,
     charsPerToken,
   });
-  const selectionPolicy = policyForSemanticSelection(policy, messages, input.trigger?.reason === 'tool_call_interval');
+  const selectionPolicy = policyForSemanticSelection(policy, messages, input.trigger?.reason === 'tool_call_interval', relaxedAcceptance);
   const selection = selectActiveFullCompactCoveredSpan(index, selectionPolicy);
   if (selection.decision !== 'selected') {
     const decision = selection.decision === 'failedOpen' ? 'failedOpen' : 'unchanged';
@@ -235,6 +244,7 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensBefore: index.estimatedTokens,
         estimatedTokensAfter: index.estimatedTokens,
         skippedReasonCounts: selection.skippedReasonCounts,
+        ...triggerDiagnostic,
       }),
     };
   }
@@ -271,7 +281,7 @@ export async function rewriteSemanticCompactInMessages(
     archiveRequired: policy.archiveRequired,
     charsPerToken,
   });
-  if (!validation.valid) {
+  if (!validation.valid && !relaxedAcceptance) {
     return {
       messages,
       decision: 'failedOpen',
@@ -284,6 +294,7 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensAfter: index.estimatedTokens,
         failOpenReason: validation.reasons[0] ?? 'coverage_miss',
         validationReasonCounts: validation.reasonCounts,
+        ...triggerDiagnostic,
       }),
     };
   }
@@ -312,26 +323,33 @@ export async function rewriteSemanticCompactInMessages(
     }, policy.timeoutMs);
   } catch {
     recordInvalidSummary(input.controllerState, policy, 'summarizer_failed', input.stepNumber);
-    return rejected(messages, index, 'summarizer_failed');
+    return rejected(messages, index, 'summarizer_failed', undefined, triggerDiagnostic);
   }
 
   const compactCallUsage = summary.usage ? compactUsage(summary.usage) : undefined;
   recordCompactCall(input.controllerState, compactCallUsage);
   const parsedSummary = parseSemanticCompactSummary(summary.text);
-  if (!parsedSummary.ok) {
+  let structuredSummary: SemanticCompactStructuredSummary;
+  let relaxedSummaryReason: string | undefined;
+  if (parsedSummary.ok) {
+    structuredSummary = parsedSummary.summary;
+  } else if (relaxedAcceptance) {
+    structuredSummary = relaxedSemanticCompactSummary(summary.text, stateCards);
+    relaxedSummaryReason = parsedSummary.reason;
+  } else {
     recordInvalidSummary(input.controllerState, policy, parsedSummary.reason, input.stepNumber);
-    return rejected(messages, index, parsedSummary.reason, compactCallUsage);
+    return rejected(messages, index, parsedSummary.reason, compactCallUsage, triggerDiagnostic);
   }
   recordValidSummary(input.controllerState);
-  const summaryText = renderStructuredSemanticSummary(parsedSummary.summary);
+  const summaryText = renderStructuredSemanticSummary(structuredSummary);
   const maxSummaryTokens = Math.floor(policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS);
-  if (estimateTokens(summaryText.length, charsPerToken) > maxSummaryTokens) {
+  if (!relaxedAcceptance && estimateTokens(summaryText.length, charsPerToken) > maxSummaryTokens) {
     recordInvalidSummary(input.controllerState, policy, 'summary_too_large', input.stepNumber);
-    return rejected(messages, index, 'summary_too_large', compactCallUsage);
+    return rejected(messages, index, 'summary_too_large', compactCallUsage, triggerDiagnostic);
   }
-  if (newPrivateVerifierSurface(`${summary.text}\n${summaryText}`, selectedSourceText(selection, messages))) {
+  if (!relaxedAcceptance && newPrivateVerifierSurface(`${summary.text}\n${summaryText}`, selectedSourceText(selection, messages))) {
     recordInvalidSummary(input.controllerState, policy, 'private_verifier_surface', input.stepNumber);
-    return rejected(messages, index, 'private_verifier_surface', compactCallUsage);
+    return rejected(messages, index, 'private_verifier_surface', compactCallUsage, triggerDiagnostic);
   }
 
   const requestShapeHashBefore = input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
@@ -339,7 +357,7 @@ export async function rewriteSemanticCompactInMessages(
     input,
     index,
     selection,
-    structuredSummary: parsedSummary.summary,
+    structuredSummary,
     summaryText,
     stateCards,
     usage: summary.usage,
@@ -360,7 +378,7 @@ export async function rewriteSemanticCompactInMessages(
   block.estimatedTokensSavedSigned = index.estimatedTokens - block.postReplacementEstimatedTokens;
   block.estimatedNetTokensSavedSigned = estimateSemanticNetTokensSaved(block, policy);
 
-  const economicsReason = semanticSavingsRejectionReason(block, policy);
+  const economicsReason = relaxedAcceptance ? undefined : semanticSavingsRejectionReason(block, policy);
   if (economicsReason) {
     block.acceptance = { decision: 'rejected', reason: economicsReason };
     return {
@@ -379,6 +397,7 @@ export async function rewriteSemanticCompactInMessages(
         compactCallUsage: block.compactCallUsage,
         reason: economicsReason,
         validationReasonCounts: validation.reasonCounts,
+        ...triggerDiagnostic,
       }),
     };
   }
@@ -401,11 +420,22 @@ export async function rewriteSemanticCompactInMessages(
         compactCallUsage: block.compactCallUsage,
         reason: policy.mode,
         validationReasonCounts: validation.reasonCounts,
+        ...triggerDiagnostic,
       }),
     };
   }
 
-  block.acceptance = { decision: 'accepted' };
+  block.acceptance = {
+    decision: 'accepted',
+    ...(relaxedAcceptance
+      ? {
+          reason: relaxedSummaryReason
+            ? `relaxed_tool_call_interval:${relaxedSummaryReason}`
+            : 'relaxed_tool_call_interval',
+          ...(!validation.valid ? { validationReasons: validation.reasons } : {}),
+        }
+      : {}),
+  };
   recordAcceptedSemanticCompact(input.controllerState, block);
   return {
     messages: replacementMessages,
@@ -422,6 +452,7 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
         compactCallUsage: block.compactCallUsage,
         validationReasonCounts: validation.reasonCounts,
+        ...triggerDiagnostic,
       }),
       ...(requestShapeHashBefore && requestShapeHashAfter
         ? {
@@ -463,11 +494,15 @@ function policyForSemanticSelection(
   policy: SemanticCompactPolicy,
   messages: readonly ModelMessage[],
   bypassHighWater: boolean,
+  relaxedAcceptance: boolean,
 ): ActiveFullCompactPolicy {
-  const minRecentMessages = Math.max(
-    Math.floor(policy.minRecentMessages ?? 1),
-    recentMessageCountForToolPairs(messages, Math.floor(policy.minRecentToolPairs ?? 0)),
-  );
+  const minRecentToolPairs = relaxedAcceptance ? 0 : Math.floor(policy.minRecentToolPairs ?? 0);
+  const minRecentMessages = relaxedAcceptance
+    ? 0
+    : Math.max(
+        Math.floor(policy.minRecentMessages ?? 1),
+        recentMessageCountForToolPairs(messages, minRecentToolPairs),
+      );
   return {
     enabled: true,
     minStepNumber: policy.minStepNumber,
@@ -476,7 +511,7 @@ function policyForSemanticSelection(
     targetRatio: policy.targetRatio,
     ...(bypassHighWater ? {} : { maxActiveEstimatedTokens: policy.maxActiveEstimatedTokens }),
     minRecentMessages,
-    minRecentToolPairs: policy.minRecentToolPairs,
+    minRecentToolPairs,
     maxSummaryEstimatedTokens: policy.maxSummaryEstimatedTokens,
     archiveRequired: policy.archiveRequired,
     highWaterName: policy.highWaterName,
@@ -735,6 +770,29 @@ function estimateSemanticNetTokensSaved(block: SemanticCompactBlock, policy: Sem
   return block.estimatedTokensSavedSigned - Math.ceil(compactCallTokens * weight);
 }
 
+function isRelaxedIntervalAcceptance(
+  policy: SemanticCompactPolicy,
+  trigger: SemanticCompactRewriteInput['trigger'],
+): boolean {
+  return policy.relaxedAcceptance === true && trigger?.reason === 'tool_call_interval';
+}
+
+function semanticCompactTriggerDiagnostic(
+  trigger: SemanticCompactRewriteInput['trigger'],
+  relaxedAcceptance: boolean,
+): Pick<Parameters<typeof semanticCompactDecisionDiagnosticPatch>[0], 'triggerReason' | 'toolCallCount' | 'toolCallInterval' | 'relaxedAcceptance'> {
+  return {
+    ...(trigger ? { triggerReason: trigger.reason } : {}),
+    ...(trigger?.reason === 'tool_call_interval'
+      ? {
+          toolCallCount: trigger.toolCallCount,
+          toolCallInterval: trigger.toolCallInterval,
+        }
+      : {}),
+    ...(relaxedAcceptance ? { relaxedAcceptance: true } : {}),
+  };
+}
+
 function semanticCompactBrakeReason(
   policy: SemanticCompactPolicy,
   state: SemanticCompactControllerState | undefined,
@@ -806,6 +864,10 @@ function semanticCompactDecisionDiagnosticPatch(input: {
   estimatedTokensAfter?: number;
   estimatedTokensSaved?: number;
   compactCallUsage?: SemanticCompactBlock['compactCallUsage'];
+  triggerReason?: string;
+  toolCallCount?: number;
+  toolCallInterval?: number;
+  relaxedAcceptance?: boolean;
   reason?: string;
   failOpenReason?: string;
   skippedReasonCounts?: Readonly<Record<string, number>>;
@@ -832,6 +894,10 @@ function semanticCompactDecisionDiagnosticPatch(input: {
       ...(input.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: input.estimatedTokensAfter } : {}),
       ...(input.estimatedTokensSaved !== undefined ? { estimatedTokensSaved: input.estimatedTokensSaved } : {}),
       ...(input.compactCallUsage ? { compactCallUsage: input.compactCallUsage } : {}),
+      ...(input.triggerReason ? { triggerReason: input.triggerReason } : {}),
+      ...(input.toolCallCount !== undefined ? { toolCallCount: input.toolCallCount } : {}),
+      ...(input.toolCallInterval !== undefined ? { toolCallInterval: input.toolCallInterval } : {}),
+      ...(input.relaxedAcceptance !== undefined ? { relaxedAcceptance: input.relaxedAcceptance } : {}),
       ...(input.reason ? { reason: input.reason } : {}),
       ...(input.failOpenReason ? { failOpenReason: input.failOpenReason } : {}),
       ...(input.skippedReasonCounts ? { skippedReasonCounts: input.skippedReasonCounts } : {}),
@@ -924,6 +990,60 @@ function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSumma
     `next_action: ${summary.nextAction}`,
     ...renderSummaryList('archive_refs_to_reread_if_needed', summary.archiveRefsToRereadIfNeeded),
   ].join('\n').trim();
+}
+
+function relaxedSemanticCompactSummary(
+  rawText: string,
+  stateCards: readonly SemanticCompactStateCard[],
+): SemanticCompactStructuredSummary {
+  const raw = rawText.trim();
+  const objective = firstMeaningfulLine(raw)
+    ?? 'Continue the task from the aggressive semantic compact summary.';
+  const nextAction = extractSummaryField(raw, SUMMARY_FIELD_LABELS.nextAction)
+    ?? stateCards.find((card) => card.kind === 'next_action')?.text
+    ?? 'Continue from the semantic compact block and preserved context.';
+  const commandCards = stateCards
+    .filter((card) => card.kind === 'command')
+    .map((card) => card.text)
+    .slice(0, 8);
+  const operationalCards = stateCards
+    .filter((card) => card.kind === 'process' || card.kind === 'vm' || card.kind === 'artifact')
+    .map((card) => card.text)
+    .slice(0, 8);
+  const constraintCards = stateCards
+    .filter((card) => card.kind === 'constraint')
+    .map((card) => card.text)
+    .slice(0, 8);
+  const verifierCard = stateCards.find((card) => card.kind === 'verifier')?.text ?? '';
+  return {
+    currentObjective: objective,
+    userConstraints: constraintCards,
+    importantFilesAndArtifacts: stateCards
+      .filter((card) => card.kind === 'artifact')
+      .map((card) => card.text)
+      .slice(0, 8),
+    commandsAndResults: commandCards.length > 0 ? commandCards : boundedSummaryLines(raw),
+    errorsAndFixes: [],
+    failedHypotheses: [],
+    operationalState: operationalCards,
+    publicVerificationState: verifierCard,
+    remainingWork: [],
+    nextAction,
+    archiveRefsToRereadIfNeeded: [],
+  };
+}
+
+function firstMeaningfulLine(raw: string): string | undefined {
+  return raw.split(/\r?\n/)
+    .map((line) => singleLine(line.replace(/^[-*#\s]+/, '')))
+    .find(nonEmpty);
+}
+
+function boundedSummaryLines(raw: string): string[] {
+  return raw.split(/\r?\n/)
+    .map((line) => singleLine(line.replace(/^[-*#\s]+/, '')))
+    .filter(nonEmpty)
+    .slice(0, 8);
 }
 
 function renderSummaryList(label: string, values: readonly string[]): string[] {
@@ -1054,6 +1174,7 @@ function rejected(
   index: ActiveFullCompactSourceIndex,
   reason: string,
   compactCallUsage?: SemanticCompactBlock['compactCallUsage'],
+  diagnostic?: Pick<Parameters<typeof semanticCompactDecisionDiagnosticPatch>[0], 'triggerReason' | 'toolCallCount' | 'toolCallInterval' | 'relaxedAcceptance'>,
 ): SemanticCompactRewriteResult {
   return {
     messages,
@@ -1066,11 +1187,16 @@ function rejected(
       estimatedTokensAfter: index.estimatedTokens,
       estimatedTokensSaved: 0,
       ...(compactCallUsage ? { compactCallUsage } : {}),
+      ...(diagnostic ?? {}),
     }),
   };
 }
 
-function unchanged(messages: ModelMessage[], reason: string): SemanticCompactRewriteResult {
+function unchanged(
+  messages: ModelMessage[],
+  reason: string,
+  diagnostic?: Pick<Parameters<typeof semanticCompactDecisionDiagnosticPatch>[0], 'triggerReason' | 'toolCallCount' | 'toolCallInterval' | 'relaxedAcceptance'>,
+): SemanticCompactRewriteResult {
   return {
     messages,
     decision: 'unchanged',
@@ -1078,6 +1204,7 @@ function unchanged(messages: ModelMessage[], reason: string): SemanticCompactRew
     diagnosticPatch: semanticCompactDecisionDiagnosticPatch({
       decision: 'unchanged',
       reason,
+      ...(diagnostic ?? {}),
     }),
   };
 }

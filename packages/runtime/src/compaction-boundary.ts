@@ -76,6 +76,10 @@ export interface CompactionDecision {
     cacheWriteInputTokens?: number;
     totalTokens?: number;
   };
+  triggerReason?: string;
+  toolCallCount?: number;
+  toolCallInterval?: number;
+  relaxedAcceptance?: boolean;
   reason?: string;
   failOpenReason?: string;
   skippedReasonCounts?: Readonly<Record<string, number>>;
@@ -195,6 +199,10 @@ export function compactionDecisionToDiagnostic(
     ...(decision.compactCallUsage?.totalTokens !== undefined
       ? { compactCallTotalTokens: decision.compactCallUsage.totalTokens }
       : {}),
+    ...(decision.triggerReason ? { triggerReason: decision.triggerReason } : {}),
+    ...(decision.toolCallCount !== undefined ? { toolCallCount: decision.toolCallCount } : {}),
+    ...(decision.toolCallInterval !== undefined ? { toolCallInterval: decision.toolCallInterval } : {}),
+    ...(decision.relaxedAcceptance !== undefined ? { relaxedAcceptance: decision.relaxedAcceptance } : {}),
     ...(decision.reason ? { reason: decision.reason } : {}),
     ...(decision.failOpenReason ? { failOpenReason: decision.failOpenReason } : {}),
     ...(decision.skippedReasonCounts ? { skippedReasonCounts: { ...decision.skippedReasonCounts } } : {}),

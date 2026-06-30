@@ -227,6 +227,10 @@ export interface CompactionDecisionDiagnostic {
   compactCallCacheReadInputTokens?: number;
   compactCallCacheWriteInputTokens?: number;
   compactCallTotalTokens?: number;
+  triggerReason?: string;
+  toolCallCount?: number;
+  toolCallInterval?: number;
+  relaxedAcceptance?: boolean;
   reason?: string;
   failOpenReason?: string;
   skippedReasonCounts?: Record<string, number>;
