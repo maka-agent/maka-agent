@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = join(process.cwd(), '..', '..');
 
@@ -532,8 +533,8 @@ describe('local MEMORY.md Settings UI contract', () => {
   });
 
   it('does not return raw shell.openPath errors from local memory open IPC', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
-    const memoryOpenRegion = main.match(/ipcMain\.handle\('memory:openFile'[\s\S]*?ipcMain\.handle\(\s*'workspaceInstructions:getState'/)?.[0] ?? '';
+    const main = await readMainProcessCombinedSource();
+    const memoryOpenRegion = main.match(/ipcMain\.handle\('memory:openFile'[\s\S]*?function normalizeMemoryTextInput/)?.[0] ?? '';
 
     assert.match(
       main,
@@ -568,7 +569,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   });
 
   it('can restore the latest MEMORY.md backup through an explicit reversible action', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
@@ -666,7 +667,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   });
 
   it('opens the latest MEMORY.md backup only through a main-process validated path', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
@@ -691,7 +692,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   });
 
   it('opens a specific MEMORY.md backup candidate by kind without renderer-supplied paths', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');
@@ -716,7 +717,7 @@ describe('local MEMORY.md Settings UI contract', () => {
   });
 
   it('restores a specific MEMORY.md backup candidate by kind without renderer-supplied paths', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const main = await readMainProcessCombinedSource();
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
     const service = await readRepo('apps/desktop/src/main/local-memory-service.ts');

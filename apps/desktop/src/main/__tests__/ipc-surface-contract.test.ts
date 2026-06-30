@@ -19,7 +19,7 @@ function extractChannels(source: string, pattern: RegExp): string[] {
 describe('IPC surface contract', () => {
   it('keeps main handlers paired with preload invocations', async () => {
     const [main, preload] = await Promise.all([
-      readRepo('apps/desktop/src/main/main.ts'),
+      readMainProcessCombinedSource(),
       readRepo('apps/desktop/src/preload/preload.ts'),
     ]);
     const mainChannels = extractChannels(main, /ipcMain\.handle\(\s*['"]([^'"]+)['"]/g);
@@ -35,7 +35,7 @@ describe('IPC surface contract', () => {
 
   it('exposes memory lifecycle IPC without renderer-forged metadata', async () => {
     const [main, preload] = await Promise.all([
-      readRepo('apps/desktop/src/main/main.ts'),
+      readMainProcessCombinedSource(),
       readRepo('apps/desktop/src/preload/preload.ts'),
     ]);
     for (const channel of [
@@ -51,7 +51,7 @@ describe('IPC surface contract', () => {
       assert.match(preload, new RegExp(`ipcRenderer\\.invoke\\('${channel}'`));
     }
 
-    const normalizeBlock = main.match(/function normalizeMemoryTextInput[\s\S]*?\n}\n\nfunction emitConnectionListChanged/)?.[0] ?? '';
+    const normalizeBlock = main.match(/function normalizeMemoryTextInput[\s\S]*?\n}\n\nfunction localMemoryOpenFailureCopy/)?.[0] ?? '';
     assert.match(normalizeBlock, /title/);
     assert.match(normalizeBlock, /content/);
     assert.match(normalizeBlock, /scope/);

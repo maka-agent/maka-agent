@@ -10,6 +10,7 @@ export const MAIN_PROCESS_SOURCE_REPO_PATHS: readonly string[] = [
   'apps/desktop/src/main/context-budget-policy.ts',
   'apps/desktop/src/main/daily-review-main.ts',
   'apps/desktop/src/main/main-window.ts',
+  'apps/desktop/src/main/memory-ipc-main.ts',
   'apps/desktop/src/main/oauth-model-connections-main.ts',
   'apps/desktop/src/main/plan-reminders-main.ts',
   'apps/desktop/src/main/subscription-model-fetch.ts',
