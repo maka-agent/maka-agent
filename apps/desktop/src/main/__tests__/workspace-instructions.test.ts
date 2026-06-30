@@ -77,7 +77,7 @@ describe('workspace instructions prompt fragment', () => {
   });
 
   it('main system prompt path is gated by the visible workspaceInstructions setting', async () => {
-    const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
+    const source = await readFile(join(process.cwd(), 'src/main/system-prompt-main.ts'), 'utf8');
 
     assert.match(source, /settings\.workspaceInstructions\.enabled && cwd/);
     assert.match(source, /buildWorkspaceInstructionsPromptFragment\(cwd\)/);

@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -50,7 +51,7 @@ describe('IPC surface contract', () => {
       assert.match(preload, new RegExp(`ipcRenderer\\.invoke\\('${channel}'`));
     }
 
-    const normalizeBlock = main.match(/function normalizeMemoryTextInput[\s\S]*?\n}\n\nasync function buildSystemPrompt/)?.[0] ?? '';
+    const normalizeBlock = main.match(/function normalizeMemoryTextInput[\s\S]*?\n}\n\nfunction emitConnectionListChanged/)?.[0] ?? '';
     assert.match(normalizeBlock, /title/);
     assert.match(normalizeBlock, /content/);
     assert.match(normalizeBlock, /scope/);
@@ -58,20 +59,23 @@ describe('IPC surface contract', () => {
   });
 
   it('wires memory to main-owned privacy state and current-turn update tail', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const [main, combinedMainProcess] = await Promise.all([
+      readRepo('apps/desktop/src/main/main.ts'),
+      readMainProcessCombinedSource(),
+    ]);
 
     assert.match(main, /async function getWorkspacePrivacyContext\(\)/);
     assert.match(main, /settings\.privacy\.incognitoActive === true/);
     assert.match(main, /new LocalMemoryService\([\s\S]*getPrivacyContext: getWorkspacePrivacyContext/);
     assert.doesNotMatch(main, /defaultWorkspacePrivacyContext/);
 
-    assert.match(main, /const memoryPromptSnapshot = await buildLocalMemoryPromptFragment\(\)/);
-    assert.match(main, /systemPrompt: \(\{ cwd \}\) => buildBackendSystemPrompt\(ctx\.header, cwd, \{[\s\S]*childInstruction: ctx\.systemPrompt/);
-    assert.match(main, /function buildBackendSystemPrompt/);
-    assert.match(main, /childInstruction[\s\S]*memoryFragment: null, includePersonalization: false/);
-    assert.match(main, /子代理必须继承当前会话的权限、隐私、工作区和技能约束/);
-    assert.match(main, /子代理不会隐式继承父会话的本地记忆或个性化上下文/);
-    assert.match(main, /consumePendingPromptUpdates\(\)/);
-    assert.match(main, /<memory-update>/);
+    assert.match(main, /const memoryPromptSnapshot = await systemPromptService\.buildLocalMemoryPromptFragment\(\)/);
+    assert.match(main, /systemPrompt: \(\{ cwd \}\) => systemPromptService\.buildBackendSystemPrompt\(ctx\.header, cwd, \{[\s\S]*childInstruction: ctx\.systemPrompt/);
+    assert.match(combinedMainProcess, /async function buildBackendSystemPrompt/);
+    assert.match(combinedMainProcess, /childInstruction[\s\S]*memoryFragment: null, includePersonalization: false/);
+    assert.match(combinedMainProcess, /子代理必须继承当前会话的权限、隐私、工作区和技能约束/);
+    assert.match(combinedMainProcess, /子代理不会隐式继承父会话的本地记忆或个性化上下文/);
+    assert.match(combinedMainProcess, /consumePendingPromptUpdates\(\)/);
+    assert.match(combinedMainProcess, /<memory-update>/);
   });
 });
