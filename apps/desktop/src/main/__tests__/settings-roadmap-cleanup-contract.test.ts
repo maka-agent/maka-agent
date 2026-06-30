@@ -330,7 +330,15 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps shipped read-only and fallback source naming out of stub vocabulary', async () => {
     const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
-    const ui = await readRepo('packages/ui/src/relative-time.tsx');
+    const ui = (
+      await Promise.all([
+        readRepo('packages/ui/src/components.tsx'),
+        readRepo('packages/ui/src/chat-view.tsx'),
+        readRepo('packages/ui/src/composer.tsx'),
+        readRepo('packages/ui/src/module-panels.tsx'),
+        readRepo('packages/ui/src/relative-time.tsx'),
+      ])
+    ).join('\n');
 
     assert.doesNotMatch(
       settings,
