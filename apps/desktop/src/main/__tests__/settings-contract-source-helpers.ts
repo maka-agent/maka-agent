@@ -30,6 +30,10 @@ const sourcePaths = [
   'settings-rows.tsx',
 ] as const;
 
+export const SETTINGS_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(
+  (sourcePath) => `apps/desktop/src/renderer/settings/${sourcePath}`,
+);
+
 export async function readSettingsCombinedSource(): Promise<string> {
   const sources = await Promise.all(
     sourcePaths.map((sourcePath) => readFile(resolve(SETTINGS_ROOT, sourcePath), 'utf8')),
