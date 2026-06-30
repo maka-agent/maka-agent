@@ -33,9 +33,9 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const TOKENS_PATH = join(process.cwd(), 'src', 'renderer', 'maka-tokens.css');
-const MAIN_TS_PATH = join(process.cwd(), 'src', 'main', 'main.ts');
 
 /**
  * Selectors that, if they ever carry `-webkit-app-region: drag`,
@@ -62,7 +62,7 @@ describe('app-region hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5)', ()
     // xuan `eea556cd` + kenji `0b94f7e9`: even though the default
     // is true, pin it in source so a future patch that toggles it
     // off becomes visible in diff review.
-    const src = await readFile(MAIN_TS_PATH, 'utf8');
+    const src = await readMainProcessCombinedSource();
     assert.match(
       src,
       /new BrowserWindow\([\s\S]*?resizable:\s*true/,

@@ -21,8 +21,8 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join } from 'node:path';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
-const MAIN_PATH = join(process.cwd(), 'src', 'main', 'main.ts');
 const UI_PATH = join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'ui.tsx');
 
 describe('real-window smoke diagnostic ↔ modal DOM contract', () => {
@@ -36,7 +36,7 @@ describe('real-window smoke diagnostic ↔ modal DOM contract', () => {
   });
 
   it('the diagnostic queries the live backdrop hook, not the dead search-modal-backdrop class', async () => {
-    const main = await readFile(MAIN_PATH, 'utf8');
+    const main = await readMainProcessCombinedSource();
     assert.match(
       main,
       /querySelector\('\.maka-dialog-backdrop'\)/,
@@ -50,7 +50,7 @@ describe('real-window smoke diagnostic ↔ modal DOM contract', () => {
   });
 
   it('the diagnostic reports whether focus is trapped inside the search modal', async () => {
-    const main = await readFile(MAIN_PATH, 'utf8');
+    const main = await readMainProcessCombinedSource();
     assert.match(
       main,
       /activeElementInSearchModal/,

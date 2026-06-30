@@ -20,10 +20,10 @@ describe('session startup recovery contract', () => {
 
   it('desktop runs recovery before creating the renderer window', async () => {
     const src = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
-    const startupBlock = src.match(/app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*?await createWindow\(\);/)?.[0] ?? '';
+    const startupBlock = src.match(/app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*?await mainWindowController\.createWindow\(\);/)?.[0] ?? '';
 
     assert.match(src, /async function recoverInterruptedSessionsOnStartup\(\): Promise<void>/);
-    assert.match(startupBlock, /await recoverInterruptedSessionsOnStartup\(\);[\s\S]*await createWindow\(\);/);
+    assert.match(startupBlock, /await recoverInterruptedSessionsOnStartup\(\);[\s\S]*await mainWindowController\.createWindow\(\);/);
   });
 
   it('turn summary only shows in-progress for genuinely running turns', async () => {
