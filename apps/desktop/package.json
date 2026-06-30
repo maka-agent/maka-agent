@@ -9,6 +9,8 @@
     "start": "electron .",
     "dev": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && electron .",
     "dev:hmr": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build:main && npm run build:preload && node scripts/dev-hmr.mjs",
+    "storybook": "storybook dev -p 6006 -c .storybook",
+    "build-storybook": "storybook build -c .storybook --output-dir storybook-static",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "clean:main": "rm -rf dist/main",
     "build:main": "tsc -p tsconfig.main.json",
@@ -45,10 +47,12 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@storybook/react-vite": "^10.4.6",
     "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
+    "storybook": "^10.4.6",
     "tailwindcss": "^4.3.1"
   }
 }
