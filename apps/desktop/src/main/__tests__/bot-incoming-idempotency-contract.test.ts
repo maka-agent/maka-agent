@@ -1,11 +1,13 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 async function readRepo(path: string): Promise<string> {
+  if (path === 'apps/desktop/src/main/main.ts') return readMainProcessCombinedSource();
+  const { readFile } = await import('node:fs/promises');
   return readFile(resolve(REPO_ROOT, path), 'utf8');
 }
 
@@ -51,7 +53,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
 
   it('rate-limits and session-caps bot turns before create/send side effects', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
-    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\n\}\n\nasync function collectBotReply/);
+    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\n\s*\}\n\n\s*async function collectBotReply/);
 
     assert.ok(processBlock, 'processBotIncomingMessage block must exist');
     assert.match(main, /const BOT_CONVERSATION_SESSION_LIMIT = 500;/);
@@ -59,7 +61,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
     assert.match(main, /const BOT_CONVERSATION_RATE_REFILL_MS = 5_000;/);
     assert.match(main, /const BOT_CONVERSATION_RATE_BUCKET_TTL_MS = 60 \* 60 \* 1_000;/);
     assert.match(main, /const BOT_CONVERSATION_RATE_BUCKET_LIMIT = 1_000;/);
-    const consumeToken = main.match(/function consumeBotConversationToken\([^]*?\n\}\n\nasync function sendTransientBotNotice/);
+    const consumeToken = main.match(/function consumeBotConversationToken\([^]*?\n\s*\}\n\n\s*async function sendTransientBotNotice/);
     const pruneBuckets = main.match(/function pruneExpiredBotConversationRateBuckets\([^)]*\): void \{[\s\S]*?\n\}/);
     assert.ok(consumeToken, 'consumeBotConversationToken helper must exist');
     assert.ok(pruneBuckets, 'rate bucket TTL pruning helper must exist');
@@ -76,7 +78,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
     assert.match(main, /async function sendTransientBotNotice[\s\S]*ephemeralTtlMs: ttlMs/);
 
     const block = processBlock![0];
-    const newSessionBranch = block.match(/if \(!sessionId\) \{[\s\S]*?const ready = await getReadyConnection/);
+    const newSessionBranch = block.match(/if \(!sessionId\) \{[\s\S]*?const ready = await (?:deps\.)?getReadyConnection/);
     assert.ok(newSessionBranch, 'new bot conversation branch must exist');
     assert.ok(
       block.indexOf('consumeBotConversationToken(conversationKey)') < block.indexOf('runtime.createSession'),
@@ -109,7 +111,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
 
   it('forces existing bot-bound sessions back to explore before send or refuses the turn', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
-    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\n\}\n\nasync function collectBotReply/);
+    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\n\s*\}\n\n\s*async function collectBotReply/);
     const guard = main.match(/async function ensureBotSessionExploreMode\([^)]*\): Promise<boolean> \{[\s\S]*?\n\}/);
 
     assert.ok(processBlock, 'processBotIncomingMessage block must exist');
@@ -123,9 +125,9 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
       block.indexOf('ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS)') < block.indexOf('runtime.sendMessage'),
       'existing bot sessions must be forced/refused before runtime.sendMessage',
     );
-    assert.match(guard![0], /const header = await store\.readHeader\(sessionId\)/);
+    assert.match(guard![0], /const header = await (?:store\.readHeader|deps\.readSessionHeader)\(sessionId\)/);
     assert.match(guard![0], /if \(header\.permissionMode === 'explore'\) return true;/);
-    assert.match(guard![0], /await runtime\.updateSession\(sessionId, \{ permissionMode: 'explore' \}\);[\s\S]*return true;/);
+    assert.match(guard![0], /await (?:runtime|deps\.runtime)\.updateSession\(sessionId, \{ permissionMode: 'explore' \}\);[\s\S]*return true;/);
     assert.match(guard![0], /catch \{[\s\S]*sendTransientBotNotice[\s\S]*return false;/);
   });
 });

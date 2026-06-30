@@ -19,15 +19,8 @@ import {
   isDeepResearchSession,
   botPlatformFromSessionLabels,
   buildBotPlatformPromptFragment,
-  botConversationKey,
   botDisplayLabel,
-  botSourceEventKey,
   humanizeBotStatusReason,
-  isPlaintextHelpCommand,
-  isPlaintextResetCommand,
-  nonTextMessageAck,
-  plaintextHelpReply,
-  formatBotMessageForSession,
   buildLocalMemoryPromptBody,
 } from '@maka/core';
 import type {
@@ -140,7 +133,6 @@ import {
   testConnection,
 } from '@maka/runtime';
 import type {
-  BotIncomingMessage,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
@@ -231,6 +223,7 @@ import type { BrowserViewRect } from './browser/logic.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
+import { createBotIncomingMainService } from './bot-incoming-main.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -645,6 +638,7 @@ let lookupPricing = buildPricingLookup();
 // (avoids thrashing the settings file when the live bridge re-emits the
 // same readiness during reconnect attempts).
 const previousBotReadiness = new Map<BotProvider, BotReadinessState>();
+let botIncoming: ReturnType<typeof createBotIncomingMainService>;
 const botRegistry = new BotRegistry({
   onIncomingMessage: (message) => {
     // Only log incoming bot messages in dev — production stdout leaking
@@ -653,7 +647,7 @@ const botRegistry = new BotRegistry({
     if (process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === 'development') {
       console.log('[bot] incoming message', message.platform, message.chatId);
     }
-    void handleBotIncomingMessage(message);
+    void botIncoming.handleBotIncomingMessage(message);
   },
   onStatusChange: (status) => {
     safeSendToRenderer('settings:bots:statusChanged', status);
@@ -1275,22 +1269,19 @@ const dailyReview = createDailyReviewMainService({
   resolveConnectionSecret,
   buildSubscriptionModelFetch,
 });
-const botConversationSessions = new Map<string, string>();
-const botConversationQueues = new Map<string, Promise<void>>();
-const botRecentSourceEventKeys = new Map<string, number>();
-const botConversationRateBuckets = new Map<string, BotConversationRateBucket>();
-const BOT_RECENT_SOURCE_EVENT_LIMIT = 1_000;
-const BOT_RECENT_SOURCE_EVENT_TTL_MS = 60 * 60 * 1_000;
-const BOT_CONVERSATION_SESSION_LIMIT = 500;
-const BOT_CONVERSATION_RATE_BURST = 8;
-const BOT_CONVERSATION_RATE_REFILL_MS = 5_000;
-const BOT_CONVERSATION_RATE_BUCKET_TTL_MS = 60 * 60 * 1_000;
-const BOT_CONVERSATION_RATE_BUCKET_LIMIT = 1_000;
-
-interface BotConversationRateBucket {
-  tokens: number;
-  updatedAt: number;
-}
+botIncoming = createBotIncomingMainService({
+  runtime,
+  botRegistry,
+  cwd: () => process.cwd(),
+  getDefaultConnectionSlug: () => connectionStore.getDefault(),
+  getReadyConnection,
+  readSessionHeader: (sessionId) => store.readHeader(sessionId),
+  ensureSessionCanSend,
+  emitSessionsChanged,
+  sendToRenderer: safeSendToRenderer,
+  isStatusChangingSessionEvent,
+  isTurnStatusChangingSessionEvent,
+});
 
 // PR110b: onboarding service composes existing stores + runtime to
 // derive `OnboardingState` and manage `OnboardingMilestone[]`.
@@ -3027,351 +3018,6 @@ async function streamEvents(
       finalAppendBroadcasted = true;
     }
   }
-}
-
-async function handleBotIncomingMessage(message: BotIncomingMessage): Promise<void> {
-  if (rememberBotSourceEvent(message)) return;
-  const text = message.text.trim();
-  // PR-BOT-NON-TEXT-MESSAGE-ACK-0: previously a photo / voice / sticker
-  // with no caption was silently dropped — the user got zero response.
-  // If the inbound carried a non-text payload and there is no usable
-  // text, send a kind-aware ack so the user knows the bot received
-  // something but cannot process it. 5-minute TTL matches the other
-  // transient system notices.
-  if (!text && message.attachmentKind) {
-    const replyOptions = {
-      ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
-      ephemeralTtlMs: 5 * 60 * 1_000,
-    };
-    await botRegistry
-      .sendMessage(message.platform, message.chatId, nonTextMessageAck(message.attachmentKind), replyOptions)
-      .catch(() => null);
-    return;
-  }
-  if (!text) return;
-  const key = botConversationKey(message);
-  const current = botConversationQueues.get(key) ?? Promise.resolve();
-  const next = current
-    .catch(() => {})
-    .then(() => processBotIncomingMessage(key, message, text));
-  const tracked = next.finally(() => {
-    if (botConversationQueues.get(key) === tracked) botConversationQueues.delete(key);
-  });
-  botConversationQueues.set(key, tracked);
-}
-
-function rememberBotSourceEvent(message: BotIncomingMessage): boolean {
-  const key = botSourceEventKey(message);
-  if (!key) return false;
-  const now = Date.now();
-  pruneExpiredBotSourceEvents(now);
-  if (botRecentSourceEventKeys.has(key)) return true;
-  botRecentSourceEventKeys.set(key, now);
-  while (botRecentSourceEventKeys.size > BOT_RECENT_SOURCE_EVENT_LIMIT) {
-    const oldest = botRecentSourceEventKeys.keys().next().value;
-    if (!oldest) break;
-    botRecentSourceEventKeys.delete(oldest);
-  }
-  return false;
-}
-
-function pruneExpiredBotSourceEvents(now: number): void {
-  for (const [key, seenAt] of botRecentSourceEventKeys) {
-    if (now - seenAt <= BOT_RECENT_SOURCE_EVENT_TTL_MS) break;
-    botRecentSourceEventKeys.delete(key);
-  }
-}
-
-function consumeBotConversationToken(conversationKey: string, now = Date.now()): boolean {
-  pruneExpiredBotConversationRateBuckets(now);
-  const bucket = botConversationRateBuckets.get(conversationKey) ?? {
-    tokens: BOT_CONVERSATION_RATE_BURST,
-    updatedAt: now,
-  };
-  const elapsed = Math.max(0, now - bucket.updatedAt);
-  const refilled = Math.floor(elapsed / BOT_CONVERSATION_RATE_REFILL_MS);
-  if (refilled > 0) {
-    bucket.tokens = Math.min(BOT_CONVERSATION_RATE_BURST, bucket.tokens + refilled);
-    bucket.updatedAt += refilled * BOT_CONVERSATION_RATE_REFILL_MS;
-  }
-  if (bucket.tokens <= 0) {
-    botConversationRateBuckets.set(conversationKey, bucket);
-    return false;
-  }
-  bucket.tokens -= 1;
-  botConversationRateBuckets.set(conversationKey, bucket);
-  while (botConversationRateBuckets.size > BOT_CONVERSATION_RATE_BUCKET_LIMIT) {
-    const oldest = botConversationRateBuckets.keys().next().value;
-    if (!oldest) break;
-    botConversationRateBuckets.delete(oldest);
-  }
-  return true;
-}
-
-function pruneExpiredBotConversationRateBuckets(now: number): void {
-  for (const [key, bucket] of botConversationRateBuckets) {
-    if (now - bucket.updatedAt > BOT_CONVERSATION_RATE_BUCKET_TTL_MS) {
-      botConversationRateBuckets.delete(key);
-    }
-  }
-}
-
-async function sendTransientBotNotice(message: BotIncomingMessage, text: string, ttlMs: number): Promise<void> {
-  await botRegistry.sendMessage(
-    message.platform,
-    message.chatId,
-    text,
-    {
-      ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
-      ephemeralTtlMs: ttlMs,
-    },
-  ).catch(() => null);
-}
-
-async function processBotIncomingMessage(
-  conversationKey: string,
-  message: BotIncomingMessage,
-  text: string,
-): Promise<void> {
-  // PR-BOT-EPHEMERAL-REPLY-0: TTL for system notices (help / reset ack /
-  // fallback errors). Five minutes is long enough for the user to read
-  // and process the notice on mobile; short enough that bot DMs do not
-  // accumulate transient noise after a few weeks of use. The actual
-  // agent reply does NOT get this TTL — the answer must stay visible.
-  const SYSTEM_NOTICE_TTL_MS = 5 * 60 * 1_000;
-  // PR-BOT-PLAINTEXT-HELP-COMMAND-0: DM-only quick "what can I do here?"
-  // hint. Lands BEFORE the reset path so a user typing "help" gets a
-  // capability list, not a (silent) reset.
-  if (isPlaintextHelpCommand({ text, isGroup: message.isGroup })) {
-    const replyOptions = {
-      ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
-      ephemeralTtlMs: SYSTEM_NOTICE_TTL_MS,
-    };
-    await botRegistry.sendMessage(
-      message.platform,
-      message.chatId,
-      plaintextHelpReply(),
-      replyOptions,
-    ).catch(() => null);
-    return;
-  }
-  // PR-BOT-PLAINTEXT-RESET-COMMAND-0 (external bot research): in DMs, a bare
-  // "restart" / "重置" / etc. drops the conversation/session binding so
-  // the next message starts a fresh thread. DM-only because the
-  // conversation key is `${platform}:${chatId}` — in a group chat any
-  // member would otherwise be able to wipe everyone else's context.
-  if (isPlaintextResetCommand({ text, isGroup: message.isGroup })) {
-    const had = botConversationSessions.delete(conversationKey);
-    botConversationRateBuckets.delete(conversationKey);
-    const replyOptions = {
-      ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
-      ephemeralTtlMs: SYSTEM_NOTICE_TTL_MS,
-    };
-    const ack = had
-      ? '会话已重置，下一条消息会开新对话。'
-      : '当前没有进行中的对话；下一条消息会开新对话。';
-    await botRegistry.sendMessage(message.platform, message.chatId, ack, replyOptions).catch(() => null);
-    return;
-  }
-  let sessionId = botConversationSessions.get(conversationKey);
-  try {
-    if (!sessionId) {
-      if (botConversationSessions.size >= BOT_CONVERSATION_SESSION_LIMIT) {
-        await sendTransientBotNotice(
-          message,
-          'Maka 当前机器人会话数量已达上限，请重置或清理旧会话后再试。',
-          SYSTEM_NOTICE_TTL_MS,
-        );
-        return;
-      }
-      if (!consumeBotConversationToken(conversationKey)) {
-        await sendTransientBotNotice(
-          message,
-          'Maka 收到的机器人消息过于频繁，请稍后再试。',
-          SYSTEM_NOTICE_TTL_MS,
-        );
-        return;
-      }
-      const ready = await getReadyConnection(await connectionStore.getDefault(), undefined);
-      const summary = await runtime.createSession({
-        cwd: process.cwd(),
-        backend: 'ai-sdk',
-        llmConnectionSlug: ready.connection.slug,
-        model: ready.model,
-        // Bot conversations must not execute local side effects without an
-        // in-app approval surface. Explore allows read/web-read only.
-        permissionMode: 'explore',
-        name: `${botDisplayLabel(message.platform)} 对话`,
-        labels: ['bot', message.platform],
-      });
-      sessionId = summary.id;
-      botConversationSessions.set(conversationKey, sessionId);
-      emitSessionsChanged('created', sessionId);
-    } else {
-      const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
-      if (!permissionModeOk) return;
-      await ensureSessionCanSend(sessionId);
-      if (!consumeBotConversationToken(conversationKey)) {
-        await sendTransientBotNotice(
-          message,
-          'Maka 收到的机器人消息过于频繁，请稍后再试。',
-          SYSTEM_NOTICE_TTL_MS,
-        );
-        return;
-      }
-    }
-
-    const turnId = randomUUID();
-    const iterator = runtime.sendMessage(sessionId, {
-      turnId,
-      text: formatBotMessageForSession({ ...message, text }),
-    });
-    // PR-BOT-TYPING-INDICATOR-0 (external bot research): keep "Maka 正在
-    // 输入…" visible in the Telegram client while the agent generates
-    // its reply. Telegram auto-clears the indicator after ~5 seconds,
-    // so we refresh every 4 seconds. The loop is best-effort: every
-    // failure is swallowed so a typing-endpoint outage cannot block
-    // or corrupt the actual reply path.
-    const typingAbort = new AbortController();
-    const typingLoop = (async () => {
-      // Fire-and-forget first beat so the indicator shows immediately,
-      // not 4 seconds in.
-      await botRegistry.sendTypingIndicator(message.platform, message.chatId).catch(() => false);
-      while (!typingAbort.signal.aborted) {
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 4000);
-          typingAbort.signal.addEventListener('abort', () => {
-            clearTimeout(timer);
-            resolve();
-          }, { once: true });
-        });
-        if (typingAbort.signal.aborted) break;
-        await botRegistry.sendTypingIndicator(message.platform, message.chatId).catch(() => false);
-      }
-    })();
-    let reply: string;
-    try {
-      reply = await collectBotReply(sessionId, iterator, turnId);
-    } finally {
-      typingAbort.abort();
-      await typingLoop.catch(() => {});
-    }
-    // PR-BOT-REPLY-TO-MESSAGE-0 (external bot research): thread the bot reply
-    // under the originating user message. Group chats with concurrent
-    // conversations otherwise visually scramble; even in DMs the threading
-    // keeps a long reply attached to the question that produced it. Bot
-    // bridge layer drops the field for non-Telegram platforms / multi-chunk
-    // continuation pieces.
-    const replyOptions = message.sourceMessageId
-      ? { replyToMessageId: message.sourceMessageId }
-      : undefined;
-    if (reply.trim()) {
-      // Actual agent reply: NO ephemeral TTL. The answer must stay
-      // visible — auto-deleting it would defeat the bot's purpose.
-      const sent = await botRegistry.sendMessage(message.platform, message.chatId, reply.trim(), replyOptions);
-      if (!sent) {
-        // Fallback transient notice: 5-minute TTL so the chat does
-        // not accumulate "delivery failed" markers.
-        await botRegistry.sendMessage(
-          message.platform,
-          message.chatId,
-          'Maka 已生成回复，但当前机器人通道暂时无法发送。',
-          { ...(replyOptions ?? {}), ephemeralTtlMs: 5 * 60 * 1_000 },
-        ).catch(() => null);
-      }
-    }
-  } catch (error) {
-    const detail = generalizedErrorMessage(error, '机器人对话处理失败');
-    const replyOptions = {
-      ...(message.sourceMessageId ? { replyToMessageId: message.sourceMessageId } : {}),
-      // Error notice: same 5-minute TTL as the other transient system
-      // notices.
-      ephemeralTtlMs: 5 * 60 * 1_000,
-    };
-    await botRegistry.sendMessage(
-      message.platform,
-      message.chatId,
-      `Maka 暂时无法处理这条消息：${detail}`,
-      replyOptions,
-    ).catch(() => null);
-  }
-}
-
-async function ensureBotSessionExploreMode(
-  sessionId: string,
-  message: BotIncomingMessage,
-  noticeTtlMs: number,
-): Promise<boolean> {
-  const header = await store.readHeader(sessionId);
-  if (header.permissionMode === 'explore') return true;
-  try {
-    await runtime.updateSession(sessionId, { permissionMode: 'explore' });
-    emitSessionsChanged('updated', sessionId);
-    return true;
-  } catch {
-    await sendTransientBotNotice(
-      message,
-      'Maka 已拒绝这条机器人消息：绑定会话当前不是只读探索模式，请先在桌面端切回 explore 后再试。',
-      noticeTtlMs,
-    );
-    return false;
-  }
-}
-
-async function collectBotReply(
-  sessionId: string,
-  iterator: AsyncIterable<SessionEvent>,
-  fallbackTurnId: string,
-): Promise<string> {
-  let userAppendBroadcasted = false;
-  let finalAppendBroadcasted = false;
-  let latestText = '';
-  let earlyReply: string | undefined;
-  try {
-    for await (const event of iterator) {
-      if (!userAppendBroadcasted) {
-        emitSessionsChanged('message-appended', sessionId);
-        userAppendBroadcasted = true;
-      }
-      safeSendToRenderer(`sessions:event:${sessionId}`, event);
-      if (event.type === 'text_complete') latestText = event.text;
-      if (event.type === 'permission_request') {
-        return '这条请求需要在 Maka 桌面端审批后才能继续。';
-      }
-      if (event.type === 'error') {
-        earlyReply = `Maka 处理失败：${event.message}`;
-      }
-      if (isStatusChangingSessionEvent(event)) {
-        emitSessionsChanged('status-change', sessionId);
-      }
-      if (isTurnStatusChangingSessionEvent(event)) {
-        emitSessionsChanged('turn-status-change', sessionId);
-      }
-    }
-    if (!finalAppendBroadcasted) {
-      emitSessionsChanged('message-appended', sessionId);
-      finalAppendBroadcasted = true;
-    }
-  } catch (error) {
-    safeSendToRenderer(`sessions:event:${sessionId}`, {
-      type: 'error',
-      id: randomUUID(),
-      turnId: fallbackTurnId,
-      ts: Date.now(),
-      recoverable: false,
-      code: errorCode(error),
-      reason: errorReason(error),
-      message: errorMessage(error),
-    } satisfies SessionEvent);
-    emitSessionsChanged('status-change', sessionId);
-    emitSessionsChanged('turn-status-change', sessionId);
-    if (!finalAppendBroadcasted) {
-      emitSessionsChanged('message-appended', sessionId);
-      finalAppendBroadcasted = true;
-    }
-    return `Maka 处理失败：${errorMessage(error)}`;
-  }
-  return earlyReply ?? latestText;
 }
 
 function isStatusChangingSessionEvent(event: SessionEvent): boolean {
