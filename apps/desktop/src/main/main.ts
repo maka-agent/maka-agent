@@ -40,12 +40,9 @@ import type {
   ConnectionEvent,
   CreateConnectionInput,
   CreateSessionInput,
-  DailyReviewArchive,
-  DailyReviewArchiveSectionContent,
   DailyReviewConfig,
   DailyReviewMode,
   DailyReviewSummary,
-  DailyReviewTrigger,
   SessionChangedEvent,
   SessionChangedReason,
   SessionEvent,
@@ -59,16 +56,6 @@ import type {
   UsageRange,
   PlanReminder,
   LocalMemoryState,
-} from '@maka/core';
-import {
-  DAILY_REVIEW_LIST_LIMIT,
-  buildDailyReviewSummary,
-  dailyReviewArchiveId,
-  dailyUsageQuery,
-  localDayBoundsAt,
-  localDayBoundsForInstant,
-  pickDailyReviewSessions,
-  pickDailyReviewTopEntries,
 } from '@maka/core';
 import {
   isWebSearchProvider,
@@ -245,6 +232,7 @@ import { provideBrowserViewHost } from './browser/browser-host.js';
 import { releaseBrowserSession, revokeHiddenBrowserActions } from './browser/session.js';
 import type { BrowserViewRect } from './browser/logic.js';
 import { createMainWindowController } from './main-window.js';
+import { createDailyReviewMainService } from './daily-review-main.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -1264,6 +1252,14 @@ const runtime = new SessionManager({
   newId: randomUUID,
   now: Date.now,
 });
+const dailyReview = createDailyReviewMainService({
+  archiveStore: dailyReviewArchiveStore,
+  connectionStore,
+  telemetryRepo,
+  listSessions: () => runtime.listSessions(),
+  resolveConnectionSecret,
+  buildSubscriptionModelFetch,
+});
 const botConversationSessions = new Map<string, string>();
 const botConversationQueues = new Map<string, Promise<void>>();
 const botRecentSourceEventKeys = new Map<string, number>();
@@ -1297,289 +1293,11 @@ const onboardingService = createOnboardingService(
 
 const planReminderTimers = new Map<string, NodeJS.Timeout>();
 const PLAN_REMINDER_DEFAULT_SNOOZE_MS = 10 * 60 * 1000;
-let dailyReviewSchedulerTimer: NodeJS.Timeout | null = null;
-let dailyReviewSchedulerLastMinuteKey: string | null = null;
 
 // The session the renderer currently shows; browser:* renderer channels are
 // validated against it so a stale/miswired panel can't steer another
 // conversation's view (the agent path uses the runtime's trusted sessionId).
 let shownBrowserSessionId: string | null = null;
-
-const DAILY_REVIEW_ARCHIVE_LIMIT = 180;
-
-async function buildDailyReviewSummaryForRange(offsetDays: number, daySpan: number): Promise<DailyReviewSummary> {
-  const offset = Number.isFinite(offsetDays) ? Math.trunc(offsetDays) : 0;
-  const rawSpan = Number.isFinite(daySpan) ? Math.trunc(daySpan) : 1;
-  const span = Math.max(1, Math.min(30, rawSpan));
-  const endDay =
-    offset === 0
-      ? localDayBoundsForInstant(Date.now())
-      : localDayBoundsAt(Date.now(), offset);
-  const startDay =
-    span === 1
-      ? endDay
-      : localDayBoundsAt(Date.now(), offset - (span - 1));
-  const range = { fromMs: startDay.fromMs, toMs: endDay.toMs };
-  const usageQuery = dailyUsageQuery(range);
-  const [usageSummary, toolBuckets, modelBuckets, sessions] = await Promise.all([
-    Promise.resolve(telemetryRepo.summary(usageQuery)),
-    Promise.resolve(telemetryRepo.buckets(usageQuery, 'tool')),
-    Promise.resolve(telemetryRepo.buckets(usageQuery, 'model')),
-    Promise.resolve(runtime.listSessions()),
-  ]);
-  return buildDailyReviewSummary({
-    day: range,
-    usageSummary,
-    sessions: pickDailyReviewSessions(sessions, range, DAILY_REVIEW_LIST_LIMIT),
-    topTools: pickDailyReviewTopEntries(toolBuckets, DAILY_REVIEW_LIST_LIMIT),
-    topModels: pickDailyReviewTopEntries(modelBuckets, DAILY_REVIEW_LIST_LIMIT),
-  });
-}
-
-async function runDailyReview(input: {
-  mode: DailyReviewMode;
-  day?: number;
-  trigger: DailyReviewTrigger;
-  modelKeyOverride?: string;
-}): Promise<{ archiveId: string }> {
-  const config = await dailyReviewArchiveStore.getConfig();
-  const mode = input.mode === 'deep' ? 'deep' : 'daily';
-  const modelKeyOverride = input.modelKeyOverride?.trim();
-  const effectiveModelKey = modelKeyOverride ? modelKeyOverride : config.modelKey;
-  const summary = await buildDailyReviewSummaryForRange(input.day ?? 0, mode === 'deep' ? 7 : 1);
-  const archiveId = dailyReviewArchiveId(summary.day, mode);
-  const baseArchive: Omit<DailyReviewArchive, 'status' | 'sections' | 'errorMessage'> = {
-    id: archiveId,
-    day: summary.day,
-    mode,
-    generatedAt: Date.now(),
-    trigger: input.trigger,
-    modelKey: effectiveModelKey,
-    totals: summary.totals,
-  };
-
-  if (summary.totals.sessionCount + summary.totals.requestCount === 0) {
-    await dailyReviewArchiveStore.putArchive({
-      ...baseArchive,
-      status: 'no_data',
-      sections: buildRuleBasedDailyReviewSections(summary, config, mode),
-      errorMessage: '没有可用于生成回顾的本地活动数据。',
-    });
-    await dailyReviewArchiveStore.prune(DAILY_REVIEW_ARCHIVE_LIMIT);
-    return { archiveId };
-  }
-
-  try {
-    const modelContext = await resolveDailyReviewModelContext(effectiveModelKey);
-    if (!modelContext) {
-      await dailyReviewArchiveStore.putArchive({
-        ...baseArchive,
-        status: 'no_model',
-        sections: buildRuleBasedDailyReviewSections(summary, config, mode),
-        errorMessage: '未配置可用的分析模型。',
-      });
-      await dailyReviewArchiveStore.prune(DAILY_REVIEW_ARCHIVE_LIMIT);
-      return { archiveId };
-    }
-
-    const sections = await generateDailyReviewSections({
-      summary,
-      config,
-      mode,
-      connection: modelContext.connection,
-      apiKey: modelContext.apiKey,
-      modelId: modelContext.modelId,
-    });
-    await dailyReviewArchiveStore.putArchive({
-      ...baseArchive,
-      modelKey: `${modelContext.connection.slug}::${modelContext.modelId}`,
-      status: 'ok',
-      sections,
-    });
-  } catch (error) {
-    await dailyReviewArchiveStore.putArchive({
-      ...baseArchive,
-      status: 'failed',
-      sections: buildRuleBasedDailyReviewSections(summary, config, mode),
-      errorMessage: generalizedErrorMessageChinese(error, '每日回顾生成失败'),
-    });
-  }
-  await dailyReviewArchiveStore.prune(DAILY_REVIEW_ARCHIVE_LIMIT);
-  return { archiveId };
-}
-
-async function resolveDailyReviewModelContext(modelKey: string): Promise<{
-  connection: LlmConnection;
-  apiKey: string | null;
-  modelId: string;
-} | null> {
-  const parsed = parseDailyReviewModelKey(modelKey);
-  const slug = parsed?.slug ?? await connectionStore.getDefault();
-  if (!slug) return null;
-  const connection = await connectionStore.get(slug);
-  if (!connection || !connection.enabled) return null;
-  const modelId = parsed?.modelId || connection.defaultModel;
-  if (!modelId) return null;
-  const apiKey = await resolveConnectionSecret(connection.slug);
-  if (PROVIDER_DEFAULTS[connection.providerType].authKind !== 'none' && !apiKey) return null;
-  return { connection, apiKey, modelId };
-}
-
-function parseDailyReviewModelKey(modelKey: string): { slug: string; modelId: string } | null {
-  const trimmed = modelKey.trim();
-  if (!trimmed) return null;
-  const separator = trimmed.indexOf('::');
-  if (separator <= 0 || separator >= trimmed.length - 2) return null;
-  return {
-    slug: trimmed.slice(0, separator),
-    modelId: trimmed.slice(separator + 2),
-  };
-}
-
-async function generateDailyReviewSections(input: {
-  summary: DailyReviewSummary;
-  config: DailyReviewConfig;
-  mode: DailyReviewMode;
-  connection: LlmConnection;
-  apiKey: string | null;
-  modelId: string;
-}): Promise<DailyReviewArchiveSectionContent> {
-  const ai = await import('ai') as unknown as {
-    generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
-  };
-  const modelFetch = buildSubscriptionModelFetch(input.connection, 'daily-review', input.modelId);
-  const result = await ai.generateText({
-    model: getAIModel({
-      connection: input.connection,
-      apiKey: input.apiKey ?? '',
-      modelId: input.modelId,
-      fetch: modelFetch,
-    }),
-    system: dailyReviewSystemPrompt(input.config),
-    prompt: dailyReviewUserPrompt(input.summary, input.config, input.mode),
-    providerOptions: buildProviderOptions(input.connection, input.modelId),
-  });
-  return parseDailyReviewSections(result.text, input.config);
-}
-
-function dailyReviewSystemPrompt(config: DailyReviewConfig): string {
-  const enabled = Object.entries(config.sections)
-    .filter(([, value]) => value)
-    .map(([key]) => key)
-    .join(', ');
-  return [
-    '你是 Maka 的每日回顾分析器。只基于输入的本地统计和会话预览生成回顾，不编造未出现的事实。',
-    '输出 JSON，不要 Markdown fence。JSON 顶层字段只允许 summary、gaps、usage、code，值为中文字符串。',
-    `启用栏目：${enabled || 'summary'}。未启用栏目可以省略。`,
-  ].join('\n');
-}
-
-function dailyReviewUserPrompt(
-  summary: DailyReviewSummary,
-  config: DailyReviewConfig,
-  mode: DailyReviewMode,
-): string {
-  return JSON.stringify({
-    mode,
-    includeClaudeCode: config.includeClaudeCode,
-    day: summary.day,
-    totals: summary.totals,
-    sessions: summary.sessions.map((session) => ({
-      name: session.name,
-      lastMessageAt: session.lastMessageAt,
-      preview: session.lastMessagePreview ?? '',
-    })),
-    topModels: summary.topModels,
-    topTools: summary.topTools,
-    instruction: mode === 'deep'
-      ? '生成更深入的多日工作复盘：趋势、遗漏、风险、下一步。'
-      : '生成当天工作回顾：发生了什么、遗漏什么、用量洞察、代码建议。',
-  });
-}
-
-function parseDailyReviewSections(text: string, config: DailyReviewConfig): DailyReviewArchiveSectionContent {
-  const trimmed = text.trim();
-  try {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    return {
-      ...(config.sections.summary && typeof parsed.summary === 'string' ? { summary: parsed.summary.trim() } : {}),
-      ...(config.sections.gaps && typeof parsed.gaps === 'string' ? { gaps: parsed.gaps.trim() } : {}),
-      ...(config.sections.usage && typeof parsed.usage === 'string' ? { usage: parsed.usage.trim() } : {}),
-      ...(config.sections.code && typeof parsed.code === 'string' ? { code: parsed.code.trim() } : {}),
-    };
-  } catch {
-    return { summary: trimmed };
-  }
-}
-
-function buildRuleBasedDailyReviewSections(
-  summary: DailyReviewSummary,
-  config: DailyReviewConfig,
-  mode: DailyReviewMode,
-): DailyReviewArchiveSectionContent {
-  const sections: {
-    summary?: string;
-    gaps?: string;
-    usage?: string;
-    code?: string;
-  } = {};
-  if (config.sections.summary) {
-    sections.summary = `${mode === 'deep' ? '深度分析' : '每日回顾'}覆盖 ${summary.totals.sessionCount} 个对话、${summary.totals.requestCount} 次请求、${summary.totals.totalTokens} tokens。`;
-  }
-  if (config.sections.gaps) {
-    sections.gaps = summary.totals.errorCount > 0
-      ? `发现 ${summary.totals.errorCount} 次错误请求，建议回看失败上下文。`
-      : '未从本地统计中发现明确失败请求。';
-  }
-  if (config.sections.usage) {
-    const topModel = summary.topModels[0];
-    sections.usage = topModel
-      ? `使用最多的模型是 ${topModel.label}，共 ${topModel.requests} 次请求。`
-      : '暂无模型使用统计。';
-  }
-  if (config.sections.code) {
-    const topTool = summary.topTools[0];
-    sections.code = topTool
-      ? `高频工具：${topTool.label}（${topTool.requests} 次）。建议优先复盘相关改动产物。`
-      : '暂无工具调用统计可形成代码建议。';
-  }
-  return sections;
-}
-
-function startDailyReviewScheduler(): void {
-  if (dailyReviewSchedulerTimer) clearInterval(dailyReviewSchedulerTimer);
-  dailyReviewSchedulerTimer = setInterval(() => {
-    void tickDailyReviewScheduler().catch((error) => {
-      console.error('[daily-review] scheduler tick failed', error);
-    });
-  }, 60 * 1000);
-  void tickDailyReviewScheduler().catch((error) => {
-    console.error('[daily-review] scheduler startup tick failed', error);
-  });
-}
-
-async function tickDailyReviewScheduler(): Promise<void> {
-  const now = new Date();
-  const minuteKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
-  if (dailyReviewSchedulerLastMinuteKey === minuteKey) return;
-  dailyReviewSchedulerLastMinuteKey = minuteKey;
-
-  const config = await dailyReviewArchiveStore.getConfig();
-  if (!config.enabled) return;
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  if (`${hh}:${mm}` !== config.executeTime) return;
-
-  await runDailyReviewIfMissing('daily');
-  if (config.deepEnabled) await runDailyReviewIfMissing('deep');
-}
-
-async function runDailyReviewIfMissing(mode: DailyReviewMode): Promise<void> {
-  const summary = await buildDailyReviewSummaryForRange(0, mode === 'deep' ? 7 : 1);
-  const id = dailyReviewArchiveId(summary.day, mode);
-  if (await dailyReviewArchiveStore.getArchive(id)) return;
-  await runDailyReview({ mode, trigger: 'cron' });
-}
 
 function localMemoryOpenFailureCopy(reason: string): string {
   switch (reason) {
@@ -3164,7 +2882,7 @@ function registerIpc(): void {
       tryResult(async (): Promise<DailyReviewSummary> => {
         const offset = Number.isFinite(payload?.offsetDays) ? Math.trunc(payload!.offsetDays!) : 0;
         const rawSpan = Number.isFinite(payload?.daySpan) ? Math.trunc(payload!.daySpan!) : 1;
-        return buildDailyReviewSummaryForRange(offset, rawSpan);
+        return dailyReview.buildSummaryForRange(offset, rawSpan);
       }, 'DAILY_REVIEW_DAY_FAILED'),
   );
   ipcMain.handle('daily-review:getConfig', () => dailyReviewArchiveStore.getConfig());
@@ -3174,7 +2892,7 @@ function registerIpc(): void {
   ipcMain.handle(
     'daily-review:runOnce',
     (_event, input: { mode?: DailyReviewMode; day?: number; modelKey?: string } | undefined) =>
-      runDailyReview({
+      dailyReview.run({
         mode: input?.mode === 'deep' ? 'deep' : 'daily',
         day: Number.isFinite(input?.day) ? Math.trunc(input!.day!) : undefined,
         modelKeyOverride: typeof input?.modelKey === 'string' ? input.modelKey : undefined,
@@ -4217,7 +3935,7 @@ app.whenReady().then(async () => {
   await openGateway.sync(settings.openGateway);
   await mainWindowController.createWindow();
   await refreshPlanReminderTimers();
-  startDailyReviewScheduler();
+  dailyReview.startScheduler();
 });
 
 app.on('window-all-closed', () => {
@@ -4226,7 +3944,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   for (const id of Array.from(planReminderTimers.keys())) clearPlanReminderTimer(id);
-  if (dailyReviewSchedulerTimer) clearInterval(dailyReviewSchedulerTimer);
+  dailyReview.stopScheduler();
   void botRegistry.stopAll();
   void openGateway.stop();
   void mainWindowController.disposeBrowserViews();
