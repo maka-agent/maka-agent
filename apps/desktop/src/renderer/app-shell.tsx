@@ -104,19 +104,23 @@ import {
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from './session-event-health';
-import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
+import { safeLocalStorageSet } from './browser-storage';
 import { applyLocalSessionRead, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { renderConversationMarkdown } from './conversation-markdown';
 import { countSessions, filterSessions, readNavSelection } from './nav-selection';
+import {
+  clampSessionListWidth,
+  readSessionListCollapsed,
+  readSessionListWidth,
+  SESSION_LIST_COLLAPSED_WIDTH,
+  SESSION_LIST_EXPANDED_MAX_WIDTH,
+  SESSION_LIST_EXPANDED_MIN_WIDTH,
+} from './session-list-layout';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
 const USER_MESSAGE_VISIBLE_TIMEOUT_MS = 1_200;
 const USER_MESSAGE_VISIBLE_POLL_MS = 40;
-const SESSION_LIST_COLLAPSED_WIDTH = 0;
-const SESSION_LIST_EXPANDED_DEFAULT_WIDTH = 210;
-const SESSION_LIST_EXPANDED_MIN_WIDTH = 210;
-const SESSION_LIST_EXPANDED_MAX_WIDTH = 280;
 
 interface RendererAppInfo {
   projectPath: string;
@@ -3554,19 +3558,6 @@ const modeDescriptions: Record<PermissionMode, string> = {
   bypass: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。',
 };
 
-function readSessionListWidth(): number {
-  const stored = Number(safeLocalStorageGet('maka-chat-list-width-v1'));
-  if (Number.isFinite(stored) && stored > 0) return clampSessionListWidth(stored);
-  return SESSION_LIST_EXPANDED_DEFAULT_WIDTH;
-}
-
-function readSessionListCollapsed(): boolean {
-  const stored = safeLocalStorageGet('maka-chat-list-collapsed-v1');
-  if (stored === 'false') return false;
-  if (stored === 'true') return true;
-  return true;
-}
-
 function isNoRealConnectionError(error: unknown): boolean {
   const raw = error instanceof Error ? error.message : String(error);
   return raw.includes(NO_REAL_CONNECTION_CODE);
@@ -3639,12 +3630,4 @@ function modelSetupToastCopy(reason: string | undefined, fallback: string): { ti
     title: '等待配置真实模型',
     description: fallback,
   };
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function clampSessionListWidth(value: number): number {
-  return Math.round(clamp(value, SESSION_LIST_EXPANDED_MIN_WIDTH, SESSION_LIST_EXPANDED_MAX_WIDTH));
 }

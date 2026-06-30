@@ -12,6 +12,7 @@ const sourcePaths = [
   'cached-theme-bootstrap.ts',
   'conversation-markdown.ts',
   'nav-selection.ts',
+  'session-list-layout.ts',
 ] as const;
 
 export const RENDERER_SHELL_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(
