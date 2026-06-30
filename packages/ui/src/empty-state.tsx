@@ -1,9 +1,9 @@
-import type { ComponentType, ReactNode } from 'react';
-import type { LucideProps } from './icons.js';
+import type { ReactNode } from 'react';
+import type { Search } from './icons.js';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './primitives/empty.js';
 import { Button as UiButton, cn } from './ui.js';
 
-type EmptyStateIcon = ComponentType<LucideProps>;
+type EmptyStateIcon = typeof Search;
 
 /**
  * PR-EMPTY-STATE-COMPONENT-0: shared empty-state container. Folds the

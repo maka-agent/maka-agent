@@ -222,27 +222,10 @@ export { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolD
 export { formatBytes, OverlayHost, ToolActivity } from './tool-activity.js';
 export { PermissionDialog } from './permission-dialog.js';
 
-
-
-
-
-
-
-
-
-
 function Count(props: { value: number }) {
   if (props.value <= 0) return null;
   return <small>{props.value}</small>;
 }
-
-
-
-
-
-
-
-
 
 function SkillLibraryPanel(props: {
   skills?: SkillEntry[];
