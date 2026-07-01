@@ -1172,6 +1172,102 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
   });
 
+  test('getMessages repairs missing failed header class from an existing terminal RuntimeEvent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: undefined,
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+      runtimeEvent({
+        id: 'rt-failed',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        content: { kind: 'error', code: 'tool_failed', reason: 'tool_failed', message: 'tool failed' },
+        actions: { endInvocation: true, stateDelta: { failureClass: 'tool_failed' } },
+      }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.failureClass).toBe('tool_failed');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: 'rt-failed',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'tool_failed',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
+  test('getMessages uses fallback failed header class when an existing terminal RuntimeEvent has no class', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: undefined,
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+      runtimeEvent({
+        id: 'rt-failed',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
   test('getMessages serializes concurrent terminal repairs for the same run', async () => {
     const store = new MemorySessionStore();
     let repairReads = 0;

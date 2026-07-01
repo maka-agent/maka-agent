@@ -802,12 +802,32 @@ export class SessionManager {
         await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
       }
 
+      const existingFailedTerminal = runtimeEvents.find((event) =>
+        isMatchingTerminalRuntimeEvent(run, event) && event.status === 'failed'
+      );
+      if (existingFailedTerminal && run.status === 'failed' && !run.failureClass) {
+        await this.updateFailedRunClassFromTerminal(sessionId, run, existingFailedTerminal);
+        return true;
+      }
+
       if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) {
         return eventsToAppend.length > 0;
       }
 
       await this.repairMissingTerminalAsFailed(sessionId, run, [...runtimeEvents, ...eventsToAppend]);
       return true;
+    });
+  }
+
+  private async updateFailedRunClassFromTerminal(
+    sessionId: string,
+    run: AgentRunHeader,
+    terminal: RuntimeEvent,
+  ): Promise<void> {
+    await this.deps.runStore?.updateRun(sessionId, run.runId, {
+      status: 'failed',
+      failureClass: failureClassFromExistingTerminal(terminal) ?? 'missing_terminal_event',
+      updatedAt: run.completedAt ?? run.updatedAt,
     });
   }
 
@@ -1378,6 +1398,24 @@ function recoveredEventKey(event: RuntimeEvent): string | undefined {
     tokenUsage: event.actions?.tokenUsage,
     permissionDecision: event.actions?.permissionDecision,
   });
+}
+
+function failureClassFromExistingTerminal(event: RuntimeEvent): string | undefined {
+  return stringStateDelta(event, 'failureClass')
+    ?? stringStateDelta(event, 'errorClass')
+    ?? stringStateDelta(event, 'reason')
+    ?? stringStateDelta(event, 'code')
+    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined)
+    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined);
+}
+
+function stringStateDelta(event: RuntimeEvent, key: string): string | undefined {
+  const value = event.actions?.stateDelta?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeEvent): boolean {
