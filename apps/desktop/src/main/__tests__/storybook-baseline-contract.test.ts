@@ -204,6 +204,47 @@ describe('Storybook baseline contract', () => {
     assert.doesNotMatch(storyPath, /src\/renderer/, 'desktop Storybook stories must stay out of the renderer build tree');
   });
 
+  it('storyboards command palette and content search modal states before visual polish', () => {
+    const storybookMain = readFileSync(join(REPO_ROOT, 'apps', 'desktop', '.storybook', 'main.ts'), 'utf8');
+    const storyPath = join(REPO_ROOT, 'apps', 'desktop', 'stories', 'command-search.stories.tsx');
+
+    assert.match(
+      storybookMain,
+      /apps\/desktop\/stories\/\*\*\/\*\.stories\.\@\(ts\|tsx\)/,
+      'Desktop renderer stories must be discoverable by Storybook.',
+    );
+    assert.ok(existsSync(storyPath), 'Command/search modal states must be inspectable in Storybook');
+
+    const story = readFileSync(storyPath, 'utf8');
+    assert.match(story, /title:\s*['"]Product\/Command Search['"]/);
+    assert.match(story, /satisfies\s+Meta/);
+    assert.match(story, /\bCommandPalette\b/);
+    assert.match(story, /\bSearchModal\b/);
+
+    for (const storyName of [
+      'CommandPaletteGroupedResults',
+      'CommandPaletteEmpty',
+      'CommandPaletteDisabledCommand',
+      'CommandPaletteKeyboardFocusedSelection',
+      'CommandPaletteContentSearchLoading',
+      'CommandPaletteContentSearchResults',
+      'CommandPaletteContentSearchError',
+      'CommandPaletteContentSearchBlocked',
+      'SearchModalEmpty',
+      'SearchModalLoading',
+      'SearchModalResults',
+      'SearchModalNoResults',
+      'SearchModalError',
+      'SearchModalBlocked',
+    ]) {
+      assert.match(story, new RegExp(`export const ${storyName}: Story`), `${storyName} story must be exported`);
+    }
+
+    assert.doesNotMatch(storyPath, /src\/renderer/, 'desktop Storybook stories must stay out of the renderer build tree');
+    assert.doesNotMatch(story, /window\.maka/, 'Command/search stories must not depend on the preload bridge');
+    assert.doesNotMatch(story, /app-shell/, 'Command/search stories must not import the desktop app shell');
+  });
+
   it('keeps Storybook stories out of the regular @maka/ui TypeScript build', () => {
     const config = readTypescriptConfig(REPO_ROOT, join(REPO_ROOT, 'packages', 'ui', 'tsconfig.json'));
 
