@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { SESSION_BLOCKED_REASONS, SESSION_STATUSES } from '@maka/core';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 import {
   deriveFailedTurnRecovery,
   describeBlockedReason,
@@ -103,7 +104,7 @@ describe('describeBlockedReason (@kenji generalized copy contract)', () => {
   });
 
   it('keeps the shared UI blocked-reason tooltip in sync with actionable waiting copy', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/session-list-panel.tsx'), 'utf8');
 
     assert.match(ui, /NO_REAL_CONNECTION:\s*'等待配置可用模型连接'/);
     assert.doesNotMatch(ui, /NO_REAL_CONNECTION:\s*'缺少可用模型连接'/);
@@ -144,7 +145,7 @@ describe('permission mode transition guard copy', () => {
   // `permissionModeDisabledReason` prop, so the gating contract pins
   // main.tsx, not components.tsx.
   it('passes a disabled-reason for running, waiting, streaming, and pending sessions', async () => {
-    const renderer = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const composerReasonBlock = renderer.match(/permissionModeDisabledReason=\{[\s\S]*?\}\n {16}onPermissionModeChange/)?.[0] ?? '';
 
     assert.ok(composerReasonBlock, 'main.tsx must pass permissionModeDisabledReason to the <Composer/>');
@@ -159,10 +160,10 @@ describe('permission mode transition guard copy', () => {
   });
 
   it('composer mode chip disables itself when pending or disabledReason is present', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
     const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
 
-    assert.ok(dropdownBlock, 'components.tsx must render a composer permission-mode Menu dropdown');
+    assert.ok(dropdownBlock, 'composer.tsx must render a composer permission-mode Menu dropdown');
     assert.match(dropdownBlock, /const triggerDisabled = props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\);/);
     assert.match(dropdownBlock, /disabled=\{triggerDisabled\}/);
     assert.match(dropdownBlock, /title=\{props\.permissionModeDisabledReason \?\? meta\.hint\}/);
@@ -171,7 +172,7 @@ describe('permission mode transition guard copy', () => {
   });
 
   it('composer mode menu offers the user-facing permission modes via base-ui Menu', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
 
     // Three-mode picker: explore is retired from the picker entirely
     // (read-only mode has no useful runtime toggle for normal chat —
@@ -190,15 +191,15 @@ describe('permission mode transition guard copy', () => {
   });
 
   it('scrubs thrown permission-mode IPC failures before toast', async () => {
-    const renderer = await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
 
     assert.match(renderer, /const pendingPermissionModeChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
     assert.match(renderer, /const \[pendingPermissionModeBySession, setPendingPermissionModeBySession\] = useState<Record<string, boolean>>\(\{\}\);/);
     assert.match(
       setPermissionModeBlock,
-      /const sessionId = activeIdRef\.current;[\s\S]*if \(!sessionId\) return;[\s\S]*pendingPermissionModeChangesRef\.current\.has\(sessionId\)/,
-      'Permission mode changes must capture the active session id and gate duplicate changes for that session',
+      /const sessionId = activeIdRef\.current;[\s\S]*if \(!sessionId\) \{[\s\S]*setPendingNewChatPermissionMode\(mode\);[\s\S]*return;[\s\S]*\}[\s\S]*pendingPermissionModeChangesRef\.current\.has\(sessionId\)/,
+      'Permission mode changes must capture the active session id, store no-session picks for the next chat, and gate duplicate changes for active sessions',
     );
     assert.match(setPermissionModeBlock, /pendingPermissionModeChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingPermissionModeBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/);
     assert.match(setPermissionModeBlock, /sessionsRef\.current\.find\(\(session\) => session\.id === sessionId\)/);

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -15,7 +16,7 @@ async function readRepo(path: string): Promise<string> {
 describe('Bot settings UI contract', () => {
   it('keeps platform rows scannable with brand badges and status dots', async () => {
     const [settings, botBrand] = await Promise.all([
-      readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx'),
+      readSettingsCombinedSource(),
       readRepo('packages/ui/src/bot-brand.ts'),
     ]);
     const styles = await readRendererContractCss();
@@ -35,7 +36,7 @@ describe('Bot settings UI contract', () => {
   });
 
   it('keeps the detail hero as a branded current-state surface with external docs link', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
 
     assert.match(settings, /className="settingsBotHero"\s+data-provider=\{selected\}\s+data-support=\{support\}/, 'Selected platform detail must render the brand-aware hero card');
@@ -47,7 +48,7 @@ describe('Bot settings UI contract', () => {
   });
 
   it('names the selected platform runtime status grid', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const detailBlock = settings.match(/<section className="settingsBotDetail">[\s\S]*?<\/section>/)?.[0] ?? '';
 
     assert.match(
@@ -63,7 +64,7 @@ describe('Bot settings UI contract', () => {
   });
 
   it('keeps runtime channel onboarding as test-then-enable-then-restart', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
     const updateChannelBlock = settings.match(/async function updateChannelFor\(provider: BotProvider, patch: Partial<typeof channel>\): Promise<boolean>[\s\S]*?async function updateChannel\(patch: Partial<typeof channel>\): Promise<boolean>/)?.[0] ?? '';
     const testChannelBlock = settings.match(/async function testChannel\(\)[\s\S]*?\n\s*\/\*\*/)?.[0] ?? '';
@@ -125,7 +126,7 @@ describe('Bot settings UI contract', () => {
   });
 
   it('keeps bot allowlist validation copy text-only and Chinese-first', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
     const allowlistBlock = settings.match(/function BotAllowedUserIdsField[\s\S]*?function botConnectionLabel/)?.[0] ?? '';
 
@@ -147,7 +148,7 @@ describe('Bot settings UI contract', () => {
   });
 
   it('drops late bot action feedback after Settings is closed', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const pageBlock = settings.match(/function BotChatSettingsPage\([\s\S]*?function BotAllowedUserIdsField/)?.[0] ?? '';
     const finishBlock = pageBlock.match(/function finishBotAction[\s\S]*?async function updateChannelFor/)?.[0] ?? '';
     const updateBlock = pageBlock.match(/async function updateChannelFor[\s\S]*?async function updateChannel/)?.[0] ?? '';
@@ -237,7 +238,7 @@ describe('Bot settings UI contract', () => {
   });
 
   it('opens an in-app WeChat QR login modal instead of handing scan login off to a toast', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');

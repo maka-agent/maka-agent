@@ -1,0 +1,483 @@
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import type { SearchErrorReason, SearchRequest, SearchResult } from '@maka/core';
+import { generalizedErrorMessageChinese } from '@maka/core';
+import { Search, X } from './icons.js';
+import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
+import { DialogClose, DialogContent, DialogRoot, Button as UiButton } from './ui.js';
+import { useModalA11y } from './modal-a11y.js';
+
+/**
+ * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `6465cf22`,
+ * `7c320898`) + Phase 3 P0 fixup (WAWQAQ msg `d53852ac`, xuan
+ * `558f1356`, kenji `3ddc91fe`): Search modal SHELL.
+ *
+ * Renders the real thread-search dialog: local query state,
+ * debounced `search:thread` IPC, result list, incognito/error states,
+ * and shell-owned navigation. It never writes history and never
+ * constructs `maka://session` URIs.
+ *
+ * Lifecycle contract: SearchModal MUST be conditionally mounted by
+ * the parent (`{open && <SearchModal onClose={...} />}`), NOT
+ * always-mounted with an `open` prop. The previous pattern
+ * (`<SearchModal open=... />` with an internal `if (!open) return
+ * null`) sat hooks before a conditional return; while React allows
+ * this in principle, in production WAWQAQ hit a React #310 hook
+ * order mismatch via the same surface (msg `d53852ac`). Matching
+ * `KeyboardHelpModal`'s conditional-mount pattern eliminates the
+ * "hooks before early return" class of bug entirely — there's no
+ * way for a future hook addition to drift past a stale return
+ * statement.
+ *
+ * Gate per kenji `7c320898`:
+ *   - role="dialog" / aria-modal="true" / explicit title.
+ *   - Esc and close button close the modal.
+ *   - Focus enters the modal on open; returns to the trigger on close.
+ *   - Modal calls injected `searchThread` only; it does NOT store
+ *     the query, write history, or route via internal URI strings.
+ */
+/**
+ * Dependency-injected search interface. Production wiring binds this
+ * to `window.maka.search.thread`; tests pass an in-memory fake.
+ *
+ * The return type matches the IPC envelope exactly: either an array
+ * of `SearchResult` (success path) or a `{ ok: false, reason, message }`
+ * error envelope. Renderer never throws across the IPC boundary —
+ * fail-closed paths return the error envelope and the modal renders
+ * them as user-facing copy.
+ */
+interface SearchModalDeps {
+  searchThread(request: SearchRequest): Promise<
+    | SearchResult[]
+    | { ok: false; reason: SearchErrorReason; message: string }
+  >;
+}
+
+function searchModalThrownErrorMessage(error: unknown): string {
+  return generalizedErrorMessageChinese(error, '搜索服务需要刷新，请重试。');
+}
+
+interface SearchModalCloseOptions {
+  restoreFocus?: boolean;
+}
+
+export function SearchModal(props: {
+  onClose(options?: SearchModalCloseOptions): void;
+  /**
+   * Navigate to a session (optionally scrolling to a specific turn).
+   * Provided by the application shell so the modal stays portable —
+   * navigation lives in the shell, not in @maka/ui.
+   *
+   * Per kenji `2844f64f` SEARCH gate: navigation MUST NOT construct
+   * `maka://session/<id>` URIs. The callback receives raw ids; the
+   * shell handles routing via existing session-pane state.
+   */
+  onNavigateToSession?(sessionId: string, turnId?: string): void;
+  /**
+   * Injected `search:thread` IPC. Production binds to
+   * `window.maka.search.thread`; tests supply a fake.
+   *
+   * Optional so the modal renders a degraded "search unavailable"
+   * state when the renderer cannot bind to the IPC (legacy / smoke
+   * fixture / preload not loaded). Without an injected deps the
+   * modal does NOT crash.
+   */
+  deps?: SearchModalDeps;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // PR-UX-POLISH-1 commit 5 (kenji `2844f64f` SEARCH gate):
+  //   - `query` is local state ONLY (no localStorage / no IPC echo).
+  //   - `results` is the most recent successful response; older
+  //     responses are discarded by the inflight ticket guard so the
+  //     UI never shows stale data behind a newer query.
+  //   - `error` carries the IPC error envelope when present. We do
+  //     NOT raise it as a JS throw — the modal renders the message
+  //     copy and the gate's `incognito_active` / `invalid_query`
+  //     reasons trigger specific UI states (privacy banner / empty).
+  //   - `pending` reflects whether ANY IPC call is in flight. We do
+  //     NOT show a spinner if the query is empty (avoids flashing
+  //     loading state during typing).
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [error, setError] = useState<{ reason: SearchErrorReason; message: string } | null>(null);
+  const [pending, setPending] = useState(false);
+  const [activeResultIndex, setActiveResultIndex] = useState(-1);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const ticketRef = useRef(0);
+  const searchMountedRef = useRef(true);
+  const keyboardSelectionHandledRef = useRef(false);
+  const searchThread = props.deps?.searchThread;
+  useModalA11y(dialogRef, props.onClose, inputRef);
+
+  useEffect(() => {
+    searchMountedRef.current = true;
+    return () => {
+      searchMountedRef.current = false;
+      ticketRef.current += 1;
+    };
+  }, []);
+
+  // Debounced search: ~180ms after the user stops typing, send the
+  // request. Empty query clears state without an IPC roundtrip.
+  useEffect(() => {
+    if (!searchThread) return;
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      ticketRef.current += 1;
+      setResults([]);
+      setError(null);
+      setPending(false);
+      setActiveResultIndex(-1);
+      return;
+    }
+    const ticket = ++ticketRef.current;
+    setPending(true);
+    const handle = window.setTimeout(async () => {
+      try {
+        const response = await searchThread({
+          source: 'thread',
+          query: trimmed,
+          limit: 10,
+        });
+        if (!searchMountedRef.current) return;
+        if (ticket !== ticketRef.current) return; // newer query in flight
+        if (Array.isArray(response)) {
+          setResults(response);
+          setError(null);
+          setActiveResultIndex(-1);
+        } else {
+          setResults([]);
+          setError({ reason: response.reason, message: response.message });
+          setActiveResultIndex(-1);
+        }
+      } catch (err) {
+        if (!searchMountedRef.current) return;
+        if (ticket !== ticketRef.current) return;
+        // IPC layer should never throw, but defend anyway. Render as a
+        // generic provider_error so the user sees a coherent state.
+        setResults([]);
+        setError({
+          reason: 'provider_error',
+          message: searchModalThrownErrorMessage(err),
+        });
+        setActiveResultIndex(-1);
+      } finally {
+        if (searchMountedRef.current && ticket === ticketRef.current) setPending(false);
+      }
+    }, 180);
+    return () => window.clearTimeout(handle);
+  }, [query, searchThread]);
+
+  useEffect(() => {
+    if (activeResultIndex < 0) return;
+    resultRefs.current[activeResultIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [activeResultIndex]);
+
+  function selectResult(result: SearchResult) {
+    if (!props.onNavigateToSession) return;
+    if (result.target?.kind !== 'thread') return;
+    props.onNavigateToSession(result.target.sessionId, result.target.turnId);
+    props.onClose({ restoreFocus: false });
+  }
+
+  function selectKeyboardResult() {
+    if (!showResults) return;
+    selectResult(results[activeResultIndex >= 0 ? activeResultIndex : 0]!);
+  }
+
+  function clearSearchState() {
+    ticketRef.current += 1;
+    setResults([]);
+    setError(null);
+    setPending(false);
+    setActiveResultIndex(-1);
+  }
+
+  function updateSearchQuery(nextQuery: string) {
+    setQuery(nextQuery);
+    if (nextQuery.trim().length === 0) {
+      clearSearchState();
+    }
+  }
+
+  function clearSearchQuery() {
+    setQuery('');
+    clearSearchState();
+    inputRef.current?.focus();
+  }
+
+  function focusSearchResult(index: number) {
+    window.requestAnimationFrame(() => {
+      resultRefs.current[index]?.focus({ preventScroll: true });
+    });
+  }
+
+  function moveActiveResult(delta: 1 | -1, options?: { focusResult?: boolean }) {
+    if (results.length === 0) return;
+    const next = activeResultIndex < 0
+      ? (delta > 0 ? 0 : results.length - 1)
+      : (activeResultIndex + delta + results.length) % results.length;
+    setActiveResultIndex(next);
+    if (options?.focusResult) focusSearchResult(next);
+  }
+
+  function jumpActiveResult(index: number, options?: { focusResult?: boolean }) {
+    if (results.length === 0) return;
+    const next = Math.max(0, Math.min(results.length - 1, index));
+    setActiveResultIndex(next);
+    if (options?.focusResult) focusSearchResult(next);
+  }
+
+  function keyboardKey(event: KeyboardEvent, keys: string[]) {
+    return keys.includes(event.key) || keys.includes(event.code);
+  }
+
+  function handleResultKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult) {
+    if (keyboardKey(event, ['Enter', 'Return', 'Space', ' '])) {
+      event.preventDefault();
+      selectResult(result);
+      return;
+    }
+    if (keyboardKey(event, ['ArrowDown', 'Down'])) {
+      event.preventDefault();
+      moveActiveResult(1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['ArrowUp', 'Up'])) {
+      event.preventDefault();
+      moveActiveResult(-1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['Home'])) {
+      event.preventDefault();
+      jumpActiveResult(0, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['End'])) {
+      event.preventDefault();
+      jumpActiveResult(results.length - 1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['Escape'])) {
+      event.preventDefault();
+      props.onClose();
+      return;
+    }
+    if (index !== activeResultIndex) {
+      setActiveResultIndex(index);
+    }
+  }
+
+  const incognitoBlocked = error?.reason === 'incognito_active';
+  const trimmed = query.trim();
+  const showResults = !error && trimmed.length > 0 && !pending && results.length > 0;
+  const showEmpty = !error && trimmed.length > 0 && !pending && results.length === 0;
+  const activeResultId = showResults && activeResultIndex >= 0 ? `maka-search-modal-result-${activeResultIndex}` : undefined;
+  const resultsTruncated = showResults && results.some((result) => result.truncated === true);
+
+  return (
+    <DialogRoot
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent
+        ref={dialogRef}
+        className="maka-modal maka-search-modal w-[min(92vw,640px)] p-0"
+        aria-labelledby="maka-search-modal-title"
+        showClose={false}
+      >
+        <header className="maka-search-modal-header">
+          <h2 id="maka-search-modal-title" className="maka-search-modal-title">搜索</h2>
+          <DialogClose
+            render={<UiButton variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-search-modal-close"
+            onClick={() => props.onClose()}
+            aria-label="关闭搜索"
+          >
+            <X size={16} strokeWidth={1.8} aria-hidden="true" />
+          </DialogClose>
+        </header>
+        <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">
+          <InputGroupAddon>
+            <Search size={16} strokeWidth={1.75} aria-hidden="true" className="maka-search-modal-input-icon" />
+          </InputGroupAddon>
+          <InputGroupInput
+            ref={inputRef}
+            type="search"
+            className="maka-search-modal-input"
+            placeholder="搜索会话标题和内容…"
+            aria-label="搜索会话标题和内容"
+            aria-controls={showResults ? 'maka-search-modal-results' : undefined}
+            aria-activedescendant={activeResultId}
+            value={query}
+            onChange={(event) => updateSearchQuery(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (keyboardKey(event, ['Escape']) && query) {
+                event.preventDefault();
+                clearSearchQuery();
+                return;
+              }
+              if (keyboardKey(event, ['ArrowDown', 'Down']) && showResults) {
+                event.preventDefault();
+                moveActiveResult(1, { focusResult: true });
+                return;
+              }
+              if (keyboardKey(event, ['ArrowUp', 'Up']) && showResults) {
+                event.preventDefault();
+                moveActiveResult(-1, { focusResult: true });
+                return;
+              }
+              if (keyboardKey(event, ['Home']) && showResults) {
+                event.preventDefault();
+                jumpActiveResult(0, { focusResult: true });
+                return;
+              }
+              if (keyboardKey(event, ['End']) && showResults) {
+                event.preventDefault();
+                jumpActiveResult(results.length - 1, { focusResult: true });
+                return;
+              }
+              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
+                event.preventDefault();
+                keyboardSelectionHandledRef.current = true;
+                selectKeyboardResult();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (keyboardKey(event, ['Enter', 'Return']) && keyboardSelectionHandledRef.current) {
+                if (showResults) event.preventDefault();
+                keyboardSelectionHandledRef.current = false;
+                return;
+              }
+              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
+                event.preventDefault();
+                selectKeyboardResult();
+              }
+            }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {query.length > 0 && (
+            <InputGroupAddon align="inline-end">
+              <UiButton
+                variant="quiet"
+                size="icon-sm"
+                type="button"
+                className="maka-search-modal-clear"
+                aria-label="清空搜索"
+                onClick={clearSearchQuery}
+              >
+                <X size={14} strokeWidth={1.8} aria-hidden="true" />
+              </UiButton>
+            </InputGroupAddon>
+          )}
+        </InputGroup>
+        <div className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite">
+          {!searchThread && (
+            <p className="maka-search-modal-placeholder">
+              当前环境无法连接搜索后端，请稍后重试。
+            </p>
+          )}
+          {searchThread && incognitoBlocked && (
+            <div className="maka-search-modal-state" data-tone="info">
+              <p>隐私模式已关闭搜索。</p>
+              <p className="maka-search-modal-state-detail">
+                关闭隐私模式后可以继续按关键词查找历史对话。
+              </p>
+            </div>
+          )}
+          {searchThread && !incognitoBlocked && error && (
+            <div className="maka-search-modal-state" data-tone="warning">
+              <p>搜索暂时无法完成。</p>
+              <p className="maka-search-modal-state-detail">{error.message}</p>
+            </div>
+          )}
+          {searchThread && !error && trimmed.length === 0 && (
+            <p className="maka-search-modal-placeholder">
+              开始输入以按关键词查找历史对话。结果只包含会话标题和内容文本，不进入网络。
+            </p>
+          )}
+          {searchThread && pending && trimmed.length > 0 && (
+            <p className="maka-search-modal-placeholder" aria-live="polite">
+              正在搜索…
+            </p>
+          )}
+          {showEmpty && (
+            <p className="maka-search-modal-placeholder">
+              没有匹配的会话标题或内容。换个关键词试试。
+            </p>
+          )}
+          {showResults && (
+            <>
+              <div className="maka-search-modal-result-summary" aria-live="polite">
+                <span>找到 {results.length} 条匹配</span>
+                {resultsTruncated && <span>结果较多，已显示前 {results.length} 条</span>}
+              </div>
+              <ul id="maka-search-modal-results" className="maka-search-modal-results" role="listbox" aria-label="搜索结果">
+                {results.map((result, index) => (
+                  <li key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}>
+                    <UiButton
+                      variant="ghost"
+                      ref={(node) => { resultRefs.current[index] = node as HTMLButtonElement | null; }}
+                      id={`maka-search-modal-result-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={activeResultIndex === index}
+                      tabIndex={-1}
+                      className="maka-search-modal-result"
+                      data-active={activeResultIndex === index ? 'true' : undefined}
+                      onClick={() => selectResult(result)}
+                      onKeyDown={(event) => handleResultKeyDown(event, index, result)}
+                      onFocus={() => setActiveResultIndex(index)}
+                      onMouseEnter={() => setActiveResultIndex(index)}
+                      disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
+                    >
+                      <div className="maka-search-modal-result-title">{result.title}</div>
+                      {result.summary && <div className="maka-search-modal-result-meta">{result.summary}</div>}
+                      {result.snippet && (
+                        // Plain text only — IPC already redacts secrets
+                        // and the snippet is bounded by SNIPPET_MAX_CODE_POINTS.
+                        // No markdown rendering, no <img>, no <a href> —
+                        // per kenji SEARCH gate (no path / no URL exposure).
+                        <div className="maka-search-modal-result-snippet">{renderSearchSnippet(result.snippet, trimmed)}</div>
+                      )}
+                    </UiButton>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </DialogRoot>
+  );
+}
+
+function renderSearchSnippet(snippet: string, query: string): ReactNode {
+  const needle = query.trim();
+  if (!needle) return snippet;
+  const haystack = snippet.toLocaleLowerCase();
+  const lowerNeedle = needle.toLocaleLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = haystack.indexOf(lowerNeedle);
+  while (matchIndex !== -1) {
+    if (matchIndex > cursor) {
+      parts.push(snippet.slice(cursor, matchIndex));
+    }
+    const end = matchIndex + needle.length;
+    parts.push(
+      <mark key={`${matchIndex}-${end}`} className="maka-search-modal-snippet-hit">
+        {snippet.slice(matchIndex, end)}
+      </mark>,
+    );
+    cursor = end;
+    matchIndex = haystack.indexOf(lowerNeedle, cursor);
+  }
+  if (cursor < snippet.length) parts.push(snippet.slice(cursor));
+  return parts.length > 0 ? parts : snippet;
+}

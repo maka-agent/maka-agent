@@ -25,7 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from './icons.js';
-import { useModalA11y } from './components.js';
+import { useModalA11y } from './modal-a11y.js';
 import { Button } from './ui.js';
 
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error';

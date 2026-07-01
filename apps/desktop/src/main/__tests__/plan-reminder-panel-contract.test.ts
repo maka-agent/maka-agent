@@ -11,8 +11,8 @@ function blockBetween(source: string, start: string, end: string): string {
 
 describe('Plan Reminder panel async action contract', () => {
   it('gates form submit and refresh before React commits disabled state', async () => {
-    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
-    const panelBlock = blockBetween(ui, 'function PlanReminderPanel', '\\/\\*\\*');
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const panelBlock = ui.slice(ui.indexOf('export function PlanReminderPanel'));
     const submitBlock = blockBetween(panelBlock, 'async function submit', 'async function runPlanReminderAction');
     const refreshBlock = blockBetween(panelBlock, 'async function refreshFromPanel', 'return \\(');
 

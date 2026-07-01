@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSourceSync } from './main-process-contract-source-helpers.js';
 
-const mainSource = readFileSync(join(process.cwd(), 'src/main/main.ts'), 'utf8');
+const mainSource = readMainProcessCombinedSourceSync();
 
 function handlerBlock(channel: string): string {
   const start = mainSource.indexOf(`ipcMain.handle('${channel}'`);
@@ -91,7 +90,7 @@ describe('connection credential IPC hardening contract', () => {
 
     const handler = handlerBlock('connections:update');
     assert.match(handler, /slug = normalizeConnectionSlugForIpc\(slug, 'connection slug'\);/);
-    assert.match(handler, /const normalizedPatch = await normalizeUpdateConnectionInput\(slug, patch\);/);
+    assert.match(handler, /const normalizedPatch = await normalizeUpdateConnectionInput\(deps, slug, patch\);/);
     assert.match(handler, /connectionStore\.update\(slug, normalizedPatch\)/);
     assert.match(handler, /credentialStore\.(?:setSecret|deleteSecret)\(slug, 'api_key'/);
   });

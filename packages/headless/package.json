@@ -17,6 +17,8 @@
     "#prompt-optimization-env": "./dist/prompt-optimization-env.js",
     "#prompt-optimization-bootstrap": "./dist/prompt-optimization-bootstrap.js",
     "#prompt-optimization-manifest": "./dist/prompt-optimization-manifest.js",
+    "#prompt-optimization-profile": "./dist/prompt-optimization-profile.js",
+    "#prompt-control-run": "./dist/prompt-control-run.js",
     "#prompt-optimization-run": "./dist/prompt-optimization-run.js",
     "#ab-manifest": "./dist/ab-manifest.js",
     "#prompt-ab-run": "./dist/prompt-ab-run.js",

@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
-
-const repoRoot = process.cwd().endsWith('apps/desktop')
-  ? join(process.cwd(), '..', '..')
-  : process.cwd();
-
-const mainSourcePath = join(repoRoot, 'apps/desktop/src/main/main.ts');
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 describe('bot platform prompt hint wiring', () => {
   it('injects platform hints through the main system prompt path', async () => {
-    const source = await readFile(mainSourcePath, 'utf8');
+    const source = await readMainProcessCombinedSource();
 
     assert.match(source, /botPlatformFromSessionLabels/);
     assert.match(source, /buildBotPlatformPromptFragment/);

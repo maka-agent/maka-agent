@@ -24,6 +24,8 @@ const execFileAsync = promisify(execFile);
 const CANDIDATE_RATIONALE_MAX_TASK_IDS = 16;
 const CANDIDATE_RATIONALE_MAX_TEXT_CHARS = 280;
 const CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS = 2000;
+const META_AGENT_MAX_ATTEMPTS = 3;
+const META_AGENT_RETRY_ERROR_MAX_CHARS = 240;
 const FORBIDDEN_RATIONALE_TEXT_RE = /```|\r|\n|held[-_]out|verifier|expected[- ]output|\/app\/|tests\/|test\.sh|canary|runtime-events|events\.jsonl|raw trace/i;
 
 export interface TrajectoryDigest {
@@ -388,9 +390,39 @@ export async function scanRuntimeEventsForRewardHack(
 
 export function createScriptedMetaAgent(input: CreateScriptedMetaAgentInput): MetaAgent {
   return async (promptInput) => {
-    const raw = await input.complete({ prompt: renderMetaAgentPrompt(promptInput) });
-    return parseMetaAgentResult(raw);
+    const basePrompt = renderMetaAgentPrompt(promptInput);
+    let lastParseError = 'unknown schema error';
+    for (let attempt = 1; attempt <= META_AGENT_MAX_ATTEMPTS; attempt += 1) {
+      const raw = await input.complete({
+        prompt: attempt === 1 ? basePrompt : renderMetaAgentRetryPrompt(basePrompt, attempt, lastParseError),
+      });
+      try {
+        return parseMetaAgentResult(raw);
+      } catch (error) {
+        if (attempt === META_AGENT_MAX_ATTEMPTS) throw error;
+        lastParseError = formatMetaAgentParseError(error);
+      }
+    }
+    throw new Error('meta-agent output parsing exhausted retry attempts');
   };
+}
+
+function renderMetaAgentRetryPrompt(basePrompt: string, attempt: number, validationError: string): string {
+  return [
+    basePrompt.trimEnd(),
+    '',
+    '# Retry Feedback',
+    `The previous meta-agent response was invalid for the required JSON schema on attempt ${attempt - 1}.`,
+    `Validation error: ${validationError}`,
+    'Return JSON only using the exact required schema. Arrays must be JSON arrays even when they contain one item.',
+    '',
+  ].join('\n');
+}
+
+function formatMetaAgentParseError(error: unknown): string {
+  if (error instanceof SyntaxError) return 'meta-agent output was not valid JSON';
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\s+/g, ' ').slice(0, META_AGENT_RETRY_ERROR_MAX_CHARS);
 }
 
 export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
@@ -398,6 +430,7 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
     'You are improving one system prompt for benchmark tasks.',
     'Return JSON only: {"systemPrompt":"...","summary":"...","candidateRationale":{"failurePattern":"coverage_regression|tool_failed|max_tokens|runtime_error|verification_failed|other","evidenceRefs":["rsi-sig:id"],"hypothesis":"short plain text","targetedFix":"short plain text","predictedFixes":["held-in-task-id"],"riskTasks":["held-in-task-id"]}}.',
     'candidateRationale.evidenceRefs may only reference RSI R2 Held-In Analysis signal ids from the prompt; when signals exist and failurePattern is not "other", cite at least one signal. candidateRationale.predictedFixes and riskTasks may only reference held-in task ids from the prompt.',
+    'Prefer pass/fail transitions and verifier failure summaries over tool_failure_cluster. Treat tool_failure_cluster as root cause only when it is unrecovered or aligns with the final task outcome.',
     'Do not include held-out tasks, verifier internals, expected outputs, raw traces, file paths, code fences, or multiline text in candidateRationale.',
     '',
     '# Program',
@@ -406,7 +439,7 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
     input.currentSystemPrompt,
     '# Results TSV',
     input.resultsTsv,
-    ...renderToolFailureSummary(input.heldInDigests),
+    ...renderToolFailureSummary(input.heldInDigests, input.resultsTsv),
     ...renderRsiAnalysis(input.rsiAnalysis),
     ...renderPromptAttribution(input.promptAttribution),
     '# Held-In Digests',
@@ -834,9 +867,11 @@ async function extractToolFailureDigests(
     .slice(0, 5);
 }
 
-function renderToolFailureSummary(digests: readonly TrajectoryDigest[]): string[] {
+function renderToolFailureSummary(digests: readonly TrajectoryDigest[], resultsTsv: string): string[] {
+  const passedByTask = passedResultsByTask(resultsTsv);
   const failures = new Map<string, { digest: TrajectoryToolFailureDigest; taskIds: Set<string> }>();
   for (const digest of digests) {
+    if (passedByTask?.get(digest.taskId) === true) continue;
     for (const failure of digest.toolFailures ?? []) {
       const key = [failure.name, failure.errorClass ?? '', failure.argsPreview ?? ''].join('\0');
       const current = failures.get(key) ?? { digest: { ...failure, count: 0 }, taskIds: new Set<string>() };
@@ -855,6 +890,23 @@ function renderToolFailureSummary(digests: readonly TrajectoryDigest[]): string[
       `tasks=${[...taskIds].sort((a, b) => a.localeCompare(b)).join(',')}`,
     ].join(' '));
   return lines.length > 0 ? ['# Held-In Tool Failure Summary', ...lines] : [];
+}
+
+function passedResultsByTask(resultsTsv: string): ReadonlyMap<string, boolean> | undefined {
+  const lines = resultsTsv.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const header = lines[0]?.split('\t');
+  if (!header) return undefined;
+  const taskIdIndex = header.indexOf('task_id');
+  const passedIndex = header.indexOf('passed');
+  if (taskIdIndex === -1 || passedIndex === -1) return undefined;
+  const passedByTask = new Map<string, boolean>();
+  for (const line of lines.slice(1)) {
+    const columns = line.split('\t');
+    const taskId = columns[taskIdIndex];
+    if (!taskId) continue;
+    passedByTask.set(taskId, columns[passedIndex] === 'true');
+  }
+  return passedByTask;
 }
 
 function functionCallDigest(event: unknown): TrajectoryToolCallDigest | undefined {

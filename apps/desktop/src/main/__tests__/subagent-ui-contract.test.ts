@@ -46,7 +46,7 @@ describe('subagent UI contract', () => {
   it('keeps the overlay close action icon-backed and localized', async () => {
     const { readFile } = await import('node:fs/promises');
     const { resolve } = await import('node:path');
-    const source = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const source = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity.tsx'), 'utf8');
     const block = source.match(/export function OverlayHost[\s\S]*?^}/m)?.[0] ?? '';
 
     assert.match(block, /<UiButton[\s\S]*className=\{cn\('maka-button', previewVariants\(\{ part: 'close' \}\)\)\}/);

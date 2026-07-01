@@ -57,7 +57,7 @@ describe('capability audit visible system contract', () => {
   });
 
   it('wires ChatView through a single derived audit report for Skills and Automations', async () => {
-    const components = await readFile(join(repoRoot, 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const components = await readFile(join(repoRoot, 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
 
     assert.match(
       components,

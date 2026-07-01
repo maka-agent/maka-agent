@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import type { FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
 
 const DEFAULT_MAX_TOOL_FAILURE_CLUSTERS = 10;
@@ -217,6 +219,12 @@ function analysisSignals(input: {
   toolFailureClusters: readonly RsiToolFailureCluster[];
   traceUnavailable: readonly RsiTraceUnavailableGroup[];
 }): RsiAnalysisSignal[] {
+  const transitionTaskIds = new Set([
+    ...input.transitionVsLastKept.map((transition) => transition.taskId),
+    ...input.transitionVsPreviousCandidate.map((transition) => transition.taskId),
+  ]);
+  const toolFailureEvidenceClusters = input.toolFailureClusters
+    .filter((cluster) => cluster.taskIds.every((taskId) => !transitionTaskIds.has(taskId)));
   return [
     ...input.transitionVsLastKept.map((transition) => transitionSignal('last_kept', transition)),
     ...input.transitionVsPreviousCandidate.map((transition) => transitionSignal('previous_candidate', transition)),
@@ -230,7 +238,7 @@ function analysisSignals(input: {
         errorClass,
         count,
       })),
-    ...input.toolFailureClusters.map((cluster) => withSignalId({
+    ...toolFailureEvidenceClusters.map((cluster) => withSignalId({
       kind: 'tool_failure_cluster' as const,
       taskIds: cluster.taskIds,
       cluster,
@@ -286,6 +294,7 @@ async function toolFailureClusters(
   for (const taskId of heldInTaskIds) {
     const event = events.get(taskId);
     if (!event || !hasRuntimePath(event)) continue;
+    if (event.type === 'task_completed' && event.eligible && event.scored && event.passed) continue;
     if (!hasTracePath(event)) {
       addTraceUnavailable(traceUnavailable, taskId, 'trace', 'missing_path');
       continue;
@@ -338,7 +347,7 @@ async function functionCallsById(
   path: string,
   limits: NormalizedToolFailureLimits,
 ): Promise<FunctionCallsByIdResult> {
-  const runtimeEvents = await readBoundedJsonl(path, limits);
+  const runtimeEvents = await readProjectedJsonl(path, limits, isFunctionCallEvent);
   if (!runtimeEvents.ok) return runtimeEvents;
   const calls = new Map<string, { name: string; argsPreview: string }>();
   for (const event of runtimeEvents.events) {
@@ -351,6 +360,40 @@ async function functionCallsById(
     });
   }
   return { ok: true, value: calls };
+}
+
+async function readProjectedJsonl(
+  path: string,
+  limits: NormalizedToolFailureLimits,
+  keepEvent: (event: unknown) => boolean,
+): Promise<BoundedJsonlResult> {
+  const events: unknown[] = [];
+  let keptBytes = 0;
+  const stream = createReadStream(path, { encoding: 'utf8' });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      if (line.trim().length === 0) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(line) as unknown;
+      } catch {
+        return { ok: false, reason: 'invalid_jsonl' };
+      }
+      if (!keepEvent(event)) continue;
+      keptBytes += Buffer.byteLength(line, 'utf8');
+      if (keptBytes > limits.maxJsonlBytes || events.length + 1 > limits.maxJsonlLines) {
+        return { ok: false, reason: 'input_limit_exceeded' };
+      }
+      events.push(event);
+    }
+  } catch (error) {
+    return { ok: false, reason: isNotFound(error) ? 'missing_file' : 'unreadable' };
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+  return { ok: true, events };
 }
 
 async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimits): Promise<BoundedJsonlResult> {
@@ -383,6 +426,12 @@ async function readBoundedJsonl(path: string, limits: NormalizedToolFailureLimit
     }
   }
   return { ok: true, events };
+}
+
+function isFunctionCallEvent(event: unknown): boolean {
+  return isRecord(event)
+    && isRecord(event.content)
+    && event.content.kind === 'function_call';
 }
 
 function toolFailureDigest(

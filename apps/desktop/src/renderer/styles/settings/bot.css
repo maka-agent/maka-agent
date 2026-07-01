@@ -21,8 +21,20 @@
 }
 
 .settingsBotList button[data-active="true"] {
-  background: var(--active);
+  background: color-mix(in srgb, var(--bot-brand-color, var(--accent)) 8%, transparent);
   color: var(--foreground);
+  position: relative;
+}
+.settingsBotList button[data-active="true"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: 0 3px 3px 0;
+  background: var(--bot-brand-color, var(--accent));
 }
 
 .settingsBotList em {
@@ -60,7 +72,7 @@
 
 /* PR-BOT-LOGO-NEUTRAL-PLATE-0 (WAWQAQ msg `f3d263b4` 2026-06-26):
    real iOS-app-icon style. The brand SVG itself now carries the
-   brand-color disc + white official mark (Telegram blue gradient
+   brand-color rounded-square tile + white official mark (Telegram blue
    + white paper plane, WeChat green + white double-bubble, etc.) —
    see `packages/ui/src/bot-brand-icons.ts`. The CSS plate just
    reserves the tile slot and lets the SVG fill it edge-to-edge;
@@ -76,10 +88,8 @@
     height: 28px;
     display: grid;
     place-items: center;
-    border-radius: 50%;
     background: transparent;
     color: var(--bot-brand-color, var(--accent));
-    overflow: hidden;
     font-size: 13px;
     font-weight: 700;
     letter-spacing: 0;
@@ -94,7 +104,6 @@
   .settingsBotLogo[data-large="true"] {
     width: 44px;
     height: 44px;
-    border-radius: 50%;
     font-size: 20px;
   }
 

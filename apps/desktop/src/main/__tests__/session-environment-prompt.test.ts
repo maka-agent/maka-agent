@@ -1,8 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { buildSessionEnvironmentPromptFragment } from '../session-environment-prompt.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 describe('session environment prompt', () => {
   it('renders cwd, git branch, platform, date, and permission boundary', () => {
@@ -48,9 +47,9 @@ describe('session environment prompt', () => {
   });
 
   it('is injected as a current-turn tail instead of durable system prefix', async () => {
-    const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
+    const source = await readMainProcessCombinedSource();
 
-    assert.match(source, /turnTailPrompt:\s*\(\{ cwd \}\) => buildTurnTailPrompt\(cwd\)/);
+    assert.match(source, /turnTailPrompt:\s*\(\{ cwd \}\) => systemPromptService\.buildTurnTailPrompt\(cwd\)/);
     assert.match(source, /async function buildTurnTailPrompt\(cwd\?: string\)/);
     assert.match(source, /projectGit:\s*await resolveProjectGitInfo\(cwd\)/);
     assert.doesNotMatch(source, /personalization\.text,\n\s*environment,\n\s*deepResearch/);

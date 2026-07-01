@@ -31,7 +31,7 @@ export interface BotBrand {
 // PR-BOT-LOGO-NEUTRAL-PLATE-0 (WAWQAQ msg `f3d263b4` 2026-06-26)
 // replaces the previous monochrome silhouettes with iOS-app-icon
 // style real brand tiles — each `maka-bot:*` SVG body is now a
-// brand-color disc with the official white mark, matching the
+// brand-color rounded square with the official white mark, matching the
 // realism of `provider-brand-marks.tsx` for model providers.
 // All 7 IM channels render fully offline; nothing falls through
 // to the Iconify CDN.

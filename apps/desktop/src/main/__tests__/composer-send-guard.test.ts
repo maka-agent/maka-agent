@@ -20,7 +20,7 @@ describe('composer send guard', () => {
   });
 
   it('keeps follow-up submits single-flight until the current send settles', async () => {
-    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const toolbar = source.match(/<div className="maka-composer-toolbar[\s\S]*?<\/div>\n        <\/div>/)?.[0] ?? '';
 
@@ -41,7 +41,7 @@ describe('composer send guard', () => {
   });
 
   it('clears the submitted draft key when first send switches into a new session', async () => {
-    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
@@ -52,8 +52,8 @@ describe('composer send guard', () => {
   });
 
   it('drops late send cleanup and draft reset after the Composer unmounts', async () => {
-    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
-    const composerBlock = source.match(/export const Composer = forwardRef[\s\S]*?const STATUS_LABEL/)?.[0] ?? '';
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
+    const composerBlock = source.match(/export const Composer = forwardRef[\s\S]*$/)?.[0] ?? '';
     const sendCurrent = source.match(/async function sendCurrent\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(composerBlock, /const composerMountedRef = useRef\(true\)/);
@@ -70,7 +70,7 @@ describe('composer send guard', () => {
   });
 
   it('keeps streaming stop single-flight across the button and Esc key', async () => {
-    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
     const keydown = source.match(/function onTextareaKeyDown\(event: KeyboardEvent<HTMLTextAreaElement>\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(source, /stopPending\?: boolean;/, 'Composer must accept app-shell stop pending state');

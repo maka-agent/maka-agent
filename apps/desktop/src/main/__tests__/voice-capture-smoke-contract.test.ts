@@ -2,9 +2,9 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
-const SETTINGS_MODAL = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'settings', 'SettingsModal.tsx');
 const CAPABILITY_SNAPSHOT = join(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'capability-snapshot.ts');
 
 describe('voice capture smoke Settings contract', () => {
@@ -12,7 +12,7 @@ describe('voice capture smoke Settings contract', () => {
     // PR-VOICE-GATEWAY-SPLIT-0 (WAWQAQ msg `d3ea9a33` 2026-06-26):
     // 语音 and 开放网关 are now separate nav items (voice + open-
     // gateway). Both pages stay first-class — neither is coming-soon.
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     const voiceNav = src.match(/\{\s*id:\s*'voice'[\s\S]*?\},/);
     assert.ok(voiceNav, 'voice nav item must exist');
     assert.doesNotMatch(voiceNav![0], /comingSoon:\s*true/, 'voice nav must not be tagged as coming soon');
@@ -25,7 +25,7 @@ describe('voice capture smoke Settings contract', () => {
   });
 
   it('runs only a local renderer capture smoke and validates it through the core voice contract', async () => {
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     assert.match(src, /navigator\.mediaDevices\.getUserMedia/, 'voice page must request local microphone capture');
     assert.match(src, /new MediaRecorder\(stream\)/, 'voice page must use MediaRecorder for local smoke');
     assert.match(src, /validateVoiceCaptureRequest/, 'voice page must validate capture facts through @maka/core/voice');
@@ -36,7 +36,7 @@ describe('voice capture smoke Settings contract', () => {
   });
 
   it('gates voice capture smoke with a synchronous pending owner', async () => {
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
@@ -59,7 +59,7 @@ describe('voice capture smoke Settings contract', () => {
   });
 
   it('connects the voice capture action to its live status copy', async () => {
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
@@ -85,7 +85,7 @@ describe('voice capture smoke Settings contract', () => {
   });
 
   it('drops late voice capture UI writes after Settings is closed', async () => {
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
@@ -121,7 +121,7 @@ describe('voice capture smoke Settings contract', () => {
   });
 
   it('uses user-facing copy and a named list for voice privacy boundaries', async () => {
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     const visibleBoundaryCopy = voicePage!.match(/这页现在可以验证麦克风权限和本地录音链路[\s\S]*?<\/ul>/)?.[0];
@@ -173,7 +173,7 @@ describe('voice capture smoke Settings contract', () => {
 
   it('capability center uses user-facing unavailable copy instead of implementation placeholders', async () => {
     const [settings, snapshot] = await Promise.all([
-      readFile(SETTINGS_MODAL, 'utf8'),
+      readSettingsCombinedSource(),
       readFile(CAPABILITY_SNAPSHOT, 'utf8'),
     ]);
     assert.match(settings, /case\s+'not_available':\s*return\s+'未开放'/, 'not_available label should be product-facing copy');

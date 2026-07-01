@@ -35,6 +35,7 @@ export type HarborTaskRunCellOutput = HarborCellOutput & {
 export interface HarborTaskRunOutput {
   harbor: {
     reward: number;
+    verifierFailureSummary?: string;
   };
   cell: HarborTaskRunCellOutput;
 }
@@ -97,6 +98,7 @@ export interface FixedPromptTaskCompletedEvent {
   traceEventsPath?: string;
   harbor: {
     reward: number;
+    verifierFailureSummary?: string;
   };
 }
 
@@ -597,6 +599,7 @@ function taskCompletedEvent(input: {
   const { output } = input;
   const passed = output.cell.status === 'completed' && output.harbor.reward > 0;
   const errorClass = output.cell.errorClass ?? (passed ? undefined : 'verification_failed');
+  const scored = output.cell.status === 'completed' && !isUnscoredCellFailure(errorClass);
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_completed',
@@ -608,8 +611,8 @@ function taskCompletedEvent(input: {
     taskId: input.taskId,
     status: output.cell.status,
     passed,
-    scored: output.cell.status === 'completed',
-    eligible: true,
+    scored,
+    eligible: scored,
     ...(errorClass ? { errorClass } : {}),
     ...(output.cell.promptHash ? { promptHash: output.cell.promptHash } : {}),
     tokenSummary: output.cell.tokenSummary,
@@ -622,8 +625,13 @@ function taskCompletedEvent(input: {
     ...(output.cell.traceEventsPath ? { traceEventsPath: output.cell.traceEventsPath } : {}),
     harbor: {
       reward: output.harbor.reward,
+      ...(output.harbor.verifierFailureSummary ? { verifierFailureSummary: output.harbor.verifierFailureSummary } : {}),
     },
   };
+}
+
+function isUnscoredCellFailure(errorClass: string | undefined): boolean {
+  return errorClass === 'infra_failed' || errorClass === 'setup_failed' || errorClass === 'verification_error';
 }
 
 function taskPlumbingFailedEvent(input: {

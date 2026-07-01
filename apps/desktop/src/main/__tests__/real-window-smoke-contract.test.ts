@@ -50,14 +50,19 @@ describe('real Electron window smoke gate (PR-DESKTOP-SMOKE-0)', () => {
     assert.match(programmaticScript, /desktop-real-window-smoke\.mjs --programmatic-only/);
   });
 
-  it('root `dev` still builds the workspace before launching desktop', async () => {
+  it('root dev scripts keep fast HMR and full build launch paths explicit', async () => {
     const pkg = JSON.parse(await readFile(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };
     assert.match(
       pkg.scripts?.dev ?? '',
+      /npm --workspace @maka\/desktop run dev:hmr --/,
+      'root dev should keep the fast HMR path explicit',
+    );
+    assert.match(
+      pkg.scripts?.['dev:full'] ?? '',
       /npm run build && npm --workspace @maka\/desktop run start/,
-      'root dev must build workspaces before starting Electron so reviewers do not smoke stale dist',
+      'root dev:full must build workspaces before starting Electron so reviewers do not smoke stale dist',
     );
   });
 

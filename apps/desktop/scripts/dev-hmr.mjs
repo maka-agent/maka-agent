@@ -28,11 +28,20 @@ const DESKTOP_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 // In a git worktree the electron binary lives in the main checkout's
 // node_modules (an ancestor dir), not the worktree's own — so walk up to the
-// nearest node_modules/.bin rather than assuming a fixed location.
+// nearest node_modules rather than assuming a fixed location.
+//
+// On Windows, node_modules/.bin/electron is a POSIX shell script that
+// Node.js spawn() cannot execute — resolve directly to electron.exe.
+const ON_WINDOWS = process.platform === 'win32';
 function resolveElectronBin() {
   for (let dir = DESKTOP_DIR; ; dir = dirname(dir)) {
-    const candidate = join(dir, 'node_modules', '.bin', 'electron');
-    if (existsSync(candidate)) return candidate;
+    if (ON_WINDOWS) {
+      const exe = join(dir, 'node_modules', 'electron', 'dist', 'electron.exe');
+      if (existsSync(exe)) return exe;
+    } else {
+      const candidate = join(dir, 'node_modules', '.bin', 'electron');
+      if (existsSync(candidate)) return candidate;
+    }
     if (dirname(dir) === dir) return 'electron'; // fall back to PATH
   }
 }

@@ -3,12 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
-const UI_COMPONENTS_PATH = join(process.cwd(), '../../packages/ui/src/components.tsx');
+const SESSION_LIST_PANEL_PATH = join(process.cwd(), '../../packages/ui/src/session-list-panel.tsx');
 
 describe('session row actions fail soft', () => {
   it('surfaces sidebar session action failures instead of leaving fire-and-forget rejections', async () => {
-    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
 
     assert.match(main, /async function runSessionRowAction\([\s\S]*errorTitle: string,[\s\S]*try \{[\s\S]*await action\(\);[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)/);
     assert.match(main, /async function flagSession\(sessionId: string, flagged: boolean\) \{[\s\S]*runSessionRowAction\(sessionId, 'flag', flagged \? '标记会话失败' : '取消标记失败'[\s\S]*window\.maka\.sessions\.setFlagged\(sessionId, flagged\)[\s\S]*refreshSessions\(\)/);
@@ -24,7 +25,7 @@ describe('session row actions fail soft', () => {
   });
 
   it('gates duplicate sidebar row actions before IPC or confirm dialogs can double-fire', async () => {
-    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
 
     assert.match(main, /const pendingSessionRowActionsRef = useRef<Set<string>>\(new Set\(\)\);/);
     assert.match(main, /const sessionPrefix = `\$\{sessionId\}:`;/);
@@ -36,7 +37,7 @@ describe('session row actions fail soft', () => {
   });
 
   it('cleans active session renderer state consistently after archive or delete', async () => {
-    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
     const cleanupBlock = main.slice(
       main.indexOf('function clearSessionRendererState'),
       main.indexOf('// PR109e: per-turn auxiliary view-model'),
@@ -77,9 +78,9 @@ describe('session row actions fail soft', () => {
   });
 
   it('renders visible busy state while a sidebar row action is pending', async () => {
-    const ui = await readFile(UI_COMPONENTS_PATH, 'utf8');
+    const ui = await readFile(SESSION_LIST_PANEL_PATH, 'utf8');
     const css = await readRendererContractCss();
-    const sessionRow = ui.slice(ui.indexOf('function SessionRow'), ui.indexOf('interface PermissionModeMeta'));
+    const sessionRow = ui.slice(ui.indexOf('function SessionRow'), ui.indexOf('interface SessionGroup'));
 
     assert.match(ui, /type SessionRowActionId = 'flag' \| 'archive' \| 'rename' \| 'delete';/);
     assert.match(ui, /onToggleFlag\(sessionId: string, next: boolean\): void \| Promise<void>;/);

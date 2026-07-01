@@ -84,9 +84,13 @@ By default, Maka stores workspace data under Electron `userData`:
 Important boundaries:
 
 - Provider connection metadata and session JSONL stay in the local filesystem.
-- Sensitive values such as API keys, OAuth tokens, bot tokens, proxy
-  passwords, gateway tokens, and Tavily keys are encrypted with Electron
-  `safeStorage` and written to `credentials.json`.
+- Runtime credentials such as provider API keys, bot tokens, proxy passwords,
+  gateway tokens, and Tavily keys are written to local `credentials.json`. The
+  current format is file-first plaintext JSON behind the OS account boundary,
+  with POSIX directory mode `0700` and file mode `0600` enforced.
+- Subscription OAuth tokens for Claude, Codex, Cursor, Antigravity, and similar
+  account services use their own Electron `safeStorage` token stores. Those
+  stores fail closed when `safeStorage` is unavailable.
 - The renderer does not receive plaintext secrets. Settings surfaces only show
   masked status and test results.
 - File I/O, shell access, and dangerous operations go through the permission

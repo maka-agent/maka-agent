@@ -318,14 +318,14 @@ describe('isolated headless tools', () => {
     assert.ok(!r.content.includes('RAW-NATIVE-BYPASS'), 'the native readFile result is never used');
   });
 
-  test('Edit ignores native file ops and always runs the shared replacer', async () => {
+  test('Edit ignores native file ops and still uses the shared replacer', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-native-'));
     await mkdir(join(cwd, 'src'));
     const file = join(cwd, 'src', 'f.ts');
     await writeFile(file, 'function f() {\n    return 1;\n}\n', 'utf8');
     const nativeCalls: string[] = [];
-    // A fully native-capable executor: Edit must STILL bypass these and run the
-    // shared computeEditedSource via node -e (there is no native Edit hook).
+    // A fully native-capable executor: Edit must still bypass these and run the
+    // shared computeEditedSource path (there is no native Edit hook).
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         try {
@@ -370,8 +370,11 @@ describe('isolated headless tools', () => {
     });
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
-        if (input.command.startsWith("node -e '")) {
-          return { exitCode: 0, stdout: '{"matchedVia":"exact","startLine":1,"endLine":1}', stderr: '' };
+        if (input.command.includes('Edit path') && input.command.includes('base64 < "$target"')) {
+          return { exitCode: 0, stdout: `${Buffer.from('old payload', 'utf8').toString('base64')}\n`, stderr: '' };
+        }
+        if (input.command.includes('Edit path')) {
+          return { exitCode: 0, stdout: '', stderr: '' };
         }
         // Read now runs through READ_SCRIPT (no native fast path); the script
         // carries the distinctive 'Read path' label, so stub its content here.
@@ -445,9 +448,8 @@ describe('isolated headless tools', () => {
       matches: ['src/file.txt:2:needle'],
     });
     assert.equal(await readFile(join(cwd, 'src/file.txt'), 'utf8'), 'hello\nneedle\n');
-    // Edit is intentionally excluded here: it runs via `node -e` (covered by the
-    // dedicated Edit test below) while Read/Write/Glob/Grep stay POSIX-sh scripts
-    // that must work with only base coreutils on PATH (here pinned to /usr/bin:/bin).
+    // Read/Write/Glob/Grep stay POSIX-sh scripts that must work with only base
+    // coreutils on PATH (here pinned to /usr/bin:/bin).
     assert.ok(calls.length >= 4);
     assert.ok(calls.every((command) => command.startsWith("sh -c '")));
     assert.ok(calls.every((command) => !command.includes('node -e')));
@@ -830,7 +832,7 @@ describe('isolated headless tools', () => {
     assert.doesNotMatch(captured, /--glob "\$glob"/);
   });
 
-  test('command-backed Edit runs the shared fuzzy matcher via node -e', async () => {
+  test('command-backed Edit runs the shared fuzzy matcher without executor node', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-edit-'));
     await mkdir(join(cwd, 'src'));
     const file = join(cwd, 'src', 'f.ts');
@@ -841,6 +843,9 @@ describe('isolated headless tools', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         calls.push(input.command);
+        if (input.command.startsWith("node -e '")) {
+          return { exitCode: 127, stdout: '', stderr: 'node: not found' };
+        }
         try {
           const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, maxBuffer: 1024 * 1024 });
           return { exitCode: 0, stdout, stderr };
@@ -882,9 +887,8 @@ describe('isolated headless tools', () => {
     );
     assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'secret\n');
 
-    // Every Edit ran through node -e (the shared computeEditedSource), not sh.
     assert.ok(calls.length >= 3);
-    assert.ok(calls.every((command) => command.startsWith("node -e '")));
+    assert.ok(calls.every((command) => !command.startsWith("node -e '")));
   });
 
   test('command-backed Edit edits a binary file byte-exactly without corrupting non-UTF-8 bytes', async () => {
@@ -932,8 +936,7 @@ describe('isolated headless tools', () => {
     const n = 20;
     const markers = Array.from({ length: n }, (_, i) => `marker-${String(i).padStart(2, '0')}`);
     await writeFile(file, `${markers.join('\n')}\n`, 'utf8');
-    // No executor.editFile -> EDIT_SCRIPT (read whole file -> temp -> rename). Run
-    // through the real shell so the read-modify-write actually hits disk.
+    // Run through the real shell so the read-modify-write actually hits disk.
     const tools = execBackedTools();
     // Fire all edits concurrently. Each rewrites the whole file, so without the
     // per-path lock the last rename would clobber the others and most edits vanish.
@@ -968,8 +971,8 @@ describe('isolated headless tools', () => {
 
   test('a Write and an Edit on the same file serialize — they never overlap at the executor boundary', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-tools-write-edit-'));
-    // Both Write (WRITE_SCRIPT) and Edit (EDIT_SCRIPT) reach the filesystem through
-    // executor.exec; with no native writeFile hook each is exactly one exec call.
+    // Both Write (WRITE_SCRIPT) and Edit byte read/write reach the filesystem through
+    // executor.exec; with no native file hook they share the same executor boundary.
     // The spy counts concurrently-active exec calls. Sharing one fileWriteKey the
     // two must run strictly one-at-a-time (max 1 active); without the lock they
     // overlap (2 active) and their read-modify-write could lose an update. The two
@@ -977,18 +980,21 @@ describe('isolated headless tools', () => {
     let active = 0;
     let maxActive = 0;
     const tools = buildIsolatedHeadlessTools({
-      async exec() {
+      async exec(input) {
         active += 1;
         maxActive = Math.max(maxActive, active);
         await new Promise((r) => setImmediate(r));
         await new Promise((r) => setImmediate(r));
         active -= 1;
+        if (input.command.includes('base64 < "$target"')) {
+          return { exitCode: 0, stdout: `${Buffer.from('alpha marker', 'utf8').toString('base64')}\n`, stderr: '' };
+        }
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     });
     await Promise.all([
       tool(tools, 'Write').impl({ path: 'data.txt', content: 'WRITTEN\n' }, toolCtx(cwd)),
-      tool(tools, 'Edit').impl({ path: 'data.txt', old_string: 'a', new_string: 'b' }, toolCtx(cwd)),
+      tool(tools, 'Edit').impl({ path: 'data.txt', old_string: 'alpha marker', new_string: 'beta marker' }, toolCtx(cwd)),
     ]);
     assert.equal(maxActive, 1, 'Write and Edit on one path must not run concurrently');
   });

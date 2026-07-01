@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readAllRendererCss } from './css-test-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 import {
   FIRST_RUN_TASK_SUGGESTION_MILESTONES,
   FIRST_RUN_TASK_SUGGESTIONS,
@@ -210,7 +211,7 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
 
   it('starts the shipped plan reminder form from the first-run checklist', async () => {
     const checklist = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
-    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
 
     assert.match(checklist, /onStartPlanReminder\?\(\): void/);
     assert.match(checklist, /id:\s*'plan-reminder'/);

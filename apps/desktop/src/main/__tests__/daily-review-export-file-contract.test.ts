@@ -3,16 +3,20 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)', () => {
   it('exposes the save-to-file IPC, preload bridge, and command palette entry', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
-    const renderer = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
-    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const chatView = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const sessionListPanel = await readFile(resolve(REPO_ROOT, 'packages/ui/src/session-list-panel.tsx'), 'utf8');
     const css = await readRendererContractCss();
 
     // IPC handler is registered and shape-validates its input before
@@ -41,14 +45,14 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
 
     // The main Daily Review panel exposes save next to copy, so export
     // is not hidden behind command palette muscle memory.
-    assert.match(ui, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
-    assert.match(ui, /onSaveMarkdown=\{props\.onSaveDailyReviewMarkdown\}/);
+    assert.match(sessionListPanel, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
+    assert.match(chatView, /onSaveMarkdown=\{props\.onSaveDailyReviewMarkdown\}/);
     assert.match(ui, /maka-daily-review-save[\s\S]*保存/);
     assert.match(css, /\.maka-daily-review-actions/);
   });
 
   it('clamps the save payload size so a renderer cannot force a large write', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     // 1MB cap on markdown body; 200 chars on filename. These are
     // defensive against a misbehaving / hijacked renderer, not product
     // UX constraints — daily reviews are typically well under 100KB.
@@ -62,7 +66,7 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     // path-traversal text. The source contains
     // `defaultName.replace(/[\\/]/g, '_')` — escaped backslash + slash
     // inside a character class.
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     assert.equal(
       main.includes("defaultName.replace(/[\\\\/]/g, '_')"),
       true,

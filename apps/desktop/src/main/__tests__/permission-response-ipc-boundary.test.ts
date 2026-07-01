@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 import {
   normalizeBranchFromTurnInput,
@@ -148,8 +149,7 @@ describe('permission response IPC boundary', () => {
     // failure dies as UnhandledPromiseRejection and the user sees
     // nothing while the model keeps streaming. Same applies to
     // respondToPermission().
-    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
-    const renderer = await readFile(rendererPath, 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     // Match `async function stop()` body up to its closing brace.
     const stop = renderer.match(/async function stop\(\)\s*\{[\s\S]*?\n  \}/);
     assert.ok(stop, 'stop() must exist in main.tsx');
@@ -199,8 +199,7 @@ describe('permission response IPC boundary', () => {
     // `permissionBySession[sessionId]`, keeping the overlay visible
     // and blocking the session UI until the user manually navigates
     // away. Mirrors the existing `abort` cleanup.
-    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
-    const renderer = await readFile(rendererPath, 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     // Find the 'complete' case in handleSessionEvent — the body must
     // clear the session's permission queue when stopReason is not
     // permission_handoff.
@@ -218,7 +217,7 @@ describe('permission response IPC boundary', () => {
     // respondToPermission now swallows IPC errors via toast. If
     // submit() doesn't reset pending on resolve OR catch, the
     // dialog buttons lock up forever after a failed IPC.
-    const componentsPath = fileURLToPath(new URL('../../../../../packages/ui/src/components.tsx', import.meta.url));
+    const componentsPath = fileURLToPath(new URL('../../../../../packages/ui/src/permission-dialog.tsx', import.meta.url));
     const components = await readFile(componentsPath, 'utf8');
     const submit = components.match(/async function submit\(decision:[\s\S]*?\n  \}/);
     assert.ok(submit, 'PermissionDialog submit() must be async');
@@ -244,8 +243,7 @@ describe('permission response IPC boundary', () => {
   });
 
   it('refreshes active messages when a sessions:changed message-appended event arrives', async () => {
-    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
-    const renderer = await readFile(rendererPath, 'utf8');
+    const renderer = await readRendererShellCombinedSource();
 
     // PR-OAUTH-CARD-LIVE-STATE-0: the renderer uses a local
     // `changedSessionId = event.sessionId` shadow var + a truthy
@@ -278,8 +276,7 @@ describe('permission response IPC boundary', () => {
   });
 
   it('scopes session event error feedback to the active chat surface', async () => {
-    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
-    const renderer = await readFile(rendererPath, 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const errorBranch = renderer.match(/case 'error':[\s\S]*?case 'abort':/)?.[0] ?? '';
     const helper = renderer.match(/function sessionEventErrorMessage\(event: Extract<SessionEvent, \{ type: 'error' \}>\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
 
@@ -307,8 +304,7 @@ describe('permission response IPC boundary', () => {
   });
 
   it('keeps newly created sessions selected across immediate refreshSessions() calls', async () => {
-    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
-    const renderer = await readFile(rendererPath, 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const setActiveId = renderer.match(/function setActiveId\(next: string \| undefined\): void \{[\s\S]*?\n  \}/);
     const refreshSessions = renderer.match(/async function refreshSessions\(\)(?:: Promise<SessionSummary\[]>)? \{[\s\S]*?\n  \}/);
     const bootstrapSessions = renderer.match(/async function bootstrapSessions\(\) \{[\s\S]*?\n  \}/);
@@ -418,8 +414,7 @@ describe('permission response IPC boundary', () => {
   });
 
   it('keeps normal Composer first-send visible in the newly created session', async () => {
-    const rendererPath = fileURLToPath(new URL('../../../src/renderer/main.tsx', import.meta.url));
-    const renderer = await readFile(rendererPath, 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const sendBlock = renderer.match(
       /async function send\(text: string\): Promise<boolean> \{[\s\S]*?async function importTextFilePrompt/,
     )?.[0] ?? '';

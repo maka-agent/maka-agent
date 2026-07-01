@@ -7,6 +7,7 @@ import {
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from '../../renderer/session-event-health.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 describe('renderer session event health projection', () => {
   it('creates a connected subscription snapshot', () => {
@@ -92,10 +93,7 @@ describe('renderer session event health projection', () => {
   });
 
   it('wires the active health effect to in-flight tool status, not live tool count', async () => {
-    const { readFile } = await import('node:fs/promises');
-    const { resolve } = await import('node:path');
-    const repoRoot = resolve(import.meta.dirname, '../../../../..');
-    const main = await readFile(resolve(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
 
     assert.match(main, /const hasInFlightLiveTools = useMemo\(\(\) => hasInFlightToolActivity\(liveTools\), \[liveTools\]\);/);
     assert.match(main, /activeStreaming\.length > 0 \|\| hasInFlightLiveTools \|\| Boolean\(activePermission\)/);

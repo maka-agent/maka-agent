@@ -114,6 +114,49 @@ describe('runPromptOptimizationLoop', () => {
     });
   });
 
+  test('feeds sanitized verifier failure summaries into prompt digests', async () => {
+    await withHarness(async (harness) => {
+      const promptInputs: MetaAgentPromptInput[] = [];
+      const heldInTasks = makeTasks('hin', 2);
+      const heldOutTasks = makeTasks('hout', 1);
+
+      await runLoop(harness, {
+        heldInTasks,
+        heldOutTasks,
+        rewardFor: (_roundId, taskId) => taskId === 'hin-0' ? 0 : 1,
+        verifierFailureSummaryFor: (roundId, taskId) => (
+          roundId === 'baseline-0' && taskId === 'hin-0'
+            ? 'output_assertion_failed integer_output_off_by_one'
+            : undefined
+        ),
+        rounds: 1,
+        baselineRuns: 1,
+        metaAgent: async (promptInput) => {
+          promptInputs.push(promptInput);
+          return {
+            systemPrompt: `candidate prompt ${promptInput.roundId}\n`,
+            summary: `tuned for ${promptInput.roundId}`,
+            candidateRationale: {
+              failurePattern: 'verification_failed',
+              evidenceRefs: evidenceRefsFor(promptInput),
+              hypothesis: 'integer output selection can be made less ambiguous',
+              targetedFix: 'prefer the task requested count when multiple totals appear',
+              predictedFixes: ['hin-0'],
+              riskTasks: ['hin-1'],
+            },
+          };
+        },
+      });
+
+      assert.equal(promptInputs.length, 1);
+      assert.equal(
+        promptInputs[0]?.heldInDigests.find((digest) => digest.taskId === 'hin-0')?.summary,
+        'output_assertion_failed integer_output_off_by_one',
+      );
+      assert.equal(JSON.stringify(promptInputs[0]).includes('79586'), false);
+    });
+  });
+
   test('matches attribution root cause against prompt-time analysis after coverage signal is fixed', async () => {
     await withHarness(async (harness) => {
       const promptInputs: MetaAgentPromptInput[] = [];

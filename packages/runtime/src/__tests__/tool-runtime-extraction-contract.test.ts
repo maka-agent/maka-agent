@@ -1,13 +1,24 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, test } from 'node:test';
 
 const REPO_ROOT = resolveRepoRoot();
+const RENDERER_SETTINGS_DIR = 'apps/desktop/src/renderer/settings';
 
 async function readRepo(path: string): Promise<string> {
   return readFile(join(REPO_ROOT, path), 'utf8');
+}
+
+async function readRendererSettingsSources(): Promise<string> {
+  const entries = await readdir(join(REPO_ROOT, RENDERER_SETTINGS_DIR), { withFileTypes: true });
+  const sourcePaths = entries
+    .filter((entry) => entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name))
+    .map((entry) => `${RENDERER_SETTINGS_DIR}/${entry.name}`)
+    .sort();
+  const sources = await Promise.all(sourcePaths.map((path) => readRepo(path)));
+  return sources.join('\n');
 }
 
 function resolveRepoRoot(): string {
@@ -145,7 +156,7 @@ describe('RunTrace extraction contract', () => {
     const adapter = await readRepo('packages/runtime/src/model-adapter.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const main = await readRepo('apps/desktop/src/main/main.ts');
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readRendererSettingsSources();
 
     assert.match(trace, /export class RunTrace/);
     assert.match(trace, /export interface RunTraceEvent/);

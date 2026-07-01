@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -14,7 +15,7 @@ async function readRepo(path: string): Promise<string> {
 
 describe('Settings theme page contract', () => {
   it('keeps instant appearance preview but surfaces persistence failures', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/);
 
     assert.ok(themePage, 'Theme settings page block must exist');
@@ -46,7 +47,7 @@ describe('Settings theme page contract', () => {
   });
 
   it('drops stale or late theme persistence errors after newer choices or unmount', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
 
     assert.match(
@@ -67,7 +68,7 @@ describe('Settings theme page contract', () => {
   });
 
   it('supports standard radiogroup keyboard navigation for appearance controls', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
 
     // PR round-c-choice-card-primitive + PR yuejing/settings-segmented-
@@ -117,7 +118,7 @@ describe('Settings theme page contract', () => {
     // shared `<Button>` (which still has the 36px-pill problem) or
     // hand-rolled native `<button>` (which loses Base UI's keyboard
     // and focus contract).
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
     const themePageNoComments = themePage
       .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -152,7 +153,7 @@ describe('Settings theme page contract', () => {
   });
 
   it('keeps theme page copy Chinese-first and user-facing', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
     const themeCopy = [
       src.match(/const THEME_OPTIONS[\s\S]*?\];/)?.[0] ?? '',

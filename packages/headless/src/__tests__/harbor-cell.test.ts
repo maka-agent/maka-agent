@@ -1876,6 +1876,41 @@ setTimeout(() => {
     }
   });
 
+  test('falls back to stored Maka credentials for secret-free Harbor configs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-cell-credentials-'));
+    try {
+      const credentialsPath = join(dir, 'credentials.json');
+      await writeFile(
+        credentialsPath,
+        `${JSON.stringify({
+          version: 1,
+          values: {
+            'zai-coding-plan:apiKey': 'stored-zai-secret',
+          },
+        })}\n`,
+        'utf8',
+      );
+
+      const stored = resolveHarborCellAiSdkEnv({
+        provider: 'zai-coding-plan',
+        model: 'glm-5.2',
+        env: { MAKA_CREDENTIALS_PATH: credentialsPath },
+        ts: 1,
+      });
+      assert.equal(stored.apiKey, 'stored-zai-secret');
+
+      const rawWins = resolveHarborCellAiSdkEnv({
+        provider: 'zai-coding-plan',
+        model: 'glm-5.2',
+        env: { MAKA_CREDENTIALS_PATH: credentialsPath, ZAI_API_KEY: 'raw-zai-secret' },
+        ts: 1,
+      });
+      assert.equal(rawWins.apiKey, 'raw-zai-secret');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
 });
 
 describe('createHarborCellLocalToolExecutor', () => {

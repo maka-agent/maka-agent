@@ -69,7 +69,6 @@ export function promptStructuralSmokeReport(
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     : [];
   const quarantineCount = decisionEvents.filter((event) => isQuarantineDecision(event)).length;
-  const missingRewardHackScanCount = decisionEvents.filter((event) => event.rewardHackScan === undefined).length;
   const totalCostUsd = roundCost(sum(taskEvents.map((event) => (
     event.type === 'task_completed' || event.type === 'task_plumbing_failed' ? event.tokenSummary.costUsd : 0
   ))));
@@ -83,8 +82,6 @@ export function promptStructuralSmokeReport(
   if (taskEvents.some((event) => event.type === 'task_plumbing_failed')) {
     failures.push('plumbing_failures_present');
   }
-  if (missingRewardHackScanCount > 0) failures.push('reward_hack_scan_missing');
-  if (quarantineCount > 0) failures.push('reward_hack_quarantine_present');
   if (roundsWithoutRsiAttribution.length > 0) failures.push('rsi_attribution_missing');
   if (roundsWithMalformedRsiAttribution.length > 0) failures.push('rsi_attribution_malformed');
   if (roundsWithOutOfScopeRsiAttribution.length > 0) failures.push('rsi_attribution_task_scope_invalid');

@@ -1,6 +1,6 @@
 /**
  * Static-analysis contract for the OAuth model-provider catalog in
- * `apps/desktop/src/renderer/settings/ProvidersPanel.tsx`
+ * the provider settings source files
  * (PR-MODEL-OAUTH-ALL-0).
  *
  * Pins the user-visible OAuth login surface: four cards
@@ -10,7 +10,7 @@
  *
  * This is a source-grep contract, not a DOM render — we don't
  * pull React into the desktop test runner. Stamp shapes are
- * verified by reading the panel source.
+ * verified by reading the provider settings sources.
  */
 
 import { strict as assert } from 'node:assert';
@@ -18,23 +18,16 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readProviderSettingsCombinedSource } from './provider-contract-source-helpers.js';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
-const PROVIDERS_PANEL_SOURCE = resolve(
-  REPO_ROOT,
-  'apps',
-  'desktop',
-  'src',
-  'renderer',
-  'settings',
-  'ProvidersPanel.tsx',
-);
-const MAIN_SOURCE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'main.ts');
 const PRELOAD_SOURCE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'preload', 'preload.ts');
 
 describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MOVE-0)', () => {
   it('renders OAuth as a catalog tab peer, not a standalone section above the market', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const tabs = src.match(/const CATALOG_TABS:[\s\S]*?\];/);
     assert.ok(tabs, 'CATALOG_TABS literal must exist');
     assert.match(tabs[0], /id:\s*'oauth'[\s\S]*label:\s*'OAuth'/, 'OAuth must be a catalog tab');
@@ -51,14 +44,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('catalog tabs use the shared primitive Tabs primitive as a real tablist', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const tabs = src.match(/<PrimitiveTabs\s+className="catalogTabsRoot"[\s\S]*?<\/PrimitiveTabs>/)?.[0] ?? '';
 
-    // ProvidersPanel must source its UI from the shared @maka/ui primitives
-    // (component governance), not hand-rolled markup. Assert the @maka/ui
-    // import block carries the primitives this panel relies on; tolerant of
-    // single- vs multi-line formatting.
-    const uiImport = src.match(/import \{[^}]*\} from '@maka\/ui';/)?.[0] ?? '';
+    // Provider settings files must source UI from the shared @maka/ui
+    // primitives (component governance), not hand-rolled markup.
+    const uiImports = src.match(/import \{[^}]*\} from '@maka\/ui';/g)?.join('\n') ?? '';
     for (const name of [
       'Button',
       'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger',
@@ -67,8 +58,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'Input', 'RelativeTime', 'Textarea', 'useToast', 'useModalA11y',
     ]) {
       assert.ok(
-        uiImport.includes(name),
-        `ProvidersPanel should import ${name} from the shared @maka/ui primitives`,
+        uiImports.includes(name),
+        `provider settings files should import ${name} from the shared @maka/ui primitives`,
       );
     }
     assert.doesNotMatch(src, /function onCatalogTabsKeyDown/, 'provider catalog tabs should not keep a custom keyboard handler');
@@ -80,7 +71,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('ProvidersPanel surfaces model connection reload failures instead of sticking on loading', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const panel = src.match(/export function ProvidersPanel[\s\S]*?const selected = useMemo/)?.[0] ?? '';
     const reloadMatch = src.match(/async function reload\(\): Promise<boolean> \{[\s\S]*?\n  \}/);
     assert.ok(reloadMatch, 'ProvidersPanel reload() must exist');
@@ -127,8 +118,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('provider detail actions localize and sanitize model-test / model-fetch failures', async () => {
-    const providers = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
-    const main = await readFile(MAIN_SOURCE, 'utf8');
+    const providers = await readProviderSettingsCombinedSource();
+    const main = await readMainProcessCombinedSource();
     const detail = providers.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
     const addForm = providers.match(/function AddProviderForm[\s\S]*?function nextSlug/)?.[0] ?? '';
 
@@ -290,7 +281,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('provider config sheets expose their own accessible close button', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const styles = await readRendererContractCss();
     const overlay = src.match(/function ProviderConfigSheetOverlay[\s\S]*?function ProviderCatalogCard/)?.[0] ?? '';
 
@@ -310,7 +301,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('provider config sheets hide the blurred Settings background from accessibility', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const hook = src.match(/function useProviderSheetBackgroundInert[\s\S]*?function ProviderCatalogCard/)?.[0] ?? '';
 
     assert.match(
@@ -351,7 +342,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // defaulted selectedSlug to list[0]. A model list refresh should
     // preserve an already-open sheet if that connection still exists,
     // but it must not select the first provider by default.
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const reloadBlock = src.match(/async function reload\(\)[\s\S]*?^\s*\}/m)?.[0] ?? '';
 
     assert.match(reloadBlock, /setSelectedSlug\(\(current\) =>[\s\S]*list\.some\(\(connection\) => connection\.slug === current\)/);
@@ -360,7 +351,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('enabled model chips expose a concise aria-label instead of concatenated duplicate visible text', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
 
     assert.match(
       src,
@@ -390,7 +381,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('provider catalog cards expose explicit names and localized custom-provider copy', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const card = src.match(/function ProviderCatalogCard[\s\S]*?function providerDisabledStatus/)?.[0] ?? '';
 
     assert.match(
@@ -434,7 +425,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('keeps model provider form copy Chinese-first', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const addForm = src.match(/function AddProviderForm[\s\S]*?function ConnectionDetail/)?.[0] ?? '';
     const detail = src.match(/function ConnectionDetail[\s\S]*?function connectionDetailSnapshot/)?.[0] ?? '';
     const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
@@ -482,7 +473,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // WAWQAQ msg 8bb7e186: Claude must not be a huge standalone
     // inline card while the other OAuth providers are compact
     // cards. All four login entries live in the same grid.
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
@@ -495,7 +486,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('keeps OAuth cards visually aligned with domestic and overseas provider cards', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const styles = await readRendererContractCss();
     const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function providerOAuthAriaLabel/);
     assert.ok(sectionMatch, 'ModelOAuthSection render block must exist');
@@ -560,7 +551,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('every card declares status: "available" (no more "planned" placeholders)', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const match = src.match(/MODEL_OAUTH_CARDS:\s*ReadonlyArray<ModelOAuthCard>\s*=\s*\[([\s\S]*?)\];/);
     assert.ok(match, 'MODEL_OAUTH_CARDS literal must exist');
     const body = match[1]!;
@@ -573,7 +564,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('wired OAuth provider copy does not say account login is separate from model connections', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     assert.doesNotMatch(
       src,
       /账号登录不作为模型连接|这类账号登录不会出现在模型连接入口|当前请使用 API key 连接聊天模型|默认隐藏/,
@@ -597,7 +588,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('OAuth model connection detail treats Base URL as fixed provider metadata, not an editable endpoint', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
@@ -628,7 +619,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('does not let disabled OAuth connections become the default model', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
@@ -644,7 +635,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('does not leave Save enabled when an existing connection has no draft changes', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
@@ -660,7 +651,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('keeps the model picker radiogroup free of nested listitem semantics', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const modelTable = src.match(/function ModelTable[\s\S]*?function ModelCapabilityChips/)?.[0] ?? '';
 
     assert.match(
@@ -681,7 +672,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('surfaces provider detail save/delete failures instead of leaking rejected promises from actions', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
@@ -702,7 +693,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('surfaces provider detail credential-presence probe failures', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(src, /type CredentialPresenceStatus = boolean \| 'loading' \| 'error'/);
@@ -730,7 +721,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('provider detail async actions stop writing UI after the detail sheet is closed or switched', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
@@ -780,7 +771,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // connection while its detail sheet is open. State initialized from
     // props via useState would otherwise keep showing stale models /
     // defaultModel until the sheet is closed and reopened.
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
 
     assert.match(
@@ -821,7 +812,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('claude opens a modal from the equal-size card instead of rendering a full inline card above the grid', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function ClaudeSubscriptionModal/);
     assert.ok(sectionMatch, 'ModelOAuthSection and ClaudeSubscriptionModal must exist');
     assert.doesNotMatch(
@@ -852,7 +843,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // showed "可用 / 预览" — no live login indicator. The fix
     // lifts a per-service snapshot map into the section and
     // refreshes on every modal close (success OR cancel).
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     // 1. cardStates map keyed by service id must exist.
     assert.match(
       src,
@@ -908,7 +899,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // task #38 sweep: a transient getAccountState IPC failure must
     // not overwrite a logged-in card snapshot with null. "Unknown"
     // is not the same thing as "not logged in".
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function ClaudeSubscriptionModal/);
     assert.ok(sectionMatch, 'ModelOAuthSection must exist');
     const section = sectionMatch[0]!;
@@ -946,7 +937,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('OAuth card refresh owns the mounted latest request before writing Settings UI feedback', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const sectionMatch = src.match(/function ModelOAuthSection[\s\S]*?function ClaudeSubscriptionModal/);
     assert.ok(sectionMatch, 'ModelOAuthSection must exist');
     const section = sectionMatch[0]!;
@@ -982,10 +973,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     // Before: any truthy `detail.section` was passed to setSection,
     // so a typo or stale dispatch would silently land the user on
     // the "该设置页已纳入 Maka 设置树…" fallback page with no clue.
-    const SETTINGS_MODAL = resolve(
-      REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'settings', 'SettingsModal.tsx',
-    );
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     // Find the handler body — match from `const handler = ` up to
     // its `addEventListener(...)` registration.
     const handler = src.match(
@@ -1002,24 +990,21 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   it('AccountSettingsPage no longer renders ClaudeSubscriptionCard', async () => {
     // The 账户 panel used to host the card; PR-CLAUDE-CARD-MOVE-0
     // removed it. Confirm SettingsModal no longer references it.
-    const SETTINGS_MODAL = resolve(
-      REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'settings', 'SettingsModal.tsx',
-    );
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     assert.doesNotMatch(
       src,
       /<ClaudeSubscriptionCard\s*\/>/,
-      'SettingsModal must not render ClaudeSubscriptionCard — it lives in ProvidersPanel now',
+      'SettingsModal must not render ClaudeSubscriptionCard — it lives in provider OAuth settings now',
     );
     assert.doesNotMatch(
       src,
       /function ClaudeSubscriptionCard\b/,
-      'ClaudeSubscriptionCard definition must be in ProvidersPanel, not SettingsModal',
+      'ClaudeSubscriptionCard definition must be in provider OAuth settings, not SettingsModal',
     );
   });
 
   it('SubscriptionLoginModal picks the right service bridge per id', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const fnMatch = src.match(/function pickSubscriptionBridge\(serviceId:[\s\S]*?^\}/m);
     assert.ok(fnMatch, 'pickSubscriptionBridge helper must exist');
     const body = fnMatch[0];
@@ -1030,7 +1015,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('modal flow calls getAuthUrl → openAuthUrl → completeAuthorization on the bridge', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const fnMatch = src.match(/async function startLogin\(\)[\s\S]*?\n  \}/);
     assert.ok(fnMatch, 'startLogin must exist on SubscriptionLoginModal');
     const body = fnMatch[0];
@@ -1040,7 +1025,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('OAuth login modals surface thrown IPC/service failures instead of leaving console-only rejections', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const helper = src.match(/function subscriptionActionErrorMessage[\s\S]*?async function getSubscriptionSnapshot/)?.[0] ?? '';
     const browserModal = src.match(/function SubscriptionLoginModal[\s\S]*?function ClaudeSubscriptionCard/)?.[0] ?? '';
     const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
@@ -1137,7 +1122,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('OAuth local credential storage failures are visible and repairable', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const snapshotPresenter = src.match(/function presentSnapshotDetail[\s\S]*?function ProviderLogoMark/)?.[0] ?? '';
     const claudePresenter = src.match(/function presentSubscriptionState[\s\S]*?\n\}/)?.[0] ?? '';
     const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
@@ -1165,7 +1150,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   });
 
   it('Claude paste-code login keeps authorizing out of logout/refresh actions', async () => {
-    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const src = await readProviderSettingsCombinedSource();
     const claudeCard = src.match(/function ClaudeSubscriptionCard[\s\S]*?function presentSubscriptionState/)?.[0] ?? '';
     const actionsBlock = claudeCard.match(/<div className="settingsConnectionActions">[\s\S]*?\{authRequestId &&/)?.[0] ?? '';
 

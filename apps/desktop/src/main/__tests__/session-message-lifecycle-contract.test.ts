@@ -11,13 +11,12 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-
-const MAIN_RENDERER_SOURCE = join(process.cwd(), 'src', 'renderer', 'main.tsx');
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 describe('active session message lifecycle contract', () => {
   it('clears stale messages before reading the selected session and guards late reads', async () => {
-    const src = await readFile(MAIN_RENDERER_SOURCE, 'utf8');
-    const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const src = await readRendererShellCombinedSource();
+    const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
     const activeSessionEffect = src.match(/useEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
     const activeReadCatch = activeSessionEffect.match(/readMessages\(activeId\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*?\n      \}\);/)?.[0] ?? '';
     const refreshMessages = src.match(/async function refreshMessages\(sessionId: string\)(?:: Promise<boolean>)? \{[\s\S]*?\n  \}/)?.[0] ?? '';

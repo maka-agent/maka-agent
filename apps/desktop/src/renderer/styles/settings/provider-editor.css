@@ -350,13 +350,22 @@
   grid-template-columns: 16px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   color: var(--foreground);
   text-align: left;
   transition: background var(--duration-base) var(--ease-out-strong), border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
+  /* PR-MODEL-ROW-HEIGHT-FIX-0 (WAWQAQ msg c71b4dcb 2026-06-30): the
+     Button primitive ships size=md = `h-9` (36px fixed), but each row
+     now has TWO lines (display name + raw id when shown). The fixed
+     height clipped the second line's lower descender (gpt-5.4 → "ant
+     5.4"). Override to auto height with a comfortable min-height; the
+     padding above plus the inner 2px gap leaves room for the second
+     line without breaking single-line rows. */
+  height: auto;
+  min-height: 44px;
 }
 
 .modelTableRow:hover {

@@ -27,6 +27,7 @@ import {
   readTextFilesForPromptImport,
 } from '../text-file-import.js';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 describe('text file context import', () => {
   it('appends imported context without replacing an existing draft', () => {
@@ -271,7 +272,7 @@ describe('text file context import', () => {
       : process.cwd();
     const [main, renderer, importer] = await Promise.all([
       readFile(join(repoRoot, 'apps/desktop/src/main/main.ts'), 'utf8'),
-      readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8'),
+      readRendererShellCombinedSource(),
       readFile(join(repoRoot, 'apps/desktop/src/main/text-file-import.ts'), 'utf8'),
     ]);
 
@@ -319,12 +320,12 @@ describe('text file context import', () => {
   });
 
   it('wires the import action into Composer and first-run drop/paste', async () => {
-    const mainSource = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const mainSource = await readRendererShellCombinedSource();
     const mainProcessSource = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
     const preloadSource = await readFile(join(process.cwd(), 'src/preload/preload.ts'), 'utf8');
     const globalSource = await readFile(join(process.cwd(), 'src/global.d.ts'), 'utf8');
     const onboardingSource = await readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8');
-    const uiSource = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const uiSource = await readFile(join(process.cwd(), '../../packages/ui/src/composer.tsx'), 'utf8');
     const cssSource = await readFile(join(process.cwd(), 'src/renderer/maka-tokens.css'), 'utf8');
     const stylesSource = await readRendererContractCss();
     const textFilePromptBlock = mainSource.match(/async function importTextFilePrompt[\s\S]*?async function importTextFileIntoComposer/)?.[0] ?? '';
@@ -442,7 +443,7 @@ describe('text file context import', () => {
     // hero now REPLACES the draft because users haven't typed anything
     // yet — a click on a starter suggestion should reset, not pile on
     // top of whatever they left in the draft.
-    const mainSource = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const mainSource = await readRendererShellCombinedSource();
     const onboardingSource = await readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8');
 
     assert.match(mainSource, /onPromptSuggestion=\{\(prompt\) => composerRef\.current\?\.appendText\(prompt\)\}/);

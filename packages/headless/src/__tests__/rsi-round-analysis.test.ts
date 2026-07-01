@@ -140,6 +140,94 @@ describe('RSI round analysis', () => {
     });
   });
 
+  test('does not expose tool failure clusters as evidence for tasks with pass fail transitions', async () => {
+    await withDir(async (dir) => {
+      const taskARuntime = join(dir, 'task-a-runtime.jsonl');
+      const taskATrace = join(dir, 'task-a-trace.jsonl');
+      const taskBRuntime = join(dir, 'task-b-runtime.jsonl');
+      const taskBTrace = join(dir, 'task-b-trace.jsonl');
+
+      await writeJsonl(taskARuntime, [functionCall('call-a', 'Write', { path: '/app/index.html' })]);
+      await writeJsonl(taskATrace, [toolFailed('call-a', 'Write', 'Validation')]);
+      await writeJsonl(taskBRuntime, [functionCall('call-b', 'Bash', { command: 'pytest -q' })]);
+      await writeJsonl(taskBTrace, [toolFailed('call-b', 'Bash', 'RuntimeError')]);
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['task-a', 'task-b'],
+        lastKeptEvents: [
+          completed({ taskId: 'task-a', passed: true }),
+          completed({ taskId: 'task-b', passed: false, errorClass: 'verification_failed' }),
+        ],
+        candidateEvents: [
+          completed({ taskId: 'task-a', passed: false, errorClass: 'verification_failed', runtimeEventsPath: taskARuntime, traceEventsPath: taskATrace }),
+          completed({ taskId: 'task-b', passed: false, errorClass: 'verification_failed', runtimeEventsPath: taskBRuntime, traceEventsPath: taskBTrace }),
+        ],
+      });
+
+      assert.deepEqual(
+        analysis.toolFailureClusters.map(({ taskIds, ...cluster }) => ({ ...cluster, taskIds })),
+        [
+          { name: 'Bash', errorClass: 'RuntimeError', argsPreview: 'command', count: 1, taskIds: ['task-b'] },
+          { name: 'Write', errorClass: 'Validation', argsPreview: 'path', count: 1, taskIds: ['task-a'] },
+        ],
+      );
+      assert.deepEqual(
+        analysis.signals
+          .filter((signal) => signal.kind === 'tool_failure_cluster')
+          .map(({ id: _id, ...signal }) => signal),
+        [
+          {
+            kind: 'tool_failure_cluster',
+            taskIds: ['task-b'],
+            cluster: { name: 'Bash', errorClass: 'RuntimeError', argsPreview: 'command', count: 1, taskIds: ['task-b'] },
+          },
+        ],
+      );
+    });
+  });
+
+  test('does not aggregate recovered tool failures from passed held-in tasks', async () => {
+    await withDir(async (dir) => {
+      const passedRuntime = join(dir, 'passed-runtime.jsonl');
+      const passedTrace = join(dir, 'passed-trace.jsonl');
+      const failedRuntime = join(dir, 'failed-runtime.jsonl');
+      const failedTrace = join(dir, 'failed-trace.jsonl');
+
+      await writeJsonl(passedRuntime, [functionCall('passed-call', 'Read', { path: '/app/input.txt' })]);
+      await writeJsonl(passedTrace, [toolFailed('passed-call', 'Read', 'Error')]);
+      await writeJsonl(failedRuntime, [functionCall('failed-call', 'Write', { path: '/app/output.txt' })]);
+      await writeJsonl(failedTrace, [toolFailed('failed-call', 'Write', 'Error')]);
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['passed-task', 'failed-task'],
+        lastKeptEvents: [
+          completed({ taskId: 'passed-task', passed: true }),
+          completed({ taskId: 'failed-task', passed: false, errorClass: 'verification_failed' }),
+        ],
+        candidateEvents: [
+          completed({ taskId: 'passed-task', passed: true, runtimeEventsPath: passedRuntime, traceEventsPath: passedTrace }),
+          completed({ taskId: 'failed-task', passed: false, errorClass: 'verification_failed', runtimeEventsPath: failedRuntime, traceEventsPath: failedTrace }),
+        ],
+      });
+
+      assert.deepEqual(analysis.toolFailureClusters, [
+        { name: 'Write', errorClass: 'Error', argsPreview: 'path', count: 1, taskIds: ['failed-task'] },
+      ]);
+      assert.deepEqual(
+        analysis.signals
+          .filter((signal) => signal.kind === 'tool_failure_cluster')
+          .map(({ id: _id, ...signal }) => signal),
+        [
+          {
+            kind: 'tool_failure_cluster',
+            taskIds: ['failed-task'],
+            cluster: { name: 'Write', errorClass: 'Error', argsPreview: 'path', count: 1, taskIds: ['failed-task'] },
+          },
+        ],
+      );
+    });
+  });
+
   test('aggregates tool failure clusters from plumbing events with traces', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime.jsonl');
@@ -256,6 +344,33 @@ describe('RSI round analysis', () => {
         { kind: 'trace_unavailable', taskIds: ['task-b', 'task-d'], source: 'trace', reason: 'input_limit_exceeded' },
         { kind: 'trace_unavailable', taskIds: ['task-a'], source: 'trace', reason: 'invalid_jsonl' },
       ]);
+    });
+  });
+
+  test('keeps useful runtime calls when partial events exceed raw JSONL limits', async () => {
+    await withDir(async (dir) => {
+      const runtimeEventsPath = join(dir, 'runtime.jsonl');
+      const traceEventsPath = join(dir, 'trace.jsonl');
+      const noisyPartial = { content: { kind: 'thinking', text: 'x'.repeat(50_000), partial: true } };
+
+      await writeJsonl(runtimeEventsPath, [
+        ...Array.from({ length: 25 }, () => noisyPartial),
+        functionCall('call-a', 'Write', { path: '/app/output.txt', content: 'done' }),
+      ]);
+      await writeJsonl(traceEventsPath, [toolFailed('call-a', 'Write', 'Validation')]);
+
+      const analysis = await analyzeRsiRound({
+        heldInTaskIds: ['task-a'],
+        lastKeptEvents: [],
+        candidateEvents: [
+          completed({ taskId: 'task-a', passed: false, runtimeEventsPath, traceEventsPath }),
+        ],
+      });
+
+      assert.deepEqual(analysis.toolFailureClusters, [
+        { name: 'Write', errorClass: 'Validation', argsPreview: 'content,path', count: 1, taskIds: ['task-a'] },
+      ]);
+      assert.deepEqual(traceUnavailableSignals(analysis), []);
     });
   });
 

@@ -1,11 +1,11 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 describe('renderer startup fail-soft contract', () => {
   it('catches fire-and-forget app shell settings probes', async () => {
-    const main = await readFile(join(process.cwd(), 'src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
     const mountEffect = main.match(/useEffect\(\(\) => \{[\s\S]*?const unsubscribeConnections =/)?.[0] ?? '';
     const refreshConnections = main.match(/async function refreshConnections\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshAppInfo = main.match(/async function refreshAppInfo\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
@@ -79,7 +79,7 @@ describe('renderer startup fail-soft contract', () => {
   });
 
   it('catches Settings modal status probes that run on page mount', async () => {
-    const settings = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const settings = await readSettingsCombinedSource();
     const dataPage = settings.match(/function DataSettingsPage\(\)[\s\S]*?function PersonalizationSettingsPage/)?.[0] ?? '';
     const botPage = settings.match(/function BotChatSettingsPage\([\s\S]*?function UsageSettingsPage/)?.[0] ?? '';
 
@@ -109,7 +109,7 @@ describe('renderer startup fail-soft contract', () => {
   });
 
   it('keeps Settings modal usable when root settings or usage stats loading fails', async () => {
-    const settings = await readFile(join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'), 'utf8');
+    const settings = await readSettingsCombinedSource();
     const modalBlock = settings.match(/export function SettingsModal\([\s\S]*?function SettingsPage/)?.[0] ?? '';
     const reloadSettingsBlock = modalBlock.match(/async function reloadSettings\(\)[\s\S]*?async function updateSettings/)?.[0] ?? '';
     const reloadUsageBlock = modalBlock.match(/async function reloadUsage[\s\S]*?useEffect\(\(\) => \{[\s\S]*?void reloadSettings/)?.[0] ?? '';

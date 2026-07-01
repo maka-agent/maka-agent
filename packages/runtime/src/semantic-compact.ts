@@ -23,6 +23,8 @@ import type { CompactSummaryResult, NormalizedAiSdkUsage } from './model-adapter
 
 const DEFAULT_CHARS_PER_TOKEN = 4;
 const DEFAULT_MAX_SUMMARY_TOKENS = 768;
+const DEFAULT_MAX_COMPACT_CALL_TOKENS = 4096;
+const FALLBACK_RAW_SUMMARY_MAX_CHARS = 12_000;
 const DEFAULT_MIN_SAVINGS_TOKENS = 256;
 const DEFAULT_MIN_SAVINGS_RATIO = 0.05;
 const DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT = 1;
@@ -258,22 +260,7 @@ export async function rewriteSemanticCompactInMessages(
     archiveRequired: policy.archiveRequired,
     charsPerToken,
   });
-  if (!validation.valid) {
-    return {
-      messages,
-      decision: 'failedOpen',
-      validation,
-      diagnosticPatch: semanticCompactDecisionDiagnosticPatch({
-        decision: 'failedOpen',
-        boundaryIds: [validationBlock.blockId],
-        coverage: validationBlock.coverage,
-        estimatedTokensBefore: index.estimatedTokens,
-        estimatedTokensAfter: index.estimatedTokens,
-        failOpenReason: validation.reasons[0] ?? 'coverage_miss',
-        validationReasonCounts: validation.reasonCounts,
-      }),
-    };
-  }
+  const warningReasons: string[] = validation.valid ? [] : [...validation.reasons];
 
   const stateCards = buildSemanticStateCards({
     selection,
@@ -294,7 +281,7 @@ export async function rewriteSemanticCompactInMessages(
         policy,
         charsPerToken,
       }),
-      maxOutputTokens: Math.floor(policy.maxCompactCallTokens ?? policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS),
+      maxOutputTokens: Math.floor(policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS),
       abortSignal: input.abortSignal,
     }, policy.timeoutMs);
   } catch {
@@ -305,20 +292,14 @@ export async function rewriteSemanticCompactInMessages(
   const compactCallUsage = summary.usage ? compactUsage(summary.usage) : undefined;
   recordCompactCall(input.controllerState, compactCallUsage);
   const parsedSummary = parseSemanticCompactSummary(summary.text);
-  if (!parsedSummary.ok) {
-    recordInvalidSummary(input.controllerState, policy, parsedSummary.reason, input.stepNumber);
-    return rejected(messages, index, parsedSummary.reason, compactCallUsage);
-  }
+  if (!parsedSummary.ok) warningReasons.push(parsedSummary.reason);
   recordValidSummary(input.controllerState);
-  const summaryText = renderStructuredSemanticSummary(parsedSummary.summary);
-  const maxSummaryTokens = Math.floor(policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS);
-  if (estimateTokens(summaryText.length, charsPerToken) > maxSummaryTokens) {
-    recordInvalidSummary(input.controllerState, policy, 'summary_too_large', input.stepNumber);
-    return rejected(messages, index, 'summary_too_large', compactCallUsage);
-  }
+  const structuredSummary = parsedSummary.ok
+    ? parsedSummary.summary
+    : fallbackSemanticCompactSummary(summary.text, parsedSummary.reason);
+  const summaryText = renderStructuredSemanticSummary(structuredSummary);
   if (newPrivateVerifierSurface(`${summary.text}\n${summaryText}`, selectedSourceText(selection, messages))) {
-    recordInvalidSummary(input.controllerState, policy, 'private_verifier_surface', input.stepNumber);
-    return rejected(messages, index, 'private_verifier_surface', compactCallUsage);
+    warningReasons.push('private_verifier_surface');
   }
 
   const requestShapeHashBefore = input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
@@ -326,7 +307,7 @@ export async function rewriteSemanticCompactInMessages(
     input,
     index,
     selection,
-    structuredSummary: parsedSummary.summary,
+    structuredSummary,
     summaryText,
     stateCards,
     usage: summary.usage,
@@ -348,27 +329,10 @@ export async function rewriteSemanticCompactInMessages(
   block.estimatedNetTokensSavedSigned = estimateSemanticNetTokensSaved(block, policy);
 
   const economicsReason = semanticSavingsRejectionReason(block, policy);
-  if (economicsReason) {
-    block.acceptance = { decision: 'rejected', reason: economicsReason };
-    return {
-      messages,
-      decision: 'unchanged',
-      reason: economicsReason,
-      block,
-      validation,
-      diagnosticPatch: semanticCompactDecisionDiagnosticPatch({
-        decision: 'unchanged',
-        boundaryIds: [block.blockId],
-        coverage: block.coverage,
-        estimatedTokensBefore: index.estimatedTokens,
-        estimatedTokensAfter: block.postReplacementEstimatedTokens,
-        estimatedTokensSaved: block.estimatedTokensSavedSigned,
-        compactCallUsage: block.compactCallUsage,
-        reason: economicsReason,
-        validationReasonCounts: validation.reasonCounts,
-      }),
-    };
-  }
+  if (economicsReason) warningReasons.push(economicsReason);
+  const uniqueWarningReasons = uniqueStrings(warningReasons);
+  const warningReasonCounts = countStringReasons(uniqueWarningReasons);
+  const primaryWarningReason = uniqueWarningReasons[0];
 
   if (policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run') {
     block.acceptance = { decision: 'dry_run', reason: policy.mode };
@@ -387,16 +351,20 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
         compactCallUsage: block.compactCallUsage,
         reason: policy.mode,
+        ...(primaryWarningReason ? { skippedReasonCounts: warningReasonCounts } : {}),
         validationReasonCounts: validation.reasonCounts,
       }),
     };
   }
 
-  block.acceptance = { decision: 'accepted' };
+  block.acceptance = primaryWarningReason
+    ? { decision: 'accepted', reason: primaryWarningReason, validationReasons: uniqueWarningReasons }
+    : { decision: 'accepted' };
   recordAcceptedSemanticCompact(input.controllerState, block);
   return {
     messages: replacementMessages,
     decision: 'replaced',
+    ...(primaryWarningReason ? { reason: primaryWarningReason } : {}),
     block,
     validation,
     diagnosticPatch: {
@@ -408,6 +376,7 @@ export async function rewriteSemanticCompactInMessages(
         estimatedTokensAfter: block.postReplacementEstimatedTokens,
         estimatedTokensSaved: block.estimatedTokensSavedSigned,
         compactCallUsage: block.compactCallUsage,
+        ...(primaryWarningReason ? { reason: primaryWarningReason, skippedReasonCounts: warningReasonCounts } : {}),
         validationReasonCounts: validation.reasonCounts,
       }),
       ...(requestShapeHashBefore && requestShapeHashAfter
@@ -552,7 +521,7 @@ function buildSummarizerMessages(input: {
     'Do not invent command results, file contents, process state, credentials, verifier results, or hidden/private evaluation facts.',
     'Summarize continuity only. Durable source refs, hashes, and archive audit metadata are stored outside this provider-visible summary.',
     'Preserve objective, constraints, decisions, failed attempts, commands/results that matter, files/artifacts, active process/build state, public verification state, and exact next action.',
-    `Keep the answer under ${input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens.`,
+    `Prefer concise JSON around ${input.policy.maxSummaryEstimatedTokens ?? DEFAULT_MAX_SUMMARY_TOKENS} estimated tokens when possible; complete valid JSON is more important than brevity.`,
     `context_boundary: ${JSON.stringify(contextBoundary)}`,
     `restoration_cards: ${JSON.stringify(restorationCards)}`,
   ].join('\n');
@@ -890,6 +859,23 @@ function parseSemanticCompactSummary(text: string): {
   return { ok: false, reason: 'summary_invalid_json' };
 }
 
+function fallbackSemanticCompactSummary(rawText: string, reason: string): SemanticCompactStructuredSummary {
+  const fallbackText = boundedSingleLine(rawText, FALLBACK_RAW_SUMMARY_MAX_CHARS);
+  return {
+    currentObjective: 'Continue the current task from the semantic compact fallback summary and preserved recent context.',
+    userConstraints: [],
+    importantFilesAndArtifacts: [],
+    commandsAndResults: fallbackText ? [`raw_semantic_summary_fallback: ${fallbackText}`] : [],
+    errorsAndFixes: [],
+    failedHypotheses: [],
+    operationalState: [`Semantic compact summarizer output did not satisfy the requested structure (${reason}); using raw text fallback.`],
+    publicVerificationState: 'No public verification state claimed by structured summary.',
+    remainingWork: ['Continue from the preserved recent messages after this compact block.'],
+    nextAction: 'Continue from the preserved recent context.',
+    archiveRefsToRereadIfNeeded: [],
+  };
+}
+
 function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSummary): string {
   return [
     `current_objective: ${summary.currentObjective}`,
@@ -1121,6 +1107,23 @@ function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
 }
 
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function countStringReasons(values: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+  return counts;
+}
+
 function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
@@ -1135,4 +1138,10 @@ function escapeAttribute(value: string): string {
 
 function singleLine(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function boundedSingleLine(value: string, maxChars: number): string {
+  const clean = singleLine(value);
+  if (clean.length <= maxChars) return clean;
+  return `${clean.slice(0, Math.max(0, maxChars - 3))}...`;
 }

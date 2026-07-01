@@ -4,9 +4,15 @@
  *
  * The service produces `OnboardingSnapshot` via:
  *   1. ConnectionStore.list() + ConnectionStore.getDefault()
- *   2. Per-connection secret presence resolved in PARALLEL via the
- *      credential store (@kenji PR110b perf gate — never serialize
- *      these lookups).
+ *   2. Per-connection credential presence resolved in PARALLEL via
+ *      `hasCredential` (@kenji PR110b perf gate — never serialize
+ *      these lookups). `hasCredential` covers BOTH API-key connections
+ *      and OAuth-subscription connections (Claude/Codex), and MUST be
+ *      read-only — it must never refresh an OAuth token or otherwise
+ *      mutate credential state just because onboarding status was
+ *      read. See `hasConnectionSecret` in main.ts for the production
+ *      wiring and why it deliberately does NOT reuse the send-path's
+ *      refreshing `resolveConnectionSecret`.
  *   3. SessionStore.list() (the runtime layer's listSessions handles
  *      this for us; we pass it in as a callback)
  *   4. SettingsStore.get() for milestones (already sanitized by
@@ -14,8 +20,8 @@
  *   5. `deriveOnboardingState()` from @maka/core
  *
  * The service NEVER throws credential errors to the renderer; a
- * failed secret lookup is treated as "no secret" with a generalized
- * dev-safe log line.
+ * failed credential lookup is treated as "no credential" with a
+ * generalized dev-safe log line.
  *
  * Quick Chat input validation lives here too: setMilestone arguments
  * are checked against the closed enum + status union before reaching
@@ -31,7 +37,6 @@ import {
   type SessionSummary,
 } from '@maka/core';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import type { CredentialStore } from './credential-store.js';
 
 export interface OnboardingSnapshot {
   state: OnboardingState;
@@ -48,7 +53,13 @@ export interface OnboardingServiceDeps {
     status: 'completed' | 'skipped',
   ): Promise<OnboardingMilestone[]>;
   clearMilestone(id: OnboardingMilestoneId): Promise<OnboardingMilestone[]>;
-  hasApiKey(slug: string): Promise<boolean>;
+  /**
+   * Whether `connection` has a usable credential — an API key OR (for
+   * OAuth-subscription providers) a stored OAuth token. MUST be
+   * read-only: implementations must not refresh tokens or otherwise
+   * mutate credential state as a side effect of this check.
+   */
+  hasCredential(connection: LlmConnection): Promise<boolean>;
 }
 
 export interface OnboardingService {
@@ -76,15 +87,15 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
         deps.getMilestones(),
       ]);
 
-      // @kenji PR110b perf gate: per-connection secret lookup must run
-      // in parallel, NOT serialized. Even with 4-5 connections, async
-      // safeStorage reads can add up to noticeable startup latency on
-      // cold open.
+      // @kenji PR110b perf gate: per-connection credential lookup must
+      // run in parallel, NOT serialized. Even with 4-5 connections,
+      // async safeStorage reads can add up to noticeable startup
+      // latency on cold open.
       const secretEntries = await Promise.all(
         connections.map(async (connection) => {
           try {
-            const hasKey = await deps.hasApiKey(connection.slug);
-            return [connection.slug, hasKey] as const;
+            const hasSecret = await deps.hasCredential(connection);
+            return [connection.slug, hasSecret] as const;
           } catch (error) {
             // @kenji + @xuan PR110b gate: credential errors must NOT
             // leak to the renderer. Log a generalized dev-safe line
@@ -92,7 +103,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
             // ends up on `needs_connection_credentials` for that
             // slug, which is the right user-facing fix path anyway.
             console.warn(
-              `[onboarding] failed to read secret for ${connection.slug}; treating as missing.`,
+              `[onboarding] failed to read credential for ${connection.slug}; treating as missing.`,
               describeErrorClass(error),
             );
             return [connection.slug, false] as const;
@@ -134,7 +145,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
       const secretEntries = await Promise.all(
         connections.map(async (connection) => {
           try {
-            return [connection.slug, await deps.hasApiKey(connection.slug)] as const;
+            return [connection.slug, await deps.hasCredential(connection)] as const;
           } catch {
             return [connection.slug, false] as const;
           }
@@ -163,7 +174,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
       const secretEntries = await Promise.all(
         connections.map(async (connection) => {
           try {
-            return [connection.slug, await deps.hasApiKey(connection.slug)] as const;
+            return [connection.slug, await deps.hasCredential(connection)] as const;
           } catch {
             return [connection.slug, false] as const;
           }
@@ -214,7 +225,19 @@ export function bindOnboardingDeps(input: {
     list(): Promise<LlmConnection[]>;
     getDefault(): Promise<string | null>;
   };
-  credentialStore: Pick<CredentialStore, 'getSecret'>;
+  /**
+   * Read-only credential-presence check, covering both API-key
+   * connections (credential store) and OAuth-subscription connections
+   * (claude-subscription / codex-subscription stored tokens). Callers
+   * must pass a resolver that NEVER refreshes an OAuth token or
+   * otherwise mutates credential state — see `hasConnectionSecret` in
+   * main.ts, which deliberately does not reuse the send-path's
+   * refreshing `resolveConnectionSecret`. A resolver that only checks
+   * the API-key credential store makes every OAuth-subscription
+   * connection look like it's missing credentials, even when it's the
+   * verified default.
+   */
+  hasCredential(connection: LlmConnection): Promise<boolean>;
   listSessions(): Promise<SessionSummary[]>;
 }): OnboardingServiceDeps {
   return {
@@ -224,9 +247,6 @@ export function bindOnboardingDeps(input: {
     getMilestones: async () => (await input.settingsStore.get()).onboarding.milestones,
     upsertMilestone: (id, status) => input.settingsStore.upsertOnboardingMilestone(id, status),
     clearMilestone: (id) => input.settingsStore.clearOnboardingMilestone(id),
-    hasApiKey: async (slug) => {
-      const key = await input.credentialStore.getSecret(slug, 'api_key');
-      return typeof key === 'string' && key.length > 0;
-    },
+    hasCredential: (connection) => input.hasCredential(connection),
   };
 }

@@ -46,10 +46,9 @@ addCollection(phData);
 // Register the local bot brand SVG collection so
 // `<IconifyIcon icon="maka-bot:telegram">` etc. resolve synchronously,
 // without hitting `api.iconify.design` at runtime. See
-// `bot-brand-icons.ts` for the source provenance. After
-// PR-BOT-LOGO-NEUTRAL-PLATE-0 (WAWQAQ msg `580de391` 2026-06-26)
-// six of the seven IM brands are local; lark/feishu remains on the
-// CDN with a documented gap.
+// `bot-brand-icons.ts` for the source provenance. All seven IM brands
+// (telegram / feishu / wechat / wecom / discord / dingtalk / qq) are
+// vendored inline — zero runtime CDN dependency.
 addCollection({
   prefix: MAKA_BOT_ICON_PREFIX,
   width: 24,

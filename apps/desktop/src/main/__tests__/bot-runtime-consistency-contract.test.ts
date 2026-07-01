@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { BOT_DELIVERY_PROVIDERS, BOT_PROVIDERS } from '@maka/core';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -34,7 +35,7 @@ async function readRepo(path: string): Promise<string> {
  */
 describe('Bot runtime / delivery / label cross-source consistency (PR-BOT-RUNTIME-CONSISTENCY-CONTRACT-0)', () => {
   it('every runtime-labeled platform is also implemented in the registry and listed in BOT_DELIVERY_PROVIDERS', async () => {
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const registry = await readRepo('packages/runtime/src/bots/bot-registry.ts');
 
     // Extract the BOT_LABELS literal block. We want each platform's
@@ -84,7 +85,7 @@ describe('Bot runtime / delivery / label cross-source consistency (PR-BOT-RUNTIM
     // Defense-in-depth: pin the expected list explicitly so a future PR
     // that flips a platform back to credentials-only does not slide by
     // unnoticed. Update this list when a real platform transition lands.
-    const settings = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const settings = await readSettingsCombinedSource();
     const labelsBlock = settings.match(/const BOT_LABELS:[\s\S]*?\n\};\n/)!;
 
     // WeChat is intentionally NOT in this set: it has a live wechat-bridge

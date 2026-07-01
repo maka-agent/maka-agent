@@ -223,7 +223,7 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
   it('has a bounded UI preview and error text for rive_workflow results', async () => {
     const root = await repoRoot();
     const [components, events] = await Promise.all([
-      readFile(join(root, 'packages/ui/src/components.tsx'), 'utf8'),
+      readFile(join(root, 'packages/ui/src/tool-activity.tsx'), 'utf8'),
       readFile(join(root, 'packages/core/src/events.ts'), 'utf8'),
     ]);
     assert.match(events, /kind: 'rive_workflow'/);

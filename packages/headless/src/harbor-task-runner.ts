@@ -18,6 +18,7 @@ const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
+const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
 const TRIAL_RESULT = 'result.json';
 const TRIAL_TRACE_EVENTS_ROOT = 'agent/maka-storage/sessions';
 
@@ -188,13 +189,22 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     }
     const reward = await readReward(rewardPath, resultPath, input.task.id);
     const cell = await readCellOutput(cellOutputPath, input.task.id);
+    const verifierStdout = await readOptionalText(join(trialDir, TRIAL_VERIFIER_STDOUT));
+    const verifierSetupErrorClass = reward <= 0 && isVerifierDependencySetupFailure(verifierStdout)
+      ? 'infra_failed'
+      : undefined;
+    const verifierFailureSummary = reward <= 0 ? summarizeVerifierFailure(verifierStdout) : undefined;
 
     return {
-      harbor: { reward },
+      harbor: {
+        reward,
+        ...(verifierFailureSummary ? { verifierFailureSummary } : {}),
+      },
       // Override the container-local runtimeEventsPath with the host path so the
       // controller's reward-hack scan and structural smoke can read raw events.
       cell: {
         ...cell,
+        ...(verifierSetupErrorClass && !cell.errorClass ? { errorClass: verifierSetupErrorClass } : {}),
         runtimeEventsPath: hostEventsPath,
         traceEventsPath: join(
           trialDir,
@@ -207,6 +217,66 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       },
     };
   };
+}
+
+async function readOptionalText(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function isVerifierDependencySetupFailure(text: string | null): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  return normalized.includes('unable to fetch some archives')
+    || normalized.includes('failed to fetch')
+    || normalized.includes('bad gateway')
+    || normalized.includes('curl: command not found')
+    || normalized.includes('uvx: command not found')
+    || normalized.includes('/root/.local/bin/env: no such file or directory');
+}
+
+function summarizeVerifierFailure(text: string | null): string | undefined {
+  if (!text) return undefined;
+  if (isVerifierDependencySetupFailure(text)) return 'verifier_dependency_setup_failed';
+  const normalized = text.toLowerCase();
+  const parts: string[] = [];
+  if (normalized.includes('assertionerror') || normalized.includes('assert ')) {
+    parts.push('output_assertion_failed');
+  }
+  if (integerAssertionOffByOne(text)) {
+    parts.push('integer_output_off_by_one');
+  }
+  if (finalStateTextMismatch(text)) {
+    parts.push('final_state_expected_text_mismatch');
+  }
+  if (structuredOutputValuesMismatch(normalized)) {
+    parts.push('structured_output_values_mismatch');
+  }
+  if (normalized.includes("module 'numpy' has no attribute 'int'") || normalized.includes('module "numpy" has no attribute "int"')) {
+    parts.push('python_numpy_removed_alias_np.int');
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+function integerAssertionOffByOne(text: string): boolean {
+  const match = text.match(/assert\s+['"](\d+)['"]\s+in\s+['"](\d+)['"]/);
+  if (!match) return false;
+  const expected = Number(match[1]);
+  const actual = Number(match[2]);
+  return Number.isSafeInteger(expected) && Number.isSafeInteger(actual) && Math.abs(expected - actual) === 1;
+}
+
+function finalStateTextMismatch(text: string): boolean {
+  return /\bExpected\s+['"][^'"\n]{1,200}['"]/i.test(text)
+    && /\bGot:\s+['"]/i.test(text);
+}
+
+function structuredOutputValuesMismatch(normalizedText: string): boolean {
+  return normalizedText.includes('only found')
+    && normalizedText.includes('expected values');
 }
 
 function mergeAgentEnv(

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 describe('permission dialog response guard', () => {
   it('keeps allow/deny decisions single-flight for a request id', async () => {
-    const source = await readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8');
+    const source = await readFile(join(process.cwd(), '../../packages/ui/src/permission-dialog.tsx'), 'utf8');
     const dialog = source.match(/export function PermissionDialog[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';
     // PR-PERMISSION-UI-CLEANUP-0: submit() became async + try/finally
     // (was try/catch+throw). The single-flight contract is unchanged;

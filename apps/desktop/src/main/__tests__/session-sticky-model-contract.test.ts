@@ -1,20 +1,24 @@
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { readProviderSettingsCombinedSource } from './provider-contract-source-helpers.js';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
-// The model switcher / picker JSX was extracted out of `components.tsx` into the
-// sibling `chat-model-switcher.tsx`. These source-grep contracts assert behavior
-// that now spans both files, so search their union.
+// The model switcher / picker JSX lives in `chat-model-switcher.tsx`, the
+// composer renders it from `composer.tsx`, and turn chips render in
+// `chat-view.tsx`. These source-grep contracts assert behavior that spans the
+// seam, so search their union.
 async function readModelSwitcherUiSource(): Promise<string> {
-  const [components, switcher] = await Promise.all([
-    readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8'),
+  const [composer, chatView, switcher] = await Promise.all([
+    readFile(resolve(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8'),
+    readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8'),
     readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-model-switcher.tsx'), 'utf8'),
   ]);
-  return `${components}\n${switcher}`;
+  return `${composer}\n${chatView}\n${switcher}`;
 }
 
 describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
@@ -53,9 +57,9 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
   });
 
   it('surfaces the session model in the chat header and explains default-model scope', async () => {
-    const renderer = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const ui = await readModelSwitcherUiSource();
-    const providers = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/ProvidersPanel.tsx'), 'utf8');
+    const providers = await readProviderSettingsCombinedSource();
 
     assert.match(renderer, /normalizeActiveChatModel\(activeSession, activeConnection, chatModelChoices\)/);
     assert.match(ui, /本会话固定模型：\$\{props\.activeConnectionLabel\} · \$\{props\.activeModelLabel\}/);
@@ -67,7 +71,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
-    const renderer = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const ui = await readModelSwitcherUiSource();
     const uiPrimitives = await readFile(resolve(REPO_ROOT, 'packages/ui/src/ui.tsx'), 'utf8');
     const styles = await readRendererContractCss();

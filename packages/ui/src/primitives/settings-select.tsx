@@ -3,11 +3,14 @@
 import type { ReactElement, ReactNode } from "react";
 import { cn } from "../utils.js";
 import {
+  SelectGroup,
+  SelectGroupLabel,
   SelectItem,
   SelectPopup,
   SelectPortal,
   SelectPositioner,
   SelectRoot,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "../ui.js";
@@ -43,9 +46,16 @@ export type SettingsSelectOption<T extends string> =
   | readonly [T, string]
   | readonly [T, string, ReactNode];
 
+export interface SettingsSelectOptionGroup<T extends string> {
+  label: string;
+  icon?: ReactNode;
+  options: ReadonlyArray<SettingsSelectOption<T>>;
+}
+
 export interface SettingsSelectProps<T extends string> {
   value: T;
   options: ReadonlyArray<SettingsSelectOption<T>>;
+  optionGroups?: ReadonlyArray<SettingsSelectOptionGroup<T>>;
   onChange(value: T): void;
   ariaLabel: string;
   disabled?: boolean;
@@ -65,6 +75,14 @@ export function SettingsSelect<T extends string>(
   props: SettingsSelectProps<T>,
 ): ReactElement {
   const width = props.width ?? "select";
+  const groupedValues = new Set<T>();
+  for (const group of props.optionGroups ?? []) {
+    for (const [value] of group.options) groupedValues.add(value);
+  }
+  const ungroupedOptions = props.optionGroups
+    ? props.options.filter(([value]) => !groupedValues.has(value))
+    : props.options;
+  const hasOptionGroups = Boolean(props.optionGroups && props.optionGroups.length > 0);
   // Build a value → {label, icon} lookup so the selected-state trigger
   // can render the same icon + label row as the popup items. Without
   // this the collapsed trigger drops the icon — see Plan Reminder bug
@@ -109,8 +127,8 @@ export function SettingsSelect<T extends string>(
       </SelectTrigger>
       <SelectPortal>
         <SelectPositioner alignItemWithTrigger={false} sideOffset={6} className="settingsSelectPositioner">
-          <SelectPopup className="settingsSelectPopup">
-            {props.options.map((option) => {
+          <SelectPopup className={cn("settingsSelectPopup", hasOptionGroups ? "settingsSelectMenuPopup" : null)}>
+            {ungroupedOptions.map((option) => {
               const [value, label] = option;
               const icon = option.length === 3 ? option[2] : null;
               return (
@@ -119,6 +137,32 @@ export function SettingsSelect<T extends string>(
                 </SelectItem>
               );
             })}
+            {ungroupedOptions.length > 0 && props.optionGroups && props.optionGroups.length > 0 && (
+              <SelectSeparator />
+            )}
+            {props.optionGroups?.map((group) => (
+              <SelectGroup key={group.label}>
+                <SelectGroupLabel className="settingsSelectMenuGroupLabel">
+                  {group.icon ? (
+                    <span className="settingsSelectMenuGroupLogo" aria-hidden="true">{group.icon}</span>
+                  ) : (
+                    <span aria-hidden="true" />
+                  )}
+                  <span>{group.label}</span>
+                </SelectGroupLabel>
+                {group.options.map((option) => {
+                  const [value, label] = option;
+                  const icon = option.length === 3 ? option[2] : null;
+                  return (
+                    <SelectItem key={value} value={value}>
+                      <span className="settingsSelectMenuOption">
+                        {renderOptionRow(label, icon)}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectGroup>
+            ))}
           </SelectPopup>
         </SelectPositioner>
       </SelectPortal>

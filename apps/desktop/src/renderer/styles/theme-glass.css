@@ -51,6 +51,70 @@
   }
 }
 
+/* =============================================================================
+   PR-QODERWORK-GLASS-RESHIP-L3-L6-L7 (WAWQAQ msg `c71b4dcb` thread,
+   2026-06-30). The original PR-QODERWORK-GLASS-LAYERED-0 push tried to
+   ship 5 layers (L1+L2+L3+L6+L7) but only the L1 vibrancy unblock
+   actually landed on main via the squash-merge of PR #329 (`7d008d51`).
+   The follow-up commit `023b90b2` was force-pushed but never merged, so
+   for the past 3 days users have been seeing the QoderWork "classic"
+   look despite the substrate being correctly enabled. This block
+   re-ships L3 + L6 + L7 from that delta — L2 (blur 8px → 24px) and L1
+   (blur on layout root not panel) are still out of scope because they
+   need real-window verification of the blur strength before pinning a
+   number, and the panel-vs-layout-root attribution needs a coordinated
+   move of the existing 8px rule above. Shipping the high-confidence
+   ones first.
+============================================================================= */
+
+/* L6 — warm-toned color tokens from QoderWork's `light-glass` theme,
+   extracted by @maka-审美专家 from `/tmp/qoder-asar/out/renderer/`
+   reference bundle. Component-level CSS plugs into these so palette
+   swaps don't need callsite rewrites. Scoped to macOS so non-glass
+   platforms keep their existing neutral tokens. Also adds the
+   `--color-state-selected` row-selection accent that L3 below uses —
+   prefixed `state` rather than `row` so it can be reused for chip /
+   tab / nav selected states later (per @maka-审美专家 token-naming
+   suggestion). */
+@layer base {
+  html[data-os="darwin"] {
+    --color-bg-layout: #fdfcfa;
+    --color-bg-highlight: #c9c4b8;
+    --color-bg-container: #faf9f6;
+    --color-bg-element: #f5f3ee;
+    --color-state-selected: #8ee5a1;
+    --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
+  }
+}
+
+/* L3 — selected list-row uses the QoderWork mint state fill instead of
+   the 6% foreground wash that's indistinguishable from :hover (active
+   session reads at a glance now instead of "where's the cursor again").
+   Font-weight stays normal — the color block IS the signal, not the
+   weight stacking. Scoped to macOS glass so non-glass builds keep their
+   neutral selection. */
+html[data-os="darwin"] .maka-list-row[data-active="true"] {
+  background: var(--color-state-selected);
+  color: var(--foreground);
+  font-weight: 500;
+}
+html[data-os="darwin"] .maka-list-row[data-active="true"] .maka-list-row-name {
+  font-weight: 500;
+}
+
+/* L7 — group label was 9.5px UPPERCASE + 0.08em tracking on the
+   sidebar, which read as "old Windows admin tool" not "macOS native
+   sidebar". QoderWork uses plain quaternary text at body size. Drop
+   the size / transform / tracking on macOS; the natural color step
+   from --color-text-quaternary is enough hierarchy. */
+html[data-os="darwin"] .maka-list-group-label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-quaternary);
+}
+
 /* Force opaque-foreground text on every direct sidebar text surface so
    the glass material doesn't pull legibility down through inheritance
    (audit finding §6). The wash + 50% base provide enough contrast for

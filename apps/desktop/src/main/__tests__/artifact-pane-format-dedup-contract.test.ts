@@ -99,9 +99,9 @@ describe('PR-FORMAT-DEDUP-CONTRACT-TEST-0', () => {
     );
   });
 
-  it('shared formatBytes stays an exported helper on @maka/ui components.tsx', async () => {
+  it('shared formatBytes stays an exported helper on @maka/ui', async () => {
     const ui = await readFile(
-      resolve(REPO_ROOT, 'packages/ui/src/components.tsx'),
+      resolve(REPO_ROOT, 'packages/ui/src/tool-activity.tsx'),
       'utf8',
     );
 

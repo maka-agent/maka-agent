@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -17,8 +18,8 @@ describe('command palette plan reminder contract', () => {
   });
 
   it('wires the action to the shipped plan panel and focuses the title field', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
-    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/components.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-panels.tsx'), 'utf8');
 
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
     assert.match(main, /setNavSelection\(\{\s*section:\s*'automations'\s*\}\)/);

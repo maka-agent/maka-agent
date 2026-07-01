@@ -474,7 +474,7 @@ describe('ExploreAgent read-only worker', () => {
 
   it('has a structured chat preview instead of raw JSON fallback', async () => {
     const [components, events] = await Promise.all([
-      readFile(join(process.cwd(), '../../packages/ui/src/components.tsx'), 'utf8'),
+      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/core/src/events.ts'), 'utf8'),
     ]);
 

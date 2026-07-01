@@ -232,6 +232,34 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('does not summarize recovered tool failures from passed held-in tasks', () => {
+    const rendered = renderMetaAgentPrompt({
+      runId: 'run-1',
+      roundId: 'round-1',
+      program: 'Improve the prompt conservatively.\n',
+      currentSystemPrompt: 'original prompt\n',
+      resultsTsv: 'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\n',
+      heldInDigests: [
+        {
+          taskId: 'passed-task',
+          summary: 'passed after retry',
+          toolFailures: [{ name: 'Write', count: 1, errorClass: 'Validation', argsPreview: 'path' }],
+        },
+        {
+          taskId: 'failed-task',
+          errorClass: 'verification_failed',
+          summary: 'failed verification',
+          toolFailures: [{ name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' }],
+        },
+      ],
+    });
+
+    assert.match(rendered, /Bash x1 error=RuntimeError args=command tasks=failed-task/);
+    assert.equal(rendered.includes('passed-task'), true);
+    assert.equal(rendered.includes('Write x1'), false);
+    assert.equal(rendered.includes('tasks=passed-task'), false);
+  });
+
   test('rejects meta-agent output without candidateRationale before writing or committing', async () => {
     await withDir(async (dir) => {
       const programPath = join(dir, 'program.md');
@@ -1163,6 +1191,45 @@ describe('prompt candidate loop', () => {
     });
   });
 
+  test('tells the meta-agent to prefer transitions and verifier summaries over tool failure clusters', () => {
+    const prompt = renderMetaAgentPrompt({
+      runId: 'run-1',
+      roundId: 'round-1',
+      program: 'Improve conservatively.',
+      currentSystemPrompt: 'original prompt',
+      resultsTsv: 'task_id\tpassed\ntask-a\tfalse\n',
+      heldInDigests: [
+        {
+          taskId: 'task-a',
+          errorClass: 'verification_failed',
+          summary: 'status=failed verifierSummary=final_state_expected_text_mismatch',
+        },
+      ],
+      rsiAnalysis: {
+        heldInTaskSetHash: 'sha256:held-in',
+        transitionVsLastKept: [{ taskId: 'task-a', from: 'pass', to: 'fail' }],
+        transitionVsPreviousCandidate: [],
+        coverageRegressionTaskIds: [],
+        errorClassDistribution: [{ errorClass: 'verification_failed', count: 1 }],
+        toolFailureClusters: [
+          { name: 'Write', errorClass: 'Validation', argsPreview: 'path', count: 1, taskIds: ['task-a'] },
+        ],
+        signals: [
+          {
+            id: 'rsi-sig:transition',
+            kind: 'transition',
+            taskIds: ['task-a'],
+            basis: 'last_kept',
+            transition: { taskId: 'task-a', from: 'pass', to: 'fail' },
+          },
+        ],
+      },
+    });
+
+    assert.match(prompt, /Prefer pass\/fail transitions and verifier failure summaries over tool_failure_cluster/);
+    assert.match(prompt, /Treat tool_failure_cluster as root cause only when it is unrecovered/);
+  });
+
   test('sanitizes trace-derived tool failure fields before rendering the meta-agent prompt', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
@@ -1487,6 +1554,73 @@ describe('prompt candidate loop', () => {
       summary: 'ask for exact output line',
       candidateRationale: validCandidateRationale(),
     });
+  });
+
+  test('retries scripted meta-agent after candidateRationale schema errors', async () => {
+    const input: MetaAgentPromptInput = {
+      runId: 'run-1',
+      roundId: 'round-1',
+      program: 'Improve conservatively.',
+      currentSystemPrompt: 'original prompt',
+      resultsTsv: 'task_id\tpassed\ntask-a\tfalse\n',
+      heldInDigests: [
+        {
+          taskId: 'task-a',
+          errorClass: 'verification_failed',
+          summary: 'missing expected line',
+        },
+      ],
+    };
+    const prompts: string[] = [];
+    const expected = candidatePromptResult({
+      systemPrompt: 'candidate prompt after retry\n',
+      summary: 'ask for exact output line after retry',
+      candidateRationale: validCandidateRationale(),
+    });
+    const metaAgent = createScriptedMetaAgent({
+      complete: async ({ prompt }) => {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          return JSON.stringify(candidatePromptResult({
+            candidateRationale: validCandidateRationale({ evidenceRefs: 'rsi-sig:not-an-array' }),
+          }));
+        }
+        return JSON.stringify(expected);
+      },
+    });
+
+    assert.deepEqual(await metaAgent(input), expected);
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], /previous meta-agent response was invalid/i);
+    assert.match(prompts[1], /candidateRationale\.evidenceRefs must be an array/);
+  });
+
+  test('does not echo invalid JSON text into the meta-agent retry prompt', async () => {
+    const input: MetaAgentPromptInput = {
+      runId: 'run-1',
+      roundId: 'round-1',
+      program: 'Improve conservatively.',
+      currentSystemPrompt: 'original prompt',
+      resultsTsv: 'task_id\tpassed\ntask-a\tfalse\n',
+      heldInDigests: [{ taskId: 'task-a', summary: 'failed verification' }],
+    };
+    const prompts: string[] = [];
+    const expected = candidatePromptResult({
+      systemPrompt: 'candidate prompt after retry\n',
+      summary: 'valid JSON after retry',
+    });
+    const metaAgent = createScriptedMetaAgent({
+      complete: async ({ prompt }) => {
+        prompts.push(prompt);
+        if (prompts.length === 1) return 'SECRET_CANARY not json';
+        return JSON.stringify(expected);
+      },
+    });
+
+    assert.deepEqual(await metaAgent(input), expected);
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], /meta-agent output was not valid JSON/);
+    assert.equal(prompts[1].includes('SECRET_CAN'), false);
   });
 
   test('CLI git adapter commits only system_prompt.md with the round message', async () => {

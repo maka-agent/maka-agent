@@ -18,6 +18,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join } from 'node:path';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -29,11 +30,11 @@ async function readRepo(path: string): Promise<string> {
 
 describe('home composer new-chat model picker', () => {
   it('renders an interactive picker (not a dead chip) on the no-session branch', async () => {
-    // The pickers were extracted out of `components.tsx` into the sibling
-    // `chat-model-switcher.tsx`; the composer still renders them from
-    // `components.tsx`. Search the union so the contract holds across the seam.
+    // The pickers live in `chat-model-switcher.tsx`; the composer renders
+    // them from `composer.tsx`. Search the union so the contract holds across
+    // the seam.
     const ui =
-      (await readRepo('packages/ui/src/components.tsx')) +
+      (await readRepo('packages/ui/src/composer.tsx')) +
       '\n' +
       (await readRepo('packages/ui/src/chat-model-switcher.tsx'));
 
@@ -60,11 +61,11 @@ describe('home composer new-chat model picker', () => {
   });
 
   it('shares one ModelChoiceOptions list between both model pickers', async () => {
-    // The pickers were extracted out of `components.tsx` into the sibling
-    // `chat-model-switcher.tsx`; the composer still renders them from
-    // `components.tsx`. Search the union so the contract holds across the seam.
+    // The pickers live in `chat-model-switcher.tsx`; the composer renders
+    // them from `composer.tsx`. Search the union so the contract holds across
+    // the seam.
     const ui =
-      (await readRepo('packages/ui/src/components.tsx')) +
+      (await readRepo('packages/ui/src/composer.tsx')) +
       '\n' +
       (await readRepo('packages/ui/src/chat-model-switcher.tsx'));
     assert.match(ui, /function ModelChoiceOptions\(\{\s*groups,/, 'shared ModelChoiceOptions list component must exist');
@@ -77,7 +78,7 @@ describe('home composer new-chat model picker', () => {
   });
 
   it('wires the pick and forwards the chosen model to sessions.create', async () => {
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const renderer = await readRendererShellCombinedSource();
 
     assert.match(
       renderer,
@@ -106,8 +107,35 @@ describe('home composer new-chat model picker', () => {
     );
   });
 
+  it('wires the picked new-chat permission mode to one sessions.create call only', async () => {
+    const renderer = await readRendererShellCombinedSource();
+    const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
+    const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';
+
+    assert.match(
+      renderer,
+      /const \[pendingNewChatPermissionMode, setPendingNewChatPermissionMode\] = useState<PermissionMode \| null>\(null\)/,
+      'AppShell must keep the picked empty-state permission mode in renderer-only state',
+    );
+    assert.match(
+      setPermissionModeBlock,
+      /if \(!sessionId\) \{[\s\S]*setPendingNewChatPermissionMode\(mode\);[\s\S]*return;[\s\S]*\}/,
+      'permission-mode picks without an active session must update pendingNewChatPermissionMode instead of calling IPC',
+    );
+    assert.match(
+      sendBlock,
+      /permissionMode: pendingNewChatPermissionMode \?\? 'ask'/,
+      'new-chat sessions.create must receive the picked pending permission mode',
+    );
+    assert.match(
+      sendBlock,
+      /setPendingNewChatPermissionMode\(null\);/,
+      'pending new-chat permission mode must be one-shot and reset after creating a session',
+    );
+  });
+
   it('does not let stale new-chat send creation steal the active session after navigation', async () => {
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const renderer = await readRendererShellCombinedSource();
     const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';
 
     assert.match(

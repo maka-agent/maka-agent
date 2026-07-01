@@ -37,11 +37,14 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 // The desktop test runs with cwd=apps/desktop; the UI package lives
 // two levels up. Resolve once.
-const COMPONENTS_PATH = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
-const MAIN_TSX_PATH = join(process.cwd(), 'src', 'renderer', 'main.tsx');
+const COMPONENTS_PATH = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
+const SEARCH_MODAL_PATH = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'search-modal.tsx');
+const MODAL_A11Y_PATH = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'modal-a11y.ts');
+const SESSION_LIST_PANEL_PATH = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'session-list-panel.tsx');
 const COMMAND_PALETTE_CONTENT_PATH = join(process.cwd(), 'src', 'renderer', 'command-palette-content-search.ts');
 
 describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', () => {
@@ -49,7 +52,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     // The fragile `<SearchModal open={x} ...>` API is gone. The
     // parent owns lifecycle via `{open && <SearchModal .../>}`,
     // so SearchModal never has to do an early-return-before-JSX.
-    const src = await readFile(COMPONENTS_PATH, 'utf8');
+    const src = await readFile(SEARCH_MODAL_PATH, 'utf8');
     // Find the `export function SearchModal(...)` declaration.
     const match = src.match(/export function SearchModal\s*\(\s*props\s*:\s*\{([^}]+)\}\s*\)/);
     assert.ok(match, 'SearchModal export must exist');
@@ -71,7 +74,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     // SearchModal function body and confirm no `if (...) return
     // null` shows up before the final `return (`. We grep the
     // narrow block between the signature and the next `^}` line.
-    const src = await readFile(COMPONENTS_PATH, 'utf8');
+    const src = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const startIdx = src.indexOf('export function SearchModal');
     assert.notEqual(startIdx, -1);
     // Find the start of the function body — the first `{` after
@@ -95,7 +98,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     // The fixup pattern at the call site: parent's `&&` short-
     // circuits before SearchModal is ever rendered, so its hooks
     // run only when open=true, with a fresh fiber each time.
-    const src = await readFile(MAIN_TSX_PATH, 'utf8');
+    const src = await readRendererShellCombinedSource();
     // PR-UX-POLISH-1 commit 5 (relax-only): allow optional `(` between
     // `&&` and `<SearchModal` so multi-line JSX with multiple props
     // (`onClose`, `deps`, `onNavigateToSession`) still satisfies the
@@ -116,8 +119,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('returns focus to the sidebar Search trigger when the modal closes', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const main = await readFile(MAIN_TSX_PATH, 'utf8');
+    const components = await readFile(SESSION_LIST_PANEL_PATH, 'utf8');
+    const main = await readRendererShellCombinedSource();
     // PR-SIDEBAR-HEADER-BUTTONS-PRIMITIVE-0 (round 5/30): the sidebar
     // search trigger was a raw <button> until routed through UiButton.
     // Match either close tag so the contract pin tracks the primitive
@@ -159,7 +162,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     // ever flips to always-mounted with an internal early return,
     // we want to know — that would re-introduce the same class of
     // hook-order foot-guns.
-    const src = await readFile(MAIN_TSX_PATH, 'utf8');
+    const src = await readRendererShellCombinedSource();
     assert.match(
       src,
       /\{helpOpen\s*&&\s*<KeyboardHelpModal\s+onClose=/,
@@ -168,17 +171,18 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search result navigation consumes target.turnId instead of only switching sessions', async () => {
+    const searchModalSource = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const main = await readFile(MAIN_TSX_PATH, 'utf8');
+    const main = await readRendererShellCombinedSource();
     const contentSearch = await readFile(COMMAND_PALETTE_CONTENT_PATH, 'utf8');
 
     assert.match(
-      components,
+      searchModalSource,
       /props\.onNavigateToSession\(result\.target\.sessionId,\s*result\.target\.turnId\)/,
       'SearchModal must pass the matched turnId through to the renderer shell',
     );
     assert.match(
-      components,
+      searchModalSource,
       /props\.onClose\(\{ restoreFocus: false \}\)/,
       'Search result activation must not restore focus to the Search trigger after navigating to the matched chat turn',
     );
@@ -235,9 +239,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search results support keyboard selection from the input', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
 
     assert.match(searchModal, /activeResultIndex/, 'SearchModal must track the active result index');
     assert.match(searchModal, /aria-activedescendant=\{activeResultId\}/, 'Search input must expose the active result to assistive tech');
@@ -262,9 +265,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search input keeps focus after results load until the user navigates results', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
-    const hook = components.slice(components.indexOf('export function useModalA11y'), components.indexOf('const FOCUSABLE_SELECTOR'));
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
+    const hook = await readFile(MODAL_A11Y_PATH, 'utf8');
 
     assert.match(
       hook,
@@ -289,9 +291,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search query has an explicit clear button because the native search cancel is hidden', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
 
     assert.match(styles, /\.maka-search-modal-input::-webkit-search-cancel-button\s*\{\s*display:\s*none;/, 'Native search cancel is intentionally hidden for visual consistency');
     assert.match(searchModal, /query\.length > 0 && \(/, 'Clear button should appear only when the query has content');
@@ -302,13 +303,12 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search input shell uses shared primitive InputGroup instead of a hand-rolled grid wrapper', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
     const inputRowStyle = styles.match(/\.maka-search-modal-input-row\s*\{[\s\S]*?\}/)?.[0] ?? '';
 
     assert.match(
-      components,
+      searchModal,
       /import \{ InputGroup, InputGroupAddon, InputGroupInput \} from '\.\/primitives\/input-group\.js';/,
       'SearchModal must consume the vendored shared primitive InputGroup primitives',
     );
@@ -335,8 +335,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('empty query invalidates any already-started search request from every clear path', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
 
     assert.match(searchModal, /function clearSearchState\(\) \{\s*ticketRef\.current \+= 1;\s*setResults\(\[\]\);/m, 'Shared clear state helper must invalidate in-flight search before clearing results');
     assert.match(searchModal, /function updateSearchQuery\(nextQuery: string\) \{[\s\S]*if \(nextQuery\.trim\(\)\.length === 0\) \{[\s\S]*clearSearchState\(\);[\s\S]*\}/, 'Typing/deleting to an empty query must synchronously invalidate in-flight search');
@@ -351,8 +350,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('closing the modal invalidates already-started search requests before they set state', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
 
     assert.match(searchModal, /const searchMountedRef = useRef\(true\)/, 'SearchModal must track whether the conditionally mounted dialog is still alive.');
     assert.match(
@@ -378,21 +376,19 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search snippets highlight query matches without unsafe HTML rendering', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
 
     assert.match(searchModal, /renderSearchSnippet\(result\.snippet,\s*trimmed\)/, 'Search snippets must render with the current query highlight helper');
-    assert.match(components, /function renderSearchSnippet\(snippet: string,\s*query: string\): ReactNode/, 'Snippet highlight helper must stay local and typed');
-    assert.match(components, /<mark key=\{\`\$\{matchIndex\}-\$\{end\}\`\} className="maka-search-modal-snippet-hit">/, 'Highlighted matches must use React-rendered <mark>, not HTML strings');
+    assert.match(searchModal, /function renderSearchSnippet\(snippet: string,\s*query: string\): ReactNode/, 'Snippet highlight helper must stay local and typed');
+    assert.match(searchModal, /<mark key=\{\`\$\{matchIndex\}-\$\{end\}\`\} className="maka-search-modal-snippet-hit">/, 'Highlighted matches must use React-rendered <mark>, not HTML strings');
     assert.doesNotMatch(searchModal, /dangerouslySetInnerHTML/, 'SearchModal must not use dangerouslySetInnerHTML for snippets');
     assert.match(styles, /\.maka-search-modal-snippet-hit/, 'Highlighted search snippets must have dedicated styling');
   });
 
   it('search result list announces result count and truncation state', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
 
     assert.match(searchModal, /const resultsTruncated = showResults && results\.some\(\(result\) => result\.truncated === true\)/, 'SearchModal must derive truncation state from SearchResult.truncated');
     assert.match(searchModal, /className="maka-search-modal-result-summary" aria-live="polite"/, 'Search result summary must be announced politely');
@@ -402,17 +398,15 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search result rows render source summaries from SearchResult.summary', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
 
     assert.match(searchModal, /result\.summary && <div className="maka-search-modal-result-meta">\{result\.summary\}<\/div>/, 'Search result rows must render source summary metadata');
     assert.match(styles, /\.maka-search-modal-result-meta/, 'Search result source summary needs dedicated styling');
   });
 
   it('search modal copy reflects session title hits as part of the supported scope', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
 
     assert.match(searchModal, /placeholder="搜索会话标题和内容…"/, 'Search input placeholder must include session titles');
     assert.match(searchModal, /aria-label="搜索会话标题和内容"/, 'Search input accessible label must include session titles');
@@ -421,11 +415,10 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search modal generic error copy is a retryable local-search state', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const searchModal = components.slice(components.indexOf('export function SearchModal'), components.indexOf('/**\n * Render an ordered list of session groups'));
+    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
 
     assert.match(
-      components,
+      searchModal,
       /function searchModalThrownErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '搜索服务需要刷新，请重试。'\)/,
       'Thrown SearchModal errors must be routed through shared Chinese error classification/redaction',
     );
@@ -439,13 +432,12 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       /err instanceof Error \? err\.message/,
       'SearchModal must not leak raw IPC/preload Error.message into visible search copy',
     );
-    assert.match(components, /搜索服务需要刷新，请重试。/);
+    assert.match(searchModal, /搜索服务需要刷新，请重试。/);
     assert.doesNotMatch(searchModal, /搜索暂时不可用，请稍后重试。/, 'Search modal fallback error should not read like a generic unavailable feature');
   });
 
   it('modal focus restoration does not steal focus during React StrictMode effect replay', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const hook = components.slice(components.indexOf('export function useModalA11y'), components.indexOf('const FOCUSABLE_SELECTOR'));
+    const hook = await readFile(MODAL_A11Y_PATH, 'utf8');
 
     assert.match(
       hook,
@@ -455,8 +447,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('session time buckets use product labels without unfinished-state wording', async () => {
-    const components = await readFile(COMPONENTS_PATH, 'utf8');
-    const groupingBlock = components.slice(components.indexOf('function groupSessionsByTime'), components.indexOf('function formatSessionMeta'));
+    const sessionListPanel = await readFile(SESSION_LIST_PANEL_PATH, 'utf8');
+    const groupingBlock = sessionListPanel.slice(sessionListPanel.indexOf('function groupSessionsByTime'), sessionListPanel.indexOf('function formatSessionMeta'));
 
     assert.match(groupingBlock, /label:\s*'待发送'/, 'Sessions with no messages should live in the concise pending-send bucket');
     assert.doesNotMatch(groupingBlock, /尚未发送/, 'Session group labels should not read like unfinished implementation copy');

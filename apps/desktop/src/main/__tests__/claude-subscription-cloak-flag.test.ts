@@ -12,6 +12,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 const SERVICE_SOURCE = resolve(
@@ -32,7 +33,6 @@ const CLOAK_SOURCE = resolve(
   'oauth',
   'cloaked-request.ts',
 );
-const MAIN_SOURCE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'main.ts');
 
 describe('cloaked request module isolation (xuan G-X4)', () => {
   it('cloak module exists at the canonical path', async () => {
@@ -116,9 +116,9 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
   });
 
   it('main wires Claude OAuth sends through the dynamic cloak fetch wrapper by default', async () => {
-    const src = await readFile(MAIN_SOURCE, 'utf8');
+    const src = await readMainProcessCombinedSource();
     assert.match(src, /buildSubscriptionModelFetch\(connection,\s*ctx\.sessionId,\s*model\)/);
-    assert.match(src, /isCloakEnabled\(\)[\s\S]*buildClaudeSubscriptionCloakedFetch\(sessionId,\s*modelId\)/);
+    assert.match(src, /isCloakEnabled\(\)[\s\S]*buildClaudeSubscriptionCloakedFetch\([\s\S]*sessionId,\s*modelId\)/);
     assert.match(src, /modelFactory:\s*\(input\)\s*=>\s*getAIModel\(\{\s*\.\.\.input,\s*fetch:\s*modelFetch\s*\}\)/);
     assert.match(src, /import\('\.\/oauth\/cloaked-request\.js'\)/, 'cloak module must be dynamically imported from the send path');
     assert.match(src, /buildCloakedRequest\(\{[\s\S]*deviceId[\s\S]*accountUuid[\s\S]*sessionId/, 'cloak wrapper must stamp Claude Code identity metadata');
@@ -134,7 +134,7 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
   });
 
   it('main maps Codex OAuth system prompt into ChatGPT backend instructions', async () => {
-    const src = await readFile(MAIN_SOURCE, 'utf8');
+    const src = await readMainProcessCombinedSource();
     assert.match(src, /providerType === 'codex-subscription'[\s\S]*buildCodexSubscriptionFetch\(sessionId\)/);
     assert.match(
       src,

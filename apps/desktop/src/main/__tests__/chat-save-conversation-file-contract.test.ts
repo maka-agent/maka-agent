@@ -2,21 +2,23 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSATION-FILE-0)', () => {
   it('exposes the save-conversation IPC, preload bridge, and command palette entry', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
-    const renderer = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const globalDts = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
 
     // IPC handler is registered. It delegates to the shared helper, so
     // we pin the channel name + reuse of the shared validation surface.
     assert.match(main, /ipcMain\.handle\(\s*['"]chat:saveConversationToFile['"]/);
-    assert.match(main, /saveMarkdownViaDialog\(input,\s*['"]保存当前对话['"]\)/);
+    assert.match(main, /saveMarkdownViaDialog\(deps\.mainWindowController,\s*input,\s*['"]保存当前对话['"]\)/);
 
     // Shared helper exists with the documented failure reasons.
     assert.match(main, /async function saveMarkdownViaDialog/);
@@ -51,11 +53,11 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
   });
 
   it('reuses the shared save-markdown helper so both export targets get the same caps and sanitize', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     // Both daily-review and chat IPCs must go through `saveMarkdownViaDialog`
     // — duplicating the cap / sanitize logic would let the two surfaces
     // drift apart over time.
-    const calls = main.match(/saveMarkdownViaDialog\(input,/g) ?? [];
+    const calls = main.match(/saveMarkdownViaDialog\(deps\.mainWindowController,\s*input,/g) ?? [];
     assert.equal(
       calls.length,
       2,

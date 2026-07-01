@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { exec as nodeExec } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -1414,9 +1415,10 @@ export function resolveHarborCellAiSdkEnv(input: {
   env: RunHarborCellEnv;
   ts: number;
 }): ResolvedHarborCellAiSdkEnv {
+  const connection = connectionFromEnv(input.provider, input.model, input.env, input.ts);
   return {
-    connection: connectionFromEnv(input.provider, input.model, input.env, input.ts),
-    apiKey: apiKeyFromEnv(input.provider, input.env),
+    connection,
+    apiKey: apiKeyFromEnv(input.provider, input.env, connection.slug),
   };
 }
 
@@ -1488,32 +1490,41 @@ function providerBaseUrl(provider: ProviderType, env: RunHarborCellEnv): string 
   }
 }
 
-function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv): string {
+function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {
+  const names: string[] = [];
   switch (provider) {
     case 'deepseek':
-      return resolveApiKey(env, ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']);
+      names.push('DEEPSEEK_API_KEY', 'OPENAI_API_KEY');
+      break;
     case 'openai':
     case 'openai-compatible':
-      return resolveApiKey(env, ['OPENAI_API_KEY']);
+      names.push('OPENAI_API_KEY');
+      break;
     case 'moonshot':
-      return resolveApiKey(env, ['MOONSHOT_API_KEY', 'OPENAI_API_KEY']);
+      names.push('MOONSHOT_API_KEY', 'OPENAI_API_KEY');
+      break;
     case 'zai-coding-plan':
-      return resolveApiKey(env, ['ZAI_API_KEY', 'ZAI_CODING_CN_API_KEY', 'OPENAI_API_KEY']);
+      names.push('ZAI_API_KEY', 'ZAI_CODING_CN_API_KEY', 'OPENAI_API_KEY');
+      break;
     case 'google':
-      return resolveApiKey(env, ['GOOGLE_API_KEY']);
+      names.push('GOOGLE_API_KEY');
+      break;
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'claude-subscription':
-      return resolveApiKey(env, ['ANTHROPIC_API_KEY']);
+      names.push('ANTHROPIC_API_KEY');
+      break;
     default:
-      return resolveApiKey(env, ['OPENAI_API_KEY']);
+      names.push('OPENAI_API_KEY');
+      break;
   }
+  return resolveApiKey(env, names, connectionSlug);
 }
 
 // Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.
 // The file path is what travels through the Harbor CLI / job config, so the secret
 // itself stays in a mounted file — never on a command line or in config.json.
-function resolveApiKey(env: RunHarborCellEnv, names: readonly string[]): string {
+function resolveApiKey(env: RunHarborCellEnv, names: readonly string[], connectionSlug?: string): string {
   for (const name of names) {
     const raw = env[name];
     if (raw) return raw;
@@ -1526,7 +1537,26 @@ function resolveApiKey(env: RunHarborCellEnv, names: readonly string[]): string 
       }
     }
   }
+  if (connectionSlug) {
+    return readStoredMakaApiKey(env, connectionSlug);
+  }
   return '';
+}
+
+function readStoredMakaApiKey(env: RunHarborCellEnv, connectionSlug: string): string {
+  const credentialPath = env.MAKA_CREDENTIALS_PATH
+    ?? join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default', 'credentials.json');
+  try {
+    const parsed = JSON.parse(readFileSync(credentialPath, 'utf8')) as {
+      version?: unknown;
+      values?: unknown;
+    };
+    if (parsed.version !== 1 || !parsed.values || typeof parsed.values !== 'object') return '';
+    const value = (parsed.values as Record<string, unknown>)[`${connectionSlug}:apiKey`];
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
 }
 
 function runtimeEventsJsonl(invocation: InvocationResult): string {

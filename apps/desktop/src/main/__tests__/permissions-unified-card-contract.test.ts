@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -71,7 +72,7 @@ describe('PR-PERMISSIONS-UNIFIED-CARD-0 contract (#309)', () => {
   });
 
   it('OsPermissionRow JSX renders open-settings before request, ghost when both, primary when alone', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     // Scope to the actions block (delimited by `<div className="settingsOsPermissionActions">` …
     // `</div>`). The non-greedy `[\s\S]*?` plus the `</div>` close avoid
     // accidentally swallowing the surrounding `</li>` boundary.

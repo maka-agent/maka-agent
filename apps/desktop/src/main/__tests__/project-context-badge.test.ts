@@ -5,12 +5,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveProjectGitInfo, resolveProjectRoot } from '../project-context.js';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
   : process.cwd();
 
 async function readRepo(path: string): Promise<string> {
+  if (path === 'apps/desktop/src/main/main.ts') return readMainProcessCombinedSource();
   return readFile(join(repoRoot, path), 'utf8');
 }
 
@@ -68,13 +71,14 @@ describe('project context workspace picker', () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const renderer = await readRendererShellCombinedSource();
     const workspacePickerBlock = renderer.match(/workspacePicker=\{\{[\s\S]*?\n\s*\}\}/)?.[0] ?? '';
 
     assert.match(main, /let selectedProjectRoot: string \| null = null;/);
     assert.match(main, /if \(selectedProjectRoot\) return selectedProjectRoot;/);
     assert.match(main, /ipcMain\.handle\(\s*'app:selectProjectDirectory'/);
-    assert.match(main, /dialog\.showOpenDialog\(mainWindow,\s*\{[\s\S]*title:\s*'选择工作目录'[\s\S]*properties:\s*\['openDirectory'\]/);
+    assert.match(main, /mainWindowController\.showOpenDialog\(\{[\s\S]*title:\s*'选择工作目录'[\s\S]*properties:\s*\['openDirectory'\]/);
+    assert.match(main, /dialog\.showOpenDialog\(mainWindow,\s*options\)/);
     assert.match(main, /const projectPath = await resolveProjectRoot\(\[selectedPath\]\)/);
     assert.match(main, /selectedProjectRoot = projectPath;/);
     assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
@@ -117,7 +121,7 @@ describe('project context workspace picker', () => {
   it('opens project directory by allowlisted key, not renderer-supplied path', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const guard = await readRepo('apps/desktop/src/main/open-path-guard.ts');
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const renderer = await readRendererShellCombinedSource();
 
     assert.match(main, /resolveOpenPath\(\{ key, workspaceRoot, projectRoot:\s*await currentProjectRoot\(\) \}\)/);
     assert.match(guard, /value === 'project'/);
@@ -126,9 +130,9 @@ describe('project context workspace picker', () => {
   });
 
   it('renders the guarded project picker below the composer', async () => {
-    const ui = await readRepo('packages/ui/src/components.tsx');
+    const ui = await readRepo('packages/ui/src/composer.tsx');
     const styles = await readRendererContractCss();
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const renderer = await readRendererShellCombinedSource();
 
     assert.match(ui, /workspacePicker\?:\s*\{/);
     assert.match(ui, /className="maka-composer-workspace-picker"/);
@@ -156,7 +160,7 @@ describe('project context workspace picker', () => {
 
   it('adds a command palette action for the same guarded project open path', async () => {
     const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
-    const renderer = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const renderer = await readRendererShellCombinedSource();
     const openProjectBlock = renderer.match(/async function openProjectFolder\(\)[\s\S]*?async function openWorkspaceFolder/)?.[0] ?? '';
     const openWorkspaceBlock = renderer.match(/async function openWorkspaceFolder\(\)[\s\S]*?function createSkillFailureCopy/)?.[0] ?? '';
 

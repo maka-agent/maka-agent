@@ -3372,7 +3372,7 @@ describe('AiSdkBackend tool permission category hints', () => {
   test('permissionRequired=false fast path preserves tool-call/result ordering and telemetry', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const telemetry: Array<{ status: string; toolCallId?: string }> = [];
+    const telemetry: Array<{ status: string; toolCallId?: string; argsSummary?: string }> = [];
     let implCalled = false;
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -3389,7 +3389,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       newId: idGenerator(),
       now: monotonicClock(),
       recordToolInvocation: (record) => {
-        telemetry.push({ status: record.status, toolCallId: record.toolCallId });
+        telemetry.push({ status: record.status, toolCallId: record.toolCallId, argsSummary: record.argsSummary });
       },
     });
     const tool: MakaTool = {
@@ -3411,7 +3411,12 @@ describe('AiSdkBackend tool permission category hints', () => {
     }).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
 
     const result = await execute(
-      { path: 'notes.md' },
+      {
+        path: 'notes.md',
+        authorization: 'Bearer opaque-session-value',
+        apiKey: 'plain-provider-key',
+        password: 'correct-horse-battery-staple',
+      },
       { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
     );
 
@@ -3431,8 +3436,15 @@ describe('AiSdkBackend tool permission category hints', () => {
     );
     assert.equal(events.some((event) => event.type === 'permission_request'), false);
     assert.deepEqual(telemetry, [
-      { status: 'success', toolCallId: 'tool-1' },
+      {
+        status: 'success',
+        toolCallId: 'tool-1',
+        argsSummary: '{"path":"notes.md","authorization":"[redacted]","apiKey":"[redacted]","password":"[redacted]"}',
+      },
     ]);
+    assert.equal(JSON.stringify(telemetry).includes('opaque-session-value'), false);
+    assert.equal(JSON.stringify(telemetry).includes('plain-provider-key'), false);
+    assert.equal(JSON.stringify(telemetry).includes('correct-horse-battery-staple'), false);
   });
 
   test('permission prompt timeout expires one request, resumes watchdog, and writes an error result', async () => {

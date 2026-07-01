@@ -57,7 +57,8 @@ Maka 默认把工作数据放在 Electron `userData` 下的工作区目录：
 重要边界：
 
 - Provider 连接元数据和 session JSONL 在本地文件系统。
-- API key、OAuth token、bot token、proxy password、gateway token、Tavily key 等敏感值走 Electron `safeStorage` 加密后写入 `credentials.json`。
+- Provider/API key、bot token、proxy password、gateway token、Tavily key 等运行凭据写入本地 `credentials.json`；当前格式是 file-first plaintext JSON，依赖 OS 账号边界，并在 POSIX 上强制目录 `0700`、文件 `0600`。
+- Claude、Codex、Cursor、Antigravity 等 subscription OAuth token 使用各自独立的 Electron `safeStorage` 存储路径；`safeStorage` 不可用时这些 token store 会 fail closed。
 - Renderer 不直接拿明文密钥；Settings 只显示 masked 状态和测试结果。
 - 文件读写、shell、危险操作需要经过 permission engine。
 - Incognito / privacy context、memory、voice、workspace instructions 等能力有单独 contract 文档约束。

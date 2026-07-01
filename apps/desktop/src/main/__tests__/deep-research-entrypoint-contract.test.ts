@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -17,7 +18,7 @@ describe('deep research command entrypoint contract', () => {
   });
 
   it('main wires the command to the existing deep_research Quick Chat path', async () => {
-    const src = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const src = await readRendererShellCombinedSource();
 
     assert.match(
       src,

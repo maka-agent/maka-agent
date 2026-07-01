@@ -12,7 +12,7 @@ async function readRepo(relativePath: string): Promise<string> {
 
 describe('deep research visible surface contract', () => {
   it('marks deep research sessions in the chat header', async () => {
-    const ui = await readRepo('packages/ui/src/components.tsx');
+    const ui = await readRepo('packages/ui/src/chat-view.tsx');
 
     assert.match(
       ui,
@@ -35,11 +35,11 @@ describe('deep research visible surface contract', () => {
     // PR-UI-LIB-EXTRACT-8 (round 9/10): the two chat empty hero
     // components and their DeepResearch sections moved out of
     // `components.tsx` into a sibling `chat-empty-hero.tsx`. The
-    // `<DeepResearchEmptyHero>` reference is still in
-    // `components.tsx` (rendered by ChatView), but the body of
-    // the hero now lives in the new file. Behavioral pins
+    // `<DeepResearchEmptyHero>` reference is in `chat-view.tsx`
+    // (rendered by ChatView), but the body of the hero lives in
+    // `chat-empty-hero.tsx`. Behavioral pins
     // unchanged — just need to read both files.
-    const ui = await readRepo('packages/ui/src/components.tsx');
+    const ui = await readRepo('packages/ui/src/chat-view.tsx');
     const hero = await readRepo('packages/ui/src/chat-empty-hero.tsx');
 
     assert.match(

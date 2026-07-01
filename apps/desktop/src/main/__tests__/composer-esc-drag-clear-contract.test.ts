@@ -20,7 +20,7 @@ import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
-const COMPOSER_SOURCE = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'components.tsx');
+const COMPOSER_SOURCE = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'composer.tsx');
 const ONBOARDING_HERO_SOURCE = resolve(
   REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'OnboardingHero.tsx',
 );

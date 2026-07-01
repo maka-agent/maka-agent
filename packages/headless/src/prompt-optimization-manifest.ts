@@ -4,6 +4,7 @@ import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
+import type { PromptOptimizationProfileName } from './prompt-optimization-profile.js';
 import {
   buildRunManifestFingerprint,
   ensureAbRunManifest,
@@ -14,6 +15,7 @@ const execFileAsync = promisify(execFile);
 export interface PromptOptimizationRunManifest {
   schemaVersion: 'maka.prompt_optimization.run_manifest.v1';
   runId: string;
+  profile: PromptOptimizationProfileName;
   provider: string;
   baseUrl: string;
   model: string;
@@ -39,6 +41,7 @@ export interface PromptOptimizationRunManifest {
 
 export interface PromptOptimizationRunManifestInput {
   runId: string;
+  profile: PromptOptimizationProfileName;
   provider: string;
   baseUrl: string;
   model: string;
@@ -74,6 +77,7 @@ export function buildPromptOptimizationRunManifest(
   const manifestWithoutFingerprint = withoutUndefined({
     schemaVersion: 'maka.prompt_optimization.run_manifest.v1' as const,
     runId: input.runId,
+    profile: input.profile,
     provider: input.provider,
     baseUrl: input.baseUrl,
     model: input.model,

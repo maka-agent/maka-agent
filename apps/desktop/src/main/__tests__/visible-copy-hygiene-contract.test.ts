@@ -28,13 +28,17 @@ import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { RENDERER_SHELL_SOURCE_REPO_PATHS } from './renderer-shell-source-helpers.js';
 
 // Cwd is `apps/desktop` when the test runs (per the existing
 // sidebar-scroll-contract pattern).
 const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'module-panels.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-empty-hero.tsx'),
-  join(process.cwd(), 'src', 'renderer', 'main.tsx'),
+  ...RENDERER_SHELL_SOURCE_REPO_PATHS.map((repoPath) => resolve(process.cwd(), '..', '..', repoPath)),
   join(process.cwd(), 'src', 'renderer', 'OnboardingHero.tsx'),
   join(process.cwd(), 'src', 'renderer', 'artifact-pane.tsx'),
   join(process.cwd(), 'src', 'renderer', 'artifact-preview.tsx'),
@@ -287,7 +291,7 @@ describe('visible-copy hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2)', 
 
 describe('terminal truncation handoff contract', () => {
   it('shows a deep-research handoff when terminal output is capped', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity.tsx');
     const src = await readFile(componentsPath, 'utf8');
 
     assert.match(
@@ -460,7 +464,7 @@ describe('turn footer copy feedback contract', () => {
   });
 
   it('gates the inline footer copy action instead of silently firing raw clipboard writes', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
     const src = await readFile(componentsPath, 'utf8');
     const footerBlock = src.match(/function TurnFooterActions[\s\S]*?const STATUS_FOOTER_ICON/)?.[0] ?? '';
 
@@ -531,7 +535,7 @@ describe('turn footer copy feedback contract', () => {
 
 describe('tool error copy feedback contract', () => {
   it('routes tool-error copy through the shared guarded feedback path', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity.tsx');
     const src = await readFile(componentsPath, 'utf8');
     const block = src.match(/function ToolErrorBanner[\s\S]*?export function OverlayHost/)?.[0] ?? '';
 
@@ -562,7 +566,7 @@ describe('tool error copy feedback contract', () => {
     // scan would false-pass if the string drifted to another component. These are
     // arbitrary-value utilities (source == computed), so this source contract is the
     // proof; the computed-style harness only re-diffs the non-trivial container box.
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity.tsx');
     const src = await readFile(componentsPath, 'utf8');
     const block = src.match(/function ToolErrorBanner[\s\S]*?export function OverlayHost/)?.[0] ?? '';
 
@@ -591,13 +595,13 @@ describe('tool error copy feedback contract', () => {
 
 describe('chat markdown copy feedback contract', () => {
   it('gates assistant message copy without redacting the raw message markdown', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
     const src = await readFile(componentsPath, 'utf8');
     // PR-UI-LIB-EXTRACT-6 (round 7/10) moved the markdown layer
     // out of components.tsx; PR-UI-LIB-EXTRACT-8 (round 9/10)
     // then moved `EmptyChatHero` itself into `chat-empty-hero.tsx`.
-    // The next-named-thing anchor after `MessageCopyButton` in
-    // `components.tsx` is now `ChatHeaderAlertBadge`.
+    // The next-named-thing anchor after `MessageCopyButton` is now
+    // `ChatHeaderAlertBadge`.
     const block = src.match(/function MessageCopyButton[\s\S]*?function ChatHeaderAlertBadge/)?.[0] ?? '';
 
     assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Message copy should preserve raw assistant markdown.');

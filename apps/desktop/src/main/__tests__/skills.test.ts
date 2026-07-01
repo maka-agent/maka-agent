@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 import {
   MAX_SKILLS_PROMPT_CHARS,
   MAX_SKILL_TOOL_BODY_CHARS,
@@ -15,6 +16,7 @@ import {
   parseSkillFrontMatter,
   resolveSkillOpenPath,
 } from '../skills.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 describe('skills ingestion', () => {
   it('lists SKILL.md metadata without granting declared tools', async () => {
@@ -292,10 +294,10 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const ui = await readFile(join(repoRoot, 'packages/ui/src/components.tsx'), 'utf8');
-    const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const ui = await readFile(join(repoRoot, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const preload = await readFile(join(repoRoot, 'apps/desktop/src/preload/preload.ts'), 'utf8');
-    const main = await readFile(join(repoRoot, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
 
     assert.match(ui, /onRefreshSkills\?\(\): void \| Promise<void>/);
     assert.match(ui, /onCreateSkillTemplate\?\(\): void \| Promise<void>/);
@@ -324,12 +326,14 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const ui = await readFile(join(repoRoot, 'packages/ui/src/components.tsx'), 'utf8');
-    const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
-    const chatView = ui.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
-    const skillsModuleMain = ui.match(/function SkillsModuleMain\([\s\S]*?function DailyReviewPanel/)?.[0] ?? '';
+    const chatViewSource = await readFile(join(repoRoot, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const ui = await readFile(join(repoRoot, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const emptyStateSource = await readFile(join(repoRoot, 'packages/ui/src/empty-state.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
+    const chatView = chatViewSource.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
+    const skillsModuleMain = ui.match(/export function SkillsModuleMain\([\s\S]*?export function DailyReviewPanel/)?.[0] ?? '';
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function SkillsModuleMain/)?.[0] ?? '';
-    const emptyState = ui.match(/interface EmptyStateProps[\s\S]*?function SkillLibraryPanel/)?.[0] ?? '';
+    const emptyState = emptyStateSource;
 
     assert.match(chatView, /if \(props\.mode === 'skills'\) \{[\s\S]*<SkillsModuleMain/, 'Skills mode must mount its own main surface component');
     assert.match(skillsModuleMain, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
@@ -386,7 +390,7 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const refreshBlock = renderer.match(/async function refreshSkills\([\s\S]*?\n  \}/)?.[0] ?? '';
     const createBlock = renderer.match(/async function createSkillTemplate\(\)[\s\S]*?async function openSkillsFolder/)?.[0] ?? '';
     const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';
@@ -419,7 +423,7 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const renderer = await readFile(join(repoRoot, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const renderer = await readRendererShellCombinedSource();
     const createBlock = renderer.match(/async function createSkillTemplate\(\)[\s\S]*?async function openSkillsFolder/)?.[0] ?? '';
     const folderBlock = renderer.match(/async function openSkillsFolder\(\)[\s\S]*?async function openSkill/)?.[0] ?? '';
     const openBlock = renderer.match(/async function openSkill\(skillId: string\)[\s\S]*?\n  \}/)?.[0] ?? '';

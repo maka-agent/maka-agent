@@ -837,7 +837,8 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
 }
 
 function summarizeArgs(args: unknown): string {
-  const text = typeof args === 'string' ? args : JSON.stringify(args ?? null);
+  const raw = typeof args === 'string' ? args : JSON.stringify(args ?? null);
+  const text = redactSecrets(raw);
   return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
 }
 

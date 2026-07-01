@@ -9,7 +9,6 @@ import {
   decidePromptAcceptance,
   promptAcceptanceNoiseBand,
   promptAcceptanceStateFromWal,
-  PROMPT_REWARD_HACK_QUARANTINE_REASON,
   selectStablePromptTasks,
   summarizePromptAcceptancePartition,
 } from '../prompt-acceptance-policy.js';
@@ -21,7 +20,7 @@ import { readFixedPromptWal } from '../fixed-prompt-controller.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('prompt acceptance policy', () => {
-  test('calibrates separate held-in and held-out noise bands from baseline runs', () => {
+  test('calibrates baseline means but applies no default pass-rate margin', () => {
     const baseline = calibratePromptAcceptanceBaseline({
       heldInTaskIds: ['in-a', 'in-b', 'in-c', 'in-d'],
       heldOutTaskIds: ['out-a', 'out-b'],
@@ -58,25 +57,17 @@ describe('prompt acceptance policy', () => {
     assert.equal(baseline.heldIn.referencePassEligibleRate, 0.625);
     assert.equal(baseline.heldOut.originalPassEligibleRate, 0.75);
     assert.equal(baseline.heldOut.observedSpread, 0.25);
+    assert.equal(baseline.heldIn.noiseBand, 0);
+    assert.equal(baseline.heldOut.noiseBand, 0);
     assert.equal(
-      baseline.heldIn.noiseBand,
       promptAcceptanceNoiseBand({
         sampleSize: 4,
         passRate: 0.625,
         baselineRunCount: 2,
         observedSpread: 0.125,
       }),
+      0,
     );
-    assert.equal(
-      baseline.heldOut.noiseBand,
-      promptAcceptanceNoiseBand({
-        sampleSize: 2,
-        passRate: 0.75,
-        baselineRunCount: 2,
-        observedSpread: 0.25,
-      }),
-    );
-    assert.notEqual(baseline.heldIn.noiseBand, baseline.heldOut.noiseBand);
   });
 
   test('rejects incomplete baseline calibration runs', () => {
@@ -360,10 +351,10 @@ describe('prompt acceptance policy', () => {
     });
   });
 
-  test('discards flat held-in changes inside the noise band', () => {
+  test('discards flat held-in changes without requiring a positive noise margin', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
-      previousHeldInReferencePassEligibleRate: 0.45,
+      previousHeldInReferencePassEligibleRate: 0.5,
       heldInPassRateNoiseBand: 0.1,
       lastKeptEvents: [
         completed('in-a', true),
@@ -420,7 +411,7 @@ describe('prompt acceptance policy', () => {
     assert.deepEqual(decision.metrics.candidate.heldIn.infraFailedTaskIds, ['in-b']);
   });
 
-  test('discards any coverage degradation without a noise allowance', () => {
+  test('keeps held-in improvements even when eligible tasks are unscored', () => {
     const decision = decidePromptAcceptance({
       ...baseDecisionInput(),
       heldInTaskIds: ['in-a', 'in-b', 'in-c'],
@@ -438,8 +429,10 @@ describe('prompt acceptance policy', () => {
       ],
     });
 
-    assert.equal(decision.decision, 'discard');
-    assert.equal(decision.reason, 'coverage_regressed');
+    assert.equal(decision.decision, 'keep');
+    assert.equal(decision.reason, 'held_in_improved');
+    assert.equal(decision.metrics.candidate.heldIn.coverageRate, 2 / 3);
+    assert.deepEqual(decision.metrics.candidate.heldIn.unscoredTaskIds, ['in-c']);
   });
 
   test('discards when a configured held-out floor is missing its original reference', () => {
@@ -488,7 +481,7 @@ describe('prompt acceptance policy', () => {
     assert.deepEqual(decision.metrics.candidate.heldIn.plumbingFailedTaskIds, ['in-b']);
   });
 
-  test('discards reward-hack quarantined candidates before metric keep', async () => {
+  test('records reward-hack quarantine evidence without vetoing metric keep', async () => {
     await withDir(async (dir) => {
       const rewardHackScan = {
         decision: 'quarantine' as const,
@@ -500,9 +493,9 @@ describe('prompt acceptance policy', () => {
         rewardHackScan,
       });
 
-      assert.equal(decision.decision, 'discard');
-      assert.equal(decision.reason, PROMPT_REWARD_HACK_QUARANTINE_REASON);
-      assert.equal(decision.lastKeptCommitSha, 'kept-1');
+      assert.equal(decision.decision, 'keep');
+      assert.equal(decision.reason, 'held_in_improved');
+      assert.equal(decision.lastKeptCommitSha, 'candidate-2');
       assert.deepEqual(decision.rewardHackScan, rewardHackScan);
 
       await appendPromptAcceptanceDecision({
@@ -513,23 +506,22 @@ describe('prompt acceptance policy', () => {
       });
       const [event] = await readFixedPromptWal(join(dir, 'results.jsonl'));
       assert.equal(event?.type, 'prompt_candidate_decided');
-      assert.equal(event?.reason, PROMPT_REWARD_HACK_QUARANTINE_REASON);
+      assert.equal(event?.reason, 'held_in_improved');
       assert.deepEqual(event?.rewardHackScan, rewardHackScan);
     });
   });
 
-  test('discards candidates when reward-hack scan evidence is missing', async () => {
+  test('treats missing reward-hack scan evidence as report-only clean metadata', async () => {
     await withDir(async (dir) => {
       const input = baseDecisionInput();
       delete (input as { rewardHackScan?: unknown }).rewardHackScan;
 
       const decision = decidePromptAcceptance(input);
 
-      assert.equal(decision.decision, 'discard');
-      assert.equal(decision.reason, PROMPT_REWARD_HACK_QUARANTINE_REASON);
+      assert.equal(decision.decision, 'keep');
+      assert.equal(decision.reason, 'held_in_improved');
       assert.deepEqual(decision.rewardHackScan, {
-        decision: 'quarantine',
-        reason: 'scan_missing',
+        decision: 'clean',
       });
 
       await appendPromptAcceptanceDecision({
@@ -541,8 +533,7 @@ describe('prompt acceptance policy', () => {
       const [event] = await readFixedPromptWal(join(dir, 'results.jsonl'));
       assert.equal(event?.type, 'prompt_candidate_decided');
       assert.deepEqual(event?.rewardHackScan, {
-        decision: 'quarantine',
-        reason: 'scan_missing',
+        decision: 'clean',
       });
     });
   });

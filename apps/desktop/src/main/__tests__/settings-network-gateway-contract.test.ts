@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readSettingsCombinedSourceSync } from './settings-contract-source-helpers.js';
 
-const settingsSource = readFileSync(
-  join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'),
-  'utf8',
-);
+const settingsSource = readSettingsCombinedSourceSync();
 const mainSource = readFileSync(
   join(process.cwd(), 'src/main/main.ts'),
   'utf8',

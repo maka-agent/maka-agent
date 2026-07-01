@@ -62,6 +62,7 @@ describe('semantic compact', () => {
 
     assert.equal(result.decision, 'replaced');
     assert.ok(requestSeen, 'expected injected summarizer to be called');
+    assert.equal(requestSeen.maxOutputTokens, 4096);
     assert.equal(result.block?.kind, 'maka.semantic_compact_block');
     assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.ok((result.block?.estimatedTokensSavedSigned ?? 0) > 0);
@@ -86,7 +87,7 @@ describe('semantic compact', () => {
     assert.equal(typeof result.diagnosticPatch.highWaterRequestShapeHashAfter, 'string');
   });
 
-  test('fails open when signed savings do not meet the configured margin', async () => {
+  test('accepts with a warning when signed savings do not meet the configured margin', async () => {
     const messages = semanticFixtureMessages();
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
@@ -123,20 +124,22 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'unchanged');
+    assert.equal(result.decision, 'replaced');
     assert.equal(result.reason, 'below_min_savings_tokens');
-    assert.deepEqual(result.messages, messages);
-    assert.equal(result.block?.acceptance.decision, 'rejected');
+    assert.notDeepEqual(result.messages, messages);
+    assert.equal(result.block?.acceptance.decision, 'accepted');
+    assert.equal(result.block?.acceptance.reason, 'below_min_savings_tokens');
     const decision = result.diagnosticPatch.compactionDecisions?.[0];
     assert.equal(decision?.boundaryKind, 'semanticCompact');
-    assert.equal(decision?.decision, 'unchanged');
+    assert.equal(decision?.decision, 'replaced');
     assert.equal(decision?.reason, 'below_min_savings_tokens');
+    assert.deepEqual(decision?.skippedReasonCounts, { below_min_savings_tokens: 1 });
     assert.equal(typeof decision?.estimatedTokensSaved, 'number');
     assert.equal(decision?.compactCallInputTokens, 5);
     assert.equal(decision?.compactCallTotalTokens, 11);
   });
 
-  test('rejects summaries that newly surface private verifier material', async () => {
+  test('accepts summaries that newly surface private verifier material with a warning', async () => {
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -171,13 +174,17 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'unchanged');
-    assert.equal(result.reason, 'private_verifier_surface');
+    assert.equal(result.decision, 'replaced');
+    assert.equal(result.block?.acceptance.decision, 'accepted');
+    assert.equal(result.block?.acceptance.reason, 'private_verifier_surface');
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'private_verifier_surface');
+    assert.deepEqual(result.diagnosticPatch.compactionDecisions?.[0]?.skippedReasonCounts, {
+      private_verifier_surface: 1,
+    });
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.compactCallTotalTokens, 7);
   });
 
-  test('rejects JSON summaries that do not satisfy the required schema contract', async () => {
+  test('falls back to raw summary text when JSON summaries do not satisfy the schema contract', async () => {
     const baseInput = {
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -199,8 +206,9 @@ describe('semantic compact', () => {
       ...baseInput,
       summarizer: () => ({ text: JSON.stringify({ next_action: 'Continue from preserved context.' }) }),
     });
-    assert.equal(missingObjective.decision, 'unchanged');
-    assert.equal(missingObjective.reason, 'summary_missing_current_objective');
+    assert.equal(missingObjective.decision, 'replaced');
+    assert.equal(missingObjective.block?.acceptance.decision, 'accepted');
+    assert.equal(missingObjective.block?.acceptance.reason, 'summary_missing_current_objective');
     assert.equal(
       missingObjective.diagnosticPatch.compactionDecisions?.[0]?.reason,
       'summary_missing_current_objective',
@@ -210,15 +218,47 @@ describe('semantic compact', () => {
       ...baseInput,
       summarizer: () => ({ text: JSON.stringify({ current_objective: 'Solve the task.' }) }),
     });
-    assert.equal(missingNextAction.decision, 'unchanged');
-    assert.equal(missingNextAction.reason, 'summary_missing_next_action');
+    assert.equal(missingNextAction.decision, 'replaced');
+    assert.equal(missingNextAction.block?.acceptance.decision, 'accepted');
+    assert.equal(missingNextAction.block?.acceptance.reason, 'summary_missing_next_action');
     assert.equal(
       missingNextAction.diagnosticPatch.compactionDecisions?.[0]?.reason,
       'summary_missing_next_action',
     );
+    assert.match(renderSemanticCompactBlock(missingNextAction.block!), /raw_semantic_summary_fallback/);
   });
 
-  test('rejects compact when provider savings do not beat compact-call token cost', async () => {
+  test('does not reject valid summaries just because they exceed the soft summary target', async () => {
+    const result = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages: semanticFixtureMessages(),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy: {
+        enabled: true,
+        maxActiveEstimatedTokens: 1,
+        highWaterRatio: 0.1,
+        minRecentMessages: 1,
+        maxSummaryEstimatedTokens: 1,
+        minSavingsTokens: 1,
+        minSavingsRatio: 0,
+      },
+      summarizer: () => ({
+        text: semanticSummary({
+          objective: 'Continue after compact with complete continuity state.',
+          nextAction: 'Resume with the preserved recent tool result.',
+          commands: ['Earlier output showed a large build log that does not need to remain verbatim.'],
+        }),
+      }),
+    });
+
+    assert.equal(result.decision, 'replaced');
+    assert.equal(result.block?.acceptance.decision, 'accepted');
+    assert.notEqual(result.reason, 'summary_too_large');
+  });
+
+  test('accepts compact with a warning when provider savings do not beat compact-call token cost', async () => {
     const result = await rewriteSemanticCompactInMessages({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -255,13 +295,14 @@ describe('semantic compact', () => {
       }),
     });
 
-    assert.equal(result.decision, 'unchanged');
-    assert.equal(result.reason, 'below_min_net_savings_tokens');
+    assert.equal(result.decision, 'replaced');
+    assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.equal(result.block?.acceptance.reason, 'below_min_net_savings_tokens');
+    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'below_min_net_savings_tokens');
     assert.ok((result.block?.estimatedNetTokensSavedSigned ?? 0) < 0);
   });
 
-  test('brakes semantic compact calls after repeated invalid summaries', async () => {
+  test('does not brake semantic compact calls after malformed summary fallbacks', async () => {
     const controllerState = {
       consecutiveInvalidSummaries: 0,
       totalInvalidSummaries: 0,
@@ -295,8 +336,80 @@ describe('semantic compact', () => {
         return { text: JSON.stringify({ next_action: 'Continue.' }) };
       },
     });
-    assert.equal(invalid.reason, 'summary_missing_current_objective');
+    assert.equal(invalid.decision, 'replaced');
+    assert.equal(invalid.block?.acceptance.reason, 'summary_missing_current_objective');
     assert.equal(calls, 1);
+    assert.equal(controllerState.consecutiveInvalidSummaries, 0);
+
+    const cooled = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages: semanticFixtureMessages(),
+      stepNumber: 3,
+      charsPerToken: 1,
+      policy,
+      controllerState,
+      summarizer: () => {
+        calls += 1;
+        return { text: semanticSummary({ objective: 'Should not run.', nextAction: 'Should not run.' }) };
+      },
+    });
+    assert.equal(cooled.decision, 'replaced');
+    assert.notEqual(cooled.reason, 'semantic_compact_cooldown');
+    assert.equal(calls, 2);
+
+    const resumed = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages: semanticFixtureMessages(),
+      stepNumber: 6,
+      charsPerToken: 1,
+      policy,
+      controllerState,
+      summarizer: () => {
+        calls += 1;
+        return { text: semanticSummary({ objective: 'Runs after cooldown.', nextAction: 'Continue.' }) };
+      },
+    });
+    assert.notEqual(resumed.reason, 'semantic_compact_cooldown');
+    assert.equal(calls, 3);
+  });
+
+  test('brakes semantic compact calls after repeated summarizer failures', async () => {
+    const controllerState = {
+      consecutiveInvalidSummaries: 0,
+      totalInvalidSummaries: 0,
+      compactCallCount: 0,
+      compactCallTotalTokens: 0,
+      acceptedEstimatedTokensSaved: 0,
+    };
+    let calls = 0;
+    const policy = {
+      enabled: true,
+      maxActiveEstimatedTokens: 1,
+      highWaterRatio: 0.1,
+      minRecentMessages: 1,
+      maxSummaryEstimatedTokens: 512,
+      minSavingsTokens: 1,
+      minSavingsRatio: 0,
+      maxConsecutiveInvalidSummaries: 1,
+      invalidSummaryCooldownSteps: 3,
+    } as const;
+
+    const failed = await rewriteSemanticCompactInMessages({
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      messages: semanticFixtureMessages(),
+      stepNumber: 2,
+      charsPerToken: 1,
+      policy,
+      controllerState,
+      summarizer: () => {
+        calls += 1;
+        throw new Error('boom');
+      },
+    });
+    assert.equal(failed.reason, 'summarizer_failed');
     assert.equal(controllerState.consecutiveInvalidSummaries, 1);
 
     const cooled = await rewriteSemanticCompactInMessages({
@@ -315,22 +428,6 @@ describe('semantic compact', () => {
     assert.equal(cooled.decision, 'unchanged');
     assert.equal(cooled.reason, 'semantic_compact_cooldown');
     assert.equal(calls, 1);
-
-    const resumed = await rewriteSemanticCompactInMessages({
-      sessionId: 'session-1',
-      turnId: 'turn-1',
-      messages: semanticFixtureMessages(),
-      stepNumber: 6,
-      charsPerToken: 1,
-      policy,
-      controllerState,
-      summarizer: () => {
-        calls += 1;
-        return { text: semanticSummary({ objective: 'Runs after cooldown.', nextAction: 'Continue.' }) };
-      },
-    });
-    assert.notEqual(resumed.reason, 'semantic_compact_cooldown');
-    assert.equal(calls, 2);
   });
 
   test('renders restoration cards and archive refs without raw source hashes as prose', async () => {

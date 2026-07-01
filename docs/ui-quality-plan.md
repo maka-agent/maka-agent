@@ -147,8 +147,9 @@ prose because they're judgement calls.
 
 - Renderer NEVER assembles absolute paths from a `relativePath`. (Artifact
   contract §9.1.5.)
-- Renderer NEVER inspects `safeStorage` directly. Goes through
-  `window.maka.connections.hasSecret(slug)`.
+- Renderer NEVER inspects credential storage directly. Provider secret presence
+  goes through `window.maka.connections.hasSecret(slug)`; subscription OAuth
+  safeStorage remains main-process only.
 - Renderer NEVER opens a URL via `window.open(url)`. Goes through
   `shell.openExternal` in main via `setWindowOpenHandler` (PR96).
 - Renderer NEVER drops a file into the DOM. `did-finish-load` blocks

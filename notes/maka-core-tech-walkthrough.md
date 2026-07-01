@@ -35,7 +35,7 @@
 
 ## 整体定位
 
-Maka 是一个**本地优先（local-first）的 Electron 桌面 AI agent 工作台**。一句话概括它的技术追求：让用户在自己的电脑上跑一个**可观察、可控、可恢复**的 agent——所有数据本地落盘，敏感值加密，工具调用走权限策略，单次对话崩溃后能从 ledger 恢复。
+Maka 是一个**本地优先（local-first）的 Electron 桌面 AI agent 工作台**。一句话概括它的技术追求：让用户在自己的电脑上跑一个**可观察、可控、可恢复**的 agent——所有数据本地落盘，敏感值按各自边界保存在本地，工具调用走权限策略，单次对话崩溃后能从 ledger 恢复。
 
 ## 仓库分层
 
@@ -266,7 +266,7 @@ agent loop 的引擎。用 Vercel AI SDK 的 `streamText` 配合 `stopWhen: step
 
 ### 密钥安全边界
 
-- API key、OAuth token、bot token、proxy password、gateway token、Tavily key 走 Electron `safeStorage` 加密后写 `credentials.json`。
+- Provider/API key、bot token、proxy password、gateway token、Tavily key 写入本机凭据文件，依赖 OS 账号边界和文件权限；subscription OAuth token 使用独立的系统安全存储。
 - Renderer 永远拿不到明文密钥，Settings 只显示 masked 状态和测试结果。
 
 ### 多入口
@@ -298,4 +298,4 @@ agent loop 的引擎。用 Vercel AI SDK 的 `streamText` 配合 `stopWhen: step
 - **权限门控作为工具 execute 的 seam**：不动 AI SDK 的循环，在 execute 回调里插入 allow / block / prompt，最小侵入。
 - **best-effort trace 不影响主路径**：诊断信息尽力写，失败静默，对话绝不受拖累。
 - **同 run 写串行化 + 原子写**：文件持久化的并发安全靠 Promise 链和 rename 保证。
-- **安全分层**：模式 × 类别矩阵 + 命令分类器 + safeStorage 加密 + preload 白名单，多层防御。
+- **安全分层**：模式 × 类别矩阵 + 命令分类器 + 凭据文件权限 / subscription token 安全存储 + preload 白名单，多层防御。

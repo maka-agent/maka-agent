@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readSettingsCombinedSourceSync } from './settings-contract-source-helpers.js';
 
-const settingsSource = readFileSync(
-  join(process.cwd(), 'src/renderer/settings/SettingsModal.tsx'),
-  'utf8',
-);
+const settingsSource = readSettingsCombinedSourceSync();
 
 function blockBetween(start: string, end: string): string {
   return settingsSource.match(new RegExp(`${start}[\\s\\S]*?${end}`))?.[0] ?? '';
@@ -61,8 +57,8 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(dataBlock, /打开工作区文件夹/);
     assert.match(dataBlock, /会话、设置、凭据和技能文件/);
-    assert.match(dataBlock, /会话记录、外观与账号设置、本地使用统计，以及系统安全存储加密的模型密钥/);
-    assert.match(dataBlock, /模型密钥使用系统安全存储加密/);
+    assert.match(dataBlock, /会话记录、外观与账号设置、本地使用统计，以及本机凭据文件/);
+    assert.match(dataBlock, /模型连接凭据随工作区恢复后需要重新测试/);
     assert.doesNotMatch(dataBlock, /资源管理器/);
     assert.doesNotMatch(dataBlock, /credentials/);
     assert.doesNotMatch(dataBlock, /usage stats/);
@@ -124,10 +120,11 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(aboutBlock, /<ul aria-label="隐私与安全说明">/);
     assert.match(aboutBlock, /所有会话、设置、凭据和 Skill 指令文件/);
-    assert.match(aboutBlock, /模型供应商密钥通过系统安全存储加密保存/);
+    assert.match(aboutBlock, /模型供应商密钥保存在本机凭据文件内/);
+    assert.match(aboutBlock, /订阅账号令牌使用系统安全存储/);
     assert.match(aboutBlock, /权限策略会判断工具调用风险/);
     assert.match(aboutBlock, /每个会话都会在本机保留消息、工具调用、权限决策与模式变更记录/);
-    assert.match(aboutBlock, /会话记录、设置文件、SQLite 使用统计和系统安全存储加密的模型密钥/);
+    assert.match(aboutBlock, /会话记录、设置文件、SQLite 使用统计、本机凭据文件和订阅账号安全存储/);
     assert.match(aboutBlock, /可直接粘贴到问题报告/);
     assert.match(aboutBlock, /const envSummaryHelpId = useId\(\)/);
     assert.match(

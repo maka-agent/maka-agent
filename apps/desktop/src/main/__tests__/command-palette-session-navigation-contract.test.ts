@@ -1,13 +1,10 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-
-const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 describe('command palette session navigation contract', () => {
   it('routes normal session commands back to the chat surface before selecting the session', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
     const paletteBlock = main.match(/commands=\{buildCommandList\(\{[\s\S]*?onNewChat:/)?.[0] ?? '';
 
     assert.match(

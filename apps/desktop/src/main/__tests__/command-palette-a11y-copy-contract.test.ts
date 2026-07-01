@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -101,7 +102,7 @@ describe('Command palette accessibility and visible copy', () => {
   });
 
   it('has a visual-smoke opener for the command palette input shell', async () => {
-    const main = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const main = await readRendererShellCombinedSource();
     const core = await readRepo('packages/core/src/visual-smoke.ts');
     const fixture = await readRepo('apps/desktop/src/main/visual-smoke-fixture.ts');
     const screenshotDriver = await readRepo('scripts/capture-screenshots.mjs');
@@ -122,7 +123,7 @@ describe('Command palette accessibility and visible copy', () => {
 
   it('gates command execution so Enter/click cannot run the same palette action twice', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
-    const mainSrc = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const mainSrc = await readRendererShellCombinedSource();
     const commandTypes = await readRepo('apps/desktop/src/renderer/command-palette-types.ts');
     const commandPaletteBlock = src.match(/export function CommandPalette[\s\S]*?function onInputKeyDown/)?.[0] ?? '';
     const commitBlock = src.match(/function commit\(cmd: Command \| undefined\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
@@ -167,7 +168,7 @@ describe('Command palette accessibility and visible copy', () => {
   });
 
   it('scrubs thrown command action failures before toast', async () => {
-    const main = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const main = await readRendererShellCombinedSource();
     const commandPaletteBlock = main.match(/commands=\{buildCommandList\(\{[\s\S]*?\n\s*\}\)\}/)?.[0] ?? '';
     const helperBlock = main.match(/function commandPaletteActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
     const connectionTestHelperBlock = main.match(/function commandPaletteConnectionTestFailureMessage\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';

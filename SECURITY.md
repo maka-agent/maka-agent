@@ -85,11 +85,15 @@ execution). When that lands it will be documented here.
 1. **OS user account.** Tools run with the user's privileges. The
    user is expected to run Maka as a non-admin account on systems
    where that matters.
-2. **safeStorage at-rest credential encryption.** API keys,
-   subscription tokens (PR-OAUTH-SUBSCRIPTION-0), and bot tokens
-   live in OS keychain / DPAPI / libsecret via Electron
-   safeStorage, mode 0o600 on disk. **If safeStorage is
-   unavailable, Maka fails closed — no plaintext fallback.**
+2. **Credential-at-rest boundaries.** The provider credential store
+   writes `credentials.json` as versioned plaintext JSON under the
+   user's workspace directory. Its load-bearing boundary is the OS
+   user account plus filesystem controls: directory mode 0o700,
+   file mode 0o600, atomic writes, and no symlink/traversal escape.
+   Separate subscription OAuth token stores (Claude, Codex, Cursor,
+   Antigravity, and similar account services) still use Electron
+   safeStorage; those stores fail closed when safeStorage is
+   unavailable.
 3. **Renderer process sandbox + preload IPC bridge.** The
    renderer cannot reach files, network, or shell directly. Every
    IPC handler in `apps/desktop/src/main/main.ts` is the trust
@@ -166,8 +170,11 @@ boundary in §2.3 was crossed. Examples:
 
 - A renderer-supplied IPC payload reaches the filesystem outside
   the workspace or beyond an explicit user approval.
-- safeStorage encryption is bypassed and a token persists in
-  plaintext on disk.
+- `credentials.json` is written outside the workspace credential
+  path, through a symlink/traversal escape, or with POSIX permissions
+  looser than the 0o700/0o600 boundary.
+- safeStorage encryption is bypassed for a subscription OAuth token
+  store that is documented and implemented to require safeStorage.
 - A cleartext secret crosses main→renderer IPC under any
   circumstance (including error paths, settings preview, IPC
   result envelopes, log lines).

@@ -23,6 +23,45 @@ describe('redactSecrets', () => {
     assert.match(text, /timeout=30/);
     assert.equal(text.includes('secret-value'), false);
   });
+
+  test('masks quoted sensitive object keys in serialized JSON', () => {
+    const text = redactSecrets(JSON.stringify({
+      authorization: 'Bearer opaque-session-value',
+      apiKey: 'plain-provider-key',
+      password: 'correct-horse-battery-staple',
+      nested: {
+        accessToken: 'nested-token-value',
+      },
+      keep: 'visible',
+    }));
+
+    assert.match(text, /"authorization":"\[redacted\]"/);
+    assert.match(text, /"apiKey":"\[redacted\]"/);
+    assert.match(text, /"password":"\[redacted\]"/);
+    assert.match(text, /"accessToken":"\[redacted\]"/);
+    assert.match(text, /"keep":"visible"/);
+    assert.equal(text.includes('opaque-session-value'), false);
+    assert.equal(text.includes('plain-provider-key'), false);
+    assert.equal(text.includes('correct-horse-battery-staple'), false);
+    assert.equal(text.includes('nested-token-value'), false);
+  });
+
+  test('masks escaped and non-string sensitive JSON values structurally', () => {
+    const text = redactSecrets(JSON.stringify({
+      password: 'abc"def\\ghi',
+      token: 12345,
+      secret: { raw: 'object value should not leak' },
+      keep: 'visible',
+    }));
+
+    assert.match(text, /"password":"\[redacted\]"/);
+    assert.match(text, /"token":"\[redacted\]"/);
+    assert.match(text, /"secret":"\[redacted\]"/);
+    assert.match(text, /"keep":"visible"/);
+    assert.equal(text.includes('abc'), false);
+    assert.equal(text.includes('def'), false);
+    assert.equal(text.includes('object value should not leak'), false);
+  });
 });
 
 describe('generalizedErrorMessage', () => {

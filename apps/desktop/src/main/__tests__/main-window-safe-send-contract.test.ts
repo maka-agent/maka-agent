@@ -1,15 +1,6 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
-
-const repoRoot = process.cwd().endsWith('apps/desktop')
-  ? join(process.cwd(), '..', '..')
-  : process.cwd();
-
-async function readRepo(path: string): Promise<string> {
-  return readFile(join(repoRoot, path), 'utf8');
-}
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 describe('main-process safe-send to renderer contract', () => {
   it('routes every mainWindow webContents.send through safeSendToRenderer', async () => {
@@ -28,7 +19,7 @@ describe('main-process safe-send to renderer contract', () => {
     // Every channel send to the main window must go through the
     // `safeSendToRenderer` helper instead, which checks
     // `mainWindow.isDestroyed()` and `webContents.isDestroyed()` first.
-    const src = await readRepo('apps/desktop/src/main/main.ts');
+    const src = await readMainProcessCombinedSource();
 
     assert.match(
       src,

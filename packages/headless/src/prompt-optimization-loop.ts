@@ -254,7 +254,8 @@ export async function runPromptOptimizationLoop(
         ...(event.errorClass ? { errorClass: event.errorClass } : {}),
         runtimeEventsPath: event.runtimeEventsPath,
         ...(event.traceEventsPath ? { traceEventsPath: event.traceEventsPath } : {}),
-        verifierSummary: `status=${event.status} passed=${event.passed} reward=${event.harbor.reward}`,
+        verifierSummary: event.harbor.verifierFailureSummary
+          ?? `status=${event.status} passed=${event.passed} reward=${event.harbor.reward}`,
       })),
   );
 

@@ -14,8 +14,8 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "dev": "npm run build && npm --workspace @maka/desktop run start",
-    "dev:hmr": "npm --workspace @maka/desktop run dev:hmr --",
+    "dev": "npm --workspace @maka/desktop run dev:hmr --",
+    "dev:full": "npm run build && npm --workspace @maka/desktop run start",
     "build": "npm run build --workspaces --if-present",
     "clean": "node scripts/clean-build.mjs",
     "rebuild": "npm run clean && npm run build",
@@ -36,5 +36,10 @@
       "electron",
       "esbuild"
     ]
+  },
+  "allowScripts": {
+    "electron@39.8.10": true,
+    "esbuild@0.27.7": true,
+    "@jackwener/opencli@1.8.4": true
   }
 }

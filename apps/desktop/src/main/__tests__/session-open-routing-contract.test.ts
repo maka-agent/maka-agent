@@ -2,12 +2,13 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 describe('session open routing contract', () => {
   it('centralizes cross-module session opens through the chat surface', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
     const helper = main.match(/function openSessionInChat\(sessionId: string, turnId\?: string\): void \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(helper, /setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);/);
@@ -17,7 +18,7 @@ describe('session open routing contract', () => {
   });
 
   it('does not pass raw setActiveId to module session links', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
 
     assert.doesNotMatch(
       main,
@@ -32,7 +33,7 @@ describe('session open routing contract', () => {
   });
 
   it('opens branched sessions only while the source session is still active', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
     const handlerBlock = main.match(/async function handleTurnFooterAction[\s\S]*?const chatSessionStatusBadge/)?.[0] ?? '';
     const branchBlock = handlerBlock.match(/else if \(actionId === 'branch'\) \{[\s\S]*?await refreshSessions\(\);[\s\S]*?\n      \}/)?.[0] ?? '';
     const catchBlock = handlerBlock.match(/catch \(error\) \{([\s\S]*?)\n    \} finally/)?.[1] ?? '';
@@ -84,7 +85,7 @@ describe('session open routing contract', () => {
   });
 
   it('new-chat navigation does not wipe other sessions live renderer state', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/main.tsx'), 'utf8');
+    const main = await readRendererShellCombinedSource();
     const createSession = main.match(/async function createSession\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(createSession, /setActiveId\(undefined\);/);

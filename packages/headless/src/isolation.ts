@@ -112,9 +112,9 @@ export interface IsolatedToolExecutor {
    * READ_SCRIPT so every result carries the line-number / line+byte-cap / binary-
    * guard contract (#92); a native pass-through would bypass it. Edit's matching
    * logic must stay the single source of truth with the in-process builtin Edit,
-   * so it always runs the shared computeEditedSource via `node -e` (see
-   * buildIsolatedEditTool). Both hold regardless of which native ops an executor
-   * provides.
+   * so buildIsolatedEditTool reads bytes through the executor, computes the edit
+   * in the headless process, and writes bytes back through the executor. Both
+   * hold regardless of which native ops an executor provides.
    */
   writeFile?(input: IsolatedWriteFileInput): Promise<IsolatedWriteFileResult>;
   globFiles?(input: IsolatedGlobInput): Promise<IsolatedGlobResult>;

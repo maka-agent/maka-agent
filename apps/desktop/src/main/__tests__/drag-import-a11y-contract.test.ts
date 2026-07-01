@@ -14,7 +14,7 @@ async function readRepo(path: string): Promise<string> {
 
 describe('drag import accessibility status', () => {
   it('announces active file drag affordances in the composer and first-run hero', async () => {
-    const composer = await readRepo('packages/ui/src/components.tsx');
+    const composer = await readRepo('packages/ui/src/composer.tsx');
     const onboardingHero = await readRepo('apps/desktop/src/renderer/OnboardingHero.tsx');
 
     for (const [name, source] of [

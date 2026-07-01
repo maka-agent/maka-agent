@@ -47,6 +47,7 @@ export interface RunLoopOptions {
   shouldThrowInfra?: (roundId: string, taskId: string) => boolean;
   /** Per-task baseline duration (ms); defaults to 10. Exercises the too-slow cap. */
   durationMsFor?: (roundId: string, taskId: string) => number;
+  verifierFailureSummaryFor?: (roundId: string, taskId: string) => string | undefined;
   onTaskRun?: (roundId: string, taskId: string) => void;
   metaAgent?: MetaAgent;
   resumeFingerprint?: string | null;
@@ -77,6 +78,7 @@ export async function runLoop(harness: Harness, options: RunLoopOptions) {
       options.shouldFail,
       options.shouldThrowInfra,
       options.durationMsFor,
+      options.verifierFailureSummaryFor,
       options.onTaskRun,
     ),
     metaAgent: options.metaAgent ?? fakeMetaAgent(),
@@ -123,6 +125,7 @@ function fakeHarborRunner(
   shouldFail?: (roundId: string, taskId: string) => boolean,
   shouldThrowInfra?: (roundId: string, taskId: string) => boolean,
   durationMsFor?: (roundId: string, taskId: string) => number,
+  verifierFailureSummaryFor?: (roundId: string, taskId: string) => string | undefined,
   onTaskRun?: (roundId: string, taskId: string) => void,
 ): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
@@ -136,8 +139,12 @@ function fakeHarborRunner(
     // is false, so the controller records it as an unscored task_completed — not
     // a plumbing failure — which the stability filter drops.
     const failed = shouldFail?.(roundId, task.id) ?? false;
+    const verifierFailureSummary = verifierFailureSummaryFor?.(roundId, task.id);
     return {
-      harbor: { reward: failed ? 0 : rewardFor(roundId, task.id) },
+      harbor: {
+        reward: failed ? 0 : rewardFor(roundId, task.id),
+        ...(verifierFailureSummary ? { verifierFailureSummary } : {}),
+      },
       cell: {
         schemaVersion: 1,
         status: failed ? 'failed' : 'completed',

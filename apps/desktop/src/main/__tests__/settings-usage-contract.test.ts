@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -13,7 +15,7 @@ async function readRepo(path: string): Promise<string> {
 
 describe('Settings usage dashboard contract', () => {
   it('keeps request filters scoped to the request log tab', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -42,14 +44,14 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('shows a distinct empty state when request filters hide all logs', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
 
     assert.match(src, /requestEmpty=\{hasRequestFilters \? '没有符合筛选条件的请求记录' : '暂无请求记录'\}/);
     assert.match(src, /empty=\{props\.requestEmpty\}/);
   });
 
   it('makes the detail-records toggle control request log rendering', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -62,7 +64,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('names usage segmented radiogroups for assistive technology', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -89,7 +91,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('names the usage summary metrics group', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -106,7 +108,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('names every usage stats table for assistive technology', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usageTable = src.match(/function UsageTable\([\s\S]*?function usageRequestKindLabel/)?.[0] ?? '';
     const simpleStatsTable = src.match(/function SimpleStatsTable\([\s\S]*?function MetricCard/)?.[0] ?? '';
 
@@ -157,7 +159,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('keeps usage filters responsive through a local draft while saves run in the background', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -184,7 +186,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('surfaces usage preference save failures instead of leaving filter controls silent', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -207,7 +209,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('drops late usage preference and refresh UI writes after Settings is closed', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/)?.[0] ?? '';
 
     assert.match(
@@ -243,7 +245,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('drops stale usage stats reload responses', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const settingsModal = src.match(/function SettingsSurface\([\s\S]*?function SettingsPage/)?.[0];
 
     assert.ok(settingsModal, 'Settings surface block must exist');
@@ -265,7 +267,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('gates manual usage refresh and reads the latest draft range', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
@@ -295,7 +297,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('does not render raw request status enums in the usage table', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usageTable = src.match(/function UsageTable\([\s\S]*?function SimpleStatsTable/);
 
     assert.ok(usageTable, 'Usage table block must exist');
@@ -311,7 +313,7 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('labels model and tool rows without rendering raw request kind enums', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
+    const src = await readSettingsCombinedSource();
     const usageTable = src.match(/function UsageTable\([\s\S]*?function usageRequestStatusLabel/);
 
     assert.ok(usageTable, 'Usage table block must exist');
@@ -335,8 +337,8 @@ describe('Settings usage dashboard contract', () => {
   });
 
   it('wires usage diagnostics rows back to source sessions through the shell', async () => {
-    const settingsSrc = await readRepo('apps/desktop/src/renderer/settings/SettingsModal.tsx');
-    const mainSrc = await readRepo('apps/desktop/src/renderer/main.tsx');
+    const settingsSrc = await readSettingsCombinedSource();
+    const mainSrc = await readRendererShellCombinedSource();
 
     assert.match(settingsSrc, /onOpenSession\?\(sessionId: string\): void/);
     assert.match(settingsSrc, /onOpenSession=\{props\.onOpenSession\}/);

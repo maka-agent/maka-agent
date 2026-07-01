@@ -11,7 +11,7 @@
  * Per @xuan + @kenji PR-UI-AUDIT-1 (`7a16aa0b`) discipline, group summaries
  * MUST NOT impersonate operational readiness. We say `已启用` (the user-
  * toggle state) rather than `可用` (operational), and we don't claim
- * `凭据本地加密` when no credentials exist.
+ * `凭据已配置` when no credentials exist.
  */
 
 import type { AppSettings, LlmConnection } from '@maka/core';

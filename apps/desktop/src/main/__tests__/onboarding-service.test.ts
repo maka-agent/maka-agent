@@ -2,12 +2,15 @@
  * Tests for the onboarding service (PR110b).
  *
  * Validate the contract gates @kenji + @xuan signed off on:
- *   - getSnapshot resolves secrets in parallel (timing assertion)
+ *   - getSnapshot resolves credentials in parallel (timing assertion)
  *   - credential lookup errors are NEVER thrown to caller; the slug
  *     is treated as `hasSecret: false`
  *   - setMilestone rejects invalid id / status
  *   - setMilestone never accepts a renderer-supplied timestamp
  *   - last-valid-entry-wins dedup survives via the sanitizer
+ *   - `bindOnboardingDeps` passes the full `LlmConnection` (not just a
+ *     slug) to `hasCredential`, so OAuth-subscription connections are
+ *     recognized as credentialed via a read-only check
  */
 
 import { strict as assert } from 'node:assert';
@@ -19,6 +22,7 @@ import type {
 } from '@maka/core';
 import type { LlmConnection } from '@maka/core';
 import {
+  bindOnboardingDeps,
   createOnboardingService,
   type OnboardingServiceDeps,
 } from '../onboarding-service.js';
@@ -62,7 +66,7 @@ function fakeDeps(overrides: Partial<OnboardingServiceDeps> = {}): OnboardingSer
       if (existingIdx >= 0) milestones.splice(existingIdx, 1);
       return milestones.slice();
     },
-    hasApiKey: async (_slug: string) => false,
+    hasCredential: async (_connection: LlmConnection) => false,
     ...overrides,
   };
 }
@@ -73,7 +77,7 @@ describe('createOnboardingService.getSnapshot', () => {
       fakeDeps({
         listConnections: async () => [realConnection({ slug: 'a' })],
         getDefaultSlug: async () => 'a',
-        hasApiKey: async (slug) => slug === 'a',
+        hasCredential: async (connection) => connection.slug === 'a',
         getMilestones: async () => [{ id: 'first_chat_sent', completedAt: 1_700_000_000_000 }],
       }),
     );
@@ -84,8 +88,8 @@ describe('createOnboardingService.getSnapshot', () => {
     ]);
   });
 
-  it('resolves per-connection secrets in PARALLEL (@kenji perf gate)', async () => {
-    // Each hasApiKey call sleeps 50ms. With 4 connections, serial =
+  it('resolves per-connection credentials in PARALLEL (@kenji perf gate)', async () => {
+    // Each hasCredential call sleeps 50ms. With 4 connections, serial =
     // 200ms; parallel = ~50ms. Assert <= 150ms to leave a generous
     // buffer for slow CI machines while still catching serialization.
     const conns = ['a', 'b', 'c', 'd'].map((slug) => realConnection({ slug }));
@@ -93,7 +97,7 @@ describe('createOnboardingService.getSnapshot', () => {
       fakeDeps({
         listConnections: async () => conns,
         getDefaultSlug: async () => 'a',
-        hasApiKey: async () => {
+        hasCredential: async () => {
           await new Promise((resolve) => setTimeout(resolve, 50));
           return true;
         },
@@ -102,7 +106,7 @@ describe('createOnboardingService.getSnapshot', () => {
     const start = Date.now();
     await service.getSnapshot();
     const elapsed = Date.now() - start;
-    assert.ok(elapsed < 150, `secret lookups must run in parallel; took ${elapsed}ms (serial would be ~200ms)`);
+    assert.ok(elapsed < 150, `credential lookups must run in parallel; took ${elapsed}ms (serial would be ~200ms)`);
   });
 
   it('credential-lookup error → treated as hasSecret=false, NEVER thrown to caller', async () => {
@@ -110,7 +114,7 @@ describe('createOnboardingService.getSnapshot', () => {
       fakeDeps({
         listConnections: async () => [realConnection({ slug: 'broken' })],
         getDefaultSlug: async () => 'broken',
-        hasApiKey: async () => {
+        hasCredential: async () => {
           throw new Error('safeStorage decrypt failed');
         },
       }),
@@ -122,6 +126,161 @@ describe('createOnboardingService.getSnapshot', () => {
     if (snapshot.state.kind === 'needs_connection_credentials') {
       assert.equal(snapshot.state.connectionSlug, 'broken');
     }
+  });
+});
+
+describe('bindOnboardingDeps — hasCredential wiring', () => {
+  // Regression test: onboarding used to call a `hasApiKey` that only
+  // checked the API-key credential store, so an OAuth-subscription
+  // connection (Claude Subscription / Codex Subscription) marked as
+  // the default was always reported as `missing_api_key`, even when
+  // Settings showed it verified + default. The fix routes onboarding
+  // through a `hasCredential(connection)` resolver that special-cases
+  // OAuth-subscription connections via a READ-ONLY check (no refresh —
+  // see the "does not trigger OAuth refresh" test below). This test
+  // wires a fake `hasCredential` that mirrors that split (API-key
+  // store for normal connections, a separate token store for OAuth
+  // subscriptions) and asserts the OAuth-subscription default resolves
+  // to `ready_empty` rather than being stuck on a credentials/default
+  // -connection step.
+  it('treats an OAuth-subscription default connection as credentialed', async () => {
+    const oauthConnection = realConnection({
+      slug: 'claude-oauth',
+      providerType: 'claude-subscription',
+      defaultModel: 'claude-sonnet-4-5-20250929',
+    });
+    // Deliberately empty: the API-key store has nothing for this slug.
+    const apiKeyStore = new Map<string, string>();
+    // The OAuth-subscription token lives in a separate store, exactly
+    // like claudeSubscription.hasStoredCredential() in main.ts.
+    const subscriptionTokenStore = new Set<string>(['claude-oauth']);
+
+    const service = createOnboardingService(
+      bindOnboardingDeps({
+        settingsStore: {
+          get: async () => ({ onboarding: { milestones: [] } }),
+          upsertOnboardingMilestone: async () => [],
+          clearOnboardingMilestone: async () => [],
+        },
+        connectionStore: {
+          list: async () => [oauthConnection],
+          getDefault: async () => 'claude-oauth',
+        },
+        hasCredential: async (connection) => {
+          if (connection.providerType === 'claude-subscription') {
+            return subscriptionTokenStore.has(connection.slug);
+          }
+          return apiKeyStore.has(connection.slug);
+        },
+        listSessions: async () => [],
+      }),
+    );
+
+    const snapshot = await service.getSnapshot();
+    assert.equal(
+      snapshot.state.kind,
+      'ready_empty',
+      `expected the OAuth-subscription default to be ready; got ${JSON.stringify(snapshot.state)}`,
+    );
+  });
+
+  // P3 review gate (PR #389, @Astro-Han): onboarding already holds the
+  // full `connections` snapshot from `listConnections()` — the bound
+  // `hasCredential` must receive that SAME connection object, not just
+  // a slug it has to re-resolve. Passing a fresh/different object here
+  // would mean the credential check could observe a different
+  // connection state than the one `deriveOnboardingState` reasons
+  // about, and would cost an avoidable extra store read in production.
+  it('passes the exact connection object from listConnections(), not a re-fetched copy', async () => {
+    const connection = realConnection({ slug: 'a' });
+    const receivedConnections: LlmConnection[] = [];
+
+    const service = createOnboardingService(
+      bindOnboardingDeps({
+        settingsStore: {
+          get: async () => ({ onboarding: { milestones: [] } }),
+          upsertOnboardingMilestone: async () => [],
+          clearOnboardingMilestone: async () => [],
+        },
+        connectionStore: {
+          list: async () => [connection],
+          getDefault: async () => 'a',
+        },
+        hasCredential: async (received) => {
+          receivedConnections.push(received);
+          return true;
+        },
+        listSessions: async () => [],
+      }),
+    );
+
+    await service.getSnapshot();
+    assert.equal(receivedConnections.length, 1);
+    assert.equal(
+      receivedConnections[0],
+      connection,
+      'hasCredential must receive the identical connection object listConnections() returned',
+    );
+  });
+
+  // P2 review gate (PR #389, @Astro-Han): getSnapshot is a read-only
+  // status path. It must be able to report an OAuth-subscription
+  // connection as credentialed WITHOUT triggering that provider's
+  // token-refresh side effect (network call + local token-state
+  // mutation) — refreshing on every onboarding read would mean simply
+  // opening the app can hit the network, and a failed incidental
+  // refresh could misreport a valid login as missing credentials. This
+  // mirrors `ClaudeSubscriptionService.hasStoredCredential()` /
+  // `CodexSubscriptionService.hasStoredCredential()`, which read the
+  // persisted token without ever calling `refreshTokens()`.
+  it('does not trigger OAuth refresh for a near-expiry token, and still reports credentialed', async () => {
+    const oauthConnection = realConnection({
+      slug: 'claude-oauth',
+      providerType: 'claude-subscription',
+    });
+    let refreshCalls = 0;
+    let readOnlyCalls = 0;
+    // Fake OAuth service: a token exists but is one second from
+    // expiring. `hasStoredCredential()` (read-only) must still report
+    // true without calling `refreshTokens()`.
+    const fakeClaudeSubscription = {
+      hasStoredCredential: async () => {
+        readOnlyCalls += 1;
+        return true; // persisted token exists locally, near-expiry
+      },
+      refreshTokens: async () => {
+        refreshCalls += 1;
+        return { ok: true };
+      },
+    };
+
+    const service = createOnboardingService(
+      bindOnboardingDeps({
+        settingsStore: {
+          get: async () => ({ onboarding: { milestones: [] } }),
+          upsertOnboardingMilestone: async () => [],
+          clearOnboardingMilestone: async () => [],
+        },
+        connectionStore: {
+          list: async () => [oauthConnection],
+          getDefault: async () => 'claude-oauth',
+        },
+        // Mirrors hasConnectionSecret() in main.ts: routes
+        // claude-subscription through the read-only check only.
+        hasCredential: async (connection) => {
+          if (connection.providerType === 'claude-subscription') {
+            return fakeClaudeSubscription.hasStoredCredential();
+          }
+          return false;
+        },
+        listSessions: async () => [],
+      }),
+    );
+
+    const snapshot = await service.getSnapshot();
+    assert.equal(snapshot.state.kind, 'ready_empty');
+    assert.equal(readOnlyCalls, 1, 'must check the read-only path exactly once');
+    assert.equal(refreshCalls, 0, 'getSnapshot must NEVER trigger an OAuth token refresh');
   });
 });
 
@@ -143,7 +302,7 @@ describe('createOnboardingService.clearMilestone — strict validation', () => {
       fakeDeps({
         listConnections: async () => [realConnection({ slug: 'a' })],
         getDefaultSlug: async () => 'a',
-        hasApiKey: async () => true,
+        hasCredential: async () => true,
         getMilestones: async () => stored,
         clearMilestone: async (id) => {
           stored = stored.filter((entry) => entry.id !== id);
@@ -196,7 +355,7 @@ describe('createOnboardingService.setMilestone — strict validation', () => {
       fakeDeps({
         listConnections: async () => [realConnection({ slug: 'a' })],
         getDefaultSlug: async () => 'a',
-        hasApiKey: async () => true,
+        hasCredential: async () => true,
         getMilestones: async () => stored,
         upsertMilestone: async (id, status) => {
           stored = [

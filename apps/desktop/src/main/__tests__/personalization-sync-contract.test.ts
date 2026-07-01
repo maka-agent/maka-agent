@@ -8,18 +8,13 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { resolve } from 'node:path';
+import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
 
-const REPO_ROOT = resolve(process.cwd(), '..', '..');
-const SETTINGS_MODAL = resolve(
-  REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'settings', 'SettingsModal.tsx',
-);
 
 describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
   async function readPersonalizationPage(): Promise<string> {
-    const src = await readFile(SETTINGS_MODAL, 'utf8');
+    const src = await readSettingsCombinedSource();
     const pageStart = src.indexOf('function PersonalizationSettingsPage');
     assert.notEqual(pageStart, -1, 'PersonalizationSettingsPage must exist');
     return src.slice(pageStart, pageStart + 7000);

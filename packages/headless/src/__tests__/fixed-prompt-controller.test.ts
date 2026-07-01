@@ -1029,6 +1029,37 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('keeps Harbor verifier setup failures out of prompt scoring', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            reward: 0,
+            errorClass: 'infra_failed',
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, false);
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'infra_failed');
+    });
+  });
+
   test('records zero cost with tokens as a plumbing failure', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1166,12 +1197,14 @@ function harborOutput(input: {
   contextBudgetPolicy?: HarborTaskRunOutput['cell']['contextBudgetPolicy'];
   contextBudgetSummary?: HarborTaskRunOutput['cell']['contextBudgetSummary'];
   continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
+  errorClass?: string;
 }): HarborTaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1 },
     cell: {
       schemaVersion: 1,
       status: 'completed',
+      ...(input.errorClass ? { errorClass: input.errorClass } : {}),
       runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),

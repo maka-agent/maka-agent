@@ -151,11 +151,25 @@ describe('prompt optimization run manifest', () => {
       assert.equal(await readFile(join(promptRepoDir, 'program.md'), 'utf8'), 'old program\n');
     });
   });
+
+  test('records the prompt optimization profile in the resume fingerprint', () => {
+    const pilot = buildManifest('sha256:task-source', [], 'pilot');
+    const full = buildManifest('sha256:task-source', [], 'full');
+
+    assert.equal(pilot.profile, 'pilot');
+    assert.equal(full.profile, 'full');
+    assert.notEqual(full.fingerprint, pilot.fingerprint);
+  });
 });
 
-function buildManifest(taskSourceFingerprint: string, heldInTasks: FixedPromptTask[]) {
+function buildManifest(
+  taskSourceFingerprint: string,
+  heldInTasks: FixedPromptTask[],
+  profile: 'pilot' | 'full' = 'pilot',
+) {
   return buildPromptOptimizationRunManifest({
     runId: 'rsi-test',
+    profile,
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek/deepseek-v4-flash',
