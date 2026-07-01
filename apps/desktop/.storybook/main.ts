@@ -10,6 +10,7 @@ const UI_SRC = resolve(REPO_ROOT, 'packages/ui/src');
 const config: StorybookConfig = {
   stories: [
     '../../../packages/ui/stories/**/*.stories.@(ts|tsx)',
+    resolve(REPO_ROOT, 'apps/desktop/stories/**/*.stories.@(ts|tsx)'),
   ],
   framework: {
     name: '@storybook/react-vite',

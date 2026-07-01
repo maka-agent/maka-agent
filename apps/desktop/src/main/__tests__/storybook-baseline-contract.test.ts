@@ -174,6 +174,37 @@ describe('Storybook baseline contract', () => {
     assert.match(story, /autoCopyLabel/, 'stories must expose copy feedback rather than only idle copy buttons');
   });
 
+  it('storyboards provider settings states before visual polish', () => {
+    const main = readFileSync(join(REPO_ROOT, 'apps', 'desktop', '.storybook', 'main.ts'), 'utf8');
+    const storyPath = join(REPO_ROOT, 'apps', 'desktop', 'stories', 'settings', 'provider-settings.stories.tsx');
+    assert.match(main, /apps\/desktop\/stories\/\*\*\/\*\.stories\.\@\(ts\|tsx\)/);
+    assert.ok(existsSync(storyPath), 'Provider settings states must be inspectable in Storybook');
+
+    const story = readFileSync(storyPath, 'utf8');
+    assert.match(story, /title:\s*['"]Product\/Settings\/Providers['"]/);
+    assert.match(story, /satisfies\s+Meta/);
+    assert.match(story, /\bProvidersPanel\b/);
+    assert.match(story, /ToastProvider/);
+    assert.match(story, /className="settingsSurface"/);
+
+    for (const storyName of [
+      'Loading',
+      'LoadError',
+      'Empty',
+      'ConfiguredProviders',
+      'ProblemConnections',
+      'SelectedDetail',
+      'AddProvider',
+      'OAuthCards',
+    ]) {
+      assert.match(story, new RegExp(`export const ${storyName}: Story`), `${storyName} story must be exported`);
+    }
+
+    assert.match(story, /ConnectionsBridge/, 'stories must drive ProvidersPanel through its bridge seam');
+    assert.match(story, /claudeSubscription/, 'OAuth cards must render against story-local subscription fixtures');
+    assert.doesNotMatch(storyPath, /src\/renderer/, 'desktop Storybook stories must stay out of the renderer build tree');
+  });
+
   it('keeps Storybook stories out of the regular @maka/ui TypeScript build', () => {
     const config = readTypescriptConfig(REPO_ROOT, join(REPO_ROOT, 'packages', 'ui', 'tsconfig.json'));
 
