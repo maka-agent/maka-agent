@@ -493,6 +493,14 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         }
         yield runtimeEvent;
       }
+      if (!terminalEmitted) {
+        for (const sessionEvent of missingTerminalSessionEvents(ctx)) {
+          const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+          await this.onSessionEvent?.(sessionEvent, runtimeEvent);
+          if (isTerminalRuntimeEvent(runtimeEvent)) terminalEmitted = true;
+          yield runtimeEvent;
+        }
+      }
     } catch (error) {
       await this.onError?.(error);
       throw error;
@@ -515,4 +523,27 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
   async dispose(): Promise<void> {
     await this.backend.dispose();
   }
+}
+
+function missingTerminalSessionEvents(ctx: InvocationContext): SessionEvent[] {
+  const ts = ctx.now();
+  return [
+    {
+      type: 'error',
+      id: ctx.newId(),
+      turnId: ctx.turnId,
+      ts,
+      recoverable: false,
+      code: 'missing_terminal_event',
+      reason: 'missing_terminal_event',
+      message: 'flow exhausted without a terminal RuntimeEvent',
+    },
+    {
+      type: 'complete',
+      id: ctx.newId(),
+      turnId: ctx.turnId,
+      ts,
+      stopReason: 'error',
+    },
+  ];
 }
