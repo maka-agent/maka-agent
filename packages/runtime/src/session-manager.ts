@@ -1333,16 +1333,27 @@ function missingRecoveredRuntimeEvents(
       .filter((id): id is string => typeof id === 'string' && id.length > 0),
   );
   const hasTerminal = existing.some((event) => isMatchingTerminalRuntimeEvent(run, event));
-  return recovered.filter((event) => {
-    if (isMatchingTerminalRuntimeEvent(run, event)) return !hasTerminal;
-    const storedMessageId = event.refs?.storedMessageId;
-    if (typeof storedMessageId === 'string' && storedMessageId.length > 0) {
-      if (storedMessageIds.has(storedMessageId)) return false;
-      storedMessageIds.add(storedMessageId);
-      return !existing.some((candidate) => isSameRecoveredRuntimeEvent(candidate, event));
+  const matchedExistingEventIndexes = new Set<number>();
+  const missing: RuntimeEvent[] = [];
+  for (const event of recovered) {
+    if (isMatchingTerminalRuntimeEvent(run, event)) {
+      if (!hasTerminal) missing.push(event);
+      continue;
     }
-    return false;
-  });
+    const storedMessageId = event.refs?.storedMessageId;
+    if (typeof storedMessageId !== 'string' || storedMessageId.length === 0) continue;
+    if (storedMessageIds.has(storedMessageId)) continue;
+    storedMessageIds.add(storedMessageId);
+    const existingIndex = existing.findIndex((candidate, index) =>
+      !matchedExistingEventIndexes.has(index) && isSameRecoveredRuntimeEvent(candidate, event)
+    );
+    if (existingIndex >= 0) {
+      matchedExistingEventIndexes.add(existingIndex);
+    } else {
+      missing.push(event);
+    }
+  }
+  return missing;
 }
 
 function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeEvent): boolean {
@@ -1350,7 +1361,6 @@ function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeE
     existing.sessionId === recovered.sessionId &&
     existing.runId === recovered.runId &&
     existing.turnId === recovered.turnId &&
-    existing.ts === recovered.ts &&
     existing.role === recovered.role &&
     existing.author === recovered.author &&
     existing.status === recovered.status &&
