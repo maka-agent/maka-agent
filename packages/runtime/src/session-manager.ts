@@ -770,7 +770,10 @@ export class SessionManager {
         now: this.deps.now,
       }).events;
       const recoveredTerminal = recovered.find((event) => isMatchingTerminalRuntimeEvent(run, event));
-      const canTrustRecoveredTerminal = runtimeEvents.length === 0 || isTerminalLegacyTurnState(latestTurnState(messages, run.turnId));
+      const legacyTerminal = latestTurnState(messages, run.turnId);
+      const canTrustRecoveredTerminal = recoveredTerminal
+        ? isTrustworthyRecoveredTerminal(run, legacyTerminal, recoveredTerminal)
+        : false;
       if (recoveredTerminal && canTrustRecoveredTerminal) {
         const eventsToAppend = runtimeEvents.length === 0 ? recovered : [recoveredTerminal];
         for (const event of eventsToAppend) {
@@ -1266,6 +1269,29 @@ function isTerminalLegacyTurnState(
   message: Extract<StoredMessage, { type: 'turn_state' }> | undefined,
 ): boolean {
   return message !== undefined && isTerminalTurnStatus(message.status);
+}
+
+function isTrustworthyRecoveredTerminal(
+  run: AgentRunHeader,
+  turnState: Extract<StoredMessage, { type: 'turn_state' }> | undefined,
+  terminal: RuntimeEvent,
+): boolean {
+  if (!turnState || !isTerminalTurnStatus(turnState.status)) return false;
+  if (terminal.status === 'completed') {
+    return run.status === 'completed' && turnState.status === 'completed';
+  }
+  if (terminal.status === 'failed') {
+    return run.status === 'failed' &&
+      turnState.status === 'failed' &&
+      !!run.failureClass &&
+      (!turnState.errorClass || turnState.errorClass === run.failureClass);
+  }
+  if (terminal.status === 'aborted' || terminal.status === 'cancelled') {
+    return run.status === 'cancelled' &&
+      turnState.status === 'aborted' &&
+      !!turnState.abortSource;
+  }
+  return false;
 }
 
 function latestTurnState(

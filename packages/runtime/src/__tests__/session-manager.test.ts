@@ -701,6 +701,130 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.refs?.storedMessageId).toBe('legacy-state');
   });
 
+  test('getMessages does not trust failed legacy terminal state for a completed run header', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'failed', errorClass: 'tool_failed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
+  test('getMessages does not trust aborted legacy terminal state for a completed run header', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'aborted', abortedAt: 103, abortSource: 'user', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
+  test('getMessages does not trust completed legacy terminal state for a failed run header', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: 'tool_failed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
   test('getMessages repairs terminal run headers without terminal evidence as missing_terminal_event failures', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
