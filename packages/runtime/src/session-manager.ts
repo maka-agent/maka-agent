@@ -775,6 +775,7 @@ export class SessionManager {
         ? isTrustworthyRecoveredTerminal(run, legacyTerminal, recoveredTerminal)
         : false;
       if (recoveredTerminal && canTrustRecoveredTerminal) {
+        await this.updateRunFromRecoveredTerminal(sessionId, run, legacyTerminal, recoveredTerminal);
         const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recovered);
         for (const event of eventsToAppend) {
           await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
@@ -787,6 +788,22 @@ export class SessionManager {
       await this.repairMissingTerminalAsFailed(sessionId, run, runtimeEvents);
       return true;
     });
+  }
+
+  private async updateRunFromRecoveredTerminal(
+    sessionId: string,
+    run: AgentRunHeader,
+    turnState: Extract<StoredMessage, { type: 'turn_state' }> | undefined,
+    terminal: RuntimeEvent,
+  ): Promise<void> {
+    if (!this.deps.runStore) return;
+    if (terminal.status === 'failed' && run.status === 'failed' && !run.failureClass) {
+      await this.deps.runStore.updateRun(sessionId, run.runId, {
+        status: 'failed',
+        failureClass: turnState?.status === 'failed' ? turnState.errorClass ?? 'unknown' : 'unknown',
+        updatedAt: run.completedAt ?? run.updatedAt,
+      });
+    }
   }
 
   private async withTerminalRepairQueue<T>(
@@ -1322,13 +1339,11 @@ function isTrustworthyRecoveredTerminal(
   if (terminal.status === 'failed') {
     return run.status === 'failed' &&
       turnState.status === 'failed' &&
-      !!run.failureClass &&
-      (!turnState.errorClass || turnState.errorClass === run.failureClass);
+      (!run.failureClass || !turnState.errorClass || turnState.errorClass === run.failureClass);
   }
   if (terminal.status === 'aborted' || terminal.status === 'cancelled') {
     return run.status === 'cancelled' &&
-      turnState.status === 'aborted' &&
-      !!turnState.abortSource;
+      turnState.status === 'aborted';
   }
   return false;
 }

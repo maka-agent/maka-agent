@@ -331,6 +331,9 @@ function terminalRuntimeEvent(input: {
         endInvocation: true,
         stateDelta: {
           ...terminalRecoveryState(input.now, turnState),
+          ...(status === 'failed' && turnState?.errorClass !== undefined ? { failureClass: turnState.errorClass } : {}),
+          ...(status === 'failed' && turnState?.errorClass !== undefined ? { errorClass: turnState.errorClass } : {}),
+          ...(status === 'aborted' && turnState?.status === 'aborted' && turnState.abortSource === undefined ? { abortSource: 'unknown' } : {}),
           ...(turnState?.abortSource !== undefined ? { abortSource: turnState.abortSource } : {}),
         },
       },
@@ -345,7 +348,9 @@ function terminalStatus(
 ): RuntimeEventStatus | undefined {
   const legacyStatus = turnState?.status;
   if (legacyStatus === 'completed' || run.status === 'completed') return 'completed';
-  if ((legacyStatus === 'failed' || run.status === 'failed') && run.failureClass) return 'failed';
+  if (legacyStatus === 'failed' && run.status === 'failed') return 'failed';
+  if ((legacyStatus === 'failed' || run.status === 'failed') && (run.failureClass || turnState?.errorClass)) return 'failed';
+  if (legacyStatus === 'aborted' && run.status === 'cancelled') return 'aborted';
   if ((legacyStatus === 'aborted' || run.status === 'cancelled') && turnState?.abortSource) return 'aborted';
   return undefined;
 }
