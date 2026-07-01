@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./ahe-target-protocol": {
+      "types": "./dist/ahe-target-protocol.d.ts",
+      "default": "./dist/ahe-target-protocol.js"
     }
   },
   "imports": {

@@ -170,6 +170,41 @@ export {
   type ExternalHarborBenchmarkFailureInput,
   type ExternalHarborBenchmarkFailureKind,
 } from './harbor-failure-policy.js';
+export type {
+  MakaAheArtifactRef,
+  MakaAheChangeEvaluation,
+  MakaAheChangeEvaluationCell,
+  MakaAheChangeManifest,
+  MakaAheComponentCategory,
+  MakaAheEvidenceCase,
+  MakaAheHarnessResults,
+  MakaAheResultStatus,
+  MakaAheRunResult,
+  MakaAheScoreAuthority,
+  MakaAheSnapshotIdentity,
+  MakaAheSourceRef,
+  MakaAheTargetComponent,
+  MakaAheTargetProtocolVersion,
+  MakaAheTargetSnapshot,
+  MakaAheTargetSourceLabel,
+  MakaAheTraceIndex,
+  MakaAheTraceIndexEntry,
+  MakaAheTransitionStatus,
+  MakaAheValidationIssue,
+  MakaAheValidationResult,
+} from './ahe-target-protocol.js';
+export {
+  MAKA_AHE_COMPONENT_CATEGORIES,
+  MAKA_AHE_CURRENT_COMPONENTS,
+  MAKA_AHE_RESULT_STATUSES,
+  MAKA_AHE_SCORE_AUTHORITIES,
+  MAKA_AHE_TARGET_PROTOCOL_VERSION,
+  MAKA_AHE_TARGET_SOURCE_LABEL,
+  MAKA_AHE_TRANSITION_STATUSES,
+  validateMakaAheChangeManifest,
+  validateMakaAheRunResult,
+  validateMakaAheTargetComponents,
+} from './ahe-target-protocol.js';
 export type { TaskRunExport, WriteTaskRunExportOptions, WriteTaskRunExportResult } from './result-export.js';
 export {
   exportContentHash,
