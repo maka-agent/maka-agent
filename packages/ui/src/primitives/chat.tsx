@@ -533,12 +533,9 @@ export { toolVariants };
  * here. That second consumer is exactly the condition the off-barrel convention
  * named for promotion, so the export is the rule, not an exception.
  *
- * The card mount entrance rides the literal `[animation:maka-tool-card-enter …]`
- * shorthand; its `@keyframes maka-tool-card-enter` moves to `maka-tokens.css` (the
- * canonical motion home next to `maka-pulse` / `maka-tool-pulse`). Reduced-motion
- * and visual-smoke suppression both ride the GLOBAL `*` rules (maka-tokens.css /
- * base.css), so the migrated cards need no per-element motion utility and no
- * per-class `@media` rule, exactly as the PR3b card did.
+ * Preview card shells use the shared shadow-ring recipe instead of hard visual
+ * borders. Dividers inside the cards remain real borders because they separate
+ * rows and headers.
  */
 const previewVariants = cva("", {
   variants: {
@@ -557,7 +554,7 @@ const previewVariants = cva("", {
       // `.maka-tool-diff` — the card shell. `[white-space:normal]` overrides the
       // overlay base's pre-wrap on the chat consumer.
       diff:
-        "grid gap-0 p-0 [border:1px_solid_var(--border)] rounded-[8px] bg-[var(--background)] [white-space:normal] [animation:maka-tool-card-enter_350ms_var(--ease-out-strong)_both]",
+        "grid gap-0 p-0 rounded-[8px] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
       // `.maka-tool-diff-paths` (+ its bare `code` children).
       "diff-paths":
         "flex flex-wrap gap-[6px] px-[8px] py-[5px] [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]"
@@ -577,7 +574,7 @@ const previewVariants = cva("", {
       // ── terminal ──────────────────────────────────────────────────────────
       // `.maka-tool-terminal` — same card shell as diff.
       terminal:
-        "grid gap-0 p-0 [border:1px_solid_var(--border)] rounded-[8px] bg-[var(--background)] [white-space:normal] [animation:maka-tool-card-enter_350ms_var(--ease-out-strong)_both]",
+        "grid gap-0 p-0 rounded-[8px] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
       // `.maka-tool-terminal-head`
       "terminal-head":
         "flex flex-wrap items-center gap-[6px] px-[8px] py-[5px] [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]",
@@ -717,7 +714,7 @@ const previewVariants = cva("", {
       // ── load-tool result card (separate base; not an overlay) ─────────────
       // `.maka-load-tool-preview` (+ its `p` margin reset).
       "load-tool":
-        "mt-[5px] mx-0 mb-0 px-[8px] py-[5px] grid gap-[2px] [border:1px_solid_var(--border)] rounded-[6px] bg-[var(--background)] text-[10px] [animation:maka-tool-card-enter_350ms_var(--ease-out-strong)_both] [&_p]:m-0",
+        "mt-[5px] mx-0 mb-0 px-[8px] py-[5px] grid gap-[2px] rounded-[6px] bg-[var(--background)] text-[10px] [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
       // `.maka-load-tool-title`
       "load-tool-title": "font-semibold",
       // `.maka-load-tool-count`

@@ -226,8 +226,11 @@
   /* === layout === */
   --font-size-base: 15px;
   --radius: 0rem;
-  --radius-button: 6px;        /* buttons get a small radius for tactility */
-  --radius-modal: 8px;
+  --radius-control: 6px;
+  --radius-surface: 8px;
+  --radius-modal: 12px;
+  --radius-pill: 999px;
+  --radius-button: var(--radius-control);
   --spacing: 0.25rem;          /* 4px base step */
   --icon-size: 16px;           /* chrome glyph size (nav + button icons); dense
                                   meta (12-14) and hero (20+) stay call-site */
@@ -874,15 +877,7 @@
     max-width: var(--maka-chat-measure, 680px);
     margin: 0 auto;
     width: 100%;
-    /* Subtle fade on first paint — uses @starting-style instead of a
-       keyframe so the transition is interruptible and stays smooth even
-       when messages are streaming in rapidly (emil-design-eng "Use CSS
-       transitions over keyframes for interruptible UI"). */
     opacity: 1;
-    transition: opacity 240ms ease-out;
-  }
-  @starting-style {
-    .maka-message-row { opacity: 0; }
   }
 
   /* Turn grouping (per kenji UI-04): user msg + tools + assistant answer
@@ -923,9 +918,6 @@
    *     with a custom chevron that rotates 90deg on `[open]` using
    *     a spring-ish cubic-bezier from design-taste-frontend §5
    *     (220ms `cubic-bezier(0.16, 1, 0.3, 1)`).
-   *   - Body fades in on open via @starting-style — content still
-   *     mounts/unmounts (native `<details>` toggles `display`), but
-   *     the opacity ramp softens the visual snap.
    * `cursor: pointer` deliberately NOT applied to the summary —
    * macOS reserves the hand for links; details summaries use the
    * default arrow. Enforced by `cursor-convention-contract.test.ts`.
@@ -986,17 +978,6 @@
     line-height: 1.55;
     font-style: italic;
     opacity: 0.9;
-    /* Fade-in when the parent <details> flips open. @starting-style
-       requires the rule to run on the first render after [open]
-       toggles — opacity starts at 0 then ramps to 0.9. Content
-       still mounts instantly (native <details>); the opacity ramp
-       softens the visual snap. */
-    transition: opacity 180ms ease-out;
-  }
-  @starting-style {
-    .maka-turn-thinking[open] > .maka-turn-thinking-body {
-      opacity: 0;
-    }
   }
 
   .maka-turn-thinking-actions {
@@ -1455,23 +1436,13 @@
      packages/ui/src/primitives/chat.tsx). What stays here is the irreducible
      residue that escapes the computed-style proof, re-keyed on the governed
      `[data-slot="tool"]` hook instead of the retired `.maka-tool` class: the
-     mount entrance (transition + `@starting-style`, which only paints on the
-     first frame, so it has no at-rest computed style to diff) and the native
-     `<summary>` marker reset (pseudo-elements with no leaf-utility form). Both
-     are pinned by the PR3b cascade contract. The running status dot's
-     `@keyframes maka-tool-pulse` (below) likewise stays — a keyframe is a global
-     rule, not an element property. */
+     native `<summary>` marker reset (pseudo-elements with no leaf-utility form).
+     The running status dot's `@keyframes maka-tool-pulse` (below) likewise stays
+     because it is a functional status animation. */
   [data-slot="tool"] {
-    /* Same entrance as message rows — opacity + tiny lift on first paint. */
     opacity: 1;
     transform: translateY(0);
-    transition:
-      opacity 200ms ease-out,
-      transform 200ms var(--ease-out-strong),
-      border-color 160ms ease;
-  }
-  @starting-style {
-    [data-slot="tool"] { opacity: 0; transform: translateY(4px); }
+    transition: border-color 160ms ease;
   }
   /* Native <details>/<summary> marker reset — the summary IS the header row
      (laid out by `toolVariants({ part: 'header' })`), so the default disclosure
@@ -1495,18 +1466,6 @@
   @keyframes maka-pulse {
     0%, 100% { opacity: 0.55; transform: scale(1); }
     50%      { opacity: 1;    transform: scale(1.1); }
-  }
-
-  /* Canonical tool-result card mount entrance (issue #332, PR4). The compact
-     "lands instead of pops in" opacity+scale breath the OverlayPreview cards
-     (file-diff / terminal) and the load-tool card share via the
-     `[animation:maka-tool-card-enter_…]` literal in `@maka/ui` previewVariants.
-     Moved here from styles/tool-output.css so every keyframe lives in the one
-     canonical motion home; reduced-motion / visual-smoke suppression ride the
-     global `*` rules. */
-  @keyframes maka-tool-card-enter {
-    from { opacity: 0; transform: scale(0.97); }
-    to   { opacity: 1; transform: scale(1); }
   }
 
   /* ---- Composer --------------------------------------------------- */
@@ -1645,10 +1604,6 @@
     z-index: var(--z-modal);
     overscroll-behavior: contain;
     opacity: 1;
-    transition: opacity 200ms ease-out;
-  }
-  @starting-style {
-    .maka-modal-backdrop { opacity: 0; }
   }
   .maka-modal {
     background: var(--background);
@@ -1659,16 +1614,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    transform: scale(1);
     opacity: 1;
-    /* Modals keep transform-origin: center because they aren't anchored
-       to a trigger. */
-    transition:
-      transform 220ms var(--ease-out-strong),
-      opacity 200ms ease-out;
-  }
-  @starting-style {
-    .maka-modal { transform: scale(0.96); opacity: 0; }
   }
   .maka-modal-header {
     padding: 16px 20px 8px 20px;

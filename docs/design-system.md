@@ -96,7 +96,7 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 | `--background-elevated` | 卡片、Pill 内部填充 | 不要用作页面主背景 |
 | `--foreground` | 主文字、Active 行文字、modal title | 不要在 `--background-elevated` 上做"略低对比" — 用 `--foreground-80` |
 | `--foreground-dimmed` | 极少用 — 主要是 placeholder hover 时的过渡 | 一般用 `--foreground-50/60` 替代 |
-| `--accent` | 紫色品牌、execute 模式、链接、单选 radio、user-bubble 角标 | 不要做 Settings hero（那是 `--brand-deep`），不要做 success（那是 `--success`） |
+| `--accent` | 链接、focus ring、active 状态、live/status dot、toast/sidebar accent、控件 checked 状态 | 不要做 primary CTA；主按钮用 foreground-as-primary |
 | `--info` | 琥珀，ask 模式、warning 类提示、`info_text` 文案 | 不要拿 info 表"启用中流式" — 那是 `--accent` |
 | `--success` | 绿色，"已验证"、"已完成"、connected | 不要拿 success 表"已配置但未测试" — 那是 info |
 | `--destructive` | 红，error、denied、fs_destructive、git_destructive | 不要因为 hover/active 看起来更"突出"就升级到 destructive |
@@ -155,12 +155,10 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 | Token | 值 | 用法 |
 |---|---|---|
 | `--radius` | 0rem | 默认；page、layout 容器 |
-| `--radius-button` | 6px | button / sidebar row / pill close button |
-| `--radius-modal` | 8px | Settings / Confirm / Permission modal |
-| 行内代码 | 4px hardcoded | inline `<code>`，不引 token 因为只此一处 |
-| code block | 10px hardcoded | `.maka-code-block` wrapper |
-| 内部 workspace 面板 | 12px hardcoded | `.agents-content-area` / floating card 等"大面"。匹配 macOS 窗口外圆角，让面板有"卡片嵌在 chrome 里"的视觉。这是允许的最大值。 |
-| Pill / chip / round dot | 999px hardcoded | 视觉上必须圆 |
+| `--radius-control` / `--radius-button` | 6px | button / input / small chip / sidebar row |
+| `--radius-surface` | 8px | card / popover / code block |
+| `--radius-modal` | 12px | Settings / Confirm / Permission modal / composer |
+| `--radius-pill` | 999px | pill / badge / round dot |
 | `smooth-corners` utility | superellipse（iOS 风） | 选用，浏览器支持自动 fallback |
 
 > 这是有意的反规范：Maka 整体 0px 直角 + 关键交互组件 6/8/10px + 大面板上限 12px。
@@ -188,7 +186,8 @@ Maka 不提供用户可配置的界面密度。新增布局应按具体 surface 
 | `--ease-in-out-strong` | `cubic-bezier(0.77, 0, 0.175, 1)` | 屏内运动（panel 切换） |
 | `--ease-drawer` | `cubic-bezier(0.32, 0.72, 0, 1)` | iOS 抽屉 / sheet 风格 |
 
-详见 §4。
+弹层、tooltip、toast、tool/result card 默认 instant appear/disappear。只保留功能性动画：
+spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press/focus feedback。详见 §4。
 
 ### 1.7 z-index 阶梯
 

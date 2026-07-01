@@ -22,9 +22,7 @@ import { REPO_ROOT, RENDERER_STYLES_DIR, TOKENS_FILE, readAllRendererCss, stripC
  *      `.maka-tool-error*` banner (PR3c), `.maka-code` base, `.maka-message-row`
  *      (PR1), the artifact pane's own `.maka-artifact-preview-diff` positioning,
  *      the `.composer` (next component), and the Settings live-query list;
- *   2. the card mount entrance `@keyframes maka-tool-card-enter` relocating to the
- *      canonical motion home (maka-tokens.css) — an animation can't be a leaf
- *      literal and `getComputedStyle` reads a phase-dependent value;
+ *   2. the absence of decorative mount animation after issue #406 gap 3;
  *   3. the escape literals + the cross-package barrel export the diff harness (a
  *      chat-only fixture) never exercises.
  */
@@ -64,30 +62,13 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
     }
   });
 
-  it('moves @keyframes maka-tool-card-enter to the canonical motion home', async () => {
+  it('does not reintroduce decorative preview-card mount animation', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
-    assert.ok(
-      tokens.includes('@keyframes maka-tool-card-enter'),
-      '`@keyframes maka-tool-card-enter` must live in maka-tokens.css now (next to maka-pulse / maka-tool-pulse)',
-    );
+    assert.ok(!tokens.includes('@keyframes maka-tool-card-enter'));
     const toolOutput = stripCssComments(
       await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'),
     );
-    assert.ok(
-      !toolOutput.includes('@keyframes maka-tool-card-enter'),
-      'the keyframe must no longer live in styles/tool-output.css',
-    );
-    // The frames the card entrance animates between (the diff harness can't read a
-    // keyframe). Opacity 0 + scale .97 -> 1.
-    const block = tokens.slice(
-      tokens.indexOf('@keyframes maka-tool-card-enter'),
-      tokens.indexOf('@keyframes maka-tool-card-enter') + 160,
-    );
-    assert.ok(
-      block.includes('opacity: 0') && block.includes('scale(0.97)'),
-      'maka-tool-card-enter must keep the retired from-frame (opacity 0 / scale .97)',
-    );
-    assert.ok(block.includes('scale(1)'), 'maka-tool-card-enter must keep the retired to-frame (scale 1)');
+    assert.ok(!toolOutput.includes('@keyframes maka-tool-card-enter'));
   });
 
   it('pins the preview escape literals + guards against scale drift in chat.tsx', async () => {
@@ -100,11 +81,7 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
     const block = chatSrc.slice(start, chatSrc.indexOf('export { previewVariants }', start));
     assert.ok(start !== -1 && block.length > 0, 'previewVariants table must exist in chat.tsx');
 
-    // The card mount entrance is a keyframe animation the diff harness can't reach.
-    assert.ok(
-      block.includes('[animation:maka-tool-card-enter_350ms_var(--ease-out-strong)_both]'),
-      'diff / terminal / load-tool cards must carry the entrance animation literal',
-    );
+    assert.ok(!block.includes('maka-tool-card-enter'), 'preview cards must render instantly');
     // The file-diff data-line colour matrix — the one preview surface whose tint
     // varies by attribute and which BOTH chat and artifact-preview render, so the
     // shared part is the co-migration's load-bearing literal.

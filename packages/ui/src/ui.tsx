@@ -88,7 +88,7 @@ export const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary/10 text-primary',
+        default: 'border-transparent bg-accent/10 text-accent',
         secondary: 'border-border bg-secondary text-secondary-foreground',
         success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
         warning: 'border-amber-500/25 bg-amber-500/10 text-amber-800',
@@ -159,7 +159,7 @@ export const Checkbox = forwardRef<
       className={cn(
         'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background text-foreground shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        'data-[checked]:border-primary data-[checked]:bg-primary data-[checked]:text-primary-foreground',
+        'data-[checked]:border-accent data-[checked]:bg-accent data-[checked]:text-accent-foreground',
         'data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
@@ -201,7 +201,7 @@ const DialogPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<ty
     <BaseDialog.Popup
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[min(92vw,640px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-maka-panel',
+        'fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[min(92vw,640px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-maka-panel',
         className,
       )}
       {...props}
@@ -310,7 +310,7 @@ export const SelectPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithou
   // read as "can't select". Pin the popup to `--z-overlay` (300)
   // so it always floats above the modal it was triggered from
   // (WAWQAQ msg `d3ea9a33` 2026-06-26).
-  return <BaseSelect.Popup ref={ref} className={cn('z-[var(--z-overlay)] min-w-40 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-maka-panel', className)} {...props} />;
+  return <BaseSelect.Popup ref={ref} className={cn('z-[var(--z-overlay)] min-w-40 rounded-lg bg-popover p-1 text-popover-foreground shadow-maka-panel', className)} {...props} />;
 });
 export const SelectGroup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Group>>(function SelectGroup(
   { className, ...props },
@@ -387,7 +387,7 @@ export const Switch = forwardRef<
       className={cn(
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-input bg-muted shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        'data-[checked]:bg-primary data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'data-[checked]:bg-accent data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
       {...props}
@@ -454,13 +454,13 @@ export const Radio = forwardRef<
       className={cn(
         'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-input bg-background shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        'data-[checked]:border-primary data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'data-[checked]:border-accent data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
       {...props}
     >
       <BaseRadio.Indicator className="grid place-items-center">
-        <span className="block h-2 w-2 rounded-full bg-primary" />
+        <span className="block h-2 w-2 rounded-full bg-accent" />
       </BaseRadio.Indicator>
     </BaseRadio.Root>
   );
@@ -481,7 +481,7 @@ export const Progress = forwardRef<
       {...props}
     >
       <BaseProgress.Track className="absolute inset-0 overflow-hidden">
-        <BaseProgress.Indicator className="block h-full origin-left bg-primary transition-transform" />
+        <BaseProgress.Indicator className="block h-full origin-left bg-accent transition-transform" />
       </BaseProgress.Track>
     </BaseProgress.Root>
   );

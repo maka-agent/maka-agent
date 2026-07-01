@@ -125,12 +125,12 @@
     border-radius: 999px;
     background: var(--background);
     color: var(--foreground-70);
-    box-shadow: var(--shadow-medium);
-    opacity: 1;
-    transition:
-      transform var(--duration-emphasized) var(--ease-out-strong),
-      opacity var(--duration-emphasized) var(--ease-out-strong),
-      background 120ms ease;
+  box-shadow: var(--shadow-medium);
+  opacity: 1;
+  transition:
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    opacity var(--duration-emphasized) var(--ease-out-strong),
+    background 120ms ease;
   }
 
   .maka-chat-jump-bottom:hover {
@@ -143,12 +143,6 @@
     transform: translateX(-50%) scale(0.97);
   }
 
-  @starting-style {
-    .maka-chat-jump-bottom {
-      opacity: 0;
-      transform: translateX(-50%) translateY(8px);
-    }
-  }
 }
 
 @layer components {
@@ -322,16 +316,7 @@
   pointer-events: auto;
   opacity: 1;
   transform: translateX(0);
-  transition:
-    opacity 200ms var(--ease-out-strong),
-    transform 240ms var(--ease-out-strong);
-}
-
-@starting-style {
-  .maka-toast {
-    opacity: 0;
-    transform: translateX(24px);
-  }
+  transition: background 120ms var(--ease-out-strong);
 }
 
 .maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }

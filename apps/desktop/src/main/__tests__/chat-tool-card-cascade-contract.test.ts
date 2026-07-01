@@ -22,11 +22,8 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  *   2. the running status dot's `@keyframes maka-tool-pulse` ring frames — an
  *      animation can't be a leaf-literal and `getComputedStyle` reads a phase-
  *      dependent value, so the breath is pinned here + by the `chat.tsx` literal;
- *   3. the card mount entrance (`transition` + `@starting-style`) and native
- *      `<summary>` marker reset — re-keyed off the retired `.maka-tool` class onto
- *      the governed `[data-slot="tool"]` hook, kept as a named CSS residue because
- *      `@starting-style` paints only on the first frame and pseudo-element resets
- *      have no leaf-utility form.
+ *   3. native `<summary>` marker reset — re-keyed off the retired `.maka-tool`
+ *      class onto the governed `[data-slot="tool"]` hook.
  */
 describe('chat tool-card migration contract (#332 PR3b)', () => {
   it('retires the bespoke tool-card shell selectors (without touching error/preview/maka-code)', async () => {
@@ -93,23 +90,17 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
     }
   });
 
-  it('keeps the card entrance + marker reset residue, re-keyed onto [data-slot="tool"]', async () => {
+  it('keeps only the marker reset residue, re-keyed onto [data-slot="tool"]', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
-    // The retired `.maka-tool` class no longer carries the entrance — it moved to
-    // the governed slot hook. (The class form lives only as `.maka-tool-error*`
-    // now, asserted out-of-scope above.)
     assert.ok(
       !tokens.includes('.maka-tool {') && !tokens.includes('@starting-style {\n    .maka-tool'),
-      'the entrance must no longer hang off the retired `.maka-tool` class',
+      'the retired `.maka-tool` class must not return',
     );
+    assert.ok(!tokens.includes('@starting-style'), 'decorative tool-card entrance styles are banned');
     for (const residue of [
-      // the mount entrance: explicit rest values + the transition…
       '[data-slot="tool"] {',
       'transform: translateY(0)',
-      'transition:\n      opacity 200ms ease-out,\n      transform 200ms var(--ease-out-strong),\n      border-color 160ms ease;',
-      // …and the `@starting-style` first-frame start (no at-rest computed style)
-      '[data-slot="tool"] { opacity: 0; transform: translateY(4px); }',
-      // the native disclosure-triangle suppression (pseudo-elements, no utility form)
+      'transition: border-color 160ms ease;',
       '[data-slot="tool"] > summary::-webkit-details-marker { display: none; }',
       "[data-slot=\"tool\"] > summary::marker { content: ''; }",
     ]) {

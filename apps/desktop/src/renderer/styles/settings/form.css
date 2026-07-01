@@ -103,17 +103,8 @@
   backdrop-filter: blur(14px) saturate(0.85);
   -webkit-backdrop-filter: blur(14px) saturate(0.85);
   padding: 34px;
-  /* Modern @starting-style entrance — emil-design-eng prefers transitions
-     over keyframes for modals so the animation is interruptible. */
   opacity: 1;
-  transition: opacity 200ms var(--ease-out-strong);
   overscroll-behavior: contain;
-}
-
-@starting-style {
-  .settingsModalBackdrop {
-    opacity: 0;
-  }
 }
 
 .settingsModal {
@@ -140,18 +131,7 @@
     var(--card-shadow),
     var(--card-highlight),
     0 28px 64px oklch(0 0 0 / 0.10);
-  transform: scale(1);
   opacity: 1;
-  transition:
-    transform 240ms var(--ease-out-strong),
-    opacity 200ms var(--ease-out-strong);
-}
-
-@starting-style {
-  .settingsModal {
-    transform: scale(0.96);
-    opacity: 0;
-  }
 }
 
 .settingsModal.settingsPage {
@@ -174,16 +154,6 @@
   z-index: var(--z-settings-fullpage);
   overflow: hidden;
   transform: none;
-  transition: opacity 160ms var(--ease-out-strong);
-}
-
-@starting-style {
-  .settingsModal.settingsPage {
-    /* PR-AUDIT-CLEANUP-BATCH-2: the matching `.settingsModal.settingsPage`
-       rule only transitions `opacity` (line ~7026), so a `transform: none`
-       here was a no-op — kept just the opacity start-style. */
-    opacity: 0;
-  }
 }
 
 .settingsSurface[data-modal="true"] {
@@ -193,4 +163,3 @@
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
 }
-
