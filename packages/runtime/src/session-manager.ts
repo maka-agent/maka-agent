@@ -742,6 +742,7 @@ export class SessionManager {
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
     let repaired = false;
     for (const run of runs) {
+      if (run.parentRunId) continue;
       if (!isTerminalRunStatus(run.status)) continue;
       if (await this.repairRunTerminalFact(sessionId, run)) repaired = true;
     }

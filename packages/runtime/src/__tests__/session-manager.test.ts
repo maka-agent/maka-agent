@@ -938,6 +938,49 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
   });
 
+  test('getMessages repairs only the top-level run required by the read model', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'child-run',
+      turnId: 'child-turn',
+      parentRunId: 'run-1',
+      parentTurnId: 'turn-1',
+      status: 'completed',
+      createdAt: 110,
+      updatedAt: 112,
+      completedAt: 112,
+    }), [
+      runtimeEvent({ id: 'rt-child-text', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 111, role: 'model', author: 'agent', content: { kind: 'text', text: 'child answer' } }),
+    ]);
+
+    await manager.getMessages(session.id);
+
+    const topLevelEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+    const childEvents = await runStore.readRuntimeEvents(session.id, 'child-run');
+    expect(topLevelEvents.some((event) => event.status === 'failed')).toBe(true);
+    expect(childEvents.some((event) => event.status === 'failed' || event.status === 'completed')).toBe(false);
+  });
+
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
