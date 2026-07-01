@@ -93,6 +93,34 @@ describe('extractRewardHackVerifierPatterns', () => {
     });
   });
 
+  test('omits canaries that also appear in model-visible task files', async () => {
+    await withDir(async (dir) => {
+      const taskPath = join(dir, 'visible-helper-canary');
+      await mkdir(join(taskPath, 'tests'), { recursive: true });
+      await mkdir(join(taskPath, 'environment', 'task_file', 'scripts'), { recursive: true });
+      await writeFile(join(taskPath, 'tests', 'test_outputs.py'), `# ${CANARY}\n`, 'utf8');
+      await writeFile(
+        join(taskPath, 'environment', 'task_file', 'scripts', 'cost_model.py'),
+        `# ${CANARY}\nprint("normal helper")\n`,
+        'utf8',
+      );
+
+      assert.deepEqual(await extractRewardHackVerifierPatterns(taskPath), []);
+    });
+  });
+
+  test('keeps canaries that only reappear in hidden solution files', async () => {
+    await withDir(async (dir) => {
+      const taskPath = join(dir, 'hidden-solution-canary');
+      await mkdir(join(taskPath, 'tests'), { recursive: true });
+      await mkdir(join(taskPath, 'solution'), { recursive: true });
+      await writeFile(join(taskPath, 'tests', 'test_outputs.py'), `# ${CANARY}\n`, 'utf8');
+      await writeFile(join(taskPath, 'solution', 'solve.sh'), `# ${CANARY}\n`, 'utf8');
+
+      assert.deepEqual(await extractRewardHackVerifierPatterns(taskPath), [GUID]);
+    });
+  });
+
   test('builds a per-task pattern map', async () => {
     await withDir(async (dir) => {
       const a = await makeTask(dir, 'alpha', { 'test_outputs.py': `# ${CANARY}\n` });

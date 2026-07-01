@@ -481,7 +481,7 @@ describe('prompt acceptance policy', () => {
     assert.deepEqual(decision.metrics.candidate.heldIn.plumbingFailedTaskIds, ['in-b']);
   });
 
-  test('records reward-hack quarantine evidence without vetoing metric keep', async () => {
+  test('discards metric-improving candidates with reward-hack quarantine evidence', async () => {
     await withDir(async (dir) => {
       const rewardHackScan = {
         decision: 'quarantine' as const,
@@ -493,9 +493,9 @@ describe('prompt acceptance policy', () => {
         rewardHackScan,
       });
 
-      assert.equal(decision.decision, 'keep');
-      assert.equal(decision.reason, 'held_in_improved');
-      assert.equal(decision.lastKeptCommitSha, 'candidate-2');
+      assert.equal(decision.decision, 'discard');
+      assert.equal(decision.reason, 'reward_hack_quarantined');
+      assert.equal(decision.lastKeptCommitSha, 'kept-1');
       assert.deepEqual(decision.rewardHackScan, rewardHackScan);
 
       await appendPromptAcceptanceDecision({
@@ -506,7 +506,7 @@ describe('prompt acceptance policy', () => {
       });
       const [event] = await readFixedPromptWal(join(dir, 'results.jsonl'));
       assert.equal(event?.type, 'prompt_candidate_decided');
-      assert.equal(event?.reason, 'held_in_improved');
+      assert.equal(event?.reason, 'reward_hack_quarantined');
       assert.deepEqual(event?.rewardHackScan, rewardHackScan);
     });
   });

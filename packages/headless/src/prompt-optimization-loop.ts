@@ -266,9 +266,12 @@ export async function runPromptOptimizationLoop(
   ): Promise<PromptCandidateRewardHackScan> => {
     for (const event of events) {
       if (event.type !== 'task_completed') continue;
+      const verifierPatterns = (input.rewardHackVerifierPatternsByTaskId?.[event.taskId] ?? [])
+        .filter((pattern) => pattern.trim().length > 0);
+      if (verifierPatterns.length === 0) continue;
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath: event.runtimeEventsPath,
-        verifierPatterns: input.rewardHackVerifierPatternsByTaskId?.[event.taskId] ?? [],
+        verifierPatterns,
       });
       if (result.decision === 'quarantine') {
         return result.reason === 'verifier_pattern'
