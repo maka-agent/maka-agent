@@ -13,9 +13,8 @@ import type React from "react";
  * leaving Markdown prose (`.maka-bubble-assistant *`, maka-tokens.css) and the
  * turn machinery (summary / lineage / footer / markers — PR2) untouched.
  *
- * The row keeps the authored `.maka-message-row` base (centered reading column
- * + entrance fade/animation + the `data-maka-visual-smoke` disable). That base
- * lives in maka-tokens.css's `@layer components`, so the role utilities below
+ * The row keeps the authored `.maka-message-row` base (centered reading column).
+ * That base lives in maka-tokens.css's `@layer components`, so the role utilities below
  * (utilities layer) win over its `margin: 0 auto` for the left-anchored
  * assistant/system rows. The neutral `--chat-user-bg` token path is preserved
  * verbatim — the user bubble is never switched to `primary`/`accent`.
@@ -134,9 +133,9 @@ export function Bubble({
  *
  * NOTE: `.maka-turn-thinking` (the committed-turn reasoning `<details>`) is
  * deliberately NOT migrated here. Its chrome lives in `summary::before` /
- * `::-webkit-details-marker` pseudo-elements and an `@starting-style` body fade
- * that don't reduce to leaf utilities (so the source-string == computed-style
- * proof wouldn't hold), and `maka-tokens.css` already documents an intended
+ * `::-webkit-details-marker` pseudo-elements that don't reduce to leaf
+ * utilities (so the source-string == computed-style proof wouldn't hold), and
+ * `maka-tokens.css` already documents an intended
  * Base UI Accordion path for it. It stays hand-written for that later effort.
  */
 const markerVariants = cva("", {
@@ -384,7 +383,7 @@ export function LiveIndicator({
  * self-evidently-equal translation and is immune to later scale/token re-tuning
  * (the visual refresh, not this governance pass, owns adopting the scale).
  *
- * Three pieces escape the computed-style proof and are NOT in this table — they
+ * Two pieces escape the computed-style proof and are NOT in this table — they
  * stay a small named residue keyed on `[data-slot="tool"]` in maka-tokens.css,
  * pinned by the PR3b cascade contract (source strings + keyframe frames) rather
  * than the diff harness:
@@ -394,10 +393,7 @@ export function LiveIndicator({
  *      not an element property, and `getComputedStyle` reads a phase-dependent
  *      value). The running dot's box-shadow RING is a leaf rest-state literal, so
  *      it stays here and IS diff-proven.
- *   2. the card mount entrance (`transition` + `@starting-style` opacity/translate)
- *      — `@starting-style` only applies on the first frame, so it has no at-rest
- *      computed style to diff. Kept verbatim as residue.
- *   3. the native `<summary>` marker reset (`::-webkit-details-marker` /
+ *   2. the native `<summary>` marker reset (`::-webkit-details-marker` /
  *      `::marker`) — pseudo-elements with no leaf-utility form. Kept as residue.
  * (The reduced-motion / visual-smoke suppression both ride GLOBAL `*` rules in
  * maka-tokens.css / base.css, so — unlike `LiveIndicator`, a reusable primitive
@@ -439,9 +435,9 @@ const toolVariants = cva("", {
       // `.maka-tool` (effective: the later `padding: 0` rule wins over `8px 12px`)
       // + `.toolItem` + the `[open]>summary` divider + the `[data-status]` border /
       // background / opacity swaps. `[border: …]` / `[border-color: …]` are arbitrary
-      // so the status overrides touch only the color, never width/style. The mount
-      // entrance (transition + `@starting-style`) and `<summary>` marker reset stay
-      // a residue keyed on `[data-slot="tool"]` (see docstring).
+      // so the status overrides touch only the color, never width/style. The
+      // `<summary>` marker reset stays a residue keyed on `[data-slot="tool"]`
+      // (see docstring).
       item:
         "[border:1px_solid_var(--border)] rounded-[10px] bg-[var(--foreground-2)] p-0 mt-[8px] [font-family:var(--font-mono)] text-[12.5px] text-[color:var(--foreground-80)] overflow-hidden [box-shadow:var(--shadow-minimal-flat)]"
         + " [&[open]>summary]:[border-bottom:1px_solid_var(--border)]"
@@ -554,7 +550,7 @@ const previewVariants = cva("", {
       // `.maka-tool-diff` — the card shell. `[white-space:normal]` overrides the
       // overlay base's pre-wrap on the chat consumer.
       diff:
-        "grid gap-0 p-0 rounded-[8px] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
+        "grid gap-0 p-0 rounded-[var(--radius-surface)] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
       // `.maka-tool-diff-paths` (+ its bare `code` children).
       "diff-paths":
         "flex flex-wrap gap-[6px] px-[8px] py-[5px] [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]"
@@ -574,7 +570,7 @@ const previewVariants = cva("", {
       // ── terminal ──────────────────────────────────────────────────────────
       // `.maka-tool-terminal` — same card shell as diff.
       terminal:
-        "grid gap-0 p-0 rounded-[8px] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
+        "grid gap-0 p-0 rounded-[var(--radius-surface)] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
       // `.maka-tool-terminal-head`
       "terminal-head":
         "flex flex-wrap items-center gap-[6px] px-[8px] py-[5px] [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]",
@@ -714,7 +710,7 @@ const previewVariants = cva("", {
       // ── load-tool result card (separate base; not an overlay) ─────────────
       // `.maka-load-tool-preview` (+ its `p` margin reset).
       "load-tool":
-        "mt-[5px] mx-0 mb-0 px-[8px] py-[5px] grid gap-[2px] rounded-[6px] bg-[var(--background)] text-[10px] [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
+        "mt-[5px] mx-0 mb-0 px-[8px] py-[5px] grid gap-[2px] rounded-[var(--radius-control)] bg-[var(--background)] text-[10px] [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
       // `.maka-load-tool-title`
       "load-tool-title": "font-semibold",
       // `.maka-load-tool-count`

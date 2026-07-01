@@ -35,7 +35,6 @@
   box-shadow:
     var(--card-shadow),
     var(--card-highlight);
-  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
 }
 
 .maka-plan-hero {
@@ -532,20 +531,6 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-.maka-plan-card-grid > article {
-  animation: maka-workbench-card-scale-in 350ms var(--ease-out-strong) both;
-}
-
-.maka-plan-card-grid > article:nth-child(n + 1) { animation-delay: 60ms; }
-.maka-plan-card-grid > article:nth-child(n + 4) { animation-delay: 120ms; }
-.maka-plan-card-grid > article:nth-child(n + 8) { animation-delay: 180ms; }
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-plan-card-grid > article {
-    animation: none;
-  }
 }
 
 .maka-plan-form,
@@ -1301,40 +1286,6 @@
   box-shadow:
     var(--card-shadow),
     var(--card-highlight);
-  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
-}
-
-/* Reference-layout page-shell entrance — opacity 0 + translateY(6px) -> 0,
-   so each top-level module page lands as a lifted card rather than slamming
-   onto the canvas. Used by Skills + Plan/Reminder shells. */
-@keyframes maka-page-shell-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-skill-library,
-  .maka-plan-shell,
-  .maka-module-main .maka-daily-review-panel,
-  .maka-daily-review-panel {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-skill-library,
-[data-maka-visual-smoke="true"] .maka-plan-shell,
-[data-maka-visual-smoke="true"] .maka-module-main .maka-daily-review-panel,
-[data-maka-visual-smoke="true"] .maka-daily-review-panel {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
-
-[data-maka-visual-smoke="true"] .maka-plan-card-grid > article,
-[data-maka-visual-smoke="true"] .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card {
-  animation: none;
-  opacity: 1;
-  transform: none;
 }
 
 .maka-skill-tool-summary-hidden {

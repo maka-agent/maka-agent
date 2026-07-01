@@ -295,11 +295,8 @@
    real floating cards instead of pill chips, and a layered depth shadow
    (1px hairline + 3px close + 14px ambient) matching the impeccable
    "premium card stacking" recipe. Bigger padding so copy doesn't crowd
-   the edge.
-   Entry animation slides from the right edge (`translateX(24px)→0`)
-   instead of from bottom — toasts land at bottom-right by default,
-   so right-edge slide reads as "arriving" rather than "growing up
-   from the canvas". Easing stays `var(--ease-out-strong)`. */
+   the edge. Decorative toast entrance motion is retired; only hover/press
+   feedback keeps a short transition. */
 .maka-toast {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto auto;
@@ -760,5 +757,4 @@
   gap: 26px;
   color: var(--foreground);
   text-align: center;
-  animation: maka-hero-enter 320ms var(--ease-out-strong) both;
 }

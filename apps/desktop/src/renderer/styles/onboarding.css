@@ -1,12 +1,4 @@
-/* Onboarding hero — first-run, no real connection configured.
-   PR-ONBOARDING-HERO-STAGGER-0 (WAWQAQ msg `cdfd68eb`, skills round
-   task #116): block-level fade-up was a single 200ms ramp — every
-   child landed at the same moment, reading as a flat reveal. Now
-   the wrapper just sets layout; each direct child fades up + scales
-   from 0.96 with a 60ms cascade (Emil Kowalski "agents-with-taste":
-   start scale at 0.95-ish, not 0; cap entry at <300ms each;
-   transform+opacity only, GPU-accelerated). The block fade is gone
-   so we don't double-animate. */
+/* Onboarding hero — first-run, no real connection configured. */
 .maka-onboarding {
   width: min(680px, 100%);
   margin: auto;
@@ -16,61 +8,11 @@
   color: var(--foreground);
 }
 
-.maka-onboarding > * {
-  opacity: 0;
-  transform: translateY(8px) scale(0.96);
-  animation: maka-onboarding-child-enter 280ms var(--ease-out-strong) forwards;
-}
-.maka-onboarding > *:nth-child(1) { animation-delay: 0ms; }
-.maka-onboarding > *:nth-child(2) { animation-delay: 60ms; }
-.maka-onboarding > *:nth-child(3) { animation-delay: 120ms; }
-.maka-onboarding > *:nth-child(4) { animation-delay: 180ms; }
-.maka-onboarding > *:nth-child(n + 5) { animation-delay: 220ms; }
-
-@keyframes maka-onboarding-child-enter {
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-onboarding > * {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-onboarding > * {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
-
 /* PR-AUDIT-CLEANUP-BATCH-2 (WAWQAQ msg `01efbebb`): deleted unused
    `@keyframes maka-agents-slide-up` and `@keyframes maka-agents-fade-in`.
    Both were referenced only from rules that previous PRs removed
    (PR-ONBOARDING-HERO-STAGGER-0 + PR-FRONTEND-AUDIT-CLEANUP-0 F1).
-   `maka-hero-enter` is the live block-level entrance now. */
-
-@keyframes maka-workbench-card-scale-in {
-  0% {
-    opacity: 0;
-    transform: scale(0.97);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* PR-ONBOARDING-HERO-STAGGER-0: the prior `@media reduced-motion` +
-   `[data-maka-visual-smoke]` blocks that targeted the now-removed
-   block-level `.maka-onboarding` fade rule are gone. Per-child
-   stagger has its own guards above. (`maka-hero-enter` keyframe
-   itself is still used by `.maka-hero` / `.emptyChat` elsewhere —
-   self-review corrected an earlier "unused" claim here.) */
+   decorative entrance keyframes are retired by issue #406 gap 3. */
 
 .maka-onboarding header {
   display: grid;

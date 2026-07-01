@@ -701,27 +701,6 @@
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
     transform var(--duration-emphasized) var(--ease-out-strong);
-  /* Session list stagger — each row fades up with a 40ms cascade per index
-     via --maka-row-index custom property set by the renderer. Capped at 12
-     to avoid a long visible cascade on big sidebars. Reduced-motion below
-     drops the animation. */
-  animation: maka-list-row-enter 240ms var(--ease-out-strong) both;
-  animation-delay: calc(min(var(--maka-row-index, 0), 11) * 32ms);
-}
-
-@keyframes maka-list-row-enter {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-list-row {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-list-row {
-  animation: none;
 }
 
 .maka-list-row:hover {

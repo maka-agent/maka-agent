@@ -84,6 +84,15 @@
      stay neutral gray per the reference's restraint. */
   --accent: oklch(0.70 0.135 152);
   --accent-rgb: 92, 184, 112;
+  --action: oklch(0.52 0.135 152);
+  --action-foreground: oklch(0.985 0.003 250);
+  --control: oklch(0.52 0.135 152);
+  --control-foreground: oklch(0.985 0.003 250);
+  --link: var(--accent);
+  --focus-ring: var(--accent);
+  --status-running: var(--accent);
+  --nav-active: var(--accent);
+  --toast-accent: var(--accent);
   --info: oklch(0.75 0.16 70);          /* amber — "ask" mode, warnings */
   --info-rgb: 180, 120, 40;
   --success: oklch(0.55 0.17 145);      /* green — connected, ok */
@@ -91,9 +100,8 @@
   --destructive: oklch(0.58 0.24 28);   /* red — errors, denied */
   --destructive-rgb: 180, 60, 50;
 
-  /* Brand affordance — Done CTA, on-toggle state, provider mark backgrounds,
-     success chip surfaces. Derived from --accent so palette switches are
-     immediately visible across these prominent affordances.
+  /* Legacy brand affordance for a few emphasized surfaces. New CTA and checked
+     control states use --action / --control instead.
      PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): was a static
      "Solarpunk deep" green, which made palette switching invisible on the
      Done CTA and made every palette read as olive-green. */
@@ -237,8 +245,8 @@
 
   /* === motion ===
      Custom easing curves per emil-design-eng — the built-in CSS easings
-     are too weak to feel intentional. Use --ease-out-strong for UI
-     entrance/feedback, --ease-in-out-strong for on-screen movement,
+     are too weak to feel intentional. Use --ease-out-strong for
+     feedback/state changes, --ease-in-out-strong for on-screen movement,
      --ease-drawer for iOS-style drawer/sheet motion.
 
      PR-MOTION-TOKEN-CONVERGE-0 (kenji's category 4, 2026-06-24):
@@ -248,8 +256,8 @@
      240/280ms (6) → large. Pick by intent, not by feel:
        --duration-quick      — hover/press tactile feedback, focus rings
        --duration-base       — color/border/transform on interactive elements
-       --duration-emphasized — modal/drawer/sheet enter, larger surface lift
-       --duration-large      — onboarding hero stagger, large list cascades
+       --duration-emphasized — stronger hover/focus/status feedback
+       --duration-large      — reserved structural motion, not default mount
 
      Anything outside this scale needs a justifying comment. The
      `motion-token-converge-contract.test.ts` enforces this by banning
@@ -315,6 +323,15 @@
 
   --accent: oklch(0.74 0.15 152);
   --accent-rgb: 140, 229, 161;
+  --action: oklch(0.52 0.135 152);
+  --action-foreground: oklch(0.985 0.003 250);
+  --control: oklch(0.52 0.135 152);
+  --control-foreground: oklch(0.985 0.003 250);
+  --link: var(--accent);
+  --focus-ring: var(--accent);
+  --status-running: var(--accent);
+  --nav-active: var(--accent);
+  --toast-accent: var(--accent);
   --info: oklch(0.70 0.16 70);
   --info-rgb: 200, 140, 60;
   --success: oklch(0.60 0.17 145);
@@ -580,7 +597,10 @@
    Make tokens addressable as Tailwind utilities:
      bg-foreground-5       → background of subtle hover surface
      text-foreground-60    → secondary text
-     bg-accent             → primary accent fill
+     bg-accent             → accent garnish fill
+     bg-action             → primary action fill
+     bg-control            → checked/on/progress fill
+     text-link             → link emphasis
      border-border         → 1px subtle divider
    See https://tailwindcss.com/docs/v4-beta for @theme inline semantics.
 ============================================================================= */
@@ -591,6 +611,15 @@
   --color-foreground: var(--foreground);
   --color-foreground-dimmed: var(--foreground-dimmed);
   --color-accent: var(--accent);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
+  --color-control: var(--control);
+  --color-control-foreground: var(--control-foreground);
+  --color-link: var(--link);
+  --color-focus-ring: var(--focus-ring);
+  --color-status-running: var(--status-running);
+  --color-nav-active: var(--nav-active);
+  --color-toast-accent: var(--toast-accent);
   --color-info: var(--info);
   --color-success: var(--success);
   --color-destructive: var(--destructive);
