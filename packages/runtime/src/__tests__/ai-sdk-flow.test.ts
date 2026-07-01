@@ -372,6 +372,36 @@ describe('AiSdkFlow seam', () => {
     assert.equal(isTerminalRuntimeEvent(out[1]), true);
   });
 
+  test('synthesizes a failed terminal event when the backend exhausts without one', async () => {
+    const seen: SessionEvent[] = [];
+    let idSeq = 0;
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'text_delta', messageId: 'm1', text: 'partial answer' }),
+      ],
+    });
+    const flow = new AiSdkFlow({
+      backend,
+      onSessionEvent: (sessionEvent) => {
+        seen.push(sessionEvent);
+      },
+    });
+    const out = await collect(flow.run(
+      { ...ctx, newId: () => `synthetic-${(idSeq += 1)}`, now: () => 2000 },
+      { text: 'hi', context: [] },
+    ));
+
+    assert.deepEqual(seen.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.equal(seen[1]?.type, 'error');
+    assert.equal((seen[1] as Extract<SessionEvent, { type: 'error' }>).reason, 'missing_terminal_event');
+    assert.equal(seen[2]?.type, 'complete');
+    assert.equal((seen[2] as Extract<SessionEvent, { type: 'complete' }>).stopReason, 'error');
+    assert.equal(out.at(-2)?.content?.kind, 'error');
+    assert.equal((out.at(-2)?.content as { reason?: string } | undefined)?.reason, 'missing_terminal_event');
+    assert.equal(out.at(-1)?.status, 'failed');
+    assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
+  });
+
   test('maps the abort path to exactly one terminal event', async () => {
     const backend = new ScriptedBackend({
       events: [
