@@ -731,6 +731,90 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.status).toBe('completed');
   });
 
+  test('getMessages backfills assistant text and thinking from one legacy message', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      {
+        type: 'assistant',
+        id: 'legacy-assistant',
+        turnId: 'turn-1',
+        ts: 102,
+        text: 'answer',
+        modelId: 'fake-model',
+        thinking: { text: 'reasoning', signature: 'sig-1' },
+      },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+
+    await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(runtimeEvents.map((event) => event.content?.kind ?? event.status)).toEqual([
+      'text',
+      'text',
+      'thinking',
+      'completed',
+    ]);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+  });
+
+  test('getMessages preserves legacy transcript when fallback repair supplies missing terminal evidence', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+
+    const messages = await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
+    expect(messages.map((message) => message.id)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      runtimeEvents.at(-1)?.id,
+    ]);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      undefined,
+    ]);
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+    expect(runtimeEvents.at(-1)?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+  });
+
   test('getMessages resumes incomplete legacy backfill after append failure', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 1 });

@@ -786,18 +786,27 @@ export class SessionManager {
       const canTrustRecoveredTerminal = recoveredTerminal
         ? isTrustworthyRecoveredTerminal(run, legacyTerminal, recoveredTerminal)
         : false;
+      const recoveredEventsToPersist = canTrustRecoveredTerminal
+        ? recovered
+        : recovered.filter((event) => !isMatchingTerminalRuntimeEvent(run, event));
+      const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recoveredEventsToPersist);
       if (recoveredTerminal && canTrustRecoveredTerminal) {
         await this.updateRunFromRecoveredTerminal(sessionId, run, legacyTerminal, recoveredTerminal);
-        const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recovered);
         for (const event of eventsToAppend) {
           await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
         }
         return eventsToAppend.length > 0;
       }
 
-      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) return false;
+      for (const event of eventsToAppend) {
+        await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
+      }
 
-      await this.repairMissingTerminalAsFailed(sessionId, run, runtimeEvents);
+      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) {
+        return eventsToAppend.length > 0;
+      }
+
+      await this.repairMissingTerminalAsFailed(sessionId, run, [...runtimeEvents, ...eventsToAppend]);
       return true;
     });
   }
@@ -1327,10 +1336,10 @@ function missingRecoveredRuntimeEvents(
   existing: readonly RuntimeEvent[],
   recovered: readonly RuntimeEvent[],
 ): RuntimeEvent[] {
-  const storedMessageIds = new Set(
+  const recoveredEventKeys = new Set(
     existing
-      .map((event) => event.refs?.storedMessageId)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      .map(recoveredEventKey)
+      .filter((key): key is string => key !== undefined),
   );
   const hasTerminal = existing.some((event) => isMatchingTerminalRuntimeEvent(run, event));
   const matchedExistingEventIndexes = new Set<number>();
@@ -1340,10 +1349,10 @@ function missingRecoveredRuntimeEvents(
       if (!hasTerminal) missing.push(event);
       continue;
     }
-    const storedMessageId = event.refs?.storedMessageId;
-    if (typeof storedMessageId !== 'string' || storedMessageId.length === 0) continue;
-    if (storedMessageIds.has(storedMessageId)) continue;
-    storedMessageIds.add(storedMessageId);
+    const eventKey = recoveredEventKey(event);
+    if (!eventKey) continue;
+    if (recoveredEventKeys.has(eventKey)) continue;
+    recoveredEventKeys.add(eventKey);
     const existingIndex = existing.findIndex((candidate, index) =>
       !matchedExistingEventIndexes.has(index) && isSameRecoveredRuntimeEvent(candidate, event)
     );
@@ -1354,6 +1363,21 @@ function missingRecoveredRuntimeEvents(
     }
   }
   return missing;
+}
+
+function recoveredEventKey(event: RuntimeEvent): string | undefined {
+  const storedMessageId = event.refs?.storedMessageId;
+  if (typeof storedMessageId !== 'string' || storedMessageId.length === 0) return undefined;
+  return JSON.stringify({
+    storedMessageId,
+    role: event.role,
+    author: event.author,
+    status: event.status,
+    content: event.content,
+    toolCallId: event.refs?.toolCallId,
+    tokenUsage: event.actions?.tokenUsage,
+    permissionDecision: event.actions?.permissionDecision,
+  });
 }
 
 function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeEvent): boolean {
