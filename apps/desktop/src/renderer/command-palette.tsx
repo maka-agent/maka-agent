@@ -49,6 +49,7 @@ import { SETTINGS_NAV } from './settings/SettingsModal';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
 import type { Command, CommandKind } from './command-palette-types';
+import type { UseThreadSearchDeps } from './use-thread-search';
 export type { Command, CommandKind } from './command-palette-types';
 export { buildContentSearchCommands } from './command-palette-content-search';
 
@@ -579,6 +580,7 @@ export function CommandPalette(props: {
    * when the backend supplied one, scroll to the matched turn.
    */
   onSelectSession?: (sessionId: string, turnId?: string) => void;
+  threadSearchDeps?: UseThreadSearchDeps;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -599,7 +601,7 @@ export function CommandPalette(props: {
   // PR-SEARCH-2.6: content-search hits from local thread store. The
   // hook handles debounce, ticket-based race control, and unmount
   // safety. Query body never enters telemetry or local history.
-  const threadSearch = useThreadSearch(query);
+  const threadSearch = useThreadSearch(query, props.threadSearchDeps);
 
   const filtered = useMemo(() => {
     const q = query.trim();

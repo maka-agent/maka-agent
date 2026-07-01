@@ -227,8 +227,11 @@ export function useThreadSearchImpl(query: string, deps: UseThreadSearchDeps): U
  * Live renderer binding. Consumes `window.maka.search.thread()` via the
  * existing preload bridge.
  */
-export function useThreadSearch(query: string): UseThreadSearchResult {
-  return useThreadSearchImpl(query, LIVE_DEPS);
+export function useThreadSearch(
+  query: string,
+  deps: UseThreadSearchDeps = LIVE_DEPS,
+): UseThreadSearchResult {
+  return useThreadSearchImpl(query, deps);
 }
 
 const LIVE_DEPS: UseThreadSearchDeps = {
