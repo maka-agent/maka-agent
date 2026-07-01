@@ -31,7 +31,6 @@ import type {
   SettingsTestResult,
   UpdateAppSettingsResult,
   UpdateAppSettingsInput,
-  UsageRange,
 } from '@maka/core';
 import {
   isWebSearchProvider,
@@ -60,15 +59,7 @@ import { CodexSubscriptionService } from './oauth/codex-subscription-service.js'
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type {
-  PricingConfig,
-  UsageGroupBy,
-  UsageQuery,
-} from '@maka/core/usage-stats/types';
-import {
-  normalizePricingConfig,
-  normalizePricingModelKey,
-} from '@maka/core/usage-stats/pricing';
+import type { PricingConfig } from '@maka/core/usage-stats/types';
 import type {
   TestProxyInput,
   TestProxyResult,
@@ -189,6 +180,7 @@ import { registerConnectionsIpc } from './connections-ipc-main.js';
 import { registerPlanReminderIpc } from './plan-reminders-ipc-main.js';
 import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js';
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
+import { registerUsageIpc } from './usage-ipc-main.js';
 
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
@@ -1406,57 +1398,15 @@ function registerIpc(): void {
     const settings = await settingsStore.get();
     return getWechatBridgeQrCode(settings.botChat.channels.wechat);
   });
-  ipcMain.handle('settings:usageStats', (_event, range?: UsageRange) =>
-    settingsStore.usageStats(range),
-  );
-  ipcMain.handle('usage:summary', (_event, query: UsageQuery) =>
-    tryResult(async () => telemetryRepo.summary(query), 'USAGE_SUMMARY_FAILED'),
-  );
   registerDailyReviewIpc({ dailyReview, dailyReviewArchiveStore, mainWindowController });
-  ipcMain.handle('usage:buckets', (_event, query: UsageQuery & { groupBy: UsageGroupBy }) =>
-    tryResult(async () => telemetryRepo.buckets(query, query.groupBy), 'USAGE_BUCKETS_FAILED'),
-  );
-  ipcMain.handle('usage:logs', (_event, query: UsageQuery & { offset?: number; limit?: number }) =>
-    tryResult(async () => telemetryRepo.logs(query, query.offset, query.limit), 'USAGE_LOGS_FAILED'),
-  );
-  ipcMain.handle('usage:pricing:list', () =>
-    tryResult(async () => telemetryRepo.listPricingOverrides(), 'USAGE_PRICING_LIST_FAILED'),
-  );
-  ipcMain.handle('usage:pricing:put', (_event, pricing: unknown) =>
-    // PR-UI-IPC-3 (@kenji msg 9033abdf): normalize at the IPC
-    // store boundary. Telemetry repo only ever sees the canonical
-    // `PricingConfig` shape — required rates are finite >= 0,
-    // optional cache rates are either omitted or finite >= 0,
-    // modelKey is trimmed + non-empty + length-capped, extra
-    // fields stripped. Bad payload throws a typed error to the
-    // renderer; nothing reaches `telemetryRepo.upsertPricing`.
-    tryResult(async () => {
-      const normalized = normalizePricingConfig(pricing);
-      if (!normalized.ok) {
-        throw new Error(normalized.error);
-      }
-      await telemetryRepo.upsertPricing(normalized.value);
+  registerUsageIpc({
+    settingsStore,
+    telemetryRepo,
+    refreshPricingLookup: () => {
       lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-      safeSendToRenderer('usage:pricing:changed');
-      return normalized.value;
-    }, 'USAGE_PRICING_PUT_FAILED'),
-  );
-  ipcMain.handle('usage:pricing:reset', (_event, modelKey: unknown) =>
-    // PR-UI-IPC-3: same modelKey gate as put. Without this, reset
-    // could crash on a non-string key (e.g. `localeCompare`
-    // operates on the stored keys) or pass an empty string that
-    // matches an orphan entry. Sharing the helper means put + reset
-    // can't drift.
-    tryResult(async () => {
-      const keyResult = normalizePricingModelKey(modelKey);
-      if (!keyResult.ok) {
-        throw new Error(keyResult.error);
-      }
-      await telemetryRepo.deletePricing(keyResult.value);
-      lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-      safeSendToRenderer('usage:pricing:changed');
-    }, 'USAGE_PRICING_RESET_FAILED'),
-  );
+    },
+    sendToRenderer: safeSendToRenderer,
+  });
 
 }
 
