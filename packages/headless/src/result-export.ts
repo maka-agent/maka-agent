@@ -393,7 +393,7 @@ function eventsJsonl(events: readonly TaskEvent[]): string {
   return body.length > 0 ? `${body}\n` : '';
 }
 
-function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
+export function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
   if (event.type === 'heavy_task_self_check_recorded') {
     return isAcceptedHeavyTaskSelfCheck(event.selfCheck) ? [event] : [];
   }
