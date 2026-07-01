@@ -14,7 +14,8 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/headless test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
+    "test": "npm run test:scripts && npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/headless test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
+    "test:scripts": "node --test scripts/run-headless-tests.test.mjs",
     "dev": "npm --workspace @maka/desktop run dev:hmr --",
     "dev:full": "npm run build && npm --workspace @maka/desktop run start",
     "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/headless run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",
