@@ -13,7 +13,6 @@
     box-shadow:
       var(--card-shadow),
       var(--card-highlight);
-    animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
   }
 
   .maka-daily-review-header {

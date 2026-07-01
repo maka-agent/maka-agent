@@ -159,7 +159,7 @@ export const Checkbox = forwardRef<
       className={cn(
         'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background text-foreground shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        'data-[checked]:border-accent data-[checked]:bg-accent data-[checked]:text-accent-foreground',
+        'data-[checked]:border-control data-[checked]:bg-control data-[checked]:text-control-foreground',
         'data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
@@ -387,7 +387,7 @@ export const Switch = forwardRef<
       className={cn(
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-input bg-muted shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        'data-[checked]:bg-accent data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'data-[checked]:bg-control data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
       {...props}
@@ -454,13 +454,13 @@ export const Radio = forwardRef<
       className={cn(
         'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-input bg-background shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        'data-[checked]:border-accent data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
+        'data-[checked]:border-control data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
       {...props}
     >
       <BaseRadio.Indicator className="grid place-items-center">
-        <span className="block h-2 w-2 rounded-full bg-accent" />
+        <span className="block h-2 w-2 rounded-full bg-control" />
       </BaseRadio.Indicator>
     </BaseRadio.Root>
   );
@@ -481,7 +481,7 @@ export const Progress = forwardRef<
       {...props}
     >
       <BaseProgress.Track className="absolute inset-0 overflow-hidden">
-        <BaseProgress.Indicator className="block h-full origin-left bg-accent transition-transform" />
+        <BaseProgress.Indicator className="block h-full origin-left bg-control transition-transform" />
       </BaseProgress.Track>
     </BaseProgress.Root>
   );

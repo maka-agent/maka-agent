@@ -748,7 +748,7 @@
    rules were removed because the local `Switch(...)` adapter now renders
    the shared `BaseUiSwitch` (Base UI Switch.Root) which carries its own
    Tailwind utility styling (h-5 w-9 track, h-4 w-4 thumb, data-checked
-   bg-primary, focus ring tied to --ring). Same external API shape;
+   bg-control, focus ring tied to --ring). Same external API shape;
    ~50 lines of duplicate CSS deleted. */
 
 .settingsFormGrid {

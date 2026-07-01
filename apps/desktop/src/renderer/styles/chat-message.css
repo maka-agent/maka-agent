@@ -1,22 +1,4 @@
 @layer components {
-  /* Hero mount entrance — opacity 0 + translateY(8px) -> 0. Visible whenever
-     an empty-chat or onboarding hero appears (new session, app boot, blocked
-     state). Ported from the upstream reference design's agents-slide-up cadence. */
-  @keyframes maka-hero-enter {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .maka-hero {
-      animation: none;
-    }
-  }
-
-  [data-maka-visual-smoke="true"] .maka-hero {
-    animation: none;
-  }
-
   .maka-hero header,
   .maka-hero-empty-chat header {
     display: grid;

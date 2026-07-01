@@ -1,26 +1,3 @@
-/* Chat message mount entrance — opacity 0 + translateY(6px) -> 0, ported
-   from the upstream reference design's agents-slide-up keyframe. Every
-   message slides up gently when it lands, including streaming deltas and
-   session-switch loads. Honored by prefers-reduced-motion below. */
-.maka-message-row {
-  animation: maka-message-row-enter 220ms var(--ease-out-strong) both;
-}
-
-@keyframes maka-message-row-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-message-row {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-message-row {
-  animation: none;
-}
-
 /* PR-CHAT-CHROME-FOLLOWUP-0: the relative time is always visible now
    (it was `opacity: 0` until hover, which hid it on touch + from
    assistive tech). It stays quiet — 12px at the shared chrome size,
@@ -75,8 +52,8 @@
    explore-agent + subagent / web-search cards (web-search lived in
    styles/tool-stream.css), and the separate `.maka-load-tool-*` result card —
    moved onto the `@maka/ui` `previewVariants` literalize table (issue #332 PR4 —
-   packages/ui/src/primitives/chat.tsx). The card-entrance `@keyframes
-   maka-tool-card-enter` moved to maka-tokens.css (canonical motion home).
+   packages/ui/src/primitives/chat.tsx). The card-entrance keyframe is retired by
+   issue #406 gap 3.
    `.maka-tool-diff*` co-migrated for apps/desktop's non-chat artifact-preview.tsx
    too, so nothing here renders a result preview anymore. */
 

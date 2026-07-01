@@ -15,18 +15,6 @@
     border-radius: 8px;
     background: oklch(from var(--info) l c h / 0.04);
     overflow: hidden;
-    animation: maka-reasoning-panel-enter 280ms var(--ease-out-strong) both;
-  }
-
-  @keyframes maka-reasoning-panel-enter {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .maka-reasoning-panel {
-      animation: none;
-    }
   }
 
   .maka-reasoning-panel[data-live="true"] {
