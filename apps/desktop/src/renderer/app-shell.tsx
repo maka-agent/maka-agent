@@ -10,7 +10,6 @@ import type {
   LlmConnection,
   PermissionMode,
   PlanReminder,
-  QuickChatMode,
   SessionEventStreamSnapshot,
   SessionSummary,
   SettingsSection,
@@ -98,6 +97,7 @@ import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
 import { createAppShellChatActions } from './app-shell-chat-actions';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
+import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
 import { createAppShellImportActions } from './app-shell-import-actions';
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
@@ -802,6 +802,18 @@ export function AppShell() {
   const onboarding = useOnboardingSnapshot();
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
+  const { handleQuickChatSubmit } = createAppShellQuickChatActions({
+    activeIdRef,
+    captureComposerImportOwner,
+    composerRef,
+    isShellSurfaceOwnerActive,
+    openSessionInChat,
+    quickChatPendingRef,
+    refreshOnboarding: onboarding.refresh,
+    refreshSessions,
+    setQuickChatPending,
+    toastApi,
+  });
   const onboardingState = onboarding.snapshot?.state;
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
@@ -1220,69 +1232,6 @@ export function AppShell() {
     // chat-header memory pill — user may have just flipped the
     // agentReadEnabled switch.
     void refreshMemoryActive();
-  }
-
-  /**
-   * PR110c: Quick Chat handler. Wires the OnboardingHero's
-   * `ready_empty` composer to the `quickChat:start` IPC.
-   *
-   * The discriminated-union result is handled here so the hero stays
-   * presentational:
-   *   - `{ ok: true; sessionId }` → open the chat surface before
-   *     refreshing the session list. This keeps first-run / quick chat
-   *     on the newly created session even when refreshSessions()
-   *     completes before React commits the state update, and it also
-   *     makes Command Palette deep-research entrypoints usable from
-   *     Plan / Daily Review / Skills.
-   *   - `{ ok: false; reason: 'setup_required' }` → the onboarding
-   *     snapshot will be invalidated by the subsequent sessions/
-   *     connections event, but call `refresh()` defensively so the
-   *     hero re-routes immediately in race scenarios.
-   *   - `{ ok: false; reason: 'send_failed' }` → surface the
-   *     generalized Chinese message via toast. The session may have
-   *     been created already, so we also call `refreshSessions()`.
-   */
-  async function handleQuickChatSubmit(prompt: string, mode?: QuickChatMode): Promise<boolean> {
-    if (quickChatPendingRef.current) return false;
-    const owner = captureComposerImportOwner();
-    quickChatPendingRef.current = true;
-    setQuickChatPending(true);
-    try {
-      const result = await window.maka.quickChat.start({ prompt, mode });
-      if (result.ok) {
-        if (isShellSurfaceOwnerActive(owner)) {
-          openSessionInChat(result.sessionId);
-        }
-        await refreshSessions();
-        // If the prompt was non-empty, the main process has already
-        // started the send via the existing send path. If empty, we
-        // just opened a fresh session; focus the composer so the
-        // user can type without an extra click.
-        if (!prompt.trim() && activeIdRef.current === result.sessionId) {
-          composerRef.current?.focus();
-        }
-        return true;
-      } else if (result.reason === 'setup_required') {
-        // Defensive re-pull; the upstream events should cover this.
-        onboarding.refresh();
-        return false;
-      } else {
-        // send_failed — main already generalized the message.
-        await refreshSessions();
-        if (isShellSurfaceOwnerActive(owner)) {
-          toastApi.error('开始对话失败', result.message);
-        }
-        return false;
-      }
-    } catch (error) {
-      if (isShellSurfaceOwnerActive(owner)) {
-        toastApi.error('开始对话失败', generalizedErrorMessageChinese(error, '对话暂时无法开始，请稍后重试。'));
-      }
-      return false;
-    } finally {
-      quickChatPendingRef.current = false;
-      setQuickChatPending(false);
-    }
   }
 
   function showModelSetupToast(description: string, reason?: string) {
