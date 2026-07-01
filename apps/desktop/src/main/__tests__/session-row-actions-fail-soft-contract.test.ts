@@ -101,11 +101,8 @@ describe('session row actions fail soft', () => {
     assert.match(sessionRow, /aria-busy=\{pendingAction === 'flag' \? 'true' : undefined\}/);
     assert.match(sessionRow, /data-pending=\{pendingAction === 'archive' \? 'true' : undefined\}/);
     assert.match(sessionRow, /aria-busy=\{pendingAction === 'delete' \? 'true' : undefined\}/);
-    assert.match(
-      sessionRow,
-      /cn\('maka-list-row-action', rowActionVariants/,
-      'row action buttons must call rowActionVariants so pending/active classes are applied at runtime',
-    );
+    const rowActionVariantCalls = [...sessionRow.matchAll(/cn\('maka-list-row-action', rowActionVariants/g)];
+    assert.equal(rowActionVariantCalls.length, 4, 'all 4 row action buttons (flag, rename, archive, delete) must call rowActionVariants');
     assert.match(
       ui,
       /data-\[pending=true\]:cursor-progress data-\[pending=true\]:bg-foreground\/5 data-\[pending=true\]:text-foreground data-\[pending=true\]:opacity-78/,

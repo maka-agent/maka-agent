@@ -603,15 +603,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: oklch(from var(--foreground) l c h / 0.06);
   padding: 0 4px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-}
-
-.maka-nav-row[data-active="true"] .maka-nav-count {
-  background: oklch(from var(--foreground) l c h / 0.08);
-  color: var(--foreground);
 }
 
 .maka-session-panel[data-collapsed="true"] .maka-sidebar-modules {

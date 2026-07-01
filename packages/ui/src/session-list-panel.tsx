@@ -43,14 +43,15 @@ const navRowVariants = cva(
     'hover:bg-foreground/6 hover:text-foreground',
     'data-[active=true]:bg-foreground/9 data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
     'data-[active=true]:[&_.maka-nav-icon]:text-foreground',
-    '[&_.maka-nav-count]:text-[var(--foreground-40)]',
+    '[&_.maka-nav-count]:bg-foreground/6 [&_.maka-nav-count]:text-[var(--foreground-40)]',
+    'data-[active=true]:[&_.maka-nav-count]:bg-foreground/8 data-[active=true]:[&_.maka-nav-count]:text-foreground',
     'aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:hover:bg-transparent',
     'data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-55 data-[disabled=true]:hover:bg-transparent',
   ],
   {
     variants: {
       tone: {
-        default: 'text-[var(--foreground-80)]',
+        default: '',
         newTask: 'text-foreground [&_.maka-nav-icon]:text-[var(--foreground-70)]',
       },
     },
