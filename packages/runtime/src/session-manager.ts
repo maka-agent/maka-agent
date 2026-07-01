@@ -760,7 +760,6 @@ export class SessionManager {
       } catch {
         return false;
       }
-      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) return false;
 
       const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
       const recovered = backfillRuntimeEventsFromStoredMessages({
@@ -776,12 +775,14 @@ export class SessionManager {
         ? isTrustworthyRecoveredTerminal(run, legacyTerminal, recoveredTerminal)
         : false;
       if (recoveredTerminal && canTrustRecoveredTerminal) {
-        const eventsToAppend = runtimeEvents.length === 0 ? recovered : [recoveredTerminal];
+        const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recovered);
         for (const event of eventsToAppend) {
           await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
         }
-        return true;
+        return eventsToAppend.length > 0;
       }
+
+      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) return false;
 
       await this.repairMissingTerminalAsFailed(sessionId, run, runtimeEvents);
       return true;
@@ -1264,6 +1265,43 @@ function isMatchingTerminalRuntimeEvent(run: AgentRunHeader, event: RuntimeEvent
     event.runId === run.runId &&
     event.turnId === run.turnId &&
     isTerminalRuntimeEvent(event);
+}
+
+function missingRecoveredRuntimeEvents(
+  run: AgentRunHeader,
+  existing: readonly RuntimeEvent[],
+  recovered: readonly RuntimeEvent[],
+): RuntimeEvent[] {
+  const storedMessageIds = new Set(
+    existing
+      .map((event) => event.refs?.storedMessageId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  );
+  const hasTerminal = existing.some((event) => isMatchingTerminalRuntimeEvent(run, event));
+  return recovered.filter((event) => {
+    if (isMatchingTerminalRuntimeEvent(run, event)) return !hasTerminal;
+    const storedMessageId = event.refs?.storedMessageId;
+    if (typeof storedMessageId === 'string' && storedMessageId.length > 0) {
+      if (storedMessageIds.has(storedMessageId)) return false;
+      storedMessageIds.add(storedMessageId);
+      return !existing.some((candidate) => isSameRecoveredRuntimeEvent(candidate, event));
+    }
+    return false;
+  });
+}
+
+function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeEvent): boolean {
+  return !existing.partial &&
+    existing.sessionId === recovered.sessionId &&
+    existing.runId === recovered.runId &&
+    existing.turnId === recovered.turnId &&
+    existing.ts === recovered.ts &&
+    existing.role === recovered.role &&
+    existing.author === recovered.author &&
+    existing.status === recovered.status &&
+    JSON.stringify(existing.content) === JSON.stringify(recovered.content) &&
+    JSON.stringify(existing.actions?.tokenUsage) === JSON.stringify(recovered.actions?.tokenUsage) &&
+    JSON.stringify(existing.actions?.permissionDecision) === JSON.stringify(recovered.actions?.permissionDecision);
 }
 
 function isTerminalLegacyTurnState(

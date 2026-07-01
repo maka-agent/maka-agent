@@ -661,6 +661,40 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.status).toBe('completed');
   });
 
+  test('getMessages resumes incomplete legacy backfill after append failure', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 1 });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+
+    await expectRejects(manager.getMessages(session.id), /runtime event append failed/);
+
+    const messages = await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
+    expect(messages.map((message) => message.id)).toEqual(['legacy-user', 'legacy-assistant', 'legacy-state']);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+  });
+
   test('getMessages repairs a non-empty RuntimeEvent ledger that is missing only the terminal fact', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3608,9 +3642,11 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
+  private runtimeEventAppendCount = 0;
 
   constructor(private readonly options: {
     failRuntimeEventAppends?: boolean;
+    failRuntimeEventAppendAfter?: number;
     failRuntimeEventReads?: boolean;
     failUpdateRunOnce?: boolean;
     beforeRuntimeEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
@@ -3656,6 +3692,14 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
     if (this.options.failRuntimeEventAppends) throw new Error('runtime event append failed');
+    this.runtimeEventAppendCount += 1;
+    if (
+      this.options.failRuntimeEventAppendAfter !== undefined &&
+      this.runtimeEventAppendCount > this.options.failRuntimeEventAppendAfter
+    ) {
+      this.options.failRuntimeEventAppendAfter = undefined;
+      throw new Error('runtime event append failed');
+    }
     const eventKey = key(sessionId, runId);
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
   }
