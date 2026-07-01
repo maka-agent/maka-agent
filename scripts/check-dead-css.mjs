@@ -51,6 +51,21 @@ const DYNAMIC_STYLE_HOOKS = new Set([
   'is-untested',
   'is-verified',
   'is-warn',
+  // Appearance palette swatches — composed at runtime via
+  // `settingsPaletteSwatch-${palette}` in settings/appearance-settings-page.tsx
+  // (#308), so the per-palette variants never appear as string literals in
+  // source. Keep in sync with PALETTE_GROUPS in that file.
+  'settingsPaletteSwatch-default',
+  'settingsPaletteSwatch-onedark',
+  'settingsPaletteSwatch-catppuccin-mocha',
+  'settingsPaletteSwatch-tokyo-night',
+  'settingsPaletteSwatch-nord',
+  'settingsPaletteSwatch-coral',
+  'settingsPaletteSwatch-azure',
+  'settingsPaletteSwatch-forest',
+  'settingsPaletteSwatch-dusk',
+  'settingsPaletteSwatch-sand',
+  'settingsPaletteSwatch-mono',
 ]);
 
 async function readCssFiles(dir) {
