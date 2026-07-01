@@ -19,7 +19,7 @@ describe('command palette plan reminder contract', () => {
 
   it('wires the action to the shipped plan panel and focuses the title field', async () => {
     const main = await readRendererShellCombinedSource();
-    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8');
 
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
     assert.match(main, /setNavSelection\(\{\s*section:\s*'automations'\s*\}\)/);

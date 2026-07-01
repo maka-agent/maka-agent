@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { extractFunctionBlock } from './function-block-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -11,8 +12,8 @@ function blockBetween(source: string, start: string, end: string): string {
 
 describe('Plan Reminder panel async action contract', () => {
   it('gates form submit and refresh before React commits disabled state', async () => {
-    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-panels.tsx'), 'utf8');
-    const panelBlock = ui.slice(ui.indexOf('export function PlanReminderPanel'));
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8');
+    const panelBlock = extractFunctionBlock(ui, 'PlanReminderPanel');
     const submitBlock = blockBetween(panelBlock, 'async function submit', 'async function runPlanReminderAction');
     const refreshBlock = blockBetween(panelBlock, 'async function refreshFromPanel', 'return \\(');
 

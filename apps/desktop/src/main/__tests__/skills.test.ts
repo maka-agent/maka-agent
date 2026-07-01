@@ -17,6 +17,7 @@ import {
   resolveSkillOpenPath,
 } from '../skills.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
+import { extractFunctionBlock } from './function-block-helpers.js';
 
 describe('skills ingestion', () => {
   it('lists SKILL.md metadata without granting declared tools', async () => {
@@ -294,7 +295,7 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const ui = await readFile(join(repoRoot, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const ui = await readFile(join(repoRoot, 'packages/ui/src/skills-panel.tsx'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const preload = await readFile(join(repoRoot, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const main = await readMainProcessCombinedSource();
@@ -327,11 +328,11 @@ name: Writer
       ? join(process.cwd(), '..', '..')
       : process.cwd();
     const chatViewSource = await readFile(join(repoRoot, 'packages/ui/src/chat-view.tsx'), 'utf8');
-    const ui = await readFile(join(repoRoot, 'packages/ui/src/module-panels.tsx'), 'utf8');
+    const ui = await readFile(join(repoRoot, 'packages/ui/src/skills-panel.tsx'), 'utf8');
     const emptyStateSource = await readFile(join(repoRoot, 'packages/ui/src/empty-state.tsx'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const chatView = chatViewSource.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
-    const skillsModuleMain = ui.match(/export function SkillsModuleMain\([\s\S]*?export function DailyReviewPanel/)?.[0] ?? '';
+    const skillsModuleMain = extractFunctionBlock(ui, 'SkillsModuleMain');
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function SkillsModuleMain/)?.[0] ?? '';
     const emptyState = emptyStateSource;
 

@@ -333,7 +333,9 @@ describe('Settings coming-soon cleanup contract', () => {
         readRepo('packages/ui/src/components.tsx'),
         readRepo('packages/ui/src/chat-view.tsx'),
         readRepo('packages/ui/src/composer.tsx'),
-        readRepo('packages/ui/src/module-panels.tsx'),
+        readRepo('packages/ui/src/skills-panel.tsx'),
+        readRepo('packages/ui/src/daily-review-panel.tsx'),
+        readRepo('packages/ui/src/plan-reminder-panel.tsx'),
         readRepo('packages/ui/src/relative-time.tsx'),
       ])
     ).join('\n');

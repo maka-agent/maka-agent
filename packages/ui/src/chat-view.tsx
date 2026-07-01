@@ -35,7 +35,9 @@ import type {
   PlanReminderUpdatePatch,
   SkillEntry,
 } from './module-panel-types.js';
-import { DailyReviewPanel, PlanReminderPanel, SkillsModuleMain } from './module-panels.js';
+import { SkillsModuleMain } from './skills-panel.js';
+import { DailyReviewPanel } from './daily-review-panel.js';
+import { PlanReminderPanel } from './plan-reminder-panel.js';
 import { RelativeTime } from './relative-time.js';
 import { ToolActivity } from './tool-activity.js';
 
