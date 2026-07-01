@@ -342,7 +342,8 @@ describe('Settings usage dashboard contract', () => {
 
     assert.match(settingsSrc, /onOpenSession\?\(sessionId: string\): void/);
     assert.match(settingsSrc, /onOpenSession=\{props\.onOpenSession\}/);
-    assert.match(mainSrc, /onOpenSession=\{\(sessionId\) => \{/);
+    assert.match(mainSrc, /onOpenSession=\{props\.onOpenSettingsSession\}/);
+    assert.match(mainSrc, /onOpenSettingsSession=\{\(sessionId\) => \{/);
     assert.match(
       mainSrc,
       /closeSettings\(\);[\s\S]*openSessionInChat\(sessionId\);/,
