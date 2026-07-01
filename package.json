@@ -2,6 +2,7 @@
   "name": "maka",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.12.1",
   "type": "module",
   "workspaces": [
     "packages/core",
@@ -13,10 +14,10 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/headless test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
     "dev": "npm --workspace @maka/desktop run dev:hmr --",
     "dev:full": "npm run build && npm --workspace @maka/desktop run start",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/headless run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",
     "clean": "node scripts/clean-build.mjs",
     "rebuild": "npm run clean && npm run build",
     "check:stale": "node scripts/check-stale-dist.mjs",
@@ -29,13 +30,6 @@
   "devDependencies": {
     "@types/node": "^25.0.0",
     "typescript": "^5.9.3"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@jackwener/opencli",
-      "electron",
-      "esbuild"
-    ]
   },
   "allowScripts": {
     "electron@39.8.10": true,

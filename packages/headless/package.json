@@ -30,9 +30,10 @@
     "maka-headless": "./dist/cli.js"
   },
   "scripts": {
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run clean && npm run build && GIT_CONFIG_GLOBAL=/dev/null node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
     "@maka/core": "0.1.0",
