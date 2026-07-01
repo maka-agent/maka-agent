@@ -35,6 +35,7 @@ export interface AgentRunHeader {
   parentSessionId?: string;
   failureClass?: string;
   failureMessage?: string;
+  abortSource?: string;
   traceWriteError?: string;
 }
 

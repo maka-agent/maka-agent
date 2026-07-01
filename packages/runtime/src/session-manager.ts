@@ -809,6 +809,13 @@ export class SessionManager {
         await this.updateFailedRunClassFromTerminal(sessionId, run, existingFailedTerminal);
         return true;
       }
+      const existingAbortedTerminal = runtimeEvents.find((event) =>
+        isMatchingTerminalRuntimeEvent(run, event) && (event.status === 'aborted' || event.status === 'cancelled')
+      );
+      if (existingAbortedTerminal && run.status === 'cancelled' && !run.abortSource) {
+        await this.updateCancelledRunSourceFromTerminal(sessionId, run, existingAbortedTerminal);
+        return true;
+      }
 
       if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) {
         return eventsToAppend.length > 0;
@@ -816,6 +823,18 @@ export class SessionManager {
 
       await this.repairMissingTerminalAsFailed(sessionId, run, [...runtimeEvents, ...eventsToAppend]);
       return true;
+    });
+  }
+
+  private async updateCancelledRunSourceFromTerminal(
+    sessionId: string,
+    run: AgentRunHeader,
+    terminal: RuntimeEvent,
+  ): Promise<void> {
+    await this.deps.runStore?.updateRun(sessionId, run.runId, {
+      status: 'cancelled',
+      abortSource: abortSourceFromExistingTerminal(terminal) ?? 'unknown',
+      updatedAt: run.completedAt ?? run.updatedAt,
     });
   }
 
@@ -1033,6 +1052,7 @@ export class SessionManager {
         status: 'cancelled',
         completedAt: ts,
         updatedAt: ts,
+        ...(decision.abortSource ? { abortSource: decision.abortSource } : {}),
       });
       if (!hasTerminalAgentRunEvent(existingEvents)) {
         await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
@@ -1306,7 +1326,9 @@ function firstRuntimeRepairRunId(
       diagnostic.message === 'terminal run recovered from legacy projection cache' ||
       diagnostic.message === 'terminal run has no readable RuntimeEvent ledger' ||
       diagnostic.message === 'terminal run has no terminal RuntimeEvent' ||
-      diagnostic.message === 'failed terminal event did not carry an exact AgentRunHeader.failureClass'
+      diagnostic.message === 'failed terminal event did not carry an exact AgentRunHeader.failureClass' ||
+      diagnostic.message === 'aborted terminal RuntimeEvent requires an abort source' ||
+      diagnostic.message === 'abortSource is not present in RuntimeEvent or AgentRunHeader metadata'
     ) {
       return runId;
     }
@@ -1409,9 +1431,22 @@ function failureClassFromExistingTerminal(event: RuntimeEvent): string | undefin
     ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined);
 }
 
+function abortSourceFromExistingTerminal(event: RuntimeEvent): string | undefined {
+  return stringStateDelta(event, 'abortSource')
+    ?? stringStateDelta(event, 'source')
+    ?? stringRecordValue(event.refs, 'abortSource')
+    ?? stringRecordValue(event.refs, 'source');
+}
+
 function stringStateDelta(event: RuntimeEvent, key: string): string | undefined {
   const value = event.actions?.stateDelta?.[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stringRecordValue(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const result = (value as Record<string, unknown>)[key];
+  return typeof result === 'string' && result.length > 0 ? result : undefined;
 }
 
 function nonEmptyString(value: unknown): string | undefined {

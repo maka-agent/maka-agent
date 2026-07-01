@@ -1268,6 +1268,58 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
   });
 
+  test('getMessages repairs missing abort source from an existing aborted terminal RuntimeEvent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'cancelled',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+      runtimeEvent({
+        id: 'rt-aborted',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'aborted',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1') as AgentRunHeader & { abortSource?: string };
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.abortSource).toBe('unknown');
+    expect(messages.find((message) => message.type === 'turn_state')).toEqual({
+      type: 'turn_state',
+      id: 'rt-aborted',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'aborted',
+      abortedAt: 103,
+      abortSource: 'unknown',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.filter((event) => event.status === 'aborted')).toHaveLength(1);
+  });
+
   test('getMessages serializes concurrent terminal repairs for the same run', async () => {
     const store = new MemorySessionStore();
     let repairReads = 0;
@@ -2829,6 +2881,47 @@ describe('SessionManager permission mode updates', () => {
     expect(events.map((event) => event.type)).toContain('run_cancelled');
   });
 
+  test('stopSession persists abortSource on a terminal RuntimeEvent emitted during backend stop', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: StopControlledAbortBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new StopControlledAbortBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_710) });
+    const session = await manager.createSession(makeInput());
+
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await iterator.next();
+    const pendingAbort = iterator.next();
+    const stopPromise = manager.stopSession(session.id, { source: 'stop_button' });
+    const abort = await pendingAbort;
+    expect(abort.value?.type).toBe('abort');
+    backend?.allowStopReturn();
+    await stopPromise;
+    while (!(await iterator.next()).done) {}
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run!.runId);
+    const terminalEvents = runtimeEvents.filter((event) => event.status === 'aborted');
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.actions?.stateDelta?.abortSource).toBe('renderer.stop_button');
+    const messages = await manager.getMessages(session.id);
+    expect(messages.some((message) => message.type === 'user' && message.turnId === 'turn-1')).toBe(true);
+    expect(messages.find((message) => message.type === 'turn_state')).toEqual({
+      type: 'turn_state',
+      id: terminalEvents[0]?.id,
+      turnId: 'turn-1',
+      ts: 2,
+      status: 'aborted',
+      abortedAt: 2,
+      abortSource: 'renderer.stop_button',
+      partialOutputRetained: false,
+    });
+  });
+
   test('stopSession keeps aborted state even if the backend emits a late error', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3692,6 +3785,42 @@ class LateErrorBackend implements AgentBackend {
       this.ctx.store.disposeCount += 1;
     }
   }
+}
+
+class StopControlledAbortBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+  private releaseAbort: () => void = () => {};
+  private releaseStop: () => void = () => {};
+  private readonly abortGate = new Promise<void>((resolve) => {
+    this.releaseAbort = resolve;
+  });
+  private readonly stopGate = new Promise<void>((resolve) => {
+    this.releaseStop = resolve;
+  });
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'ok' };
+    await this.abortGate;
+    yield { type: 'abort', id: `${input.turnId}-abort`, turnId: input.turnId, ts: 2, reason: 'user_stop' };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 3, stopReason: 'user_stop' };
+  }
+
+  async stop(): Promise<void> {
+    this.releaseAbort();
+    await this.stopGate;
+  }
+
+  allowStopReturn(): void {
+    this.releaseStop();
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
 }
 
 type PartialEvent =
