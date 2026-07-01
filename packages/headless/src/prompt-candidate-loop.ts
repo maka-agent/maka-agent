@@ -420,6 +420,7 @@ function renderMetaAgentRetryPrompt(basePrompt: string, attempt: number, validat
 }
 
 function formatMetaAgentParseError(error: unknown): string {
+  if (error instanceof SyntaxError) return 'meta-agent output was not valid JSON';
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/\s+/g, ' ').slice(0, META_AGENT_RETRY_ERROR_MAX_CHARS);
 }

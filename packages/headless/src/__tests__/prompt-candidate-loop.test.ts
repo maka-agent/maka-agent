@@ -1595,6 +1595,34 @@ describe('prompt candidate loop', () => {
     assert.match(prompts[1], /candidateRationale\.evidenceRefs must be an array/);
   });
 
+  test('does not echo invalid JSON text into the meta-agent retry prompt', async () => {
+    const input: MetaAgentPromptInput = {
+      runId: 'run-1',
+      roundId: 'round-1',
+      program: 'Improve conservatively.',
+      currentSystemPrompt: 'original prompt',
+      resultsTsv: 'task_id\tpassed\ntask-a\tfalse\n',
+      heldInDigests: [{ taskId: 'task-a', summary: 'failed verification' }],
+    };
+    const prompts: string[] = [];
+    const expected = candidatePromptResult({
+      systemPrompt: 'candidate prompt after retry\n',
+      summary: 'valid JSON after retry',
+    });
+    const metaAgent = createScriptedMetaAgent({
+      complete: async ({ prompt }) => {
+        prompts.push(prompt);
+        if (prompts.length === 1) return 'SECRET_CANARY not json';
+        return JSON.stringify(expected);
+      },
+    });
+
+    assert.deepEqual(await metaAgent(input), expected);
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], /meta-agent output was not valid JSON/);
+    assert.equal(prompts[1].includes('SECRET_CAN'), false);
+  });
+
   test('CLI git adapter commits only system_prompt.md with the round message', async () => {
     await withDir(async (dir) => {
       await execFileAsync('git', ['init'], { cwd: dir });
