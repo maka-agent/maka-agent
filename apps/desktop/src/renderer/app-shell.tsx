@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftOpen, Search, SquarePen } from '@maka/ui/icons';
 import type {
   ConnectionEvent,
   DailyReviewArchive,
@@ -33,7 +32,6 @@ import {
   SearchModal,
   SessionListPanel,
   type SkillEntry,
-  Button as UiButton,
   type TurnFooterActionMeta,
   type TurnLineageBadge,
   useToast,
@@ -87,6 +85,7 @@ import {
 import { buildChatModelChoices, chatModelChoiceLabel, normalizeActiveChatModel } from './chat-model-selection';
 import { basenameFromPath } from './app-shell-copy';
 import { buildAppShellCommandList } from './app-shell-command-actions';
+import { AppShellCollapsedTopbarActions, AppShellWorkspaceTopActions } from './app-shell-chrome-actions';
 import { createAppShellPlanActions } from './app-shell-plan-actions';
 import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-project-actions';
 import { createAppShellSkillActions } from './app-shell-skill-actions';
@@ -1331,89 +1330,19 @@ export function AppShell() {
         >
           {sessionListCollapsed && (
             <div className="maka-collapsed-drag-strip" aria-label="侧边栏已收起">
-              <div className="maka-collapsed-topbar-actions">
-                <UiButton
-                  className="maka-collapsed-topbar-button"
-                  variant="quiet"
-                  size="icon-sm"
-                  type="button"
-                  onClick={() => setSearchModalOpen(true)}
-                  aria-label="搜索对话"
-                  title="搜索对话"
-                >
-                  <Search size={16} strokeWidth={1.65} aria-hidden="true" />
-                </UiButton>
-                <UiButton
-                  className="maka-collapsed-topbar-button"
-                  variant="quiet"
-                  size="icon-sm"
-                  type="button"
-                  onClick={() => setSessionListCollapsed(false)}
-                  aria-label="展开侧边栏"
-                  title="展开侧边栏"
-                >
-                  <PanelLeftOpen size={16} strokeWidth={1.65} aria-hidden="true" />
-                </UiButton>
-                <UiButton
-                  className="maka-collapsed-topbar-button"
-                  variant="quiet"
-                  size="icon-sm"
-                  type="button"
-                  onClick={createSession}
-                  aria-label="新任务"
-                  title="新任务"
-                >
-                  <SquarePen size={16} strokeWidth={1.65} aria-hidden="true" />
-                </UiButton>
-              </div>
+              <AppShellCollapsedTopbarActions
+                onOpenSearchModal={() => setSearchModalOpen(true)}
+                onExpandSidebar={() => setSessionListCollapsed(false)}
+                onCreateSession={createSession}
+              />
             </div>
           )}
-          <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
-            <UiButton
-              className="maka-workspace-icon-action"
-              variant="quiet"
-              size="icon-sm"
-              type="button"
-              onClick={() => openSettingsSection('about')}
-              aria-label="问题反馈"
-              title="问题反馈 · 打开关于与环境信息"
-            >
-              <MessageCircleQuestion size={15} strokeWidth={1.7} aria-hidden="true" />
-            </UiButton>
-            <UiButton
-              className="maka-workspace-icon-action"
-              variant="quiet"
-              size="icon-sm"
-              type="button"
-              onClick={openPalette}
-              aria-label="打开命令面板"
-              title="打开命令面板"
-            >
-              <Grid3X3 size={15} strokeWidth={1.7} aria-hidden="true" />
-            </UiButton>
-            <UiButton
-              className="maka-workspace-icon-action"
-              variant="quiet"
-              size="icon-sm"
-              type="button"
-              onClick={openHelp}
-              aria-label="打开帮助"
-              title="打开帮助"
-            >
-              <HelpCircle size={15} strokeWidth={1.7} aria-hidden="true" />
-            </UiButton>
-            <UiButton
-              className="maka-workspace-icon-action"
-              variant="quiet"
-              size="icon-sm"
-              type="button"
-              onClick={() => openSettingsSection('health')}
-              aria-label="打开健康中心"
-              title="打开健康中心"
-            >
-              <CircleGauge size={15} strokeWidth={1.7} aria-hidden="true" />
-            </UiButton>
-          </div>
+          <AppShellWorkspaceTopActions
+            onOpenFeedback={() => openSettingsSection('about')}
+            onOpenPalette={openPalette}
+            onOpenHelp={openHelp}
+            onOpenHealth={() => openSettingsSection('health')}
+          />
           {/* PR-UI-RENDER-2: install the internal-URI dispatcher
               for any Markdown rendered inside ChatView (assistant
               answers, thinking panels, streaming bubbles). Wrapping

@@ -12,6 +12,7 @@ const sourcePaths = [
   'app-shell-daily-review-actions.ts',
   'app-shell-turn-actions.ts',
   'app-shell.tsx',
+  'app-shell-chrome-actions.tsx',
   'app-shell-plan-actions.ts',
   'app-shell-skill-actions.ts',
   'app-shell-project-actions.ts',
