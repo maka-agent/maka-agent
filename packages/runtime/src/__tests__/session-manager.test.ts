@@ -2922,6 +2922,35 @@ describe('SessionManager permission mode updates', () => {
     });
   });
 
+  test('sendMessage does not emit or persist backend events after the first terminal event', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'text_delta', messageId: 'm1', text: 'before' },
+      { type: 'abort', reason: 'user_stop' },
+      { type: 'text_delta', messageId: 'm1', text: 'after-terminal' },
+      { type: 'complete', stopReason: 'user_stop' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_715) });
+    const session = await manager.createSession(makeInput());
+
+    const emitted = await collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run!.runId);
+    const turnStates = (await store.readMessages(session.id)).filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1' && message.status !== 'running'
+    );
+
+    expect(emitted.map((event) => event.type)).toEqual(['text_delta', 'abort']);
+    expect(runtimeEvents.filter((event) => event.role === 'model' && event.content?.kind === 'text').map((event) =>
+      event.content?.kind === 'text' ? event.content.text : ''
+    )).toEqual(['before']);
+    expect(runtimeEvents.filter((event) => event.status === 'aborted')).toHaveLength(1);
+    expect(turnStates).toHaveLength(1);
+    expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].status : undefined).toBe('aborted');
+  });
+
   test('stopSession keeps aborted state even if the backend emits a late error', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3824,6 +3853,7 @@ class StopControlledAbortBackend implements AgentBackend {
 }
 
 type PartialEvent =
+  | Omit<Extract<SessionEvent, { type: 'text_delta' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'permission_request' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'complete' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'error' }>, 'id' | 'turnId' | 'ts'>

@@ -406,7 +406,8 @@ export interface AiSdkFlowInput {
   onFinally?: () => Promise<void> | void;
   /**
    * Keep consuming backend events after the first terminal RuntimeEvent.
-   * Duplicate terminal RuntimeEvents are still coalesced from flow output.
+   * Events consumed during that drain are silent: they are not yielded and
+   * are not sent through onSessionEvent.
    */
   drainAfterTerminal?: boolean;
 }
@@ -483,16 +484,17 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         context: input.context,
         ...(input.runtimeContext !== undefined ? { runtimeContext: input.runtimeContext } : {}),
       })) {
+        if (terminalEmitted) continue;
         const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
-        await this.onSessionEvent?.(sessionEvent, runtimeEvent);
         if (sessionEvent.type === 'error') errorEmitted = true;
         if (isTerminalRuntimeEvent(runtimeEvent)) {
-          if (terminalEmitted) continue;
           terminalEmitted = true;
+          await this.onSessionEvent?.(sessionEvent, runtimeEvent);
           yield runtimeEvent;
           if (!this.drainAfterTerminal) break;
           continue;
         }
+        await this.onSessionEvent?.(sessionEvent, runtimeEvent);
         yield runtimeEvent;
       }
       if (!terminalEmitted) {

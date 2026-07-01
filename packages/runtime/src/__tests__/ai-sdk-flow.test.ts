@@ -43,6 +43,7 @@ class ScriptedBackend implements AgentBackend {
   readonly sendInputs: BackendSendInput[] = [];
   disposeCalls = 0;
   sendCalls = 0;
+  yieldedEvents = 0;
   private readonly events: SessionEvent[];
   private readonly gate?: () => Promise<void>;
 
@@ -57,6 +58,7 @@ class ScriptedBackend implements AgentBackend {
     this.sendCalls += 1;
     this.sendInputs.push(input);
     for (const e of this.events) {
+      this.yieldedEvents += 1;
       yield e;
       if (this.gate) await this.gate();
     }
@@ -438,7 +440,7 @@ describe('AiSdkFlow seam', () => {
     assert.equal(isTerminalRuntimeEvent(out[0]), true);
   });
 
-  test('can keep draining backend events after a terminal while coalescing duplicate terminals', async () => {
+  test('can silently drain backend events after a terminal while coalescing duplicate terminals', async () => {
     const seen: SessionEvent[] = [];
     const backend = new ScriptedBackend({
       events: [
@@ -456,10 +458,11 @@ describe('AiSdkFlow seam', () => {
     });
     const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
 
-    assert.deepEqual(seen.map((event) => event.type), ['abort', 'text_delta', 'complete']);
+    assert.equal(backend.yieldedEvents, 3);
+    assert.deepEqual(seen.map((event) => event.type), ['abort']);
     assert.deepEqual(
       out.map((event) => event.content?.kind ?? event.status ?? null),
-      ['aborted', 'text'],
+      ['aborted'],
     );
     assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
   });
