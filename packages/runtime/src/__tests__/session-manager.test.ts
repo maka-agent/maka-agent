@@ -2351,9 +2351,14 @@ describe('SessionManager permission mode updates', () => {
 
     const firstInput = backendInstances[0]?.sendInputs[0];
     if (!firstInput) throw new Error('backend input was not recorded');
-    expect(firstInput.runtimeContext?.map((event) => event.content?.kind ?? event.status)).toEqual([
-      'text',
-      'completed',
+    expect(firstInput.runtimeContext?.map((event) => ({
+      role: event.role,
+      text: event.content?.kind === 'text' ? event.content.text : undefined,
+      status: event.status,
+    }))).toEqual([
+      { role: 'user', text: 'first', status: undefined },
+      { role: 'model', text: 'answer', status: undefined },
+      { role: 'system', text: undefined, status: 'completed' },
     ]);
     expect(backendInstances[0]?.sendInputs.length ?? 0).toBe(1);
   });
