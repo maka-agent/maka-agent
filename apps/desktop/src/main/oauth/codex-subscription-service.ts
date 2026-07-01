@@ -364,6 +364,18 @@ export class CodexSubscriptionService {
     return tokens.access_token;
   }
 
+  /**
+   * Whether a persisted OAuth token exists locally, WITHOUT
+   * triggering `getAccessTokenInternal()`'s near-expiry refresh. See
+   * `ClaudeSubscriptionService.hasStoredCredential()` for the
+   * rationale — read-only status paths (onboarding) must not refresh
+   * or mutate token state just by being observed.
+   */
+  async hasStoredCredential(): Promise<boolean> {
+    const tokens = await this.loadTokens();
+    return tokens !== null;
+  }
+
   // -----------------------------------------------------------
   // INTERNALS
   // -----------------------------------------------------------

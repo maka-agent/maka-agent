@@ -355,6 +355,37 @@ describe('Claude OAuth model connection bridge', () => {
     assert.match(src, /getApiKey:\s*\(slug:\s*string\)\s*=>\s*resolveConnectionSecret\(slug\)/, 'chat send readiness must use OAuth tokens through resolveConnectionSecret');
   });
 
+  it('onboarding checks Claude/Codex OAuth credential presence WITHOUT the send-path refresh (PR #389 review gate)', async () => {
+    const src = await readMainProcessCombinedSource();
+    const fnIdx = src.indexOf('async function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {');
+    assert.notEqual(fnIdx, -1, 'hasConnectionSecret helper must exist as the read-only counterpart to resolveConnectionSecret');
+    // Window big enough to cover the whole function body but end
+    // before the enclosing factory's `return { ... }` — matches the
+    // windowing style already used elsewhere in this file (e.g. the
+    // handler-guard checks above) rather than a brace-counting regex.
+    const fnBody = src.slice(fnIdx, fnIdx + 600);
+    assert.match(
+      fnBody,
+      /providerType === 'claude-subscription'[\s\S]*claudeSubscription\.hasStoredCredential\(\)/,
+      'hasConnectionSecret must route claude-subscription through the read-only hasStoredCredential(), not getAccessTokenInternal()',
+    );
+    assert.match(
+      fnBody,
+      /providerType === 'codex-subscription'[\s\S]*codexSubscription\.hasStoredCredential\(\)/,
+      'hasConnectionSecret must route codex-subscription through the read-only hasStoredCredential(), not getAccessTokenInternal()',
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /getAccessTokenInternal/,
+      'hasConnectionSecret must NEVER call the refreshing getAccessTokenInternal() — onboarding is a read-only status path and must not refresh tokens or hit the network just by being observed',
+    );
+    assert.match(
+      src,
+      /bindOnboardingDeps\(\{[\s\S]*hasCredential:\s*hasConnectionSecret,[\s\S]*\}\)/,
+      'onboarding must be wired to the read-only hasConnectionSecret, not the refreshing resolveConnectionSecret',
+    );
+  });
+
   it('model connection IPC does not accept custom baseUrl overrides for OAuth-token providers', async () => {
     const src = await readMainProcessCombinedSource();
     assert.match(

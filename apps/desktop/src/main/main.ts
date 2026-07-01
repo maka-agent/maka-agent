@@ -258,6 +258,23 @@ function syncOAuthModelConnections(): Promise<void> {
 function resolveConnectionSecret(slug: string): Promise<string | null> {
   return oauthModelConnections.resolveConnectionSecret(slug);
 }
+
+/**
+ * Read-only credential-presence check for status paths (onboarding's
+ * `getSnapshot`) that must not trigger `resolveConnectionSecret`'s
+ * OAuth near-expiry refresh — that refresh hits the network and
+ * mutates local token state, which a read-only status read must never
+ * do just by being observed. Send/test/fetch-models paths keep using
+ * `resolveConnectionSecret` so they still benefit from the refresh.
+ *
+ * Takes the `LlmConnection` directly rather than a slug: callers that
+ * already hold the connection list (onboarding does) skip the extra
+ * `connectionStore.get()` round trip and derive state from one
+ * consistent snapshot.
+ */
+function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {
+  return oauthModelConnections.hasConnectionSecret(connection);
+}
 const cursorSubscription = new CursorSubscriptionService({
   userDataDir: app.getPath('userData'),
 });
@@ -643,14 +660,16 @@ botIncoming = createBotIncomingMainService({
 // PR110b: onboarding service composes existing stores + runtime to
 // derive `OnboardingState` and manage `OnboardingMilestone[]`.
 // Constructed AFTER `runtime` so `listSessions()` is bindable. The
-// service resolves secrets through the same `resolveConnectionSecret`
-// the send-path uses, so OAuth-subscription connections (Claude/Codex)
-// are recognized as credentialed, not just API-key connections.
+// service checks credential presence through `hasConnectionSecret`
+// (read-only — recognizes OAuth-subscription connections like the
+// send-path's `resolveConnectionSecret` does, but never refreshes),
+// so simply opening onboarding can't hit the network or mutate token
+// state.
 const onboardingService = createOnboardingService(
   bindOnboardingDeps({
     settingsStore,
     connectionStore,
-    resolveSecret: resolveConnectionSecret,
+    hasCredential: hasConnectionSecret,
     listSessions: () => runtime.listSessions(),
   }),
 );

@@ -152,10 +152,36 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     return deps.credentialStore.getSecret(slug, 'api_key');
   }
 
+  /**
+   * Read-only credential-presence check for status paths (onboarding's
+   * `getSnapshot`) that must not trigger `resolveConnectionSecret`'s
+   * OAuth near-expiry refresh — that refresh hits the network and
+   * mutates local token state, which a read-only status read must
+   * never do just by being observed. Send/test/fetch-models paths
+   * keep using `resolveConnectionSecret` so they still benefit from
+   * the refresh.
+   *
+   * Takes the `LlmConnection` directly rather than a slug: callers
+   * that already hold the connection list (onboarding does) skip the
+   * extra `connectionStore.get()` round trip and derive state from
+   * one consistent snapshot.
+   */
+  async function hasConnectionSecret(connection: LlmConnection): Promise<boolean> {
+    if (connection.providerType === 'claude-subscription') {
+      return deps.claudeSubscription.hasStoredCredential();
+    }
+    if (connection.providerType === 'codex-subscription') {
+      return deps.codexSubscription.hasStoredCredential();
+    }
+    const key = await deps.credentialStore.getSecret(connection.slug, 'api_key');
+    return typeof key === 'string' && key.length > 0;
+  }
+
   return {
     isClaudeSubscriptionAuthenticatedState,
     isCodexSubscriptionAuthenticatedState,
     resolveConnectionSecret,
+    hasConnectionSecret,
     syncClaudeSubscriptionConnection,
     syncCodexSubscriptionConnection,
     syncOAuthModelConnections,

@@ -499,6 +499,22 @@ export class ClaudeSubscriptionService {
     return tokens.access_token;
   }
 
+  /**
+   * Whether a persisted OAuth token exists locally, WITHOUT
+   * triggering `getAccessTokenInternal()`'s near-expiry refresh.
+   *
+   * Read-only status paths (onboarding's `getSnapshot`) must be able
+   * to answer "is this connection credentialed?" without the side
+   * effect of a network refresh — refreshing on every onboarding read
+   * would let simply opening the app hit the network and mutate local
+   * token state, and would misreport an otherwise-valid login as
+   * missing credentials if that incidental refresh happened to fail.
+   */
+  async hasStoredCredential(): Promise<boolean> {
+    const tokens = await this.loadTokens();
+    return tokens !== null;
+  }
+
   // -----------------------------------------------------------
   // INTERNALS
   // -----------------------------------------------------------
