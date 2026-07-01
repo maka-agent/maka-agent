@@ -13,6 +13,10 @@
     "./ahe-target-protocol": {
       "types": "./dist/ahe-target-protocol.d.ts",
       "default": "./dist/ahe-target-protocol.js"
+    },
+    "./ahe-evidence-export": {
+      "types": "./dist/ahe-evidence-export.d.ts",
+      "default": "./dist/ahe-evidence-export.js"
     }
   },
   "imports": {

@@ -7,6 +7,7 @@ import { runAutonomousTask } from './autonomous-agent-loop.js';
 import { harborCommand } from './harbor-cli.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
 import { planMatrixRetry, readMatrixPriorRecords } from './matrix-resume.js';
+import { buildMakaAheTargetSnapshot, writeMakaAheEvidenceExport } from './ahe-evidence-export.js';
 import { writeTaskRunExport } from './result-export.js';
 import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { runTaskOnce } from './task-agent-controller.js';
@@ -202,6 +203,49 @@ async function taskExportCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+async function aheCommand(args: string[]): Promise<number> {
+  const [subcommand, ...rest] = args;
+  if (subcommand === 'export') return aheExportCommand(rest);
+  console.error('maka-headless ahe commands:\n');
+  console.error('  ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--include-events]');
+  return 1;
+}
+
+async function aheExportCommand(args: string[]): Promise<number> {
+  let parsed: ParsedArgs;
+  try {
+    parsed = parseArgs(args, ['store', 'repo', 'out', 'run-id', 'source-label'], ['include-events']);
+  } catch (error) {
+    console.error(`${(error as Error).message}\nusage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--include-events]`);
+    return 1;
+  }
+  if (parsed.positional.length === 0 || !parsed.flags.store || !parsed.flags.repo || !parsed.flags.out) {
+    console.error('usage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--include-events]');
+    return 1;
+  }
+  try {
+    const store = createTaskRunStore(resolve(parsed.flags.store));
+    const projections = await Promise.all(parsed.positional.map((taskRunId) => store.project(taskRunId)));
+    const snapshot = await buildMakaAheTargetSnapshot({
+      repoRoot: resolve(parsed.flags.repo),
+      sourceLabel: parsed.flags['source-label'],
+    });
+    const result = await writeMakaAheEvidenceExport(resolve(parsed.flags.out), {
+      snapshot,
+      projections,
+      runId: parsed.flags['run-id'],
+      includeEvents: parsed.bools['include-events'],
+    });
+    console.log(`targetSnapshot: ${result.files.targetSnapshotJson}`);
+    console.log(`harnessResults: ${result.files.harnessResultsJson}`);
+    console.log(`traceIndex: ${result.files.traceIndexJson}`);
+    return 0;
+  } catch (error) {
+    console.error(`maka-headless ahe export: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
 async function taskResumeCommand(args: string[]): Promise<number> {
   let parsed: ParsedArgs;
   try {
@@ -354,6 +398,7 @@ function printUsage(): void {
   console.error('  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table');
   console.error('  maka-headless compare <results.jsonl>          print the comparison table');
   console.error('  maka-headless task <command> ...               run, inspect, resume, retry, export task runs');
+  console.error('  maka-headless ahe <command> ...                export AHE target snapshots and evidence');
   console.error('  maka-headless harbor <command> ...             run Harbor real-backend task/cell flows');
 }
 
@@ -371,6 +416,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'eval') return evalCommand(rest);
   if (cmd === 'compare') return compareCommand(rest);
   if (cmd === 'task') return taskCommand(rest);
+  if (cmd === 'ahe') return aheCommand(rest);
   if (cmd === 'harbor') return harborCommand(rest);
   printUsage();
   return cmd ? 1 : 0;

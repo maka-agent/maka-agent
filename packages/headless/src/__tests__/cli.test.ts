@@ -8,6 +8,7 @@ import { describe, test } from 'node:test';
 import { readResults } from '../results.js';
 
 const cliPath = fileURLToPath(new URL('../cli.js', import.meta.url));
+const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
 
 function runCli(
   args: string[],
@@ -370,6 +371,26 @@ describe('maka-headless CLI', () => {
       assert.equal(taskRunJson.verifier.authority.authoritative, false);
       assert.equal(taskRunJson.verifier.benchmark.verificationPlaceholder, true);
       assert.match(await readFile(join(exportDir, 'events.jsonl'), 'utf8'), /verifier_result_recorded/);
+
+      const aheExportDir = join(dir, 'ahe-export');
+      const aheExported = await runCli([
+        'ahe',
+        'export',
+        'task-run-1',
+        '--store',
+        join(outDir, 'runs'),
+        '--repo',
+        repoRoot,
+        '--out',
+        aheExportDir,
+        '--include-events',
+      ]);
+      assert.equal(aheExported.code, 0, aheExported.stderr);
+      assert.match(aheExported.stdout, /harnessResults:/);
+      const aheResults = JSON.parse(await readFile(join(aheExportDir, 'harness-results.json'), 'utf8'));
+      assert.equal(aheResults.results[0].status, 'excluded');
+      assert.equal(aheResults.results[0].scoreAuthority, 'self_check');
+      assert.match(await readFile(join(aheExportDir, 'trace-index.json'), 'utf8'), /traces\/task-run-1\/result.md/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

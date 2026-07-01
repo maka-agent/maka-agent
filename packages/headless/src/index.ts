@@ -171,6 +171,20 @@ export {
   type ExternalHarborBenchmarkFailureKind,
 } from './harbor-failure-policy.js';
 export type {
+  BuildMakaAheTargetSnapshotOptions,
+  MakaAheRunEvidence,
+  MakaAheRunEvidenceOptions,
+  WriteMakaAheEvidenceExportOptions,
+  WriteMakaAheEvidenceExportResult,
+} from './ahe-evidence-export.js';
+export {
+  MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL,
+  buildMakaAheTargetSnapshot,
+  makaAheEvidenceFromTaskRunProjections,
+  validateMakaAheSourceRefs,
+  writeMakaAheEvidenceExport,
+} from './ahe-evidence-export.js';
+export type {
   MakaAheArtifactRef,
   MakaAheChangeEvaluation,
   MakaAheChangeEvaluationCell,
