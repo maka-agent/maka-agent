@@ -237,6 +237,7 @@ export interface SessionManagerDeps {
 
 export class SessionManager {
   private readonly runtimeKernel: RuntimeKernelLike;
+  private readonly terminalRepairQueues = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: SessionManagerDeps) {
     this.runtimeKernel = deps.runtimeKernel ?? new RuntimeKernel(deps);
@@ -742,13 +743,23 @@ export class SessionManager {
     let repaired = false;
     for (const run of runs) {
       if (!isTerminalRunStatus(run.status)) continue;
+      if (await this.repairRunTerminalFact(sessionId, run)) repaired = true;
+    }
+    return repaired;
+  }
+
+  private async repairRunTerminalFact(sessionId: string, staleRun: AgentRunHeader): Promise<boolean> {
+    return this.withTerminalRepairQueue(sessionId, staleRun.runId, async () => {
+      if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
+      const run = await this.deps.runStore.readRun(sessionId, staleRun.runId).catch(() => staleRun);
+      if (!isTerminalRunStatus(run.status)) return false;
       let runtimeEvents: RuntimeEvent[];
       try {
         runtimeEvents = await this.deps.runtimeEventStore.readRuntimeEvents(sessionId, run.runId);
       } catch {
-        continue;
+        return false;
       }
-      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) continue;
+      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) return false;
 
       const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
       const recovered = backfillRuntimeEventsFromStoredMessages({
@@ -765,14 +776,31 @@ export class SessionManager {
         for (const event of eventsToAppend) {
           await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
         }
-        repaired = true;
-        continue;
+        return true;
       }
 
       await this.repairMissingTerminalAsFailed(sessionId, run, runtimeEvents);
-      repaired = true;
+      return true;
+    });
+  }
+
+  private async withTerminalRepairQueue<T>(
+    sessionId: string,
+    runId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${sessionId}:${runId}`;
+    const previous = this.terminalRepairQueues.get(key) ?? Promise.resolve();
+    const current = previous.then(operation, operation);
+    const cleanup = current.then(() => undefined, () => undefined);
+    this.terminalRepairQueues.set(key, cleanup);
+    try {
+      return await current;
+    } finally {
+      if (this.terminalRepairQueues.get(key) === cleanup) {
+        this.terminalRepairQueues.delete(key);
+      }
     }
-    return repaired;
   }
 
   private async repairMissingTerminalAsFailed(
