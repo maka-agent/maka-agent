@@ -473,6 +473,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
 
     const memory = createSessionEventMapMemory();
     let terminalEmitted = false;
+    let errorEmitted = false;
     try {
       for await (const sessionEvent of this.backend.send({
         runId: ctx.runId,
@@ -484,6 +485,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
       })) {
         const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
         await this.onSessionEvent?.(sessionEvent, runtimeEvent);
+        if (sessionEvent.type === 'error') errorEmitted = true;
         if (isTerminalRuntimeEvent(runtimeEvent)) {
           if (terminalEmitted) continue;
           terminalEmitted = true;
@@ -494,7 +496,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         yield runtimeEvent;
       }
       if (!terminalEmitted) {
-        for (const sessionEvent of missingTerminalSessionEvents(ctx)) {
+        for (const sessionEvent of missingTerminalSessionEvents(ctx, { includeError: !errorEmitted })) {
           const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
           await this.onSessionEvent?.(sessionEvent, runtimeEvent);
           if (isTerminalRuntimeEvent(runtimeEvent)) terminalEmitted = true;
@@ -525,10 +527,14 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
   }
 }
 
-function missingTerminalSessionEvents(ctx: InvocationContext): SessionEvent[] {
+function missingTerminalSessionEvents(
+  ctx: InvocationContext,
+  options: { includeError: boolean },
+): SessionEvent[] {
   const ts = ctx.now();
-  return [
-    {
+  const events: SessionEvent[] = [];
+  if (options.includeError) {
+    events.push({
       type: 'error',
       id: ctx.newId(),
       turnId: ctx.turnId,
@@ -537,13 +543,14 @@ function missingTerminalSessionEvents(ctx: InvocationContext): SessionEvent[] {
       code: 'missing_terminal_event',
       reason: 'missing_terminal_event',
       message: 'flow exhausted without a terminal RuntimeEvent',
-    },
-    {
-      type: 'complete',
-      id: ctx.newId(),
-      turnId: ctx.turnId,
-      ts,
-      stopReason: 'error',
-    },
-  ];
+    });
+  }
+  events.push({
+    type: 'complete',
+    id: ctx.newId(),
+    turnId: ctx.turnId,
+    ts,
+    stopReason: 'error',
+  });
+  return events;
 }

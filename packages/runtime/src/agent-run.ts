@@ -252,7 +252,7 @@ export class AgentRun {
       // This emits a run_failed event here AND another in finishRun, mirroring
       // the error-event path (which also double-records). Event-stream
       // consumers already tolerate duplicate terminal events.
-      if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass) {
+      if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass && !this.stopped) {
         this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
       }
     }
@@ -276,10 +276,29 @@ export class AgentRun {
   async recordRuntimeEvents(events: readonly RuntimeEvent[]): Promise<void> {
     if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable || events.length === 0) return;
     for (const event of events) {
+      const eventForStore = this.runtimeEventForStore(event);
       await this.enqueueRuntimeEventStore('append runtime event', async () => {
-        await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, event);
+        await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
       });
     }
+  }
+
+  private runtimeEventForStore(event: RuntimeEvent): RuntimeEvent {
+    if (!this.stopped || !isTerminalRuntimeEvent(event)) return event;
+    const { content: _content, ...rest } = event;
+    void _content;
+    return {
+      ...rest,
+      status: 'aborted',
+      actions: {
+        ...event.actions,
+        endInvocation: true,
+        stateDelta: {
+          ...event.actions?.stateDelta,
+          abortSource: this.abortSource ?? 'user_stop',
+        },
+      },
+    };
   }
 
   async recordFailure(error: unknown): Promise<void> {
@@ -303,6 +322,10 @@ export class AgentRun {
     if (this.active) {
       await this.input.hooks.unregisterRun(this.active, this);
       if (this.stopped) this.finalStatus = { status: 'aborted' };
+    }
+    if (!this.finalStatus && !this.stopped) {
+      this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
+      this.markRunFailed('missing_terminal_event', 'run finalized without a terminal SessionEvent', lastTs);
     }
     const nextStatus = this.active && this.active.activeRuns.size > 0
       ? { status: 'running' as const }
