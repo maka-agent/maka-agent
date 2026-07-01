@@ -808,13 +808,13 @@ export class SessionManager {
         },
       },
     };
-    await this.deps.runtimeEventStore?.appendRuntimeEvent(sessionId, run.runId, terminalEvent);
     await this.deps.runStore?.updateRun(sessionId, run.runId, {
       status: 'failed',
       completedAt: ts,
       updatedAt: ts,
       failureClass,
     });
+    await this.deps.runtimeEventStore?.appendRuntimeEvent(sessionId, run.runId, terminalEvent);
     const existingEvents = await this.deps.runStore?.readEvents(sessionId, run.runId).catch(() => []) ?? [];
     if (latestTerminalAgentRunStatus(existingEvents) !== 'failed') {
       await this.deps.runStore?.appendEvent(sessionId, run.runId, {

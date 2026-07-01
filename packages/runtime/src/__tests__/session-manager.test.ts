@@ -742,6 +742,40 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
   });
 
+  test('getMessages can retry repair when the failed header update is interrupted', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunOnce: true });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    await expectRejects(manager.getMessages(session.id), /update run failed/);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)?.type).toBe('turn_state');
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3370,7 +3404,11 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
 
-  constructor(private readonly options: { failRuntimeEventAppends?: boolean; failRuntimeEventReads?: boolean } = {}) {}
+  constructor(private readonly options: {
+    failRuntimeEventAppends?: boolean;
+    failRuntimeEventReads?: boolean;
+    failUpdateRunOnce?: boolean;
+  } = {}) {}
 
   async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), { ...header });
@@ -3378,6 +3416,10 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
+    if (this.options.failUpdateRunOnce) {
+      this.options.failUpdateRunOnce = false;
+      throw new Error('update run failed');
+    }
     const current = await this.readRun(sessionId, runId);
     const next = { ...current, ...patch, sessionId, runId };
     this.headers.set(key(sessionId, runId), next);
