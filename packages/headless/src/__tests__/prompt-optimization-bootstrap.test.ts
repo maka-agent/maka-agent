@@ -39,6 +39,23 @@ describe('ensurePromptOptimizationPromptRepo', () => {
     });
   });
 
+  test('writes the provided initial system prompt exactly', async () => {
+    await withDir(async (dir) => {
+      const promptRepoDir = join(dir, 'prompt-repo');
+
+      await ensurePromptOptimizationPromptRepo({
+        promptRepoDir,
+        program: 'program v1\n',
+        systemPrompt: 'custom initial prompt\nwith a second line\n',
+      });
+
+      assert.equal(
+        await readFile(join(promptRepoDir, 'system_prompt.md'), 'utf8'),
+        'custom initial prompt\nwith a second line\n',
+      );
+    });
+  });
+
   test('rejects an existing seed repo with different seed files instead of rewriting it', async () => {
     await withDir(async (dir) => {
       const promptRepoDir = join(dir, 'prompt-repo');

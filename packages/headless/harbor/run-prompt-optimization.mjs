@@ -30,8 +30,8 @@ import {
 } from '#fixed-prompt-task-source';
 import {
   buildRewardHackVerifierPatterns,
-  partitionPromptTasks,
   runPromptOptimizationRun,
+  selectPromptOptimizationPartitions,
 } from '#prompt-optimization-run';
 import { renderPromptStructuralSmokeMarkdown } from '#prompt-structural-smoke';
 import {
@@ -165,6 +165,9 @@ async function main() {
   const outDir = envPath('MAKA_PROMPT_OUT_DIR', join(localEvalRoot, 'maka-eval', 'rsi-runs'));
   const keyFile = envPath('MAKA_PROMPT_KEY_FILE', join(localEvalRoot, '.local-secrets', 'deepseek-key'));
   const tasksRoot = envPath('MAKA_PROMPT_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
+  const initialSystemPromptFile = process.env.MAKA_PROMPT_INITIAL_SYSTEM_PROMPT_FILE
+    ? envPath('MAKA_PROMPT_INITIAL_SYSTEM_PROMPT_FILE')
+    : undefined;
   // Model is pinned, not env-overridable: the RSI loop is contractually a
   // deepseek-v4-flash run, and DEEPSEEK_V4_FLASH_PRICING below is tied to it.
   // Allowing an override would let cost/smoke accounting silently use the wrong
@@ -236,12 +239,15 @@ async function main() {
       MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER: String(activeToolResultMinStepNumber),
     },
   };
-  // Min-stable floors scale with the actual post-drop partition sizes; resolved
-  // below once the no-canary drop has settled heldInTasks/heldOutTasks.
+  // Min-stable floors scale with the final selected partition sizes; resolved
+  // below once held-in scannable selection has settled heldInTasks/heldOutTasks.
   const minStableRatio = envRatioOf('MAKA_PROMPT_MIN_STABLE_RATIO', 0.5);
 
-  // Verify the key file exists before spending Docker time (never print it).
+  // Verify local inputs exist before spending Docker time (never print secrets).
   await readFile(keyFile, 'utf8');
+  const initialSystemPrompt = initialSystemPromptFile
+    ? await readFile(initialSystemPromptFile, 'utf8')
+    : `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`;
 
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   console.log(`Discovered ${allTasks.length} cached tasks under ${tasksRoot}`);
@@ -249,6 +255,8 @@ async function main() {
   const heldOutIds = envIds('MAKA_PROMPT_HELD_OUT_IDS');
   let heldInTasks;
   let heldOutTasks;
+  let heldOutNoPattern = [];
+  let rewardHackVerifierPatternsByTaskId;
   if (heldInIds || heldOutIds) {
     if (!heldInIds || !heldOutIds) {
       throw new Error('MAKA_PROMPT_HELD_IN_IDS and MAKA_PROMPT_HELD_OUT_IDS must be set together');
@@ -257,36 +265,34 @@ async function main() {
     if (overlap.length > 0) throw new Error(`held-in and held-out overlap: ${overlap.join(', ')}`);
     heldInTasks = selectTasksByIds(allTasks, heldInIds);
     heldOutTasks = selectTasksByIds(allTasks, heldOutIds);
-    console.log(`Selected by id: held-in [${heldInIds.join(', ')}], held-out [${heldOutIds.join(', ')}]`);
-  } else {
-    ({ heldInTasks, heldOutTasks } = partitionPromptTasks(allTasks, { heldInCount, heldOutCount }));
-    console.log(`Partitioned: ${heldInTasks.length} held-in, ${heldOutTasks.length} held-out`);
-  }
-
-  const rewardHackVerifierPatternsByTaskId = await buildRewardHackVerifierPatterns([...heldInTasks, ...heldOutTasks]);
-  // A held-in task with no canary verifier pattern cannot be scanned for
-  // reward-hacking, so the controller quarantines every round it completes in —
-  // which would fail the structural smoke. An unverifiable task does not belong
-  // in the partition the meta-agent optimizes, so drop it from held-in. Held-out
-  // is not reward-hack-scanned, so it keeps such tasks. If the caller pinned
-  // held-in ids explicitly, fail loud rather than silently change their set.
-  const hasPattern = (t) => (rewardHackVerifierPatternsByTaskId[t.id] ?? []).length > 0;
-  const heldInNoPattern = heldInTasks.filter((t) => !hasPattern(t));
-  if (heldInNoPattern.length > 0) {
-    const ids = heldInNoPattern.map((t) => t.id).join(', ');
-    if (heldInIds) {
+    rewardHackVerifierPatternsByTaskId = await buildRewardHackVerifierPatterns([...heldInTasks, ...heldOutTasks]);
+    const hasPattern = (t) => (rewardHackVerifierPatternsByTaskId[t.id] ?? []).length > 0;
+    const unscannableHeldInTasks = heldInTasks.filter((t) => !hasPattern(t));
+    if (unscannableHeldInTasks.length > 0) {
+      const ids = unscannableHeldInTasks.map((t) => t.id).join(', ');
       throw new Error(`held-in task(s) have no canary verifier pattern (would quarantine every round): ${ids}`);
     }
-    heldInTasks = heldInTasks.filter(hasPattern);
-    console.warn(`Dropped ${heldInNoPattern.length} held-in task(s) with no canary verifier pattern: ${ids}`);
+    heldOutNoPattern = heldOutTasks.filter((t) => !hasPattern(t));
+    console.log(`Selected by id: held-in [${heldInIds.join(', ')}], held-out [${heldOutIds.join(', ')}]`);
+  } else {
+    rewardHackVerifierPatternsByTaskId = await buildRewardHackVerifierPatterns(allTasks);
+    ({
+      heldInTasks,
+      heldOutTasks,
+      heldOutNoPattern,
+    } = selectPromptOptimizationPartitions(allTasks, {
+      heldInCount,
+      heldOutCount,
+      rewardHackVerifierPatternsByTaskId,
+    }));
+    console.log(`Partitioned: ${heldInTasks.length} scannable held-in, ${heldOutTasks.length} held-out`);
   }
-  const heldOutNoPattern = heldOutTasks.filter((t) => !hasPattern(t));
   if (heldOutNoPattern.length > 0) {
     console.warn(`Note: ${heldOutNoPattern.length} held-out task(s) have no canary pattern (held-out is not reward-hack-scanned): ${heldOutNoPattern.map((t) => t.id).join(', ')}`);
   }
   console.log(`Reward-hack patterns: ${heldInTasks.length} held-in all covered, ${heldOutTasks.length} held-out`);
 
-  // Resolve the min-stable floors against the FINAL (post-drop) partition sizes.
+  // Resolve the min-stable floors against the final selected partition sizes.
   // An explicit MAKA_PROMPT_MIN_STABLE_* wins (cheap smokes pin "1"); otherwise
   // the floor scales with the partition — ceil(size * ratio), at least 1 — so a
   // sample shrunk by unstable-task drops fails loud instead of a flat default of
@@ -321,7 +327,6 @@ async function main() {
       toolchainFingerprint: await buildPromptOptimizationToolchainFingerprint(repoRoot),
       heldInTasks,
       heldOutTasks,
-      heldInNoPattern,
       heldOutNoPattern,
     }),
     runRoot,
@@ -344,7 +349,7 @@ async function main() {
   } = await ensurePromptOptimizationPromptRepo({
     promptRepoDir,
     program: PROGRAM,
-    systemPrompt: `${BENCHMARK_BASE_SYSTEM_PROMPT}\n`,
+    systemPrompt: initialSystemPrompt,
   });
   await preparePromptOptimizationResume({ promptRepoDir, resultsJsonlPath });
 

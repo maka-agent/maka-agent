@@ -51,6 +51,8 @@ export interface RunLoopOptions {
   onTaskRun?: (roundId: string, taskId: string) => void;
   metaAgent?: MetaAgent;
   resumeFingerprint?: string | null;
+  rewardHackVerifierPatternsByTaskId?: Readonly<Record<string, readonly string[]>>;
+  runtimeEventCommandFor?: (roundId: string, taskId: string) => string | undefined;
 }
 
 export async function runLoop(harness: Harness, options: RunLoopOptions) {
@@ -80,10 +82,12 @@ export async function runLoop(harness: Harness, options: RunLoopOptions) {
       options.durationMsFor,
       options.verifierFailureSummaryFor,
       options.onTaskRun,
+      options.runtimeEventCommandFor,
     ),
     metaAgent: options.metaAgent ?? fakeMetaAgent(),
     git: createCliPromptCandidateGit({ cwd: harness.repoDir, systemPromptPath: harness.systemPromptPath }),
-    rewardHackVerifierPatternsByTaskId,
+    rewardHackVerifierPatternsByTaskId: options.rewardHackVerifierPatternsByTaskId
+      ?? rewardHackVerifierPatternsByTaskId,
     ...(options.resumeFingerprint !== null ? { resumeFingerprint: options.resumeFingerprint ?? 'fingerprint-test' } : {}),
     ...(options.costCeilingUsd !== undefined ? { costCeilingUsd: options.costCeilingUsd } : {}),
     ...(options.maxInfraFailureRate !== undefined ? { maxInfraFailureRate: options.maxInfraFailureRate } : {}),
@@ -127,6 +131,7 @@ function fakeHarborRunner(
   durationMsFor?: (roundId: string, taskId: string) => number,
   verifierFailureSummaryFor?: (roundId: string, taskId: string) => string | undefined,
   onTaskRun?: (roundId: string, taskId: string) => void,
+  runtimeEventCommandFor?: (roundId: string, taskId: string) => string | undefined,
 ): (input: HarborTaskRunInput) => Promise<HarborTaskRunOutput> {
   return async ({ roundId, task, systemPrompt }) => {
     onTaskRun?.(roundId, task.id);
@@ -134,7 +139,11 @@ function fakeHarborRunner(
       throw new Error(`container crashed for ${roundId}/${task.id}`);
     }
     const runtimeEventsPath = join(eventsDir, `${roundId}__${task.id}.jsonl`);
-    await writeFile(runtimeEventsPath, `${JSON.stringify(modelVisibleEvent())}\n`, 'utf8');
+    await writeFile(
+      runtimeEventsPath,
+      `${JSON.stringify(modelVisibleEvent(runtimeEventCommandFor?.(roundId, task.id) ?? 'echo done'))}\n`,
+      'utf8',
+    );
     // A non-completed cell with a correct hash and real (non-zero) cost: scored
     // is false, so the controller records it as an unscored task_completed — not
     // a plumbing failure — which the stability filter drops.
@@ -172,7 +181,7 @@ function fakeHarborRunner(
   };
 }
 
-function modelVisibleEvent(): unknown {
+function modelVisibleEvent(command: string): unknown {
   return {
     id: 'call-1',
     invocationId: 'inv-1',
@@ -183,7 +192,7 @@ function modelVisibleEvent(): unknown {
     partial: false,
     role: 'model',
     author: 'agent',
-    content: { kind: 'function_call', id: 'call-1', name: 'Bash', args: { command: 'echo done' } },
+    content: { kind: 'function_call', id: 'call-1', name: 'Bash', args: { command } },
   };
 }
 

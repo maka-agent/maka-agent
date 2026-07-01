@@ -152,6 +152,25 @@ describe('prompt optimization run manifest', () => {
     });
   });
 
+  test('treats cost ceiling as a mutable guardrail and records the current value on resume', async () => {
+    await withDir(async (dir) => {
+      const runRoot = join(dir, 'run-1');
+      const manifestPath = join(runRoot, 'prompt-optimization-manifest.json');
+      const original = buildManifest('sha256:task-source', []);
+      const raised = buildManifest('sha256:task-source', [], 'pilot', 1.5);
+      assert.equal(raised.fingerprint, original.fingerprint);
+      await mkdir(runRoot, { recursive: true });
+      await writeFile(manifestPath, `${JSON.stringify(original, null, 2)}\n`, 'utf8');
+
+      const resumed = await ensurePromptOptimizationRunManifest(manifestPath, raised, runRoot);
+
+      assert.equal(resumed.fingerprint, original.fingerprint);
+      assert.equal(resumed.costCeilingUsd, 1.5);
+      const persisted = JSON.parse(await readFile(manifestPath, 'utf8'));
+      assert.equal(persisted.costCeilingUsd, 1.5);
+    });
+  });
+
   test('records the prompt optimization profile in the resume fingerprint', () => {
     const pilot = buildManifest('sha256:task-source', [], 'pilot');
     const full = buildManifest('sha256:task-source', [], 'full');
@@ -160,12 +179,18 @@ describe('prompt optimization run manifest', () => {
     assert.equal(full.profile, 'full');
     assert.notEqual(full.fingerprint, pilot.fingerprint);
   });
+
+  test('does not record an always-empty dropped held-in no-pattern field', () => {
+    const manifest = buildManifest('sha256:task-source', []);
+    assert.equal('droppedHeldInNoPatternTaskIds' in manifest, false);
+  });
 });
 
 function buildManifest(
   taskSourceFingerprint: string,
   heldInTasks: FixedPromptTask[],
   profile: 'pilot' | 'full' = 'pilot',
+  costCeilingUsd = 1,
 ) {
   return buildPromptOptimizationRunManifest({
     runId: 'rsi-test',
@@ -175,7 +200,7 @@ function buildManifest(
     model: 'deepseek/deepseek-v4-flash',
     rounds: 1,
     baselineRuns: 1,
-    costCeilingUsd: 1,
+    costCeilingUsd,
     maxConcurrency: 1,
     maxInfraFailureRate: null,
     maxStableTaskDurationMs: null,
@@ -188,7 +213,6 @@ function buildManifest(
     toolchainFingerprint: 'sha256:toolchain',
     heldInTasks,
     heldOutTasks: [],
-    heldInNoPattern: [],
     heldOutNoPattern: [],
   });
 }

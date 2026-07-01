@@ -157,7 +157,7 @@ describe('Harbor adapter contract', () => {
     const source = await readRepoFile('packages/headless/harbor/run-prompt-optimization.mjs');
     assert.match(source, /runPromptOptimizationRun/);
     assert.match(source, /discoverCachedHarborTasks/);
-    assert.match(source, /partitionPromptTasks/);
+    assert.match(source, /selectPromptOptimizationPartitions/);
     assert.match(source, /buildRewardHackVerifierPatterns/);
     assert.match(source, /DEEPSEEK_V4_FLASH_PRICING/);
     assert.match(source, /apiKeyFile: keyFile/);
@@ -177,6 +177,7 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /const localEvalRoot = defaultLocalEvalRoot\(repoRoot\);/);
     assert.match(source, /const outDir = envPath\('MAKA_PROMPT_OUT_DIR', join\(localEvalRoot, 'maka-eval', 'rsi-runs'\)\);/);
     assert.match(source, /const keyFile = envPath\('MAKA_PROMPT_KEY_FILE', join\(localEvalRoot, '\.local-secrets', 'deepseek-key'\)\);/);
+    assert.match(source, /MAKA_PROMPT_INITIAL_SYSTEM_PROMPT_FILE/);
     assert.match(source, /const maxConcurrency = envPosInt\('MAKA_PROMPT_MAX_CONCURRENCY', defaultMaxConcurrency\(\)\);/);
     // The secret travels as a file path only — never a raw key on argv/env here.
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
@@ -439,7 +440,7 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /createHarborTaskRunner|HarborTaskRunnerOptions|HarborProcessRunner/);
     assert.doesNotMatch(source, /createAiSdkMetaAgent|createAiSdkMetaAgentCompletion|CreateAiSdkMetaAgentInput/);
     assert.doesNotMatch(source, /runPromptOptimizationLoop|PromptOptimizationLoopInput/);
-    assert.doesNotMatch(source, /discoverCachedHarborTasks|partitionPromptTasks|buildRewardHackVerifierPatterns/);
+    assert.doesNotMatch(source, /discoverCachedHarborTasks|partitionPromptTasks|selectPromptOptimizationPartitions|buildRewardHackVerifierPatterns/);
     assert.match(source, /runPromptOptimizationRun/);
     assert.match(source, /PromptOptimizationRunInput/);
     assert.match(source, /PromptOptimizationRunResult/);

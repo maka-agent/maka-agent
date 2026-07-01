@@ -273,7 +273,7 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
       heldOut: summarizePromptAcceptancePartition(input.candidateEvents, input.heldOutTaskIds),
     },
   };
-  const reason = acceptanceReason(metrics, {
+  const reason = rewardHackGateReason(rewardHackScan) ?? acceptanceReason(metrics, {
     previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
     originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
     heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
@@ -505,6 +505,8 @@ export function heldInGateReason(input: {
   heldInPassRateNoiseBand: number;
   rewardHackScan?: PromptCandidateRewardHackScan;
 }): PromptAcceptanceReason | null {
+  const rewardHack = rewardHackGateReason(normalizeRewardHackScan(input.rewardHackScan));
+  if (rewardHack) return rewardHack;
   return heldInGateReasonFromSummaries(
     summarizePromptAcceptancePartition(input.candidateHeldInEvents, input.heldInTaskIds),
     summarizePromptAcceptancePartition(input.lastKeptHeldInEvents, input.heldInTaskIds),
@@ -538,6 +540,10 @@ function acceptanceReason(
 
 function normalizeRewardHackScan(scan: PromptCandidateRewardHackScan | undefined): PromptCandidateRewardHackScan {
   return scan ?? { decision: 'clean' };
+}
+
+function rewardHackGateReason(scan: PromptCandidateRewardHackScan): PromptAcceptanceReason | null {
+  return scan.decision === 'clean' ? null : PROMPT_REWARD_HACK_QUARANTINE_REASON;
 }
 
 function nextHeldInReferencePassEligibleRate(input: {

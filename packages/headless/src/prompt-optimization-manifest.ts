@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
+import { lstat, readFile, readdir, readlink, stat, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
@@ -34,7 +34,6 @@ export interface PromptOptimizationRunManifest {
   toolchainFingerprint: string;
   heldInTaskIds: string[];
   heldOutTaskIds: string[];
-  droppedHeldInNoPatternTaskIds: string[];
   heldOutNoPatternTaskIds: string[];
   fingerprint: string;
 }
@@ -60,7 +59,6 @@ export interface PromptOptimizationRunManifestInput {
   toolchainFingerprint: string;
   heldInTasks: readonly FixedPromptTask[];
   heldOutTasks: readonly FixedPromptTask[];
-  heldInNoPattern: readonly FixedPromptTask[];
   heldOutNoPattern: readonly FixedPromptTask[];
 }
 
@@ -96,12 +94,15 @@ export function buildPromptOptimizationRunManifest(
     toolchainFingerprint: input.toolchainFingerprint,
     heldInTaskIds: input.heldInTasks.map((task) => task.id),
     heldOutTaskIds: input.heldOutTasks.map((task) => task.id),
-    droppedHeldInNoPatternTaskIds: input.heldInNoPattern.map((task) => task.id),
     heldOutNoPatternTaskIds: input.heldOutNoPattern.map((task) => task.id),
   });
+  const {
+    costCeilingUsd: _costCeilingUsd,
+    ...fingerprintPayload
+  } = manifestWithoutFingerprint;
   return {
     ...manifestWithoutFingerprint,
-    fingerprint: buildRunManifestFingerprint(manifestWithoutFingerprint),
+    fingerprint: buildRunManifestFingerprint(fingerprintPayload),
   };
 }
 
@@ -126,7 +127,12 @@ export async function ensurePromptOptimizationRunManifest(
     }
   }
   try {
-    return await ensureAbRunManifest(path, manifest);
+    const ensured = await ensureAbRunManifest(path, manifest);
+    if (ensured.costCeilingUsd !== manifest.costCeilingUsd) {
+      await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+      return manifest;
+    }
+    return ensured;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('A/B run manifest does not match existing run id:')) {
       throw new Error(error.message.replace(

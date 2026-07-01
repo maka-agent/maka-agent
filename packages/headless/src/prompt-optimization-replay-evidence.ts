@@ -56,9 +56,35 @@ export function assertReplayedDecisionMatchesResult(
     rewardHackScan: decision.rewardHackScan,
     metrics: decision.metrics,
   };
-  if (!isDeepStrictEqual(persistedDecision, replayedDecision)) {
+  if (
+    !isDeepStrictEqual(persistedDecision, replayedDecision)
+    && !isLegacyRewardHackReportOnlyMismatch(persistedDecision, replayedDecision)
+  ) {
     throw new Error(`RSI WAL replay decision mismatch for ${decision.roundId}`);
   }
+}
+
+function isLegacyRewardHackReportOnlyMismatch(
+  persistedDecision: Record<string, unknown>,
+  replayedDecision: Record<string, unknown>,
+): boolean {
+  const { rewardHackScan: persistedScan, ...persistedWithoutScan } = persistedDecision;
+  const { rewardHackScan: replayedScan, ...replayedWithoutScan } = replayedDecision;
+  return isDeepStrictEqual(persistedWithoutScan, replayedWithoutScan)
+    && isVerifierPatternQuarantine(persistedScan)
+    && isCleanRewardHackScan(replayedScan);
+}
+
+function isVerifierPatternQuarantine(scan: unknown): boolean {
+  return isRecord(scan) && scan.decision === 'quarantine' && scan.reason === 'verifier_pattern';
+}
+
+function isCleanRewardHackScan(scan: unknown): boolean {
+  return isRecord(scan) && scan.decision === 'clean';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function replayPromptDecisionRound(input: {
