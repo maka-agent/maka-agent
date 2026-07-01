@@ -99,6 +99,7 @@ export class AgentRun {
   private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
   private turnFailed = false;
   private finalized = false;
+  private terminalRuntimeEventRecorded = false;
 
   constructor(private readonly input: AgentRunInput) {
     this.runId = input.newId();
@@ -278,9 +279,12 @@ export class AgentRun {
     if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable || events.length === 0) return;
     for (const event of events) {
       const eventForStore = this.runtimeEventForStore(event);
+      const terminal = isTerminalRuntimeEvent(eventForStore);
+      if (terminal && this.terminalRuntimeEventRecorded) continue;
       await this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
       });
+      if (terminal) this.terminalRuntimeEventRecorded = true;
     }
   }
 
