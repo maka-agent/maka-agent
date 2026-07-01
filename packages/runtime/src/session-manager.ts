@@ -52,7 +52,7 @@ import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, Runt
 import {
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
-import { RuntimeReadModel, type RuntimeReadModelSessionView } from './runtime-read-model.js';
+import { RuntimeReadModel, RuntimeReadModelError, type RuntimeReadModelSessionView } from './runtime-read-model.js';
 import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run-inspect.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
 
@@ -240,7 +240,10 @@ export class SessionManager {
   private readonly terminalRepairQueues = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: SessionManagerDeps) {
-    this.runtimeKernel = deps.runtimeKernel ?? new RuntimeKernel(deps);
+    this.runtimeKernel = deps.runtimeKernel ?? new RuntimeKernel({
+      ...deps,
+      repairRunRuntimeLedger: (sessionId, runId) => this.ensureRecoveredRuntimeEventsComplete(sessionId, runId),
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -427,7 +430,6 @@ export class SessionManager {
     sessionId: string,
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
-    await this.repairRuntimeTerminalFacts(sessionId);
     yield* this.runtimeKernel.startTurn(sessionId, input);
   }
 
@@ -722,8 +724,23 @@ export class SessionManager {
   }
 
   private async getSessionView(sessionId: string): Promise<RuntimeReadModelSessionView> {
-    await this.repairRuntimeTerminalFacts(sessionId);
-    return this.readModel().getSessionView(sessionId);
+    const repairedRunIds = new Set<string>();
+    while (true) {
+      try {
+        const view = await this.readModel().getSessionView(sessionId);
+        const runId = firstRuntimeRepairRunId(view.diagnostics, repairedRunIds);
+        if (!runId) return view;
+        if (!await this.ensureRecoveredRuntimeEventsComplete(sessionId, runId)) return view;
+        repairedRunIds.add(runId);
+      } catch (error) {
+        if (!(error instanceof RuntimeReadModelError)) throw error;
+        const runId = firstRuntimeRepairRunId(error.diagnostics, repairedRunIds);
+        if (!runId) throw error;
+        const repaired = await this.ensureRecoveredRuntimeEventsComplete(sessionId, runId);
+        repairedRunIds.add(runId);
+        if (!repaired) continue;
+      }
+    }
   }
 
   private readModel(): RuntimeReadModel {
@@ -737,16 +754,11 @@ export class SessionManager {
     });
   }
 
-  private async repairRuntimeTerminalFacts(sessionId: string): Promise<boolean> {
+  private async ensureRecoveredRuntimeEventsComplete(sessionId: string, runId: string): Promise<boolean> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
-    const runs = await this.deps.runStore.listSessionRuns(sessionId);
-    let repaired = false;
-    for (const run of runs) {
-      if (run.parentRunId) continue;
-      if (!isTerminalRunStatus(run.status)) continue;
-      if (await this.repairRunTerminalFact(sessionId, run)) repaired = true;
-    }
-    return repaired;
+    const run = await this.deps.runStore.readRun(sessionId, runId).catch(() => undefined);
+    if (!run) return false;
+    return this.repairRunTerminalFact(sessionId, run);
   }
 
   private async repairRunTerminalFact(sessionId: string, staleRun: AgentRunHeader): Promise<boolean> {
@@ -1251,6 +1263,32 @@ function copyMessagesThroughTurnBoundary(messages: readonly StoredMessage[], tur
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function firstRuntimeRepairRunId(
+  diagnostics: readonly { code: string; message: string; runId?: string; detail?: unknown }[],
+  alreadyRepaired: ReadonlySet<string>,
+): string | undefined {
+  for (const diagnostic of diagnostics) {
+    const runId = diagnostic.runId ?? diagnosticDetailRunId(diagnostic.detail);
+    if (!runId || alreadyRepaired.has(runId)) continue;
+    if (diagnostic.code !== 'incomplete_event') continue;
+    if (
+      diagnostic.message === 'terminal run recovered from legacy projection cache' ||
+      diagnostic.message === 'terminal run has no readable RuntimeEvent ledger' ||
+      diagnostic.message === 'terminal run has no terminal RuntimeEvent' ||
+      diagnostic.message === 'failed terminal event did not carry an exact AgentRunHeader.failureClass'
+    ) {
+      return runId;
+    }
+  }
+  return undefined;
+}
+
+function diagnosticDetailRunId(detail: unknown): string | undefined {
+  if (!detail || typeof detail !== 'object') return undefined;
+  const runId = (detail as { runId?: unknown }).runId;
+  return typeof runId === 'string' && runId.length > 0 ? runId : undefined;
 }
 
 function isTerminalTurnStatus(status: TurnRecord['status']): boolean {

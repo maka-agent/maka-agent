@@ -47,6 +47,7 @@ export interface RuntimeKernelDeps {
   childTools?: readonly MakaTool[];
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
+  repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
 }
 
 interface ActiveSession extends AgentRunActiveSession {
@@ -75,6 +76,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       store: this.deps.store,
       runStore: this.deps.runStore,
       runtimeEventStore: this.deps.runtimeEventStore,
+      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
       newId: this.deps.newId,
       now: this.deps.now,
       hooks: {
@@ -125,6 +127,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       store: this.deps.store,
       runStore: this.deps.runStore,
       runtimeEventStore: this.deps.runtimeEventStore,
+      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
       newId: this.deps.newId,
       now: this.deps.now,
       recordSessionMessages: false,

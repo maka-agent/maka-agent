@@ -497,6 +497,55 @@ describe('SessionManager permission mode updates', () => {
     expect(repairedRuntimeEvents.at(-1)?.status).toBe('completed');
   });
 
+  test('sendMessage resumes incomplete legacy backfill for prior context', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 1 });
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(7_100),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'prior question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'prior answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+    await expectRejects(manager.getMessages(session.id), /runtime event append failed/);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' }));
+
+    expect(backend?.sendInputs[0]?.runtimeContext?.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+    expect((await runStore.readRuntimeEvents(session.id, 'run-1')).map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+  });
+
   test('getMessages prefers RuntimeEvent-projected messages when legacy rows are present', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -517,6 +566,27 @@ describe('SessionManager permission mode updates', () => {
 
     expect(messages).toEqual(seeded.projectedMessages);
     expect(JSON.stringify(messages.map((message) => message.id)) === JSON.stringify(seeded.legacyMessages.map((message) => message.id))).toBe(false);
+  });
+
+  test('getMessages does not scan runs before reading a complete runtime ledger', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'question',
+      assistantText: 'answer',
+      legacyIdPrefix: 'legacy',
+    });
+
+    await manager.getMessages(session.id);
+
+    expect(runStore.listSessionRunsCalls).toBe(1);
   });
 
   test('RuntimeReadModel projects messages turns replay and terminal facts without SessionStore messages', async () => {
@@ -3723,6 +3793,7 @@ class MemorySessionStore implements SessionStore {
 }
 
 class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
+  listSessionRunsCalls = 0;
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
@@ -3759,6 +3830,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async listSessionRuns(sessionId: string): Promise<AgentRunHeader[]> {
+    this.listSessionRunsCalls += 1;
     return Array.from(this.headers.values())
       .filter((header) => header.sessionId === sessionId)
       .sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId))

@@ -125,6 +125,10 @@ export class RuntimeReadModel {
             }),
           ]);
         }
+        diagnostics.push(readModelDiagnostic('incomplete_event', 'terminal run recovered from legacy projection cache', {
+          runId: run.runId,
+          turnId: run.turnId,
+        }));
         runEvents = recovered;
       }
       if (!runEvents.some(isTerminalRuntimeEvent)) {

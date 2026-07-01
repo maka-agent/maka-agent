@@ -61,6 +61,7 @@ export interface AgentRunInput {
   store: SessionStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
+  repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
   newId: () => string;
   now: () => number;
   hooks: AgentRunHooks;
@@ -419,11 +420,21 @@ export class AgentRun {
       }
       let events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
       if (events.length === 0) {
+        if (await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+          events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+        }
+      }
+      if (events.length === 0) {
         const recovered = await this.backfillMissingPriorRuntimeEvents(run);
         if (recovered.length === 0 || !recovered.some(isTerminalRuntimeEvent)) {
           throw new Error(`Cannot build model context: RuntimeEvent ledger is missing for prior run ${run.runId}`);
         }
         events = recovered;
+      }
+      if (!events.some(isTerminalRuntimeEvent)) {
+        if (await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+          events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+        }
       }
       if (!events.some(isTerminalRuntimeEvent)) {
         throw new Error(`Cannot build model context: RuntimeEvent ledger has no terminal fact for prior run ${run.runId}`);
