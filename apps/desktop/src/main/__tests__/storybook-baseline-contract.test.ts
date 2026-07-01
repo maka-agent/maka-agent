@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -29,6 +31,16 @@ function readJson(path: string) {
     scripts?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
+}
+
+function readTypescriptConfig(repoRoot: string, configPath: string) {
+  const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
+  const tscBin = requireFromRepo.resolve('typescript/bin/tsc');
+  return JSON.parse(execFileSync(
+    process.execPath,
+    [tscBin, '-p', configPath, '--showConfig'],
+    { encoding: 'utf8' },
+  )) as { files?: string[] };
 }
 
 describe('Storybook baseline contract', () => {
@@ -96,17 +108,39 @@ describe('Storybook baseline contract', () => {
   });
 
   it('keeps Storybook stories out of the regular @maka/ui TypeScript build', () => {
-    const tscBin = join(REPO_ROOT, 'node_modules', '.bin', 'tsc');
-    const config = JSON.parse(execFileSync(
-      tscBin,
-      ['-p', join(REPO_ROOT, 'packages', 'ui', 'tsconfig.json'), '--showConfig'],
-      { encoding: 'utf8' },
-    )) as { files?: string[] };
+    const config = readTypescriptConfig(REPO_ROOT, join(REPO_ROOT, 'packages', 'ui', 'tsconfig.json'));
 
     assert.equal(
       (config.files ?? []).some((file) => /\.stories\.tsx?$/.test(file)),
       false,
       '@maka/ui tsc must not compile Storybook stories as part of the package build.',
     );
+  });
+
+  it('resolves TypeScript when worktrees borrow parent dependencies', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'maka-storybook-tsc-'));
+    try {
+      const parent = join(sandbox, 'repo');
+      const repoRoot = join(parent, '.worktree', 'topic');
+      const tscPath = join(parent, 'node_modules', 'typescript', 'bin', 'tsc');
+      const configPath = join(repoRoot, 'packages', 'ui', 'tsconfig.json');
+
+      mkdirSync(join(repoRoot, 'packages', 'ui'), { recursive: true });
+      mkdirSync(join(parent, 'node_modules', 'typescript', 'bin'), { recursive: true });
+      writeFileSync(join(repoRoot, 'package.json'), '{"private":true}', 'utf8');
+      writeFileSync(configPath, '{}', 'utf8');
+      writeFileSync(
+        tscPath,
+        'console.log(JSON.stringify({ files: ["packages/ui/src/index.ts"] }));\n',
+        'utf8',
+      );
+
+      const config = readTypescriptConfig(repoRoot, configPath);
+
+      assert.deepEqual(config.files, ['packages/ui/src/index.ts']);
+      assert.equal(existsSync(join(repoRoot, 'node_modules', '.bin', 'tsc')), false);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
   });
 });
