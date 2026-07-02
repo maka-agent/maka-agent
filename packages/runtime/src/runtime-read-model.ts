@@ -84,6 +84,17 @@ export class RuntimeReadModel {
     for (let runIndex = 0; runIndex < topLevelRuns.length; runIndex += 1) {
       const run = topLevelRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
+        const terminalFactContext = await this.readNonTerminalRunWithTerminalFact(sessionId, run);
+        if (terminalFactContext) {
+          topLevelRuns[runIndex] = terminalFactContext.run;
+          terminalFacts.push(terminalFactContext.fact);
+          diagnostics.push(...terminalFactContext.fact.diagnostics);
+          for (let eventIndex = 0; eventIndex < terminalFactContext.events.length; eventIndex += 1) {
+            ordered.push({ event: terminalFactContext.events[eventIndex]!, runIndex, eventIndex });
+          }
+          continue;
+        }
+
         const diagnostic = readModelDiagnostic('incomplete_event', 'active run is using the in-flight projection cache', {
           runId: run.runId,
           turnId: run.turnId,
@@ -163,6 +174,25 @@ export class RuntimeReadModel {
       terminalFacts,
       inFlightTurnIds,
     });
+  }
+
+  private async readNonTerminalRunWithTerminalFact(
+    sessionId: string,
+    run: AgentRunHeader,
+  ): Promise<{ events: RuntimeEvent[]; fact: RuntimeEventTerminalFact; run: AgentRunHeader } | undefined> {
+    let runEvents: RuntimeEvent[];
+    try {
+      runEvents = await this.deps.runtimeEventStore.readRuntimeEvents(sessionId, run.runId);
+    } catch {
+      return undefined;
+    }
+    const fact = classifyRuntimeEventTerminalFact(run, runEvents).fact;
+    if (!fact) return undefined;
+    return {
+      events: runEvents,
+      fact,
+      run: effectiveRunHeaderFromTerminalFact(run, fact),
+    };
   }
 
   private async backfillMissingRuntimeEvents(
@@ -279,6 +309,21 @@ function readModelDiagnostic(
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function effectiveRunHeaderFromTerminalFact(
+  run: AgentRunHeader,
+  fact: RuntimeEventTerminalFact,
+): AgentRunHeader {
+  const completedAt = run.completedAt ?? fact.terminalEvent.ts;
+  return {
+    ...run,
+    status: fact.runStatus,
+    updatedAt: Math.max(run.updatedAt, completedAt),
+    completedAt,
+    ...(fact.failureClass ? { failureClass: fact.failureClass } : {}),
+    ...(fact.abortSource ? { abortSource: fact.abortSource } : {}),
+  };
 }
 
 function errorMessage(error: unknown): string {

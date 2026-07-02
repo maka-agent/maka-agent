@@ -878,13 +878,15 @@ export class SessionManager {
   ): Promise<boolean> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
     const ts = this.deps.now();
-    const failureClass = decision.status === 'failed' ? decision.failureClass ?? 'app_restarted' : undefined;
-    const abortSource = decision.status === 'cancelled' ? decision.abortSource ?? 'unknown' : undefined;
-    const terminalFact = inspected.terminalRuntimeFact;
-    const terminalEvent = terminalFact?.terminalEvent ?? buildRecoveredTerminalRuntimeEvent({
+    const existingTerminal = inspected.terminalRuntimeFact?.terminalEvent ??
+      singleMatchingTerminalRuntimeEvent(inspected.header, inspected.runtimeEvents);
+    const status = existingTerminal ? terminalRunStatusFromRuntimeEvent(existingTerminal) ?? decision.status : decision.status;
+    const failureClass = status === 'failed' ? decision.failureClass ?? 'app_restarted' : undefined;
+    const abortSource = status === 'cancelled' ? decision.abortSource ?? 'unknown' : undefined;
+    const terminalEvent = existingTerminal ?? buildRecoveredTerminalRuntimeEvent({
       id: this.deps.newId(),
       run: inspected.header,
-      status: decision.status,
+      status,
       ts,
       recoveryReason: diagnosticRecoveryReason(decision.diagnostic),
       ...(inspected.runtimeEvents[0]?.invocationId ? { invocationId: inspected.runtimeEvents[0].invocationId } : {}),
@@ -900,10 +902,10 @@ export class SessionManager {
         sessionId,
         runId: decision.runId,
         turnId: decision.turnId,
-        status: decision.status,
+        status,
         ts,
         terminalEvent,
-        terminalEventAlreadyPersisted: terminalFact !== undefined,
+        terminalEventAlreadyPersisted: existingTerminal !== undefined,
         ...(failureClass ? { failureClass } : {}),
         ...(abortSource ? { abortSource } : {}),
         runEventData: { recovered: true, ...decision.diagnostic },
@@ -913,7 +915,7 @@ export class SessionManager {
       return false;
     }
 
-    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, terminalTurnStatus(decision.status), {
+    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, terminalTurnStatus(status), {
       ts,
       ...(failureClass ? { errorClass: failureClass } : {}),
       ...(abortSource ? { abortSource } : {}),
@@ -1153,6 +1155,19 @@ function copyMessagesThroughTurnBoundary(messages: readonly StoredMessage[], tur
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function singleMatchingTerminalRuntimeEvent(
+  run: AgentRunHeader,
+  events: readonly RuntimeEvent[],
+): RuntimeEvent | undefined {
+  const terminalEvents = events.filter((event) =>
+    event.sessionId === run.sessionId &&
+    event.runId === run.runId &&
+    event.turnId === run.turnId &&
+    isTerminalRuntimeEvent(event)
+  );
+  return terminalEvents.length === 1 ? terminalEvents[0] : undefined;
 }
 
 function isTerminalTurnStatus(status: TurnRecord['status']): boolean {
