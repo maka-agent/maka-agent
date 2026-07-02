@@ -36,6 +36,12 @@ import { readRendererContractCss } from './contract-css-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const TOKENS_PATH = join(process.cwd(), 'src', 'renderer', 'maka-tokens.css');
+const APP_SHELL_CHROME_ACTIONS_PATH = join(
+  process.cwd(),
+  'src',
+  'renderer',
+  'app-shell-chrome-actions.tsx',
+);
 
 /**
  * Selectors that, if they ever carry `-webkit-app-region: drag`,
@@ -117,7 +123,15 @@ describe('app-region hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5)', ()
     }
   });
 
-  it('topbar chrome buttons and their icon subtrees carve out no-drag hit regions', async () => {
+  it('topbar chrome UiButtons and their icon subtrees carve out no-drag hit regions', async () => {
+    const topbarButtonClasses = extractStaticUiButtonClassNames(
+      await readFile(APP_SHELL_CHROME_ACTIONS_PATH, 'utf8'),
+    );
+    assert.ok(
+      topbarButtonClasses.length > 0,
+      'app-shell-chrome-actions.tsx must expose topbar UiButton class names for app-region hygiene checks',
+    );
+
     const stylesSources = [
       ['renderer CSS', await readRendererContractCss()],
       [TOKENS_PATH, await readFile(TOKENS_PATH, 'utf8')],
@@ -131,16 +145,13 @@ describe('app-region hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5)', ()
       }
     }
 
-    for (const selector of [
-      '.maka-shell-topbar-button',
-      '.maka-shell-topbar-button *',
-      '.maka-workspace-icon-action',
-      '.maka-workspace-icon-action *',
-    ]) {
-      assert.ok(
-        selectors.has(selector),
-        `${selector} must declare \`-webkit-app-region: no-drag\` so clicks on topbar icons are not treated as titlebar drags`,
-      );
+    for (const className of topbarButtonClasses) {
+      for (const selector of [`.${className}`, `.${className} *`]) {
+        assert.ok(
+          selectors.has(selector),
+          `${selector} must declare \`-webkit-app-region: no-drag\` so clicks on topbar icons are not treated as titlebar drags`,
+        );
+      }
     }
   });
 });
@@ -172,6 +183,24 @@ function findRulesWithDeclaration(
     }
   }
   return out;
+}
+
+function extractStaticUiButtonClassNames(src: string): string[] {
+  const classes = new Set<string>();
+  const uiButtonBlocks = src.match(/<UiButton\b[\s\S]*?<\/UiButton>/g) ?? [];
+  for (const block of uiButtonBlocks) {
+    const match = block.match(/\bclassName="([^"]+)"/);
+    assert.ok(
+      match,
+      'Each app-shell chrome UiButton must use a static className so app-region hygiene can be contract-checked',
+    );
+    for (const className of match[1]!.split(/\s+/)) {
+      if (className.length > 0) {
+        classes.add(className);
+      }
+    }
+  }
+  return [...classes].sort();
 }
 
 /**
