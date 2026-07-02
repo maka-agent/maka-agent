@@ -55,7 +55,7 @@ export const AllPalettes: Story = {
           {THEME_PALETTES.map((palette) => (
             <div
               key={palette}
-              data-maka-theme={palette === 'default' ? undefined : palette}
+              data-maka-theme={palette === 'default' ? 'default' : palette}
               className={isDark ? 'dark' : undefined}
               style={{
                 display: 'grid',

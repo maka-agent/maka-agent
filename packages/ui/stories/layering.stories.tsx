@@ -10,10 +10,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const zScale = [
-  ['panel-action', '--z-panel-action', '4', '面板内操作层'],
   ['base', '--z-base', '0', '基础层'],
-  ['settings-fullpage', '--z-settings-fullpage', '35', '设置全页'],
+  ['panel-action', '--z-panel-action', '4', '面板内操作层'],
   ['sticky', '--z-sticky', '20', '粘性定位'],
+  ['settings-fullpage', '--z-settings-fullpage', '35', '设置全页'],
   ['titlebar', '--z-titlebar', '40', '标题栏'],
   ['panel', '--z-panel', '50', '浮动面板'],
   ['dropdown', '--z-dropdown', '100', '下拉菜单'],

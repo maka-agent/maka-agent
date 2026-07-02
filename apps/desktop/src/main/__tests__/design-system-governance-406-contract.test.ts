@@ -27,7 +27,7 @@ async function readSourceTree(dir: string): Promise<Array<{ path: string; source
 }
 
 function readCssToken(source: string, selector: ':root' | '.dark', token: string): string {
-  const block = source.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
+  const block = source.match(new RegExp(`${selector.replace('.', '\\.')}(?:\\s*,\\s*[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
   return block.match(new RegExp(`--${token}:\\s*([^;]+);`))?.[1].trim() ?? '';
 }
 

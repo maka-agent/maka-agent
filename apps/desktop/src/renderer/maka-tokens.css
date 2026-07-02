@@ -21,7 +21,8 @@
    LIGHT MODE
 ============================================================================= */
 
-:root {
+:root,
+[data-maka-theme="default"] {
   /* === 6 base colors ===
      oklch() gives perceptually uniform lightness, keeping subtle surface and
      status colors calibrated.
