@@ -199,7 +199,7 @@ describe('Storybook baseline contract', () => {
     const story = readFileSync(join(REPO_ROOT, 'packages', 'ui', 'stories', 'design-tokens.stories.tsx'), 'utf8');
 
     assert.match(story, /title:\s*'Design System\/Tokens'/);
-    for (const exportName of ['Colors', 'Radius', 'PrimaryActions']) {
+    for (const exportName of ['Colors', 'Radius', 'PrimaryActions', 'SemanticColors']) {
       assert.match(story, new RegExp(`export const ${exportName}: Story`), `${exportName} story must be exported`);
     }
     assert.doesNotMatch(story, /export const TokenOverview/);
