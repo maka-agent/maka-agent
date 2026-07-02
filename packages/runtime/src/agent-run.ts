@@ -86,6 +86,11 @@ interface PriorRuntimeContext {
   runs: AgentRunHeader[];
 }
 
+interface PriorRunTerminalFactContext {
+  events: RuntimeEvent[];
+  run: AgentRunHeader;
+}
+
 export class AgentRun {
   readonly runId: string;
   readonly sessionId: string;
@@ -456,10 +461,11 @@ export class AgentRun {
     for (let runIndex = 0; runIndex < priorRuns.length; runIndex += 1) {
       const run = priorRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
-        const terminalFactEvents = await this.readNonTerminalPriorRunWithTerminalFact(run);
-        if (!terminalFactEvents) continue;
-        for (let eventIndex = 0; eventIndex < terminalFactEvents.length; eventIndex += 1) {
-          const event = terminalFactEvents[eventIndex]!;
+        const terminalFactContext = await this.readNonTerminalPriorRunWithTerminalFact(run);
+        if (!terminalFactContext) continue;
+        priorRuns[runIndex] = terminalFactContext.run;
+        for (let eventIndex = 0; eventIndex < terminalFactContext.events.length; eventIndex += 1) {
+          const event = terminalFactContext.events[eventIndex]!;
           if (event.runId === this.runId || event.turnId === this.turnId) continue;
           ordered.push({ event, runIndex, eventIndex });
         }
@@ -504,13 +510,29 @@ export class AgentRun {
 
   private async readNonTerminalPriorRunWithTerminalFact(
     run: AgentRunHeader,
-  ): Promise<RuntimeEvent[] | undefined> {
+  ): Promise<PriorRunTerminalFactContext | undefined> {
     if (!this.input.runtimeEventStore) return undefined;
     const events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId).catch(() => []);
     const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
     if (!terminalFact) return undefined;
+    const effectiveRun = this.effectivePriorRunHeaderFromTerminalFact(run, terminalFact);
     await this.repairPriorRunHeaderFromTerminalFact(run, terminalFact).catch(() => {});
-    return events;
+    return { events, run: effectiveRun };
+  }
+
+  private effectivePriorRunHeaderFromTerminalFact(
+    run: AgentRunHeader,
+    terminalFact: RuntimeEventTerminalFact,
+  ): AgentRunHeader {
+    const completedAt = run.completedAt ?? terminalFact.terminalEvent.ts;
+    return {
+      ...run,
+      status: terminalFact.runStatus,
+      updatedAt: Math.max(run.updatedAt, completedAt),
+      completedAt,
+      ...(terminalFact.failureClass ? { failureClass: terminalFact.failureClass } : {}),
+      ...(terminalFact.abortSource ? { abortSource: terminalFact.abortSource } : {}),
+    };
   }
 
   private async repairPriorRunHeaderFromTerminalFact(

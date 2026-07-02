@@ -2137,6 +2137,78 @@ describe('SessionManager permission mode updates', () => {
     expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
   });
 
+  test('next turn projects failed prior RuntimeEvents with the terminal fact failure class', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_810),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: 101,
+      updatedAt: 103,
+    }), [
+      runtimeEvent({
+        id: 'rt-user',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 101,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'first' },
+      }),
+      runtimeEvent({
+        id: 'rt-assistant',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 102,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'before failure' },
+      }),
+      runtimeEvent({
+        id: 'rt-failed',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        actions: { endInvocation: true, stateDelta: { failureClass: 'tool_failed' } },
+      }),
+    ]);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backendInstances[0]?.sendInputs[0];
+    if (!secondInput) throw new Error('backend input was not recorded');
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    const turnState = secondInput.context.find((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1'
+    );
+    if (turnState?.type !== 'turn_state') throw new Error('prior failed turn_state was not projected');
+    expect(turnState.status).toBe('failed');
+    expect(turnState.errorClass).toBe('tool_failed');
+  });
+
   test('next parent turn excludes child run RuntimeEvents from model context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
