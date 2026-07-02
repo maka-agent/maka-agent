@@ -623,4 +623,4 @@
 }
 
 .enabledEmptyChip strong { font-size: var(--font-size-caption); font-weight: 700; }
-.enabledEmptyChip small { margin-top: 2px; color: var(--foreground-50); font-size: var(--font-size-ui); }
+.enabledEmptyChip small { margin-top: var(--space-0-5); color: var(--foreground-50); font-size: var(--font-size-ui); }
