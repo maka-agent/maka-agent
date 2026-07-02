@@ -539,14 +539,19 @@
     gap: 8px;
     padding: 8px 4px;
   }
+}
 
-  .maka-daily-review-summary-empty {
-    position: static;
-    left: auto;
-    top: auto;
-    width: 100%;
-    transform: none;
-    min-height: 120px;
-    align-content: center;
-  }
+/* Unlayered on purpose: the shared `.maka-empty-state` base
+   (onboarding.css) is unlayered `position: absolute` centering, and
+   unlayered rules always beat @layer rules — inside @layer components
+   this override silently never applied, so the "no activity" card
+   floated over the archived-report pane as a translucent overlay. */
+.maka-daily-review-panel .maka-daily-review-summary-empty {
+  position: static;
+  left: auto;
+  top: auto;
+  width: 100%;
+  transform: none;
+  min-height: 120px;
+  align-content: center;
 }

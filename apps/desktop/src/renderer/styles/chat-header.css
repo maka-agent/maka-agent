@@ -243,7 +243,14 @@
 
 .maka-fake-backend-banner {
   display: flex;
-  align-items: center;
+  /* flex-start (not center): with multi-line copy a centered icon lands
+     on the middle line; the 1lh svg box from the Alert primitive aligns
+     it to the first line instead. */
+  align-items: flex-start;
+  /* The Alert primitive ships `w-full`; combined with the horizontal
+     margins that made the banner 28px wider than the pane, so its right
+     edge rendered clipped against the card. */
+  width: auto;
   gap: 8px;
   margin: 8px 14px 0;
   padding: 8px 12px;
@@ -257,6 +264,12 @@
 
 .maka-fake-backend-banner svg {
   flex: 0 0 auto;
+}
+
+/* AlertDescription is flex-col, which blockifies the inline copy around
+   the <strong> and broke one sentence into three stacked lines. */
+.maka-fake-backend-banner [data-slot="alert-description"] {
+  display: block;
 }
 
 .maka-fake-backend-banner strong {
