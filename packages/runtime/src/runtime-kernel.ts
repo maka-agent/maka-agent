@@ -168,7 +168,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
       drainAfterTerminal: true,
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
         if (isTerminalRuntimeEvent(runtimeEvent)) {
-          await run.recordRuntimeEvents([runtimeEvent], { requireTerminalWrite: Boolean(this.deps.runtimeEventStore) });
+          if (!isPermissionHandoffTerminal(runtimeEvent)) {
+            await run.recordRuntimeEvents([runtimeEvent], { requireTerminalWrite: Boolean(this.deps.runtimeEventStore) });
+          }
           await run.recordSessionEvent(sessionEvent);
           await sessionEvents.push(sessionEvent);
           return;
@@ -462,6 +464,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
 function childActiveKey(sessionId: string, turnId: string): string {
   return `${sessionId}:${turnId}`;
+}
+
+function isPermissionHandoffTerminal(event: { actions?: { stateDelta?: Record<string, unknown> } }): boolean {
+  return event.actions?.stateDelta?.stopReason === 'permission_handoff';
 }
 
 class AsyncEventQueueClosed extends Error {

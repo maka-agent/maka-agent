@@ -252,6 +252,8 @@ export class AgentRun {
     const turnStatus = terminalSessionEvent ? turnStatusFromEvent(ev) : undefined;
     if (terminalSessionEvent) {
       this.sawCompletion = true;
+      if (ev.type === 'abort') this.abortSource = ev.reason;
+      if (ev.type === 'complete' && ev.stopReason === 'user_stop') this.abortSource = 'user_stop';
       this.finalStatus = this.stopped
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });
@@ -274,6 +276,7 @@ export class AgentRun {
       const appendTurnState = this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
         ts: ev.ts,
         errorClass: turnStatus.errorClass,
+        ...(turnStatus.status === 'aborted' && this.abortSource ? { abortSource: this.abortSource } : {}),
       });
       if (terminalSessionEvent) {
         await appendTurnState.catch((error) => this.enqueueTraceWriteFailure(error, 'terminal session projection'));

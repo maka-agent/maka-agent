@@ -2256,6 +2256,56 @@ describe('SessionManager permission mode updates', () => {
     expect(turnState.errorClass).toBe('tool_failed');
   });
 
+  test('next turn uses failed terminal RuntimeEvents when failed header commit was interrupted', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunStatusOnce: 'failed' });
+    const backends = new BackendRegistry();
+    let backend: TurnScriptBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TurnScriptBackend(ctx, [
+        [{ type: 'complete', stopReason: 'error' }],
+        [
+          { type: 'text_delta', messageId: 'm2', text: 'second ok' },
+          { type: 'complete', stopReason: 'end_turn' },
+        ],
+      ]);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_812),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
+    const [firstRun] = await runStore.listSessionRuns(session.id);
+    if (!firstRun) throw new Error('first run was not recorded');
+    expect(firstRun.status).toBe('running');
+    const firstRuntimeEvents = await runStore.readRuntimeEvents(session.id, firstRun.runId);
+    const firstTerminalEvents = firstRuntimeEvents.filter(isTerminalRuntimeEvent);
+    expect(firstTerminalEvents).toHaveLength(1);
+    expect(firstTerminalEvents[0]?.status).toBe('failed');
+    expect(firstTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('runtime_error');
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backend?.sendInputs[1];
+    if (!secondInput) throw new Error('second backend input was not recorded');
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1']);
+    const turnState = secondInput.context.find((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1'
+    );
+    if (turnState?.type !== 'turn_state') throw new Error('prior failed turn_state was not projected');
+    expect(turnState.status).toBe('failed');
+    expect(turnState.errorClass).toBe('runtime_error');
+    const terminalEventsAfterSecondTurn = (await runStore.readRuntimeEvents(session.id, firstRun.runId))
+      .filter(isTerminalRuntimeEvent);
+    expect(terminalEventsAfterSecondTurn).toHaveLength(1);
+  });
+
   test('next parent turn excludes child run RuntimeEvents from model context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3047,6 +3097,35 @@ describe('SessionManager permission mode updates', () => {
     )).toBe(true);
   });
 
+  test('startup recovery does not treat permission handoff as a completed run fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'complete', stopReason: 'permission_handoff' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_010) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const [runBeforeRecovery] = await runStore.listSessionRuns(session.id);
+    expect(runBeforeRecovery?.status).toBe('waiting_permission');
+
+    await manager.recoverInterruptedSessions();
+
+    const [runAfterRecovery] = await runStore.listSessionRuns(session.id);
+    expect(runAfterRecovery?.status).toBe('failed');
+    expect(runAfterRecovery?.failureClass).toBe('app_restarted');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('failed');
+    expect(turn?.errorClass).toBe('app_restarted');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, runAfterRecovery!.runId))
+      .filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
+  });
+
   test('rejects mode changes while a tool permission request is waiting', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -3283,9 +3362,14 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.filter((event) => event.role === 'model' && event.content?.kind === 'text').map((event) =>
       event.content?.kind === 'text' ? event.content.text : ''
     )).toEqual(['before']);
-    expect(runtimeEvents.filter((event) => event.status === 'aborted')).toHaveLength(1);
+    const abortedEvents = runtimeEvents.filter((event) => event.status === 'aborted');
+    expect(abortedEvents).toHaveLength(1);
+    expect(abortedEvents[0]?.actions?.stateDelta?.abortSource).toBe('user_stop');
+    expect(run?.status).toBe('cancelled');
+    expect(run?.abortSource).toBe('user_stop');
     expect(turnStates).toHaveLength(1);
     expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].status : undefined).toBe('aborted');
+    expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].abortSource : undefined).toBe('user_stop');
   });
 
   test('sendMessage ignores backend errors thrown after a completed terminal event is recorded', async () => {
@@ -4221,6 +4305,38 @@ type PartialEvent =
   | Omit<Extract<SessionEvent, { type: 'complete' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'error' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'abort' }>, 'id' | 'turnId' | 'ts'>;
+
+class TurnScriptBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+  readonly sendInputs: BackendSendInput[] = [];
+
+  constructor(private readonly ctx: BackendFactoryContext, private readonly turns: PartialEvent[][]) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendInputs.push(input);
+    const events = this.turns[this.sendInputs.length - 1] ?? [
+      { type: 'text_delta', messageId: `${input.turnId}-m`, text: 'ok' },
+      { type: 'complete', stopReason: 'end_turn' },
+    ];
+    let index = 0;
+    for (const event of events) {
+      index += 1;
+      yield {
+        ...event,
+        id: `${input.turnId}-${index}`,
+        turnId: input.turnId,
+        ts: index,
+      } as SessionEvent;
+    }
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
 
 class EventBackend implements AgentBackend {
   readonly kind = 'fake' as const;

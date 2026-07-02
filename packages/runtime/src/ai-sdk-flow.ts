@@ -82,6 +82,7 @@ export function mapCompleteStopReason(reason: CompleteStopReason): RuntimeEventS
  */
 export interface SessionEventMapMemory {
   toolNameByUseId: Map<string, string>;
+  failureClass?: string;
 }
 
 export function createSessionEventMapMemory(): SessionEventMapMemory {
@@ -339,6 +340,7 @@ export function mapSessionEventToRuntimeEvent(
       // No status here: the backend follows with a terminal `complete(error)`.
       // Keeping status off the error event avoids a double-terminal in the
       // error path; the trailing complete carries the terminal signal.
+      memory.failureClass = event.reason ?? event.code ?? 'unknown';
       return {
         ...base,
         role: 'system',
@@ -359,17 +361,10 @@ export function mapSessionEventToRuntimeEvent(
         role: 'system',
         author: 'system',
         status: 'aborted',
-        actions: { endInvocation: true },
+        actions: { endInvocation: true, stateDelta: { abortSource: event.reason } },
       };
     case 'complete':
-      return {
-        ...base,
-        role: 'system',
-        author: 'system',
-        status: mapCompleteStopReason(event.stopReason),
-        actions: { endInvocation: true },
-      };
-
+      return completeRuntimeEvent(base, event.stopReason, memory);
     default: {
       // Exhaustiveness guard: if SessionEvent grows a new variant, the
       // mapping falls through to a diagnostic event instead of dropping it.
@@ -385,6 +380,24 @@ export function mapSessionEventToRuntimeEvent(
       };
     }
   }
+}
+
+function completeRuntimeEvent(
+  base: ReturnType<typeof resolveBase>,
+  stopReason: CompleteStopReason,
+  memory: SessionEventMapMemory,
+): RuntimeEvent {
+  const status = mapCompleteStopReason(stopReason);
+  const stateDelta: Record<string, unknown> = { stopReason };
+  if (status === 'failed') stateDelta.failureClass = memory.failureClass ?? 'runtime_error';
+  if (status === 'aborted') stateDelta.abortSource = stopReason;
+  return {
+    ...base,
+    role: 'system',
+    author: 'system',
+    status,
+    actions: { endInvocation: true, stateDelta },
+  };
 }
 
 // ============================================================================
