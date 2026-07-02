@@ -153,7 +153,23 @@ export class RuntimeReadModel {
 
       const terminalFact = classifyRuntimeEventTerminalFact(run, runEvents);
       diagnostics.push(...terminalFact.diagnostics);
-      if (terminalFact.fact) terminalFacts.push(terminalFact.fact);
+      if (!terminalFact.fact) {
+        throw new RuntimeReadModelError('RuntimeEvent ledger has no valid terminal fact for a terminal run', diagnostics);
+      }
+      if (!terminalRunHeaderMatchesFact(run, terminalFact.fact)) {
+        diagnostics.push(readModelDiagnostic('incomplete_event', 'terminal run header does not match RuntimeEvent terminal fact', {
+          runId: run.runId,
+          turnId: run.turnId,
+          headerStatus: run.status,
+          factStatus: terminalFact.fact.runStatus,
+          headerFailureClass: run.failureClass,
+          factFailureClass: terminalFact.fact.failureClass,
+          headerAbortSource: run.abortSource,
+          factAbortSource: terminalFact.fact.abortSource,
+        }));
+      }
+      topLevelRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact.fact);
+      terminalFacts.push(terminalFact.fact);
 
       for (let eventIndex = 0; eventIndex < runEvents.length; eventIndex += 1) {
         ordered.push({ event: runEvents[eventIndex]!, runIndex, eventIndex });
@@ -324,6 +340,16 @@ function effectiveRunHeaderFromTerminalFact(
     ...(fact.failureClass ? { failureClass: fact.failureClass } : {}),
     ...(fact.abortSource ? { abortSource: fact.abortSource } : {}),
   };
+}
+
+function terminalRunHeaderMatchesFact(
+  run: AgentRunHeader,
+  fact: RuntimeEventTerminalFact,
+): boolean {
+  if (run.status !== fact.runStatus) return false;
+  if (fact.runStatus === 'failed' && run.failureClass !== fact.failureClass) return false;
+  if (fact.runStatus === 'cancelled' && run.abortSource !== fact.abortSource) return false;
+  return true;
 }
 
 function errorMessage(error: unknown): string {

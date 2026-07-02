@@ -680,6 +680,81 @@ describe('SessionManager permission mode updates', () => {
     expect(repairedRuntimeEvents.at(-1)?.status).toBe('completed');
   });
 
+  test('sendMessage rejects prior runtime context without a valid terminal fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(7_050),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({
+        id: 'rt-user',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 101,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'prior question' },
+      }),
+      runtimeEvent({
+        id: 'rt-assistant',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 102,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'prior answer' },
+      }),
+      runtimeEvent({
+        id: 'rt-completed-a',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+      runtimeEvent({
+        id: 'rt-completed-b',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 104,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await expectRejects(
+      drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' })),
+      /valid terminal fact/,
+    );
+    expect(backend?.sendInputs.length ?? 0).toBe(0);
+  });
+
   test('sendMessage resumes incomplete legacy backfill for prior context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 1 });

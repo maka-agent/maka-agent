@@ -462,6 +462,51 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(turnState.errorClass).toBe('tool_failed');
   });
 
+  test('RuntimeReadModel rejects terminal headers when the ledger has no valid terminal fact', async () => {
+    const runStore = new TinyAgentRunStore();
+    const run = makeRunHeader({
+      sessionId: 'session-ambiguous-terminal-read',
+      runId: 'run-ambiguous-terminal-read',
+      turnId: 'turn-ambiguous-terminal-read',
+      status: 'completed',
+      completedAt: 10,
+    });
+    await runStore.createRun(run);
+    await runStore.appendRuntimeEvent(run.sessionId, run.runId, runtimeEvent({
+      id: 'rt-user',
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 8,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'hello' },
+    }));
+    await runStore.appendRuntimeEvent(run.sessionId, run.runId, runtimeEvent({
+      id: 'rt-completed-a',
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 10,
+      status: 'completed',
+      actions: { endInvocation: true },
+    }));
+    await runStore.appendRuntimeEvent(run.sessionId, run.runId, runtimeEvent({
+      id: 'rt-completed-b',
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 11,
+      status: 'completed',
+      actions: { endInvocation: true },
+    }));
+
+    await assert.rejects(
+      new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(run.sessionId),
+      /valid terminal fact/,
+    );
+  });
+
   test('startup recovery does not append another terminal RuntimeEvent when the ledger is ambiguous', async () => {
     const store = new TinySessionStore();
     const runStore = new TinyAgentRunStore();

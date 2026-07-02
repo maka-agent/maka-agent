@@ -544,6 +544,16 @@ export class AgentRun {
       if (!events.some(isTerminalRuntimeEvent)) {
         throw new Error(`Cannot build model context: RuntimeEvent ledger has no terminal fact for prior run ${run.runId}`);
       }
+      let terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+      if (!terminalFact && await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+        events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+        terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+      }
+      if (!terminalFact) {
+        throw new Error(`Cannot build model context: RuntimeEvent ledger has no valid terminal fact for prior run ${run.runId}`);
+      }
+      priorRuns[runIndex] = this.effectivePriorRunHeaderFromTerminalFact(run, terminalFact);
+      await this.repairPriorRunHeaderFromTerminalFact(run, terminalFact).catch(() => {});
       for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
         const event = events[eventIndex]!;
         if (event.runId === this.runId || event.turnId === this.turnId) continue;

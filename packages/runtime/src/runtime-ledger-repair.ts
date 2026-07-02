@@ -241,6 +241,8 @@ export function firstRuntimeRepairRunId(
       diagnostic.message === 'terminal run recovered from legacy projection cache' ||
       diagnostic.message === 'terminal run has no readable RuntimeEvent ledger' ||
       diagnostic.message === 'terminal run has no terminal RuntimeEvent' ||
+      diagnostic.message === 'terminal run header does not match RuntimeEvent terminal fact' ||
+      diagnostic.message === 'failed terminal RuntimeEvent requires a stable failure class' ||
       diagnostic.message === 'failed terminal event did not carry an exact AgentRunHeader.failureClass' ||
       diagnostic.message === 'aborted terminal RuntimeEvent requires an abort source' ||
       diagnostic.message === 'abortSource is not present in RuntimeEvent or AgentRunHeader metadata'
