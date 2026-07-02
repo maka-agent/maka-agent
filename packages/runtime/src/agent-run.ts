@@ -519,6 +519,7 @@ export class AgentRun {
           : transition.status === 'active'
             ? 'completed'
             : 'running';
+    if (!this.canPersistRunStatus(status)) return;
     this.enqueueRunStore('record run status', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, { status, updatedAt: ts });
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
@@ -540,6 +541,7 @@ export class AgentRun {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.failureClass = failureClass;
     this.failureMessage = redactTraceString(message);
+    if (!this.canPersistRunStatus('failed')) return;
     this.enqueueRunStore('mark run failed', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status: 'failed',
@@ -563,6 +565,7 @@ export class AgentRun {
 
   private markRunCancelled(reason: string | undefined, ts: number): void {
     if (!this.input.runStore || !this.runStoreAvailable) return;
+    if (!this.canPersistRunStatus('cancelled')) return;
     this.enqueueRunStore('mark run cancelled', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status: 'cancelled',
@@ -595,6 +598,7 @@ export class AgentRun {
           ? 'waiting_permission'
           : 'completed';
     const isTerminal = status === 'completed' || status === 'failed' || status === 'cancelled';
+    if (!this.canPersistRunStatus(status)) return;
     await this.enqueueRunStore('finish run', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status,
@@ -628,6 +632,11 @@ export class AgentRun {
       });
     });
     await this.traceQueue.catch(() => {});
+  }
+
+  private canPersistRunStatus(status: AgentRunHeader['status']): boolean {
+    if (!isTerminalRunStatus(status)) return true;
+    return !this.input.runtimeEventStore || this.terminalRuntimeEventRecorded;
   }
 
   private enqueueRunStore(label: string, operation: () => Promise<void>): Promise<void> {

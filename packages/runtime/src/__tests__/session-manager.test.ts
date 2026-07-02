@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords } from '@maka/core';
+import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords, isTerminalRuntimeEvent } from '@maka/core';
 import type {
   CreateSessionInput,
   PermissionMode,
@@ -451,7 +451,7 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(session.id)).hasUnread).toBe(true);
   });
 
-  test('terminal RuntimeEvent write failure fails the run instead of completing it', async () => {
+  test('terminal header is never persisted without a terminal RuntimeEvent', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 2 });
     const backends = new BackendRegistry();
@@ -474,10 +474,61 @@ describe('SessionManager permission mode updates', () => {
 
     const [run] = await runStore.listSessionRuns(session.id);
     if (!run) throw new Error('AgentRunStore run was not created');
-    expect(run.status).toBe('failed');
     const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+
+    expect(['created', 'running', 'waiting_permission'].includes(run.status)).toBe(true);
+    expect(run.completedAt).toBeUndefined();
     expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta']);
-    expect(runtimeEvents.some((event) => event.status === 'completed')).toBe(false);
+    expect(terminalEvents).toEqual([]);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
+  test('backend errors before terminal do not persist a terminal header without a terminal RuntimeEvent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_800),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /backend failed before terminal/,
+    );
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+
+    expect(['created', 'running', 'waiting_permission'].includes(run.status)).toBe(true);
+    expect(run.completedAt).toBeUndefined();
+    expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta']);
+    expect(terminalEvents).toEqual([]);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
   });
 
   test('sendMessage backfills an empty prior runtime ledger for model context', async () => {
@@ -2673,7 +2724,7 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
   });
 
-  test('backend build failure after user append marks turn failed and session blocked', async () => {
+  test('backend build failure after user append marks turn failed without a terminal run header', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -2696,10 +2747,11 @@ describe('SessionManager permission mode updates', () => {
     const turn = (await store.listTurns(session.id)).find((candidate) => candidate.turnId === 'turn-1');
     expect(turn?.status).toBe('failed');
     const [run] = await runStore.listSessionRuns(session.id);
-    expect(run?.status).toBe('failed');
-    expect(run?.failureClass).toBe('Error');
-    const events = await runStore.readEvents(session.id, run!.runId);
-    expect(events.map((event) => event.type)).toContain('run_failed');
+    if (!run) throw new Error('AgentRunStore run was not created');
+    expect(['created', 'running', 'waiting_permission'].includes(run.status)).toBe(true);
+    expect(run.completedAt).toBeUndefined();
+    expect(await runStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
   });
 
   test('marks a session running while a turn is in flight and active after completion', async () => {
@@ -3961,6 +4013,24 @@ class ThrowAfterTerminalBackend implements AgentBackend {
     yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'before' };
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 2, stopReason: 'end_turn' };
     throw new Error('cleanup after terminal failed');
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ThrowBeforeTerminalBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'before' };
+    throw new Error('backend failed before terminal');
   }
 
   async stop(): Promise<void> {}
