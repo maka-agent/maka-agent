@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, RENDERER_STYLES_DIR, readCssTree, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
 
 async function readUiSource(): Promise<string> {
   return readFile(resolve(REPO_ROOT, 'packages/ui/src/ui.tsx'), 'utf8');
@@ -211,5 +211,45 @@ describe('issue #406 design-system governance contract', () => {
     const chat = await readFile(resolve(REPO_ROOT, 'packages/ui/src/primitives/chat.tsx'), 'utf8');
     assert.ok(chat.includes('[box-shadow:var(--shadow-minimal-flat)]'));
     assert.ok(!chat.includes('[animation:maka-tool-card-enter_350ms_var(--ease-out-strong)_both]'));
+  });
+
+  it('bans raw var(--accent) outside the token registry and palette preview', async () => {
+    // Rule: var(--accent) may only appear in:
+    //   1. maka-tokens.css — token definitions, alias RHS, --color-accent
+    //      bridge, .pill[data-tone=accent], brand derivations
+    //   2. theme-preview.css — palette swatch display
+    //   3. styles.css — --color-accent Tailwind @theme bridge (a definition)
+    // Anywhere else it is a bug: the call site must use a semantic alias.
+    const allowlist = new Set([
+      'maka-tokens.css',
+      'theme-preview.css',
+      'styles.css',
+    ]);
+
+    const cssFiles = await readCssTree(RENDERER_STYLES_DIR);
+    const allCss = [
+      TOKENS_FILE,
+      ...cssFiles,
+      resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles.css'),
+    ];
+    const violations: string[] = [];
+    for (const file of allCss) {
+      const base = file.split('/').pop()!;
+      if (allowlist.has(base)) continue;
+      const source = stripCssComments(await readFile(file, 'utf8'));
+      if (source.includes('var(--accent)')) {
+        violations.push(file);
+      }
+    }
+
+    // TSX primitives in @maka/ui
+    const uiSources = await readSourceTree(resolve(REPO_ROOT, 'packages/ui/src'));
+    for (const { path, source } of uiSources) {
+      if (source.includes('var(--accent)')) {
+        violations.push(path);
+      }
+    }
+
+    assert.deepEqual(violations, [], `raw var(--accent) must only live in maka-tokens.css, theme-preview.css, and styles.css. Found in:\n${violations.join('\n')}`);
   });
 });
