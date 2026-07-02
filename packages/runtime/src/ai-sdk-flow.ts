@@ -387,7 +387,9 @@ function completeRuntimeEvent(
   stopReason: CompleteStopReason,
   memory: SessionEventMapMemory,
 ): RuntimeEvent {
-  const status = mapCompleteStopReason(stopReason);
+  const status = memory.failureClass && stopReason !== 'user_stop'
+    ? 'failed'
+    : mapCompleteStopReason(stopReason);
   const stateDelta: Record<string, unknown> = { stopReason };
   if (status === 'failed') stateDelta.failureClass = memory.failureClass ?? 'runtime_error';
   if (status === 'aborted') stateDelta.abortSource = stopReason;

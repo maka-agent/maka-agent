@@ -252,8 +252,8 @@ export class AgentRun {
     const turnStatus = terminalSessionEvent ? turnStatusFromEvent(ev) : undefined;
     if (terminalSessionEvent) {
       this.sawCompletion = true;
-      if (ev.type === 'abort') this.abortSource = ev.reason;
-      if (ev.type === 'complete' && ev.stopReason === 'user_stop') this.abortSource = 'user_stop';
+      if (ev.type === 'abort' && !this.abortSource) this.abortSource = ev.reason;
+      if (ev.type === 'complete' && ev.stopReason === 'user_stop' && !this.abortSource) this.abortSource = 'user_stop';
       this.finalStatus = this.stopped
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });

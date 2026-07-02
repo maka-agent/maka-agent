@@ -1,4 +1,4 @@
-import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
+import type { AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import { isTerminalRuntimeEvent } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type {
@@ -176,7 +176,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
           return;
         }
         await run.recordSessionEvent(sessionEvent);
-        await run.recordRuntimeEvents([runtimeEvent]);
+        if (!isNonTerminalErrorRuntimeEvent(runtimeEvent)) {
+          await run.recordRuntimeEvents([runtimeEvent]);
+        }
         await sessionEvents.push(sessionEvent);
       },
       onError: async (error) => {
@@ -468,6 +470,10 @@ function childActiveKey(sessionId: string, turnId: string): string {
 
 function isPermissionHandoffTerminal(event: { actions?: { stateDelta?: Record<string, unknown> } }): boolean {
   return event.actions?.stateDelta?.stopReason === 'permission_handoff';
+}
+
+function isNonTerminalErrorRuntimeEvent(event: RuntimeEvent): boolean {
+  return event.content?.kind === 'error' && !isTerminalRuntimeEvent(event);
 }
 
 class AsyncEventQueueClosed extends Error {

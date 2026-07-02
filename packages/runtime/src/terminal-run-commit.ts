@@ -24,8 +24,18 @@ export interface CommitTerminalRunWithRuntimeFactInput {
 export async function commitTerminalRunWithRuntimeFact(
   input: CommitTerminalRunWithRuntimeFactInput,
 ): Promise<void> {
+  if (!input.terminalEvent) {
+    throw new Error('terminal RuntimeEvent must be provided before terminal run header');
+  }
+  const terminalStatus = terminalRunStatusFromRuntimeEvent(input.terminalEvent);
+  if (!terminalStatus) {
+    throw new Error('terminal RuntimeEvent must carry a terminal status');
+  }
+  if (terminalStatus !== input.status) {
+    throw new Error(`terminal RuntimeEvent status ${input.terminalEvent.status} cannot commit ${input.status} run header`);
+  }
   if (!input.terminalEventAlreadyPersisted) {
-    if (!input.runtimeEventStore || !input.terminalEvent) {
+    if (!input.runtimeEventStore) {
       throw new Error('terminal RuntimeEvent must be persisted before terminal run header');
     }
     await input.runtimeEventStore.appendRuntimeEvent(input.sessionId, input.runId, input.terminalEvent);
@@ -131,4 +141,11 @@ function terminalRunEventData(
     ...(status === 'failed' && failureClass ? { failureClass } : {}),
     ...(runEventData ?? {}),
   };
+}
+
+function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): TerminalAgentRunStatus | undefined {
+  if (event.status === 'completed') return 'completed';
+  if (event.status === 'failed') return 'failed';
+  if (event.status === 'aborted' || event.status === 'cancelled') return 'cancelled';
+  return undefined;
 }
