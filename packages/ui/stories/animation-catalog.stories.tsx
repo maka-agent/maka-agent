@@ -21,7 +21,7 @@ export const RetainedFunctionalMotion: Story = {
         <span
           aria-hidden="true"
           style={{
-            animation: 'maka-pulse 1.4s ease-in-out infinite',
+            animation: 'maka-pulse 1.4s var(--ease-in-out-strong) infinite',
             background: 'var(--accent)',
             borderRadius: 'var(--radius-pill)',
             display: 'inline-block',
@@ -114,6 +114,7 @@ const easingScale = [
   ['out-strong', '--ease-out-strong', 'cubic-bezier(0.16, 1, 0.3, 1)', '反馈/状态变化'],
   ['in-out-strong', '--ease-in-out-strong', 'cubic-bezier(0.77, 0, 0.175, 1)', '屏幕内移动'],
   ['drawer', '--ease-drawer', 'cubic-bezier(0.32, 0.72, 0, 1)', 'iOS 风格 drawer/sheet'],
+  ['linear', '--ease-linear', 'linear', '无限循环功能性动画 (spinner/shimmer)'],
 ] as const;
 
 export const EasingScale: Story = {
@@ -125,7 +126,7 @@ export const EasingScale: Story = {
         <div style={{ display: 'grid', gap: 4 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Easing Scale</h2>
           <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
-            自定义曲线,内置 CSS easing 太弱。--ease-out-strong 用于反馈,--ease-in-out-strong 用于移动,--ease-drawer 用于 sheet。
+            自定义曲线,内置 CSS easing 太弱。--ease-out-strong 用于反馈,--ease-in-out-strong 用于移动,--ease-drawer 用于 sheet,--ease-linear 用于无限循环功能性动画。
           </p>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
