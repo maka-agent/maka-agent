@@ -4,13 +4,9 @@
  * QQ).
  *
  * Why local instead of runtime CDN fetch:
- *   The bot logos used to render through `<IconifyIcon
- *   icon="simple-icons:telegram">`, which Iconify lazy-fetches from
- *   `https://api.iconify.design/...` on first render. On cold-offline
- *   Electron launches (or when network is firewalled) the bot picker
- *   would degrade to the `glyph` monogram fallback for the entire
- *   session. That is wrong end-result: a desktop app's brand logos
- *   should not depend on a third-party CDN at runtime
+ *   On cold-offline Electron launches (or when network is firewalled),
+ *   the bot picker must still show real brand marks. A desktop app's
+ *   channel logos should not depend on a third-party CDN at runtime
  *   (@kenji audit msg `e4cfbfb0` finding round-2 #2).
  *
  * Visual treatment: every brand renders as a real iOS-app-icon-style
@@ -46,8 +42,7 @@
 export interface MakaBotIconBody {
   body: string;
   /**
-   * Per-icon viewBox. Defaults to 0 / 0 / 24 / 24 when omitted (the
-   * collection-level dimensions registered in `icons.tsx`).
+   * Per-icon viewBox. Defaults to 0 / 0 / 24 / 24 when omitted.
    */
   left?: number;
   top?: number;

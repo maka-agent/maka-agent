@@ -21,11 +21,10 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
-    "@iconify-json/ph": "^1.2.2",
-    "@iconify/react": "^6.0.2",
     "@maka/core": "0.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0",
     "overlayscrollbars": "^2.16.0",
     "react": "^19.2.1",
     "react-markdown": "^9.1.0",

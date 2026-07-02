@@ -192,10 +192,17 @@ describe('Storybook baseline contract', () => {
     const story = readFileSync(storyPath, 'utf8');
     assert.match(story, /title:\s*['"]Design System\/Icons['"]/);
     assert.match(story, /import\s+\*\s+as\s+Icons\s+from\s+['"]\.\.\/src\/icons\.js['"]/);
-    assert.match(story, /MakaIcon\(/, 'Icons story must filter makeIcon products by displayName');
+    assert.match(story, /export const LucideIcons: Story/);
+    assert.match(story, /lucide-react re-export/, 'Icons story must explain the Lucide runtime seam');
+    assert.match(story, /OMITTED_RUNTIME_EXPORTS/);
     assert.match(story, /MAKA_BOT_ICON_BODIES/);
     assert.match(story, /Object\.keys\(MAKA_BOT_ICON_BODIES\)/);
     assert.match(story, /maka-bot:/);
+  });
+
+  it('removes the temporary Phosphor vs Lucide icon comparison story after the Lucide cutover', () => {
+    const storyPath = join(REPO_ROOT, 'packages', 'ui', 'stories', 'icon-set-comparison.stories.tsx');
+    assert.ok(!existsSync(storyPath), 'temporary side-by-side icon comparison story must not ship after cutover');
   });
 
   it('splits design token examples into focused stories', () => {
@@ -221,7 +228,7 @@ describe('Storybook baseline contract', () => {
   it('exposes the full Design System foundation story surface', () => {
     const expected: ReadonlyArray<readonly [string, string, readonly string[]]> = [
       ['Design System/Animation Catalog', 'animation-catalog.stories.tsx', ['RetainedFunctionalMotion', 'DurationScale', 'EasingScale']],
-      ['Design System/Icons', 'icons.stories.tsx', ['PhosphorIcons', 'BotBrandIcons']],
+      ['Design System/Icons', 'icons.stories.tsx', ['LucideIcons', 'BotBrandIcons']],
       ['Design System/Palette Matrix', 'palette-matrix.stories.tsx', ['AllPalettes']],
       ['Design System/Typography', 'typography.stories.tsx', ['TypeScale']],
       ['Design System/Spacing', 'spacing.stories.tsx', ['Spacing']],

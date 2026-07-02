@@ -1,36 +1,10 @@
 /**
- * PR-ICON-SET-MAPPING-LAYER-0 step 1 (WAWQAQ msg `265c1636`):
- * every call site imports icons from `@maka/ui/icons`, NEVER directly
- * from `lucide-react`.
+ * Icon library seam contract.
  *
- * PR-ICON-SET-MAPPING-LAYER-0 step 2 (WAWQAQ msgs `88ae79a5`, `53735cec`):
- * the underlying library is now Phosphor via Iconify
- * (`@iconify/react` + `@iconify-json/ph`). The mapping layer at
- * `packages/ui/src/icons.tsx` is the ONLY place allowed to touch
- * the Iconify packages. Lucide React is removed entirely.
- *
- * PR-ICONS-FULL-REPLACE-0 step 3 (WAWQAQ msg `60064e2d` 2026-06-24):
- * the source-only sweep wasn't enough — `packages/ui/dist/*.js` (the
- * compiled output that Node module resolution actually hands to the
- * renderer) can lag behind source and silently keep rendering Lucide.
- * Add a dist-scoped sweep so any stale dist trips this contract
- * during `pretest` (which rebuilds dist before tests run).
- *
- * Without this contract, a future feature can:
- *   - re-introduce a direct `import { Foo } from 'lucide-react'`
- *     and silently revert to the old library, OR
- *   - import `@iconify/react` directly and write `<Icon icon="ph:...">`
- *     calls inline, defeating the swap-in-one-file design, OR
- *   - ship a stale @maka/ui/dist whose components.js still imports
- *     from 'lucide-react' even though source has migrated.
- *
- * The test walks every .ts/.tsx in `packages/ui/src` + `apps/desktop/src`:
- *   1. `'lucide-react'` / `"lucide-react"` is banned everywhere
- *      (Lucide is no longer a dependency).
- *   2. `'@iconify/react'` and `'@iconify-json/...'` are banned
- *      everywhere EXCEPT `packages/ui/src/icons.tsx`.
- *   3. Compiled .js files under `packages/ui/dist` also have no
- *      `'lucide-react'` imports (catches stale dist).
+ * Business code imports named icons from `@maka/ui/icons`; the seam is
+ * allowed to pick the underlying library. Generic UI icons come from
+ * `lucide-react`; bot/channel brand icons render from vendored SVG
+ * bodies without Iconify runtime code.
  */
 
 import { strict as assert } from 'node:assert';
@@ -80,11 +54,21 @@ async function walkDist(dir: string): Promise<string[]> {
   return out;
 }
 
-describe('PR-ICON-SET-MAPPING-LAYER-0 contract', () => {
-  it('lucide-react is removed — no .ts/.tsx file imports it', async () => {
+describe('icon library seam contract', () => {
+  it('renders generic UI icons through lucide-react at the @maka/ui/icons seam', async () => {
+    const source = await readFile(ICONS_FILE, 'utf8');
+
+    assert.match(source, /from ['"]lucide-react['"]/, 'icons.tsx must import/re-export lucide-react icons');
+    assert.doesNotMatch(source, /makeIcon\(/, 'icons.tsx must not keep the old Phosphor mapping wrapper');
+    assert.doesNotMatch(source, /['"]@iconify-json\/ph['"]/, 'Phosphor Iconify data must not remain in the generic icon seam');
+    assert.doesNotMatch(source, /ph:[a-z0-9-]+/, 'generic icon exports must not point at Phosphor ids');
+  });
+
+  it('lucide-react is imported ONLY from packages/ui/src/icons.tsx', async () => {
     const files = await allSrcFiles();
     const offenders: string[] = [];
     for (const file of files) {
+      if (file === ICONS_FILE) continue;
       const src = await readFile(file, 'utf8');
       const stripped = src
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -96,60 +80,38 @@ describe('PR-ICON-SET-MAPPING-LAYER-0 contract', () => {
     assert.deepEqual(
       offenders,
       [],
-      `Lucide-React was removed in step 2 of the icon migration. Use @maka/ui/icons instead:\n  ${offenders.join('\n  ')}`,
+      `Only packages/ui/src/icons.tsx may import lucide-react. Use @maka/ui/icons named exports instead:\n  ${offenders.join('\n  ')}`,
     );
   });
 
-  it('packages/ui/dist/**/*.js has no stale lucide-react imports (compiled output sweep)', async () => {
-    // The renderer resolves @maka/ui via its package.json `main` /
-    // `exports`, both of which point at `packages/ui/dist/*`. If the
-    // dist is built from a pre-Phosphor checkout, the renderer keeps
-    // serving Lucide icons even after the source migration. `pretest`
-    // already runs `npm --workspace @maka/ui run build`, so this
-    // sweep sees freshly-compiled dist.
+  it('packages/ui/dist/icons.js is built from the Lucide seam (compiled output sweep)', async () => {
     const distRoot = resolve(REPO_ROOT, 'packages/ui/dist');
     const files = await walkDist(distRoot);
-    const offenders: string[] = [];
+    const stale: string[] = [];
+    const iconDist = files.find((file) => file.endsWith('/icons.js'));
+
+    assert.ok(iconDist, 'packages/ui/dist/icons.js must exist after @maka/ui build');
+
     for (const file of files) {
       const src = await readFile(file, 'utf8');
-      if (/['"]lucide-react['"]/.test(src)) {
-        offenders.push(file.replace(REPO_ROOT + '/', ''));
+      if (/['"]@iconify-json\/ph['"]/.test(src) || /ph:[a-z0-9-]+/.test(src) || /makeIcon\(/.test(src)) {
+        stale.push(file.replace(REPO_ROOT + '/', ''));
       }
     }
+    const iconSource = await readFile(iconDist, 'utf8');
+
+    assert.match(iconSource, /from ['"]lucide-react['"]/, 'compiled icons.js must import/re-export lucide-react');
     assert.deepEqual(
-      offenders,
+      stale,
       [],
-      `Stale @maka/ui dist still imports from 'lucide-react'. Run \`npm --workspace @maka/ui run clean && npm --workspace @maka/ui run build\` to rebuild from current source:\n  ${offenders.join('\n  ')}`,
+      `Stale @maka/ui dist still contains Phosphor/Iconify mapping output. Rebuild from current source:\n  ${stale.join('\n  ')}`,
     );
   });
 
-  it('every makeIcon(`ph:*`) argument resolves in @iconify-json/ph (no missing glyphs)', async () => {
-    // Self-review found: `ph:accessibility` and `ph:file-pencil` were
-    // typo'd / non-existent — the wrapper's string indirection hid the
-    // bad name behind a runtime `<Icon />` that silently renders a
-    // missing/blank glyph (no TS error, no test failure pre-this-PR).
-    // This sweep iterates every `makeIcon('ph:...')` arg in icons.tsx
-    // and asserts the suffix exists in the Phosphor icon set.
-    const phData = (await import('@iconify-json/ph')).icons as { icons: Record<string, unknown> };
-    const phNames = new Set(Object.keys(phData.icons));
-    const source = await readFile(ICONS_FILE, 'utf8');
-    const matches = [...source.matchAll(/makeIcon\(['"]ph:([a-z0-9-]+)['"]\)/g)];
-    const missing: string[] = [];
-    for (const [, name] of matches) {
-      if (!phNames.has(name)) missing.push(name);
-    }
-    assert.deepEqual(
-      missing,
-      [],
-      `packages/ui/src/icons.tsx references Phosphor glyphs that don't exist in @iconify-json/ph: ${missing.join(', ')}. Pick a real name from icones.js.org/collection/ph.`,
-    );
-  });
-
-  it('@iconify/react and @iconify-json/* are imported ONLY from packages/ui/src/icons.tsx', async () => {
+  it('does not import Iconify packages anywhere in source', async () => {
     const files = await allSrcFiles();
     const offenders: string[] = [];
     for (const file of files) {
-      if (file === ICONS_FILE) continue;
       const src = await readFile(file, 'utf8');
       const stripped = src
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -158,10 +120,44 @@ describe('PR-ICON-SET-MAPPING-LAYER-0 contract', () => {
         offenders.push(file.replace(REPO_ROOT + '/', ''));
       }
     }
+
     assert.deepEqual(
       offenders,
       [],
-      `Only packages/ui/src/icons.tsx may import Iconify packages directly. Use @maka/ui/icons named exports instead:\n  ${offenders.join('\n  ')}`,
+      `Iconify runtime packages are not needed: generic icons use lucide-react and bot brands use vendored SVG bodies:\n  ${offenders.join('\n  ')}`,
+    );
+  });
+
+  it('renders bot brand icons through a local BotBrandIcon component', async () => {
+    const source = await readFile(ICONS_FILE, 'utf8');
+    const botBrand = await readFile(resolve(REPO_ROOT, 'packages/ui/src/bot-brand.ts'), 'utf8');
+
+    assert.match(source, /export function BotBrandIcon/, 'icons.tsx must expose a local bot brand SVG renderer');
+    assert.match(source, /MAKA_BOT_ICON_BODIES/, 'BotBrandIcon must read vendored SVG bodies');
+    assert.match(source, /dangerouslySetInnerHTML/, 'BotBrandIcon renders trusted vendored SVG bodies inline');
+    assert.doesNotMatch(source, /IconifyIcon/, 'icons.tsx must not keep the old IconifyIcon API');
+    assert.doesNotMatch(botBrand, /iconifyId/, 'bot brand metadata must not keep Iconify naming');
+    assert.match(botBrand, /iconId:\s*'maka-bot:/, 'bot brand metadata must still point at local maka-bot ids');
+  });
+
+  it('package manifests do not depend on Iconify icon runtimes', async () => {
+    const manifests = [
+      'package-lock.json',
+      'packages/ui/package.json',
+      'apps/desktop/package.json',
+    ];
+    const offenders: string[] = [];
+    for (const manifest of manifests) {
+      const src = await readFile(resolve(REPO_ROOT, manifest), 'utf8');
+      if (/@iconify\/(?:react)|@iconify-json\//.test(src)) {
+        offenders.push(manifest);
+      }
+    }
+
+    assert.deepEqual(
+      offenders,
+      [],
+      `Iconify packages must not remain in manifests after local bot SVG rendering:\n  ${offenders.join('\n  ')}`,
     );
   });
 });

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { ElementType } from 'react';
 import * as Icons from '../src/icons.js';
-import type { LucideIcon } from '../src/icons.js';
 import { MAKA_BOT_ICON_BODIES } from '../src/bot-brand-icons.js';
 
 const meta = {
@@ -14,33 +14,29 @@ type Story = StoryObj<typeof meta>;
 
 interface IconEntry {
   name: string;
-  Comp: LucideIcon;
+  Comp: ElementType<{ size?: number | string; strokeWidth?: number | string; 'aria-hidden'?: boolean }>;
 }
 
-const PHOSPHOR_ICONS: IconEntry[] = Object.entries(Icons)
-  .filter(([, value]) => {
-    if (typeof value !== 'function') return false;
-    const dn = (value as { displayName?: string }).displayName;
-    return typeof dn === 'string' && dn.startsWith('MakaIcon(');
-  })
-  .reduce<IconEntry[]>((acc, [name, value]) => {
-    const dn = (value as { displayName?: string }).displayName;
-    if (!acc.some((e) => (e.Comp as { displayName?: string }).displayName === dn)) {
-      acc.push({ name, Comp: value as LucideIcon });
-    }
-    return acc;
-  }, [])
+const OMITTED_RUNTIME_EXPORTS = new Set(['BotBrandIcon']);
+
+function isIconComponent(value: unknown): value is IconEntry['Comp'] {
+  return typeof value === 'function' || (typeof value === 'object' && value !== null);
+}
+
+const LUCIDE_ICONS: IconEntry[] = Object.entries(Icons)
+  .filter(([name, value]) => !OMITTED_RUNTIME_EXPORTS.has(name) && isIconComponent(value))
+  .map(([name, value]) => ({ name, Comp: value as IconEntry['Comp'] }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
 const BOT_BRAND_ICONS = Object.keys(MAKA_BOT_ICON_BODIES).sort();
 
-export const PhosphorIcons: Story = {
+export const LucideIcons: Story = {
   render: () => (
     <section style={{ display: 'grid', gap: 20, maxWidth: 920 }}>
       <div style={{ display: 'grid', gap: 4 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Phosphor Icons</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Lucide Icons</h2>
         <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
-          {PHOSPHOR_ICONS.length} 个图标,通过 icons.tsx 的 makeIcon 产物自动追踪。底层映射到 Phosphor (ph:),切换图标集只改映射表。
+          {LUCIDE_ICONS.length} 个通用 UI 图标,通过 icons.tsx 的 lucide-react re-export 自动追踪。业务代码仍只从 @maka/ui/icons 取图标。
         </p>
       </div>
       <div
@@ -50,7 +46,7 @@ export const PhosphorIcons: Story = {
           gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
         }}
       >
-        {PHOSPHOR_ICONS.map(({ name, Comp }) => (
+        {LUCIDE_ICONS.map(({ name, Comp }) => (
           <div
             key={name}
             style={{
@@ -95,7 +91,7 @@ export const BotBrandIcons: Story = {
               textAlign: 'center',
             }}
           >
-            <Icons.IconifyIcon icon={`maka-bot:${name}`} width={32} height={32} />
+            <Icons.BotBrandIcon iconId={`maka-bot:${name}`} width={32} height={32} />
             <code style={{ color: 'var(--foreground-70)', fontSize: 10 }}>{name}</code>
           </div>
         ))}

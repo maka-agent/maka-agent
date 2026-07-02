@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import {
+  BotBrandIcon,
   Bot,
-  IconifyIcon,
   X,
   type LucideProps,
 } from '@maka/ui/icons';
@@ -44,12 +44,9 @@ import { settingsActionErrorMessage } from './settings-error-copy';
  *   用的真实对应公司的图标。" → swap the monogram for the real brand
  *   icon, the same way model providers already use their actual logos.
  *
- * Implementation: `iconifyId` references a Simple Icons entry on the
- * Iconify CDN. `@iconify/react` lazy-fetches on first render and caches
- * thereafter; no new bundled collection needed (we don't ship
- * `@iconify-json/simple-icons` because it would balloon the dep tree
- * for 7 used icons). `glyph` stays as the offline fallback while the
- * icon is in flight.
+ * Implementation: `iconId` references a vendored `maka-bot:*` SVG body.
+ * The icons render synchronously offline; `glyph` stays as the defensive
+ * fallback if a local id is missing.
  *
  * `configDocUrl` is the official developer doc surfaced inline as a
  * "查看配置文档 →" link.
@@ -155,8 +152,8 @@ function BotBrandLogo(props: {
           edge; the parent plate is transparent so the brand-color
           disc IS the visible tile. `brand.glyph` (`微` / `企` / etc.)
           fallback only renders if the local SVG fails to register. */}
-      <IconifyIcon
-        icon={brand.iconifyId}
+      <BotBrandIcon
+        iconId={brand.iconId}
         width="100%"
         height="100%"
         aria-hidden="true"
