@@ -52,7 +52,7 @@ test('markerVariants resolves a leaf shell string the UiButton call sites can ap
   // className, so the cva must return a non-empty literal utility string.
   const footerAction = markerVariants({ variant: 'footer-action' });
   assert.match(footerAction, /min-h-\[28px\]/);
-  assert.match(footerAction, /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\]/);
+  assert.match(footerAction, /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\]/);
   const lineageBadge = markerVariants({ variant: 'lineage-badge' });
   assert.match(lineageBadge, /rounded-\[var\(--radius-pill\)\]/);
   assert.match(lineageBadge, /data-\[direction=forward\]:/);
