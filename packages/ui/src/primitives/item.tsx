@@ -26,7 +26,7 @@ export const itemVariants = cva(
   // Row hover stays NEUTRAL (a faint foreground wash), not the brand
   // `accent` — in this theme `accent` maps to the brand color, and the
   // app reserves it for active/selected rows, keeping plain hover quiet.
-  "group/item relative flex w-full items-center rounded-lg border border-transparent text-left text-sm outline-none transition-colors [a&,button&]:cursor-pointer [a&,button&]:hover:bg-foreground/4 [a&,button&]:data-pressed:bg-foreground/8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64",
+  "group/item relative flex w-full items-center rounded-md border border-transparent text-left text-sm outline-none transition-colors [a&,button&]:cursor-pointer [a&,button&]:hover:bg-foreground/4 [a&,button&]:data-pressed:bg-foreground/8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64",
   {
     defaultVariants: {
       variant: "default",

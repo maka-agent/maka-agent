@@ -21,7 +21,7 @@
     gap: 20px;
     padding: 16px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
   .settingsHealthIntro h3 {
@@ -58,7 +58,7 @@
 .settingsHealthRefresh {
   border: 1px solid var(--border);
   background: var(--background);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 4px 10px;
   color: var(--foreground-80);
   font-size: 0.8125rem;
@@ -82,7 +82,7 @@
     padding: 16px;
     border: 1px solid oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.08);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     color: var(--destructive-text);
   }
   .settingsHealthError strong {
@@ -115,7 +115,7 @@
     gap: 4px;
     padding: 12px 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: var(--background);
   }
   .settingsHealthSummaryTile strong {
@@ -196,7 +196,7 @@
     gap: 6px;
     padding: 12px 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: var(--background);
     transition: border-color var(--duration-base) var(--ease-out-strong);
   }
@@ -254,14 +254,14 @@
   .settingsHealthSignalMeta code {
     font-family: var(--font-mono);
     background: var(--foreground-5);
-    border-radius: 4px;
+    border-radius: var(--radius-control);
     padding: 1px 5px;
     color: var(--foreground-70);
   }
   .settingsHealthSignalBlocker {
     font-size: 0.7rem;
     padding: 1px 8px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--border);
   }
   .settingsHealthSignalBlocker[data-tone="destructive"] {
@@ -279,7 +279,7 @@
     margin: 0;
     padding: 12px 14px;
     border: 1px dashed var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-60);
     font-size: 0.78rem;

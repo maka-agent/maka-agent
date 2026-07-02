@@ -441,6 +441,51 @@ describe('task run export', () => {
     assert.equal(exported.legacyResultRecord.passed, false);
   });
 
+  test('exports latest heavy-task self-check gate state in full and compact views', async () => {
+    const projection = projectTaskRun([
+      ...heavyTaskCompletionEvents(),
+      {
+        type: 'heavy_task_self_check_gate_recorded',
+        id: 'gate-1',
+        taskRunId: 'run-heavy-complete',
+        ts: 7,
+        gate: {
+          schemaVersion: 1,
+          action: 'allow_official_verifier_after_bounded_attempt',
+          reason: 'latest self-check status is inconclusive',
+          attempt: 1,
+          maxAttempts: 1,
+          checklist: [{
+            id: 'check-1',
+            kind: 'required_artifact',
+            source: 'task_instruction',
+            description: 'Visible task instruction requires artifact /app/report.jsonl',
+            evidenceRequired: 'command_or_artifact',
+            path: '/app/report.jsonl',
+          }],
+        },
+      } satisfies TaskEvent,
+    ], 'run-heavy-complete');
+    const exported = taskRunExportFromProjection(projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
+
+    assert.equal(exported.heavyTask?.selfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
+    assert.equal(exported.progress?.selfCheckGates?.historyCount, 1);
+    assert.equal(exported.progress?.selfCheckGates?.latest.checklist[0]?.path, '/app/report.jsonl');
+
+    const outDir = await mkdtemp(join(tmpdir(), 'maka-heavy-task-gate-export-'));
+    try {
+      const written = await writeTaskRunExport(outDir, projection, {
+        exportedAt: '2026-06-19T00:00:00.000Z',
+        includeEvents: true,
+      });
+      const compact = JSON.parse(await readFile(written.files.resultJson, 'utf8'));
+      assert.deepEqual(compact.heavyTask.selfCheckGate, exported.heavyTask?.selfCheckGate);
+      assert.match(await readFile(written.files.eventsJsonl!, 'utf8'), /heavy_task_self_check_gate_recorded/);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   test('exports official verifier truth over a non-authoritative placeholder result', async () => {
     const events: TaskEvent[] = [
       { type: 'task_run_created', id: 'e1', taskRunId: 'run-official', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
@@ -780,6 +825,25 @@ function heavyTaskCompletionEvents(todos: HeavyTaskTodoItem[] = [
         publicReason: 'npm test passed against public files.',
         commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
         artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
+        executionHygiene: {
+          sandbox: {
+            root: '/tmp/maka-self-check/run-heavy-complete',
+            strategy: 'scratch_dir',
+            commandCwd: '/tmp/maka-self-check/run-heavy-complete',
+            outputPolicy: 'scratch_only',
+          },
+          scratchUsed: true,
+          scratchPath: '/tmp/maka-self-check/run-heavy-complete',
+          cleanupPerformed: true,
+          workspaceSideEffects: 'none',
+          workspaceGuard: {
+            checked: true,
+            checkedPaths: ['/app'],
+            addedPaths: [],
+            modifiedPaths: [],
+            removedPaths: [],
+          },
+        },
         guard: {
           status: 'accepted',
           checkedAt: 4,

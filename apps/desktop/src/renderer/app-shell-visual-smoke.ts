@@ -187,7 +187,7 @@ export function createAppShellVisualSmokeActions(options: {
       const variant = state.autoCaptureVariant;
       // Two RAFs + 400ms idle is the same pattern Chromium uses for
       // settled layout in DevTools "Capture full size screenshot" —
-      // gives @starting-style + fonts + late-stream IPC time to flush.
+      // gives fonts and late-stream IPC time to flush.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setTimeout(async () => {

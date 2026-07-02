@@ -13,9 +13,8 @@ import {
   Sparkles,
   Trash2,
   X,
-  IconifyIcon,
 } from './icons.js';
-import { BOT_BRAND } from './bot-brand.js';
+import { BotBrandLogo } from './bot-brand-logo.js';
 import { SettingsSelect, type SettingsSelectOption } from './primitives/settings-select.js';
 import type {
   BotProvider,
@@ -771,14 +770,12 @@ export function PlanReminderPanel(props: {
                       disabled={formInteractionDisabled}
                       ariaLabel="平台"
                       options={BOT_DELIVERY_PROVIDERS.map((provider) => {
-                        const brand = BOT_BRAND[provider];
                         const icon = (
-                          <IconifyIcon
-                            icon={brand.iconifyId}
+                          <BotBrandLogo
+                            provider={provider}
                             width="100%"
                             height="100%"
                             aria-hidden="true"
-                            fallback={<>{brand.glyph}</>}
                           />
                         );
                         return [provider, botDisplayLabel(provider), icon] as const;

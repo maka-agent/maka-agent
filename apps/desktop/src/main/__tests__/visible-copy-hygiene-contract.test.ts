@@ -343,13 +343,13 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /import \{ Button as PrimitiveButton \} from '\.\/primitives\/button\.js';/,
-      'The capped-output handoff copy action should use the vendored shared primitive Button primitive.',
+      /import \{ Button as UiButton[^}]*\} from '\.\/ui\.js';/,
+      'The capped-output handoff copy action should use the shared UiButton from ui.tsx.',
     );
     assert.match(
       src,
-      /<PrimitiveButton[\s\S]*?variant="ghost"[\s\S]*?size="sm"[\s\S]*?className=\{previewVariants\(\{ part: 'terminal-copy' \}\)\}/,
-      'The capped-output handoff copy action should keep its ghost/sm affordance through shared primitive Button props and the governed previewVariants terminal-copy part.',
+      /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="sm"[\s\S]*?className=\{previewVariants\(\{ part: 'terminal-copy' \}\)\}/,
+      'The capped-output handoff copy action should keep its ghost/sm affordance through UiButton props and the governed previewVariants terminal-copy part.',
     );
     assert.doesNotMatch(
       src,

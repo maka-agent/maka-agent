@@ -32,7 +32,7 @@ interface EmptyStateProps {
 
 export function EmptyState(props: EmptyStateProps) {
   const className = cn(
-    'maka-empty-state rounded-xl border-border bg-card/70 p-8 text-card-foreground shadow-maka-panel',
+    'maka-empty-state rounded-md border-border bg-card/70 p-8 text-card-foreground shadow-maka-panel',
     props.extraClassName,
   );
   return (

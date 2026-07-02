@@ -62,6 +62,7 @@ export interface TaskRunExport {
   heavyTask?: {
     mode?: TaskRunProjection['heavyTaskMode'];
     completion: NonNullable<TaskRunProjection['heavyTaskCompletion']>;
+    selfCheckGate?: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheckGate']>;
   };
   progress?: {
     inventory?: {
@@ -74,6 +75,10 @@ export interface TaskRunExport {
     };
     selfChecks?: {
       latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheck']>;
+      historyCount: number;
+    };
+    selfCheckGates?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheckGate']>;
       historyCount: number;
     };
     evidence?: {
@@ -158,7 +163,11 @@ export function taskRunExportFromProjection(
   const primaryWorkspacePath = primaryWorkspacePathFromArtifacts(projection.artifacts);
   const policy = policyFromProjection(projection);
   const heavyTask = projection.heavyTaskCompletion
-    ? { mode: projection.heavyTaskMode, completion: projection.heavyTaskCompletion }
+    ? {
+        mode: projection.heavyTaskMode,
+        completion: projection.heavyTaskCompletion,
+        ...(projection.latestHeavyTaskSelfCheckGate ? { selfCheckGate: projection.latestHeavyTaskSelfCheckGate } : {}),
+      }
     : undefined;
   const progress = progressFromProjection(projection);
 
@@ -329,6 +338,12 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
       historyCount: projection.heavyTaskSelfChecks.length,
     };
   }
+  if (projection.latestHeavyTaskSelfCheckGate) {
+    progress.selfCheckGates = {
+      latest: projection.latestHeavyTaskSelfCheckGate,
+      historyCount: projection.heavyTaskSelfCheckGates.length,
+    };
+  }
   if (projection.latestHeavyTaskEvidence) {
     progress.evidence = {
       latest: projection.latestHeavyTaskEvidence,
@@ -336,7 +351,7 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
       historyCount: projection.heavyTaskEvidence.length,
     };
   }
-  return progress.inventory || progress.todos || progress.selfChecks || progress.evidence ? progress : undefined;
+  return progress.inventory || progress.todos || progress.selfChecks || progress.selfCheckGates || progress.evidence ? progress : undefined;
 }
 
 function runtimeEventIdsFrom(runtimeRefs: unknown): string[] {
@@ -393,7 +408,7 @@ function eventsJsonl(events: readonly TaskEvent[]): string {
   return body.length > 0 ? `${body}\n` : '';
 }
 
-function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
+export function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
   if (event.type === 'heavy_task_self_check_recorded') {
     return isAcceptedHeavyTaskSelfCheck(event.selfCheck) ? [event] : [];
   }

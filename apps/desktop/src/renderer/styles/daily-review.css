@@ -9,11 +9,10 @@
     margin-inline: auto;
     background: var(--card-bg);
     border: 1px solid var(--card-border-color);
-    border-radius: var(--card-radius);
+    border-radius: var(--radius-surface);
     box-shadow:
       var(--card-shadow),
       var(--card-highlight);
-    animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
   }
 
   .maka-daily-review-header {
@@ -35,7 +34,7 @@
     gap: 4px;
     padding: 10px 12px;
     border: 1px solid var(--card-border-color);
-    border-radius: var(--card-radius);
+    border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.03);
     box-shadow: var(--card-highlight);
   }
@@ -56,7 +55,7 @@
     margin: 0;
     font-size: 11px;
     line-height: 1.5;
-    color: var(--foreground-55);
+    color: var(--foreground-50);
   }
 
   .maka-daily-review-info-hint strong {
@@ -111,7 +110,7 @@
 
   .maka-daily-review-archive-count {
     font-size: 11px;
-    color: var(--foreground-45);
+    color: var(--foreground-40);
     font-variant-numeric: tabular-nums;
   }
 
@@ -144,7 +143,7 @@
 .maka-daily-review-archive-row {
   appearance: none;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   display: grid;
@@ -191,7 +190,7 @@
     min-width: 0;
     padding: 10px 12px;
     border: 1px solid var(--card-border-color);
-    border-radius: var(--card-radius);
+    border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.025);
     box-shadow: var(--card-highlight);
   }
@@ -229,8 +228,8 @@
   .maka-daily-review-archive-status {
     flex: none;
     border: 1px solid var(--foreground-10);
-    border-radius: 999px;
-    color: var(--foreground-55);
+    border-radius: var(--radius-pill);
+    color: var(--foreground-50);
     font-size: 11px;
     line-height: 1;
     padding: 4px 7px;
@@ -267,7 +266,7 @@
 
   .maka-daily-review-archive-section h5 {
     margin: 0;
-    color: var(--foreground-55);
+    color: var(--foreground-50);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0;
@@ -339,7 +338,7 @@
     gap: 8px;
     padding: 8px 10px;
     border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.3);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--warning, var(--info)) l c h / 0.08);
     color: var(--warning-text, var(--foreground));
     font-size: 12px;
@@ -382,7 +381,7 @@
     gap: 1px;
     padding: 5px 8px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-control);
     background: oklch(from var(--foreground) l c h / 0.04);
   }
 
@@ -442,7 +441,7 @@
     display: inline-block;
     width: 3px;
     height: 12px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: oklch(from var(--accent) l c h / 0.85);
     flex-shrink: 0;
   }
@@ -459,7 +458,7 @@
     display: grid;
     gap: 2px;
     padding: 6px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: transparent;
     transition: background 140ms var(--ease-out-strong),
                 transform var(--duration-quick) var(--ease-out-strong);

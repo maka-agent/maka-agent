@@ -30,7 +30,7 @@ describe('PR-PERMISSIONS-UNIFIED-CARD-0 contract (#309)', () => {
 
     // Grouped card chrome lives on the outer container.
     assert.match(body, /\bborder:\s*1px\s+solid\s+var\(--border\)/, 'list must own the outer border');
-    assert.match(body, /\bborder-radius:\s*12px\b/, 'list must own the 12px outer radius');
+    assert.match(body, /\bborder-radius:\s*var\(--radius-surface\)/, 'list must own the 8px outer radius (surface tier)');
     assert.match(body, /\bbackground:\s*var\(--background\)/, 'list must own the outer background');
     assert.match(body, /\boverflow:\s*hidden\b/, 'list must clip rows so divider corners stay clean');
 

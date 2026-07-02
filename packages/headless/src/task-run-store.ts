@@ -8,6 +8,7 @@ import type {
   AutonomousDecision,
   FeedbackObservation,
   HeavyTaskCompactEvidenceEnvelope,
+  HeavyTaskSelfCheckGateState,
   EconomyTaskModeFacts,
   HeavyTaskInventoryState,
   TaskInboxItem,
@@ -55,6 +56,8 @@ export interface TaskRunProjection extends TaskRun {
   latestHeavyTaskTodos?: HeavyTaskTodoState;
   heavyTaskSelfChecks: HeavyTaskSemanticSelfCheckState[];
   latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
+  heavyTaskSelfCheckGates: HeavyTaskSelfCheckGateState[];
+  latestHeavyTaskSelfCheckGate?: HeavyTaskSelfCheckGateState;
   heavyTaskEvidence: HeavyTaskCompactEvidenceEnvelope[];
   latestHeavyTaskEvidence?: HeavyTaskCompactEvidenceEnvelope;
   heavyTaskCompletion?: HeavyTaskCompletionStatus;
@@ -101,6 +104,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     heavyTaskInventory: [],
     heavyTaskTodoStates: [],
     heavyTaskSelfChecks: [],
+    heavyTaskSelfCheckGates: [],
     heavyTaskEvidence: [],
   };
   const attempts = new Map<string, TaskAttempt>();
@@ -206,6 +210,10 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         } else {
           projection.warnings.push(`ignored heavy-task self-check ${event.selfCheck.selfCheckId}: source guard did not accept public evidence`);
         }
+        break;
+      case 'heavy_task_self_check_gate_recorded':
+        projection.heavyTaskSelfCheckGates.push(event.gate);
+        projection.latestHeavyTaskSelfCheckGate = event.gate;
         break;
       case 'heavy_task_evidence_recorded':
         if (!appendCompactEvidence(projection, event.evidence)) {

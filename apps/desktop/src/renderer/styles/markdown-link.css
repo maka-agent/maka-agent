@@ -20,7 +20,7 @@
   .maka-markdown-link {
     text-underline-offset: 2px;
     text-decoration-thickness: 1px;
-    border-radius: 2px;
+    border-radius: var(--radius-control);
   }
 
   .maka-markdown-link-internal {
@@ -32,7 +32,7 @@
     margin: 0;
     font: inherit;
     color: var(--accent);
-    text-decoration: underline solid var(--accent-50);
+    text-decoration: underline solid color-mix(in oklch, var(--accent) 50%, var(--background));
     cursor: pointer;
   }
   .maka-markdown-link-internal:hover {
@@ -48,7 +48,7 @@
 
   .maka-markdown-link-external {
     color: var(--accent);
-    text-decoration: underline solid var(--accent-50);
+    text-decoration: underline solid color-mix(in oklch, var(--accent) 50%, var(--background));
   }
   .maka-markdown-link-external:hover {
     text-decoration-color: var(--accent);

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Alert, AlertDescription, AlertTitle } from '../src/primitives/alert.js';
-import { Button } from '../src/primitives/button.js';
+import { Button } from '../src/ui.js';
 import {
   Empty,
   EmptyContent,
@@ -29,7 +29,6 @@ export const BasicStates: Story = {
         <Button>Primary</Button>
         <Button variant="secondary">Secondary</Button>
         <Button variant="outline">Outline</Button>
-        <Button loading>Loading</Button>
       </div>
 
       <Alert variant="info">

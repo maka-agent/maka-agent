@@ -20,7 +20,7 @@
     gap: 20px;
     padding: 16px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
   .settingsPermissionIntro h3 {
@@ -54,7 +54,7 @@
 .settingsPermissionRefresh {
   border: 1px solid var(--border);
   background: var(--background);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 4px 10px;
   color: var(--foreground-80);
   font-size: 0.8125rem;
@@ -78,7 +78,7 @@
     padding: 16px;
     border: 1px solid oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.08);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     color: var(--destructive-text);
   }
   .settingsPermissionError strong {
@@ -118,7 +118,7 @@
 
   .settingsCapabilityRow {
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: var(--background);
     padding: 14px 16px;
     display: flex;
@@ -174,7 +174,7 @@
     gap: 8px 12px;
     padding: 10px 12px;
     background: var(--foreground-3);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
   }
   .settingsCapabilityLayers > div {
     display: flex;
@@ -231,7 +231,7 @@
     gap: 6px;
     padding: 3px 8px 3px 10px;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: 0.78rem;
     background: var(--background);
     color: var(--foreground-80);
@@ -240,7 +240,7 @@
     font-style: normal;
     font-size: 0.72rem;
     padding: 1px 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--foreground-5);
     color: var(--foreground-70);
   }
@@ -293,7 +293,7 @@
     overflow: auto;
     padding: 7px 8px;
     border: 1px solid var(--foreground-10);
-    border-radius: 6px;
+    border-radius: var(--radius-surface);
     background: var(--background);
     color: var(--foreground-70);
     font-size: 0.72rem;
@@ -349,7 +349,7 @@
     display: flex;
     flex-direction: column;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: var(--background);
     overflow: hidden;
   }
@@ -382,7 +382,7 @@
     justify-content: center;
     width: 36px;
     height: 36px;
-    border-radius: 9px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.05);
     color: var(--foreground-70);
   }
@@ -433,9 +433,9 @@
     display: inline-flex;
     align-items: center;
     padding: 1px 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: oklch(from var(--foreground) l c h / 0.05);
-    color: var(--foreground-55);
+    color: var(--foreground-50);
     font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -508,7 +508,7 @@
     gap: 2px;
     padding: 12px 14px;
     border: 1px solid var(--card-border-color, var(--border));
-    border-radius: var(--card-radius, 8px);
+    border-radius: var(--radius-surface);
     background: var(--card-bg, var(--background));
     box-shadow:
       var(--card-shadow, none),
@@ -555,7 +555,7 @@
     margin: 0;
     padding: 12px 14px;
     border: 1px dashed var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-60);
     font-size: 0.78rem;

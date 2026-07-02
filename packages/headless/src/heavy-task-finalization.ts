@@ -1,4 +1,4 @@
-import { isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
+import { heavyTaskSelfCheckStrongPassBlocker, isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
 import type {
   AutonomousDecision,
   AutonomousResultTaxonomy,
@@ -121,6 +121,10 @@ function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskComp
   }
   if (selfCheck.status !== 'pass') {
     return { ...base, status: 'incomplete', reason: `latest self-check status is ${selfCheck.status}` };
+  }
+  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck);
+  if (strongPassBlocker) {
+    return { ...base, status: 'incomplete', reason: strongPassBlocker };
   }
   if (!todos) {
     return { ...base, status: 'incomplete', reason: 'missing latest heavy-task todos' };

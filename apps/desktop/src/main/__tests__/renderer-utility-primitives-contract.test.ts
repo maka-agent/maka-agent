@@ -150,42 +150,10 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(source, /<Button[\s\S]*variant=\{destructive \? 'destructive' : 'default'\}/);
   });
 
-  it('keeps shared drawer and sheet close buttons localized', async () => {
-    const drawer = await readFile(join(repoRoot, 'packages/ui/src/primitives/drawer.tsx'), 'utf8');
-    const sheet = await readFile(join(repoRoot, 'packages/ui/src/primitives/sheet.tsx'), 'utf8');
-
-    assert.doesNotMatch(drawer, /aria-label="Close"/, 'Drawer primitive must not leak upstream English close copy');
-    assert.doesNotMatch(sheet, /aria-label="Close"/, 'Sheet primitive must not leak upstream English close copy');
-    assert.match(drawer, /aria-label="关闭抽屉"/);
-    assert.match(sheet, /aria-label="关闭面板"/);
-  });
-
   it('keeps shared primitive default labels Chinese-first', async () => {
-    const pagination = await readFile(join(repoRoot, 'packages/ui/src/primitives/pagination.tsx'), 'utf8');
     const spinner = await readFile(join(repoRoot, 'packages/ui/src/primitives/spinner.tsx'), 'utf8');
-    const sidebar = await readFile(join(repoRoot, 'packages/ui/src/primitives/sidebar.tsx'), 'utf8');
 
-    for (const source of [pagination, spinner, sidebar]) {
-      assert.doesNotMatch(source, /aria-label="(?:pagination|Go to previous page|Go to next page|Loading|Toggle Sidebar)"/);
-      assert.doesNotMatch(source, /title="Toggle Sidebar"/);
-      assert.doesNotMatch(source, />Previous</);
-      assert.doesNotMatch(source, />Next</);
-      assert.doesNotMatch(source, />More pages</);
-      assert.doesNotMatch(source, />Toggle Sidebar</);
-      assert.doesNotMatch(source, />Sidebar</);
-      assert.doesNotMatch(source, />Displays the mobile sidebar\.</);
-    }
-    assert.match(pagination, /aria-label="分页"/);
-    assert.match(pagination, /aria-label="上一页"/);
-    assert.match(pagination, /aria-label="下一页"/);
-    assert.match(pagination, />上一页</);
-    assert.match(pagination, />下一页</);
-    assert.match(pagination, />更多页码</);
+    assert.doesNotMatch(spinner, /aria-label="Loading"/);
     assert.match(spinner, /aria-label="加载中"/);
-    assert.match(sidebar, /aria-label="切换侧边栏"/);
-    assert.match(sidebar, /title="切换侧边栏"/);
-    assert.match(sidebar, />切换侧边栏</);
-    assert.match(sidebar, />侧边栏</);
-    assert.match(sidebar, />显示移动端侧边栏。</);
   });
 });

@@ -35,6 +35,7 @@ export type {
   AutonomousResultTaxonomy,
   EnvNetworkSecretPolicy,
   FeedbackObservation,
+  HeavyTaskAcceptanceCheck,
   HeavyTaskCompactEvidenceEnvelope,
   HeavyTaskDiffSummary,
   HeavyTaskEvidenceKind,
@@ -48,6 +49,9 @@ export type {
   HeavyTaskCommandEvidence,
   HeavyTaskProgressSource,
   HeavyTaskSelfCheckRecordedEvent,
+  HeavyTaskSelfCheckGateAction,
+  HeavyTaskSelfCheckGateRecordedEvent,
+  HeavyTaskSelfCheckGateState,
   HeavyTaskSelfCheckStatus,
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskSourceGuardResult,
@@ -170,6 +174,55 @@ export {
   type ExternalHarborBenchmarkFailureInput,
   type ExternalHarborBenchmarkFailureKind,
 } from './harbor-failure-policy.js';
+export type {
+  BuildMakaAheTargetSnapshotOptions,
+  MakaAheRunEvidence,
+  MakaAheRunEvidenceOptions,
+  WriteMakaAheEvidenceExportOptions,
+  WriteMakaAheEvidenceExportResult,
+} from './ahe-evidence-export.js';
+export {
+  MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL,
+  buildMakaAheTargetSnapshot,
+  makaAheEvidenceFromTaskRunProjections,
+  validateMakaAheSourceRefs,
+  writeMakaAheEvidenceExport,
+} from './ahe-evidence-export.js';
+export type {
+  MakaAheArtifactRef,
+  MakaAheChangeEvaluation,
+  MakaAheChangeEvaluationCell,
+  MakaAheChangeManifest,
+  MakaAheComponentCategory,
+  MakaAheEvidenceCase,
+  MakaAheHarnessResults,
+  MakaAheResultStatus,
+  MakaAheRunResult,
+  MakaAheScoreAuthority,
+  MakaAheSnapshotIdentity,
+  MakaAheSourceRef,
+  MakaAheTargetComponent,
+  MakaAheTargetProtocolVersion,
+  MakaAheTargetSnapshot,
+  MakaAheTargetSourceLabel,
+  MakaAheTraceIndex,
+  MakaAheTraceIndexEntry,
+  MakaAheTransitionStatus,
+  MakaAheValidationIssue,
+  MakaAheValidationResult,
+} from './ahe-target-protocol.js';
+export {
+  MAKA_AHE_COMPONENT_CATEGORIES,
+  MAKA_AHE_CURRENT_COMPONENTS,
+  MAKA_AHE_RESULT_STATUSES,
+  MAKA_AHE_SCORE_AUTHORITIES,
+  MAKA_AHE_TARGET_PROTOCOL_VERSION,
+  MAKA_AHE_TARGET_SOURCE_LABEL,
+  MAKA_AHE_TRANSITION_STATUSES,
+  validateMakaAheChangeManifest,
+  validateMakaAheRunResult,
+  validateMakaAheTargetComponents,
+} from './ahe-target-protocol.js';
 export type { TaskRunExport, WriteTaskRunExportOptions, WriteTaskRunExportResult } from './result-export.js';
 export {
   exportContentHash,

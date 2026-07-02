@@ -63,7 +63,7 @@
     gap: 4px;
     padding: 10px 12px;
     border: 1px solid var(--foreground-10);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
 
@@ -136,7 +136,7 @@
     gap: 4px;
     padding: 10px 12px;
     border: 1px solid var(--foreground-10);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
 
@@ -164,7 +164,7 @@
     gap: 8px;
     padding: 12px;
     border: 1px solid var(--foreground-10);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
 
@@ -218,7 +218,7 @@
     padding: 10px;
     overflow: auto;
     border: 1px solid var(--foreground-10);
-    border-radius: 6px;
+    border-radius: var(--radius-control);
     background: var(--background);
     color: var(--foreground-80);
     font-family: var(--font-mono);
@@ -240,7 +240,7 @@
     gap: 4px;
     padding: 10px 12px;
     border: 1px solid oklch(from var(--warning) l c h / 0.34);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--warning) l c h / 0.08);
   }
 
@@ -260,7 +260,7 @@
     gap: 3px;
     padding: 8px 10px;
     border: 1px solid oklch(from var(--success) l c h / 0.28);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--success) l c h / 0.08);
   }
 
@@ -292,7 +292,7 @@
     gap: 6px;
     padding: 8px 10px;
     border: 1px solid var(--foreground-10);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
 
@@ -332,7 +332,7 @@
     gap: 6px;
     padding: 3px 7px;
     border: 1px solid var(--foreground-10);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--background);
     color: var(--foreground-60);
     font-size: 11px;
@@ -372,7 +372,7 @@
     margin: 0;
     padding: 6px 8px;
     border: 1px solid oklch(from var(--warning) l c h / 0.30);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--warning) l c h / 0.08);
     color: var(--foreground-70);
     font-size: 12px;
@@ -390,7 +390,7 @@
     display: grid;
     gap: 0;
     border: 1px solid var(--foreground-10);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     overflow: hidden;
     background: var(--foreground-2);
   }
@@ -442,8 +442,8 @@
     max-width: 100%;
     padding: 2px 6px;
     border: 1px solid var(--foreground-10);
-    border-radius: 6px;
-    background: var(--foreground-4);
+    border-radius: var(--radius-control);
+    background: var(--foreground-5);
     color: var(--foreground-60);
     font-size: 11px;
     line-height: 1.4;
@@ -486,7 +486,7 @@
 .settingsMemoryFilter input {
   width: 100%;
   border: 1px solid var(--foreground-10);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
   font: inherit;
@@ -512,7 +512,7 @@
     gap: 4px;
     padding: 10px 12px;
     border: 1px solid var(--foreground-10);
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
 
@@ -535,7 +535,7 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--foreground-10);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--foreground-2);
 }
 
@@ -563,7 +563,7 @@
 .settingsMemoryManualAddGrid textarea {
   width: 100%;
   border: 1px solid var(--foreground-10);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
   font: inherit;
@@ -587,7 +587,7 @@
   gap: 4px;
   padding: 10px 12px;
   border: 1px solid oklch(from var(--warning) l c h / 0.38);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: oklch(from var(--warning) l c h / 0.09);
 }
 
@@ -618,7 +618,7 @@
   min-height: 220px;
   resize: vertical;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 10px 12px;
   background: var(--background-elevated, var(--background));
   color: var(--foreground);
@@ -666,7 +666,7 @@
   .maka-first-run-checklist {
     width: min(760px, 100%);
     border: 1px solid oklch(from var(--foreground) l c h / 0.07);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     padding: 14px;
     background: oklch(from var(--background-elevated, var(--background)) l c h / 0.58);
     display: grid;
@@ -678,7 +678,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--foreground-65);
+    color: var(--foreground-60);
     padding: 0 4px 2px;
   }
 
@@ -702,7 +702,7 @@
   justify-content: space-between;
   gap: 8px;
   border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: oklch(from var(--warning, var(--info)) l c h / 0.08);
   color: var(--warning-text, var(--info-text));
   font-size: 12px;
@@ -719,7 +719,7 @@
   min-height: 24px;
   padding: 0 8px;
   border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--warning-text, var(--info-text));
   font-size: 12px;
@@ -755,7 +755,7 @@
   min-height: 38px;
   background: var(--background);
   border: 1px solid oklch(from var(--foreground) l c h / 0.07);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 7px 10px 7px 8px;
   display: inline-grid;
   grid-template-columns: 20px max-content 0;
@@ -763,7 +763,7 @@
   gap: 7px;
   width: auto;
   text-align: left;
-  color: var(--foreground-75);
+  color: var(--foreground-70);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.03);
 }
 

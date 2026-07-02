@@ -80,7 +80,7 @@
      reads as "card inside chrome" rather than "rectangle bleeding off
      the bottom". */
   margin: 4px;
-  border-radius: 12px;
+  border-radius: var(--radius-modal);
   background: var(--background);
   box-sizing: border-box;
   display: flex;
@@ -115,9 +115,8 @@
 .maka-shell-topbar-button {
   width: var(--maka-sidebar-topbar-button-size);
   height: var(--maka-sidebar-topbar-button-size);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: var(--foreground-70);
-  -webkit-app-region: no-drag;
 }
 
 .maka-shell-topbar-button:hover {
@@ -154,7 +153,7 @@
   top: 14px;
   bottom: 14px;
   width: 1px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   transition: background var(--duration-quick) var(--ease-out-strong);
 }
@@ -222,9 +221,11 @@
      was bare `z-index: 4`. Tokenized to `--z-panel-action`.
      Identical visual stacking, but referenceable + contract-locked. */
   z-index: var(--z-panel-action);
-  /* Same baseline; 17px correction = 12px half-icon + 5px detail-panel inset. */
-  top: calc(var(--maka-titlebar-control-safe-top) - 17px);
-  right: 24px;
+  /* Same baseline; 17px correction = 12px half-icon + 5px detail-panel
+     inset. Tokenized in maka-tokens.css so the chat status row can
+     share the toolbar's right edge without duplicating the value. */
+  top: var(--maka-workspace-top-actions-top);
+  right: var(--maka-workspace-top-actions-right);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -240,8 +241,15 @@
 .maka-workspace-icon-action {
   width: 24px;
   height: 24px;
-  border-radius: 6px;
-  color: var(--foreground-65);
+  border-radius: var(--radius-control);
+  color: var(--foreground-60);
+}
+
+.maka-shell-topbar-button,
+.maka-shell-topbar-button *,
+.maka-workspace-icon-action,
+.maka-workspace-icon-action * {
+  -webkit-app-region: no-drag;
 }
 
 .maka-workspace-icon-action:hover {
@@ -302,7 +310,7 @@
   color: var(--foreground-60);
   font-size: 16px;
   line-height: 1;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .maka-search-modal-close:hover {
   background: oklch(from var(--foreground) l c h / 0.04);
@@ -343,7 +351,7 @@
 .maka-search-modal-clear {
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: var(--foreground-50);
 }
 .maka-search-modal-clear:hover {
@@ -376,7 +384,7 @@
   display: grid;
   gap: 3px;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: oklch(from var(--foreground) l c h / 0.03);
   margin: 6px 4px;
 }
@@ -419,7 +427,7 @@
   width: 100%;
   text-align: left;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
   padding: 6px 10px;
@@ -474,7 +482,7 @@
 .maka-search-modal-snippet-hit {
   color: var(--foreground);
   background: oklch(from var(--accent) l c h / 0.14);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   padding: 0 2px;
 }
 
@@ -602,7 +610,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0 4px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -694,34 +702,13 @@
   display: flex;
   align-items: stretch;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
   overflow: hidden;
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
     transform var(--duration-emphasized) var(--ease-out-strong);
-  /* Session list stagger — each row fades up with a 40ms cascade per index
-     via --maka-row-index custom property set by the renderer. Capped at 12
-     to avoid a long visible cascade on big sidebars. Reduced-motion below
-     drops the animation. */
-  animation: maka-list-row-enter 240ms var(--ease-out-strong) both;
-  animation-delay: calc(min(var(--maka-row-index, 0), 11) * 32ms);
-}
-
-@keyframes maka-list-row-enter {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-list-row {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-list-row {
-  animation: none;
 }
 
 .maka-list-row:hover {
@@ -845,8 +832,8 @@
   background: linear-gradient(
     to right,
     transparent 0%,
-    var(--foreground-4) 24%,
-    var(--foreground-4) 100%
+    var(--foreground-5) 24%,
+    var(--foreground-5) 100%
   );
 }
 
@@ -914,7 +901,7 @@
    * background to transparent (inherits warm panel bg) — accent
    * tint only appears on hover. */
   border: 1px solid var(--foreground-8);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
   padding: 10px 12px;
@@ -964,7 +951,7 @@
 .maka-deep-research-workflow li {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   background: oklch(from var(--accent) l c h / 0.035);
   padding: 10px;
 }

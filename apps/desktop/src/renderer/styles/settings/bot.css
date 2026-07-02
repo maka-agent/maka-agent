@@ -13,7 +13,7 @@
   align-items: center;
   gap: 10px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground-70);
   padding: 7px 10px;
@@ -33,14 +33,14 @@
   transform: translateY(-50%);
   width: 3px;
   height: 20px;
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background: var(--bot-brand-color, var(--accent));
 }
 
 .settingsBotList em {
   font-size: 10px;
   font-style: normal;
-  color: var(--foreground-55);
+  color: var(--foreground-50);
 }
 
 .settingsBotList em[data-tone="info"] { color: var(--accent); }
@@ -62,8 +62,8 @@
   opacity: 1;
 }
 .settingsBotList button[data-support="planned"] em {
-  border: 1px solid var(--foreground-15);
-  border-radius: 999px;
+  border: 1px solid var(--foreground-10);
+  border-radius: var(--radius-pill);
   padding: 0 6px;
   color: var(--foreground-50);
   font-style: normal;
@@ -145,7 +145,7 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
     gap: 14px;
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: color-mix(in srgb, var(--bot-brand-color, var(--accent)) 7%, var(--background));
     border: 1px solid color-mix(in srgb, var(--bot-brand-color, var(--accent)) 14%, transparent);
     padding: 16px 18px;
@@ -181,7 +181,7 @@
 
   .settingsBotHero small,
   .settingsHelpText {
-    color: var(--foreground-55);
+    color: var(--foreground-50);
     font-size: 12.5px;
     line-height: 1.5;
   }
@@ -207,7 +207,7 @@
     align-items: center;
     gap: 5px;
     padding: 2px 9px 2px 7px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--foreground) 5%, transparent);
     color: var(--foreground-70);
     font-size: 11px;
@@ -243,7 +243,7 @@
   .settingsBotStatusGrid div {
     min-height: 52px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
     padding: 10px 12px;
   }
@@ -256,7 +256,7 @@
 
   .settingsBotStatusGrid dt {
     margin-bottom: 4px;
-    color: var(--foreground-45);
+    color: var(--foreground-40);
     font-size: 11px;
   }
 
@@ -303,7 +303,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground-5);
   padding: 2px;
 }
@@ -311,7 +311,7 @@
 .settingsSegmented button {
   min-height: 22px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--foreground-60);
   padding: 0 8px;
@@ -335,7 +335,7 @@
   display: grid;
   align-content: center;
   gap: 2px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--foreground-5);
   padding: 6px 10px;
 }
@@ -355,7 +355,7 @@
   border-collapse: collapse;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   font-size: 11px;
 }
 
@@ -378,7 +378,7 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground-50);
   line-height: 1;
@@ -411,7 +411,7 @@
   display: inline-flex;
   align-items: center;
   min-height: 18px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-60);
   padding: 0 6px;
@@ -425,7 +425,7 @@
   display: grid;
   gap: 0;
   border: 1px solid oklch(from var(--foreground) l c h / 0.08);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   overflow: hidden;
 }
 

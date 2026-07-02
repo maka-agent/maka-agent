@@ -294,15 +294,21 @@ describe('runAutonomousTask', () => {
       assert.equal(result.attempts.length, 2);
       assert.equal(result.projection.latestHeavyTaskInventory?.items[0]?.path, 'README.md');
       assert.equal(result.projection.latestHeavyTaskTodos?.items[0]?.id, 'fix');
-      assert.match(prompts[1] ?? '', /Heavy-task progress state from prior task-run events/);
-      assert.match(prompts[1] ?? '', /Inventory summary: Inspected public task files/);
-      assert.match(prompts[1] ?? '', /Active todo: fix/);
-      assert.match(prompts[1] ?? '', /Heavy-task compact evidence from prior public tool\/check\/artifact observations/);
-      assert.match(prompts[1] ?? '', /tool:Bash exit=1/);
-      assert.match(prompts[1] ?? '', /truncated=true/);
-      assert.doesNotMatch(prompts[1] ?? '', new RegExp(`x{${3_000}}`));
-      assert.equal((prompts[1]?.match(/Heavy-task progress state/g) ?? []).length, 1);
-      assert.equal((prompts[1]?.match(/Heavy-task compact evidence/g) ?? []).length, 1);
+      assert.match(prompts[1] ?? '', /Your previous completion is not accepted for heavy-task finalization yet/);
+      assert.match(prompts[1] ?? '', /missing accepted public self-check evidence/);
+
+      const continuationPrompt = prompts.find((prompt) =>
+        prompt.includes('Heavy-task progress state from prior task-run events'),
+      );
+      assert.ok(continuationPrompt, 'expected autonomous retry prompt to include replayed heavy-task progress');
+      assert.match(continuationPrompt, /Inventory summary: Inspected public task files/);
+      assert.match(continuationPrompt, /Active todo: fix/);
+      assert.match(continuationPrompt, /Heavy-task compact evidence from prior public tool\/check\/artifact observations/);
+      assert.match(continuationPrompt, /tool:Bash exit=1/);
+      assert.match(continuationPrompt, /truncated=true/);
+      assert.doesNotMatch(continuationPrompt, new RegExp(`x{${3_000}}`));
+      assert.equal((continuationPrompt.match(/Heavy-task progress state/g) ?? []).length, 1);
+      assert.equal((continuationPrompt.match(/Heavy-task compact evidence/g) ?? []).length, 1);
     });
   });
 

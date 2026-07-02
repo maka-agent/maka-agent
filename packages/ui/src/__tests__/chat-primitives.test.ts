@@ -54,7 +54,7 @@ test('markerVariants resolves a leaf shell string the UiButton call sites can ap
   assert.match(footerAction, /min-h-\[28px\]/);
   assert.match(footerAction, /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\]/);
   const lineageBadge = markerVariants({ variant: 'lineage-badge' });
-  assert.match(lineageBadge, /rounded-\[999px\]/);
+  assert.match(lineageBadge, /rounded-\[var\(--radius-pill\)\]/);
   assert.match(lineageBadge, /data-\[direction=forward\]:/);
 });
 
@@ -86,16 +86,16 @@ test('footer-action merge drops the UiButton base shell so the retired footer pi
     'leading-[16px]',
     'px-[8px]',
     'py-[4px]',
-    'rounded-[8px]',
+    'rounded-[var(--radius-surface)]',
     'text-[color:var(--foreground-50)]',
     'text-[12px]',
   ]) {
     assert.ok(merged.includes(win), `footer pixel "${win}" must survive the merge`);
   }
   // …and the conflicting `buttonVariants` base/quiet utilities are dropped, so
-  // they can't override the footer shell (rounded-md radius, gap-2 gap,
+  // they can't override the footer shell (rounded-sm radius, gap-2 gap,
   // muted-foreground color).
-  for (const dropped of ['rounded-md', 'gap-2', 'text-muted-foreground']) {
+  for (const dropped of ['rounded-sm', 'gap-2', 'text-muted-foreground']) {
     assert.ok(
       !merged.split(/\s+/).includes(dropped),
       `conflicting UiButton utility "${dropped}" must be merged out of the footer action`,
@@ -114,13 +114,13 @@ test('lineage-badge merge drops the UiButton base shell so the retired badge pix
     'gap-[3px]',
     'px-[5px]',
     'py-[1px]',
-    'rounded-[999px]',
-    'text-[color:var(--foreground-48)]',
+    'rounded-[var(--radius-pill)]',
+    'text-[color:var(--foreground-50)]',
     'text-[9px]',
   ]) {
     assert.ok(merged.includes(win), `lineage pixel "${win}" must survive the merge`);
   }
-  for (const dropped of ['rounded-md', 'gap-2', 'text-muted-foreground']) {
+  for (const dropped of ['rounded-sm', 'gap-2', 'text-muted-foreground']) {
     assert.ok(
       !merged.split(/\s+/).includes(dropped),
       `conflicting UiButton utility "${dropped}" must be merged out of the lineage badge`,

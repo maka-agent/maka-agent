@@ -8,10 +8,10 @@ import tailwindcss from '@tailwindcss/vite';
  * PR-ICONS-FULL-REPLACE-0 (WAWQAQ msg `60064e2d` 2026-06-24): point the
  * renderer at `@maka/ui` SOURCE, not its prebuilt dist. Before this,
  * Node resolution sent `@maka/ui` to `packages/ui/dist/index.js`; if
- * that dist was stale (built before the Lucide→Phosphor icon swap),
- * the home page would still render Lucide icons even though source
- * had migrated. Aliasing to src makes the renderer source-of-truth
- * single — no more "rebuilt source but UI still old" foot-gun.
+ * that dist was stale (built before an icon-library swap), the home
+ * page would still render the old icon set even though source had
+ * migrated. Aliasing to src makes the renderer source-of-truth single
+ * — no more "rebuilt source but UI still old" foot-gun.
  */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const UI_SRC = resolve(REPO_ROOT, 'packages/ui/src');

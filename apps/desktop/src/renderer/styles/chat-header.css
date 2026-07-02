@@ -5,7 +5,7 @@
     gap: 4px;
     padding: 1px 6px;
     margin-bottom: 3px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     border: 1px solid transparent;
     font-size: 11px;
     font-weight: 600;
@@ -41,13 +41,18 @@
   .maka-chat-header-status {
     display: inline-flex;
     align-items: center;
-    padding: 2px 8px;
-    border-radius: 999px;
+    /* PR-CHAT-HEADER-BADGE-SCALE-0: matches .maka-chat-header-alert's
+       footprint so the status pill reads at the same visual scale as
+       the neighboring alert badge and toolbar icon buttons instead of
+       towering over them. */
+    padding: 1px 7px;
+    border-radius: var(--radius-pill);)
     border: 1px solid transparent;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     line-height: 1.4;
-    margin-right: 6px;
+    /* Spacing from neighboring badges comes from the parent
+       .maka-chat-status-cluster's `gap`, not a local margin. */
     -webkit-app-region: no-drag;
     white-space: nowrap;
     flex: 0 0 auto;
@@ -122,15 +127,15 @@
     display: grid;
     place-items: center;
     border: 1px solid var(--border-strong);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--background);
     color: var(--foreground-70);
-    box-shadow: var(--shadow-medium);
-    opacity: 1;
-    transition:
-      transform var(--duration-emphasized) var(--ease-out-strong),
-      opacity var(--duration-emphasized) var(--ease-out-strong),
-      background 120ms ease;
+  box-shadow: var(--shadow-medium);
+  opacity: 1;
+  transition:
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    opacity var(--duration-emphasized) var(--ease-out-strong),
+    background 120ms ease;
   }
 
   .maka-chat-jump-bottom:hover {
@@ -143,12 +148,6 @@
     transform: translateX(-50%) scale(0.97);
   }
 
-  @starting-style {
-    .maka-chat-jump-bottom {
-      opacity: 0;
-      transform: translateX(-50%) translateY(8px);
-    }
-  }
 }
 
 @layer components {
@@ -170,7 +169,7 @@
     max-width: 520px;
     padding: 14px 16px;
     border: 1px solid oklch(from var(--destructive) l c h / 0.3);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: var(--background-elevated);
     box-shadow: var(--shadow-modal);
   }
@@ -180,7 +179,7 @@
     height: 32px;
     display: grid;
     place-items: center;
-    border-radius: 8px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--destructive) l c h / 0.10);
     color: var(--destructive-text);
   }
@@ -210,7 +209,7 @@
     max-height: 220px;
     padding: 10px 12px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-80);
     overflow: auto;
@@ -249,7 +248,7 @@
   margin: 8px 14px 0;
   padding: 8px 12px;
   border: 1px solid oklch(from var(--info) l c h / 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   font-size: 12.5px;
@@ -301,18 +300,15 @@
    real floating cards instead of pill chips, and a layered depth shadow
    (1px hairline + 3px close + 14px ambient) matching the impeccable
    "premium card stacking" recipe. Bigger padding so copy doesn't crowd
-   the edge.
-   Entry animation slides from the right edge (`translateX(24px)→0`)
-   instead of from bottom — toasts land at bottom-right by default,
-   so right-edge slide reads as "arriving" rather than "growing up
-   from the canvas". Easing stays `var(--ease-out-strong)`. */
+   the edge. Decorative toast entrance motion is retired; only hover/press
+   feedback keeps a short transition. */
 .maka-toast {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto auto;
   align-items: start;
   gap: 9px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   box-shadow:
     0 1px 2px oklch(from var(--foreground) l c h / 0.05),
@@ -322,16 +318,7 @@
   pointer-events: auto;
   opacity: 1;
   transform: translateX(0);
-  transition:
-    opacity 200ms var(--ease-out-strong),
-    transform 240ms var(--ease-out-strong);
-}
-
-@starting-style {
-  .maka-toast {
-    opacity: 0;
-    transform: translateX(24px);
-  }
+  transition: background 120ms var(--ease-out-strong);
 }
 
 .maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }
@@ -371,7 +358,7 @@
 .maka-toast-action {
   align-self: center;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--accent);
   padding: 3px 9px;
@@ -396,7 +383,7 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground-50);
   transition:
@@ -522,7 +509,7 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-modal);
   box-shadow:
     0 1px 2px oklch(from var(--foreground) l c h / 0.05),
     0 18px 48px oklch(from var(--foreground) l c h / 0.12),
@@ -582,7 +569,7 @@
   height: 16px;
   min-width: 16px;
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--foreground-5);
   box-shadow: inset 0 1px 0 oklch(from var(--background) l c h / 0.45);
@@ -631,7 +618,7 @@
   align-items: center;
   gap: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
   padding: 5px 8px;
@@ -651,7 +638,7 @@
   position: absolute;
   inset: 5px auto 5px 3px;
   width: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   transition: background-color 140ms var(--ease-out-strong);
 }
@@ -693,7 +680,7 @@
   place-items: center;
   width: 18px;
   height: 18px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   color: var(--foreground-50);
   transition:
     background-color 140ms var(--ease-out-strong),
@@ -775,5 +762,4 @@
   gap: 26px;
   color: var(--foreground);
   text-align: center;
-  animation: maka-hero-enter 320ms var(--ease-out-strong) both;
 }

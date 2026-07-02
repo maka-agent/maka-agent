@@ -33,12 +33,12 @@
  *      does NOT have a `border-right` rule (would be the literal
  *      "边界线" the user complained about).
  *   4. styles.css `.maka-panel-detail.maka-floating-panel` has
- *      `border-radius: 12px` and a `box-shadow:` — without those
+ *      `border-radius: var(--radius-modal)` and a `box-shadow:` — without those
  *      the floating-card radius is geometrically present but
  *      optically invisible (WAWQAQ's "圆盘很不明显，尤其是下面的
  *      看都看不到").
- *   5. reference-shell.css `--agents-content-area-radius` is 12px
- *      to stay in sync with the inline rule above.
+ *   5. reference-shell.css uses `var(--radius-modal)` (12px) for the
+ *      content area surface, in sync with the inline rule above.
  */
 
 import { strict as assert } from 'node:assert';
@@ -104,7 +104,7 @@ describe('PR-CHAT-CHROME-FIX-1 no-gradient + visible-radius contract', () => {
 
     assert.match(
       body,
-      /border-radius:\s*12px/,
+      /border-radius:\s*var\(--radius-modal\)/,
       'surface radius must be 12px (6px was optically invisible per WAWQAQ msg 4a1b8c13)',
     );
     assert.match(
@@ -114,7 +114,7 @@ describe('PR-CHAT-CHROME-FIX-1 no-gradient + visible-radius contract', () => {
     );
   });
 
-  it('reference-shell.css surface radius variable stays in sync at 12px', async () => {
+  it('reference-shell.css surface radius uses the --radius-modal token', async () => {
     const css = await readFile(
       resolve(REPO_ROOT, 'apps/desktop/src/renderer/reference-shell.css'),
       'utf8',
@@ -122,8 +122,8 @@ describe('PR-CHAT-CHROME-FIX-1 no-gradient + visible-radius contract', () => {
 
     assert.match(
       css,
-      /--agents-content-area-radius:\s*12px/,
-      'reference-shell.css var must match the inline 12px rule to avoid theme-token drift',
+      /border-radius:\s*var\(--radius-modal\)/,
+      'reference-shell.css must use --radius-modal for the content area surface (12px per #406 gap 4)',
     );
     assert.match(
       css,

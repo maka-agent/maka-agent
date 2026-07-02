@@ -4,6 +4,7 @@ import type {
   HeavyTaskArtifactEvidence,
   HeavyTaskCommandEvidence,
   HeavyTaskSemanticSelfCheckState,
+  HeavyTaskSelfCheckExecutionHygiene,
   HeavyTaskSourceGuardResult,
   TaskEvent,
 } from './task-contracts.js';
@@ -57,11 +58,39 @@ export const heavyTaskArtifactEvidenceSchema = z.object({
   }
 });
 
+export const heavyTaskSelfCheckExecutionHygieneSchema = z.object({
+  sandbox: z.object({
+    root: z.string().trim().min(1).max(MAX_PATH_CHARS),
+    strategy: z.enum(['scratch_dir', 'copied_inputs', 'read_only_deliverable_refs']).optional(),
+    inputPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
+    commandCwd: z.string().trim().min(1).max(MAX_PATH_CHARS).optional(),
+    outputPolicy: z.enum(['scratch_only', 'read_only_deliverable_refs']).optional(),
+    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
+  }).strict().optional(),
+  scratchUsed: z.boolean().optional(),
+  scratchPath: z.string().trim().min(1).max(MAX_PATH_CHARS).optional(),
+  cleanupPerformed: z.boolean().optional(),
+  workspaceSideEffects: z.enum(['none', 'cleaned', 'present', 'unknown']).optional(),
+  remainingSideEffectPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
+  workspaceGuard: z.object({
+    checked: z.boolean().optional(),
+    checkedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
+    beforeListingCommand: z.string().trim().min(1).max(MAX_COMMAND_CHARS).optional(),
+    afterListingCommand: z.string().trim().min(1).max(MAX_COMMAND_CHARS).optional(),
+    addedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
+    modifiedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
+    removedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
+    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
+  }).strict().optional(),
+  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
+}).strict();
+
 export const heavyTaskSelfCheckSubmitSchema = z.object({
   status: z.enum(['pass', 'fail', 'inconclusive']),
   publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
   commandEvidence: z.array(heavyTaskCommandEvidenceSchema).max(MAX_EVIDENCE_ITEMS).optional(),
   artifactEvidence: z.array(heavyTaskArtifactEvidenceSchema).max(MAX_EVIDENCE_ITEMS).optional(),
+  executionHygiene: heavyTaskSelfCheckExecutionHygieneSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   if ((value.commandEvidence?.length ?? 0) + (value.artifactEvidence?.length ?? 0) === 0) {
     ctx.addIssue({
@@ -112,6 +141,7 @@ export function createHeavyTaskSelfCheckRecorder(input: {
         publicReason: args.publicReason,
         commandEvidence: args.commandEvidence ?? [],
         artifactEvidence: args.artifactEvidence ?? [],
+        ...(args.executionHygiene ? { executionHygiene: args.executionHygiene } : {}),
         guard: validation.guard,
         source: sourceFromContext(ctx),
       };
@@ -131,7 +161,7 @@ export function buildHeavyTaskSelfCheckTools(recorder: HeavyTaskSelfCheckRecorde
   return [
     {
       name: 'self_check_submit',
-      description: 'Submit public, task-derived advisory semantic self-check evidence for this heavy-task run.',
+      description: 'Submit public, task-derived advisory semantic self-check evidence for this heavy-task run, including scratch/cleanup hygiene for any local check side effects.',
       parameters: heavyTaskSelfCheckSubmitSchema,
       permissionRequired: false,
       impl: async (args, ctx) => recorder.recordSelfCheck(heavyTaskSelfCheckSubmitSchema.parse(args), ctx),
@@ -140,7 +170,7 @@ export function buildHeavyTaskSelfCheckTools(recorder: HeavyTaskSelfCheckRecorde
 }
 
 export function validateHeavyTaskPublicSelfCheck(
-  input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence'>,
+  input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'>,
   now: number,
 ): HeavyTaskPublicSelfCheckValidation {
   const categories = new Set<string>();
@@ -179,6 +209,46 @@ export function isAcceptedHeavyTaskSelfCheck(
   return validateHeavyTaskPublicSelfCheck(selfCheck, now).ok;
 }
 
+export function hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck: HeavyTaskSemanticSelfCheckState): boolean {
+  const hygiene = selfCheck.executionHygiene;
+  if (!hygiene) return false;
+  if (hygiene.workspaceSideEffects === 'present') return true;
+  if ((hygiene.remainingSideEffectPaths?.length ?? 0) > 0) return true;
+  if ((hygiene.workspaceGuard?.addedPaths?.length ?? 0) > 0) return true;
+  return false;
+}
+
+export function heavyTaskSelfCheckSandboxStatus(
+  selfCheck: HeavyTaskSemanticSelfCheckState,
+): 'present' | 'missing' {
+  return selfCheck.executionHygiene?.sandbox?.root ? 'present' : 'missing';
+}
+
+export function heavyTaskSelfCheckStrongPassBlocker(selfCheck: HeavyTaskSemanticSelfCheckState): string | undefined {
+  if (heavyTaskSelfCheckSandboxStatus(selfCheck) !== 'present') {
+    return 'latest self-check is missing sandbox execution evidence';
+  }
+  if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck)) {
+    return 'latest self-check reports uncleaned workspace side effects';
+  }
+  if (selfCheck.executionHygiene?.workspaceGuard?.checked !== true) {
+    return 'latest self-check is missing public workspace hygiene guard evidence';
+  }
+  return undefined;
+}
+
+export function heavyTaskSelfCheckWorkspaceGuardStatus(
+  selfCheck: HeavyTaskSemanticSelfCheckState,
+): 'clean' | 'dirty' | 'unchecked' | 'unknown' {
+  const hygiene = selfCheck.executionHygiene;
+  if (!hygiene) return 'unchecked';
+  if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck)) return 'dirty';
+  if (hygiene.workspaceGuard?.checked === true || hygiene.workspaceSideEffects === 'none' || hygiene.workspaceSideEffects === 'cleaned') {
+    return 'clean';
+  }
+  return 'unknown';
+}
+
 export function renderHeavyTaskSelfCheckForPrompt(projection: {
   latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
 }): string | undefined {
@@ -195,11 +265,27 @@ export function renderHeavyTaskSelfCheckForPrompt(projection: {
   for (const artifact of selfCheck.artifactEvidence.slice(0, 5)) {
     lines.push(`  - artifact: ${artifact.kind} ${oneLine(artifact.path, 160)}`);
   }
+  if (selfCheck.executionHygiene) {
+    const hygiene = selfCheck.executionHygiene;
+    if (hygiene.sandbox) {
+      lines.push(`- Self-check sandbox: root=${oneLine(hygiene.sandbox.root, 160)} strategy=${hygiene.sandbox.strategy ?? 'unknown'} outputPolicy=${hygiene.sandbox.outputPolicy ?? 'unknown'}`);
+    }
+    lines.push(`- Self-check execution hygiene: scratchUsed=${hygiene.scratchUsed ?? 'unknown'} cleanupPerformed=${hygiene.cleanupPerformed ?? 'unknown'} workspaceSideEffects=${hygiene.workspaceSideEffects ?? 'unknown'}`);
+    if (hygiene.scratchPath) lines.push(`  - scratch: ${oneLine(hygiene.scratchPath, 160)}`);
+    if (hygiene.remainingSideEffectPaths?.length) {
+      lines.push(`  - remaining side-effect paths: ${hygiene.remainingSideEffectPaths.slice(0, 5).map((path) => oneLine(path, 120)).join(', ')}`);
+    }
+    if (hygiene.workspaceGuard) {
+      const guard = hygiene.workspaceGuard;
+      lines.push(`  - workspace guard: checked=${guard.checked ?? 'unknown'} added=${guard.addedPaths?.length ?? 0} modified=${guard.modifiedPaths?.length ?? 0} removed=${guard.removedPaths?.length ?? 0}`);
+      if (guard.checkedPaths?.length) lines.push(`  - checked paths: ${guard.checkedPaths.slice(0, 5).map((path) => oneLine(path, 120)).join(', ')}`);
+    }
+  }
   lines.push('Use self_check_submit to refresh advisory public semantic evidence after running public checks.');
   return lines.join('\n');
 }
 
-function stringsFromSelfCheck(input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence'>): string[] {
+function stringsFromSelfCheck(input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'>): string[] {
   const strings = [input.publicReason];
   for (const command of input.commandEvidence ?? []) {
     strings.push(command.command);
@@ -210,7 +296,28 @@ function stringsFromSelfCheck(input: Pick<HeavyTaskSelfCheckSubmitInput, 'public
     strings.push(artifact.path);
     collectMetadataStrings(artifact.metadata, strings);
   }
+  collectExecutionHygieneStrings(input.executionHygiene, strings);
   return strings.filter((value) => value.length > 0).map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
+}
+
+function collectExecutionHygieneStrings(value: HeavyTaskSelfCheckExecutionHygiene | undefined, output: string[]): void {
+  if (!value) return;
+  if (value.sandbox?.root) output.push(value.sandbox.root);
+  if (value.sandbox?.commandCwd) output.push(value.sandbox.commandCwd);
+  if (value.sandbox?.publicReason) output.push(value.sandbox.publicReason);
+  output.push(...(value.sandbox?.inputPaths ?? []));
+  if (value.scratchPath) output.push(value.scratchPath);
+  if (value.publicReason) output.push(value.publicReason);
+  output.push(...(value.remainingSideEffectPaths ?? []));
+  const guard = value.workspaceGuard;
+  if (!guard) return;
+  if (guard.beforeListingCommand) output.push(guard.beforeListingCommand);
+  if (guard.afterListingCommand) output.push(guard.afterListingCommand);
+  if (guard.publicReason) output.push(guard.publicReason);
+  output.push(...(guard.checkedPaths ?? []));
+  output.push(...(guard.addedPaths ?? []));
+  output.push(...(guard.modifiedPaths ?? []));
+  output.push(...(guard.removedPaths ?? []));
 }
 
 function collectMetadataStrings(value: unknown, output: string[], depth = 0): void {

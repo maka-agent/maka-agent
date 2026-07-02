@@ -45,6 +45,10 @@ import {
   HEAVY_TASK_SELF_CHECK_TOOL_NAMES,
   renderHeavyTaskSelfCheckForPrompt,
 } from './heavy-task-self-check.js';
+import {
+  evaluateHeavyTaskSelfCheckGate,
+  heavyTaskSelfCheckGateStateFromDecision,
+} from './heavy-task-self-check-gate.js';
 import type { HeadlessBackendContext } from './isolation.js';
 import {
   ISOLATED_HEADLESS_TOOL_NAMES,
@@ -360,10 +364,108 @@ export async function runTaskOnce(
         invocation: permissionHandling.invocation,
       };
     }
-    const invocation = permissionHandling.invocation;
+    let invocation = permissionHandling.invocation;
 
-    const runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
+    let runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
+    if (heavyTaskMode.enabled) {
+      const gateProjection = await taskRunStore.project(taskRunId);
+      const gateDecision = evaluateHeavyTaskSelfCheckGate({
+        task,
+        heavyTaskMode,
+        projection: gateProjection,
+        repairAttemptsUsed: 0,
+        maxRepairAttempts: 1,
+      });
+      await appendTaskEvent(taskRunStore, taskRunId, {
+        type: 'heavy_task_self_check_gate_recorded',
+        id: newId(),
+        taskRunId,
+        ts: now(),
+        gate: heavyTaskSelfCheckGateStateFromDecision({
+          decision: gateDecision,
+          attempt: gateDecision.action === 'repair_prompt' ? gateDecision.attempt : 0,
+          maxAttempts: 1,
+        }),
+      });
+
+      if (gateDecision.action === 'repair_prompt') {
+        const repairActive = createSingleRunActiveSession(backends, sessionStore, now, newId);
+        const repairRun = new AgentRun({
+          sessionId: header.id,
+          header,
+          userInput: { turnId: newId(), text: gateDecision.prompt },
+          store: sessionStore,
+          runStore: agentRunStore,
+          runtimeEventStore,
+          newId,
+          now,
+          hooks: repairActive.hooks,
+        });
+        repairActive.bindRun(repairRun);
+        let repairInvocation: InvocationResult;
+        try {
+          repairInvocation = await runRuntimeAttempt({
+            run: repairRun,
+            header,
+            instruction: gateDecision.prompt,
+            ...(deps.priorRuntimeContext ? { priorRuntimeContext: deps.priorRuntimeContext } : {}),
+            requireTerminalRuntimeEventWrite: Boolean(runtimeEventStore),
+            now,
+            newId,
+          });
+        } finally {
+          await repairActive.dispose();
+        }
+        const repairPermissionHandling = await handlePermissionIntervention({
+          invocation: repairInvocation,
+          store: taskRunStore,
+          taskRunId,
+          attemptId,
+          now,
+          newId,
+          policy: interventionPolicy,
+          config,
+          task,
+          sessionId: header.id,
+          startedAt,
+          closeTaskRun,
+        });
+        if (repairPermissionHandling.parked) {
+          return {
+            taskRunId,
+            attemptId,
+            resultRecord: repairPermissionHandling.resultRecord,
+            projection: await taskRunStore.project(taskRunId),
+            invocation: repairPermissionHandling.invocation,
+          };
+        }
+        invocation = repairPermissionHandling.invocation;
+        const repairSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
+        await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, repairSummary);
+        runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
+
+        const boundedProjection = await taskRunStore.project(taskRunId);
+        const boundedDecision = evaluateHeavyTaskSelfCheckGate({
+          task,
+          heavyTaskMode,
+          projection: boundedProjection,
+          repairAttemptsUsed: 1,
+          maxRepairAttempts: 1,
+        });
+        await appendTaskEvent(taskRunStore, taskRunId, {
+          type: 'heavy_task_self_check_gate_recorded',
+          id: newId(),
+          taskRunId,
+          ts: now(),
+          gate: heavyTaskSelfCheckGateStateFromDecision({
+            decision: boundedDecision,
+            attempt: 1,
+            maxAttempts: 1,
+          }),
+        });
+      }
+    }
 
     await appendTaskEvent(taskRunStore, taskRunId, {
       type: 'task_run_verifying',
@@ -980,6 +1082,12 @@ interface RuntimeSummary {
     runId: string;
     turnId: string;
     runtimeEventIds: string[];
+    previousTurns?: Array<{
+      invocationId: string;
+      runId: string;
+      turnId: string;
+      runtimeEventIds: string[];
+    }>;
   };
   artifactRefs: Array<Record<string, unknown>>;
   isolation: Record<string, unknown>;
@@ -1000,6 +1108,26 @@ function summarizeRuntime(invocation: InvocationResult, isolation: RunExperiment
     isolation: isolation ? { kind: isolation.kind, label: isolation.label } : { kind: 'inert_fake_backend' },
     budget: summarizeBudget(invocation),
     tools: summarizeCellTools(invocation.events),
+  };
+}
+
+function mergeRuntimeSummaries(first: RuntimeSummary, second: RuntimeSummary): RuntimeSummary {
+  return {
+    ...second,
+    runtimeRefs: {
+      ...second.runtimeRefs,
+      runtimeEventIds: uniqueStrings([...first.runtimeRefs.runtimeEventIds, ...second.runtimeRefs.runtimeEventIds]),
+      previousTurns: [
+        ...(first.runtimeRefs.previousTurns ?? []),
+        {
+          invocationId: first.runtimeRefs.invocationId,
+          runId: first.runtimeRefs.runId,
+          turnId: first.runtimeRefs.turnId,
+          runtimeEventIds: first.runtimeRefs.runtimeEventIds,
+        },
+      ],
+    },
+    artifactRefs: [...first.artifactRefs, ...second.artifactRefs],
   };
 }
 
@@ -1202,6 +1330,10 @@ function isPermissionHandoffTerminal(event: { actions?: { stateDelta?: Record<st
 
 function isNonTerminalErrorRuntimeEvent(event: RuntimeEvent): boolean {
   return event.content?.kind === 'error' && !isTerminalRuntimeEvent(event);
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

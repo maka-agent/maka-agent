@@ -9,10 +9,8 @@
 //   - The look-and-feel never matches the rest of the app.
 //   - macOS IME and accessibility behavior with native prompts is uneven.
 //
-// Toast lifecycle is intentionally tiny: in-memory state, a 4s auto-dismiss
-// timer (cancellable from the toast itself), and `@starting-style` for the
-// fade/slide so we stay aligned with the emil-design-eng rules already
-// covered in maka-tokens.css.
+// Toast lifecycle is intentionally tiny: in-memory state and a 4s auto-dismiss
+// timer, cancellable from the toast itself.
 
 import {
   createContext,

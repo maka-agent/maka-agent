@@ -1,26 +1,3 @@
-/* Chat message mount entrance — opacity 0 + translateY(6px) -> 0, ported
-   from the upstream reference design's agents-slide-up keyframe. Every
-   message slides up gently when it lands, including streaming deltas and
-   session-switch loads. Honored by prefers-reduced-motion below. */
-.maka-message-row {
-  animation: maka-message-row-enter 220ms var(--ease-out-strong) both;
-}
-
-@keyframes maka-message-row-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-message-row {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-message-row {
-  animation: none;
-}
-
 /* PR-CHAT-CHROME-FOLLOWUP-0: the relative time is always visible now
    (it was `opacity: 0` until hover, which hid it on touch + from
    assistive tech). It stays quiet — 12px at the shared chrome size,
@@ -56,7 +33,7 @@
 
 [data-slot="message"][data-role="system"] pre {
   display: inline-flex;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--info) l c h / 0.08);
   color: var(--info-text);
   padding: 2px 7px;
@@ -75,8 +52,8 @@
    explore-agent + subagent / web-search cards (web-search lived in
    styles/tool-stream.css), and the separate `.maka-load-tool-*` result card —
    moved onto the `@maka/ui` `previewVariants` literalize table (issue #332 PR4 —
-   packages/ui/src/primitives/chat.tsx). The card-entrance `@keyframes
-   maka-tool-card-enter` moved to maka-tokens.css (canonical motion home).
+   packages/ui/src/primitives/chat.tsx). The card-entrance keyframe is retired by
+   issue #406 gap 3.
    `.maka-tool-diff*` co-migrated for apps/desktop's non-chat artifact-preview.tsx
    too, so nothing here renders a result preview anymore. */
 
@@ -108,7 +85,7 @@
      The composer reads as a hero card, but radius must still stay within
      the shared chrome vocabulary locked by radius-converge-contract. */
   border: 1px solid var(--card-border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-modal);
   padding: 10px 12px 8px;
   background: var(--card-bg);
   box-shadow:
@@ -152,7 +129,19 @@
 }
 
 /* Justified: the composer wrapper owns the visible field chrome, so the
-   textarea stays bare and keeps only the scoped ring-shadow reset here. */
+   textarea stays bare and keeps only the scoped ring-shadow reset here.
+   The JSX `border-0 shadow-none focus-visible:ring-0` override classes
+   only remove those utility classes from the className string — they
+   don't clear the base Textarea's `focus-visible:ring-2` custom
+   properties (`--tw-ring-shadow` / `--tw-ring-offset-shadow`), which
+   otherwise re-composite into `box-shadow` on focus and render as a
+   second "framed" border nested inside the composer's own border.
+   `border`/`box-shadow` must be `!important`: the global
+   `:where(input, select, textarea):focus` rule in module-pages.css sets
+   an `!important` inset box-shadow on every focused field, and without
+   matching `!important` here it wins over this rule regardless of this
+   selector's specificity, repainting the exact nested-border bug this
+   file exists to fix — but only while the field is focused. */
 .composer .maka-composer-textarea {
   appearance: none;
   display: block;
@@ -162,6 +151,8 @@
   font-family: var(--font-default);
   font-size: 15px;
   line-height: 1.55;
+  border: none !important;
+  box-shadow: none !important;
   /* local: suppress tailwind ring shadow on this element */
   --tw-ring-shadow: 0 0 #0000 !important;
   --tw-ring-offset-shadow: 0 0 #0000 !important;
@@ -219,7 +210,7 @@
 .maka-composer-status-slot {
   min-width: 0;
   flex: 1 1 auto;
-  color: var(--foreground-42);
+  color: var(--foreground-40);
   font-size: 10px;
   text-align: center;
 }
@@ -231,10 +222,10 @@
   align-items: center;
   gap: 4px;
   border: 1px solid var(--color-border-tertiary);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0 9px;
   background: oklch(from var(--background) l c h / 0.82);
-  color: var(--foreground-62);
+  color: var(--foreground-60);
   font-size: 10.5px;
   font-weight: 500;
   white-space: nowrap;
@@ -286,7 +277,7 @@
 .maka-composer-mode-menu {
   min-width: 280px;
   padding: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
 }
 .maka-composer-mode-menu [role="menuitem"] {
   display: grid;
@@ -294,7 +285,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .maka-composer-mode-menu-item {
   display: flex;
@@ -309,7 +300,7 @@
 }
 .maka-composer-mode-menu-hint {
   font-size: 11px;
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   line-height: 1.4;
   white-space: normal;
 }
@@ -331,7 +322,7 @@
   padding: 0 9px;
   border-color: var(--color-border-tertiary);
   background: var(--background);
-  color: var(--foreground-65);
+  color: var(--foreground-60);
 }
 
 .maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
@@ -361,7 +352,7 @@
 .maka-composer-model-status {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--destructive);
   flex: 0 0 auto;
 }
@@ -373,7 +364,7 @@
   width: 26px;
   height: 26px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--foreground-60);
   transition:
@@ -386,7 +377,7 @@
   width: 26px;
   height: 26px;
   border: 1px solid var(--foreground-20);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
 }
 
@@ -422,6 +413,6 @@
 .maka-composer-tool-button.maka-composer-mic-button:disabled {
   border: 0;
   background: transparent;
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   opacity: 1;
 }

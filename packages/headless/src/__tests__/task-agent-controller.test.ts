@@ -303,6 +303,117 @@ const registerProgressToolBackend = (seen: HeadlessBackendContext[]) => (registr
   }));
 };
 
+class GateRepairBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: {
+    sessionId: string;
+    header: SessionHeader;
+    tools: ReturnType<typeof buildIsolatedHeadlessTools>;
+    prompts: string[];
+    repairSubmitsSelfCheck: boolean;
+  }) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.ctx.prompts.push(input.text);
+    const ts = Date.now();
+    const turnNumber = this.ctx.prompts.length;
+    if (turnNumber === 2 && this.ctx.repairSubmitsSelfCheck) {
+      const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
+      const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
+      assert.ok(todoUpdate);
+      assert.ok(selfCheckSubmit);
+      const toolCtx = {
+        sessionId: this.sessionId,
+        turnId: input.turnId,
+        cwd: this.ctx.header.cwd,
+        toolCallId: 'gate-repair-tool-call',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      };
+      await todoUpdate.impl({
+        items: [
+          {
+            id: 'artifact',
+            kind: 'runnable_artifact',
+            content: 'Keep marker.txt as the runnable artifact',
+            status: 'completed',
+            priority: 'high',
+            evidence: 'test -f marker.txt passed.',
+          },
+          {
+            id: 'check',
+            kind: 'public_check',
+            content: 'Run public marker check',
+            status: 'completed',
+            priority: 'high',
+            evidence: 'test -f marker.txt passed.',
+          },
+        ],
+      }, toolCtx);
+      await selfCheckSubmit.impl({
+        status: 'pass',
+        publicReason: 'test -f marker.txt passed from public workspace evidence.',
+        commandEvidence: [{
+          command: 'test -f marker.txt',
+          exitCode: 0,
+          outputExcerpt: 'marker present',
+          artifactRefs: ['marker.txt'],
+        }],
+        artifactEvidence: [{ path: 'marker.txt', kind: 'file', exists: true }],
+        executionHygiene: {
+          sandbox: {
+            root: '/tmp/maka-self-check/gate-repair',
+            strategy: 'read_only_deliverable_refs',
+            commandCwd: '/tmp/maka-self-check/gate-repair',
+            outputPolicy: 'scratch_only',
+          },
+          scratchUsed: true,
+          scratchPath: '/tmp/maka-self-check/gate-repair',
+          cleanupPerformed: true,
+          workspaceSideEffects: 'none',
+          workspaceGuard: {
+            checked: true,
+            checkedPaths: ['marker.txt'],
+            beforeListingCommand: 'find . -maxdepth 1 -type f | sort',
+            afterListingCommand: 'find . -maxdepth 1 -type f | sort',
+            addedPaths: [],
+            modifiedPaths: [],
+            removedPaths: [],
+          },
+        },
+      }, toolCtx);
+    }
+    yield { type: 'text_complete', id: `gate-text-${turnNumber}`, turnId: input.turnId, ts, messageId: `gate-message-${turnNumber}`, text: 'done' };
+    yield { type: 'complete', id: `gate-complete-${turnNumber}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerGateRepairBackend = (
+  prompts: string[],
+  repairSubmitsSelfCheck: boolean,
+) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+  assert.ok(context.toolExecutor);
+  registry.register('ai-sdk', (ctx) => new GateRepairBackend({
+    sessionId: ctx.sessionId,
+    header: ctx.header,
+    tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
+      ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+      ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
+    }),
+    prompts,
+    repairSubmitsSelfCheck,
+  }));
+};
+
 async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'maka-task-controller-fx-'));
   const storageRoot = await mkdtemp(join(tmpdir(), 'maka-task-controller-store-'));
@@ -485,15 +596,108 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.guard.status, 'accepted');
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
-        1,
+        2,
       );
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_todos_recorded').length,
-        1,
+        2,
       );
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_self_check_recorded').length,
-        1,
+        2,
+      );
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_gate_recorded').length,
+        2,
+      );
+    });
+  });
+
+  test('enabled heavy-task run performs one bounded self-check repair turn before verifying', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const prompts: string[] = [];
+      const config: Config = {
+        ...fakeConfig,
+        backend: 'ai-sdk',
+        heavyTaskMode: true,
+      };
+      const task: Task = {
+        id: 'gate-repair-task',
+        instruction: 'Ensure marker.txt exists and verify it publicly.',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(config, task, {
+        storageRoot,
+        registerBackends: registerGateRepairBackend(prompts, true),
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+      });
+
+      assert.equal(prompts.length, 2);
+      assert.match(prompts[1] ?? '', /not accepted for heavy-task finalization/);
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.status, 'pass');
+      assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_finalize');
+      assert.equal(result.projection.latestVerifierResult?.passed, true);
+      assert.equal(result.resultRecord.passed, true);
+      const gateIndexes = result.projection.events
+        .map((event, index) => event.type === 'heavy_task_self_check_gate_recorded' ? index : -1)
+        .filter((index) => index >= 0);
+      const verifyingIndex = result.projection.events.findIndex((event) => event.type === 'task_run_verifying');
+      assert.equal(gateIndexes.length, 2);
+      assert.ok(gateIndexes.every((index) => index < verifyingIndex));
+    });
+  });
+
+  test('bounded self-check gate does not loop and official verifier remains authoritative', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const prompts: string[] = [];
+      const config: Config = {
+        ...fakeConfig,
+        backend: 'ai-sdk',
+        heavyTaskMode: true,
+      };
+      const task: Task = {
+        id: 'gate-still-missing-task',
+        instruction: 'Ensure marker.txt exists and verify it publicly.',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(config, task, {
+        storageRoot,
+        registerBackends: registerGateRepairBackend(prompts, false),
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
+      });
+
+      assert.equal(prompts.length, 2);
+      assert.equal(result.projection.latestHeavyTaskSelfCheck, undefined);
+      assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
+      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /missing accepted public self-check/);
+      assert.equal(result.projection.latestVerifierResult?.passed, true);
+      assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
+      assert.equal(result.resultRecord.passed, true);
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_gate_recorded').length,
+        2,
       );
     });
   });

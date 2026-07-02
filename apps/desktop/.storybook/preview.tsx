@@ -1,5 +1,12 @@
 import type { Decorator, Preview } from '@storybook/react-vite';
 import '../src/renderer/styles.css';
+import { THEME_PALETTES } from '../../../packages/core/src/settings.js';
+
+const PALETTE_LABELS: Record<string, string> = {
+  default: 'Default',
+  'catppuccin-mocha': 'Catppuccin Mocha',
+  'tokyo-night': 'Tokyo Night',
+};
 
 const withMakaRoot: Decorator = (Story, context) => {
   const root = document.documentElement;
@@ -40,12 +47,10 @@ const preview: Preview = {
       description: 'Maka palette token set',
       toolbar: {
         icon: 'paintbrush',
-        items: [
-          { title: 'Default', value: 'default' },
-          { title: 'Onedark', value: 'onedark' },
-          { title: 'Azure', value: 'azure' },
-          { title: 'Forest', value: 'forest' },
-        ],
+        items: THEME_PALETTES.map((palette) => ({
+          title: PALETTE_LABELS[palette] ?? palette.replace(/(^|-)(\w)/g, (_, p1, p2) => (p1 ? p2.toUpperCase() : p2)),
+          value: palette,
+        })),
       },
     },
   },

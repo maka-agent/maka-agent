@@ -24,8 +24,9 @@ export * from './utils.js';
 // dropped in `./primitives/` with the `cn()` import rewritten to our
 // local helper. Net-new components that aren't already covered
 // by our shared component-style wrappers in `./ui.js` re-export here so
-// consumers can `import { Alert, Empty, Sidebar, ... } from '@maka/ui'`.
+// consumers can `import { Alert, Empty, ... } from '@maka/ui'`.
 export * from './bot-brand.js';
+export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
 // deliberately NOT re-exported here: they are internal styling tables / a
@@ -52,19 +53,11 @@ export * from './primitives/item.js';
 export * from './primitives/spinner.js';
 export * from './primitives/kbd.js';
 export * from './primitives/menu.js';
-export * from './primitives/group.js';
-export * from './primitives/frame.js';
 export * from './primitives/choice-card.js';
-export * from './primitives/preview-card.js';
 export * from './primitives/settings-segmented.js';
 export * from './primitives/settings-select.js';
 export * from './primitives/settings-switch.js';
 export * from './primitives/input-group.js';
-export * from './primitives/pagination.js';
-export * from './primitives/sidebar.js';
-export * from './primitives/drawer.js';
-export * from './primitives/command.js';
-export * from './primitives/table.js';
 export * from './primitives/toolbar.js';
 export {
   Tabs as PrimitiveTabs,

@@ -1,12 +1,4 @@
-/* Onboarding hero — first-run, no real connection configured.
-   PR-ONBOARDING-HERO-STAGGER-0 (WAWQAQ msg `cdfd68eb`, skills round
-   task #116): block-level fade-up was a single 200ms ramp — every
-   child landed at the same moment, reading as a flat reveal. Now
-   the wrapper just sets layout; each direct child fades up + scales
-   from 0.96 with a 60ms cascade (Emil Kowalski "agents-with-taste":
-   start scale at 0.95-ish, not 0; cap entry at <300ms each;
-   transform+opacity only, GPU-accelerated). The block fade is gone
-   so we don't double-animate. */
+/* Onboarding hero — first-run, no real connection configured. */
 .maka-onboarding {
   width: min(680px, 100%);
   margin: auto;
@@ -16,61 +8,11 @@
   color: var(--foreground);
 }
 
-.maka-onboarding > * {
-  opacity: 0;
-  transform: translateY(8px) scale(0.96);
-  animation: maka-onboarding-child-enter 280ms var(--ease-out-strong) forwards;
-}
-.maka-onboarding > *:nth-child(1) { animation-delay: 0ms; }
-.maka-onboarding > *:nth-child(2) { animation-delay: 60ms; }
-.maka-onboarding > *:nth-child(3) { animation-delay: 120ms; }
-.maka-onboarding > *:nth-child(4) { animation-delay: 180ms; }
-.maka-onboarding > *:nth-child(n + 5) { animation-delay: 220ms; }
-
-@keyframes maka-onboarding-child-enter {
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-onboarding > * {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-onboarding > * {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
-
 /* PR-AUDIT-CLEANUP-BATCH-2 (WAWQAQ msg `01efbebb`): deleted unused
    `@keyframes maka-agents-slide-up` and `@keyframes maka-agents-fade-in`.
    Both were referenced only from rules that previous PRs removed
    (PR-ONBOARDING-HERO-STAGGER-0 + PR-FRONTEND-AUDIT-CLEANUP-0 F1).
-   `maka-hero-enter` is the live block-level entrance now. */
-
-@keyframes maka-workbench-card-scale-in {
-  0% {
-    opacity: 0;
-    transform: scale(0.97);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* PR-ONBOARDING-HERO-STAGGER-0: the prior `@media reduced-motion` +
-   `[data-maka-visual-smoke]` blocks that targeted the now-removed
-   block-level `.maka-onboarding` fade rule are gone. Per-child
-   stagger has its own guards above. (`maka-hero-enter` keyframe
-   itself is still used by `.maka-hero` / `.emptyChat` elsewhere —
-   self-review corrected an earlier "unused" claim here.) */
+   decorative entrance keyframes are retired by issue #406 gap 3. */
 
 .maka-onboarding header {
   display: grid;
@@ -142,7 +84,7 @@
   margin: 8px 0 0;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--foreground-55);
+  color: var(--foreground-50);
 }
 
 /* --- compact stepper (numbered nodes + connectors) --- */
@@ -161,7 +103,7 @@
   align-items: center;
   gap: 8px;
   padding: 5px 10px 5px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .maka-firstrun-step-dot {
@@ -169,7 +111,7 @@
   place-items: center;
   width: 21px;
   height: 21px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 11.5px;
   font-weight: 650;
   border: 1.5px solid var(--border-strong);
@@ -211,7 +153,7 @@
   height: 1.5px;
   flex: 0 0 auto;
   margin: 0 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-control);
   background: var(--border-strong);
 }
 
@@ -235,7 +177,7 @@
 /* --- provider list panel (scrolls vertically as the list grows) --- */
 .maka-firstrun-list {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   overflow: hidden;
   background: var(--background-elevated);
 }
@@ -259,7 +201,7 @@
   color: var(--accent);
   background: oklch(from var(--accent) l c h / 0.12);
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
 }
 
 .maka-firstrun .maka-onboarding-footer {
@@ -295,7 +237,7 @@
   gap: 8px;
   padding: 4px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
 }
 
@@ -319,7 +261,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--background-elevated);
   color: var(--foreground-70);
   font-size: 10px;
@@ -358,7 +300,7 @@
 .maka-onboarding-setup-step-state {
   justify-self: end;
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--background-elevated);
   color: var(--foreground-60);
   font-size: 10px;
@@ -424,7 +366,7 @@
   padding: 2px 6px;
   /* PR-UI-LAYOUT-25: slug radius 6 → 8 to join the form input
    * family (same chrome as inline code badges). */
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--foreground-5, oklch(from var(--foreground) l c h / 0.06));
   color: var(--foreground-80, oklch(from var(--foreground) l c h / 0.80));
 }
@@ -455,7 +397,7 @@
   width: min(100%, 620px);
   margin-inline: auto;
   position: relative;
-  border-radius: 12px;
+  border-radius: var(--radius-modal);
   border: 1px solid oklch(from var(--foreground) l c h / 0.08);
   background: var(--background-elevated, var(--background));
   box-shadow:
@@ -480,8 +422,19 @@
     0 0 0 4px oklch(from var(--accent) l c h / 0.08),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.75) inset;
 }
-/* The wrapper owns the visible field chrome; the inner textarea stays bare. */
-.maka-onboarding-quickchat-input {
+/* Justified: bare-textarea chrome reset — see `.composer .maka-composer-
+   textarea` in tool-output.css for the full rationale (Tailwind's
+   `border-0 shadow-none focus-visible:ring-0` classes don't clear the
+   underlying `--tw-ring-shadow` custom properties, which re-composite
+   into `box-shadow` on focus).
+   Scoped to `.maka-onboarding-quickchat .maka-onboarding-quickchat-input`
+   (not the bare class) so this rule's specificity (0,2,0) beats the
+   global `:where(input, select, textarea):focus` rule in module-pages.css
+   (0,1,0) outright — `!important` alone isn't enough when both sides are
+   `!important` and this file loads *before* module-pages.css, since the
+   later rule then wins ties on source order. Same reasoning as
+   `.maka-skill-search input`'s extra type selector there. */
+.maka-onboarding-quickchat .maka-onboarding-quickchat-input {
   appearance: none;
   box-sizing: border-box;
   width: 100%;
@@ -492,8 +445,17 @@
   font-size: 15px;
   line-height: 1.5;
   outline: none;
+  border: none !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
-.maka-onboarding-quickchat[data-drag-active="true"] .maka-onboarding-quickchat-input {
+/* Drag-active feedback lives on the wrapper, not the inner textarea: the
+   textarea's own `border`/`box-shadow` are hard-reset to `none !important`
+   above, which unconditionally wins over a non-`!important` declaration
+   regardless of selector specificity — so painting this on the textarea
+   was always dead code. */
+.maka-onboarding-quickchat[data-drag-active="true"] {
   border-color: oklch(from var(--accent) l c h / 0.46);
   background: oklch(from var(--accent) 0.98 calc(c * 0.20) h / 0.35);
   box-shadow:
@@ -529,7 +491,7 @@
   max-width: calc(100% - 190px);
   margin: -10px 150px 18px 22px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 4px 8px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -545,7 +507,7 @@
   min-height: 40px;
   min-width: 40px;
   padding: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--accent);
   color: var(--accent-foreground, oklch(0.985 0.003 250));
   box-shadow:
@@ -620,9 +582,9 @@
   width: auto;
   flex: 0 0 auto;
   border: 1px solid oklch(from var(--foreground) l c h / 0.08);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--background-elevated, var(--background)) l c h / 0.78);
-  color: var(--foreground-75);
+  color: var(--foreground-70);
   height: auto;
   min-height: 38px;
   padding: 9px 18px;
@@ -752,7 +714,7 @@
 .maka-list-row-unread {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
 }
@@ -840,11 +802,11 @@
 .maka-list-group-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 .maka-list-group-count {
   font-variant-numeric: tabular-nums;
-  color: var(--foreground-35);
+  color: var(--foreground-30);
   font-size: 11px;
   font-weight: 500;
 }
@@ -854,7 +816,7 @@
   /* PR-UI-3: drop margin-left, let parent's gap (6px) handle spacing
    * so all badges in .maka-list-row-name share the same rhythm. */
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   /* Reuses the chat-header-alert warning tone tokens (--warning + --warning-text)
    * for visual consistency with the banner that explains the same state.
    * Switched from --info (blue) to --warning (amber) per UI audit §2.9 —
@@ -911,7 +873,7 @@
 
 .maka-empty-state-body {
   max-width: 30ch;
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 12px;
   line-height: 1.4;
   text-wrap: pretty;
@@ -928,7 +890,7 @@
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-  color: var(--foreground-45);
+  color: var(--foreground-40);
 }
 
 .maka-session-list .maka-session-empty-state .maka-empty-state-media {
@@ -936,7 +898,7 @@
 }
 
 .maka-session-list .maka-session-empty-state .maka-empty-state-title {
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   font-size: 12px;
   font-weight: 600;
 }
@@ -951,7 +913,7 @@
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-70);
 }

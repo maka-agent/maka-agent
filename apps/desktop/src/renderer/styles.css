@@ -38,14 +38,16 @@
   --color-card-foreground: var(--foreground);
   --color-popover: var(--background-elevated);
   --color-popover-foreground: var(--foreground);
-  --color-primary: var(--accent);
-  --color-primary-foreground: oklch(0.985 0.003 250);
+  --color-primary: var(--action);
+  --color-primary-foreground: var(--action-foreground);
   --color-secondary: var(--foreground-5);
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--foreground-5);
   --color-muted-foreground: var(--foreground-60);
   --color-accent: var(--accent);
   --color-accent-foreground: oklch(0.985 0.003 250);
+  --color-control: var(--control);
+  --color-control-foreground: var(--control-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: oklch(0.985 0.003 250);
   --color-info: var(--info);
@@ -58,9 +60,9 @@
   --color-input: var(--border-strong);
   --color-ring: var(--ring);
 
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
-  --shadow-maka-panel: 0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 40px rgba(15, 23, 42, 0.08);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-surface);
+  --radius-lg: var(--radius-surface);
+  --radius-xl: var(--radius-modal);
+  --shadow-maka-panel: 0 0 0 1px var(--border), 0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 40px rgba(15, 23, 42, 0.08);
 }

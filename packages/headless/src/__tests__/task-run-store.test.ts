@@ -447,6 +447,44 @@ describe('TaskRunStore', () => {
     assert.equal(projection.result?.passed, false);
   });
 
+  test('projects heavy-task self-check gate events while old traces remain ungated', () => {
+    const taskRunId = 'tr-heavy-gate';
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      {
+        type: 'heavy_task_self_check_gate_recorded',
+        id: 'e-2',
+        taskRunId,
+        ts: 2,
+        gate: {
+          schemaVersion: 1,
+          action: 'repair_prompt',
+          reason: 'missing accepted public self-check evidence',
+          attempt: 1,
+          maxAttempts: 1,
+          checklist: [{
+            id: 'check-1',
+            kind: 'workspace_hygiene',
+            source: 'generic_heavy_task',
+            description: 'Pass self-check must include sandbox execution evidence and a public workspace hygiene guard',
+            evidenceRequired: 'command_or_artifact',
+          }],
+          prompt: 'run public checks and self_check_submit',
+        },
+      },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskSelfCheckGates.length, 1);
+    assert.equal(projection.latestHeavyTaskSelfCheckGate?.action, 'repair_prompt');
+    assert.equal(projection.latestHeavyTaskSelfCheckGate?.reason, 'missing accepted public self-check evidence');
+
+    const oldTrace = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId: 'tr-old', ts: 1, taskId: 'task-old', configId: 'cfg-1' },
+    ], 'tr-old');
+    assert.deepEqual(oldTrace.heavyTaskSelfCheckGates, []);
+    assert.equal(oldTrace.latestHeavyTaskSelfCheckGate, undefined);
+  });
+
   test('projects isolation, permission, inbox, and needs_approval facts', () => {
     const taskRunId = 'tr-approval';
     const request = {
@@ -724,6 +762,25 @@ function acceptedSelfCheck(
     publicReason,
     commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
     artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
+    executionHygiene: {
+      sandbox: {
+        root: '/tmp/maka-self-check/run-1',
+        strategy: 'scratch_dir',
+        commandCwd: '/tmp/maka-self-check/run-1',
+        outputPolicy: 'scratch_only',
+      },
+      scratchUsed: true,
+      scratchPath: '/tmp/maka-self-check/run-1',
+      cleanupPerformed: true,
+      workspaceSideEffects: 'none',
+      workspaceGuard: {
+        checked: true,
+        checkedPaths: ['/app'],
+        addedPaths: [],
+        modifiedPaths: [],
+        removedPaths: [],
+      },
+    },
     guard: {
       status: 'accepted',
       checkedAt: 10,

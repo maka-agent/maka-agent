@@ -5,6 +5,7 @@ export const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 export const RENDERER_STYLES_ENTRY = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 export const RENDERER_STYLES_DIR = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles');
 export const TOKENS_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css');
+export const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
 export async function readCssTree(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });

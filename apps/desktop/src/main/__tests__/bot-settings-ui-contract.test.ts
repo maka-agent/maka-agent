@@ -21,7 +21,9 @@ describe('Bot settings UI contract', () => {
     ]);
     const styles = await readRendererContractCss();
 
-    assert.match(settings, /BOT_BRAND,\n\s+Button,/, 'Bot settings must import shared per-platform brand presentation metadata');
+    assert.match(settings, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
+    assert.match(settings, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
+    assert.match(settings, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');
     assert.match(botBrand, /export const BOT_BRAND:/, 'Shared bot brand metadata must stay exported from @maka/ui');
     for (const provider of ['telegram', 'feishu', 'wecom', 'wechat', 'discord', 'dingtalk', 'qq']) {
       assert.match(botBrand, new RegExp(`${provider}:\\s*\\{[\\s\\S]*?configDocUrl:`), `${provider} needs a visible configuration-document link target`);

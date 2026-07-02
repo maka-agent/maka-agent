@@ -73,7 +73,7 @@ describe('Command palette accessibility and visible copy', () => {
 
     assert.match(modalStyle, /width:\s*min\(584px, calc\(100vw - 32px\)\);/);
     assert.match(modalStyle, /border:\s*1px solid var\(--border\);/);
-    assert.match(modalStyle, /border-radius:\s*8px;/);
+    assert.match(modalStyle, /border-radius:\s*var\(--radius-modal\);/);
     assert.match(
       styles,
       /\.maka-palette-modal,[\s\S]*?\.maka-palette-footer\s*\{[\s\S]*user-select:\s*none;/,

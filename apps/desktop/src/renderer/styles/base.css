@@ -22,11 +22,11 @@
     --os-size: 8px;
     --os-padding-perpendicular: 1px;
     --os-padding-axis: 2px;
-    --os-track-border-radius: 8px;
+    --os-track-border-radius: var(--radius-surface);
     --os-track-bg: transparent;
     --os-track-bg-hover: transparent;
     --os-track-bg-active: transparent;
-    --os-handle-border-radius: 6px;
+    --os-handle-border-radius: var(--radius-control);
     --os-handle-bg: var(--border);
     --os-handle-bg-hover: oklch(from var(--foreground) l c h / 0.22);
     --os-handle-bg-active: oklch(from var(--foreground) l c h / 0.30);

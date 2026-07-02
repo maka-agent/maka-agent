@@ -468,13 +468,20 @@ export function ChatView(props: {
             <span>深度研究</span>
           </span>
         )}
-        {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
-        {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
-        {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
         {/* PR-MOVE-PERMISSION-MODE: switcher relocated into the
             composer left-controls. Header keeps the per-session status
             chips only. */}
       </header>
+      {(props.sessionStatusBadge || props.connectionAlert || props.eventStreamAlert) && (
+        /* In normal flow below the header (see .maka-chat-status-cluster)
+           so wrapped multi-badge rows reserve space before banners and
+           messages. */
+        <div className="maka-chat-status-cluster">
+          {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
+          {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
+          {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
+        </div>
+      )}
       {isLocalSimulationBackend && (
         <Alert variant="info" className="maka-fake-backend-banner" role="status">
           <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -1307,7 +1314,7 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
       <Markdown text={displayed} />
       {props.truncated && (
         <div
-          className="mt-1.5 inline-block cursor-help rounded-[4px] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-[5px] text-[10px] text-[color:var(--warning-text,var(--info-text))]"
+          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-[5px] text-[10px] text-[color:var(--warning-text,var(--info-text))]"
           role="status"
           aria-live="polite"
           title="助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。"

@@ -5,7 +5,6 @@ import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
-import { Button as PrimitiveButton } from './primitives/button.js';
 import { LiveIndicator, previewVariants, streamVariants, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
@@ -1472,7 +1471,7 @@ function TerminalPreview(props: {
           <span>
             输出较长，当前只展示每路输出的前 {TOOL_LINE_CAP} 行。需要继续研读时，可以切到深度研究并把命令、相关路径和想确认的问题交给只读探索。
           </span>
-          <PrimitiveButton
+          <UiButton
             type="button"
             variant="ghost"
             size="sm"
@@ -1487,7 +1486,7 @@ function TerminalPreview(props: {
           >
             {handoffCopyPhase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
             <span>{handoffCopyLabel}</span>
-          </PrimitiveButton>
+          </UiButton>
         </div>
       )}
     </div>

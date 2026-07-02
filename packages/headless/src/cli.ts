@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { runAutonomousTask } from './autonomous-agent-loop.js';
 import { harborCommand } from './harbor-cli.js';
 import { runMatrix, type ExperimentSpec } from './matrix.js';
 import { planMatrixRetry, readMatrixPriorRecords } from './matrix-resume.js';
+import {
+  buildMakaAheTargetSnapshot,
+  readMakaAheHarborOfficialResult,
+  writeMakaAheEvidenceExport,
+  type MakaAheOfficialResultOverlay,
+  type MakaAheSessionMessagesByTaskRun,
+} from './ahe-evidence-export.js';
 import { writeTaskRunExport } from './result-export.js';
 import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { runTaskOnce } from './task-agent-controller.js';
@@ -202,6 +209,121 @@ async function taskExportCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+async function aheCommand(args: string[]): Promise<number> {
+  const [subcommand, ...rest] = args;
+  if (subcommand === 'export') return aheExportCommand(rest);
+  console.error('maka-headless ahe commands:\n');
+  console.error('  ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+  return 1;
+}
+
+async function aheExportCommand(args: string[]): Promise<number> {
+  let parsed: ParsedArgs;
+  try {
+    parsed = parseArgs(args, ['store', 'repo', 'out', 'run-id', 'source-label', 'harbor-trial-dir'], ['include-events']);
+  } catch (error) {
+    console.error(`${(error as Error).message}\nusage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`);
+    return 1;
+  }
+  if (parsed.positional.length === 0 || !parsed.flags.store || !parsed.flags.repo || !parsed.flags.out) {
+    console.error('usage: maka-headless ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+    return 1;
+  }
+  try {
+    const storeRoot = resolve(parsed.flags.store);
+    const store = createTaskRunStore(storeRoot);
+    const projections = await Promise.all(parsed.positional.map((taskRunId) => store.project(taskRunId)));
+    const officialResults = await aheOfficialResultsForCli(projections, {
+      storeRoot,
+      harborTrialDir: parsed.flags['harbor-trial-dir'] ? resolve(parsed.flags['harbor-trial-dir']) : undefined,
+    });
+    const sessionMessages = await aheSessionMessagesForCli(projections, storeRoot);
+    const snapshot = await buildMakaAheTargetSnapshot({
+      repoRoot: resolve(parsed.flags.repo),
+      sourceLabel: parsed.flags['source-label'],
+    });
+    const result = await writeMakaAheEvidenceExport(resolve(parsed.flags.out), {
+      snapshot,
+      projections,
+      runId: parsed.flags['run-id'],
+      includeEvents: parsed.bools['include-events'],
+      officialResults,
+      sessionMessages,
+    });
+    console.log(`targetSnapshot: ${result.files.targetSnapshotJson}`);
+    console.log(`harnessResults: ${result.files.harnessResultsJson}`);
+    console.log(`traceIndex: ${result.files.traceIndexJson}`);
+    return 0;
+  } catch (error) {
+    console.error(`maka-headless ahe export: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
+async function aheOfficialResultsForCli(
+  projections: readonly TaskRunProjection[],
+  options: { storeRoot: string; harborTrialDir?: string },
+): Promise<Record<string, MakaAheOfficialResultOverlay> | undefined> {
+  if (options.harborTrialDir && projections.length !== 1) {
+    throw new Error('--harbor-trial-dir currently supports exactly one taskRunId');
+  }
+  const overlays: Record<string, MakaAheOfficialResultOverlay> = {};
+  if (options.harborTrialDir) {
+    const projection = projections[0]!;
+    overlays[projection.taskRunId] = await readMakaAheHarborOfficialResult(options.harborTrialDir, projection);
+    return overlays;
+  }
+
+  if (projections.length === 1) {
+    const inferred = resolve(options.storeRoot, '..', '..', '..');
+    if (await looksLikeHarborTrialDir(inferred)) {
+      const projection = projections[0]!;
+      overlays[projection.taskRunId] = await readMakaAheHarborOfficialResult(inferred, projection);
+      return overlays;
+    }
+  }
+  return undefined;
+}
+
+async function looksLikeHarborTrialDir(dir: string): Promise<boolean> {
+  try {
+    await stat(join(dir, 'result.json'));
+    await stat(join(dir, 'verifier', 'reward.txt'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function aheSessionMessagesForCli(
+  projections: readonly TaskRunProjection[],
+  storeRoot: string,
+): Promise<MakaAheSessionMessagesByTaskRun | undefined> {
+  const messagesByTaskRun: Record<string, readonly unknown[]> = {};
+  for (const projection of projections) {
+    if (!projection.sessionId) continue;
+    const messages = await readSessionMessages(join(storeRoot, 'sessions', projection.sessionId, 'session.jsonl'));
+    if (messages.length > 0) {
+      messagesByTaskRun[projection.taskRunId] = messages;
+    }
+  }
+  return Object.keys(messagesByTaskRun).length > 0 ? messagesByTaskRun : undefined;
+}
+
+async function readSessionMessages(path: string): Promise<unknown[]> {
+  try {
+    const text = await readFile(path, 'utf8');
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as unknown)
+      .filter((record) => Boolean((record as { type?: unknown }).type));
+  } catch {
+    return [];
+  }
+}
+
 async function taskResumeCommand(args: string[]): Promise<number> {
   let parsed: ParsedArgs;
   try {
@@ -354,6 +476,7 @@ function printUsage(): void {
   console.error('  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table');
   console.error('  maka-headless compare <results.jsonl>          print the comparison table');
   console.error('  maka-headless task <command> ...               run, inspect, resume, retry, export task runs');
+  console.error('  maka-headless ahe <command> ...                export AHE target snapshots and evidence');
   console.error('  maka-headless harbor <command> ...             run Harbor real-backend task/cell flows');
 }
 
@@ -371,6 +494,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'eval') return evalCommand(rest);
   if (cmd === 'compare') return compareCommand(rest);
   if (cmd === 'task') return taskCommand(rest);
+  if (cmd === 'ahe') return aheCommand(rest);
   if (cmd === 'harbor') return harborCommand(rest);
   printUsage();
   return cmd ? 1 : 0;

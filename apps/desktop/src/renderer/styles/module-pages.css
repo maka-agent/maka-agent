@@ -31,11 +31,10 @@
   padding: 18px 20px 20px;
   background: var(--card-bg);
   border: 1px solid var(--card-border-color);
-  border-radius: var(--card-radius);
+  border-radius: var(--radius-surface);
   box-shadow:
     var(--card-shadow),
     var(--card-highlight);
-  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
 }
 
 .maka-plan-hero {
@@ -88,7 +87,7 @@
   background: var(--foreground-3);
   color: var(--foreground);
   border-color: transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 11px;
   font-weight: 600;
 }
@@ -99,7 +98,7 @@
 .maka-plan-new-task-button {
   gap: 4px;
   border-color: oklch(0.20 0 0);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(0.18 0 0);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.15),
@@ -153,7 +152,7 @@
   min-height: 0;
   justify-content: stretch;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
   padding: 6px 8px;
@@ -167,7 +166,7 @@
   align-items: start;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   box-shadow: none;
   padding: 12px;
@@ -189,7 +188,7 @@
   grid-column: 2;
   grid-row: 1;
   justify-self: end;
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 14px;
   letter-spacing: 1px;
   line-height: 20px;
@@ -201,7 +200,7 @@
   height: 18px;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--foreground-3);
   color: var(--foreground-70);
 }
@@ -209,7 +208,7 @@
 .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-icon {
   width: 36px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.16);
   color: transparent;
 }
@@ -219,7 +218,7 @@
   display: inline-flex;
   width: 36px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.16);
 }
 
@@ -230,7 +229,7 @@
   left: 2px;
   width: 16px;
   height: 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--background);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.22);
 }
@@ -259,7 +258,7 @@
 }
 
 .maka-plan-template-note {
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -284,9 +283,9 @@
   align-items: center;
   gap: 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground-2);
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
@@ -324,7 +323,7 @@
   justify-content: space-between;
   gap: 12px;
   border-color: oklch(0.90 0.04 240);
-  border-radius: 7px;
+  border-radius: var(--radius-surface);
   background: oklch(0.965 0.035 235);
   color: oklch(0.50 0.13 245);
   padding: 12px 16px;
@@ -381,7 +380,7 @@
   justify-content: space-between;
   gap: 14px;
   border: 1px solid var(--foreground-8);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(90deg, oklch(from var(--accent) l c h / 0.06), transparent 42%),
     var(--background);
@@ -433,7 +432,7 @@
 }
 
 .maka-capability-audit-metrics dt {
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0;
@@ -478,7 +477,7 @@
   padding: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 13px;
   font-weight: 600;
 }
@@ -499,7 +498,7 @@
   right: 0;
   bottom: 0;
   height: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground);
 }
 
@@ -534,26 +533,12 @@
   gap: 12px;
 }
 
-.maka-plan-card-grid > article {
-  animation: maka-workbench-card-scale-in 350ms var(--ease-out-strong) both;
-}
-
-.maka-plan-card-grid > article:nth-child(n + 1) { animation-delay: 60ms; }
-.maka-plan-card-grid > article:nth-child(n + 4) { animation-delay: 120ms; }
-.maka-plan-card-grid > article:nth-child(n + 8) { animation-delay: 180ms; }
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-plan-card-grid > article {
-    animation: none;
-  }
-}
-
 .maka-plan-form,
 .maka-plan-run-row {
   display: grid;
   gap: 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   padding: 16px;
 }
@@ -568,7 +553,7 @@
   gap: 10px;
   position: relative;
   border: 1px solid var(--foreground-8);
-  border-radius: 6px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   padding: 14px 16px 13px;
   min-height: 148px;
@@ -626,7 +611,7 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground-60);
 }
@@ -688,7 +673,7 @@
 .maka-plan-field textarea {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
   font: inherit;
@@ -727,7 +712,7 @@
 .maka-plan-validation {
   margin: 0;
   border: 1px solid oklch(from var(--warning) l c h / 0.34);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: oklch(from var(--warning) l c h / 0.08);
   color: var(--foreground-80);
   font-size: 11px;
@@ -792,7 +777,7 @@
 .maka-plan-search input {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
   font: inherit;
@@ -818,7 +803,7 @@
   min-width: 0;
   height: 34px;
   justify-content: space-between;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   font-size: 12px;
   font-weight: 600;
 }
@@ -869,7 +854,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-modal);
   background: var(--background);
   box-shadow: var(--shadow-maka-panel);
 }
@@ -877,7 +862,7 @@
 .settingsSelectMenuPopup [role="option"] {
   min-height: 32px;
   align-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 6px 12px;
 }
 
@@ -987,7 +972,7 @@
   align-items: center;
   gap: 5px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
   color: var(--foreground-60);
   font-size: 10.5px;
@@ -1007,7 +992,7 @@
   display: inline-block;
   margin-left: 4px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--accent) l c h / 0.10);
   color: var(--accent);
   font-weight: 600;
@@ -1042,7 +1027,7 @@
 }
 
 .maka-plan-run-status {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground-3);
   color: var(--foreground-60);
   font-size: 10px;
@@ -1222,7 +1207,7 @@
   align-items: center;
   gap: 7px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground-50);
   padding: 0 10px;
@@ -1239,7 +1224,13 @@
      `.maka-skill-search` label — reading as two stacked search
      bars. The fix zeroes every visual property the primitive can
      paint, so the inner `<input>` reads as a bare text field and
-     the outer label is the only box. */
+     the outer label is the only box.
+     Correction (double-border textarea sweep, verified live via CDP):
+     `box-shadow`/ring-var reset need `!important` to beat the global
+     `:where(input, select, textarea):focus` rule below on focus — see
+     `.composer .maka-composer-textarea` in tool-output.css for why.
+     `border-radius`/`background` don't need it (nothing else sets them
+     on focus). */
   min-width: 0;
   width: 100%;
   height: 30px;
@@ -1247,10 +1238,12 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  box-shadow: none;
+  box-shadow: none !important;
   outline: none;
   padding: 0;
   font-size: 13px;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
 
 .maka-skill-search input::placeholder {
@@ -1265,7 +1258,7 @@
 .maka-skill-add-button {
   gap: 5px;
   border-color: #151515;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(#333, #151515);
   box-shadow:
     inset 0 1px 0 #ffffff26,
@@ -1297,44 +1290,10 @@
   padding: 18px 20px 20px;
   background: var(--card-bg);
   border: 1px solid var(--card-border-color);
-  border-radius: var(--card-radius);
+  border-radius: var(--radius-surface);
   box-shadow:
     var(--card-shadow),
     var(--card-highlight);
-  animation: maka-page-shell-enter 320ms var(--ease-out-strong) both;
-}
-
-/* Reference-layout page-shell entrance — opacity 0 + translateY(6px) -> 0,
-   so each top-level module page lands as a lifted card rather than slamming
-   onto the canvas. Used by Skills + Plan/Reminder shells. */
-@keyframes maka-page-shell-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-skill-library,
-  .maka-plan-shell,
-  .maka-module-main .maka-daily-review-panel,
-  .maka-daily-review-panel {
-    animation: none;
-  }
-}
-
-[data-maka-visual-smoke="true"] .maka-skill-library,
-[data-maka-visual-smoke="true"] .maka-plan-shell,
-[data-maka-visual-smoke="true"] .maka-module-main .maka-daily-review-panel,
-[data-maka-visual-smoke="true"] .maka-daily-review-panel {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
-
-[data-maka-visual-smoke="true"] .maka-plan-card-grid > article,
-[data-maka-visual-smoke="true"] .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card {
-  animation: none;
-  opacity: 1;
-  transform: none;
 }
 
 .maka-skill-tool-summary-hidden {
@@ -1350,7 +1309,7 @@
   gap: 24px;
   overflow: hidden;
   border: 1px solid oklch(88% 0.035 224 / 0.72);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background:
     radial-gradient(circle at 80% 50%, oklch(100% 0 0 / 0.44) 0 24%, transparent 25%),
     linear-gradient(100deg, oklch(92.5% 0.035 222) 0%, oklch(93.5% 0.045 205) 56%, oklch(88.8% 0.052 199) 100%);
@@ -1369,7 +1328,7 @@
 .maka-skill-featured-banner p {
   max-width: 540px;
   margin: 10px 0 0;
-  color: var(--foreground-65);
+  color: var(--foreground-60);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -1395,7 +1354,7 @@
   justify-content: center;
   gap: 5px;
   border: 1px solid oklch(from var(--foreground) l c h / 0.07);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96)),
     var(--background);
@@ -1413,7 +1372,7 @@
 }
 
 .maka-skill-featured-art small {
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 8px;
   font-weight: 600;
   line-height: 1.1;
@@ -1473,7 +1432,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   font-size: 13px;
   font-weight: 500;
   padding: 0 1px;
@@ -1491,7 +1450,7 @@
   right: 0;
   bottom: -1px;
   height: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground);
 }
 
@@ -1501,9 +1460,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.06);
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   font-size: 11px;
   font-weight: 650;
   padding: 0 5px;
@@ -1519,7 +1478,7 @@
 .maka-skill-filter-pill {
   height: 28px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground-70);
   font-size: 12px;
@@ -1541,7 +1500,7 @@
 }
 
 .maka-skill-section-row small {
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1559,7 +1518,7 @@
   flex-direction: column;
   gap: 12px;
   border: 1px solid var(--foreground-8);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
   padding: 16px;
   transition:
@@ -1591,7 +1550,7 @@
 
 .maka-skill-market-card small,
 .maka-skill-market-card-foot span {
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1616,9 +1575,9 @@
   justify-content: center;
   flex: 0 0 auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--background);
-  color: var(--foreground-65);
+  color: var(--foreground-60);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
 }
 
@@ -1633,9 +1592,9 @@
 .maka-skill-market-install {
   height: 26px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   cursor: not-allowed;
   font-size: 12px;
   font-weight: 650;
@@ -1652,7 +1611,7 @@
 }
 
 .maka-skill-section-label {
-  color: var(--foreground-65);
+  color: var(--foreground-60);
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -1675,7 +1634,7 @@
   align-items: center;
   padding: 5px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   transition: background-color var(--duration-base) var(--ease-out-strong);
 }
@@ -1690,7 +1649,7 @@
   height: 18px;
   display: inline-grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: oklch(from var(--accent) l c h / 0.08);
   color: var(--accent);
 }
@@ -1725,7 +1684,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--foreground-45);
+  color: var(--foreground-40);
   font-size: 9px;
   line-height: 1.35;
 }
@@ -1740,7 +1699,7 @@
   align-content: start;
   gap: 0;
   border: 1px solid var(--foreground-8);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--background);
 }
 
@@ -1804,11 +1763,11 @@
   height: 34px;
   display: inline-grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   border: 1px solid var(--foreground-8);
   background: var(--background);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }
 
@@ -1868,9 +1827,9 @@
   text-overflow: ellipsis;
   max-width: 100%;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 10px;
   letter-spacing: -0.01em;
@@ -1881,9 +1840,9 @@
   min-width: 40px;
   padding: 3px 8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: var(--background);
-  color: var(--foreground-55);
+  color: var(--foreground-50);
   font-size: 11px;
   font-weight: 600;
   text-align: center;
@@ -1905,7 +1864,7 @@
   justify-self: end;
   width: 34px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.05);
 }
@@ -1917,7 +1876,7 @@
   left: 18px;
   width: 14px;
   height: 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--background);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.22);
 }
@@ -1986,10 +1945,45 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  padding: 0 10px;
+  /* Right padding reserves space for the absolutely-positioned
+     .maka-workspace-top-actions toolbar so right-aligned content
+     (.maka-chat-header-mode-pill, .maka-model-switcher, memory pill) stops
+     before the toolbar instead of rendering underneath it. */
+  padding: 0 var(--maka-workspace-top-actions-inset) 0 10px;
   background: transparent;
   border-bottom: 0;
   -webkit-app-region: drag;
+}
+
+/* PR-CHAT-HEADER-STATUS-CLUSTER-0: the session-status / connection /
+   event-stream alert badges used to render inline in .maka-chat-header,
+   right-aligned via the header's flex spacer, which put them underneath
+   .maka-workspace-top-actions once more than one badge was visible.
+   Keep the badge cluster in normal flow between the header and chat
+   content so wrapped rows reserve vertical space instead of covering
+   the first message or the fake-backend banner. */
+.maka-chat-status-cluster {
+  width: min(60vw, 320px, calc(100% - var(--maka-workspace-top-actions-right) - 24px));
+  margin: 4px var(--maka-workspace-top-actions-right) 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.maka-chat-status-cluster .maka-chat-header-alert,
+.maka-chat-status-cluster .maka-chat-header-status {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+}
+
+.maka-chat-status-cluster .maka-chat-header-alert > span,
+.maka-chat-status-cluster .maka-chat-header-status > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* PR-REMOVE-CHAT-TAB (WAWQAQ msg d401938d 2026-06-23): the
@@ -2010,7 +2004,7 @@
   background: oklch(from var(--accent) l c h / 0.10);
   border: 1px solid oklch(from var(--accent) l c h / 0.25);
   color: var(--accent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2037,7 +2031,7 @@
   border: 1px solid oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2084,7 +2078,7 @@
   gap: 6px;
   padding: 1px 6px 1px 8px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground-5);
   color: var(--foreground);
   font-size: 11px;

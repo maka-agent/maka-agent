@@ -21,7 +21,8 @@
    LIGHT MODE
 ============================================================================= */
 
-:root {
+:root,
+[data-maka-theme="default"] {
   /* === 6 base colors ===
      oklch() gives perceptually uniform lightness, keeping subtle surface and
      status colors calibrated.
@@ -84,6 +85,15 @@
      stay neutral gray per the reference's restraint. */
   --accent: oklch(0.70 0.135 152);
   --accent-rgb: 92, 184, 112;
+  --action: oklch(0.46 0.135 152);
+  --action-foreground: oklch(0.985 0.003 250);
+  --control: oklch(0.52 0.135 152);
+  --control-foreground: oklch(0.985 0.003 250);
+  --link: var(--accent);
+  --focus-ring: var(--accent);
+  --status-running: var(--accent);
+  --nav-active: var(--accent);
+  --toast-accent: var(--accent);
   --info: oklch(0.75 0.16 70);          /* amber — "ask" mode, warnings */
   --info-rgb: 180, 120, 40;
   --success: oklch(0.55 0.17 145);      /* green — connected, ok */
@@ -91,9 +101,8 @@
   --destructive: oklch(0.58 0.24 28);   /* red — errors, denied */
   --destructive-rgb: 180, 60, 50;
 
-  /* Brand affordance — Done CTA, on-toggle state, provider mark backgrounds,
-     success chip surfaces. Derived from --accent so palette switches are
-     immediately visible across these prominent affordances.
+  /* Legacy brand affordance for a few emphasized surfaces. New CTA and checked
+     control states use --action / --control instead.
      PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): was a static
      "Solarpunk deep" green, which made palette switching invisible on the
      Done CTA and made every palette read as olive-green. */
@@ -226,16 +235,18 @@
   /* === layout === */
   --font-size-base: 15px;
   --radius: 0rem;
-  --radius-button: 6px;        /* buttons get a small radius for tactility */
-  --radius-modal: 8px;
+  --radius-control: 6px;
+  --radius-surface: 8px;
+  --radius-modal: 12px;
+  --radius-pill: 999px;
   --spacing: 0.25rem;          /* 4px base step */
   --icon-size: 16px;           /* chrome glyph size (nav + button icons); dense
                                   meta (12-14) and hero (20+) stay call-site */
 
   /* === motion ===
      Custom easing curves per emil-design-eng — the built-in CSS easings
-     are too weak to feel intentional. Use --ease-out-strong for UI
-     entrance/feedback, --ease-in-out-strong for on-screen movement,
+     are too weak to feel intentional. Use --ease-out-strong for
+     feedback/state changes, --ease-in-out-strong for on-screen movement,
      --ease-drawer for iOS-style drawer/sheet motion.
 
      PR-MOTION-TOKEN-CONVERGE-0 (kenji's category 4, 2026-06-24):
@@ -245,8 +256,8 @@
      240/280ms (6) → large. Pick by intent, not by feel:
        --duration-quick      — hover/press tactile feedback, focus rings
        --duration-base       — color/border/transform on interactive elements
-       --duration-emphasized — modal/drawer/sheet enter, larger surface lift
-       --duration-large      — onboarding hero stagger, large list cascades
+       --duration-emphasized — stronger hover/focus/status feedback
+       --duration-large      — reserved structural motion, not default mount
 
      Anything outside this scale needs a justifying comment. The
      `motion-token-converge-contract.test.ts` enforces this by banning
@@ -261,14 +272,13 @@
   --duration-emphasized: 180ms;
   --duration-large: 280ms;
 
-  /* === page-card recipe ===
-     Single source of truth for the lifted "page card" chrome used by every
-     top-level module page (Skills, Plan/Reminder, future Settings). Atlas
-     §4: the reference layout's signature recipe is `1px tertiary border +
-     6px radius + 0 1px 2px @ 4% lift` — every workbench-card, aux-panel,
-     and agents-chat-panel uses these three values. See
-     notes/reference-atlas.md §9 for the per-surface gap analysis. */
-  --card-radius: 6px;
+   /* === page-card recipe ===
+      Single source of truth for the lifted "page card" chrome used by every
+      top-level module page (Skills, Plan/Reminder, future Settings). Atlas
+      §4: the reference layout's signature recipe is `1px tertiary border +
+      6px radius + 0 1px 2px @ 4% lift` — every workbench-card, aux-panel,
+      and agents-chat-panel uses these three values. See
+      notes/reference-atlas.md §9 for the per-surface gap analysis. */
   --card-gap: 4px;
   --card-border-color: oklch(from var(--foreground) l c h / 0.08);
   --card-bg: var(--background);
@@ -287,6 +297,21 @@
   /* titlebar control baseline (macOS traffic-light center) */
   --maka-titlebar-control-safe-left: 94px;
   --maka-titlebar-control-safe-top: 20px;
+
+  /* Shared top chrome geometry for .maka-workspace-top-actions
+     (sidebar.css) and the in-flow chat status row (module-pages.css).
+     The status row only shares the toolbar's right edge; it no longer
+     anchors off the toolbar bottom. */
+  --maka-workspace-top-actions-top: calc(var(--maka-titlebar-control-safe-top) - 17px);
+  --maka-workspace-top-actions-right: 24px;
+  /* Horizontal footprint the absolutely-positioned .maka-workspace-top-actions
+     toolbar occupies in the top-right corner: its right offset + four 24px icon
+     buttons with 6px gaps (114px) + a 12px clearance gap. Right-aligned
+     chat-header content (model switcher, .maka-chat-header-mode-pill, memory
+     pill) reserves this as right padding so it does not render underneath the
+     toolbar. Companion to PR-CHAT-HEADER-STATUS-CLUSTER-0, which only relocated
+     the status cluster and left the in-header pills overlapping. */
+  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 126px);
 
   /* session list geometry */
   --w-sessionlist: 240px;
@@ -312,6 +337,15 @@
 
   --accent: oklch(0.74 0.15 152);
   --accent-rgb: 140, 229, 161;
+  --action: oklch(0.46 0.135 152);
+  --action-foreground: oklch(0.985 0.003 250);
+  --control: oklch(0.52 0.135 152);
+  --control-foreground: oklch(0.985 0.003 250);
+  --link: var(--accent);
+  --focus-ring: var(--accent);
+  --status-running: var(--accent);
+  --nav-active: var(--accent);
+  --toast-accent: var(--accent);
   --info: oklch(0.70 0.16 70);
   --info-rgb: 200, 140, 60;
   --success: oklch(0.60 0.17 145);
@@ -577,7 +611,10 @@
    Make tokens addressable as Tailwind utilities:
      bg-foreground-5       → background of subtle hover surface
      text-foreground-60    → secondary text
-     bg-accent             → primary accent fill
+     bg-accent             → accent garnish fill
+     bg-action             → primary action fill
+     bg-control            → checked/on/progress fill
+     text-link             → link emphasis
      border-border         → 1px subtle divider
    See https://tailwindcss.com/docs/v4-beta for @theme inline semantics.
 ============================================================================= */
@@ -588,6 +625,15 @@
   --color-foreground: var(--foreground);
   --color-foreground-dimmed: var(--foreground-dimmed);
   --color-accent: var(--accent);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
+  --color-control: var(--control);
+  --color-control-foreground: var(--control-foreground);
+  --color-link: var(--link);
+  --color-focus-ring: var(--focus-ring);
+  --color-status-running: var(--status-running);
+  --color-nav-active: var(--nav-active);
+  --color-toast-accent: var(--toast-accent);
   --color-info: var(--info);
   --color-success: var(--success);
   --color-destructive: var(--destructive);
@@ -595,6 +641,7 @@
   --color-foreground-2:  var(--foreground-2);
   --color-foreground-3:  var(--foreground-3);
   --color-foreground-5:  var(--foreground-5);
+  --color-foreground-8:  var(--foreground-8);
   --color-foreground-10: var(--foreground-10);
   --color-foreground-20: var(--foreground-20);
   --color-foreground-30: var(--foreground-30);
@@ -647,7 +694,7 @@
   ::-webkit-scrollbar-track  { background: transparent; }
   ::-webkit-scrollbar-thumb  {
     background: transparent;
-    border-radius: 4px;
+    border-radius: var(--radius-control);
     transition: background 120ms ease;
   }
   *:hover {
@@ -696,7 +743,7 @@
     font-weight: 600;
     line-height: 1;
     padding: 2px 6px;
-    border-radius: 5px;
+    border-radius: var(--radius-control);
     background: var(--foreground-5);
     border: 1px solid var(--border-strong);
     box-shadow: inset 0 -1px 0 var(--border);
@@ -716,7 +763,7 @@
   /* Reveal scrollbar only on parent hover (use with .group) */
   .scrollbar-hover::-webkit-scrollbar       { width: 4px; }
   .scrollbar-hover::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-hover::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+  .scrollbar-hover::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--radius-control); }
   .group:hover .scrollbar-hover::-webkit-scrollbar-thumb { background: var(--border); }
 
   /* Shadow recipes — apply as standalone classes */
@@ -743,7 +790,7 @@
     color: var(--foreground-80);
     background: var(--foreground-5);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
   }
   .pill[data-tone="accent"]      { background: oklch(from var(--accent) l c h / 0.08); color: var(--accent); border-color: oklch(from var(--accent) l c h / 0.15); }
   .pill[data-tone="info"]        { background: oklch(from var(--info) l c h / 0.10); color: var(--info-text); border-color: oklch(from var(--info) l c h / 0.20); }
@@ -805,7 +852,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border-radius: var(--radius-button);
+    border-radius: var(--radius-control);
     color: var(--foreground-80);
     font-size: 14px;
     line-height: 1.4;
@@ -831,7 +878,7 @@
     background: transparent;
     border: none;
     padding: 4px 8px;
-    border-radius: var(--radius-button);
+    border-radius: var(--radius-control);
     color: var(--foreground-60);
     font-size: 13px;
   }
@@ -873,15 +920,7 @@
     max-width: var(--maka-chat-measure, 680px);
     margin: 0 auto;
     width: 100%;
-    /* Subtle fade on first paint — uses @starting-style instead of a
-       keyframe so the transition is interruptible and stays smooth even
-       when messages are streaming in rapidly (emil-design-eng "Use CSS
-       transitions over keyframes for interruptible UI"). */
     opacity: 1;
-    transition: opacity 240ms ease-out;
-  }
-  @starting-style {
-    .maka-message-row { opacity: 0; }
   }
 
   /* Turn grouping (per kenji UI-04): user msg + tools + assistant answer
@@ -922,9 +961,6 @@
    *     with a custom chevron that rotates 90deg on `[open]` using
    *     a spring-ish cubic-bezier from design-taste-frontend §5
    *     (220ms `cubic-bezier(0.16, 1, 0.3, 1)`).
-   *   - Body fades in on open via @starting-style — content still
-   *     mounts/unmounts (native `<details>` toggles `display`), but
-   *     the opacity ramp softens the visual snap.
    * `cursor: pointer` deliberately NOT applied to the summary —
    * macOS reserves the hand for links; details summaries use the
    * default arrow. Enforced by `cursor-convention-contract.test.ts`.
@@ -935,7 +971,7 @@
     margin: 0 0 8px;
     padding: 8px 10px;
     border: 1px dashed oklch(from var(--accent) l c h / 0.25);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     background: oklch(from var(--accent) l c h / 0.03);
     font-size: 12.5px;
     color: var(--foreground-70);
@@ -985,17 +1021,6 @@
     line-height: 1.55;
     font-style: italic;
     opacity: 0.9;
-    /* Fade-in when the parent <details> flips open. @starting-style
-       requires the rule to run on the first render after [open]
-       toggles — opacity starts at 0 then ramps to 0.9. Content
-       still mounts instantly (native <details>); the opacity ramp
-       softens the visual snap. */
-    transition: opacity 180ms ease-out;
-  }
-  @starting-style {
-    .maka-turn-thinking[open] > .maka-turn-thinking-body {
-      opacity: 0;
-    }
   }
 
   .maka-turn-thinking-actions {
@@ -1030,7 +1055,7 @@
     height: 14px;
     margin: 0 8px 0 0;
     border: 1.5px solid var(--foreground-40);
-    border-radius: 4px;
+    border-radius: var(--radius-control);
     background: transparent;
     vertical-align: text-bottom;
     cursor: not-allowed; /* read-only — editing markdown isn't supported here */
@@ -1150,7 +1175,7 @@
      * around. */
     padding: 0 2px;
     margin: 0 -2px;
-    border-radius: 3px;
+    border-radius: var(--radius-control);
     transition: border-bottom-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
   }
   .maka-bubble-assistant a:hover {
@@ -1168,7 +1193,7 @@
     /* PR-UI-LAYOUT-28: inline code radius 4 → 5. Tiny bump but
      * pulls it slightly out of the "tight tag" feel into a calmer
      * pill rhythm that matches the rest of the warm-canvas chrome. */
-    border-radius: 5px;
+    border-radius: var(--radius-control);
     background: var(--foreground-5);
     border: 1px solid oklch(from var(--foreground) l c h / 0.03);
   }
@@ -1179,7 +1204,7 @@
   .maka-bubble-assistant .maka-code-block {
     margin: 0 0 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     overflow: hidden;
     background: var(--foreground-3);
   }
@@ -1209,7 +1234,7 @@
      * smoother transition. Width/height stay 22 because the copy
      * icon sits inside the code-block header strip and growing it
      * would change the header height. */
-    border-radius: 7px;
+    border-radius: var(--radius-control);
     background: transparent;
     color: var(--foreground-50);
     transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
@@ -1300,7 +1325,7 @@
     padding: 8px 16px;
     border-left: 3px solid oklch(from var(--accent) l c h / 0.28);
     background: var(--foreground-3);
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
     color: var(--foreground-70);
   }
   .maka-bubble-assistant table {
@@ -1313,7 +1338,7 @@
      * and a hairline outer border gives the table chrome a clean
      * edge against the warm panel. Without the border the rounded
      * corners would clip nothing visible. */
-    border-radius: 10px;
+    border-radius: var(--radius-surface);
     border: 1px solid var(--border);
   }
   .maka-bubble-assistant th,
@@ -1360,9 +1385,9 @@
     display: grid;
     place-items: center;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: oklch(from var(--background) l c h / 0.88);
-    color: var(--foreground-48);
+    color: var(--foreground-50);
     opacity: 0;
     /* PR-CHAT-COPY-BUTTON-POLISH-0 (WAWQAQ 10min loop): the copy
        button used to fade in on hover but never moved — felt like
@@ -1454,23 +1479,13 @@
      packages/ui/src/primitives/chat.tsx). What stays here is the irreducible
      residue that escapes the computed-style proof, re-keyed on the governed
      `[data-slot="tool"]` hook instead of the retired `.maka-tool` class: the
-     mount entrance (transition + `@starting-style`, which only paints on the
-     first frame, so it has no at-rest computed style to diff) and the native
-     `<summary>` marker reset (pseudo-elements with no leaf-utility form). Both
-     are pinned by the PR3b cascade contract. The running status dot's
-     `@keyframes maka-tool-pulse` (below) likewise stays — a keyframe is a global
-     rule, not an element property. */
+     native `<summary>` marker reset (pseudo-elements with no leaf-utility form).
+     The running status dot's `@keyframes maka-tool-pulse` (below) likewise stays
+     because it is a functional status animation. */
   [data-slot="tool"] {
-    /* Same entrance as message rows — opacity + tiny lift on first paint. */
     opacity: 1;
     transform: translateY(0);
-    transition:
-      opacity 200ms ease-out,
-      transform 200ms var(--ease-out-strong),
-      border-color 160ms ease;
-  }
-  @starting-style {
-    [data-slot="tool"] { opacity: 0; transform: translateY(4px); }
+    transition: border-color 160ms ease;
   }
   /* Native <details>/<summary> marker reset — the summary IS the header row
      (laid out by `toolVariants({ part: 'header' })`), so the default disclosure
@@ -1494,18 +1509,6 @@
   @keyframes maka-pulse {
     0%, 100% { opacity: 0.55; transform: scale(1); }
     50%      { opacity: 1;    transform: scale(1.1); }
-  }
-
-  /* Canonical tool-result card mount entrance (issue #332, PR4). The compact
-     "lands instead of pops in" opacity+scale breath the OverlayPreview cards
-     (file-diff / terminal) and the load-tool card share via the
-     `[animation:maka-tool-card-enter_…]` literal in `@maka/ui` previewVariants.
-     Moved here from styles/tool-output.css so every keyframe lives in the one
-     canonical motion home; reduced-motion / visual-smoke suppression ride the
-     global `*` rules. */
-  @keyframes maka-tool-card-enter {
-    from { opacity: 0; transform: scale(0.97); }
-    to   { opacity: 1; transform: scale(1); }
   }
 
   /* ---- Composer --------------------------------------------------- */
@@ -1534,7 +1537,7 @@
     box-shadow:
       0 0 0 1px oklch(from var(--foreground) l c h / 0.04),
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
-    border-radius: 12px;
+    border-radius: var(--radius-modal);
     background: var(--background-elevated);
     padding: 14px 16px;
     display: flex;
@@ -1613,7 +1616,7 @@
     background: var(--background);
     color: var(--foreground);
     padding: 7px 14px;
-    border-radius: var(--radius-button);
+    border-radius: var(--radius-control);
     font-size: 13px;
     font-weight: 500;
     line-height: 1.2;
@@ -1627,89 +1630,6 @@
   }
   .maka-button[disabled],
   .maka-button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
-
-  .maka-button[data-variant="primary"] {
-    /* PR-CHAT-PRIMARY-BUTTON-POLISH-0: replace the flat solid fill
-       with a subtle top-to-bottom gradient (accent → 3% darker).
-       The gradient is barely perceptible at rest but reads as a
-       "lit" button instead of a sticker, especially on macOS
-       where users are tuned to the OS' real button materials.
-       Plus a 1px inset top highlight + a tinted colored shadow
-       so the button feels deliberately raised. */
-    background:
-      linear-gradient(
-        180deg,
-        oklch(from var(--accent) calc(l + 0.02) c h) 0%,
-        var(--accent) 100%
-      );
-    color: white;
-    border-color: oklch(from var(--accent) calc(l - 0.05) c h);
-    box-shadow:
-      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.45),
-      0 1px 2px oklch(from var(--accent) l c h / 0.25);
-  }
-  .maka-button[data-variant="primary"]:hover {
-    background:
-      linear-gradient(
-        180deg,
-        oklch(from var(--accent) calc(l + 0.01) c h) 0%,
-        oklch(from var(--accent) calc(l - 0.03) c h) 100%
-      );
-    /* Subtle lift on hover; pairs with the existing translateY(0.5px)
-       on :active so press still reads as "down". */
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.50),
-      0 4px 12px oklch(from var(--accent) l c h / 0.30);
-  }
-  .maka-button[data-variant="primary"]:active {
-    /* Override the shared :active translate so primary buttons feel
-       deeper-pressed than secondary ones — 1px down vs the
-       inherited 0.5px. */
-    transform: translateY(0.5px);
-    box-shadow:
-      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.40),
-      0 0 0 oklch(from var(--accent) l c h / 0);
-  }
-  .maka-button[data-variant="primary"]:focus-visible {
-    box-shadow:
-      inset 0 1px 0 oklch(from var(--accent) calc(l + 0.10) c h / 0.45),
-      0 0 0 3px oklch(from var(--accent) l c h / 0.28);
-  }
-  .maka-button[data-variant="primary"][disabled],
-  .maka-button[data-variant="primary"][aria-disabled="true"] {
-    background: var(--background);
-    color: var(--foreground-50);
-    border-color: var(--border);
-    box-shadow: none;
-  }
-  .maka-button[data-variant="primary"][disabled]:hover,
-  .maka-button[data-variant="primary"][aria-disabled="true"]:hover,
-  .maka-button[data-variant="primary"][disabled]:active,
-  .maka-button[data-variant="primary"][aria-disabled="true"]:active {
-    background: var(--background);
-    color: var(--foreground-50);
-    border-color: var(--border);
-    transform: none;
-  }
-  .maka-button[data-variant="destructive"] {
-    border-color: oklch(from var(--destructive) l c h / 0.35);
-    color: var(--destructive-text);
-  }
-  .maka-button[data-variant="destructive"]:hover {
-    background: oklch(from var(--destructive) l c h / 0.08);
-  }
-  .maka-button[data-variant="destructive"]:focus-visible {
-    box-shadow: 0 0 0 3px oklch(from var(--destructive) l c h / 0.20);
-  }
-  .maka-button[data-variant="ghost"] {
-    border-color: transparent;
-    background: transparent;
-  }
-  .maka-button[data-variant="ghost"]:hover {
-    background: var(--hover);
-    border-color: transparent;
-  }
 
   /* ---- Modal / Dialog --------------------------------------------- */
 
@@ -1727,10 +1647,6 @@
     z-index: var(--z-modal);
     overscroll-behavior: contain;
     opacity: 1;
-    transition: opacity 200ms ease-out;
-  }
-  @starting-style {
-    .maka-modal-backdrop { opacity: 0; }
   }
   .maka-modal {
     background: var(--background);
@@ -1741,16 +1657,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    transform: scale(1);
     opacity: 1;
-    /* Modals keep transform-origin: center because they aren't anchored
-       to a trigger. */
-    transition:
-      transform 220ms var(--ease-out-strong),
-      opacity 200ms ease-out;
-  }
-  @starting-style {
-    .maka-modal { transform: scale(0.96); opacity: 0; }
   }
   .maka-modal-header {
     padding: 16px 20px 8px 20px;
@@ -1795,7 +1702,7 @@
     font-size: 12.5px;
     background: var(--foreground-3);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-surface);
     padding: 8px 10px;
     color: var(--foreground);
     overflow-x: auto;
@@ -1831,7 +1738,7 @@
   position: relative;
   overflow: hidden;
   background: var(--foreground-3);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .maka-skeleton::after {
   content: '';
@@ -1848,17 +1755,13 @@
 }
 .maka-skeleton-line {
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .maka-skeleton-line[data-size="lg"] { height: 16px; }
 .maka-skeleton-line[data-size="sm"] { height: 9px; }
 .maka-skeleton-card {
   height: 92px;
-  /* PR-UI-LAYOUT-32: skeleton card radius 14 → 12 to match the
-   * card family (chips 10, cards 12, modals 16-18). Subtle but
-   * keeps the loading state visually consistent with the actual
-   * card it's standing in for. */
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
 }
 .maka-skeleton-stack {
   display: grid;

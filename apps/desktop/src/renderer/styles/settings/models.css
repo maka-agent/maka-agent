@@ -127,7 +127,7 @@
   font-weight: 650;
   color: var(--accent);
   background: oklch(from var(--accent) l c h / 0.14);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 1px 8px;
 }
 
@@ -150,7 +150,7 @@
   display: inline-flex;
   align-items: center;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--foreground-5);
   color: var(--foreground-60);
   padding: 0 15px;
@@ -196,7 +196,7 @@
 .providerCatalogRow .providerLogo {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
+  border-radius: var(--radius-surface);
 }
 
 /* Gated providers carry a real trailing state badge in ItemActions (not an
@@ -235,7 +235,7 @@
   height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 12px; /* 27.3% — anchor ratio */
+  border-radius: var(--radius-surface); /* 27.3% — anchor ratio */
   background: var(--foreground-5);
   color: var(--foreground);
   box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.06);
@@ -244,7 +244,7 @@
 .providerLogo[data-compact="true"] {
   width: 32px;
   height: 32px;
-  border-radius: 9px; /* 28.1% — matches md ratio */
+  border-radius: var(--radius-surface); /* 28.1% — matches md ratio */
 }
 
 /* Color marks keep their own fill; monochrome marks declare
@@ -269,7 +269,7 @@
   flex: 0 0 auto;
   min-height: 36px;
   border: 1px dashed oklch(from var(--accent) l c h / 0.34);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--accent);
   padding: 0 14px;
@@ -284,7 +284,7 @@
   justify-content: flex-end;
   background: oklch(0.95 0.01 90 / 0.64);
   backdrop-filter: blur(2px);
-  border-radius: 12px;
+  border-radius: var(--radius-modal);
   padding: 12px;
 }
 
@@ -294,7 +294,7 @@
   min-height: 100%;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-modal);
   background: var(--background);
   box-shadow: 0 18px 46px oklch(0 0 0 / 0.14);
   padding: 16px;
@@ -311,7 +311,7 @@
    * right-aligned status badges (~25px from the sheet top). */
   top: 10px;
   right: 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
@@ -368,7 +368,7 @@
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text);
   font-size: 15px;
@@ -390,7 +390,7 @@
   height: 26px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--surface, var(--background));
   color: var(--text);
   font-size: 12px;
@@ -448,7 +448,7 @@
   border: 0;
   background: transparent;
   color: var(--foreground-70);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 0;
   transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
 }
@@ -476,7 +476,7 @@
 .maka-artifact-pane-count {
   font-size: 10px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
   color: var(--foreground-60);
   font-variant-numeric: tabular-nums;
@@ -490,7 +490,7 @@
   margin: 8px;
   padding: 9px;
   border: 1px solid oklch(from var(--warning) l c h / 0.28);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: oklch(from var(--warning) l c h / 0.08);
   color: var(--foreground);
   font-size: 12px;
@@ -520,7 +520,7 @@
   min-height: 26px;
   padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground);
   font-size: 12px;
@@ -577,7 +577,7 @@
   padding: 4px 6px;
   margin: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
   text-align: left;
@@ -691,7 +691,7 @@
   width: 100%;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: white;
   /* iframe sandbox attribute on the JSX side carries the real boundary;
      this is only visual. NEVER ship `allow-same-origin` here. */
@@ -700,7 +700,7 @@
 .maka-artifact-preview-external-links-bar {
   font-size: 10px;
   padding: 4px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   border: 1px solid oklch(from var(--info) l c h / 0.20);
@@ -722,7 +722,7 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
 }
@@ -736,7 +736,7 @@
   flex-direction: column;
   gap: 12px;
   padding: 16px 18px;
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   border: 1px dashed oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--foreground-80);
@@ -789,7 +789,7 @@
 
 .maka-artifact-preview-pdf embed {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: white;
   min-height: 240px;
 }
@@ -819,7 +819,7 @@
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   border: 1px solid var(--border);
   font-size: 12px;
 }
@@ -882,7 +882,7 @@
   border: 1px solid var(--border);
   background: var(--background);
   color: var(--foreground);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 4px 8px;
   font-size: 11.5px;
 }
@@ -960,7 +960,7 @@
  * stays hand-written here alongside the other model-catalog-preview turn
  * chrome. */
 .maka-turn[data-search-highlight="true"] {
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   outline: 1px solid oklch(from var(--accent) l c h / 0.34);
   outline-offset: 6px;
   background: oklch(from var(--accent) l c h / 0.045);
@@ -988,7 +988,7 @@
   gap: 5px;
   padding: 3px 8px;
   margin: 6px 12px 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid oklch(from var(--info) l c h / 0.20);
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--info-text);

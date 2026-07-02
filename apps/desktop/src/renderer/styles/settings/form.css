@@ -1,7 +1,7 @@
 
 .maka-permission-stale-note {
   margin: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 6px 10px;
   font-size: 11px;
   line-height: 1.4;
@@ -31,7 +31,7 @@
   align-items: center;
   width: fit-content;
   padding: 0 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0;
@@ -50,7 +50,7 @@
 
 .maka-permission-raw {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--foreground-2);
 }
 
@@ -71,7 +71,7 @@
 .maka-permission-raw .maka-code {
   margin: 0;
   border: 0;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
   background: var(--foreground-2);
   max-height: 180px;
   overflow: auto;
@@ -103,17 +103,8 @@
   backdrop-filter: blur(14px) saturate(0.85);
   -webkit-backdrop-filter: blur(14px) saturate(0.85);
   padding: 34px;
-  /* Modern @starting-style entrance — emil-design-eng prefers transitions
-     over keyframes for modals so the animation is interruptible. */
   opacity: 1;
-  transition: opacity 200ms var(--ease-out-strong);
   overscroll-behavior: contain;
-}
-
-@starting-style {
-  .settingsModalBackdrop {
-    opacity: 0;
-  }
 }
 
 .settingsModal {
@@ -126,32 +117,14 @@
   min-width: min(760px, calc(100vw - 64px));
   min-height: 520px;
   overflow: hidden;
-  /* Chrome derived from --card-* tokens (atlas §4 + Phase 2A recipe). The
-     dialog edge is now a tight 8px reference-aligned radius with a single
-     1px hairline border, a Doppelrand inner highlight and a soft 4% lift —
-     the same recipe used by every other page card, scaled to a bigger
-     surface. The previous double 28px / 8px black shadows read as "modal
-     popup heavy"; the new single lift reads as "premium card sitting on a
-     dimmed canvas". */
   border: 1px solid var(--card-border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-modal);
   background: var(--card-bg);
   box-shadow:
     var(--card-shadow),
     var(--card-highlight),
     0 28px 64px oklch(0 0 0 / 0.10);
-  transform: scale(1);
   opacity: 1;
-  transition:
-    transform 240ms var(--ease-out-strong),
-    opacity 200ms var(--ease-out-strong);
-}
-
-@starting-style {
-  .settingsModal {
-    transform: scale(0.96);
-    opacity: 0;
-  }
 }
 
 .settingsModal.settingsPage {
@@ -174,16 +147,6 @@
   z-index: var(--z-settings-fullpage);
   overflow: hidden;
   transform: none;
-  transition: opacity 160ms var(--ease-out-strong);
-}
-
-@starting-style {
-  .settingsModal.settingsPage {
-    /* PR-AUDIT-CLEANUP-BATCH-2: the matching `.settingsModal.settingsPage`
-       rule only transitions `opacity` (line ~7026), so a `transform: none`
-       here was a no-op — kept just the opacity start-style. */
-    opacity: 0;
-  }
 }
 
 .settingsSurface[data-modal="true"] {
@@ -193,4 +156,3 @@
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
 }
-

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -84,15 +84,18 @@ describe('Storybook baseline contract', () => {
     const preview = readFileSync(join(REPO_ROOT, 'apps', 'desktop', '.storybook', 'preview.tsx'), 'utf8');
     const settings = readFileSync(join(REPO_ROOT, 'packages', 'core', 'src', 'settings.ts'), 'utf8');
     const paletteSource = settings.match(/export const THEME_PALETTES = \[([\s\S]*?)\] as const;/)?.[1] ?? '';
-    const allowed = new Set([...paletteSource.matchAll(/'([^']+)'/g)].map((match) => match[1]));
-    const toolbarItems = preview.match(/palette:\s*\{[\s\S]*?items:\s*\[([\s\S]*?)\]/)?.[1] ?? '';
-    const offered = [...toolbarItems.matchAll(/value:\s*'([^']+)'/g)].map((match) => match[1]);
+    const allowed = [...paletteSource.matchAll(/'([^']+)'/g)].map((match) => match[1]);
 
-    assert.ok(offered.length > 0, 'Storybook palette toolbar must expose at least one palette option');
-    assert.deepEqual(
-      offered.filter((palette) => !allowed.has(palette)),
-      [],
-      'Storybook palette toolbar must use the same palette ids as @maka/core.',
+    assert.ok(allowed.length > 0, '@maka/core must define THEME_PALETTES');
+    assert.match(
+      preview,
+      /import\s+\{[^}]*THEME_PALETTES[^}]*\}\s+from\s+['"][^'"]*settings/,
+      'preview.tsx must import THEME_PALETTES so the toolbar stays single-sourced',
+    );
+    assert.match(
+      preview,
+      /items:\s*THEME_PALETTES\.map/,
+      'preview.tsx must generate toolbar items from THEME_PALETTES',
     );
   });
 
@@ -171,6 +174,103 @@ describe('Storybook baseline contract', () => {
     assert.match(fixtures, /User denied permission/, 'stories must cover permission-denied copy');
     assert.match(story, /expandAll/, 'result preview stories must expose collapsed successful previews for visual review');
     assert.match(story, /autoCopyLabel/, 'stories must expose copy feedback rather than only idle copy buttons');
+  });
+
+  it('labels the retained functional motion examples', () => {
+    const story = readFileSync(join(REPO_ROOT, 'packages', 'ui', 'stories', 'animation-catalog.stories.tsx'), 'utf8');
+
+    assert.match(story, /title:\s*'Design System\/Animation Catalog'/);
+    for (const label of ['Spinner', 'Status pulse', 'Shimmer']) {
+      assert.match(story, new RegExp(`>\\s*${label}\\s*<`), `${label} must be visible beside its motion sample`);
+    }
+  });
+
+  it('tracks every icon export in the Design System Icons story', () => {
+    const storyPath = join(REPO_ROOT, 'packages', 'ui', 'stories', 'icons.stories.tsx');
+    assert.ok(existsSync(storyPath), 'Design System must include an Icons story');
+
+    const story = readFileSync(storyPath, 'utf8');
+    assert.match(story, /title:\s*['"]Design System\/Icons['"]/);
+    assert.match(story, /import\s+\*\s+as\s+Icons\s+from\s+['"]\.\.\/src\/icons\.js['"]/);
+    assert.match(story, /export const LucideIcons: Story/);
+    assert.match(story, /lucide-react re-export/, 'Icons story must explain the Lucide runtime seam');
+    assert.match(story, /OMITTED_RUNTIME_EXPORTS/);
+    assert.match(story, /BotBrandLogo/);
+    assert.match(story, /BOT_BRAND/);
+    for (const provider of ['telegram', 'feishu', 'wecom', 'wechat', 'discord', 'dingtalk', 'qq']) {
+      assert.match(story, new RegExp(`['"]${provider}['"]`), `${provider} must appear in the bot brand icon story`);
+    }
+  });
+
+  it('removes the temporary Phosphor vs Lucide icon comparison story after the Lucide cutover', () => {
+    const storyPath = join(REPO_ROOT, 'packages', 'ui', 'stories', 'icon-set-comparison.stories.tsx');
+    assert.ok(!existsSync(storyPath), 'temporary side-by-side icon comparison story must not ship after cutover');
+  });
+
+  it('splits design token examples into focused stories', () => {
+    const story = readFileSync(join(REPO_ROOT, 'packages', 'ui', 'stories', 'design-tokens.stories.tsx'), 'utf8');
+
+    assert.match(story, /title:\s*'Design System\/Tokens'/);
+    for (const exportName of ['Colors', 'Radius', 'PrimaryActions', 'SemanticColors']) {
+      assert.match(story, new RegExp(`export const ${exportName}: Story`), `${exportName} story must be exported`);
+    }
+    assert.doesNotMatch(story, /export const TokenOverview/);
+
+    const colorSwatches = story.slice(
+      story.indexOf('const colorSwatches'),
+      story.indexOf('const emphasisAliases'),
+    );
+    assert.match(colorSwatches, /'--action'/);
+    assert.match(colorSwatches, /'--control'/);
+    for (const noisyToken of ['--foreground-5', '--foreground-30', '--foreground-50', '--foreground-70', '--link', '--focus-ring', '--status-running', '--nav-active', '--toast-accent']) {
+      assert.doesNotMatch(colorSwatches, new RegExp(noisyToken), `${noisyToken} should not render as a separate color swatch`);
+    }
+  });
+
+  it('exposes the full Design System foundation story surface', () => {
+    const expected: ReadonlyArray<readonly [string, string, readonly string[]]> = [
+      ['Design System/Animation Catalog', 'animation-catalog.stories.tsx', ['RetainedFunctionalMotion', 'DurationScale', 'EasingScale']],
+      ['Design System/Icons', 'icons.stories.tsx', ['LucideIcons', 'BotBrandIcons']],
+      ['Design System/Palette Matrix', 'palette-matrix.stories.tsx', ['AllPalettes']],
+      ['Design System/Typography', 'typography.stories.tsx', ['TypeScale']],
+      ['Design System/Spacing', 'spacing.stories.tsx', ['Spacing']],
+      ['Design System/Elevation', 'elevation.stories.tsx', ['Elevation']],
+      ['Design System/Layering', 'layering.stories.tsx', ['Layering']],
+    ];
+    for (const [title, file, exports] of expected) {
+      const storyPath = join(REPO_ROOT, 'packages', 'ui', 'stories', file);
+      assert.ok(existsSync(storyPath), `${file} must exist as a Design System story`);
+      const story = readFileSync(storyPath, 'utf8');
+      assert.match(story, new RegExp(`title:\\s*['"]${title.replace(/\//g, '\\/')}['"]`), `${file} must have title ${title}`);
+      for (const name of exports) {
+        assert.match(story, new RegExp(`export const ${name}: Story`), `${file} must export ${name}`);
+      }
+    }
+  });
+
+  it('keeps Design System stories free of undefined token references', () => {
+    const tokensCss = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css'), 'utf8');
+    const stylesCss = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');
+    const defined = new Set<string>([
+      ...[...tokensCss.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]),
+      ...[...stylesCss.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]),
+    ]);
+    const storiesDir = join(REPO_ROOT, 'packages', 'ui', 'stories');
+    const storyFiles = readdirSync(storiesDir)
+      .filter((f) => f.endsWith('.stories.tsx'));
+    const undefinedRefs: string[] = [];
+    for (const file of storyFiles) {
+      const story = readFileSync(join(storiesDir, file), 'utf8');
+      const referenced = new Set<string>();
+      for (const m of story.matchAll(/var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)/g)) referenced.add(m[1]);
+      for (const m of story.matchAll(/['"`](--[\w-]+)['"`]/g)) referenced.add(m[1]);
+      for (const token of referenced) {
+        if (!defined.has(token)) {
+          undefinedRefs.push(`${file}: ${token}`);
+        }
+      }
+    }
+    assert.deepEqual(undefinedRefs, [], `Design System stories reference undefined tokens:\n  ${undefinedRefs.join('\n  ')}`);
   });
 
   it('storyboards provider settings states before visual polish', () => {

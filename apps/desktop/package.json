@@ -49,7 +49,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@iconify-json/ph": "^1.2.2",
     "@storybook/react-vite": "^10.4.6",
     "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.2.7",

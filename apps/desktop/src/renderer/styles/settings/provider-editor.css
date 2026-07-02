@@ -23,7 +23,7 @@
   display: grid;
   gap: 2px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--foreground-3);
   color: var(--foreground);
   padding: 6px 8px;
@@ -102,7 +102,7 @@
 .providerCatalogBadge {
   flex: 0 0 auto;
   width: fit-content;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-60);
   padding: 2px 7px;
@@ -121,7 +121,7 @@
   display: grid;
   gap: 4px;
   border: 1px solid oklch(from var(--info) l c h / 0.22);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   padding: 12px;
@@ -167,7 +167,7 @@
    * Now: radius 8 + min-height 36 + 3px halo + smoother transition.
    * Matches connectionForm inputs visually so users see the same
    * "this is a focused input" signal everywhere. */
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--background-elevated);
   color: var(--foreground);
   padding: 0 12px;
@@ -208,7 +208,7 @@
    * focus-visible — keyboard users couldn't see it. */
   padding: 2px 6px;
   margin: -2px -6px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   transition: background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong), text-decoration-color var(--duration-quick) var(--ease-out-strong);
 }
 
@@ -236,7 +236,7 @@
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--foreground-2);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
@@ -282,7 +282,7 @@
   width: 100%;
   padding: 7px 11px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground);
   font-size: 12px;
@@ -300,7 +300,7 @@
 
 .modelTableEmpty {
   padding: 18px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground-60);
   font-size: 12px;
@@ -314,7 +314,7 @@
   display: block;
   text-align: left;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   border: 1px solid oklch(from var(--accent) l c h / 0.22);
   background: oklch(from var(--accent) l c h / 0.06);
   color: var(--foreground);
@@ -352,7 +352,7 @@
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground);
   text-align: left;
@@ -448,7 +448,7 @@
 
 .modelTableChip {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-60);
   font-size: 10px;
@@ -459,7 +459,7 @@
 
 .modelTableDefaultBadge {
   padding: 1px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: oklch(from var(--accent) l c h / 0.14);
   color: var(--accent);
   font-size: 10px;
@@ -541,7 +541,7 @@
 }
 .providerOAuthError {
   border: 1px solid color-mix(in srgb, var(--warning) 32%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   background: color-mix(in srgb, var(--warning) 10%, var(--background));
   color: var(--warning-text);
   font-size: 12px;
@@ -610,7 +610,7 @@
   align-items: flex-start;
   gap: 2px;
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
   padding: 12px 14px;

@@ -4,18 +4,17 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 describe('composer send guard', () => {
-  it('renders disabled primary buttons as inert neutral controls, not active CTAs', async () => {
-    const css = await readFile(join(process.cwd(), 'src', 'renderer', 'maka-tokens.css'), 'utf8');
-
+  it('keeps the send button inert and visually dimmed when disabled', async () => {
+    const ui = await readFile(join(process.cwd(), '../../packages/ui/src/ui.tsx'), 'utf8');
     assert.match(
-      css,
-      /\.maka-button\[data-variant="primary"\]\[disabled\],[\s\S]*?\.maka-button\[data-variant="primary"\]\[aria-disabled="true"\]\s*\{[\s\S]*?background:\s*var\(--background\);[\s\S]*?color:\s*var\(--foreground-50\);[\s\S]*?border-color:\s*var\(--border\);/,
-      'disabled primary buttons must not keep the accent background; empty composer send looked clickable while disabled',
+      ui,
+      /disabled:pointer-events-none/,
+      'buttonVariants must disable pointer events on disabled buttons so the send button cannot be clicked while empty or in-flight',
     );
     assert.match(
-      css,
-      /\.maka-button\[data-variant="primary"\]\[disabled\]:hover,[\s\S]*?\.maka-button\[data-variant="primary"\]\[aria-disabled="true"\]:active\s*\{[\s\S]*?transform:\s*none;/,
-      'disabled primary buttons must not react to hover/active like enabled CTAs',
+      ui,
+      /disabled:opacity-\d+/,
+      'buttonVariants must dim disabled buttons so they do not present as an active CTA',
     );
   });
 

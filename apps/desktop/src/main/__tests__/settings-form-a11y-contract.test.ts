@@ -73,32 +73,32 @@ describe('Settings form accessibility labels', () => {
     const settingsRowValue = styles.match(/\.settingsRow > span\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const settingsRowTitle = styles.match(/\.settingsRow strong\s*\{[\s\S]*?\}/)?.[0] ?? '';
 
-    assert.match(connectionRow, /border-radius:\s*8px;/, 'Settings connection cards should use reference implementation rounded-lg geometry');
+    assert.match(connectionRow, /border-radius:\s*var\(--radius-surface\);/, 'Settings connection cards should use reference implementation rounded-lg geometry');
     assert.match(connectionRow, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings connection cards should use reference implementation near-flat card shadow');
-    assert.match(authContract, /border-radius:\s*8px;/, 'Nested auth contract cards should stay on the same 8px radius');
+    assert.match(authContract, /border-radius:\s*var\(--radius-surface\);/, 'Nested auth contract cards should stay on the same 8px radius');
     assert.match(authContract, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Nested auth contract cards should keep the same near-flat shadow');
     // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
     // orphan; only `.settingsRow` remains in the live rule. The
     // border-radius / shadow geometry still applies via the same
     // rule which is captured by `providerSurfaces` now.
-    assert.match(catalogTabsButton, /border-radius:\s*8px;/, 'Settings model category tabs should use reference implementation rounded-lg geometry');
+    assert.match(catalogTabsButton, /border-radius:\s*var\(--radius-surface\);/, 'Settings model category tabs should use reference implementation rounded-lg geometry');
     assert.match(providerMarketGridRule, /grid-template-columns:\s*1fr;/, 'Settings provider catalog should render as a seamless single-column row list, not a card grid');
     assert.ok(providerCatalogRow, 'Settings provider catalog rows should be governed by the shared .providerCatalogRow (Item) class');
     // PR-DELETE-ORPHAN-CSS: providerIcon assertion removed (orphan).
-    assert.match(modelTable, /border-radius:\s*8px;/, 'Settings model table should use the same 8px secondary-surface radius');
+    assert.match(modelTable, /border-radius:\s*var\(--radius-surface\);/, 'Settings model table should use the same 8px secondary-surface radius');
     assert.match(modelTable, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings model table should stay near-flat instead of returning to legacy panel shadows');
-    assert.match(modelTableRow, /border-radius:\s*8px;/, 'Settings model rows should use compact 8px row geometry');
-    assert.match(modelTableEmpty, /border-radius:\s*8px;/, 'Settings model table empty state should align with the same 8px geometry');
-    assert.match(providerCatalogBadge, /border-radius:\s*4px;/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
-    assert.match(modelTableChip, /border-radius:\s*4px;/, 'Settings model capability chips should use compact squared target-layout style corners, not pills');
-    assert.match(modelTableDefaultBadge, /border-radius:\s*4px;/, 'Settings model default badge should use compact squared target-layout style corners, not pills');
-    assert.match(connectionBadge, /border-radius:\s*4px;/, 'Settings status badges should use compact squared target-layout style corners, not pills');
-    assert.match(settingsBadge, /border-radius:\s*4px;/, 'Generic Settings badges should use compact squared target-layout style corners, not pills');
-    assert.doesNotMatch(providerCatalogBadge, /border-radius:\s*999px;/, 'Provider catalog badges must not regress to pill-shaped chrome');
-    assert.doesNotMatch(modelTableChip, /border-radius:\s*999px;/, 'Settings model capability chips must not regress to pill-shaped chrome');
-    assert.doesNotMatch(modelTableDefaultBadge, /border-radius:\s*999px;/, 'Settings model default badge must not regress to pill-shaped chrome');
-    assert.doesNotMatch(connectionBadge, /border-radius:\s*999px;/, 'Settings connection badges must not regress to pill-shaped chrome');
-    assert.doesNotMatch(settingsBadge, /border-radius:\s*999px;/, 'Generic Settings badges must not regress to pill-shaped chrome');
+    assert.match(modelTableRow, /border-radius:\s*var\(--radius-surface\);/, 'Settings model rows should use compact 8px row geometry');
+    assert.match(modelTableEmpty, /border-radius:\s*var\(--radius-surface\);/, 'Settings model table empty state should align with the same 8px geometry');
+    assert.match(providerCatalogBadge, /border-radius:\s*var\(--radius-control\);/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
+    assert.match(modelTableChip, /border-radius:\s*var\(--radius-control\);/, 'Settings model capability chips should use compact squared target-layout style corners, not pills');
+    assert.match(modelTableDefaultBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings model default badge should use compact squared target-layout style corners, not pills');
+    assert.match(connectionBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings status badges should use compact squared target-layout style corners, not pills');
+    assert.match(settingsBadge, /border-radius:\s*var\(--radius-control\);/, 'Generic Settings badges should use compact squared target-layout style corners, not pills');
+    assert.doesNotMatch(providerCatalogBadge, /border-radius:\s*var\(--radius-pill\);/, 'Provider catalog badges must not regress to pill-shaped chrome');
+    assert.doesNotMatch(modelTableChip, /border-radius:\s*var\(--radius-pill\);/, 'Settings model capability chips must not regress to pill-shaped chrome');
+    assert.doesNotMatch(modelTableDefaultBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings model default badge must not regress to pill-shaped chrome');
+    assert.doesNotMatch(connectionBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings connection badges must not regress to pill-shaped chrome');
+    assert.doesNotMatch(settingsBadge, /border-radius:\s*var\(--radius-pill\);/, 'Generic Settings badges must not regress to pill-shaped chrome');
     assert.match(settingsRow, /display:\s*grid;/, 'Settings rows should use a stable label/value grid instead of flex auto sizing');
     assert.match(settingsRow, /grid-template-columns:\s*minmax\(150px,\s*0\.36fr\)\s+minmax\(0,\s*1fr\);/, 'Settings rows need a protected label column and shrinkable value column');
     assert.match(settingsRowValue, /overflow-wrap:\s*anywhere;/, 'Long Settings values such as workspace paths should wrap in the value column');
