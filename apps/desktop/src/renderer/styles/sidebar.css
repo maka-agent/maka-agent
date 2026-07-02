@@ -799,7 +799,7 @@
   opacity: 0;
   transform: translateX(8px);
   transition:
-    opacity 140ms ease,
+    opacity 140ms var(--ease-out-strong),
     transform 140ms var(--ease-out-strong);
   pointer-events: none;
 }
@@ -907,8 +907,8 @@
   padding: 10px 12px;
   text-align: left;
   transition:
-    border-color 140ms ease,
-    background 140ms ease,
+    border-color 140ms var(--ease-out-strong),
+    background 140ms var(--ease-out-strong),
     transform 140ms var(--ease-out-strong);
 }
 

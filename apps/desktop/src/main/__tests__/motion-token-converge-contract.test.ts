@@ -130,4 +130,68 @@ describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
     assert.match(tokens, /--ease-in-out-strong:\s*cubic-bezier/);
     assert.match(tokens, /--ease-drawer:\s*cubic-bezier/);
   });
+
+  it('bare ease/linear timing keywords are banned — use var(--ease-*) tokens', async () => {
+    // PR-MOTION-TOKEN-CONVERGE-1 (#430 PR1): the three easing tokens
+    // (--ease-out-strong / --ease-in-out-strong / --ease-drawer) are the
+    // single source of truth. Bare `ease` / `ease-out` / `ease-in-out`
+    // drift visually and can't be retuned in one place. `linear` is the
+    // same class of keyword but is legitimate inside infinite-loop
+    // animations (spinners, shimmer) — those are whitelisted per-line.
+    //
+    // Token declarations like `--ease-out-strong:` are safe: the
+    // lookbehind `(?<![\w-])` rejects the preceding hyphen. Tailwind
+    // arbitrary values like `ease-[var(--ease-out-strong)]` are safe:
+    // the `ease` is followed by `-` which the negative lookahead rejects.
+    const BARE_EASE = /(?<![\w-])ease(?![\w-])/g;
+    const BARE_EASE_OUT = /(?<![\w-])ease-out(?!\s*-strong)/g;
+    const BARE_EASE_IN_OUT = /(?<![\w-])ease-in-out(?!\s*-strong)/g;
+    const BARE_LINEAR = /(?<![\w-])linear(?![\w-])/g;
+
+    const offenders: string[] = [];
+
+    function scan(src: string, label: string): void {
+      const lines = src.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/\binfinite\b/.test(line) && /\blinear\b/.test(line)) continue;
+        for (const [name, re] of [
+          ['ease', BARE_EASE],
+          ['ease-out', BARE_EASE_OUT],
+          ['ease-in-out', BARE_EASE_IN_OUT],
+          ['linear', BARE_LINEAR],
+        ] as const) {
+          const matches = line.match(re);
+          if (matches) {
+            for (const m of matches) {
+              offenders.push(`${label}:${i + 1}: bare \`${name}\``);
+            }
+          }
+        }
+      }
+    }
+
+    scan(stripCssComments(await readAllRendererCss()), 'renderer CSS');
+
+    const { readdir } = await import('node:fs/promises');
+    async function walk(dir: string): Promise<void> {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__tests__') continue;
+        const full = resolve(dir, entry.name);
+        if (entry.isDirectory()) await walk(full);
+        else if (entry.isFile() && /\.(tsx|ts)$/.test(entry.name)) {
+          scan(await readFile(full, 'utf8'), full.replace(REPO_ROOT + '/', ''));
+        }
+      }
+    }
+    await walk(resolve(REPO_ROOT, 'packages/ui/src'));
+    await walk(resolve(REPO_ROOT, 'apps/desktop/src/renderer'));
+
+    assert.deepEqual(
+      offenders,
+      [],
+      `Bare ease/linear timing keywords are banned — use var(--ease-out-strong), var(--ease-in-out-strong), or var(--ease-drawer).\n  ${offenders.join('\n  ')}`,
+    );
+  });
 });

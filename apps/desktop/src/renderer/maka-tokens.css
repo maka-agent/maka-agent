@@ -695,7 +695,7 @@
   ::-webkit-scrollbar-thumb  {
     background: transparent;
     border-radius: var(--radius-control);
-    transition: background 120ms ease;
+    transition: background 120ms var(--ease-out-strong);
   }
   *:hover {
     scrollbar-color: oklch(from var(--foreground) l c h / 0.18) transparent;
@@ -857,7 +857,7 @@
     font-size: 14px;
     line-height: 1.4;
     user-select: none;
-    transition: background 120ms ease, color 120ms ease;
+    transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong);
   }
   .maka-sidebar-row:hover    { background: var(--hover); }
   .maka-sidebar-row[data-active="true"] {
@@ -1176,7 +1176,7 @@
     padding: 0 2px;
     margin: 0 -2px;
     border-radius: var(--radius-control);
-    transition: border-bottom-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+    transition: border-bottom-color 120ms var(--ease-out-strong), background 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
   .maka-bubble-assistant a:hover {
     border-bottom-color: var(--accent);
@@ -1237,7 +1237,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--foreground-50);
-    transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
   .maka-code-block-copy:hover {
     color: var(--foreground);
@@ -1398,11 +1398,11 @@
        list keeps both axes coherent. */
     transform: translateY(-3px) scale(0.96);
     transition:
-      opacity 160ms ease,
+      opacity 160ms var(--ease-out-strong),
       transform 180ms var(--ease-out-strong),
-      color 120ms ease,
-      background 120ms ease,
-      box-shadow 120ms ease;
+      color 120ms var(--ease-out-strong),
+      background 120ms var(--ease-out-strong),
+      box-shadow 120ms var(--ease-out-strong);
   }
 
   /* Labelled variant (e.g. "复制思考过程") — flows inline, doesn't absolute-
@@ -1462,7 +1462,7 @@
     display: inline-block;
     margin-left: 2px;
     color: var(--accent);
-    animation: maka-cursor 1.1s ease-in-out infinite;
+    animation: maka-cursor 1.1s var(--ease-in-out-strong) infinite;
     vertical-align: -2px;
   }
   @keyframes maka-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -1485,7 +1485,7 @@
   [data-slot="tool"] {
     opacity: 1;
     transform: translateY(0);
-    transition: border-color 160ms ease;
+    transition: border-color 160ms var(--ease-out-strong);
   }
   /* Native <details>/<summary> marker reset — the summary IS the header row
      (laid out by `toolVariants({ part: 'header' })`), so the default disclosure
@@ -1544,7 +1544,7 @@
     flex-direction: column;
     gap: 10px;
     border: 1px solid var(--border);
-    transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong), background 160ms var(--ease-out-strong);
   }
 
   /* Composer focus ring — `:focus-within` lets the wrapping shell glow
@@ -1589,7 +1589,7 @@
        listening" instead of "the placeholder is just sitting
        there." The fade is small (1 → 0.55) — enough to register,
        small enough not to feel like a glitch. */
-    transition: opacity 180ms var(--ease-out-strong, ease-out);
+    transition: opacity 180ms var(--ease-out-strong);
   }
   .maka-composer textarea:focus::placeholder {
     opacity: 0.55;
@@ -1620,7 +1620,7 @@
     font-size: 13px;
     font-weight: 500;
     line-height: 1.2;
-    transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+    transition: background 120ms var(--ease-out-strong), border-color 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), transform 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
   .maka-button:hover  { background: var(--hover); }
   .maka-button:active { background: var(--active); transform: translateY(0.5px); }
@@ -1727,7 +1727,7 @@
     transparent 100%
   );
   background-size: 200% 100%;
-  animation: maka-shimmer 1.5s ease-in-out infinite;
+  animation: maka-shimmer 1.5s var(--ease-in-out-strong) infinite;
 }
 
 /* Skeleton placeholder primitives — used while data is still in flight.
@@ -1751,7 +1751,7 @@
     transparent 100%
   );
   background-size: 200% 100%;
-  animation: maka-shimmer 1.6s ease-in-out infinite;
+  animation: maka-shimmer 1.6s var(--ease-in-out-strong) infinite;
 }
 .maka-skeleton-line {
   height: 12px;

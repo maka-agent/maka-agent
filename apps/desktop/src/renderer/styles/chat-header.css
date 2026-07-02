@@ -135,7 +135,7 @@
   transition:
     transform var(--duration-emphasized) var(--ease-out-strong),
     opacity var(--duration-emphasized) var(--ease-out-strong),
-    background 120ms ease;
+    background 120ms var(--ease-out-strong);
   }
 
   .maka-chat-jump-bottom:hover {

@@ -31,7 +31,7 @@
   color: var(--foreground);
   font: inherit;
   text-align: left;
-  transition: background-color 130ms ease;
+  transition: background-color 130ms var(--ease-out-strong);
 }
 
 .enabledProviderTrigger:hover { background: var(--hover); }
