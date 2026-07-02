@@ -1,7 +1,6 @@
 import { isTerminalRuntimeEvent } from '@maka/core';
 import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import type { StoredMessage, TurnRecord } from '@maka/core/session';
-import type { UserMessageInput } from '@maka/core/runtime-inputs';
 import type { AgentRunLineage } from './agent-run.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
 import {
