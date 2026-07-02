@@ -3270,7 +3270,7 @@ describe('SessionManager permission mode updates', () => {
       { type: 'complete', stopReason: 'error' },
     ]));
     const manager = new SessionManager({
-      store, runStore, backends, newId: nextId(), now: nextNow(10_000),
+      store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(10_000),
     });
     const session = await manager.createSession(makeInput());
 
@@ -4028,7 +4028,7 @@ describe('SessionManager permission mode updates', () => {
     expect(events.map((event) => event.type)).toContain('run_failed');
   });
 
-  test('startup recovery keeps terminal AgentRun ledger entries idempotent', async () => {
+  test('startup recovery treats terminal AgentRun headers without RuntimeEvent facts as missing terminal events', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -4068,13 +4068,28 @@ describe('SessionManager permission mode updates', () => {
 
     const recovered = await manager.recoverInterruptedSessions();
 
-    expect(recovered).toEqual([]);
-    expect((await runStore.readRun(completed.id, 'completed-run')).status).toBe('completed');
+    expect(recovered).toEqual([completed.id, failed.id, cancelled.id]);
+    const completedRun = await runStore.readRun(completed.id, 'completed-run');
+    expect(completedRun.status).toBe('failed');
+    expect(completedRun.failureClass).toBe('missing_terminal_event');
     expect((await runStore.readEvents(completed.id, 'completed-run')).map((event) => event.type)).toEqual(['run_completed']);
-    expect((await runStore.readRun(failed.id, 'failed-run')).failureClass).toBe('tool_failed');
+    const completedTerminalEvents = (await runStore.readRuntimeEvents(completed.id, 'completed-run')).filter(isTerminalRuntimeEvent);
+    expect(completedTerminalEvents.map((event) => event.status)).toEqual(['failed']);
+    expect(completedTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    const failedRun = await runStore.readRun(failed.id, 'failed-run');
+    expect(failedRun.status).toBe('failed');
+    expect(failedRun.failureClass).toBe('missing_terminal_event');
     expect((await runStore.readEvents(failed.id, 'failed-run')).map((event) => event.type)).toEqual(['run_failed']);
-    expect((await runStore.readRun(cancelled.id, 'cancelled-run')).status).toBe('cancelled');
+    const failedTerminalEvents = (await runStore.readRuntimeEvents(failed.id, 'failed-run')).filter(isTerminalRuntimeEvent);
+    expect(failedTerminalEvents.map((event) => event.status)).toEqual(['failed']);
+    expect(failedTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    const cancelledRun = await runStore.readRun(cancelled.id, 'cancelled-run');
+    expect(cancelledRun.status).toBe('failed');
+    expect(cancelledRun.failureClass).toBe('missing_terminal_event');
     expect((await runStore.readEvents(cancelled.id, 'cancelled-run')).map((event) => event.type)).toEqual(['run_cancelled']);
+    const cancelledTerminalEvents = (await runStore.readRuntimeEvents(cancelled.id, 'cancelled-run')).filter(isTerminalRuntimeEvent);
+    expect(cancelledTerminalEvents.map((event) => event.status)).toEqual(['failed']);
+    expect(cancelledTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
   });
 
   test('startup recovery does not leave persisted running sessions stuck when message read fails', async () => {

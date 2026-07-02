@@ -315,6 +315,10 @@ function terminalRuntimeEvent(input: {
     };
   }
   const ts = turnState?.ts ?? input.run.completedAt ?? input.run.updatedAt;
+  const failureClass = status === 'failed' ? turnState?.errorClass ?? input.run.failureClass : undefined;
+  const abortSource = status === 'aborted'
+    ? turnState?.abortSource ?? input.run.abortSource ?? (turnState?.status === 'aborted' ? 'unknown' : undefined)
+    : undefined;
   return {
     event: {
       id: input.newId(),
@@ -331,10 +335,8 @@ function terminalRuntimeEvent(input: {
         endInvocation: true,
         stateDelta: {
           ...terminalRecoveryState(input.now, turnState),
-          ...(status === 'failed' && turnState?.errorClass !== undefined ? { failureClass: turnState.errorClass } : {}),
-          ...(status === 'failed' && turnState?.errorClass !== undefined ? { errorClass: turnState.errorClass } : {}),
-          ...(status === 'aborted' && turnState?.status === 'aborted' && turnState.abortSource === undefined ? { abortSource: 'unknown' } : {}),
-          ...(turnState?.abortSource !== undefined ? { abortSource: turnState.abortSource } : {}),
+          ...(failureClass !== undefined ? { failureClass, errorClass: failureClass } : {}),
+          ...(abortSource !== undefined ? { abortSource } : {}),
         },
       },
       ...(turnState ? { refs: { storedMessageId: turnState.id } } : {}),

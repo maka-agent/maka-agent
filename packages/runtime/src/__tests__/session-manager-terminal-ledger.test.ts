@@ -25,8 +25,9 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
-import { commitTerminalRunWithRuntimeFact } from '../terminal-run-commit.js';
+import { classifyTerminalRuntimeLedger, commitTerminalRunWithRuntimeFact } from '../terminal-run-commit.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
+import { RuntimeKernel } from '../runtime-kernel.js';
 
 describe('SessionManager terminal ledger invariants', () => {
   test('error streams persist a failed terminal fact without non-terminal error ledger rows', async () => {
@@ -126,6 +127,103 @@ describe('SessionManager terminal ledger invariants', () => {
       /terminal RuntimeEvent status completed cannot commit failed run header/,
     );
     expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
+  });
+
+  test('terminal ledger classification rejects multiple terminal RuntimeEvent signals', () => {
+    const run = makeRunHeader({ status: 'running' });
+
+    const result = classifyTerminalRuntimeLedger(run, [
+      runtimeEvent({
+        id: 'rt-completed',
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+      runtimeEvent({
+        id: 'rt-failed',
+        status: 'failed',
+        content: {
+          kind: 'error',
+          code: 'tool_failed',
+          reason: 'tool_failed',
+          message: 'Tool failed',
+        },
+        actions: {
+          endInvocation: true,
+          stateDelta: { failureClass: 'tool_failed' },
+        },
+      }),
+    ]);
+
+    expect(result.kind).toBe('ambiguous');
+    expect(result.terminalEvents.map((event) => event.id)).toEqual(['rt-completed', 'rt-failed']);
+  });
+
+  test('runtime constructors reject AgentRunStore without a RuntimeEventStore', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const backends = new BackendRegistry();
+
+    assert.throws(
+      () => new SessionManager({
+        store,
+        runStore,
+        backends,
+        newId: nextId(),
+        now: nextNow(25_000),
+      }),
+      /RuntimeEventStore/,
+    );
+    assert.throws(
+      () => new RuntimeKernel({
+        store,
+        runStore,
+        backends,
+        newId: nextId(),
+        now: nextNow(25_100),
+      }),
+      /RuntimeEventStore/,
+    );
+    assert.throws(
+      () => new AgentRun({
+        sessionId: 'session-1',
+        header: {
+          id: 'session-1',
+          workspaceRoot: '/tmp/workspace',
+          cwd: '/tmp/cwd',
+          createdAt: 1,
+          lastUsedAt: 1,
+          name: 'Session',
+          isFlagged: false,
+          labels: [],
+          isArchived: false,
+          status: 'active',
+          statusUpdatedAt: 1,
+          hasUnread: false,
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          connectionLocked: false,
+          model: 'fake-model',
+          permissionMode: 'ask',
+          schemaVersion: 1,
+        },
+        userInput: { turnId: 'turn-1', text: 'hello' },
+        store,
+        runStore,
+        newId: nextId(),
+        now: nextNow(25_200),
+        hooks: {
+          ensureActive: async () => {
+            throw new Error('ensureActive should not be called');
+          },
+          registerRun: () => {},
+          unregisterRun: () => {},
+          updateHeader: (sessionId, patch) => store.updateHeader(sessionId, patch),
+          updateStatus: async () => {},
+          appendTurnState: async () => {},
+        },
+      }),
+      /RuntimeEventStore/,
+    );
   });
 
   test('direct AgentRun terminal writes fail before terminal headers can commit', async () => {
@@ -362,6 +460,168 @@ describe('SessionManager terminal ledger invariants', () => {
     if (turnState?.type !== 'turn_state') throw new Error('turn_state was not projected');
     expect(turnState.status).toBe('failed');
     expect(turnState.errorClass).toBe('tool_failed');
+  });
+
+  test('startup recovery does not append another terminal RuntimeEvent when the ledger is ambiguous', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(70_000),
+      runtimeSource: 'test',
+    });
+    const session = await store.create(makeInput({ status: 'active' }));
+    const run = await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-ambiguous-terminal',
+      turnId: 'turn-ambiguous-terminal',
+      status: 'running',
+    }));
+    await runStore.appendEvent(session.id, run.runId, {
+      type: 'run_started',
+      id: 'run-started',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 2,
+    });
+    await runStore.appendRuntimeEvent(session.id, run.runId, runtimeEvent({
+      id: 'rt-completed',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'completed',
+      actions: { endInvocation: true },
+    }));
+    await runStore.appendRuntimeEvent(session.id, run.runId, runtimeEvent({
+      id: 'rt-failed',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'failed',
+      content: {
+        kind: 'error',
+        code: 'tool_failed',
+        reason: 'tool_failed',
+        message: 'Tool failed',
+      },
+      actions: {
+        endInvocation: true,
+        stateDelta: { failureClass: 'tool_failed' },
+      },
+    }));
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([]);
+    expect((await runStore.readRun(session.id, run.runId)).status).toBe('running');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents.map((event) => event.id)).toEqual(['rt-completed', 'rt-failed']);
+  });
+
+  test('startup recovery treats terminal headers without ledger facts as missing terminal events', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(80_000),
+      runtimeSource: 'test',
+    });
+    const completedSession = await store.create(makeInput({ status: 'active' }));
+    const failedSession = await store.create(makeInput({ status: 'active' }));
+    const cancelledSession = await store.create(makeInput({ status: 'active' }));
+    await runStore.createRun(makeRunHeader({
+      sessionId: completedSession.id,
+      runId: 'run-completed-empty-ledger',
+      turnId: 'turn-completed-empty-ledger',
+      status: 'completed',
+      completedAt: 20,
+    }));
+    await runStore.appendEvent(completedSession.id, 'run-completed-empty-ledger', {
+      type: 'run_completed',
+      id: 'run-completed-event',
+      sessionId: completedSession.id,
+      runId: 'run-completed-empty-ledger',
+      turnId: 'turn-completed-empty-ledger',
+      ts: 20,
+    });
+    await runStore.createRun(makeRunHeader({
+      sessionId: failedSession.id,
+      runId: 'run-failed-empty-ledger',
+      turnId: 'turn-failed-empty-ledger',
+      status: 'failed',
+      failureClass: 'tool_failed',
+      completedAt: 21,
+    }));
+    await runStore.appendEvent(failedSession.id, 'run-failed-empty-ledger', {
+      type: 'run_failed',
+      id: 'run-failed-event',
+      sessionId: failedSession.id,
+      runId: 'run-failed-empty-ledger',
+      turnId: 'turn-failed-empty-ledger',
+      ts: 21,
+      data: { failureClass: 'tool_failed' },
+    });
+    await runStore.createRun(makeRunHeader({
+      sessionId: cancelledSession.id,
+      runId: 'run-cancelled-empty-ledger',
+      turnId: 'turn-cancelled-empty-ledger',
+      status: 'cancelled',
+      abortSource: 'user_stop',
+      completedAt: 22,
+    }));
+    await runStore.appendEvent(cancelledSession.id, 'run-cancelled-empty-ledger', {
+      type: 'run_cancelled',
+      id: 'run-cancelled-event',
+      sessionId: cancelledSession.id,
+      runId: 'run-cancelled-empty-ledger',
+      turnId: 'turn-cancelled-empty-ledger',
+      ts: 22,
+    });
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([completedSession.id, failedSession.id, cancelledSession.id]);
+    const completedEvents = (await runStore.readRuntimeEvents(
+      completedSession.id,
+      'run-completed-empty-ledger',
+    )).filter(isTerminalRuntimeEvent);
+    expect(completedEvents).toHaveLength(1);
+    expect(completedEvents[0]?.status).toBe('failed');
+    expect(completedEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    const failedEvents = (await runStore.readRuntimeEvents(
+      failedSession.id,
+      'run-failed-empty-ledger',
+    )).filter(isTerminalRuntimeEvent);
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0]?.status).toBe('failed');
+    expect(failedEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    const cancelledEvents = (await runStore.readRuntimeEvents(
+      cancelledSession.id,
+      'run-cancelled-empty-ledger',
+    )).filter(isTerminalRuntimeEvent);
+    expect(cancelledEvents).toHaveLength(1);
+    expect(cancelledEvents[0]?.status).toBe('failed');
+    expect(cancelledEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+
+    const completedView = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore })
+      .getSessionView(completedSession.id);
+    expect(completedView.terminalFacts[0]?.runStatus).toBe('failed');
+    expect(completedView.terminalFacts[0]?.failureClass).toBe('missing_terminal_event');
+    const failedView = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore })
+      .getSessionView(failedSession.id);
+    expect(failedView.terminalFacts[0]?.failureClass).toBe('missing_terminal_event');
+    const cancelledView = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore })
+      .getSessionView(cancelledSession.id);
+    expect(cancelledView.terminalFacts[0]?.failureClass).toBe('missing_terminal_event');
   });
 });
 

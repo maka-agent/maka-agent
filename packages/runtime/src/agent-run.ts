@@ -122,6 +122,9 @@ export class AgentRun {
   private terminalRunHeaderCommitted = false;
 
   constructor(private readonly input: AgentRunInput) {
+    if (input.runStore && !input.runtimeEventStore) {
+      throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
+    }
     this.runId = input.newId();
     this.sessionId = input.sessionId;
     this.turnId = input.userInput.turnId;

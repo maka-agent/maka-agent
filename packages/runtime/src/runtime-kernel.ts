@@ -63,7 +63,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
 
-  constructor(private readonly deps: RuntimeKernelDeps) {}
+  constructor(private readonly deps: RuntimeKernelDeps) {
+    if (deps.runStore && !deps.runtimeEventStore) {
+      throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
+    }
+  }
 
   async *startTurn(
     sessionId: string,

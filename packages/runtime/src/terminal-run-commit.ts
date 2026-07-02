@@ -1,6 +1,51 @@
+import { isPartialRuntimeEvent, isTerminalRuntimeEvent } from '@maka/core';
 import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import { classifyRuntimeEventTerminalFact, type RuntimeEventTerminalFact } from './runtime-event-read-model.js';
 
 export type TerminalAgentRunStatus = Extract<AgentRunHeader['status'], 'completed' | 'failed' | 'cancelled'>;
+
+export type TerminalRuntimeLedgerClassification =
+  | {
+      kind: 'fact';
+      fact: RuntimeEventTerminalFact;
+      terminalEvents: readonly RuntimeEvent[];
+    }
+  | {
+      kind: 'none';
+      terminalEvents: readonly RuntimeEvent[];
+    }
+  | {
+      kind: 'incomplete_single_terminal';
+      terminalEvent: RuntimeEvent;
+      terminalEvents: readonly RuntimeEvent[];
+    }
+  | {
+      kind: 'ambiguous';
+      terminalEvents: readonly RuntimeEvent[];
+    };
+
+export function classifyTerminalRuntimeLedger(
+  run: AgentRunHeader,
+  events: readonly RuntimeEvent[],
+): TerminalRuntimeLedgerClassification {
+  const terminalEvents = matchingTerminalRuntimeEvents(run, events);
+  if (terminalEvents.length === 0) {
+    return { kind: 'none', terminalEvents };
+  }
+  if (terminalEvents.length > 1) {
+    return { kind: 'ambiguous', terminalEvents };
+  }
+
+  const fact = classifyRuntimeEventTerminalFact(run, events).fact;
+  if (fact) {
+    return { kind: 'fact', fact, terminalEvents };
+  }
+  return {
+    kind: 'incomplete_single_terminal',
+    terminalEvent: terminalEvents[0]!,
+    terminalEvents,
+  };
+}
 
 export interface CommitTerminalRunWithRuntimeFactInput {
   runStore: AgentRunStore;
@@ -148,4 +193,17 @@ export function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): Terminal
   if (event.status === 'failed') return 'failed';
   if (event.status === 'aborted' || event.status === 'cancelled') return 'cancelled';
   return undefined;
+}
+
+export function matchingTerminalRuntimeEvents(
+  run: AgentRunHeader,
+  events: readonly RuntimeEvent[],
+): RuntimeEvent[] {
+  return events.filter((event) =>
+    !isPartialRuntimeEvent(event) &&
+    event.sessionId === run.sessionId &&
+    event.runId === run.runId &&
+    event.turnId === run.turnId &&
+    isTerminalRuntimeEvent(event)
+  );
 }

@@ -47,7 +47,7 @@ import type {
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
-import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession, isTerminalRuntimeEvent } from '@maka/core';
+import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
 import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
   type RuntimeEventTerminalFact,
@@ -57,6 +57,7 @@ import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run
 import { firstRuntimeRepairRunId, RuntimeLedgerRepair } from './runtime-ledger-repair.js';
 import {
   buildRecoveredTerminalRuntimeEvent,
+  classifyTerminalRuntimeLedger,
   commitTerminalRunWithRuntimeFact,
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
@@ -246,6 +247,9 @@ export class SessionManager {
   private readonly runtimeLedgerRepair?: RuntimeLedgerRepair;
 
   constructor(private readonly deps: SessionManagerDeps) {
+    if (deps.runStore && !deps.runtimeEventStore) {
+      throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
+    }
     if (deps.runStore && deps.runtimeEventStore) {
       this.runtimeLedgerRepair = new RuntimeLedgerRepair({
         runStore: deps.runStore,
@@ -800,7 +804,8 @@ export class SessionManager {
       const clonedRun = cloneRunHeaderForBranchCreate(sourceRun, childSessionId, runId);
       await this.deps.runStore.createRun(clonedRun);
 
-      const clonedEvents: RuntimeEvent[] = [];
+      const sourceTerminalLedger = classifyTerminalRuntimeLedger(sourceRun, sourceEvents);
+      const clonedEventBySourceId = new Map<string, RuntimeEvent>();
       for (const event of sourceEvents) {
         const clonedEvent = cloneRuntimeEventForBranch(event, {
           sessionId: childSessionId,
@@ -809,25 +814,25 @@ export class SessionManager {
           invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
         });
         await this.deps.runtimeEventStore.appendRuntimeEvent(childSessionId, runId, clonedEvent);
-        clonedEvents.push(clonedEvent);
+        clonedEventBySourceId.set(event.id, clonedEvent);
       }
 
-      const terminalEvent = clonedEvents.find(isTerminalRuntimeEvent);
-      const terminalStatus = terminalEvent ? terminalRunStatusFromRuntimeEvent(terminalEvent) : undefined;
-      if (terminalEvent && terminalStatus && isTerminalRunStatus(sourceRun.status)) {
+      if (sourceTerminalLedger.kind === 'fact' && isTerminalRunStatus(sourceRun.status)) {
+        const terminalEvent = clonedEventBySourceId.get(sourceTerminalLedger.fact.terminalEvent.id);
+        if (!terminalEvent) continue;
         await commitTerminalRunWithRuntimeFact({
           runStore: this.deps.runStore,
           newId: this.deps.newId,
           sessionId: childSessionId,
           runId,
           turnId: sourceRun.turnId,
-          status: terminalStatus,
+          status: sourceTerminalLedger.fact.runStatus,
           ts: terminalEvent.ts,
           terminalEvent,
           terminalEventAlreadyPersisted: true,
-          ...(sourceRun.failureClass ? { failureClass: sourceRun.failureClass } : {}),
+          ...(sourceTerminalLedger.fact.failureClass ? { failureClass: sourceTerminalLedger.fact.failureClass } : {}),
           ...(sourceRun.failureMessage ? { failureMessage: sourceRun.failureMessage } : {}),
-          ...(sourceRun.abortSource ? { abortSource: sourceRun.abortSource } : {}),
+          ...(sourceTerminalLedger.fact.abortSource ? { abortSource: sourceTerminalLedger.fact.abortSource } : {}),
           runEventData: {
             recovered: true,
             recoveryReason: 'branch_runtime_ledger_clone',
@@ -854,6 +859,15 @@ export class SessionManager {
         { sessionId, runId: run.runId, header: run },
       );
       if (inspected.sourceHealth.runtimeLedger === 'read_failed') continue;
+      const terminalLedger = classifyTerminalRuntimeLedger(run, inspected.runtimeEvents);
+      if (terminalLedger.kind === 'ambiguous') continue;
+      if (isTerminalRunStatus(run.status) && !inspected.terminalRuntimeFact) {
+        const repaired = await this.repairMissingTerminalFactOnce(sessionId, run.runId);
+        if (repaired) {
+          recovered = true;
+        }
+        continue;
+      }
       const runtimeDecision = this.classifyRuntimeEventRecovery(inspected);
       const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events);
       if (!decision) continue;
@@ -878,8 +892,9 @@ export class SessionManager {
   ): Promise<boolean> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
     const ts = this.deps.now();
+    const terminalLedger = classifyTerminalRuntimeLedger(inspected.header, inspected.runtimeEvents);
     const existingTerminal = inspected.terminalRuntimeFact?.terminalEvent ??
-      singleMatchingTerminalRuntimeEvent(inspected.header, inspected.runtimeEvents);
+      (terminalLedger.kind === 'incomplete_single_terminal' ? terminalLedger.terminalEvent : undefined);
     const status = existingTerminal ? terminalRunStatusFromRuntimeEvent(existingTerminal) ?? decision.status : decision.status;
     const failureClass = status === 'failed' ? decision.failureClass ?? 'app_restarted' : undefined;
     const abortSource = status === 'cancelled' ? decision.abortSource ?? 'unknown' : undefined;
@@ -1157,19 +1172,6 @@ function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
-function singleMatchingTerminalRuntimeEvent(
-  run: AgentRunHeader,
-  events: readonly RuntimeEvent[],
-): RuntimeEvent | undefined {
-  const terminalEvents = events.filter((event) =>
-    event.sessionId === run.sessionId &&
-    event.runId === run.runId &&
-    event.turnId === run.turnId &&
-    isTerminalRuntimeEvent(event)
-  );
-  return terminalEvents.length === 1 ? terminalEvents[0] : undefined;
-}
-
 function isTerminalTurnStatus(status: TurnRecord['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'aborted';
 }
@@ -1212,14 +1214,18 @@ function runtimeTerminalFactToRecoveryDecision(
       runtimeEventId: fact.terminalEvent.id,
       runtimeEventStatus: fact.terminalEvent.status,
     },
-    lineage: {
-      ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
-      ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
-      ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
-      ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
-      ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
-      ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
-    },
+    lineage: headerLineage(header),
+  };
+}
+
+function headerLineage(header: AgentRunHeader): AgentRunRecoveryDecision['lineage'] {
+  return {
+    ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
+    ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
+    ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
+    ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
+    ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
+    ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
   };
 }
 
