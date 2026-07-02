@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/storage" },
+    { "path": "packages/runtime" },
+    { "path": "packages/ui" }
+  ]
+}

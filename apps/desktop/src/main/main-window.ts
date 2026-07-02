@@ -373,6 +373,44 @@ function emitRealWindowSmokeDiagnostic(stage: string): void {
         searchModalPresent: Boolean(document.querySelector('.maka-search-modal')),
         searchModalBackdropPresent: Boolean(document.querySelector('.maka-dialog-backdrop')),
         errorBoundaryPresent: Boolean(document.querySelector('.maka-error-surface')),
+        bodyTextLength: document.body?.innerText?.trim().length ?? 0,
+        bodyTextSample: document.body?.innerText?.trim().slice(0, 240) ?? '',
+        stylesheetCount: document.styleSheets.length,
+        rootChildren: document.getElementById('root')?.children.length ?? 0,
+        elements: ['body', '#root', '.appFrame', '.app', '.maka-panel-list', '.maka-panel-detail', '.mainColumn', '.maka-onboarding-loading'].map((selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return { selector, present: false };
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            selector,
+            present: true,
+            textLength: (element.textContent ?? '').trim().length,
+            rect: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+          };
+        }),
+        centerElement: (() => {
+          const element = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+          if (!element) return null;
+          const style = getComputedStyle(element);
+          return {
+            tagName: element.tagName,
+            className: typeof element.className === 'string' ? element.className : '',
+            text: (element.textContent ?? '').trim().slice(0, 120),
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+          };
+        })(),
         activeElementInSearchModal: Boolean(document.activeElement && document.activeElement.closest && document.activeElement.closest('.maka-search-modal')),
         activeElement: document.activeElement ? {
           tagName: document.activeElement.tagName,
