@@ -1151,9 +1151,10 @@ lines):
 ### S10 — D1: theme palette settings contract
 
 **Contract invariant.**
-- `THEME_PALETTES` is a closed `as const` allowlist of 5 string
+- `THEME_PALETTES` is a closed `as const` allowlist of 11 string
   literals (`default` / `onedark` / `catppuccin-mocha` /
-  `tokyo-night` / `nord`); `ThemePalette = typeof THEME_PALETTES[number]`.
+  `tokyo-night` / `nord` / `coral` / `azure` / `forest` / `dusk` /
+  `sand` / `mono`); `ThemePalette = typeof THEME_PALETTES[number]`.
 - `isThemePalette(value)` is the type guard. Case-sensitive,
   rejects everything else (undefined / non-string / unknown string /
   case-variant).

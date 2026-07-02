@@ -90,9 +90,9 @@ describe('Storybook baseline contract', () => {
 
     assert.ok(offered.length > 0, 'Storybook palette toolbar must expose at least one palette option');
     assert.deepEqual(
-      offered.filter((palette) => !allowed.has(palette)),
-      [],
-      'Storybook palette toolbar must use the same palette ids as @maka/core.',
+      [...allowed].sort(),
+      [...offered].sort(),
+      'Storybook palette toolbar must expose every @maka/core palette, no more, no less.',
     );
   });
 
