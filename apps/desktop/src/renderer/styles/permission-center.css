@@ -10,21 +10,21 @@
   .settingsPermissionPage {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--space-5);
   }
 
   .settingsPermissionIntro {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 20px;
-    padding: 16px;
+    gap: var(--space-5);
+    padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
   .settingsPermissionIntro h3 {
-    margin: 0 0 6px;
+    margin: 0 0 var(--space-1-5);
     font-size: var(--font-size-ui);
     font-weight: 600;
   }
@@ -39,7 +39,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 6px;
+    gap: var(--space-1-5);
     flex-shrink: 0;
   }
   .settingsPermissionMeta small {
@@ -55,7 +55,7 @@
   border: 1px solid var(--border);
   background: var(--background);
   border-radius: var(--radius-control);
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   color: var(--foreground-80);
   font-size: var(--font-size-ui);
   transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
@@ -74,8 +74,8 @@
   .settingsPermissionError {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 16px;
+    gap: var(--space-2);
+    padding: var(--space-4);
     border: 1px solid oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.08);
     border-radius: var(--radius-surface);
@@ -95,10 +95,10 @@
   .settingsPermissionSection {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2-5);
   }
   .settingsPermissionSection > header h4 {
-    margin: 0 0 2px;
+    margin: 0 0 var(--space-0-5);
     font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--foreground);
@@ -113,17 +113,17 @@
     padding: 0;
     margin: 0;
     display: grid;
-    gap: 10px;
+    gap: var(--space-2-5);
   }
 
   .settingsCapabilityRow {
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
-    padding: 14px 16px;
+    padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2-5);
     transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
   }
   .settingsCapabilityRow:hover {
@@ -144,12 +144,12 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
   }
   .settingsCapabilityHeading {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0-5);
   }
   .settingsCapabilityHeading strong {
     font-size: var(--font-size-ui);
@@ -171,15 +171,15 @@
     margin: 0;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 8px 12px;
-    padding: 10px 12px;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2-5) var(--space-3);
     background: var(--foreground-3);
     border-radius: var(--radius-surface);
   }
   .settingsCapabilityLayers > div {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0-5);
   }
   .settingsCapabilityLayers dt {
     font-size: var(--font-size-caption);
@@ -194,7 +194,7 @@
     color: var(--foreground);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0-5);
   }
   .settingsCapabilityLayers dd small {
     font-size: var(--font-size-caption);
@@ -209,7 +209,7 @@
   .settingsCapabilityOsPermissions {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-1-5);
   }
   .settingsCapabilityOsPermissions > span {
     font-size: var(--font-size-caption);
@@ -223,13 +223,13 @@
     margin: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-1-5);
   }
   .settingsCapabilityOsPermissions li {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 8px 3px 10px;
+    gap: var(--space-1-5);
+    padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-2-5);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     font-size: var(--font-size-caption);
@@ -239,7 +239,7 @@
   .settingsCapabilityOsPermissions li em {
     font-style: normal;
     font-size: var(--font-size-caption);
-    padding: 1px 6px;
+    padding: 1px var(--space-1-5);
     border-radius: var(--radius-pill);
     background: var(--foreground-5);
     color: var(--foreground-70);
@@ -263,8 +263,8 @@
 
   .settingsCapabilityGuidance {
     display: grid;
-    gap: 6px;
-    padding: 8px 10px;
+    gap: var(--space-1-5);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px solid var(--border);
     background: var(--foreground-3);
   }
@@ -275,7 +275,7 @@
   }
   .settingsCapabilityGuidance ul {
     margin: 0;
-    padding-left: 18px;
+    padding-left: var(--space-4);
     color: var(--foreground-60);
     font-size: var(--font-size-caption);
     line-height: 1.55;
@@ -283,15 +283,15 @@
 
   .settingsCapabilityGuidanceActions {
     display: grid;
-    gap: 8px;
-    padding-top: 2px;
+    gap: var(--space-2);
+    padding-top: var(--space-0-5);
   }
 
   .settingsCapabilityGuidanceActions code {
     display: block;
     max-width: 100%;
     overflow: auto;
-    padding: 7px 8px;
+    padding: var(--space-1-5) var(--space-2);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--background);
@@ -303,7 +303,7 @@
   .settingsCapabilityGuidanceActions > div {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: center;
   }
 
@@ -319,7 +319,7 @@
 
   .settingsCapabilityAuditSlot {
     border-top: 1px dashed var(--border);
-    padding-top: 8px;
+    padding-top: var(--space-2);
   }
   .settingsCapabilityAuditSlot small {
     color: var(--foreground-50);
@@ -328,7 +328,7 @@
   .settingsCapabilityAuditSlot ul {
     list-style: disc;
     margin: 0;
-    padding-left: 18px;
+    padding-left: var(--space-4);
     font-size: var(--font-size-caption);
     color: var(--foreground-70);
   }
@@ -370,8 +370,8 @@
     display: grid;
     grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: flex-start;
-    gap: 14px;
-    padding: 16px 18px;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-4);
     background: var(--background);
     transition: background 160ms var(--ease-out-strong);
   }
@@ -399,14 +399,14 @@
   .settingsOsPermissionBody {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: var(--space-1);
     min-width: 0;
   }
 
   .settingsOsPermissionHeading {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2-5);
     flex-wrap: wrap;
   }
   .settingsOsPermissionHeading strong {
@@ -424,7 +424,7 @@
   .settingsOsPermissionImpact {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     font-size: var(--font-size-ui);
     color: var(--foreground-60);
     line-height: 1.45;
@@ -432,7 +432,7 @@
   .settingsOsPermissionImpactLabel {
     display: inline-flex;
     align-items: center;
-    padding: 1px 6px;
+    padding: 1px var(--space-1-5);
     border-radius: var(--radius-pill);
     background: oklch(from var(--foreground) l c h / 0.05);
     color: var(--foreground-50);
@@ -460,7 +460,7 @@
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: center;
     justify-content: flex-end;
     flex-shrink: 0;
@@ -500,13 +500,13 @@
   .settingsPermissionSummary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--space-2);
   }
   .settingsPermissionSummaryTile {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 12px 14px;
+    gap: var(--space-0-5);
+    padding: var(--space-3) var(--space-3);
     border: 1px solid var(--card-border-color, var(--border));
     border-radius: var(--radius-surface);
     background: var(--card-bg, var(--background));
@@ -542,7 +542,7 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--space-3);
   }
   .settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityLayers,
   .settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityGuidance,
@@ -553,7 +553,7 @@
 
   .settingsPermissionFootnote {
     margin: 0;
-    padding: 12px 14px;
+    padding: var(--space-3) var(--space-3);
     border: 1px dashed var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);

@@ -118,8 +118,8 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
     assert.match(sessionPanel, /background:\s*transparent;/, 'session panel content must stay on the same flat canvas as the shell');
     assert.match(resizeHandle, /background:\s*transparent;/, 'resize hitbox must not paint an 8px gray gutter between sidebar and main');
     assert.match(resizeHandle, /box-sizing:\s*content-box;/, 'zero-width resize handle must keep an overflow hitbox instead of consuming layout gutter');
-    assert.match(resizeHandle, /padding-inline:\s*4px;/, 'resize handle should preserve an 8px transparent mouse target');
-    assert.match(resizeHandle, /margin-inline:\s*-4px;/, 'resize handle mouse target must not add visible or layout width');
+    assert.match(resizeHandle, /padding-inline:\s*var\(--space-1\);/, 'resize handle should preserve an 8px transparent mouse target');
+    assert.match(resizeHandle, /margin-inline:\s*calc\(var\(--space-1\)\s*\*\s*-1\);/, 'resize handle mouse target must not add visible or layout width');
     assert.doesNotMatch(listPanel + sessionPanel + resizeHandle, /box-shadow:/, 'sidebar shell and resize gutter must not add drop shadows');
     assert.doesNotMatch(listPanel + sessionPanel, /calc\(l - 0\.015\)/, 'sidebar shell must not reintroduce the darker wash');
   });

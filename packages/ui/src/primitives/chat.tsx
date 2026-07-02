@@ -65,10 +65,10 @@ const bubbleVariants = cva("", {
   variants: {
     variant: {
       // `.maka-bubble-user`: tinted, width-capped, right-anchored block.
-      // Padding stays literal (`px-[14px] py-[10px]`); radius now uses the
+      // Padding stays literal (`px-3 py-2.5`); radius now uses the
       // `--radius-surface` token (8px) per #406 gap 4 radius governance.
       // Keeps the neutral `--chat-user-bg` token path (never primary/accent).
-      user: "max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-[14px] py-[10px] leading-[1.6] text-[color:var(--chat-user-foreground,var(--foreground))]",
+      user: "max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-[1.6] text-[color:var(--chat-user-foreground,var(--foreground))]",
       // Assistant / system: open prose, no bubble. Typography stays authored
       // under `.maka-bubble-assistant` (Markdown prose, OUT of scope), so this
       // variant re-emits that class as the styling hook.
@@ -105,7 +105,7 @@ export function Bubble({
  * re-anchored measure-column block in `styles/tool-output.css`), moving each
  * onto this one Tailwind substrate.
  *
- * Every value is a LITERAL arbitrary utility (`gap-[6px]`, `rounded-[var(--radius-pill)]`,
+ * Every value is a LITERAL arbitrary utility (`gap-1.5`, `rounded-[var(--radius-pill)]`,
  * `bg-[oklch(from_var(--foreground)_l_c_h_/_0.06)]`, `data-[kind=model]:…`);
  * radius values now reference `--radius-*` tokens per #406 gap 4. Each
  * leaf variant compiles 1:1 to the declarations it replaces, so the cva source
@@ -139,14 +139,14 @@ const markerVariants = cva("", {
       // `.maka-turn-summary` + the `tool-output.css` measure-column re-anchor:
       // one quiet caption line (model · tools · duration · tokens).
       summary:
-        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-[6px] mb-[2px] ml-0 mr-auto text-[color:var(--foreground-50)] [font-variant-numeric:tabular-nums]",
+        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-1.5 mb-0.5 ml-0 mr-auto text-[color:var(--foreground-50)] [font-variant-numeric:tabular-nums]",
       // `.maka-turn-summary-chip` (+ `::before` middot, nested `code`, and the
       // `[data-kind]` / `[data-state]` / `[data-switched]` conditionals). The
       // call site keeps passing `data-kind` / `data-state` / `data-switched`,
       // which the literalized `data-[…]:` variants read.
       "summary-chip":
-        "inline-flex items-center gap-[4px] text-[color:var(--foreground-50)] text-[12px] font-medium leading-[1.4]"
-        + " [&:not(:first-child)]:before:content-['·'] [&:not(:first-child)]:before:mr-[4px] [&:not(:first-child)]:before:text-[color:var(--foreground-40)] [&:not(:first-child)]:before:font-normal"
+        "inline-flex items-center gap-1 text-[color:var(--foreground-50)] text-[12px] font-medium leading-[1.4]"
+        + " [&:not(:first-child)]:before:content-['·'] [&:not(:first-child)]:before:mr-1 [&:not(:first-child)]:before:text-[color:var(--foreground-40)] [&:not(:first-child)]:before:font-normal"
         + " [&_code]:bg-transparent [&_code]:text-[color:inherit] [&_code]:[font-family:var(--font-mono)] [&_code]:text-[12px]"
         + " data-[kind=model]:[&_code]:text-[color:var(--foreground-60)] data-[kind=model]:[&_code]:font-semibold"
         + " data-[kind=tools]:text-[color:var(--foreground-50)]"
@@ -156,25 +156,25 @@ const markerVariants = cva("", {
         + " data-[kind=model]:data-[switched=true]:[&_code]:text-[color:var(--foreground-60)]",
       // `.maka-turn-summary-chip-switched` — the muted "切换" pill.
       "summary-switched":
-        "ml-[4px] px-[6px] py-[1px] rounded-[var(--radius-pill)] bg-[oklch(from_var(--foreground)_l_c_h_/_0.06)] text-[color:var(--foreground-60)] text-[11px] font-semibold",
+        "ml-1 px-1.5 py-[1px] rounded-[var(--radius-pill)] bg-[oklch(from_var(--foreground)_l_c_h_/_0.06)] text-[color:var(--foreground-60)] text-[11px] font-semibold",
       // `.maka-turn-aborted-marker` (+ its italic `em`) — dormant, muted.
       aborted:
-        "inline-flex w-fit items-center gap-[4px] mx-0 mt-[2px] mb-[4px] px-[6px] py-[2px] rounded-[var(--radius-control)] bg-[var(--foreground-5)] text-[color:var(--foreground-60)] text-[12px] italic [&_em]:italic",
+        "inline-flex w-fit items-center gap-1 mx-0 mt-0.5 mb-1 px-1.5 py-0.5 rounded-[var(--radius-control)] bg-[var(--foreground-5)] text-[color:var(--foreground-60)] text-[12px] italic [&_em]:italic",
       // `.maka-turn-failed-banner` — fault state, destructive tone.
       "failed-banner":
-        "inline-flex w-fit flex-wrap items-center gap-[6px] mx-0 mt-[2px] mb-[6px] px-[8px] py-[4px] rounded-[var(--radius-control)] border border-[oklch(from_var(--destructive)_l_c_h_/_0.28)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.10)] text-[color:var(--destructive)] text-[12px]",
+        "inline-flex w-fit flex-wrap items-center gap-1.5 mx-0 mt-0.5 mb-1.5 px-2 py-1 rounded-[var(--radius-control)] border border-[oklch(from_var(--destructive)_l_c_h_/_0.28)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.10)] text-[color:var(--destructive)] text-[12px]",
       // `.maka-turn-failed-icon`
       "failed-icon": "inline-flex items-center",
       // `.maka-turn-failed-recovery` (+ `::before` middot separator).
       "failed-recovery":
-        "text-[color:var(--text-muted)] before:content-['·'] before:mr-[6px] before:text-[color:var(--border-strong)]",
+        "text-[color:var(--text-muted)] before:content-['·'] before:mr-1.5 before:text-[color:var(--border-strong)]",
       // `.maka-turn-lineage-row` + the measure-column re-anchor (forward row).
       "lineage-row":
-        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-[3px] mt-[2px] mb-[4px] ml-0 mr-auto opacity-[0.82]",
+        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-0.5 mt-0.5 mb-1 ml-0 mr-auto opacity-[0.82]",
       // `.maka-turn-lineage-row.maka-turn-lineage-row-reverse` — same, but the
       // `-reverse` class bumps margin-top 2px → 4px.
       "lineage-row-reverse":
-        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-[3px] mt-[4px] mb-[4px] ml-0 mr-auto opacity-[0.82]",
+        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-0.5 mt-1 mb-1 ml-0 mr-auto opacity-[0.82]",
       // `.maka-turn-lineage-badge` (UiButton) — tiny pill, `[data-direction]`
       // recolors it forward (info) / reverse (brand-deep).
       "lineage-badge":
@@ -183,7 +183,7 @@ const markerVariants = cva("", {
         // the 4/3 line-height (9px font × 4/3 = 12px) that `size="sm"`'s `h-8` /
         // `text-xs` used to supply implicitly on `main`, so geometry lives in
         // the marker shell.
-        "inline-flex items-center h-8 gap-[3px] px-[5px] py-[1px] rounded-[var(--radius-pill)] [border:0] bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] text-[color:var(--foreground-50)] text-[9px] leading-[12px] [transition:background_150ms_var(--ease-out-strong),color_150ms_var(--ease-out-strong)]"
+        "inline-flex items-center h-8 gap-0.5 px-1 py-[1px] rounded-[var(--radius-pill)] [border:0] bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] text-[color:var(--foreground-50)] text-[9px] leading-[12px] [transition:background_150ms_var(--ease-out-strong),color_150ms_var(--ease-out-strong)]"
         + " hover:bg-[oklch(from_var(--foreground)_l_c_h_/_0.08)] hover:text-[color:var(--foreground)]"
         + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
         + " data-[direction=forward]:bg-[oklch(from_var(--info)_l_c_h_/_0.06)] data-[direction=forward]:text-[oklch(from_var(--info-text)_calc(l_-_0.06)_c_h)]"
@@ -191,7 +191,7 @@ const markerVariants = cva("", {
       // `.maka-turn-footer` (+ measure-column re-anchor) — quiet toolbar that
       // lifts to full opacity on hover / focus-within.
       footer:
-        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-[2px] mt-[2px] ml-0 mr-auto p-0 opacity-[0.72] hover:opacity-100 focus-within:opacity-100",
+        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-0.5 mt-0.5 ml-0 mr-auto p-0 opacity-[0.72] hover:opacity-100 focus-within:opacity-100",
       // `.maka-turn-footer-action` (UiButton) — borderless ghost action. Also
       // reused by the user-message copy (`MessageCopyButton footerStyle`), so
       // it carries only the button look, never the footer's measure column.
@@ -203,7 +203,7 @@ const markerVariants = cva("", {
         // line-height ratio over the 12px font (12 × 4/3 = 16px exactly).
         // Folding them in keeps the exact pixels while the marker shell owns its
         // geometry (verified equal to `main` by computed style, headless electron).
-        "inline-flex items-center gap-[6px] min-h-[28px] h-8 px-[8px] py-[4px] rounded-[var(--radius-surface)] [border:0] bg-transparent text-[color:var(--foreground-50)] text-[12px] leading-[16px] [transition:background_120ms_ease,color_120ms_ease,opacity_120ms_ease]"
+        "inline-flex items-center gap-1.5 min-h-[28px] h-8 px-2 py-1 rounded-[var(--radius-surface)] [border:0] bg-transparent text-[color:var(--foreground-50)] text-[12px] leading-[16px] [transition:background_120ms_ease,color_120ms_ease,opacity_120ms_ease]"
         + " [&:hover:not(:disabled)]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] [&:hover:not(:disabled)]:text-[color:var(--foreground)]"
         + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
         + " disabled:opacity-[0.45] disabled:cursor-not-allowed aria-disabled:opacity-[0.45] aria-disabled:cursor-not-allowed"
@@ -284,15 +284,15 @@ const streamVariants = cva("", {
       // inset ring while the tool is running). The call site keeps passing
       // `data-live`, which the literalized `data-[live=true]:` utilities read.
       container:
-        "flex flex-col gap-[6px] my-[6px] mx-0 overflow-hidden rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--background)]"
+        "flex flex-col gap-1.5 my-1.5 mx-0 overflow-hidden rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--background)]"
         + " data-[live=true]:border-[oklch(from_var(--status-running)_l_c_h_/_0.40)] data-[live=true]:[box-shadow:inset_0_0_0_1px_oklch(from_var(--status-running)_l_c_h_/_0.06)]",
       // `.maka-tool-output-stream-header`
       header:
-        "flex items-center justify-between gap-[12px] px-[10px] py-[6px] border-b border-[var(--border)] bg-[var(--foreground-3)] text-[0.72rem] uppercase tracking-[0.06em] text-[color:var(--foreground-50)]",
+        "flex items-center justify-between gap-3 px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--foreground-3)] text-[0.72rem] uppercase tracking-[0.06em] text-[color:var(--foreground-50)]",
       // `.maka-tool-output-stream-label`
-      label: "inline-flex items-center gap-[6px]",
+      label: "inline-flex items-center gap-1.5",
       // `.maka-tool-output-stream-counts`
-      counts: "inline-flex items-center gap-[10px]",
+      counts: "inline-flex items-center gap-2.5",
       // `.maka-tool-output-stream-counts span` (tabular-nums on every count) plus
       // the `[data-stream=stderr]` / `[data-redacted]` / `[data-truncated]`
       // recolors. The `已截断` pill (`data-truncated`) gets the warning chrome the
@@ -303,19 +303,19 @@ const streamVariants = cva("", {
         "[font-variant-numeric:tabular-nums]"
         + " data-[stream=stderr]:text-[color:var(--destructive-text)]"
         + " data-[redacted=true]:text-[color:var(--warning-text,var(--info-text))]"
-        + " data-[truncated=true]:rounded-[var(--radius-control)] data-[truncated=true]:border data-[truncated=true]:border-[oklch(from_var(--warning)_l_c_h_/_0.30)] data-[truncated=true]:bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] data-[truncated=true]:px-[4px] data-[truncated=true]:text-[color:var(--warning-text,var(--info-text))] data-[truncated=true]:cursor-help",
+        + " data-[truncated=true]:rounded-[var(--radius-control)] data-[truncated=true]:border data-[truncated=true]:border-[oklch(from_var(--warning)_l_c_h_/_0.30)] data-[truncated=true]:bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] data-[truncated=true]:px-1 data-[truncated=true]:text-[color:var(--warning-text,var(--info-text))] data-[truncated=true]:cursor-help",
       // `.maka-tool-output-stream-body` — the scrolling mono output `<pre>`.
       // `word-break:break-word` stays an arbitrary literal (Tailwind's
       // `break-words` is `overflow-wrap`, a different property).
       body:
-        "m-0 max-h-[220px] overflow-y-auto whitespace-pre-wrap [word-break:break-word] px-[10px] py-[8px] [font-family:var(--font-mono)] text-[0.78rem] leading-[1.5] bg-[var(--background)] text-[color:var(--foreground-80)] [scroll-behavior:auto]",
+        "m-0 max-h-[220px] overflow-y-auto whitespace-pre-wrap [word-break:break-word] px-2.5 py-2 [font-family:var(--font-mono)] text-[0.78rem] leading-[1.5] bg-[var(--background)] text-[color:var(--foreground-80)] [scroll-behavior:auto]",
       // `.maka-tool-output-stream-chunk` (`display:contents`; recolors stderr,
       // dims redacted). The call site keeps `data-stream` / `data-redacted`.
       chunk:
         "contents data-[stream=stderr]:text-[color:var(--destructive-text)] data-[redacted=true]:opacity-[0.65]",
       // `.maka-tool-output-stream-redacted-tag` — the inline `[已脱敏]` tag.
       "redacted-tag":
-        "inline ml-[2px] rounded-[var(--radius-control)] px-[4px] tracking-[0.04em] text-[0.7rem] text-[color:var(--warning-text,var(--info-text))] bg-[oklch(from_var(--warning,var(--info))_l_c_h_/_0.10)]",
+        "inline ml-0.5 rounded-[var(--radius-control)] px-1 tracking-[0.04em] text-[0.7rem] text-[color:var(--warning-text,var(--info-text))] bg-[oklch(from_var(--warning,var(--info))_l_c_h_/_0.10)]",
     },
   },
 });
@@ -420,13 +420,13 @@ const toolVariants = cva("", {
   variants: {
     part: {
       // `.toolInline` — the inline section measure column.
-      container: "w-[min(680px,100%)] mx-auto mt-[2px] mb-0 px-[16px] py-0",
+      container: "w-[min(680px,100%)] mx-auto mt-0.5 mb-0 px-4 py-0",
       // `.toolInline > header` — the quiet "工具调用" caption row.
       "container-header":
-        "flex items-center justify-between mb-[3px] text-[color:var(--foreground-50)] text-[10px]",
+        "flex items-center justify-between mb-0.5 text-[color:var(--foreground-50)] text-[10px]",
       // `.maka-tool-count` — the call-count pill.
       count:
-        "inline-flex items-center justify-center min-w-[22px] h-[18px] px-[6px] py-0 rounded-[var(--radius-pill)] bg-[var(--foreground-5)] text-[color:var(--foreground-60)] text-[11px] [font-variant-numeric:tabular-nums]",
+        "inline-flex items-center justify-center min-w-[22px] h-[18px] px-1.5 py-0 rounded-[var(--radius-pill)] bg-[var(--foreground-5)] text-[color:var(--foreground-60)] text-[11px] [font-variant-numeric:tabular-nums]",
       // `.maka-tool` (effective: the later `padding: 0` rule wins over `8px 12px`)
       // + `.toolItem` + the `[open]>summary` divider + the `[data-status]` border /
       // background / opacity swaps. `[border: …]` / `[border-color: …]` are arbitrary
@@ -434,7 +434,7 @@ const toolVariants = cva("", {
       // `<summary>` marker reset stays a residue keyed on `[data-slot="tool"]`
       // (see docstring).
       item:
-        "[border:1px_solid_var(--border)] rounded-[var(--radius-surface)] bg-[var(--foreground-2)] p-0 mt-[8px] [font-family:var(--font-mono)] text-[12.5px] text-[color:var(--foreground-80)] overflow-hidden [box-shadow:var(--shadow-minimal-flat)]"
+        "[border:1px_solid_var(--border)] rounded-[var(--radius-surface)] bg-[var(--foreground-2)] p-0 mt-2 [font-family:var(--font-mono)] text-[12.5px] text-[color:var(--foreground-80)] overflow-hidden [box-shadow:var(--shadow-minimal-flat)]"
         + " [&[open]>summary]:[border-bottom:1px_solid_var(--border)]"
         // `waiting_permission` border tint — see `WP_CARD_BORDER` above (String.raw).
         + " " + WP_CARD_BORDER
@@ -445,7 +445,7 @@ const toolVariants = cva("", {
       // `.maka-tool > summary` (list-style + padding) + `.maka-tool-header` (the
       // 8px · name · meta grid). Folded together since the summary IS the header.
       header:
-        "list-none grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-[10px] px-[12px] py-[8px] text-[color:var(--foreground-70)]",
+        "list-none grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2 text-[color:var(--foreground-70)]",
       // `.maka-tool-status-dot` (+ the `[data-status]` color swaps; running adds
       // the box-shadow ring + `maka-tool-pulse` breath — keyframe stays in CSS).
       dot:
@@ -461,16 +461,16 @@ const toolVariants = cva("", {
         "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[color:var(--foreground)] font-medium [font-family:var(--font-mono)]",
       // `.maka-tool-meta` — duration + status-label cluster.
       meta:
-        "inline-flex items-center gap-[8px] text-[color:var(--foreground-50)] text-[11px]",
+        "inline-flex items-center gap-2 text-[color:var(--foreground-50)] text-[11px]",
       // `.maka-tool-duration`
       duration: "[font-variant-numeric:tabular-nums]",
       // `.maka-tool-status-label`
       "status-label": "text-[color:var(--foreground-60)]",
       // `.maka-tool-body`
-      body: "px-[12px] pt-[10px] pb-[12px]",
+      body: "px-3 pt-2.5 pb-3",
       // `.maka-tool-intent`
       intent:
-        "mx-0 mt-0 mb-[8px] text-[color:var(--foreground-60)] [font-family:var(--font-default)] text-[12px] leading-[1.4]",
+        "mx-0 mt-0 mb-2 text-[color:var(--foreground-60)] [font-family:var(--font-default)] text-[12px] leading-[1.4]",
       // `.toolArgs` — the override layered over the shared `.maka-code` base
       // (`.maka-code` stays in CSS; the call site keeps the class).
       args: "m-0 max-h-[110px] overflow-auto",
@@ -536,10 +536,10 @@ const previewVariants = cva("", {
       // overlay preview shares. `white-space` / `font-family` are arbitrary so
       // the structured-card kind parts override them by tailwind-merge (note 1).
       overlay:
-        "mt-[5px] mx-0 mb-0 max-h-[180px] overflow-auto [font-family:var(--font-mono)] text-[10px] [white-space:pre-wrap] [word-break:break-word]",
+        "mt-1 mx-0 mb-0 max-h-[180px] overflow-auto [font-family:var(--font-mono)] text-[10px] [white-space:pre-wrap] [word-break:break-word]",
       // `.maka-overlay-close` — the dismiss action (layered over `.maka-button`).
       close:
-        "justify-self-end inline-flex items-center gap-[4px] min-h-[22px] px-[7px]",
+        "justify-self-end inline-flex items-center gap-1 min-h-[22px] px-1.5",
 
       // ── file diff (shared with apps/desktop artifact-preview) ─────────────
       // `.maka-tool-diff` — the card shell. `[white-space:normal]` overrides the
@@ -548,14 +548,14 @@ const previewVariants = cva("", {
         "grid gap-0 p-0 rounded-[var(--radius-surface)] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
       // `.maka-tool-diff-paths` (+ its bare `code` children).
       "diff-paths":
-        "flex flex-wrap gap-[6px] px-[8px] py-[5px] [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]"
+        "flex flex-wrap gap-1.5 px-2 py-1 [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]"
         + " [&_code]:text-[color:var(--foreground-70)] [&_code]:bg-transparent",
       // `.maka-tool-diff-body` — the scrolling mono `<pre>`.
       "diff-body":
-        "m-0 px-0 py-[5px] max-h-[320px] overflow-auto [font-family:var(--font-mono)] text-[11.5px] leading-[1.45] [white-space:pre] [word-break:normal]",
+        "m-0 px-0 py-1 max-h-[320px] overflow-auto [font-family:var(--font-mono)] text-[11.5px] leading-[1.45] [white-space:pre] [word-break:normal]",
       // `.maka-tool-diff-line` (+ the `[data-line]` add/del/hunk/meta/ctx tints).
       "diff-line":
-        "block px-[8px] py-0 [white-space:pre]"
+        "block px-2 py-0 [white-space:pre]"
         + " data-[line=add]:bg-[oklch(from_var(--success)_l_c_h_/_0.10)] data-[line=add]:text-[color:var(--success-text)]"
         + " data-[line=del]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.10)] data-[line=del]:text-[color:var(--destructive)]"
         + " data-[line=hunk]:bg-[oklch(from_var(--link)_l_c_h_/_0.08)] data-[line=hunk]:text-[color:var(--foreground-70)] data-[line=hunk]:font-semibold"
@@ -568,7 +568,7 @@ const previewVariants = cva("", {
         "grid gap-0 p-0 rounded-[var(--radius-surface)] bg-[var(--background)] [white-space:normal] [box-shadow:var(--shadow-minimal-flat)]",
       // `.maka-tool-terminal-head`
       "terminal-head":
-        "flex flex-wrap items-center gap-[6px] px-[8px] py-[5px] [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]",
+        "flex flex-wrap items-center gap-1.5 px-2 py-1 [border-bottom:1px_solid_var(--border)] bg-[var(--foreground-2)] [font-family:var(--font-mono)] text-[10px]",
       // `.maka-tool-terminal-cwd`
       "terminal-cwd": "text-[color:var(--foreground-50)] bg-transparent",
       // `.maka-tool-terminal-cmd` — the ellipsized command line.
@@ -576,20 +576,20 @@ const previewVariants = cva("", {
         "[flex:1_1_auto] min-w-0 text-[color:var(--foreground)] bg-transparent font-semibold whitespace-nowrap overflow-hidden text-ellipsis",
       // `.maka-tool-terminal-exit` (+ the `[data-ok]` success/failure badge).
       "terminal-exit":
-        "px-[6px] py-[1px] rounded-[var(--radius-pill)] text-[9px] font-bold tracking-[0.04em] bg-[var(--foreground-5)] text-[color:var(--foreground-60)]"
+        "px-1.5 py-[1px] rounded-[var(--radius-pill)] text-[9px] font-bold tracking-[0.04em] bg-[var(--foreground-5)] text-[color:var(--foreground-60)]"
         + " data-[ok=true]:bg-[oklch(from_var(--success)_l_c_h_/_0.14)] data-[ok=true]:text-[color:var(--success)]"
         + " data-[ok=false]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] data-[ok=false]:text-[color:var(--destructive)]",
       // `.maka-tool-terminal-empty`
       "terminal-empty":
-        "m-0 p-[8px] text-[color:var(--foreground-50)] [font-family:var(--font-mono)] text-[11px] italic",
+        "m-0 p-2 text-[color:var(--foreground-50)] [font-family:var(--font-mono)] text-[11px] italic",
       // `.maka-tool-terminal-stream` (+ the `[data-stream]` stdout/stderr tone).
       "terminal-stream":
-        "m-0 px-[8px] py-[6px] max-h-[180px] overflow-auto [font-family:var(--font-mono)] text-[11.5px] [white-space:pre-wrap] [word-break:break-word]"
+        "m-0 px-2 py-1.5 max-h-[180px] overflow-auto [font-family:var(--font-mono)] text-[11.5px] [white-space:pre-wrap] [word-break:break-word]"
         + " data-[stream=stdout]:text-[color:var(--foreground)]"
         + " data-[stream=stderr]:[border-top:1px_solid_var(--border)] data-[stream=stderr]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.04)] data-[stream=stderr]:text-[color:var(--destructive)]",
       // `.maka-tool-terminal-truncated-note` (+ its `> span` min-width reset).
       "terminal-truncated-note":
-        "flex items-center justify-between gap-[8px] px-[8px] py-[6px] [border-top:1px_solid_var(--border)] bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] text-[color:var(--foreground-70)] text-[11px] leading-[1.5] [&>span]:min-w-0",
+        "flex items-center justify-between gap-2 px-2 py-1.5 [border-top:1px_solid_var(--border)] bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] text-[color:var(--foreground-70)] text-[11px] leading-[1.5] [&>span]:min-w-0",
       // `.maka-tool-terminal-copy` (UiButton) + the shared copy-state tints.
       "terminal-copy":
         "[flex:0_0_auto] data-[pending=true]:cursor-progress data-[copy-error=true]:text-[color:var(--destructive)] data-[copy-error=true]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.35)]",
@@ -597,10 +597,10 @@ const previewVariants = cva("", {
       // ── office document ───────────────────────────────────────────────────
       // `.maka-office-document-preview` (+ the `[data-ok=false]` fault border).
       office:
-        "grid gap-[8px] px-[12px] py-[10px] [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--foreground-3)] [white-space:normal] data-[ok=false]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.22)]",
+        "grid gap-2 px-3 py-2.5 [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--foreground-3)] [white-space:normal] data-[ok=false]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.22)]",
       // `.maka-office-document-head` (+ its `strong` title and `small` caption).
       "office-head":
-        "grid gap-[2px] pb-[6px] [border-bottom:1px_solid_var(--foreground-10)]"
+        "grid gap-0.5 pb-1.5 [border-bottom:1px_solid_var(--foreground-10)]"
         + " [&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:text-[color:var(--foreground)]"
         + " [&_small]:text-[11px] [&_small]:text-[color:var(--foreground-50)] [&_small]:uppercase [&_small]:tracking-[0.04em]",
       // `.maka-office-document-args`
@@ -608,14 +608,14 @@ const previewVariants = cva("", {
         "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[color:var(--foreground-60)] bg-transparent text-[11px]",
       // `.maka-office-document-message` (+ its `small` caption).
       "office-message":
-        "grid gap-[3px] px-[10px] py-[8px] rounded-[var(--radius-control)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] [font-family:var(--font-sans)] text-[12px]"
+        "grid gap-0.5 px-2.5 py-2 rounded-[var(--radius-control)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] [font-family:var(--font-sans)] text-[12px]"
         + " [&_small]:text-[11px] [&_small]:text-[color:var(--foreground-50)] [&_small]:uppercase [&_small]:tracking-[0.04em]",
       // `.maka-office-document-empty`
       "office-empty":
         "m-0 text-[color:var(--foreground-50)] [font-family:var(--font-mono)] text-[12px] italic",
       // `.maka-office-document-stream` (+ the `[data-stream=stderr]` tone).
       "office-stream":
-        "m-0 px-[10px] py-[8px] max-h-[200px] overflow-auto [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-control)] bg-[var(--background)] [font-family:var(--font-mono)] text-[12.5px] [white-space:pre-wrap] [word-break:break-word]"
+        "m-0 px-2.5 py-2 max-h-[200px] overflow-auto [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-control)] bg-[var(--background)] [font-family:var(--font-mono)] text-[12.5px] [white-space:pre-wrap] [word-break:break-word]"
         + " data-[stream=stderr]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.04)] data-[stream=stderr]:text-[color:var(--destructive)]",
 
       // ── explore agent / subagent (shared shell) ───────────────────────────
@@ -623,49 +623,49 @@ const previewVariants = cva("", {
       // border, keyed on explore's `[data-ok=false]` or subagent's failed /
       // cancelled `[data-status]`).
       agent:
-        "grid gap-[10px] px-[12px] py-[10px] [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--foreground-3)] [font-family:var(--font-sans)] [white-space:normal]"
+        "grid gap-2.5 px-3 py-2.5 [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--foreground-3)] [font-family:var(--font-sans)] [white-space:normal]"
         + " data-[ok=false]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.22)]"
         + " data-[status=failed]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.22)]"
         + " data-[status=cancelled]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.22)]",
       // `.maka-explore-agent-head` (+ its `strong` title and `small` caption,
       // the latter shared with the nested summary-line small).
       "agent-head":
-        "grid gap-[2px] pb-[6px] [border-bottom:1px_solid_var(--foreground-10)]"
+        "grid gap-0.5 pb-1.5 [border-bottom:1px_solid_var(--foreground-10)]"
         + " [&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:text-[color:var(--foreground)]"
         + " [&_small]:text-[11px] [&_small]:text-[color:var(--foreground-50)] [&_small]:uppercase [&_small]:tracking-[0.04em]",
       // `.maka-explore-agent-summary-line` (+ its `small` ellipsis, layered over
       // the head's caption styling above).
       "agent-summary-line":
-        "flex items-center justify-between gap-[8px] min-w-0 [&_small]:min-w-0 [&_small]:overflow-hidden [&_small]:text-ellipsis [&_small]:whitespace-nowrap",
+        "flex items-center justify-between gap-2 min-w-0 [&_small]:min-w-0 [&_small]:overflow-hidden [&_small]:text-ellipsis [&_small]:whitespace-nowrap",
       // `.maka-explore-agent-actions`
-      "agent-actions": "flex items-center justify-end gap-[6px] mt-[4px]",
+      "agent-actions": "flex items-center justify-end gap-1.5 mt-1",
       // `.maka-explore-agent-message`
       "agent-message":
-        "px-[10px] py-[8px] rounded-[var(--radius-control)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] text-[12px]",
+        "px-2.5 py-2 rounded-[var(--radius-control)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] text-[12px]",
       // `.maka-explore-agent-meta` (+ its `div` cells, `dt` labels, `dd` values).
       "agent-meta":
-        "grid grid-cols-[repeat(2,minmax(0,1fr))] gap-[8px] m-0"
-        + " [&>div]:min-w-0 [&>div]:grid [&>div]:gap-[2px]"
+        "grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 m-0"
+        + " [&>div]:min-w-0 [&>div]:grid [&>div]:gap-0.5"
         + " [&_dt]:text-[11px] [&_dt]:text-[color:var(--foreground-50)] [&_dt]:uppercase [&_dt]:tracking-[0.04em]"
         + " [&_dd]:min-w-0 [&_dd]:m-0 [&_dd]:overflow-hidden [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&_dd]:text-[color:var(--foreground-70)] [&_dd]:text-[12px]",
       // `.maka-explore-agent-section` (+ its direct `> strong`, list `ul`/`li`
       // rows, leading `li` reset, `code` / `small` / `p` / `span` leaves).
       "agent-section":
-        "grid gap-[6px]"
+        "grid gap-1.5"
         + " [&>strong]:text-[12px] [&>strong]:text-[color:var(--foreground)]"
         + " [&_small]:text-[11px] [&_small]:text-[color:var(--foreground-50)] [&_small]:uppercase [&_small]:tracking-[0.04em]"
-        + " [&_ul]:list-none [&_ul]:m-0 [&_ul]:p-0 [&_ul]:grid [&_ul]:gap-[6px]"
-        + " [&_li]:min-w-0 [&_li]:grid [&_li]:gap-[3px] [&_li]:py-[6px] [&_li]:[border-top:1px_solid_var(--foreground-5)]"
+        + " [&_ul]:list-none [&_ul]:m-0 [&_ul]:p-0 [&_ul]:grid [&_ul]:gap-1.5"
+        + " [&_li]:min-w-0 [&_li]:grid [&_li]:gap-0.5 [&_li]:py-1.5 [&_li]:[border-top:1px_solid_var(--foreground-5)]"
         + " [&_li:first-child]:border-t-0 [&_li:first-child]:pt-0"
         + " [&_code]:min-w-0 [&_code]:overflow-hidden [&_code]:text-ellipsis [&_code]:whitespace-nowrap [&_code]:text-[color:var(--foreground)] [&_code]:bg-transparent [&_code]:[font-family:var(--font-mono)] [&_code]:text-[12px]"
         + " [&_p]:m-0 [&_p]:text-[color:var(--foreground-70)] [&_p]:text-[12px] [&_p]:leading-[1.45] [&_p]:[white-space:pre-wrap] [&_p]:[word-break:break-word]"
         + " [&_span]:m-0 [&_span]:text-[color:var(--foreground-70)] [&_span]:text-[12px] [&_span]:leading-[1.45] [&_span]:[white-space:pre-wrap] [&_span]:[word-break:break-word]",
       // `.maka-explore-agent-section-head` (+ its `> strong`).
       "agent-section-head":
-        "flex items-center justify-between gap-[8px] min-w-0 [&>strong]:min-w-0 [&>strong]:text-[12px] [&>strong]:text-[color:var(--foreground)]",
+        "flex items-center justify-between gap-2 min-w-0 [&>strong]:min-w-0 [&>strong]:text-[12px] [&>strong]:text-[color:var(--foreground)]",
       // `.maka-explore-agent-copy` (UiButton) + the copied / shared copy-state tints.
       "agent-copy":
-        "[flex:0_0_auto] gap-[4px] min-h-[24px] px-[8px] py-[3px] text-[11px]"
+        "[flex:0_0_auto] gap-1 min-h-[24px] px-2 py-0.5 text-[11px]"
         + " data-[copied=true]:text-[color:var(--link)] data-[copied=true]:[border-color:oklch(from_var(--link)_l_c_h_/_0.35)]"
         + " data-[pending=true]:cursor-progress"
         + " data-[copy-error=true]:text-[color:var(--destructive)] data-[copy-error=true]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.35)]",
@@ -674,12 +674,12 @@ const previewVariants = cva("", {
       // `.maka-web-search-preview` (+ its bare `> header` / list leaves; the
       // container inherits the overlay base's mono font, never resetting it).
       "web-search":
-        "grid gap-[8px] px-[12px] py-[10px] [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--foreground-3)]"
-        + " [&>header]:flex [&>header]:flex-col [&>header]:gap-[2px] [&>header]:pb-[6px] [&>header]:[border-bottom:1px_solid_var(--foreground-10)]"
+        "grid gap-2 px-3 py-2.5 [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--foreground-3)]"
+        + " [&>header]:flex [&>header]:flex-col [&>header]:gap-0.5 [&>header]:pb-1.5 [&>header]:[border-bottom:1px_solid_var(--foreground-10)]"
         + " [&>header_strong]:text-[13px] [&>header_strong]:text-[color:var(--foreground)] [&>header_strong]:font-semibold"
         + " [&>header_small]:text-[11px] [&>header_small]:text-[color:var(--foreground-50)] [&>header_small]:uppercase [&>header_small]:tracking-[0.04em]"
-        + " [&_ul]:list-none [&_ul]:m-0 [&_ul]:p-0 [&_ul]:grid [&_ul]:gap-[8px]"
-        + " [&_li]:grid [&_li]:gap-[3px] [&_li]:py-[8px] [&_li]:[border-top:1px_solid_var(--foreground-5)]"
+        + " [&_ul]:list-none [&_ul]:m-0 [&_ul]:p-0 [&_ul]:grid [&_ul]:gap-2"
+        + " [&_li]:grid [&_li]:gap-0.5 [&_li]:py-2 [&_li]:[border-top:1px_solid_var(--foreground-5)]"
         + " [&_li:first-child]:border-t-0 [&_li:first-child]:pt-0"
         + " [&_a]:font-semibold [&_a]:text-[color:var(--foreground)] [&_a]:no-underline [&_a:hover]:underline"
         + " [&_li_small]:text-[11px] [&_li_small]:text-[color:var(--foreground-50)] [&_li_small]:uppercase [&_li_small]:tracking-[0.04em]"
@@ -705,7 +705,7 @@ const previewVariants = cva("", {
       // ── load-tool result card (separate base; not an overlay) ─────────────
       // `.maka-load-tool-preview` (+ its `p` margin reset).
       "load-tool":
-        "mt-[5px] mx-0 mb-0 px-[8px] py-[5px] grid gap-[2px] rounded-[var(--radius-control)] bg-[var(--background)] text-[10px] [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
+        "mt-1 mx-0 mb-0 px-2 py-1 grid gap-0.5 rounded-[var(--radius-control)] bg-[var(--background)] text-[10px] [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
       // `.maka-load-tool-title`
       "load-tool-title": "font-semibold",
       // `.maka-load-tool-count`

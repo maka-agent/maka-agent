@@ -19,13 +19,13 @@
 .enabledProviderTrigger {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: var(--space-3);
   width: 100%;
   /* pad-x 6 + logo 32 + gap 11 = 49 → connection name (pl-[49px]) sits
    * directly under the provider name; pr keeps the rollup status right
    * edge aligned with the connection status (pr-[32px] = 6 + chevron 15 +
    * meta gap 11). */
-  padding: 11px 6px;
+  padding: var(--space-3) var(--space-1-5);
   background: transparent;
   border: 0;
   color: var(--foreground);
@@ -51,7 +51,7 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: var(--space-3);
 }
 
 .enabledChevron {
@@ -70,7 +70,7 @@
 .enabledConnStatus {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   font-size: var(--font-size-ui);
   white-space: nowrap;
   color: var(--foreground-50);
@@ -119,7 +119,7 @@
 .enabledConnTitle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .enabledDefaultTag {
@@ -128,21 +128,21 @@
   color: var(--nav-active);
   background: oklch(from var(--nav-active) l c h / 0.14);
   border-radius: var(--radius-pill);
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
 }
 
 .providerMarketHeader {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .catalogPillTabs,
 .settingsSurface[data-modal="true"] .catalogPillTabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .catalogPillTabs button {
@@ -153,7 +153,7 @@
   border-radius: var(--radius-pill);
   background: var(--foreground-5);
   color: var(--foreground-60);
-  padding: 0 15px;
+  padding: 0 var(--space-4);
 }
 
 .catalogPillTabs button:hover {
@@ -260,9 +260,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   border-top: 1px solid var(--border);
-  padding-top: 14px;
+  padding-top: var(--space-3);
 }
 
 .customProviderEntry button {
@@ -272,7 +272,7 @@
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--link);
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   font-size: var(--font-size-ui);
   font-weight: 700;
 }
@@ -285,7 +285,7 @@
   background: oklch(0.95 0.01 90 / 0.64);
   backdrop-filter: blur(2px);
   border-radius: var(--radius-modal);
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .providerConfigSheet {
@@ -297,7 +297,7 @@
   border-radius: var(--radius-modal);
   background: var(--background);
   box-shadow: 0 18px 46px oklch(0 0 0 / 0.14);
-  padding: 16px;
+  padding: var(--space-4);
 }
 
 /* Position + circular shape only. Size, centering, and every rest/hover/
@@ -355,8 +355,8 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
+  gap: var(--space-1);
+  padding: var(--space-1-5) var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
@@ -388,7 +388,7 @@
   flex: 1 1 auto;
   min-width: 0;
   height: 26px;
-  padding: 0 10px;
+  padding: 0 var(--space-2-5);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface, var(--background));
@@ -434,8 +434,8 @@
 .maka-artifact-pane-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
   min-height: 28px;
 }
@@ -481,7 +481,7 @@
 
 .maka-artifact-pane-count {
   font-size: var(--font-size-caption);
-  padding: 0 5px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
   color: var(--foreground-60);
@@ -491,10 +491,10 @@
 .maka-artifact-list-error {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: start;
-  margin: 8px;
-  padding: 9px;
+  margin: var(--space-2);
+  padding: var(--space-2);
   border: 1px solid oklch(from var(--warning) l c h / 0.28);
   border-radius: var(--radius-surface);
   background: oklch(from var(--warning) l c h / 0.08);
@@ -508,7 +508,7 @@
 
 .maka-artifact-list-error strong {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: var(--space-0-5);
   font-size: var(--font-size-ui);
   font-weight: 600;
 }
@@ -522,9 +522,9 @@
 .maka-artifact-error-retry {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-height: 26px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
@@ -558,7 +558,7 @@
 .maka-artifact-list {
   list-style: none;
   margin: 0;
-  padding: 4px 4px 0;
+  padding: var(--space-1) var(--space-1) 0;
   overflow-y: auto;
   border-bottom: 1px solid var(--border);
   /* No max-height here: a percentage on the item resolves against the
@@ -583,8 +583,8 @@
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-1-5);
   margin: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
@@ -660,7 +660,7 @@
 .maka-artifact-preview {
   position: relative;
   overflow: auto;
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   background: var(--background);
   min-height: 0;
 }
@@ -694,7 +694,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .maka-artifact-preview-html-iframe {
@@ -709,7 +709,7 @@
 
 .maka-artifact-preview-external-links-bar {
   font-size: var(--font-size-caption);
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-1-5);
   border-radius: var(--radius-control);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
@@ -744,8 +744,8 @@
 .maka-artifact-preview-unsupported {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4);
   border-radius: var(--radius-surface);
   border: 1px dashed oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.06);
@@ -768,7 +768,7 @@
 .maka-artifact-preview-unsupported-meta {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 16px;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
   padding: 0;
   font-size: var(--font-size-ui);
@@ -794,7 +794,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .maka-artifact-preview-pdf embed {
@@ -813,7 +813,7 @@
 .maka-artifact-preview-loading {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   font-size: var(--font-size-ui);
   color: oklch(from var(--foreground) l c h / 0.65);
 }
@@ -827,8 +827,8 @@
 
 .maka-artifact-preview-fail {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: var(--space-1-5);
+  padding: var(--space-2-5) var(--space-3);
   border-radius: var(--radius-surface);
   border: 1px solid var(--border);
   font-size: var(--font-size-ui);
@@ -860,8 +860,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: var(--space-1-5);
+  padding: var(--space-2) var(--space-2-5);
   border: 0;
   border-top: 1px solid var(--border);
   border-radius: 0;
@@ -873,7 +873,7 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .maka-artifact-toolbar-danger-group {
@@ -897,12 +897,12 @@
 .maka-artifact-toolbar-button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   border: 1px solid var(--border);
   background: var(--background);
   color: var(--foreground);
   border-radius: var(--radius-control);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-caption);
 }
 
@@ -960,7 +960,7 @@
 
   .maka-artifact-list {
     max-height: none;
-    padding: 6px;
+    padding: var(--space-1-5);
   }
 
   .maka-artifact-preview {
@@ -1004,9 +1004,9 @@
 .maka-session-branch-banner {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  margin: 6px 12px 4px;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  margin: var(--space-1-5) var(--space-3) var(--space-1);
   border-radius: var(--radius-pill);
   border: 1px solid oklch(from var(--info) l c h / 0.20);
   background: oklch(from var(--info) l c h / 0.06);

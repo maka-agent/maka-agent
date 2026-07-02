@@ -6,6 +6,24 @@ import { CONTRACT_REPO_ROOT, readRendererContractCss } from './contract-css-help
 
 const CHAT_HEADER_TOOLBAR_CLEARANCE_PX = 12;
 
+// --space-* token → px equivalent (mirrors maka-tokens.css, kept in sync
+// by the spacing-converge-contract token-value pinning test).
+const SPACE_TOKEN_PX: Record<string, number> = {
+  '--space-0-5': 2,
+  '--space-1': 4,
+  '--space-1-5': 6,
+  '--space-2': 8,
+  '--space-2-5': 10,
+  '--space-3': 12,
+  '--space-4': 16,
+  '--space-5': 20,
+  '--space-6': 24,
+  '--space-8': 32,
+  '--space-10': 40,
+  '--space-12': 48,
+  '--space-16': 64,
+};
+
 function ruleBody(css: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = new RegExp(`${escaped}\\s*\\{([\\s\\S]*?)\\}`).exec(css);
@@ -15,9 +33,14 @@ function ruleBody(css: string, selector: string): string {
 
 function pxDeclaration(body: string, property: string): number {
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`${escaped}:\\s*(\\d+)px\\s*;`).exec(body);
-  assert.ok(match, `${property} should be a px declaration`);
-  return Number(match[1]);
+  // Accept bare Npx (legacy) or var(--space-N) token (#430 PR3).
+  const bareMatch = new RegExp(`${escaped}:\\s*(\\d+)px\\s*;`).exec(body);
+  if (bareMatch) return Number(bareMatch[1]);
+  const tokenMatch = new RegExp(`${escaped}:\\s*var\\((--space-[\\w-]+)\\)\\s*;`).exec(body);
+  assert.ok(tokenMatch, `${property} should be a px or var(--space-*) declaration`);
+  const tok = tokenMatch[1]!;
+  assert.ok(tok in SPACE_TOKEN_PX, `${tok} should be in the SPACE_TOKEN_PX map`);
+  return SPACE_TOKEN_PX[tok]!;
 }
 
 function workspaceTopActionsInsetAddend(css: string): number {
@@ -81,7 +104,7 @@ describe('chat header actions inset contract', () => {
     );
     assert.match(
       body,
-      /padding:\s*0\s+10px\s*;/,
+      /padding:\s*0\s+var\(--space-2-5\)\s*;/,
       'after margin-right reserves the toolbar footprint, the header can keep compact symmetric padding for its own content',
     );
   });

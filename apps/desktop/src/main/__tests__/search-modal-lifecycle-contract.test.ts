@@ -319,7 +319,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       inputRowStyle,
-      /margin:\s*8px 12px;/,
+      /margin:\s*var\(--space-2\)\s*var\(--space-3\);/,
       'Search modal InputGroup should keep the compact modal inset spacing',
     );
   });

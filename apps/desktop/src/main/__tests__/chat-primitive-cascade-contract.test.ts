@@ -75,13 +75,14 @@ describe('chat primitive shell migration contract (#332 PR1)', () => {
     // would silently override the shell makes this fail. Values mirror the
     // retired `.maka-bubble-user` (padding 10px 14px; line-height 1.6;
     // max-width min(100%,640px); --chat-user-bg) with radius now on the
-    // `--radius-surface` token per #406 gap 4.
+    // `--radius-surface` token per #406 gap 4. Padding snapped 14→12 per
+    // the --space-* scale (#430 PR3): px-3 (12px) py-2.5 (10px).
     const bubbleBlock = chatSrc.slice(chatSrc.indexOf('bubbleVariants'));
     const userClass = bubbleBlock.match(/user:\s*"([^"]*)"/)?.[1];
     assert.equal(
       userClass,
-      'max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-[14px] py-[10px] leading-[1.6] text-[color:var(--chat-user-foreground,var(--foreground))]',
-      'user bubble variant must match the retired .maka-bubble-user geometry (radius now on --radius-surface token)',
+      'max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-[1.6] text-[color:var(--chat-user-foreground,var(--foreground))]',
+      'user bubble variant must match the retired .maka-bubble-user geometry (radius now on --radius-surface token, padding on --space-* scale)',
     );
   });
 });

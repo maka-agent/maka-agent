@@ -2,7 +2,7 @@
   .maka-hero header,
   .maka-hero-empty-chat header {
     display: grid;
-    gap: 10px;
+    gap: var(--space-2-5);
     justify-items: center;
   }
 
@@ -10,7 +10,7 @@
     position: relative;
     width: min(520px, 62vw);
     height: 130px;
-    margin-bottom: 4px;
+    margin-bottom: var(--space-1);
   }
 
   .maka-hero-bubble {
@@ -25,7 +25,7 @@
     font-weight: 600;
     line-height: 1;
     white-space: nowrap;
-    padding: 0 14px;
+    padding: 0 var(--space-3);
   }
 
   .maka-hero-bubble-primary {
@@ -72,7 +72,7 @@
   .maka-hero-eyebrow {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     color: var(--brand-deep);
     font-size: var(--font-size-caption);
     font-weight: 700;
@@ -115,7 +115,7 @@
 
     .maka-hero-bubble {
       font-size: var(--font-size-caption);
-      padding-inline: 10px;
+      padding-inline: var(--space-2-5);
     }
 
     .maka-hero-bubble-primary {

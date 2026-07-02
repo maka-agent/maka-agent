@@ -2,7 +2,7 @@
 .maka-permission-stale-note {
   margin: 0;
   border-radius: var(--radius-control);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-caption);
   line-height: 1.4;
   color: var(--warning-text);
@@ -18,19 +18,19 @@
 
 .maka-permission-diff {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .maka-permission-diff > div {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .maka-permission-diff-tag {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 0 5px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-control);
   font-size: var(--font-size-caption);
   font-weight: 600;
@@ -56,7 +56,7 @@
 
 .maka-permission-raw > summary {
   list-style: none;
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-2-5);
   color: var(--foreground-60);
   font-size: var(--font-size-caption);
 }
@@ -102,7 +102,7 @@
   background: oklch(0.40 0.01 80 / 0.42);
   backdrop-filter: blur(14px) saturate(0.85);
   -webkit-backdrop-filter: blur(14px) saturate(0.85);
-  padding: 34px;
+  padding: var(--space-8);
   opacity: 1;
   overscroll-behavior: contain;
 }

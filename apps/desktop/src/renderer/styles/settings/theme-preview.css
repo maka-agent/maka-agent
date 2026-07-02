@@ -15,7 +15,7 @@
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-ui);
   line-height: 1.4;
   outline: none;
@@ -24,7 +24,7 @@
 
 .settingsField textarea {
   border-radius: var(--radius-control);
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   line-height: 1.5;
   font-family: inherit;
   font-size: var(--font-size-ui);
@@ -48,7 +48,7 @@
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
-  padding: 11px 12px;
+  padding: var(--space-3) var(--space-3);
   font-size: var(--font-size-ui);
   line-height: 1.45;
 }
@@ -62,7 +62,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 /* PR-SETTINGS-SHELL-OWNS-LAYOUT-0: shell now owns max-width + page
@@ -71,14 +71,14 @@
 .settingsAboutPage {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .settingsAboutHero {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -99,8 +99,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 0 0 4px;
+  gap: var(--space-2-5);
+  margin: 0 0 var(--space-1);
 }
 
 .settingsAboutHeading h2 {
@@ -115,7 +115,7 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-ui);
   color: var(--foreground-70);
-  padding: 2px 8px;
+  padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
 }
@@ -123,7 +123,7 @@
 .settingsAboutChannel {
   font-size: var(--font-size-caption);
   color: var(--accent);
-  padding: 2px 8px;
+  padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-pill);
   background: oklch(from var(--accent) l c h / 0.10);
   font-weight: 600;
@@ -138,8 +138,8 @@
 
 .settingsAboutPrivacy {
   display: grid;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid oklch(from var(--success) l c h / 0.24);
   border-radius: var(--radius-surface);
   background: oklch(from var(--success) l c h / 0.04);
@@ -156,9 +156,9 @@
 
 .settingsAboutPrivacy ul {
   margin: 0;
-  padding: 0 0 0 18px;
+  padding: 0 0 0 var(--space-4);
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--foreground-70);
   font-size: var(--font-size-ui);
   line-height: 1.55;
@@ -171,14 +171,14 @@
 .settingsThemeOptions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settingsThemeOption {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   height: auto;
   min-height: 48px;
@@ -188,7 +188,7 @@
   background: var(--background-elevated);
   color: var(--foreground);
   overflow: hidden;
-  padding: 8px;
+  padding: var(--space-2);
   text-align: left;
   white-space: normal;
 }
@@ -197,7 +197,7 @@
   grid-template-columns: 1fr;
   grid-template-rows: auto auto;
   align-items: stretch;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 116px;
 }
 
@@ -253,9 +253,9 @@
 }
 
 .settingsThemePreviewChat {
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   align-content: end;
   min-width: 0;
 }
@@ -283,7 +283,7 @@
   width: 60%;
   height: 12px;
   border-radius: var(--radius-surface);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .settingsThemePreviewPane[data-mode="light"] .settingsThemePreviewBubble {
@@ -350,10 +350,10 @@
 .settingsPaletteGroup {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 .settingsPaletteGroup + .settingsPaletteGroup {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .settingsPaletteGroupHeading {
   margin: 0;
@@ -374,7 +374,7 @@
 }
 .settingsPasswordField input {
   width: 100%;
-  padding-right: 56px;
+  padding-right: var(--space-16);
 }
 .settingsPasswordActions {
   position: absolute;
@@ -383,7 +383,7 @@
   transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 .settingsPasswordToggle {
   display: grid;
@@ -412,14 +412,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 .settingsBotAction {
   appearance: none;
   min-width: 110px;
   min-height: 36px;
-  padding: 0 22px;
+  padding: 0 var(--space-6);
   border: 1px solid oklch(from var(--accent) l c h / 0.45);
   border-radius: var(--radius-pill);
   background: transparent;
@@ -447,7 +447,7 @@
   font-weight: 400;
   color: var(--foreground-50);
   font-size: var(--font-size-caption);
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
 }
 
 /* Amber info notice with a leading ⓘ glyph — mirrors the reference
@@ -455,8 +455,8 @@
 .settingsBotInfoNotice {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   border: 1px solid oklch(from var(--info) l c h / 0.18);
@@ -477,11 +477,11 @@
   background: var(--background);
   border: 1px solid var(--border);
   border-radius: var(--radius-modal);
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
   width: min(320px, 92vw);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   box-shadow: var(--shadow-minimal);
 }
 .settingsBotScanLoginHeader {
@@ -498,7 +498,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   text-align: center;
 }
 .settingsBotScanLoginQr {
@@ -506,7 +506,7 @@
   height: 180px;
   border-radius: var(--radius-surface);
   background: white;
-  padding: 8px;
+  padding: var(--space-2);
   border: 1px solid var(--border);
   object-fit: contain;
 }
@@ -533,14 +533,14 @@
 .settingsBotScanLoginActions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 /* WeChat 高级设置 collapsible toggle. */
 .settingsBotAdvanced {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 .settingsBotAdvancedToggle {
   align-self: flex-start;
@@ -548,7 +548,7 @@
   border: 0;
   background: transparent;
   color: var(--foreground-50);
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   font-size: var(--font-size-ui);
   text-decoration: underline;
   text-decoration-style: dotted;
@@ -560,8 +560,8 @@
 .settingsBotAdvancedBody {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-left: 12px;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
   border-left: 2px solid var(--border);
 }
 
@@ -579,24 +579,24 @@
 .settingsWechatQrModal {
   width: min(360px, calc(100vw - 40px));
   display: grid;
-  gap: 18px;
+  gap: var(--space-4);
   border: 1px solid color-mix(in srgb, #07C160 18%, var(--border));
   border-radius: var(--radius-modal);
   background: var(--background);
   box-shadow:
     0 24px 58px oklch(0 0 0 / 0.18),
     0 8px 18px oklch(0 0 0 / 0.10);
-  padding: 18px;
+  padding: var(--space-4);
 }
 
 .settingsWechatQrHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .settingsWechatQrHeader h3 {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
   font-size: 1.0667em;
   font-weight: 650;
 }
@@ -634,7 +634,7 @@
 .settingsWechatQrBody {
   display: grid;
   place-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   text-align: center;
 }
 
@@ -646,7 +646,7 @@
   border: 1px solid color-mix(in srgb, #07C160 20%, var(--border));
   border-radius: var(--radius-surface);
   background: white;
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .settingsWechatQrFrame img {
@@ -662,12 +662,12 @@
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   border: 1px dashed var(--border);
   border-radius: var(--radius-surface);
   background: var(--foreground-3);
   color: var(--foreground-60);
-  padding: 18px;
+  padding: var(--space-4);
   font-size: var(--font-size-ui);
   line-height: 1.5;
 }
@@ -701,7 +701,7 @@
   border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--accent);
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   font-size: var(--font-size-ui);
   font-weight: 500;
 }
@@ -718,7 +718,7 @@
 .settingsThemeLabel {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .settingsThemeLabel strong {
@@ -753,14 +753,14 @@
 }
 
 .settingsSubheading + .settingsThemeOptions {
-  margin-top: -6px;
+  margin-top: calc(var(--space-1-5) * -1);
 }
 
 .settingsBotLayout {
   min-height: 470px;
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
-  gap: 22px;
+  gap: var(--space-6);
 }
 
 

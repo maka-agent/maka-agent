@@ -814,7 +814,7 @@
     font-size: 0.82em;
     font-weight: 600;
     line-height: 1;
-    padding: 2px 6px;
+    padding: var(--space-0-5) var(--space-1-5);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
     border: 1px solid var(--border-strong);
@@ -855,8 +855,8 @@
   .pill {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
+    gap: var(--space-1);
+    padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-ui);
     font-weight: 500;
     color: var(--foreground-80);
@@ -905,7 +905,7 @@
   }
   .maka-sidebar-header {
     height: var(--h-titlebar);
-    padding: 0 12px;
+    padding: 0 var(--space-3);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -917,13 +917,13 @@
     color: var(--foreground-60);
   }
   .maka-sidebar-section {
-    padding: 8px 6px;
+    padding: var(--space-2) var(--space-1-5);
   }
   .maka-sidebar-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
+    gap: var(--space-2);
+    padding: var(--space-1-5) var(--space-2-5);
     border-radius: var(--radius-control);
     color: var(--foreground-80);
     font-size: var(--font-size-ui);
@@ -949,7 +949,7 @@
     appearance: none;
     background: transparent;
     border: none;
-    padding: 4px 8px;
+    padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-control);
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
@@ -969,8 +969,8 @@
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 0 16px;
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
     font-size: var(--font-size-ui);
     color: var(--foreground-70);
   }
@@ -981,12 +981,12 @@
   .maka-chat {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 0 16px 0;
+    padding: var(--space-6) 0 var(--space-4) 0;
     display: flex;
     flex-direction: column;
     /* PR-CHAT-CHROME-FOLLOWUP-0: looser separation BETWEEN turns so each
        Q+A unit reads as its own block (the within-turn gap stays tight). */
-    gap: 24px;
+    gap: var(--space-6);
   }
   .maka-message-row {
     max-width: var(--maka-chat-measure, 680px);
@@ -1006,7 +1006,7 @@
        block, summary, tools, answer) were cramped; 8px gives a calmer
        internal rhythm while still reading as one unit against the 24px
        between-turn gap. */
-    gap: 8px;
+    gap: var(--space-2);
     max-width: var(--maka-chat-measure, 680px);
     margin: 0 auto;
     width: 100%;
@@ -1014,7 +1014,7 @@
   }
 
   .maka-turn-tools {
-    padding: 0 8px 0 0;
+    padding: 0 var(--space-2) 0 0;
   }
 
   /* Turn summary strip + chips (model · tools · duration · tokens) and the
@@ -1040,8 +1040,8 @@
    * element JS state and isn't a single-element CSS fix; deferred
    * until we route reasoning through Base UI's Accordion. */
   .maka-turn-thinking {
-    margin: 0 0 8px;
-    padding: 8px 10px;
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px dashed oklch(from var(--focus-ring) l c h / 0.25);
     border-radius: var(--radius-surface);
     background: oklch(from var(--focus-ring) l c h / 0.03);
@@ -1052,7 +1052,7 @@
   .maka-turn-thinking summary {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     font-weight: 600;
     color: var(--focus-ring);
     letter-spacing: 0.02em;
@@ -1089,7 +1089,7 @@
   }
 
   .maka-turn-thinking-body {
-    margin-top: 6px;
+    margin-top: var(--space-1-5);
     line-height: 1.55;
     font-style: italic;
     opacity: 0.9;
@@ -1098,7 +1098,7 @@
   .maka-turn-thinking-actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: 6px;
+    margin-top: var(--space-1-5);
   }
 
   /* Task list checkboxes inside assistant markdown — remark-gfm gives us
@@ -1113,11 +1113,11 @@
 
   .maka-bubble-assistant ul.contains-task-list,
   .maka-bubble-assistant ol.contains-task-list {
-    padding-left: 4px;
+    padding-left: var(--space-1);
   }
 
   .maka-bubble-assistant li.task-list-item {
-    padding-left: 2px;
+    padding-left: var(--space-0-5);
   }
 
   .maka-bubble-assistant li.task-list-item > input[type="checkbox"] {
@@ -1125,7 +1125,7 @@
     -webkit-appearance: none;
     width: 14px;
     height: 14px;
-    margin: 0 8px 0 0;
+    margin: 0 var(--space-2) 0 0;
     border: 1.5px solid var(--foreground-40);
     border-radius: var(--radius-control);
     background: transparent;
@@ -1183,7 +1183,7 @@
   .maka-bubble-assistant {
     color: var(--foreground);
     line-height: 1.68;
-    padding: 2px 0 0;
+    padding: var(--space-0-5) 0 0;
     word-wrap: break-word;
     /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills
        round task #116): cap body prose at ~72ch per pbakaus
@@ -1206,14 +1206,14 @@
   .maka-bubble-assistant > :nth-last-child(2) { margin-bottom: 0; }
   .maka-bubble-assistant > p:nth-last-child(2) { display: inline; }
   .maka-bubble-assistant p {
-    margin: 0 0 14px;
+    margin: 0 0 var(--space-3);
     text-wrap: pretty;
   }
   .maka-bubble-assistant h1,
   .maka-bubble-assistant h2,
   .maka-bubble-assistant h3,
   .maka-bubble-assistant h4 {
-    margin: 18px 0 8px;
+    margin: var(--space-4) 0 var(--space-2);
     line-height: 1.25;
     font-weight: 600;
     text-wrap: balance;
@@ -1231,8 +1231,8 @@
   .maka-bubble-assistant h4 { font-size: 0.9333em; color: var(--foreground-80); }
   .maka-bubble-assistant ul,
   .maka-bubble-assistant ol {
-    margin: 0 0 12px;
-    padding-left: 22px;
+    margin: 0 0 var(--space-3);
+    padding-left: var(--space-6);
   }
   .maka-bubble-assistant li { margin: 2px 0; }
   .maka-bubble-assistant li > ul,
@@ -1245,8 +1245,8 @@
      * smoothly. Also: explicit padding-inline + negative margin so
      * the focus halo has hit area without pushing inline content
      * around. */
-    padding: 0 2px;
-    margin: 0 -2px;
+    padding: 0 var(--space-0-5);
+    margin: 0 calc(var(--space-0-5) * -1);
     border-radius: var(--radius-control);
     transition: border-bottom-color 120ms var(--ease-out-strong), background 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
@@ -1261,7 +1261,7 @@
   .maka-bubble-assistant code {
     font-family: var(--font-mono);
     font-size: 0.86em;
-    padding: 1px 6px;
+    padding: 1px var(--space-1-5);
     /* PR-UI-LAYOUT-28: inline code radius 4 → 5. Tiny bump but
      * pulls it slightly out of the "tight tag" feel into a calmer
      * pill rhythm that matches the rest of the warm-canvas chrome. */
@@ -1274,7 +1274,7 @@
      but the border + radius now live on the wrapper so the header reads
      as part of the same surface. */
   .maka-bubble-assistant .maka-code-block {
-    margin: 0 0 14px;
+    margin: 0 0 var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     overflow: hidden;
@@ -1284,7 +1284,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 10px 4px 12px;
+    padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-3);
     border-bottom: 1px solid var(--border);
     background: var(--foreground-5);
     color: var(--foreground-60);
@@ -1333,7 +1333,7 @@
   }
   .maka-bubble-assistant pre {
     margin: 0;
-    padding: 12px 14px;
+    padding: var(--space-3) var(--space-3);
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1380,7 +1380,7 @@
   .hljs-emphasis   { font-style: italic; }
   .hljs-strong     { font-weight: 700; }
   .maka-bubble-assistant blockquote {
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
      * Bump padding so the quote actually has air around it, switch
      * left rule to accent at 28% so it visually anchors the quote
@@ -1394,7 +1394,7 @@
      * passage" while system alerts continue to own the
      * icon + border + saturated tone pattern. The left rule keeps
      * the accent tie so quotes still feel branded, not generic. */
-    padding: 8px 16px;
+    padding: var(--space-2) var(--space-4);
     border-left: 3px solid oklch(from var(--focus-ring) l c h / 0.28);
     background: var(--foreground-3);
     border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
@@ -1402,7 +1402,7 @@
   }
   .maka-bubble-assistant table {
     width: 100%;
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     border-collapse: collapse;
     font-size: var(--font-size-ui);
     overflow: hidden;
@@ -1415,7 +1415,7 @@
   }
   .maka-bubble-assistant th,
   .maka-bubble-assistant td {
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--border);
     text-align: left;
   }
@@ -1436,7 +1436,7 @@
     letter-spacing: 0.01em;
   }
   .maka-bubble-assistant hr {
-    margin: 16px 0;
+    margin: var(--space-4) 0;
     border: 0;
     border-top: 1px solid var(--border);
   }
@@ -1486,8 +1486,8 @@
     height: auto;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 8px;
+    gap: var(--space-1-5);
+    padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-caption);
     font-weight: 600;
     opacity: 1;
@@ -1532,7 +1532,7 @@
   .maka-bubble-streaming::after {
     content: "▎";
     display: inline-block;
-    margin-left: 2px;
+    margin-left: var(--space-0-5);
      color: var(--status-running);
      animation: maka-cursor 1.1s var(--ease-in-out-strong) infinite;
     vertical-align: -2px;
@@ -1591,7 +1591,7 @@
      * a strong horizontal line slicing the panel. The composer's
      * own border + rounded chrome below is sufficient visual
      * separation; no extra line needed. */
-    padding: 18px 24px;
+    padding: var(--space-4) var(--space-6);
     background: var(--background);
   }
   .maka-composer-inner {
@@ -1611,10 +1611,10 @@
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
     border-radius: var(--radius-modal);
     background: var(--background-elevated);
-    padding: 14px 16px;
+    padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2-5);
     border: 1px solid var(--border);
     transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong), background 160ms var(--ease-out-strong);
   }
@@ -1670,7 +1670,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
   }
@@ -1687,7 +1687,7 @@
     border: 1px solid var(--border);
     background: var(--background);
     color: var(--foreground);
-    padding: 7px 14px;
+    padding: var(--space-1-5) var(--space-3);
     border-radius: var(--radius-control);
     font-size: var(--font-size-ui);
     font-weight: 500;
@@ -1732,7 +1732,7 @@
     opacity: 1;
   }
   .maka-modal-header {
-    padding: 16px 20px 8px 20px;
+    padding: var(--space-4) var(--space-5) var(--space-2) var(--space-5);
     border-bottom: 1px solid var(--border);
   }
   .maka-modal-title {
@@ -1744,16 +1744,16 @@
   .maka-modal-subtitle {
     font-size: var(--font-size-ui);
     color: var(--foreground-60);
-    margin-top: 2px;
+    margin-top: var(--space-0-5);
   }
   .maka-modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
   .maka-modal-footer {
-    padding: 12px 20px;
+    padding: var(--space-3) var(--space-5);
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   /* ---- Permission badge tones (for status text + dialog reason) --- */
@@ -1775,7 +1775,7 @@
     background: var(--foreground-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-2-5);
     color: var(--foreground);
     overflow-x: auto;
     white-space: pre-wrap;
@@ -1837,7 +1837,7 @@
 }
 .maka-skeleton-stack {
   display: grid;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 /* =============================================================================

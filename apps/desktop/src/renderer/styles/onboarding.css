@@ -2,9 +2,9 @@
 .maka-onboarding {
   width: min(680px, 100%);
   margin: auto;
-  padding: 12px 16px 16px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
   display: grid;
-  gap: 10px;
+  gap: var(--space-2-5);
   color: var(--foreground);
 }
 
@@ -16,13 +16,13 @@
 
 .maka-onboarding header {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   justify-items: start;
   text-align: left;
 }
 
 .maka-onboarding-ready header {
-  gap: 4px;
+  gap: var(--space-1);
   justify-items: center;
   text-align: center;
 }
@@ -71,13 +71,13 @@
    first screen rendered a half-clipped CTA. First-run flattens the outer
    padding stack; the other onboarding states keep their centered rhythm. */
 .mainColumn[data-home-surface="true"] .maka-chatContent:has(.maka-firstrun) {
-  padding-top: clamp(24px, 3.5vh, 44px);
+  padding-top: clamp(var(--space-6), 3.5vh, var(--space-10));
   align-content: start;
 }
 
 .maka-onboarding-stack:has(.maka-firstrun) {
   min-height: 0;
-  padding-top: clamp(12px, 2vh, 24px);
+  padding-top: clamp(var(--space-3), 2vh, var(--space-6));
 }
 
 /* PR-FRONTEND-AUDIT-CLEANUP-0 F1 (WAWQAQ msg `dde696a1`): the earlier
@@ -97,7 +97,7 @@
 }
 
 .maka-firstrun-sub {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   font-size: var(--font-size-ui);
   line-height: 1.5;
   color: var(--foreground-50);
@@ -109,7 +109,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0;
-  margin: 22px 0 0;
+  margin: var(--space-6) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -117,8 +117,8 @@
 .maka-firstrun-step {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px 5px 6px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-1-5);
   border-radius: var(--radius-pill);
 }
 
@@ -168,7 +168,7 @@
   width: 20px;
   height: 1.5px;
   flex: 0 0 auto;
-  margin: 0 2px;
+  margin: 0 var(--space-0-5);
   border-radius: var(--radius-control);
   background: var(--border-strong);
 }
@@ -177,8 +177,8 @@
 .maka-firstrun-pick {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  margin: 30px 0 12px;
+  gap: var(--space-2-5);
+  margin: var(--space-8) 0 var(--space-3);
 }
 .maka-firstrun-pick-label {
   font-size: var(--font-size-ui);
@@ -219,19 +219,19 @@
   line-height: 1;
   color: var(--nav-active);
   background: oklch(from var(--nav-active) l c h / 0.12);
-  padding: 2px 6px;
+  padding: var(--space-0-5) var(--space-1-5);
   border-radius: var(--radius-control);
 }
 
 .maka-firstrun .maka-onboarding-footer {
-  margin-top: 22px;
+  margin-top: var(--space-6);
 }
 
 .maka-onboarding-footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .maka-onboarding-ready .maka-onboarding-footer {
@@ -245,7 +245,7 @@
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 3px;
+  gap: var(--space-0-5);
 }
 
 .maka-onboarding-setup-steps > li {
@@ -253,8 +253,8 @@
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) max-content;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -300,7 +300,7 @@
 .maka-onboarding-setup-step-copy {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .maka-onboarding-setup-step-copy strong {
@@ -318,7 +318,7 @@
 
 .maka-onboarding-setup-step-state {
   justify-self: end;
-  padding: 2px 6px;
+  padding: var(--space-0-5) var(--space-1-5);
   border-radius: var(--radius-pill);
   background: var(--background-elevated);
   color: var(--foreground-60);
@@ -358,7 +358,7 @@
   font-size: 1.4667em;
 }
 .maka-onboarding-setup header p {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   color: var(--foreground-70);
   line-height: 1.55;
 }
@@ -382,7 +382,7 @@
 .maka-onboarding-slug {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--font-size-ui);
-  padding: 2px 6px;
+  padding: var(--space-0-5) var(--space-1-5);
   /* PR-UI-LAYOUT-25: slug radius 6 → 8 to join the form input
    * family (same chrome as inline code badges). */
   border-radius: var(--radius-surface);
@@ -403,7 +403,7 @@
 .maka-onboarding-ready header p {
   /* Slightly larger subtitle so it carries the meaning without
      reading like fine print under the now-heavier h1. */
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
   font-size: var(--font-size-ui);
   line-height: 1.5;
   max-width: 56ch;
@@ -412,7 +412,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin-top: 24px;
+  margin-top: var(--space-6);
   width: min(100%, 620px);
   margin-inline: auto;
   position: relative;
@@ -430,8 +430,8 @@
 
 .maka-onboarding-quickchat-field {
   display: grid;
-  gap: 8px;
-  padding: 20px 150px 20px 22px;
+  gap: var(--space-2);
+  padding: var(--space-5) clamp(var(--space-6), 12vw, 150px) var(--space-5) var(--space-6);
 }
 
 .maka-onboarding-quickchat:focus-within {
@@ -508,10 +508,10 @@
 .maka-onboarding-quickchat-mode {
   width: fit-content;
   max-width: calc(100% - 190px);
-  margin: -10px 150px 18px 22px;
+  margin: calc(var(--space-2-5) * -1) clamp(var(--space-6), 12vw, 150px) var(--space-4) var(--space-6);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   color: var(--nav-active);
   background: color-mix(in srgb, var(--nav-active) 10%, transparent);
   font-size: var(--font-size-caption);
@@ -557,21 +557,21 @@
   display: grid;
   justify-items: center;
   gap: 0;
-  margin-top: 22px;
+  margin-top: var(--space-6);
   width: min(760px, 100%);
 }
 
 .maka-first-run-task-suggestions-inner {
   width: min(100%, 760px);
   display: grid;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .maka-first-run-task-suggestions-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .maka-first-run-task-suggestions-header > strong {
@@ -584,7 +584,7 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .maka-first-run-task-suggestion-chip {
@@ -606,7 +606,7 @@
   color: var(--foreground-70);
   height: auto;
   min-height: 38px;
-  padding: 9px 18px;
+  padding: var(--space-2) var(--space-4);
   font-size: var(--font-size-ui);
   line-height: 1.2;
   text-align: center;
@@ -678,7 +678,7 @@
 .maka-list-row-name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   overflow: hidden;
   font-size: var(--font-size-ui);
   font-weight: 500;
@@ -804,7 +804,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-right: 4px;
+  margin-right: var(--space-1);
   width: 14px;
   height: 14px;
   color: var(--foreground-60);
@@ -850,7 +850,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
+  gap: var(--space-1-5);
   width: 100%;
   background: transparent;
   border: 0;
@@ -872,7 +872,7 @@
   flex-shrink: 0;
   /* PR-UI-3: drop margin-left, let parent's gap (6px) handle spacing
    * so all badges in .maka-list-row-name share the same rhythm. */
-  padding: 1px 6px;
+  padding: 1px var(--space-1-5);
   border-radius: var(--radius-pill);
   /* Reuses the chat-header-alert warning tone tokens (--warning + --warning-text)
    * for visual consistency with the banner that explains the same state.
@@ -905,7 +905,7 @@
   transform: translate(-50%, -50%);
   display: grid;
   justify-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   text-align: center;
   color: var(--foreground-60);
 }
@@ -969,16 +969,16 @@
 .maka-empty-state-code {
   font-family: var(--font-mono);
   font-size: var(--font-size-ui);
-  padding: 1px 5px;
+  padding: 1px var(--space-1);
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-70);
 }
 
 .maka-empty-state-actions {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   justify-items: center;
 }
 

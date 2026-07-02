@@ -19,8 +19,8 @@
     display: grid;
     grid-template-columns: 24px 1fr 24px;
     align-items: center;
-    gap: 4px;
-    padding: 2px 2px 6px;
+    gap: var(--space-1);
+    padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
     border-bottom: 1px solid var(--foreground-10);
   }
 }
@@ -31,8 +31,8 @@
 @layer components {
   .maka-daily-review-info {
     display: grid;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid var(--card-border-color);
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.03);
@@ -75,8 +75,8 @@
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 2px 0 6px;
+  gap: var(--space-2);
+  padding: var(--space-0-5) 0 var(--space-1-5);
   border-bottom: 1px solid var(--foreground-10);
 }
 
@@ -96,8 +96,8 @@
 @layer components {
   .maka-daily-review-archives {
     display: grid;
-    gap: 6px;
-    padding: 8px 0 10px;
+    gap: var(--space-1-5);
+    padding: var(--space-2) 0 var(--space-2-5);
     border-bottom: 1px solid var(--foreground-10);
   }
 
@@ -105,7 +105,7 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .maka-daily-review-archive-count {
@@ -117,7 +117,7 @@
   .maka-daily-review-archive-layout {
     display: grid;
     grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--space-2);
     align-items: start;
   }
 
@@ -130,7 +130,7 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 3px;
+    gap: var(--space-0-5);
     min-width: 0;
   }
 
@@ -149,7 +149,7 @@
   display: grid;
   gap: 1px;
   min-width: 0;
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   text-align: left;
   transition:
     background var(--duration-quick) var(--ease-out-strong),
@@ -186,9 +186,9 @@
 
   .maka-daily-review-archive-body {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
-    padding: 10px 12px;
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid var(--card-border-color);
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.025);
@@ -206,7 +206,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--space-2-5);
   }
 
   .maka-daily-review-archive-body-header h4 {
@@ -218,7 +218,7 @@
   }
 
   .maka-daily-review-archive-body-header p {
-    margin: 2px 0 0;
+    margin: var(--space-0-5) 0 0;
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     line-height: 1.45;
@@ -232,7 +232,7 @@
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     line-height: 1;
-    padding: 4px 7px;
+    padding: var(--space-1) var(--space-1-5);
     white-space: nowrap;
   }
 
@@ -256,12 +256,12 @@
 
   .maka-daily-review-archive-sections {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .maka-daily-review-archive-section {
     display: grid;
-    gap: 3px;
+    gap: var(--space-0-5);
   }
 
   .maka-daily-review-archive-section h5 {
@@ -299,15 +299,15 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 6px;
-    padding: 2px 0 6px;
+    gap: var(--space-1-5);
+    padding: var(--space-0-5) 0 var(--space-1-5);
     border-bottom: 1px solid var(--foreground-10);
   }
 
   .maka-daily-review-range-tabs,
   .maka-daily-review-actions {
     display: flex;
-    gap: 4px;
+    gap: var(--space-1);
     min-width: 0;
   }
 }
@@ -335,8 +335,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.3);
     border-radius: var(--radius-surface);
     background: oklch(from var(--warning, var(--info)) l c h / 0.08);
@@ -369,7 +369,7 @@
   .maka-daily-review-totals {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .maka-module-main .maka-daily-review-totals {
@@ -379,7 +379,7 @@
   .maka-daily-review-totals-cell {
     display: grid;
     gap: 1px;
-    padding: 5px 8px;
+    padding: var(--space-1) var(--space-2);
     border: 0;
     border-radius: var(--radius-control);
     background: oklch(from var(--foreground) l c h / 0.04);
@@ -414,20 +414,20 @@
 @layer components {
   .maka-daily-review-section {
     display: grid;
-    gap: 8px;
-    padding: 12px 0 0;
+    gap: var(--space-2);
+    padding: var(--space-3) 0 0;
     border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
   }
 
   .maka-daily-review-section:first-of-type {
     border-top: 0;
-    padding-top: 4px;
+    padding-top: var(--space-1);
   }
 
   .maka-daily-review-section-title {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     font-size: var(--font-size-caption);
     font-weight: 600;
     letter-spacing: 0.08em;
@@ -451,13 +451,13 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .maka-daily-review-list-item {
     display: grid;
-    gap: 2px;
-    padding: 6px 10px;
+    gap: var(--space-0-5);
+    padding: var(--space-1-5) var(--space-2-5);
     border-radius: var(--radius-surface);
     background: transparent;
     transition: background 140ms var(--ease-out-strong),
@@ -490,7 +490,7 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--foreground);
   font: inherit;
   text-align: left;
@@ -536,8 +536,8 @@
 
   .maka-daily-review-loading {
     display: grid;
-    gap: 8px;
-    padding: 8px 4px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-1);
   }
 }
 

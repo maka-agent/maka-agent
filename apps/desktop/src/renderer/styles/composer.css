@@ -55,7 +55,7 @@
   display: flex;
   justify-content: flex-start;
   box-sizing: border-box;
-  margin: 8px auto 0;
+  margin: var(--space-2) auto 0;
 }
 
 .maka-composer-workspace-picker {
@@ -65,8 +65,8 @@
   min-height: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 6px;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1-5);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -113,7 +113,7 @@
 .maka-composer-streaming-hint {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--foreground-70);
   font-size: var(--font-size-caption);
 }
@@ -126,7 +126,7 @@
   position: relative;
   width: 5px;
   height: 5px;
-  margin-inline: 9px;
+  margin-inline: var(--space-2);
   border-radius: 50%;
   background: var(--status-running);
   animation: maka-composer-stream-bounce 1.05s var(--ease-in-out-strong) -0.2s infinite both;
@@ -184,7 +184,7 @@
 .maka-composer-permission-hint {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-1-5);
 }
 
 .maka-composer-permission-dot {
@@ -218,15 +218,15 @@
 }
 
 .permissionDialog p {
-  margin: 2px 0 0;
+  margin: var(--space-0-5) 0 0;
 }
 
 .permissionRemember {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 5px;
-  margin-top: 10px;
+  gap: var(--space-1);
+  margin-top: var(--space-2-5);
   color: var(--foreground-70);
   font-size: var(--font-size-ui);
 }
@@ -240,7 +240,7 @@
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .maka-permission-icon {
@@ -270,7 +270,7 @@
 .maka-permission-tool {
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
-  padding: 0 5px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-80);
@@ -293,12 +293,12 @@
 
 .maka-permission-body {
   display: grid;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .maka-permission-summary {
   display: grid;
-  gap: 5px;
+  gap: var(--space-1);
 }
 
 .maka-permission-line {
@@ -314,7 +314,7 @@
 .maka-permission-path code {
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
-  padding: 1px 5px;
+  padding: 1px var(--space-1);
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground);
@@ -338,7 +338,7 @@
   border-radius: var(--radius-control);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
-  padding: 6px 10px;
+  padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-caption);
   line-height: 1.4;
 }
