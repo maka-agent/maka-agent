@@ -26,6 +26,7 @@ import {
 } from '../session-manager.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
 import { commitTerminalRunWithRuntimeFact } from '../terminal-run-commit.js';
+import { RuntimeReadModel } from '../runtime-read-model.js';
 
 describe('SessionManager terminal ledger invariants', () => {
   test('error streams persist a failed terminal fact without non-terminal error ledger rows', async () => {
@@ -224,6 +225,143 @@ describe('SessionManager terminal ledger invariants', () => {
     const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('completed');
+  });
+
+  test('startup recovery reuses an incomplete existing terminal RuntimeEvent instead of appending another', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(50_000),
+      runtimeSource: 'test',
+    });
+    const session = await store.create(makeInput({ status: 'active' }));
+    const run = await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-incomplete-terminal',
+      turnId: 'turn-incomplete-terminal',
+      status: 'running',
+    }));
+    await runStore.appendEvent(session.id, run.runId, {
+      type: 'run_started',
+      id: 'run-started',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 2,
+    });
+    await runStore.appendRuntimeEvent(session.id, run.runId, runtimeEvent({
+      id: 'rt-failed-without-class',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'failed',
+      actions: { endInvocation: true },
+    }));
+
+    await manager.recoverInterruptedSessions();
+
+    const header = await runStore.readRun(session.id, run.runId);
+    expect(header.status).toBe('failed');
+    expect(header.failureClass).toBe('app_restarted');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.id).toBe('rt-failed-without-class');
+    const view = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id);
+    expect(view.terminalFacts).toHaveLength(1);
+    expect(view.terminalFacts[0]?.failureClass).toBe('app_restarted');
+  });
+
+  test('startup recovery completes an existing aborted terminal RuntimeEvent without appending another', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends: new BackendRegistry(),
+      newId: nextId(),
+      now: nextNow(60_000),
+      runtimeSource: 'test',
+    });
+    const session = await store.create(makeInput({ status: 'active' }));
+    const run = await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-incomplete-abort',
+      turnId: 'turn-incomplete-abort',
+      status: 'running',
+    }));
+    await runStore.appendEvent(session.id, run.runId, {
+      type: 'run_started',
+      id: 'run-started',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 2,
+    });
+    await runStore.appendRuntimeEvent(session.id, run.runId, runtimeEvent({
+      id: 'rt-aborted-without-source',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'aborted',
+      actions: { endInvocation: true },
+    }));
+
+    await manager.recoverInterruptedSessions();
+
+    const header = await runStore.readRun(session.id, run.runId);
+    expect(header.status).toBe('cancelled');
+    expect(header.abortSource).toBe('unknown');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.id).toBe('rt-aborted-without-source');
+    const view = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id);
+    expect(view.terminalFacts).toHaveLength(1);
+    expect(view.terminalFacts[0]?.abortSource).toBe('unknown');
+  });
+
+  test('RuntimeReadModel reads a non-terminal header when a terminal RuntimeEvent fact exists', async () => {
+    const runStore = new TinyAgentRunStore();
+    const run = makeRunHeader({
+      sessionId: 'session-read-model',
+      runId: 'run-read-model',
+      turnId: 'turn-read-model',
+      status: 'running',
+    });
+    await runStore.createRun(run);
+    await runStore.appendRuntimeEvent(run.sessionId, run.runId, runtimeEvent({
+      id: 'rt-failed-fact',
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'failed',
+      content: {
+        kind: 'error',
+        code: 'tool_failed',
+        reason: 'tool_failed',
+        message: 'Tool failed',
+      },
+      actions: {
+        endInvocation: true,
+        stateDelta: { failureClass: 'tool_failed' },
+      },
+    }));
+
+    const view = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(run.sessionId);
+
+    expect(view.runs[0]?.status).toBe('failed');
+    expect(view.runs[0]?.failureClass).toBe('tool_failed');
+    expect(view.terminalFacts).toHaveLength(1);
+    expect(view.terminalFacts[0]?.failureClass).toBe('tool_failed');
+    const turnState = view.messages.find((message) => message.type === 'turn_state');
+    if (turnState?.type !== 'turn_state') throw new Error('turn_state was not projected');
+    expect(turnState.status).toBe('failed');
+    expect(turnState.errorClass).toBe('tool_failed');
   });
 });
 
