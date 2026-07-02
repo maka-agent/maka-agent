@@ -17,6 +17,7 @@ import type {
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { SessionEvent } from '@maka/core/events';
 import { expect } from '../test-helpers.js';
+import { AgentRun } from '../agent-run.js';
 import {
   BackendRegistry,
   SessionManager,
@@ -124,6 +125,105 @@ describe('SessionManager terminal ledger invariants', () => {
       /terminal RuntimeEvent status completed cannot commit failed run header/,
     );
     expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
+  });
+
+  test('direct AgentRun terminal writes fail before terminal headers can commit', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore({ failTerminalRuntimeEventAppends: true });
+    const session = await store.create(makeInput());
+    const run = new AgentRun({
+      sessionId: session.id,
+      header: session,
+      userInput: { turnId: 'turn-1', text: 'hello' },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      now: nextNow(30_000),
+      hooks: {
+        ensureActive: async () => {
+          throw new Error('ensureActive should not be called');
+        },
+        registerRun: () => {},
+        unregisterRun: () => {},
+        updateHeader: (sessionId, patch) => store.updateHeader(sessionId, patch),
+        updateStatus: async () => {},
+        appendTurnState: async () => {},
+      },
+    });
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'running',
+    }));
+    const terminalEvent = runtimeEvent({
+      id: 'rt-completed',
+      sessionId: session.id,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'completed',
+      actions: { endInvocation: true },
+    });
+
+    await assert.rejects(
+      run.recordRuntimeEvents([terminalEvent]),
+      /terminal runtime event append failed/,
+    );
+    await run.recordSessionEvent({
+      type: 'complete',
+      id: 'complete',
+      turnId: run.turnId,
+      ts: 3,
+      stopReason: 'end_turn',
+    });
+    await run.finalize();
+
+    expect((await runStore.readRun(session.id, run.runId)).status).toBe('running');
+    expect((await runStore.readRuntimeEvents(session.id, run.runId)).some(isTerminalRuntimeEvent)).toBe(false);
+  });
+
+  test('direct AgentRun execute records terminal RuntimeEvents before terminal headers', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const session = await store.create(makeInput());
+    const backend = new ScriptBackend({ sessionId: session.id } as BackendFactoryContext, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]);
+    const activeRuns = new Map<string, AgentRun>();
+    const turnToRunId = new Map<string, string>();
+    const run = new AgentRun({
+      sessionId: session.id,
+      header: session,
+      userInput: { turnId: 'turn-1', text: 'hello' },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      now: nextNow(40_000),
+      hooks: {
+        ensureActive: async () => ({ sessionId: session.id, backend, cachedHeader: session, activeRuns, turnToRunId }),
+        registerRun: (_active, activeRun) => {
+          activeRuns.set(activeRun.runId, activeRun);
+          turnToRunId.set(activeRun.turnId, activeRun.runId);
+        },
+        unregisterRun: (_active, activeRun) => {
+          activeRuns.delete(activeRun.runId);
+          turnToRunId.delete(activeRun.turnId);
+        },
+        updateHeader: (sessionId, patch) => store.updateHeader(sessionId, patch),
+        updateStatus: async () => {},
+        appendTurnState: async () => {},
+      },
+    });
+
+    await drain(run.execute());
+
+    const header = await runStore.readRun(session.id, run.runId);
+    expect(header.status).toBe('completed');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('completed');
   });
 });
 
@@ -337,6 +437,8 @@ class TinyAgentRunStore implements AgentRunStore, RuntimeEventStore {
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
 
+  constructor(private readonly options: { failTerminalRuntimeEventAppends?: boolean } = {}) {}
+
   async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), clone(header));
     return clone(header);
@@ -372,6 +474,9 @@ class TinyAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    if (this.options.failTerminalRuntimeEventAppends && isTerminalRuntimeEvent(event)) {
+      throw new Error('terminal runtime event append failed');
+    }
     const eventKey = key(sessionId, runId);
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), clone(event)]);
   }

@@ -33,6 +33,11 @@ import {
   commitTerminalRunWithRuntimeFact,
   type TerminalAgentRunStatus,
 } from './terminal-run-commit.js';
+import {
+  createSessionEventMapMemory,
+  mapSessionEventToRuntimeEvent,
+} from './ai-sdk-flow.js';
+import type { InvocationContext } from './invocation-context.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -188,8 +193,35 @@ export class AgentRun {
   async *execute(): AsyncIterable<SessionEvent> {
     try {
       const begin = await this.begin();
+      const invocationId = this.input.newId();
+      const source = 'desktop' as const;
+      const request: InvocationContext['request'] = {
+        sessionId: this.sessionId,
+        invocationId,
+        runId: this.runId,
+        turnId: this.turnId,
+        text: this.input.userInput.text,
+        ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
+        context: begin.backendInput.context,
+        ...(begin.backendInput.runtimeContext ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
+        source,
+        lineage: this.lineage,
+      };
+      const ctx: InvocationContext = {
+        sessionId: this.sessionId,
+        invocationId,
+        runId: this.runId,
+        turnId: this.turnId,
+        source,
+        startedAt: this.input.now(),
+        request,
+        newId: this.input.newId,
+        now: this.input.now,
+      };
+      const memory = createSessionEventMapMemory();
       for await (const ev of begin.backend.send(begin.backendInput)) {
-        await this.recordSessionEvent(ev);
+        const runtimeEvent = mapSessionEventToRuntimeEvent(ev, ctx, memory);
+        await this.recordMappedSessionEvent(ev, runtimeEvent);
         yield ev;
       }
     } catch (error) {
@@ -197,6 +229,20 @@ export class AgentRun {
       throw error;
     } finally {
       await this.finalize();
+    }
+  }
+
+  private async recordMappedSessionEvent(sessionEvent: SessionEvent, runtimeEvent: RuntimeEvent): Promise<void> {
+    if (isTerminalRuntimeEvent(runtimeEvent)) {
+      if (!isPermissionHandoffTerminal(runtimeEvent)) {
+        await this.recordRuntimeEvents([runtimeEvent], { requireTerminalWrite: Boolean(this.input.runtimeEventStore) });
+      }
+      await this.recordSessionEvent(sessionEvent);
+      return;
+    }
+    await this.recordSessionEvent(sessionEvent);
+    if (!isNonTerminalErrorRuntimeEvent(runtimeEvent)) {
+      await this.recordRuntimeEvents([runtimeEvent]);
     }
   }
 
@@ -324,7 +370,7 @@ export class AgentRun {
       }
       await this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
-      }, { rethrow: terminal && options.requireTerminalWrite });
+      }, { rethrow: terminal || options.requireTerminalWrite });
       if (terminal) {
         this.terminalRuntimeEventRecorded = true;
         this.terminalRuntimeEventForRunCommit = eventForStore;
@@ -863,6 +909,14 @@ function errorMessage(error: unknown): string {
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function isPermissionHandoffTerminal(event: RuntimeEvent): boolean {
+  return event.actions?.stateDelta?.stopReason === 'permission_handoff';
+}
+
+function isNonTerminalErrorRuntimeEvent(event: RuntimeEvent): boolean {
+  return event.content?.kind === 'error' && !isTerminalRuntimeEvent(event);
 }
 
 function statusFromEvent(event: SessionEvent): { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined {
