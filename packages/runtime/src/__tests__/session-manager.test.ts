@@ -1072,6 +1072,58 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.refs?.storedMessageId).toBe('legacy-state');
   });
 
+  test('getMessages repairs multiple missing terminal facts before returning the runtime view', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user-1', turnId: 'turn-1', ts: 101, text: 'question 1' },
+      { type: 'assistant', id: 'legacy-assistant-1', turnId: 'turn-1', ts: 102, text: 'answer 1', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state-1', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+      { type: 'user', id: 'legacy-user-2', turnId: 'turn-2', ts: 201, text: 'question 2' },
+      { type: 'assistant', id: 'legacy-assistant-2', turnId: 'turn-2', ts: 202, text: 'answer 2', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state-2', turnId: 'turn-2', ts: 203, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user-1', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question 1' } }),
+      runtimeEvent({ id: 'rt-assistant-1', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer 1' } }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-2',
+      turnId: 'turn-2',
+      status: 'completed',
+      createdAt: 200,
+      updatedAt: 203,
+      completedAt: 203,
+    }), [
+      runtimeEvent({ id: 'rt-user-2', sessionId: session.id, runId: 'run-2', turnId: 'turn-2', ts: 201, role: 'user', author: 'user', content: { kind: 'text', text: 'question 2' } }),
+      runtimeEvent({ id: 'rt-assistant-2', sessionId: session.id, runId: 'run-2', turnId: 'turn-2', ts: 202, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer 2' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const run1TerminalEvents = (await runStore.readRuntimeEvents(session.id, 'run-1')).filter(isTerminalRuntimeEvent);
+    const run2TerminalEvents = (await runStore.readRuntimeEvents(session.id, 'run-2')).filter(isTerminalRuntimeEvent);
+
+    expect(messages.filter((message) => message.type === 'turn_state').map((message) => message.turnId)).toEqual([
+      'turn-1',
+      'turn-2',
+    ]);
+    expect(run1TerminalEvents).toHaveLength(1);
+    expect(run1TerminalEvents[0]?.refs?.storedMessageId).toBe('legacy-state-1');
+    expect(run2TerminalEvents).toHaveLength(1);
+    expect(run2TerminalEvents[0]?.refs?.storedMessageId).toBe('legacy-state-2');
+  });
+
   test('getMessages does not trust failed legacy terminal state for a completed run header', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

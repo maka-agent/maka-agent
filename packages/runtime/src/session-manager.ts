@@ -111,6 +111,7 @@ export interface SpawnChildAgentResult {
 }
 
 const CHILD_AGENT_SUMMARY_MAX_CHARS = 4_000;
+const MAX_RUNTIME_LEDGER_REPAIR_ATTEMPTS = 8;
 
 export interface AgentListItem {
   runId: string;
@@ -739,19 +740,23 @@ export class SessionManager {
   }
 
   private async getSessionView(sessionId: string): Promise<RuntimeReadModelSessionView> {
-    try {
-      const view = await this.readModel().getSessionView(sessionId);
-      const runId = firstRuntimeRepairRunId(view.diagnostics);
-      if (!runId) return view;
-      if (!await this.repairMissingTerminalFactOnce(sessionId, runId)) return view;
-      return this.readModel().getSessionView(sessionId);
-    } catch (error) {
-      if (!(error instanceof RuntimeReadModelError)) throw error;
-      const runId = firstRuntimeRepairRunId(error.diagnostics);
-      if (!runId) throw error;
-      await this.repairMissingTerminalFactOnce(sessionId, runId);
-      return this.readModel().getSessionView(sessionId);
+    const repaired = new Set<string>();
+    for (let attempt = 0; attempt < MAX_RUNTIME_LEDGER_REPAIR_ATTEMPTS; attempt += 1) {
+      try {
+        const view = await this.readModel().getSessionView(sessionId);
+        const runId = firstRuntimeRepairRunId(view.diagnostics, repaired);
+        if (!runId) return view;
+        if (!await this.repairMissingTerminalFactOnce(sessionId, runId)) return view;
+        repaired.add(runId);
+      } catch (error) {
+        if (!(error instanceof RuntimeReadModelError)) throw error;
+        const runId = firstRuntimeRepairRunId(error.diagnostics, repaired);
+        if (!runId) throw error;
+        if (!await this.repairMissingTerminalFactOnce(sessionId, runId)) throw error;
+        repaired.add(runId);
+      }
     }
+    return this.readModel().getSessionView(sessionId);
   }
 
   private readModel(): RuntimeReadModel {
