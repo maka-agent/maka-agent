@@ -215,6 +215,57 @@ describe('Storybook baseline contract', () => {
     }
   });
 
+  it('exposes the full Design System foundation story surface', () => {
+    const expected: ReadonlyArray<readonly [string, string, readonly string[]]> = [
+      ['Design System/Animation Catalog', 'animation-catalog.stories.tsx', ['RetainedFunctionalMotion', 'DurationScale', 'EasingScale']],
+      ['Design System/Icons', 'icons.stories.tsx', ['PhosphorIcons', 'BotBrandIcons']],
+      ['Design System/Palette Matrix', 'palette-matrix.stories.tsx', ['AllPalettes']],
+      ['Design System/Typography', 'typography.stories.tsx', ['TypeScale']],
+      ['Design System/Spacing', 'spacing.stories.tsx', ['Spacing']],
+      ['Design System/Elevation', 'elevation.stories.tsx', ['Elevation']],
+      ['Design System/Layering', 'layering.stories.tsx', ['Layering']],
+      ['Design System/Interaction States', 'interaction-states.stories.tsx', ['InteractionStates']],
+    ];
+    for (const [title, file, exports] of expected) {
+      const storyPath = join(REPO_ROOT, 'packages', 'ui', 'stories', file);
+      assert.ok(existsSync(storyPath), `${file} must exist as a Design System story`);
+      const story = readFileSync(storyPath, 'utf8');
+      assert.match(story, new RegExp(`title:\\s*['"]${title.replace(/\//g, '\\/')}['"]`), `${file} must have title ${title}`);
+      for (const name of exports) {
+        assert.match(story, new RegExp(`export const ${name}: Story`), `${file} must export ${name}`);
+      }
+    }
+  });
+
+  it('keeps Design System stories free of undefined token references', () => {
+    const tokensCss = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css'), 'utf8');
+    const defined = new Set([...tokensCss.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
+    const storyFiles = [
+      'design-tokens.stories.tsx',
+      'animation-catalog.stories.tsx',
+      'icons.stories.tsx',
+      'palette-matrix.stories.tsx',
+      'typography.stories.tsx',
+      'spacing.stories.tsx',
+      'elevation.stories.tsx',
+      'layering.stories.tsx',
+      'interaction-states.stories.tsx',
+    ];
+    const undefinedRefs: string[] = [];
+    for (const file of storyFiles) {
+      const story = readFileSync(join(REPO_ROOT, 'packages', 'ui', 'stories', file), 'utf8');
+      const referenced = new Set<string>();
+      for (const m of story.matchAll(/var\((--[\w-]+)\)/g)) referenced.add(m[1]);
+      for (const m of story.matchAll(/'(--[\w-]+)'/g)) referenced.add(m[1]);
+      for (const token of referenced) {
+        if (!defined.has(token)) {
+          undefinedRefs.push(`${file}: ${token}`);
+        }
+      }
+    }
+    assert.deepEqual(undefinedRefs, [], `Design System stories reference undefined tokens:\n  ${undefinedRefs.join('\n  ')}`);
+  });
+
   it('storyboards provider settings states before visual polish', () => {
     const main = readFileSync(join(REPO_ROOT, 'apps', 'desktop', '.storybook', 'main.ts'), 'utf8');
     const storyPath = join(REPO_ROOT, 'apps', 'desktop', 'stories', 'settings', 'provider-settings.stories.tsx');
