@@ -46,7 +46,12 @@ export class RuntimeLedgerRepair {
         return false;
       }
 
-      const messages = await this.deps.readMessages(sessionId).catch(() => []);
+      let messages: StoredMessage[];
+      try {
+        messages = await this.deps.readMessages(sessionId);
+      } catch {
+        return false;
+      }
       const recovered = backfillRuntimeEventsFromStoredMessages({
         run,
         messages,
@@ -67,7 +72,7 @@ export class RuntimeLedgerRepair {
         for (const event of eventsToAppend) {
           await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
         }
-        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, legacyTerminal, recoveredTerminal) ||
+        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, messages, legacyTerminal, recoveredTerminal) ||
           eventsToAppend.length > 0;
       }
 
@@ -79,11 +84,11 @@ export class RuntimeLedgerRepair {
         isMatchingTerminalRuntimeEvent(run, event)
       );
       if (existingTerminal) {
-        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, legacyTerminal, existingTerminal) ||
+        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, messages, legacyTerminal, existingTerminal) ||
           eventsToAppend.length > 0;
       }
 
-      await this.repairMissingTerminalAsFailed(sessionId, run, [...runtimeEvents, ...eventsToAppend]);
+      await this.repairMissingTerminalAsFailed(sessionId, run, messages, [...runtimeEvents, ...eventsToAppend]);
       return true;
     });
   }
@@ -91,6 +96,7 @@ export class RuntimeLedgerRepair {
   private async repairRunHeaderFromExistingTerminal(
     sessionId: string,
     run: AgentRunHeader,
+    messages: readonly StoredMessage[],
     turnState: Extract<StoredMessage, { type: 'turn_state' }> | undefined,
     terminal: RuntimeEvent,
   ): Promise<boolean> {
@@ -124,7 +130,7 @@ export class RuntimeLedgerRepair {
       },
       existingEvents,
     });
-    await this.appendTerminalTurnStateIfNeeded(sessionId, {
+    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, {
       runId: run.runId,
       turnId: run.turnId,
       status,
@@ -161,6 +167,7 @@ export class RuntimeLedgerRepair {
   private async repairMissingTerminalAsFailed(
     sessionId: string,
     run: AgentRunHeader,
+    messages: readonly StoredMessage[],
     runtimeEvents: readonly RuntimeEvent[],
   ): Promise<void> {
     const ts = run.completedAt ?? run.updatedAt ?? this.deps.now();
@@ -190,7 +197,7 @@ export class RuntimeLedgerRepair {
       runEventData: { recovered: true, recoveryReason: failureClass },
       existingEvents,
     });
-    await this.appendTerminalTurnStateIfNeeded(sessionId, {
+    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, {
       runId: run.runId,
       turnId: run.turnId,
       status: 'failed',
@@ -202,12 +209,12 @@ export class RuntimeLedgerRepair {
 
   private async appendTerminalTurnStateIfNeeded(
     sessionId: string,
+    messages: readonly StoredMessage[],
     decision: RuntimeLedgerRepairDecision,
     status: TurnRecord['status'],
     options: { ts: number; errorClass?: string; abortSource?: string },
   ): Promise<void> {
     if (decision.lineage.parentRunId) return;
-    const messages = await this.deps.readMessages(sessionId).catch(() => []);
     const latest = latestTurnState(messages, decision.turnId);
     if (latest && isTerminalTurnStatus(latest.status) && latest.status === status) return;
     await this.deps.appendTurnState(sessionId, decision.turnId, status, decision.lineage, options);

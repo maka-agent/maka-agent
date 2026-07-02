@@ -1280,6 +1280,53 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.actions?.stateDelta?.abortSource).toBe('unknown');
   });
 
+  test('getMessages waits for legacy messages before fallback repair', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    store.failReadMessagesFor.add(session.id);
+    await manager.getMessages(session.id).catch(() => undefined);
+
+    const runAfterBlockedRepair = await runStore.readRun(session.id, 'run-1');
+    const runtimeEventsAfterBlockedRepair = await runStore.readRuntimeEvents(session.id, 'run-1');
+    expect(runAfterBlockedRepair.status).toBe('completed');
+    expect(runAfterBlockedRepair.failureClass).toBeUndefined();
+    expect(runtimeEventsAfterBlockedRepair.some(isTerminalRuntimeEvent)).toBe(false);
+
+    store.failReadMessagesFor.delete(session.id);
+    const messagesAfterBlockedRepair = await store.readMessages(session.id);
+    expect(messagesAfterBlockedRepair.filter((message) => message.type === 'turn_state' && message.status === 'failed')).toHaveLength(0);
+
+    await manager.getMessages(session.id);
+
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const repairedRuntimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+    const terminalEvents = repairedRuntimeEvents.filter(isTerminalRuntimeEvent);
+    expect(repairedRun.status).toBe('completed');
+    expect(repairedRun.failureClass).toBeUndefined();
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('completed');
+  });
+
   test('getMessages repairs terminal run headers without terminal evidence as missing_terminal_event failures', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
