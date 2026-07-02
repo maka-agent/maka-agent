@@ -422,8 +422,19 @@
     0 0 0 4px oklch(from var(--accent) l c h / 0.08),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.75) inset;
 }
-/* The wrapper owns the visible field chrome; the inner textarea stays bare. */
-.maka-onboarding-quickchat-input {
+/* Justified: bare-textarea chrome reset — see `.composer .maka-composer-
+   textarea` in tool-output.css for the full rationale (Tailwind's
+   `border-0 shadow-none focus-visible:ring-0` classes don't clear the
+   underlying `--tw-ring-shadow` custom properties, which re-composite
+   into `box-shadow` on focus).
+   Scoped to `.maka-onboarding-quickchat .maka-onboarding-quickchat-input`
+   (not the bare class) so this rule's specificity (0,2,0) beats the
+   global `:where(input, select, textarea):focus` rule in module-pages.css
+   (0,1,0) outright — `!important` alone isn't enough when both sides are
+   `!important` and this file loads *before* module-pages.css, since the
+   later rule then wins ties on source order. Same reasoning as
+   `.maka-skill-search input`'s extra type selector there. */
+.maka-onboarding-quickchat .maka-onboarding-quickchat-input {
   appearance: none;
   box-sizing: border-box;
   width: 100%;
@@ -434,8 +445,17 @@
   font-size: 15px;
   line-height: 1.5;
   outline: none;
+  border: none !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
-.maka-onboarding-quickchat[data-drag-active="true"] .maka-onboarding-quickchat-input {
+/* Drag-active feedback lives on the wrapper, not the inner textarea: the
+   textarea's own `border`/`box-shadow` are hard-reset to `none !important`
+   above, which unconditionally wins over a non-`!important` declaration
+   regardless of selector specificity — so painting this on the textarea
+   was always dead code. */
+.maka-onboarding-quickchat[data-drag-active="true"] {
   border-color: oklch(from var(--accent) l c h / 0.46);
   background: oklch(from var(--accent) 0.98 calc(c * 0.20) h / 0.35);
   box-shadow:

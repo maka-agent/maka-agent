@@ -56,6 +56,11 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared field ring shadow override',
   },
   {
+    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages.css',
+    anchor: '.maka-skill-search input',
+    reason: 'shared input ring reset inside wrapper-owned surface, defensive against the global focus rule above being scoped away',
+  },
+  {
     fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
     anchor: '.maka-onboarding-quickchat-input',
     reason: 'shared textarea chrome reset inside wrapper-owned surface',

@@ -1224,7 +1224,13 @@
      `.maka-skill-search` label — reading as two stacked search
      bars. The fix zeroes every visual property the primitive can
      paint, so the inner `<input>` reads as a bare text field and
-     the outer label is the only box. */
+     the outer label is the only box.
+     Correction (double-border textarea sweep, verified live via CDP):
+     `box-shadow`/ring-var reset need `!important` to beat the global
+     `:where(input, select, textarea):focus` rule below on focus — see
+     `.composer .maka-composer-textarea` in tool-output.css for why.
+     `border-radius`/`background` don't need it (nothing else sets them
+     on focus). */
   min-width: 0;
   width: 100%;
   height: 30px;
@@ -1232,10 +1238,12 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  box-shadow: none;
+  box-shadow: none !important;
   outline: none;
   padding: 0;
   font-size: 13px;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
 
 .maka-skill-search input::placeholder {
