@@ -43,6 +43,7 @@ class ScriptedBackend implements AgentBackend {
   readonly sendInputs: BackendSendInput[] = [];
   disposeCalls = 0;
   sendCalls = 0;
+  yieldedEvents = 0;
   private readonly events: SessionEvent[];
   private readonly gate?: () => Promise<void>;
 
@@ -57,6 +58,7 @@ class ScriptedBackend implements AgentBackend {
     this.sendCalls += 1;
     this.sendInputs.push(input);
     for (const e of this.events) {
+      this.yieldedEvents += 1;
       yield e;
       if (this.gate) await this.gate();
     }
@@ -372,6 +374,36 @@ describe('AiSdkFlow seam', () => {
     assert.equal(isTerminalRuntimeEvent(out[1]), true);
   });
 
+  test('synthesizes a failed terminal event when the backend exhausts without one', async () => {
+    const seen: SessionEvent[] = [];
+    let idSeq = 0;
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'text_delta', messageId: 'm1', text: 'partial answer' }),
+      ],
+    });
+    const flow = new AiSdkFlow({
+      backend,
+      onSessionEvent: (sessionEvent) => {
+        seen.push(sessionEvent);
+      },
+    });
+    const out = await collect(flow.run(
+      { ...ctx, newId: () => `synthetic-${(idSeq += 1)}`, now: () => 2000 },
+      { text: 'hi', context: [] },
+    ));
+
+    assert.deepEqual(seen.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.equal(seen[1]?.type, 'error');
+    assert.equal((seen[1] as Extract<SessionEvent, { type: 'error' }>).reason, 'missing_terminal_event');
+    assert.equal(seen[2]?.type, 'complete');
+    assert.equal((seen[2] as Extract<SessionEvent, { type: 'complete' }>).stopReason, 'error');
+    assert.equal(out.at(-2)?.content?.kind, 'error');
+    assert.equal((out.at(-2)?.content as { reason?: string } | undefined)?.reason, 'missing_terminal_event');
+    assert.equal(out.at(-1)?.status, 'failed');
+    assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
+  });
+
   test('maps the abort path to exactly one terminal event', async () => {
     const backend = new ScriptedBackend({
       events: [
@@ -408,7 +440,7 @@ describe('AiSdkFlow seam', () => {
     assert.equal(isTerminalRuntimeEvent(out[0]), true);
   });
 
-  test('can keep draining backend events after a terminal while coalescing duplicate terminals', async () => {
+  test('can silently drain backend events after a terminal while coalescing duplicate terminals', async () => {
     const seen: SessionEvent[] = [];
     const backend = new ScriptedBackend({
       events: [
@@ -426,12 +458,40 @@ describe('AiSdkFlow seam', () => {
     });
     const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
 
-    assert.deepEqual(seen.map((event) => event.type), ['abort', 'text_delta', 'complete']);
+    assert.equal(backend.yieldedEvents, 3);
+    assert.deepEqual(seen.map((event) => event.type), ['abort']);
     assert.deepEqual(
       out.map((event) => event.content?.kind ?? event.status ?? null),
-      ['aborted', 'text'],
+      ['aborted'],
     );
     assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
+  });
+
+  test('reports terminal onSessionEvent failures before accepting the terminal event', async () => {
+    const seenErrors: string[] = [];
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+        ev({ type: 'text_delta', messageId: 'm1', text: 'after-terminal' }),
+      ],
+    });
+    const flow = new AiSdkFlow({
+      backend,
+      drainAfterTerminal: true,
+      onSessionEvent: () => {
+        throw new Error('terminal write failed');
+      },
+      onError: (error) => {
+        seenErrors.push(error instanceof Error ? error.message : String(error));
+      },
+    });
+
+    await assert.rejects(
+      collect(flow.run(ctx, { text: 'hi', context: [] })),
+      /terminal write failed/,
+    );
+    assert.deepEqual(seenErrors, ['terminal write failed']);
+    assert.equal(backend.yieldedEvents, 1);
   });
 
   test('RuntimeRunner consumes AiSdkFlow abort as one coherent failed outcome', async () => {

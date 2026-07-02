@@ -52,8 +52,16 @@ import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, Runt
 import {
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
-import { RuntimeReadModel, type RuntimeReadModelSessionView } from './runtime-read-model.js';
+import { RuntimeReadModel, RuntimeReadModelError, type RuntimeReadModelSessionView } from './runtime-read-model.js';
 import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run-inspect.js';
+import { firstRuntimeRepairRunId, RuntimeLedgerRepair } from './runtime-ledger-repair.js';
+import {
+  buildRecoveredTerminalRuntimeEvent,
+  classifyTerminalRuntimeLedger,
+  commitTerminalRunWithRuntimeFact,
+  effectiveRunHeaderFromTerminalFact,
+  terminalRunStatusFromRuntimeEvent,
+} from './terminal-run-commit.js';
 
 import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
@@ -106,6 +114,7 @@ export interface SpawnChildAgentResult {
 }
 
 const CHILD_AGENT_SUMMARY_MAX_CHARS = 4_000;
+const MAX_RUNTIME_LEDGER_REPAIR_ATTEMPTS = 8;
 
 export interface AgentListItem {
   runId: string;
@@ -236,9 +245,27 @@ export interface SessionManagerDeps {
 
 export class SessionManager {
   private readonly runtimeKernel: RuntimeKernelLike;
+  private readonly runtimeLedgerRepair?: RuntimeLedgerRepair;
 
   constructor(private readonly deps: SessionManagerDeps) {
-    this.runtimeKernel = deps.runtimeKernel ?? new RuntimeKernel(deps);
+    if (deps.runStore && !deps.runtimeEventStore) {
+      throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
+    }
+    if (deps.runStore && deps.runtimeEventStore) {
+      this.runtimeLedgerRepair = new RuntimeLedgerRepair({
+        runStore: deps.runStore,
+        runtimeEventStore: deps.runtimeEventStore,
+        readMessages: (sessionId) => deps.store.readMessages(sessionId),
+        appendTurnState: (sessionId, turnId, status, lineage, options) =>
+          this.appendTurnState(sessionId, turnId, status, lineage, options),
+        newId: deps.newId,
+        now: deps.now,
+      });
+    }
+    this.runtimeKernel = deps.runtimeKernel ?? new RuntimeKernel({
+      ...deps,
+      repairRunRuntimeLedger: (sessionId, runId) => this.repairMissingTerminalFactOnce(sessionId, runId),
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -255,11 +282,11 @@ export class SessionManager {
   }
 
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
-    return (await this.readModel().getSessionView(sessionId)).messages;
+    return (await this.getSessionView(sessionId)).messages;
   }
 
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
-    return (await this.readModel().getSessionView(sessionId)).turns;
+    return (await this.getSessionView(sessionId)).turns;
   }
 
   async recoverInterruptedSessions(): Promise<string[]> {
@@ -498,10 +525,17 @@ export class SessionManager {
     });
     if (!this.deps.runStore) return { definitions, runs: [] };
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    const childRuns = await Promise.all(
+      runs
+        .filter((run): run is AgentRunHeader & { parentRunId: string } => !!run.parentRunId)
+        .map(async (run): Promise<AgentRunHeader & { parentRunId: string }> => ({
+          ...await this.effectiveRunHeaderFromRuntimeLedger(run),
+          parentRunId: run.parentRunId,
+        })),
+    );
     return {
       definitions,
-      runs: runs
-        .filter((run): run is AgentRunHeader & { parentRunId: string } => !!run.parentRunId)
+      runs: childRuns
         .map((run) => ({
           runId: run.runId,
           turnId: run.turnId,
@@ -590,7 +624,7 @@ export class SessionManager {
     input: BranchFromTurnInput,
   ): Promise<SessionSummary> {
     const header = await this.deps.store.readHeader(sessionId);
-    const sourceView = await this.readModel().getSessionView(sessionId);
+    const sourceView = await this.getSessionView(sessionId);
     const { messages } = sourceView;
     const copied = copyMessagesThroughTurnBoundary(messages, input.sourceTurnId);
     if (copied.length === 0) throw new Error(`Cannot branch from unknown turn ${input.sourceTurnId}`);
@@ -635,7 +669,8 @@ export class SessionManager {
   ): Promise<AgentRunHeader | undefined> {
     if (!this.deps.runStore) return undefined;
     const runs = await this.deps.runStore.listSessionRuns(sessionId).catch(() => []);
-    return runs.find((run) => run.turnId === turnId);
+    const run = runs.find((candidate) => candidate.turnId === turnId);
+    return run ? this.effectiveRunHeaderFromRuntimeLedger(run) : undefined;
   }
 
   private async findChildRunForOutput(
@@ -651,7 +686,15 @@ export class SessionManager {
     );
     if (!header) throw new Error('agent_output could not find the requested child agent run');
     if (!header.parentRunId) throw new Error('agent_output only reads child agent runs');
-    return header;
+    return this.effectiveRunHeaderFromRuntimeLedger(header);
+  }
+
+  private async effectiveRunHeaderFromRuntimeLedger(run: AgentRunHeader): Promise<AgentRunHeader> {
+    if (!this.deps.runtimeEventStore) return run;
+    const runtimeEvents = await this.deps.runtimeEventStore.readRuntimeEvents(run.sessionId, run.runId).catch(() => undefined);
+    if (!runtimeEvents) return run;
+    const ledger = classifyTerminalRuntimeLedger(run, runtimeEvents);
+    return ledger.kind === 'fact' ? effectiveRunHeaderFromTerminalFact(run, ledger.fact) : run;
   }
 
   private async updateStatus(
@@ -703,7 +746,7 @@ export class SessionManager {
     allowed: readonly TurnRecord['status'][],
     action: string,
   ): Promise<TurnRecord> {
-    const turn = (await this.readModel().getSessionView(sessionId)).turns.find((candidate) => candidate.turnId === turnId);
+    const turn = (await this.getSessionView(sessionId)).turns.find((candidate) => candidate.turnId === turnId);
     if (!turn) throw new Error(`Cannot ${action}: unknown turn ${turnId}`);
     if (!allowed.includes(turn.status)) {
       throw new Error(`Cannot ${action}: turn ${turnId} is ${turn.status}`);
@@ -712,10 +755,30 @@ export class SessionManager {
   }
 
   private async requireUserMessageForTurn(sessionId: string, turnId: string): Promise<UserMessage> {
-    const user = (await this.readModel().getSessionView(sessionId)).messages
+    const user = (await this.getSessionView(sessionId)).messages
       .find((message): message is UserMessage => message.type === 'user' && message.turnId === turnId);
     if (!user) throw new Error(`Turn ${turnId} has no user message`);
     return user;
+  }
+
+  private async getSessionView(sessionId: string): Promise<RuntimeReadModelSessionView> {
+    const repaired = new Set<string>();
+    for (let attempt = 0; attempt < MAX_RUNTIME_LEDGER_REPAIR_ATTEMPTS; attempt += 1) {
+      try {
+        const view = await this.readModel().getSessionView(sessionId);
+        const runId = firstRuntimeRepairRunId(view.diagnostics, repaired);
+        if (!runId) return view;
+        if (!await this.repairMissingTerminalFactOnce(sessionId, runId)) return view;
+        repaired.add(runId);
+      } catch (error) {
+        if (!(error instanceof RuntimeReadModelError)) throw error;
+        const runId = firstRuntimeRepairRunId(error.diagnostics, repaired);
+        if (!runId) throw error;
+        if (!await this.repairMissingTerminalFactOnce(sessionId, runId)) throw error;
+        repaired.add(runId);
+      }
+    }
+    return this.readModel().getSessionView(sessionId);
   }
 
   private readModel(): RuntimeReadModel {
@@ -727,6 +790,10 @@ export class SessionManager {
       runtimeEventStore: this.deps.runtimeEventStore,
       projectionCache: this.deps.store,
     });
+  }
+
+  private async repairMissingTerminalFactOnce(sessionId: string, runId: string): Promise<boolean> {
+    return await this.runtimeLedgerRepair?.repairMissingTerminalFactOnce(sessionId, runId) ?? false;
   }
 
   private async cloneBranchRuntimeLedger(
@@ -751,23 +818,45 @@ export class SessionManager {
 
       const runId = this.deps.newId();
       const invocationIds = new Map<string, string>();
-      await this.deps.runStore.createRun({
-        ...sourceRun,
-        sessionId: childSessionId,
-        runId,
-      });
+      const clonedRun = cloneRunHeaderForBranchCreate(sourceRun, childSessionId, runId);
+      await this.deps.runStore.createRun(clonedRun);
 
+      const sourceTerminalLedger = classifyTerminalRuntimeLedger(sourceRun, sourceEvents);
+      const clonedEventBySourceId = new Map<string, RuntimeEvent>();
       for (const event of sourceEvents) {
-        await this.deps.runtimeEventStore.appendRuntimeEvent(
-          childSessionId,
+        const clonedEvent = cloneRuntimeEventForBranch(event, {
+          sessionId: childSessionId,
           runId,
-          cloneRuntimeEventForBranch(event, {
-            sessionId: childSessionId,
-            runId,
-            eventId: this.deps.newId(),
-            invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
-          }),
-        );
+          eventId: this.deps.newId(),
+          invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
+        });
+        await this.deps.runtimeEventStore.appendRuntimeEvent(childSessionId, runId, clonedEvent);
+        clonedEventBySourceId.set(event.id, clonedEvent);
+      }
+
+      if (sourceTerminalLedger.kind === 'fact' && isTerminalRunStatus(sourceRun.status)) {
+        const terminalEvent = clonedEventBySourceId.get(sourceTerminalLedger.fact.terminalEvent.id);
+        if (!terminalEvent) continue;
+        await commitTerminalRunWithRuntimeFact({
+          runStore: this.deps.runStore,
+          newId: this.deps.newId,
+          sessionId: childSessionId,
+          runId,
+          turnId: sourceRun.turnId,
+          status: sourceTerminalLedger.fact.runStatus,
+          ts: terminalEvent.ts,
+          terminalEvent,
+          terminalEventAlreadyPersisted: true,
+          ...(sourceTerminalLedger.fact.failureClass ? { failureClass: sourceTerminalLedger.fact.failureClass } : {}),
+          ...(sourceRun.failureMessage ? { failureMessage: sourceRun.failureMessage } : {}),
+          ...(sourceTerminalLedger.fact.abortSource ? { abortSource: sourceTerminalLedger.fact.abortSource } : {}),
+          runEventData: {
+            recovered: true,
+            recoveryReason: 'branch_runtime_ledger_clone',
+            sourceSessionId: sourceRun.sessionId,
+            sourceRunId: sourceRun.runId,
+          },
+        });
       }
     }
   }
@@ -786,11 +875,22 @@ export class SessionManager {
         this.deps.runtimeEventStore,
         { sessionId, runId: run.runId, header: run },
       );
+      if (inspected.sourceHealth.runtimeLedger === 'read_failed') continue;
+      const terminalLedger = classifyTerminalRuntimeLedger(run, inspected.runtimeEvents);
+      if (terminalLedger.kind === 'ambiguous') continue;
+      if (isTerminalRunStatus(run.status) && !inspected.terminalRuntimeFact) {
+        const repaired = await this.repairMissingTerminalFactOnce(sessionId, run.runId);
+        if (repaired) {
+          recovered = true;
+        }
+        continue;
+      }
       const runtimeDecision = this.classifyRuntimeEventRecovery(inspected);
       const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events);
       if (!decision) continue;
-      await this.applyAgentRunRecovery(sessionId, decision, inspected.events);
-      recovered = true;
+      if (await this.applyAgentRunRecovery(sessionId, decision, inspected)) {
+        recovered = true;
+      }
     }
     return { hasLedger: true, recovered };
   }
@@ -805,76 +905,54 @@ export class SessionManager {
   private async applyAgentRunRecovery(
     sessionId: string,
     decision: AgentRunRecoveryDecision,
-    existingEvents: readonly { type: string }[] = [],
-  ): Promise<void> {
+    inspected: AgentRunInspectModel,
+  ): Promise<boolean> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
     const ts = this.deps.now();
-    if (decision.status === 'completed') {
-      await this.deps.runStore?.updateRun(sessionId, decision.runId, {
-        status: 'completed',
-        completedAt: ts,
-        updatedAt: ts,
-      });
-      if (!hasTerminalAgentRunEvent(existingEvents)) {
-        await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
-          type: 'run_completed',
-          id: this.deps.newId(),
-          runId: decision.runId,
-          sessionId,
-          turnId: decision.turnId,
-          ts,
-          data: { recovered: true, ...decision.diagnostic },
-        });
-      }
-      await this.appendTerminalTurnStateIfNeeded(sessionId, decision, 'completed', { ts }).catch(() => {});
-      return;
-    }
-
-    if (decision.status === 'cancelled') {
-      await this.deps.runStore?.updateRun(sessionId, decision.runId, {
-        status: 'cancelled',
-        completedAt: ts,
-        updatedAt: ts,
-      });
-      if (!hasTerminalAgentRunEvent(existingEvents)) {
-        await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
-          type: 'run_cancelled',
-          id: this.deps.newId(),
-          runId: decision.runId,
-          sessionId,
-          turnId: decision.turnId,
-          ts,
-          data: { recovered: true, ...decision.diagnostic },
-        });
-      }
-      await this.appendTerminalTurnStateIfNeeded(sessionId, decision, 'aborted', {
-        ts,
-        abortSource: decision.abortSource,
-      }).catch(() => {});
-      return;
-    }
-
-    const failureClass = decision.failureClass ?? 'app_restarted';
-    await this.deps.runStore?.updateRun(sessionId, decision.runId, {
-      status: 'failed',
-      completedAt: ts,
-      updatedAt: ts,
-      failureClass,
-    });
-    if (!hasTerminalAgentRunEvent(existingEvents)) {
-      await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
-        type: 'run_failed',
-        id: this.deps.newId(),
-        runId: decision.runId,
-        sessionId,
-        turnId: decision.turnId,
-        ts,
-        data: { recovered: true, failureClass, ...decision.diagnostic },
-      });
-    }
-    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, 'failed', {
+    const terminalLedger = classifyTerminalRuntimeLedger(inspected.header, inspected.runtimeEvents);
+    const existingTerminal = inspected.terminalRuntimeFact?.terminalEvent ??
+      (terminalLedger.kind === 'incomplete_single_terminal' ? terminalLedger.terminalEvent : undefined);
+    const status = existingTerminal ? terminalRunStatusFromRuntimeEvent(existingTerminal) ?? decision.status : decision.status;
+    const failureClass = status === 'failed' ? decision.failureClass ?? 'app_restarted' : undefined;
+    const abortSource = status === 'cancelled' ? decision.abortSource ?? 'unknown' : undefined;
+    const terminalEvent = existingTerminal ?? buildRecoveredTerminalRuntimeEvent({
+      id: this.deps.newId(),
+      run: inspected.header,
+      status,
       ts,
-      errorClass: failureClass,
+      recoveryReason: diagnosticRecoveryReason(decision.diagnostic),
+      ...(inspected.runtimeEvents[0]?.invocationId ? { invocationId: inspected.runtimeEvents[0].invocationId } : {}),
+      ...(failureClass ? { failureClass, message: failureClass } : {}),
+      ...(abortSource ? { abortSource } : {}),
+      ...(decision.diagnostic ? { diagnostic: decision.diagnostic } : {}),
+    });
+    try {
+      await commitTerminalRunWithRuntimeFact({
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        newId: this.deps.newId,
+        sessionId,
+        runId: decision.runId,
+        turnId: decision.turnId,
+        status,
+        ts,
+        terminalEvent,
+        terminalEventAlreadyPersisted: existingTerminal !== undefined,
+        ...(failureClass ? { failureClass } : {}),
+        ...(abortSource ? { abortSource } : {}),
+        runEventData: { recovered: true, ...decision.diagnostic },
+        existingEvents: inspected.events,
+      });
+    } catch {
+      return false;
+    }
+
+    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, terminalTurnStatus(status), {
+      ts,
+      ...(failureClass ? { errorClass: failureClass } : {}),
+      ...(abortSource ? { abortSource } : {}),
     }).catch(() => {});
+    return true;
   }
 
   private async appendTerminalTurnStateIfNeeded(
@@ -1062,6 +1140,22 @@ function cloneRuntimeEventForBranch(
   };
 }
 
+function cloneRunHeaderForBranchCreate(
+  sourceRun: AgentRunHeader,
+  childSessionId: string,
+  runId: string,
+): AgentRunHeader {
+  const cloned = { ...sourceRun, sessionId: childSessionId, runId };
+  if (isTerminalRunStatus(sourceRun.status)) {
+    cloned.status = 'running';
+    delete cloned.completedAt;
+    delete cloned.failureClass;
+    delete cloned.failureMessage;
+    delete cloned.abortSource;
+  }
+  return cloned;
+}
+
 function remapInvocationId(
   mapping: Map<string, string>,
   sourceInvocationId: string,
@@ -1099,12 +1193,16 @@ function isTerminalTurnStatus(status: TurnRecord['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'aborted';
 }
 
-function hasTerminalAgentRunEvent(events: readonly { type: string }[]): boolean {
-  return events.some((event) =>
-    event.type === 'run_completed' ||
-    event.type === 'run_failed' ||
-    event.type === 'run_cancelled'
-  );
+function terminalTurnStatus(status: AgentRunRecoveryDecision['status']): TurnRecord['status'] {
+  if (status === 'cancelled') return 'aborted';
+  return status;
+}
+
+function diagnosticRecoveryReason(diagnostic: Record<string, unknown> | undefined): string {
+  const recoveryReason = diagnostic?.recoveryReason;
+  return typeof recoveryReason === 'string' && recoveryReason.length > 0
+    ? recoveryReason
+    : 'agent_run_recovery';
 }
 
 function latestTurnState(
@@ -1133,14 +1231,18 @@ function runtimeTerminalFactToRecoveryDecision(
       runtimeEventId: fact.terminalEvent.id,
       runtimeEventStatus: fact.terminalEvent.status,
     },
-    lineage: {
-      ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
-      ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
-      ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
-      ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
-      ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
-      ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
-    },
+    lineage: headerLineage(header),
+  };
+}
+
+function headerLineage(header: AgentRunHeader): AgentRunRecoveryDecision['lineage'] {
+  return {
+    ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
+    ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
+    ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
+    ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
+    ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
+    ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
   };
 }
 

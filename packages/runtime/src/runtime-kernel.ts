@@ -1,4 +1,5 @@
-import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
+import type { AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import { isTerminalRuntimeEvent } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type {
   SessionBlockedReason,
@@ -47,6 +48,7 @@ export interface RuntimeKernelDeps {
   childTools?: readonly MakaTool[];
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
+  repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
 }
 
 interface ActiveSession extends AgentRunActiveSession {
@@ -61,7 +63,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
 
-  constructor(private readonly deps: RuntimeKernelDeps) {}
+  constructor(private readonly deps: RuntimeKernelDeps) {
+    if (deps.runStore && !deps.runtimeEventStore) {
+      throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
+    }
+  }
 
   async *startTurn(
     sessionId: string,
@@ -75,6 +81,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       store: this.deps.store,
       runStore: this.deps.runStore,
       runtimeEventStore: this.deps.runtimeEventStore,
+      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
       newId: this.deps.newId,
       now: this.deps.now,
       hooks: {
@@ -125,6 +132,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       store: this.deps.store,
       runStore: this.deps.runStore,
       runtimeEventStore: this.deps.runtimeEventStore,
+      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
       newId: this.deps.newId,
       now: this.deps.now,
       recordSessionMessages: false,
@@ -163,8 +171,18 @@ export class RuntimeKernel implements RuntimeKernelLike {
       backend: begin.backend,
       drainAfterTerminal: true,
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
+        if (isTerminalRuntimeEvent(runtimeEvent)) {
+          if (!isPermissionHandoffTerminal(runtimeEvent)) {
+            await run.recordRuntimeEvents([runtimeEvent], { requireTerminalWrite: Boolean(this.deps.runtimeEventStore) });
+          }
+          await run.recordSessionEvent(sessionEvent);
+          await sessionEvents.push(sessionEvent);
+          return;
+        }
         await run.recordSessionEvent(sessionEvent);
-        await run.recordRuntimeEvents([runtimeEvent]);
+        if (!isNonTerminalErrorRuntimeEvent(runtimeEvent)) {
+          await run.recordRuntimeEvents([runtimeEvent]);
+        }
         await sessionEvents.push(sessionEvent);
       },
       onError: async (error) => {
@@ -222,11 +240,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const activeSessions = this.activeSessionsFor(sessionId);
     if (activeSessions.length === 0) return;
     const abortSource = normalizeStopSessionSource(input.source);
-    await Promise.all(activeSessions.map((active) => active.backend.stop('user_stop')));
     const activeRuns = activeSessions.flatMap((active) => [...active.activeRuns.values()]);
     for (const run of activeRuns) {
       run.stop(input.source);
     }
+    await Promise.all(activeSessions.map((active) => active.backend.stop('user_stop')));
     await this.updateStatus(sessionId, 'aborted');
     for (const run of activeRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
       await this.appendTurnState(
@@ -452,6 +470,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
 function childActiveKey(sessionId: string, turnId: string): string {
   return `${sessionId}:${turnId}`;
+}
+
+function isPermissionHandoffTerminal(event: { actions?: { stateDelta?: Record<string, unknown> } }): boolean {
+  return event.actions?.stateDelta?.stopReason === 'permission_handoff';
+}
+
+function isNonTerminalErrorRuntimeEvent(event: RuntimeEvent): boolean {
+  return event.content?.kind === 'error' && !isTerminalRuntimeEvent(event);
 }
 
 class AsyncEventQueueClosed extends Error {

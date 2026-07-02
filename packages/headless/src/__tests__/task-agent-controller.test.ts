@@ -4,8 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { BackendRegistry, FakeBackend, SessionManager, type AgentBackend, type SessionStore } from '@maka/runtime';
-import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
+import {
+  isTerminalRuntimeEvent,
+  type AgentRunHeader,
+  type BackendKind,
+  type RuntimeEvent,
+  type RuntimeEventStore,
+  type SessionEvent,
+  type SessionHeader,
+} from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
+import { createRuntimeEventStore } from '@maka/storage';
 import type { Config, Task } from '../contracts.js';
 import type { HeadlessBackendContext } from '../isolation.js';
 import { commandResourceScope, hashNormalizedArgs } from '../permission-grants.js';
@@ -414,6 +423,17 @@ async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Prom
     await rm(fixtureDir, { recursive: true, force: true });
     await rm(storageRoot, { recursive: true, force: true });
   }
+}
+
+async function readRuntimeEventLedger(storageRoot: string, sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+  const runtimeEventsPath = join(storageRoot, 'sessions', sessionId, 'runs', runId, 'runtime-events.jsonl');
+  const content = await readFile(runtimeEventsPath, 'utf8');
+  return content.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as RuntimeEvent);
+}
+
+async function readAgentRunHeader(storageRoot: string, sessionId: string, runId: string): Promise<AgentRunHeader> {
+  const runPath = join(storageRoot, 'sessions', sessionId, 'runs', runId, 'run.json');
+  return JSON.parse(await readFile(runPath, 'utf8')) as AgentRunHeader;
 }
 
 describe('runTaskOnce', () => {
@@ -863,6 +883,20 @@ describe('runTaskOnce', () => {
       assert.equal(failed.projection.status, 'failed');
       assert.equal(failed.projection.latestScoreResult?.taxonomy, 'agent_failed');
       assert.equal(failed.projection.error?.class, 'backend_failed');
+      const failedRuntimeEvents = await readRuntimeEventLedger(
+        storageRoot,
+        failed.invocation.sessionId,
+        failed.invocation.runId,
+      );
+      assert.deepEqual(
+        failedRuntimeEvents
+          .filter((event) => event.content?.kind === 'error' && !isTerminalRuntimeEvent(event))
+          .map((event) => event.id),
+        [],
+      );
+      const failedTerminalEvents = failedRuntimeEvents.filter(isTerminalRuntimeEvent);
+      assert.equal(failedTerminalEvents.length, 1);
+      assert.equal(failedTerminalEvents[0]?.status, 'failed');
 
       const incomplete = await runTaskOnce(fakeConfig, task, {
         storageRoot,
@@ -872,6 +906,44 @@ describe('runTaskOnce', () => {
       assert.equal(incomplete.resultRecord.status, 'failed');
       assert.equal(incomplete.projection.status, 'incomplete');
       assert.equal(incomplete.projection.latestScoreResult?.taxonomy, 'agent_incomplete');
+    });
+  });
+
+  test('does not persist terminal headless run headers when terminal runtime event append fails', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      await writeFile(join(fixtureDir, 'marker.txt'), 'present', 'utf8');
+      const task: Task = {
+        id: 'terminal-append-fails',
+        instruction: 'do the thing',
+        workspaceDir: fixtureDir,
+        verification: { command: 'test -f marker.txt', protectedPaths: [] },
+      };
+      const backingRuntimeEventStore = createRuntimeEventStore(storageRoot);
+      const runtimeEventStore: RuntimeEventStore = {
+        appendRuntimeEvent(sessionId, runId, event) {
+          if (isTerminalRuntimeEvent(event)) {
+            throw new Error('terminal append failed');
+          }
+          return backingRuntimeEventStore.appendRuntimeEvent(sessionId, runId, event);
+        },
+        readRuntimeEvents: (sessionId, runId) => backingRuntimeEventStore.readRuntimeEvents(sessionId, runId),
+        readSessionRuntimeEvents: (sessionId) => backingRuntimeEventStore.readSessionRuntimeEvents(sessionId),
+      };
+
+      const result = await runTaskOnce(fakeConfig, task, {
+        storageRoot,
+        registerBackends: registerFakeBackend,
+        runtimeEventStore,
+      });
+
+      assert.equal(result.invocation.status, 'failed');
+      assert.equal(result.invocation.failure?.message, 'terminal append failed');
+      const runtimeEvents = await runtimeEventStore.readRuntimeEvents(result.invocation.sessionId, result.invocation.runId);
+      assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
+      const runHeader = await readAgentRunHeader(storageRoot, result.invocation.sessionId, result.invocation.runId);
+      assert.notEqual(runHeader.status, 'completed');
+      assert.notEqual(runHeader.status, 'failed');
+      assert.notEqual(runHeader.status, 'cancelled');
     });
   });
 
@@ -907,6 +979,12 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.permissionRequests.length, 1);
       assert.equal(result.projection.permissionRequests[0]?.toolName, 'Bash');
       assert.equal(result.projection.permissionRequests[0]?.resourceScope.kind, 'command');
+      const runtimeEvents = await readRuntimeEventLedger(storageRoot, result.invocation.sessionId, result.invocation.runId);
+      assert.equal(runtimeEvents.some(isTerminalRuntimeEvent), false);
+      assert.ok(
+        runtimeEvents.some((event) => event.actions?.permissionRequest?.requestId === 'permission-request-1'),
+        'expected the permission request fact to stay in the runtime ledger',
+      );
       assert.equal(result.projection.inboxItems[0]?.kind, 'approval_request');
       assert.equal(result.projection.inboxItems[0]?.status, 'resolved');
       assert.ok(

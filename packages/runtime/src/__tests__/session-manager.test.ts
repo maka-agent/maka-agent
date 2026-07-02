@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords } from '@maka/core';
+import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords, isTerminalRuntimeEvent } from '@maka/core';
 import type {
   CreateSessionInput,
   PermissionMode,
@@ -333,6 +333,43 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
   });
 
+  test('terminal RuntimeEvent is recorded when terminal session projection fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_626),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+
+    expect((await iterator.next()).value?.type).toBe('text_delta');
+    store.failUpdateHeaderFor.add(session.id);
+    expect((await iterator.next()).value?.type).toBe('complete');
+    store.failUpdateHeaderFor.delete(session.id);
+    await iterator.next();
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    expect(run.status).toBe('completed');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    expect(runtimeEvents.filter((event) => event.status === 'completed')).toHaveLength(1);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.terminalFacts.map((fact) => fact.runStatus)).toEqual(['completed']);
+  });
+
   test('reading messages keeps the session unread marker as a pure query', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -414,16 +451,15 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(session.id)).hasUnread).toBe(true);
   });
 
-  test('runtime event ledger write failure does not fail sendMessage', async () => {
+  test('terminal header is never persisted without a terminal RuntimeEvent', async () => {
     const store = new MemorySessionStore();
-    const runStore = new MemoryAgentRunStore();
-    const runtimeEventStore = new MemoryRuntimeEventStore({ failRuntimeEventAppends: true });
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 2 });
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
       store,
       runStore,
-      runtimeEventStore,
+      runtimeEventStore: runStore,
       backends,
       newId: nextId(),
       now: nextNow(6_750),
@@ -431,15 +467,162 @@ describe('SessionManager permission mode updates', () => {
     });
     const session = await manager.createSession(makeInput());
 
-    const sessionEvents = await collectSessionEvents(
-      manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }),
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /runtime event append failed/,
     );
 
-    expect(sessionEvents.map((event) => event.type)).toEqual(['text_delta', 'complete']);
-    expect(sessionEvents.map((event) => event.id)).toEqual(['turn-1-delta', 'turn-1-complete']);
     const [run] = await runStore.listSessionRuns(session.id);
     if (!run) throw new Error('AgentRunStore run was not created');
-    expect(await runtimeEventStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+
+    expect(['created', 'running', 'waiting_permission'].includes(run.status)).toBe(true);
+    expect(run.completedAt).toBeUndefined();
+    expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta']);
+    expect(terminalEvents).toEqual([]);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
+  test('backend errors before terminal do not persist a terminal header without a terminal RuntimeEvent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_800),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /backend failed before terminal/,
+    );
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+
+    expect(['created', 'running', 'waiting_permission'].includes(run.status)).toBe(true);
+    expect(run.completedAt).toBeUndefined();
+    expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta']);
+    expect(terminalEvents).toEqual([]);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
+  test('startup recovery preserves the terminal header RuntimeEvent invariant', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 2 });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_850),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /runtime event append failed/,
+    );
+
+    await manager.recoverInterruptedSessions();
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const hasTerminalHeader = ['completed', 'failed', 'cancelled'].includes(run.status);
+    const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
+    expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+    expect(run.status).toBe('failed');
+    expect(run.failureClass).toBe('app_restarted');
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBe(true);
+    expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBe('run_interrupted');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('app_restarted');
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
+  test('startup recovery preserves the terminal invariant after a pre-terminal backend error', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_875),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /backend failed before terminal/,
+    );
+
+    await manager.recoverInterruptedSessions();
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const hasTerminalHeader = ['completed', 'failed', 'cancelled'].includes(run.status);
+    const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
+    expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+    expect(run.status).toBe('failed');
+    expect(run.failureClass).toBe('app_restarted');
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBe(true);
+    expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBe('run_interrupted');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('app_restarted');
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
   });
 
   test('sendMessage backfills an empty prior runtime ledger for model context', async () => {
@@ -488,7 +671,137 @@ describe('SessionManager permission mode updates', () => {
       'turn_state',
     ]);
     expect(backend?.sendInputs[0]?.runtimeContext?.map((event) => event.runId)).toEqual(['run-1', 'run-1', 'run-1']);
-    expect(await runStore.readRuntimeEvents(session.id, 'run-1')).toEqual([]);
+    const repairedRuntimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+    expect(repairedRuntimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+    expect(repairedRuntimeEvents.at(-1)?.status).toBe('completed');
+  });
+
+  test('sendMessage rejects prior runtime context without a valid terminal fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(7_050),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({
+        id: 'rt-user',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 101,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'prior question' },
+      }),
+      runtimeEvent({
+        id: 'rt-assistant',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 102,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'prior answer' },
+      }),
+      runtimeEvent({
+        id: 'rt-completed-a',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+      runtimeEvent({
+        id: 'rt-completed-b',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 104,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await expectRejects(
+      drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' })),
+      /valid terminal fact/,
+    );
+    expect(backend?.sendInputs.length ?? 0).toBe(0);
+  });
+
+  test('sendMessage resumes incomplete legacy backfill for prior context', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 1 });
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(7_100),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'prior question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'prior answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+    await expectRejects(manager.getMessages(session.id), /runtime event append failed/);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' }));
+
+    expect(backend?.sendInputs[0]?.runtimeContext?.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+    expect((await runStore.readRuntimeEvents(session.id, 'run-1')).map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
   });
 
   test('getMessages prefers RuntimeEvent-projected messages when legacy rows are present', async () => {
@@ -511,6 +824,27 @@ describe('SessionManager permission mode updates', () => {
 
     expect(messages).toEqual(seeded.projectedMessages);
     expect(JSON.stringify(messages.map((message) => message.id)) === JSON.stringify(seeded.legacyMessages.map((message) => message.id))).toBe(false);
+  });
+
+  test('getMessages does not scan runs before reading a complete runtime ledger', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      userText: 'question',
+      assistantText: 'answer',
+      legacyIdPrefix: 'legacy',
+    });
+
+    await manager.getMessages(session.id);
+
+    expect(runStore.listSessionRunsCalls).toBe(1);
   });
 
   test('RuntimeReadModel projects messages turns replay and terminal facts without SessionStore messages', async () => {
@@ -644,7 +978,784 @@ describe('SessionManager permission mode updates', () => {
       'legacy-usage',
       'legacy-state',
     ]);
-    expect(runtimeEvents).toEqual([]);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'tool-1',
+      'legacy-tool-result',
+      'legacy-usage',
+      'legacy-state',
+    ]);
+    expect(runtimeEvents.at(-1)?.status).toBe('completed');
+  });
+
+  test('getMessages backfills assistant text and thinking from one legacy message', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      {
+        type: 'assistant',
+        id: 'legacy-assistant',
+        turnId: 'turn-1',
+        ts: 102,
+        text: 'answer',
+        modelId: 'fake-model',
+        thinking: { text: 'reasoning', signature: 'sig-1' },
+      },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+
+    await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(runtimeEvents.map((event) => event.content?.kind ?? event.status)).toEqual([
+      'text',
+      'text',
+      'thinking',
+      'completed',
+    ]);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+  });
+
+  test('getMessages preserves legacy transcript when fallback repair supplies missing terminal evidence', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+
+    const messages = await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
+    expect(messages.map((message) => message.id)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      runtimeEvents.at(-1)?.id,
+    ]);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      undefined,
+    ]);
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+    expect(runtimeEvents.at(-1)?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+  });
+
+  test('getMessages resumes incomplete legacy backfill after append failure', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 1 });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await runStore.createRun(makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }));
+
+    await expectRejects(manager.getMessages(session.id), /runtime event append failed/);
+
+    const messages = await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
+    expect(messages.map((message) => message.id)).toEqual(['legacy-user', 'legacy-assistant', 'legacy-state']);
+    expect(runtimeEvents.map((event) => event.refs?.storedMessageId)).toEqual([
+      'legacy-user',
+      'legacy-assistant',
+      'legacy-state',
+    ]);
+  });
+
+  test('getMessages repairs a non-empty RuntimeEvent ledger that is missing only the terminal fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: 'legacy-state',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'completed',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.slice(0, 2).map((event) => event.id)).toEqual(['rt-user', 'rt-assistant']);
+    expect(runtimeEvents.at(-1)?.status).toBe('completed');
+    expect(runtimeEvents.at(-1)?.refs?.storedMessageId).toBe('legacy-state');
+  });
+
+  test('getMessages repairs multiple missing terminal facts before returning the runtime view', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user-1', turnId: 'turn-1', ts: 101, text: 'question 1' },
+      { type: 'assistant', id: 'legacy-assistant-1', turnId: 'turn-1', ts: 102, text: 'answer 1', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state-1', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+      { type: 'user', id: 'legacy-user-2', turnId: 'turn-2', ts: 201, text: 'question 2' },
+      { type: 'assistant', id: 'legacy-assistant-2', turnId: 'turn-2', ts: 202, text: 'answer 2', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state-2', turnId: 'turn-2', ts: 203, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user-1', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question 1' } }),
+      runtimeEvent({ id: 'rt-assistant-1', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer 1' } }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-2',
+      turnId: 'turn-2',
+      status: 'completed',
+      createdAt: 200,
+      updatedAt: 203,
+      completedAt: 203,
+    }), [
+      runtimeEvent({ id: 'rt-user-2', sessionId: session.id, runId: 'run-2', turnId: 'turn-2', ts: 201, role: 'user', author: 'user', content: { kind: 'text', text: 'question 2' } }),
+      runtimeEvent({ id: 'rt-assistant-2', sessionId: session.id, runId: 'run-2', turnId: 'turn-2', ts: 202, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer 2' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const run1TerminalEvents = (await runStore.readRuntimeEvents(session.id, 'run-1')).filter(isTerminalRuntimeEvent);
+    const run2TerminalEvents = (await runStore.readRuntimeEvents(session.id, 'run-2')).filter(isTerminalRuntimeEvent);
+
+    expect(messages.filter((message) => message.type === 'turn_state').map((message) => message.turnId)).toEqual([
+      'turn-1',
+      'turn-2',
+    ]);
+    expect(run1TerminalEvents).toHaveLength(1);
+    expect(run1TerminalEvents[0]?.refs?.storedMessageId).toBe('legacy-state-1');
+    expect(run2TerminalEvents).toHaveLength(1);
+    expect(run2TerminalEvents[0]?.refs?.storedMessageId).toBe('legacy-state-2');
+  });
+
+  test('getMessages does not trust failed legacy terminal state for a completed run header', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'failed', errorClass: 'tool_failed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
+  test('getMessages does not trust aborted legacy terminal state for a completed run header', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'aborted', abortedAt: 103, abortSource: 'user', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
+  test('getMessages does not trust completed legacy terminal state for a failed run header', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: 'tool_failed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
+  test('getMessages preserves failed legacy terminal state when failureClass is missing', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'failed', errorClass: 'tool_failed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: undefined,
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('tool_failed');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: 'legacy-state',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'tool_failed',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+  });
+
+  test('getMessages preserves aborted legacy terminal state when abortSource is missing', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'aborted', abortedAt: 103, partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'cancelled',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('cancelled');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: 'legacy-state',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'aborted',
+      abortedAt: 103,
+      abortSource: 'unknown',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('aborted');
+    expect(runtimeEvents.at(-1)?.actions?.stateDelta?.abortSource).toBe('unknown');
+  });
+
+  test('getMessages waits for legacy messages before fallback repair', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+      { type: 'turn_state', id: 'legacy-state', turnId: 'turn-1', ts: 103, status: 'completed', partialOutputRetained: true },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    store.failReadMessagesFor.add(session.id);
+    await manager.getMessages(session.id).catch(() => undefined);
+
+    const runAfterBlockedRepair = await runStore.readRun(session.id, 'run-1');
+    const runtimeEventsAfterBlockedRepair = await runStore.readRuntimeEvents(session.id, 'run-1');
+    expect(runAfterBlockedRepair.status).toBe('completed');
+    expect(runAfterBlockedRepair.failureClass).toBeUndefined();
+    expect(runtimeEventsAfterBlockedRepair.some(isTerminalRuntimeEvent)).toBe(false);
+
+    store.failReadMessagesFor.delete(session.id);
+    const messagesAfterBlockedRepair = await store.readMessages(session.id);
+    expect(messagesAfterBlockedRepair.filter((message) => message.type === 'turn_state' && message.status === 'failed')).toHaveLength(0);
+
+    await manager.getMessages(session.id);
+
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const repairedRuntimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+    const terminalEvents = repairedRuntimeEvents.filter(isTerminalRuntimeEvent);
+    expect(repairedRun.status).toBe('completed');
+    expect(repairedRun.failureClass).toBeUndefined();
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('completed');
+  });
+
+  test('getMessages repairs terminal run headers without terminal evidence as missing_terminal_event failures', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: runtimeEvents.at(-1)?.id,
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.at(-1)?.status).toBe('failed');
+    expect(runtimeEvents.at(-1)?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+  });
+
+  test('getMessages can retry repair when the failed header update is interrupted', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunOnce: true });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    await expectRejects(manager.getMessages(session.id), /update run failed/);
+
+    const messages = await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.status).toBe('failed');
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(messages.at(-1)?.type).toBe('turn_state');
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
+  test('getMessages repairs missing failed header class from an existing terminal RuntimeEvent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: undefined,
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+      runtimeEvent({
+        id: 'rt-failed',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        content: { kind: 'error', code: 'tool_failed', reason: 'tool_failed', message: 'tool failed' },
+        actions: { endInvocation: true, stateDelta: { failureClass: 'tool_failed' } },
+      }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.failureClass).toBe('tool_failed');
+    expect(messages.at(-1)).toEqual({
+      type: 'turn_state',
+      id: 'rt-failed',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'failed',
+      errorClass: 'tool_failed',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
+  test('getMessages uses fallback failed header class when an existing terminal RuntimeEvent has no class', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: undefined,
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+      runtimeEvent({
+        id: 'rt-failed',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.failureClass).toBe('missing_terminal_event');
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
+  test('getMessages repairs missing abort source from an existing aborted terminal RuntimeEvent', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'cancelled',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+      runtimeEvent({
+        id: 'rt-aborted',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'aborted',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    await manager.getMessages(session.id);
+    const repairedRun = await runStore.readRun(session.id, 'run-1') as AgentRunHeader & { abortSource?: string };
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+
+    expect(repairedRun.abortSource).toBe('unknown');
+    expect(messages.find((message) => message.type === 'turn_state')).toEqual({
+      type: 'turn_state',
+      id: 'rt-aborted',
+      turnId: 'turn-1',
+      ts: 103,
+      status: 'aborted',
+      abortedAt: 103,
+      abortSource: 'unknown',
+      partialOutputRetained: true,
+    });
+    expect(runtimeEvents.filter((event) => event.status === 'aborted')).toHaveLength(1);
+  });
+
+  test('getMessages serializes concurrent terminal repairs for the same run', async () => {
+    const store = new MemorySessionStore();
+    let repairReads = 0;
+    const runStore = new MemoryAgentRunStore({
+      beforeRuntimeEventRead: async (_sessionId, runId) => {
+        if (runId !== 'run-1' || repairReads >= 2) return;
+        repairReads += 1;
+        await Promise.resolve();
+      },
+    });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+
+    await Promise.all([
+      manager.getMessages(session.id),
+      manager.getMessages(session.id),
+    ]);
+
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(1);
+  });
+
+  test('getMessages repairs only the top-level run required by the read model', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    await store.appendMessages(session.id, [
+      { type: 'user', id: 'legacy-user', turnId: 'turn-1', ts: 101, text: 'question' },
+      { type: 'assistant', id: 'legacy-assistant', turnId: 'turn-1', ts: 102, text: 'answer', modelId: 'fake-model' },
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 103,
+      completedAt: 103,
+    }), [
+      runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'question' } }),
+      runtimeEvent({ id: 'rt-assistant', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 102, role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'child-run',
+      turnId: 'child-turn',
+      parentRunId: 'run-1',
+      parentTurnId: 'turn-1',
+      status: 'completed',
+      createdAt: 110,
+      updatedAt: 112,
+      completedAt: 112,
+    }), [
+      runtimeEvent({ id: 'rt-child-text', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 111, role: 'model', author: 'agent', content: { kind: 'text', text: 'child answer' } }),
+    ]);
+
+    await manager.getMessages(session.id);
+
+    const topLevelEvents = await runStore.readRuntimeEvents(session.id, 'run-1');
+    const childEvents = await runStore.readRuntimeEvents(session.id, 'child-run');
+    expect(topLevelEvents.some((event) => event.status === 'failed')).toBe(true);
+    expect(childEvents.some((event) => event.status === 'failed' || event.status === 'completed')).toBe(false);
   });
 
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
@@ -1049,6 +2160,46 @@ describe('SessionManager permission mode updates', () => {
     expect(childInput.runtimeContext?.[0]?.sessionId).toBe(child.id);
   });
 
+  test('branchFromTurn never leaves a terminal cloned run header without a terminal RuntimeEvent fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 5 });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'source',
+      runId: 'source-run',
+      userText: 'runtime branch context',
+      assistantText: 'runtime branch answer',
+      legacyIdPrefix: 'legacy',
+    });
+
+    let branchError: unknown;
+    try {
+      await manager.branchFromTurn(session.id, { sourceTurnId: 'source', name: 'Child' });
+    } catch (error) {
+      branchError = error;
+    }
+    expect(branchError instanceof Error ? branchError.message : String(branchError)).toContain('runtime event append failed');
+
+    const child = (await store.list()).find((summary) => summary.parentSessionId === session.id);
+    expect(child).toBeDefined();
+    const childRuns = await runStore.listSessionRuns(child!.id);
+    for (const run of childRuns) {
+      const runtimeEvents = await runStore.readRuntimeEvents(child!.id, run.runId);
+      const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
+      expect(
+        run.status === 'completed' ||
+        run.status === 'failed' ||
+        run.status === 'cancelled'
+          ? hasTerminalFact
+          : true,
+      ).toBe(true);
+    }
+  });
+
   test('multi-run RuntimeEvent projection preserves retry regenerate and branch lineage on turns', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1164,6 +2315,162 @@ describe('SessionManager permission mode updates', () => {
     expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
     expect(secondInput.runtimeContext?.map((event) => event.role)).toEqual(['user', 'model', 'system']);
     expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
+  });
+
+  test('next turn uses prior RuntimeEvents when terminal header commit was interrupted', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunStatusOnce: 'completed' });
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_805),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
+    const [firstRun] = await runStore.listSessionRuns(session.id);
+    if (!firstRun) throw new Error('first run was not recorded');
+    expect(firstRun.status).toBe('running');
+    expect((await runStore.readRuntimeEvents(session.id, firstRun.runId)).some(isTerminalRuntimeEvent)).toBe(true);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backendInstances[0]?.sendInputs[1];
+    if (!secondInput) throw new Error('second backend input was not recorded');
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    expect(secondInput.runtimeContext?.map((event) => event.role)).toEqual(['user', 'model', 'system']);
+    expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
+  });
+
+  test('next turn projects failed prior RuntimeEvents with the terminal fact failure class', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_810),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: 101,
+      updatedAt: 103,
+    }), [
+      runtimeEvent({
+        id: 'rt-user',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 101,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'first' },
+      }),
+      runtimeEvent({
+        id: 'rt-assistant',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 102,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'before failure' },
+      }),
+      runtimeEvent({
+        id: 'rt-failed',
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        actions: { endInvocation: true, stateDelta: { failureClass: 'tool_failed' } },
+      }),
+    ]);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backendInstances[0]?.sendInputs[0];
+    if (!secondInput) throw new Error('backend input was not recorded');
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    const turnState = secondInput.context.find((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1'
+    );
+    if (turnState?.type !== 'turn_state') throw new Error('prior failed turn_state was not projected');
+    expect(turnState.status).toBe('failed');
+    expect(turnState.errorClass).toBe('tool_failed');
+  });
+
+  test('next turn uses failed terminal RuntimeEvents when failed header commit was interrupted', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunStatusOnce: 'failed' });
+    const backends = new BackendRegistry();
+    let backend: TurnScriptBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TurnScriptBackend(ctx, [
+        [{ type: 'complete', stopReason: 'error' }],
+        [
+          { type: 'text_delta', messageId: 'm2', text: 'second ok' },
+          { type: 'complete', stopReason: 'end_turn' },
+        ],
+      ]);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_812),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
+    const [firstRun] = await runStore.listSessionRuns(session.id);
+    if (!firstRun) throw new Error('first run was not recorded');
+    expect(firstRun.status).toBe('running');
+    const firstRuntimeEvents = await runStore.readRuntimeEvents(session.id, firstRun.runId);
+    const firstTerminalEvents = firstRuntimeEvents.filter(isTerminalRuntimeEvent);
+    expect(firstTerminalEvents).toHaveLength(1);
+    expect(firstTerminalEvents[0]?.status).toBe('failed');
+    expect(firstTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('runtime_error');
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backend?.sendInputs[1];
+    if (!secondInput) throw new Error('second backend input was not recorded');
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1']);
+    const turnState = secondInput.context.find((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1'
+    );
+    if (turnState?.type !== 'turn_state') throw new Error('prior failed turn_state was not projected');
+    expect(turnState.status).toBe('failed');
+    expect(turnState.errorClass).toBe('runtime_error');
+    const terminalEventsAfterSecondTurn = (await runStore.readRuntimeEvents(session.id, firstRun.runId))
+      .filter(isTerminalRuntimeEvent);
+    expect(terminalEventsAfterSecondTurn).toHaveLength(1);
   });
 
   test('next parent turn excludes child run RuntimeEvents from model context', async () => {
@@ -1439,6 +2746,49 @@ describe('SessionManager permission mode updates', () => {
     expect(result.artifactIds).toEqual(['artifact-1']);
   });
 
+  test('spawnChildAgent returns the terminal RuntimeEvent status when the child header commit fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunStatusOnce: 'completed' });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_843),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const parentRun = makeRunHeader({
+      sessionId: session.id,
+      runId: 'parent-run',
+      turnId: 'parent-turn',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 110,
+      completedAt: 110,
+    });
+    await seedRuntimeRun(runStore, parentRun, [
+      runtimeEvent({ id: 'parent-complete', sessionId: session.id, runId: parentRun.runId, turnId: parentRun.turnId, ts: 110, status: 'completed', actions: { endInvocation: true } }),
+    ]);
+
+    const result = await manager.spawnChildAgent(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Researcher', systemPrompt: 'read only' },
+      prompt: 'inspect',
+    });
+
+    expect(result.status).toBe('completed');
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    expect(childRun?.status).toBe('running');
+    const childTerminalEvents = (await runStore.readRuntimeEvents(session.id, childRun!.runId)).filter(isTerminalRuntimeEvent);
+    expect(childTerminalEvents).toHaveLength(1);
+  });
+
   test('spawnChildAgent summarizes high-volume child output without returning the full stream', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1662,6 +3012,59 @@ describe('SessionManager permission mode updates', () => {
     expect(output.artifacts.map((artifact) => artifact.id)).toEqual(['artifact-1']);
   });
 
+  test('child agent projections use the terminal RuntimeEvent fact when the child header is stale', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_900),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'execute' }));
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'parent-run',
+      turnId: 'parent-turn',
+      status: 'running',
+      createdAt: 100,
+      updatedAt: 120,
+    }), [
+      runtimeEvent({ id: 'parent-complete', sessionId: session.id, runId: 'parent-run', turnId: 'parent-turn', ts: 120, status: 'completed', actions: { endInvocation: true } }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'child-run',
+      turnId: 'child-turn',
+      status: 'running',
+      createdAt: 130,
+      updatedAt: 140,
+      parentRunId: 'parent-run',
+      agentId: LOCAL_READ_AGENT_ID,
+      agentName: 'Researcher',
+      permissionMode: 'explore',
+    }), [
+      runtimeEvent({ id: 'child-answer', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 135, role: 'model', author: 'agent', content: { kind: 'text', text: 'child answer' } }),
+      runtimeEvent({ id: 'child-complete', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 140, role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true } }),
+    ]);
+
+    const list = await manager.listChildAgents(session.id);
+    expect(list.runs[0]?.runId).toBe('child-run');
+    expect(list.runs[0]?.status).toBe('completed');
+    expect(list.runs[0]?.completedAt).toBe(140);
+    expect(list.runs[0]?.durationMs).toBe(10);
+
+    const output = await manager.readChildAgentOutput(session.id, { runId: 'child-run' });
+    expect(output.header.status).toBe('completed');
+    expect(output.header.completedAt).toBe(140);
+  });
+
   test('agent output returns a bounded child inspection instead of full replay internals', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -1790,7 +3193,7 @@ describe('SessionManager permission mode updates', () => {
     expect(secondInput.context.some((message) => message.type === 'assistant' && message.id === 'legacy-extra-assistant')).toBe(false);
   });
 
-  test('next turn fails when prior RuntimeEvent ledger is unusable', async () => {
+  test('next turn repairs a prior RuntimeEvent ledger before building model context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -1825,11 +3228,20 @@ describe('SessionManager permission mode updates', () => {
       runtimeEvent({ id: 'rt-user', sessionId: session.id, runId: 'run-1', turnId: 'turn-1', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'first' } }),
     ]);
 
-    await expectRejects(
-      drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' })),
-      /RuntimeEvent ledger has no terminal fact/,
-    );
-    expect(backendInstances[0]?.sendInputs.length ?? 0).toBe(0);
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const firstInput = backendInstances[0]?.sendInputs[0];
+    if (!firstInput) throw new Error('backend input was not recorded');
+    expect(firstInput.runtimeContext?.map((event) => ({
+      role: event.role,
+      text: event.content?.kind === 'text' ? event.content.text : undefined,
+      status: event.status,
+    }))).toEqual([
+      { role: 'user', text: 'first', status: undefined },
+      { role: 'model', text: 'answer', status: undefined },
+      { role: 'system', text: undefined, status: 'completed' },
+    ]);
+    expect(backendInstances[0]?.sendInputs.length ?? 0).toBe(1);
   });
 
   test('RuntimeKernel production source uses AiSdkFlow instead of an inline mapper flow', async () => {
@@ -1872,7 +3284,7 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
   });
 
-  test('backend build failure after user append marks turn failed and session blocked', async () => {
+  test('backend build failure after user append marks turn failed without a terminal run header', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -1895,10 +3307,11 @@ describe('SessionManager permission mode updates', () => {
     const turn = (await store.listTurns(session.id)).find((candidate) => candidate.turnId === 'turn-1');
     expect(turn?.status).toBe('failed');
     const [run] = await runStore.listSessionRuns(session.id);
-    expect(run?.status).toBe('failed');
-    expect(run?.failureClass).toBe('Error');
-    const events = await runStore.readEvents(session.id, run!.runId);
-    expect(events.map((event) => event.type)).toContain('run_failed');
+    if (!run) throw new Error('AgentRunStore run was not created');
+    expect(['created', 'running', 'waiting_permission'].includes(run.status)).toBe(true);
+    expect(run.completedAt).toBeUndefined();
+    expect(await runStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
   });
 
   test('marks a session running while a turn is in flight and active after completion', async () => {
@@ -1945,6 +3358,35 @@ describe('SessionManager permission mode updates', () => {
       event.type === 'run_status_changed' &&
       event.data?.sessionStatus === 'waiting_for_user'
     )).toBe(true);
+  });
+
+  test('startup recovery does not treat permission handoff as a completed run fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'permission_request', requestId: 'pr-1', toolUseId: 'tool-1', toolName: 'Bash', category: 'shell_safe', reason: 'custom', args: {} },
+      { type: 'complete', stopReason: 'permission_handoff' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(9_010) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const [runBeforeRecovery] = await runStore.listSessionRuns(session.id);
+    expect(runBeforeRecovery?.status).toBe('waiting_permission');
+
+    await manager.recoverInterruptedSessions();
+
+    const [runAfterRecovery] = await runStore.listSessionRuns(session.id);
+    expect(runAfterRecovery?.status).toBe('failed');
+    expect(runAfterRecovery?.failureClass).toBe('app_restarted');
+    const [turn] = await store.listTurns(session.id);
+    expect(turn?.status).toBe('failed');
+    expect(turn?.errorClass).toBe('app_restarted');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, runAfterRecovery!.runId))
+      .filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
   });
 
   test('rejects mode changes while a tool permission request is waiting', async () => {
@@ -1999,7 +3441,7 @@ describe('SessionManager permission mode updates', () => {
       { type: 'complete', stopReason: 'error' },
     ]));
     const manager = new SessionManager({
-      store, runStore, backends, newId: nextId(), now: nextNow(10_000),
+      store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(10_000),
     });
     const session = await manager.createSession(makeInput());
 
@@ -2118,6 +3560,107 @@ describe('SessionManager permission mode updates', () => {
     expect(events.map((event) => event.type)).toContain('run_cancelled');
   });
 
+  test('stopSession persists abortSource on a terminal RuntimeEvent emitted during backend stop', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: StopControlledAbortBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new StopControlledAbortBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_710) });
+    const session = await manager.createSession(makeInput());
+
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await iterator.next();
+    const pendingAbort = iterator.next();
+    const stopPromise = manager.stopSession(session.id, { source: 'stop_button' });
+    const abort = await pendingAbort;
+    expect(abort.value?.type).toBe('abort');
+    backend?.allowStopReturn();
+    await stopPromise;
+    while (!(await iterator.next()).done) {}
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run!.runId);
+    const terminalEvents = runtimeEvents.filter((event) => event.status === 'aborted');
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.actions?.stateDelta?.abortSource).toBe('renderer.stop_button');
+    const messages = await manager.getMessages(session.id);
+    expect(messages.some((message) => message.type === 'user' && message.turnId === 'turn-1')).toBe(true);
+    expect(messages.find((message) => message.type === 'turn_state')).toEqual({
+      type: 'turn_state',
+      id: terminalEvents[0]?.id,
+      turnId: 'turn-1',
+      ts: 2,
+      status: 'aborted',
+      abortedAt: 2,
+      abortSource: 'renderer.stop_button',
+      partialOutputRetained: false,
+    });
+  });
+
+  test('sendMessage does not emit or persist backend events after the first terminal event', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'text_delta', messageId: 'm1', text: 'before' },
+      { type: 'abort', reason: 'user_stop' },
+      { type: 'text_delta', messageId: 'm1', text: 'after-terminal' },
+      { type: 'complete', stopReason: 'user_stop' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_715) });
+    const session = await manager.createSession(makeInput());
+
+    const emitted = await collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run!.runId);
+    const turnStates = (await store.readMessages(session.id)).filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1' && message.status !== 'running'
+    );
+
+    expect(emitted.map((event) => event.type)).toEqual(['text_delta', 'abort']);
+    expect(runtimeEvents.filter((event) => event.role === 'model' && event.content?.kind === 'text').map((event) =>
+      event.content?.kind === 'text' ? event.content.text : ''
+    )).toEqual(['before']);
+    const abortedEvents = runtimeEvents.filter((event) => event.status === 'aborted');
+    expect(abortedEvents).toHaveLength(1);
+    expect(abortedEvents[0]?.actions?.stateDelta?.abortSource).toBe('user_stop');
+    expect(run?.status).toBe('cancelled');
+    expect(run?.abortSource).toBe('user_stop');
+    expect(turnStates).toHaveLength(1);
+    expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].status : undefined).toBe('aborted');
+    expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].abortSource : undefined).toBe('user_stop');
+  });
+
+  test('sendMessage ignores backend errors thrown after a completed terminal event is recorded', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowAfterTerminalBackend(ctx));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_716) });
+    const session = await manager.createSession(makeInput());
+
+    const emitted = await collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run!.runId);
+    const turnStates = (await store.readMessages(session.id)).filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1' && message.status !== 'running'
+    );
+
+    expect(emitted.map((event) => event.type)).toEqual(['text_delta', 'complete']);
+    expect(run?.status).toBe('completed');
+    expect(runtimeEvents.filter((event) => event.role === 'model' && event.content?.kind === 'text').map((event) =>
+      event.content?.kind === 'text' ? event.content.text : ''
+    )).toEqual(['before']);
+    expect(runtimeEvents.filter((event) => event.status === 'completed')).toHaveLength(1);
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(0);
+    expect(turnStates).toHaveLength(1);
+    expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].status : undefined).toBe('completed');
+  });
+
   test('stopSession keeps aborted state even if the backend emits a late error', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -2132,6 +3675,7 @@ describe('SessionManager permission mode updates', () => {
     await manager.stopSession(session.id, { source: 'stop_button' });
 
     gate.release();
+    await iterator.next();
     await iterator.next();
     await iterator.next();
 
@@ -2520,11 +4064,11 @@ describe('SessionManager permission mode updates', () => {
     await unreadableManager.recoverInterruptedSessions();
     await incompleteManager.recoverInterruptedSessions();
 
-    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('failed');
-    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('failed');
+    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('running');
+    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('running');
     expect((await incompleteRunStore.readRun(incomplete.id, 'run-1')).status).toBe('failed');
     expect((await incompleteStore.listTurns(incomplete.id))[0]?.status).toBe('failed');
-    expect((await unreadableRunStore.readEvents(unreadable.id, 'run-1')).find((event) => event.type === 'run_failed')?.data?.recoveryReason).toBe('model_stream_completed_without_runtime_terminal');
+    expect((await unreadableRunStore.readEvents(unreadable.id, 'run-1')).find((event) => event.type === 'run_failed')).toBeUndefined();
     expect((await incompleteRunStore.readEvents(incomplete.id, 'run-1')).find((event) => event.type === 'run_failed')?.data?.recoveryReason).toBe('model_stream_completed_without_runtime_terminal');
   });
 
@@ -2655,7 +4199,7 @@ describe('SessionManager permission mode updates', () => {
     expect(events.map((event) => event.type)).toContain('run_failed');
   });
 
-  test('startup recovery keeps terminal AgentRun ledger entries idempotent', async () => {
+  test('startup recovery treats terminal AgentRun headers without RuntimeEvent facts as missing terminal events', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -2695,13 +4239,28 @@ describe('SessionManager permission mode updates', () => {
 
     const recovered = await manager.recoverInterruptedSessions();
 
-    expect(recovered).toEqual([]);
-    expect((await runStore.readRun(completed.id, 'completed-run')).status).toBe('completed');
+    expect(recovered).toEqual([completed.id, failed.id, cancelled.id]);
+    const completedRun = await runStore.readRun(completed.id, 'completed-run');
+    expect(completedRun.status).toBe('failed');
+    expect(completedRun.failureClass).toBe('missing_terminal_event');
     expect((await runStore.readEvents(completed.id, 'completed-run')).map((event) => event.type)).toEqual(['run_completed']);
-    expect((await runStore.readRun(failed.id, 'failed-run')).failureClass).toBe('tool_failed');
+    const completedTerminalEvents = (await runStore.readRuntimeEvents(completed.id, 'completed-run')).filter(isTerminalRuntimeEvent);
+    expect(completedTerminalEvents.map((event) => event.status)).toEqual(['failed']);
+    expect(completedTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    const failedRun = await runStore.readRun(failed.id, 'failed-run');
+    expect(failedRun.status).toBe('failed');
+    expect(failedRun.failureClass).toBe('missing_terminal_event');
     expect((await runStore.readEvents(failed.id, 'failed-run')).map((event) => event.type)).toEqual(['run_failed']);
-    expect((await runStore.readRun(cancelled.id, 'cancelled-run')).status).toBe('cancelled');
+    const failedTerminalEvents = (await runStore.readRuntimeEvents(failed.id, 'failed-run')).filter(isTerminalRuntimeEvent);
+    expect(failedTerminalEvents.map((event) => event.status)).toEqual(['failed']);
+    expect(failedTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    const cancelledRun = await runStore.readRun(cancelled.id, 'cancelled-run');
+    expect(cancelledRun.status).toBe('failed');
+    expect(cancelledRun.failureClass).toBe('missing_terminal_event');
     expect((await runStore.readEvents(cancelled.id, 'cancelled-run')).map((event) => event.type)).toEqual(['run_cancelled']);
+    const cancelledTerminalEvents = (await runStore.readRuntimeEvents(cancelled.id, 'cancelled-run')).filter(isTerminalRuntimeEvent);
+    expect(cancelledTerminalEvents.map((event) => event.status)).toEqual(['failed']);
+    expect(cancelledTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
   });
 
   test('startup recovery does not leave persisted running sessions stuck when message read fails', async () => {
@@ -2982,11 +4541,80 @@ class LateErrorBackend implements AgentBackend {
   }
 }
 
+class StopControlledAbortBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+  private releaseAbort: () => void = () => {};
+  private releaseStop: () => void = () => {};
+  private readonly abortGate = new Promise<void>((resolve) => {
+    this.releaseAbort = resolve;
+  });
+  private readonly stopGate = new Promise<void>((resolve) => {
+    this.releaseStop = resolve;
+  });
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'ok' };
+    await this.abortGate;
+    yield { type: 'abort', id: `${input.turnId}-abort`, turnId: input.turnId, ts: 2, reason: 'user_stop' };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 3, stopReason: 'user_stop' };
+  }
+
+  async stop(): Promise<void> {
+    this.releaseAbort();
+    await this.stopGate;
+  }
+
+  allowStopReturn(): void {
+    this.releaseStop();
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 type PartialEvent =
+  | Omit<Extract<SessionEvent, { type: 'text_delta' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'permission_request' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'complete' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'error' }>, 'id' | 'turnId' | 'ts'>
   | Omit<Extract<SessionEvent, { type: 'abort' }>, 'id' | 'turnId' | 'ts'>;
+
+class TurnScriptBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+  readonly sendInputs: BackendSendInput[] = [];
+
+  constructor(private readonly ctx: BackendFactoryContext, private readonly turns: PartialEvent[][]) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendInputs.push(input);
+    const events = this.turns[this.sendInputs.length - 1] ?? [
+      { type: 'text_delta', messageId: `${input.turnId}-m`, text: 'ok' },
+      { type: 'complete', stopReason: 'end_turn' },
+    ];
+    let index = 0;
+    for (const event of events) {
+      index += 1;
+      yield {
+        ...event,
+        id: `${input.turnId}-${index}`,
+        turnId: input.turnId,
+        ts: index,
+      } as SessionEvent;
+    }
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
 
 class EventBackend implements AgentBackend {
   readonly kind = 'fake' as const;
@@ -3007,6 +4635,43 @@ class EventBackend implements AgentBackend {
         ts: index,
       } as SessionEvent;
     }
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ThrowAfterTerminalBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'before' };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 2, stopReason: 'end_turn' };
+    throw new Error('cleanup after terminal failed');
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ThrowBeforeTerminalBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'before' };
+    throw new Error('backend failed before terminal');
   }
 
   async stop(): Promise<void> {}
@@ -3266,11 +4931,20 @@ class MemorySessionStore implements SessionStore {
 }
 
 class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
+  listSessionRunsCalls = 0;
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
+  private runtimeEventAppendCount = 0;
 
-  constructor(private readonly options: { failRuntimeEventAppends?: boolean; failRuntimeEventReads?: boolean } = {}) {}
+  constructor(private readonly options: {
+    failRuntimeEventAppends?: boolean;
+    failRuntimeEventAppendAfter?: number;
+    failRuntimeEventReads?: boolean;
+    failUpdateRunOnce?: boolean;
+    failUpdateRunStatusOnce?: AgentRunHeader['status'];
+    beforeRuntimeEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
+  } = {}) {}
 
   async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), { ...header });
@@ -3278,6 +4952,14 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
+    if (this.options.failUpdateRunOnce) {
+      this.options.failUpdateRunOnce = false;
+      throw new Error('update run failed');
+    }
+    if (patch.status && patch.status === this.options.failUpdateRunStatusOnce) {
+      this.options.failUpdateRunStatusOnce = undefined;
+      throw new Error('update run failed');
+    }
     const current = await this.readRun(sessionId, runId);
     const next = { ...current, ...patch, sessionId, runId };
     this.headers.set(key(sessionId, runId), next);
@@ -3291,6 +4973,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async listSessionRuns(sessionId: string): Promise<AgentRunHeader[]> {
+    this.listSessionRunsCalls += 1;
     return Array.from(this.headers.values())
       .filter((header) => header.sessionId === sessionId)
       .sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId))
@@ -3308,12 +4991,21 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
     if (this.options.failRuntimeEventAppends) throw new Error('runtime event append failed');
+    this.runtimeEventAppendCount += 1;
+    if (
+      this.options.failRuntimeEventAppendAfter !== undefined &&
+      this.runtimeEventAppendCount > this.options.failRuntimeEventAppendAfter
+    ) {
+      this.options.failRuntimeEventAppendAfter = undefined;
+      throw new Error('runtime event append failed');
+    }
     const eventKey = key(sessionId, runId);
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
   }
 
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     if (this.options.failRuntimeEventReads) throw new Error('runtime event read failed');
+    await this.options.beforeRuntimeEventRead?.(sessionId, runId);
     return (this.runtimeEvents.get(key(sessionId, runId)) ?? []).map(copyRuntimeEvent);
   }
 

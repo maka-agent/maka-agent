@@ -19,12 +19,24 @@ import type { SessionStore, StopSessionInput } from './session-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
-import { projectRuntimeEventsToStoredMessages } from './runtime-event-read-model.js';
+import {
+  classifyRuntimeEventTerminalFact,
+  projectRuntimeEventsToStoredMessages,
+} from './runtime-event-read-model.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
 import {
   buildStatusPatch,
   normalizeStopSessionSource,
 } from './session-projection-helpers.js';
+import {
+  commitTerminalRunWithRuntimeFact,
+  effectiveRunHeaderFromTerminalFact,
+  type TerminalAgentRunStatus,
+} from './terminal-run-commit.js';
+import {
+  AiSdkFlow,
+} from './ai-sdk-flow.js';
+import type { InvocationContext } from './invocation-context.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -61,6 +73,7 @@ export interface AgentRunInput {
   store: SessionStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
+  repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
   newId: () => string;
   now: () => number;
   hooks: AgentRunHooks;
@@ -75,6 +88,11 @@ export interface AgentRunBeginResult {
 interface PriorRuntimeContext {
   events: RuntimeEvent[];
   runs: AgentRunHeader[];
+}
+
+interface PriorRunTerminalFactContext {
+  events: RuntimeEvent[];
+  run: AgentRunHeader;
 }
 
 export class AgentRun {
@@ -98,8 +116,14 @@ export class AgentRun {
   private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
   private turnFailed = false;
   private finalized = false;
+  private terminalRuntimeEventRecorded = false;
+  private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
+  private terminalRunHeaderCommitted = false;
 
   constructor(private readonly input: AgentRunInput) {
+    if (input.runStore && !input.runtimeEventStore) {
+      throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
+    }
     this.runId = input.newId();
     this.sessionId = input.sessionId;
     this.turnId = input.userInput.turnId;
@@ -171,15 +195,70 @@ export class AgentRun {
   async *execute(): AsyncIterable<SessionEvent> {
     try {
       const begin = await this.begin();
-      for await (const ev of begin.backend.send(begin.backendInput)) {
-        await this.recordSessionEvent(ev);
-        yield ev;
+      const invocationId = this.input.newId();
+      const source = 'desktop' as const;
+      const request: InvocationContext['request'] = {
+        sessionId: this.sessionId,
+        invocationId,
+        runId: this.runId,
+        turnId: this.turnId,
+        text: this.input.userInput.text,
+        ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
+        context: begin.backendInput.context,
+        ...(begin.backendInput.runtimeContext ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
+        source,
+        lineage: this.lineage,
+      };
+      const ctx: InvocationContext = {
+        sessionId: this.sessionId,
+        invocationId,
+        runId: this.runId,
+        turnId: this.turnId,
+        source,
+        startedAt: this.input.now(),
+        request,
+        newId: this.input.newId,
+        now: this.input.now,
+      };
+      let acceptedSessionEvent: SessionEvent | undefined;
+      const flow = new AiSdkFlow({
+        backend: begin.backend,
+        drainAfterTerminal: true,
+        onSessionEvent: async (sessionEvent, runtimeEvent) => {
+          await this.recordMappedSessionEvent(sessionEvent, runtimeEvent);
+          acceptedSessionEvent = sessionEvent;
+        },
+      });
+      for await (const _runtimeEvent of flow.run(ctx, {
+        text: begin.backendInput.text,
+        ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+        context: begin.backendInput.context,
+        ...(begin.backendInput.runtimeContext ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
+      })) {
+        if (acceptedSessionEvent) {
+          yield acceptedSessionEvent;
+          acceptedSessionEvent = undefined;
+        }
       }
     } catch (error) {
       await this.recordFailure(error);
       throw error;
     } finally {
       await this.finalize();
+    }
+  }
+
+  private async recordMappedSessionEvent(sessionEvent: SessionEvent, runtimeEvent: RuntimeEvent): Promise<void> {
+    if (isTerminalRuntimeEvent(runtimeEvent)) {
+      if (!isPermissionHandoffTerminal(runtimeEvent)) {
+        await this.recordRuntimeEvents([runtimeEvent], { requireTerminalWrite: Boolean(this.input.runtimeEventStore) });
+      }
+      await this.recordSessionEvent(sessionEvent);
+      return;
+    }
+    await this.recordSessionEvent(sessionEvent);
+    if (!isNonTerminalErrorRuntimeEvent(runtimeEvent)) {
+      await this.recordRuntimeEvents([runtimeEvent]);
     }
   }
 
@@ -231,55 +310,106 @@ export class AgentRun {
   async recordSessionEvent(ev: SessionEvent): Promise<void> {
     this.lastTs = ev.ts;
     const transition = statusFromEvent(ev);
-    if (transition && !this.stopped) {
-      await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts);
-      this.recordStatusFromTransition(ev, transition, ev.ts);
-    }
-    if ((ev.type === 'complete' || ev.type === 'abort') && !this.turnFailed) {
+    const terminalSessionEvent = (ev.type === 'complete' || ev.type === 'abort') && !this.turnFailed;
+    const turnStatus = terminalSessionEvent ? turnStatusFromEvent(ev) : undefined;
+    if (terminalSessionEvent) {
       this.sawCompletion = true;
+      if (ev.type === 'abort' && !this.abortSource) this.abortSource = ev.reason;
+      if (ev.type === 'complete' && ev.stopReason === 'user_stop' && !this.abortSource) this.abortSource = 'user_stop';
       this.finalStatus = this.stopped
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });
-      const turnStatus = turnStatusFromEvent(ev);
-      if (turnStatus && !this.stopped && this.recordsSessionMessages()) {
-        await this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
-          ts: ev.ts,
-          errorClass: turnStatus.errorClass,
-        });
-      }
       // A complete(error) without a preceding error event leaves failureClass
       // unset — record it now so finalize does not fall back to 'unknown'.
-      // This emits a run_failed event here AND another in finishRun, mirroring
-      // the error-event path (which also double-records). Event-stream
-      // consumers already tolerate duplicate terminal events.
-      if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass) {
+      if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass && !this.stopped) {
         this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
+      }
+    }
+    if (transition && !this.stopped) {
+      if (terminalSessionEvent) {
+        await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts)
+          .catch((error) => this.enqueueTraceWriteFailure(error, 'terminal session projection'));
+      } else {
+        await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts);
+      }
+      this.recordStatusFromTransition(ev, transition, ev.ts);
+    }
+    if (turnStatus && !this.stopped && this.recordsSessionMessages()) {
+      const appendTurnState = this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
+        ts: ev.ts,
+        errorClass: turnStatus.errorClass,
+        ...(turnStatus.status === 'aborted' && this.abortSource ? { abortSource: this.abortSource } : {}),
+      });
+      if (terminalSessionEvent) {
+        await appendTurnState.catch((error) => this.enqueueTraceWriteFailure(error, 'terminal session projection'));
+      } else {
+        await appendTurnState;
       }
     }
     if (ev.type === 'error') {
       if (this.stopped) {
         this.finalStatus = { status: 'aborted' };
-        return;
+      } else {
+        this.turnFailed = true;
+        this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
+        if (this.recordsSessionMessages()) {
+          await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
+            ts: ev.ts,
+            errorClass: ev.reason ?? ev.code ?? 'unknown',
+          });
+        }
+        this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
       }
-      this.turnFailed = true;
-      this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
-      if (this.recordsSessionMessages()) {
-        await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
-          ts: ev.ts,
-          errorClass: ev.reason ?? ev.code ?? 'unknown',
-        });
-      }
-      this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
+    }
+    const terminalStatus = terminalSessionEvent || ev.type === 'error'
+      ? this.terminalStatusForFinalStatus(this.finalStatus)
+      : undefined;
+    if (terminalStatus) {
+      await this.commitTerminalRunHeader(terminalStatus, this.finalStatus, ev.ts);
     }
   }
 
-  async recordRuntimeEvents(events: readonly RuntimeEvent[]): Promise<void> {
-    if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable || events.length === 0) return;
+  async recordRuntimeEvents(
+    events: readonly RuntimeEvent[],
+    options: { requireTerminalWrite?: boolean } = {},
+  ): Promise<void> {
+    if (events.length === 0) return;
     for (const event of events) {
+      const eventForStore = this.runtimeEventForStore(event);
+      const terminal = isTerminalRuntimeEvent(eventForStore);
+      if (terminal && this.terminalRuntimeEventRecorded) continue;
+      if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
+        if (terminal && options.requireTerminalWrite) {
+          throw new Error('terminal RuntimeEvent store is unavailable');
+        }
+        continue;
+      }
       await this.enqueueRuntimeEventStore('append runtime event', async () => {
-        await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, event);
-      });
+        await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
+      }, { rethrow: terminal || options.requireTerminalWrite });
+      if (terminal) {
+        this.terminalRuntimeEventRecorded = true;
+        this.terminalRuntimeEventForRunCommit = eventForStore;
+      }
     }
+  }
+
+  private runtimeEventForStore(event: RuntimeEvent): RuntimeEvent {
+    if (!this.stopped || !isTerminalRuntimeEvent(event)) return event;
+    const { content: _content, ...rest } = event;
+    void _content;
+    return {
+      ...rest,
+      status: 'aborted',
+      actions: {
+        ...event.actions,
+        endInvocation: true,
+        stateDelta: {
+          ...event.actions?.stateDelta,
+          abortSource: this.abortSource ?? 'user_stop',
+        },
+      },
+    };
   }
 
   async recordFailure(error: unknown): Promise<void> {
@@ -303,6 +433,10 @@ export class AgentRun {
     if (this.active) {
       await this.input.hooks.unregisterRun(this.active, this);
       if (this.stopped) this.finalStatus = { status: 'aborted' };
+    }
+    if (!this.finalStatus && !this.stopped) {
+      this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
+      this.markRunFailed('missing_terminal_event', 'run finalized without a terminal SessionEvent', lastTs);
     }
     const nextStatus = this.active && this.active.activeRuns.size > 0
       ? { status: 'running' as const }
@@ -392,9 +526,22 @@ export class AgentRun {
     for (let runIndex = 0; runIndex < priorRuns.length; runIndex += 1) {
       const run = priorRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
+        const terminalFactContext = await this.readNonTerminalPriorRunWithTerminalFact(run);
+        if (!terminalFactContext) continue;
+        priorRuns[runIndex] = terminalFactContext.run;
+        for (let eventIndex = 0; eventIndex < terminalFactContext.events.length; eventIndex += 1) {
+          const event = terminalFactContext.events[eventIndex]!;
+          if (event.runId === this.runId || event.turnId === this.turnId) continue;
+          ordered.push({ event, runIndex, eventIndex });
+        }
         continue;
       }
       let events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+      if (events.length === 0) {
+        if (await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+          events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+        }
+      }
       if (events.length === 0) {
         const recovered = await this.backfillMissingPriorRuntimeEvents(run);
         if (recovered.length === 0 || !recovered.some(isTerminalRuntimeEvent)) {
@@ -403,8 +550,22 @@ export class AgentRun {
         events = recovered;
       }
       if (!events.some(isTerminalRuntimeEvent)) {
+        if (await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+          events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+        }
+      }
+      if (!events.some(isTerminalRuntimeEvent)) {
         throw new Error(`Cannot build model context: RuntimeEvent ledger has no terminal fact for prior run ${run.runId}`);
       }
+      let terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+      if (!terminalFact && await this.input.repairRunRuntimeLedger?.(this.sessionId, run.runId)) {
+        events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
+        terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+      }
+      if (!terminalFact) {
+        throw new Error(`Cannot build model context: RuntimeEvent ledger has no valid terminal fact for prior run ${run.runId}`);
+      }
+      priorRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact);
       for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
         const event = events[eventIndex]!;
         if (event.runId === this.runId || event.turnId === this.turnId) continue;
@@ -419,6 +580,16 @@ export class AgentRun {
     const runtimeReplayPlan = buildRuntimeEventModelReplayPlan(events);
     if (runtimeReplayPlan.items.length === 0) return undefined;
     return { events, runs: priorRuns };
+  }
+
+  private async readNonTerminalPriorRunWithTerminalFact(
+    run: AgentRunHeader,
+  ): Promise<PriorRunTerminalFactContext | undefined> {
+    if (!this.input.runtimeEventStore) return undefined;
+    const events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId).catch(() => []);
+    const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+    if (!terminalFact) return undefined;
+    return { events, run: effectiveRunHeaderFromTerminalFact(run, terminalFact) };
   }
 
   private async backfillMissingPriorRuntimeEvents(run: AgentRunHeader): Promise<RuntimeEvent[]> {
@@ -461,6 +632,7 @@ export class AgentRun {
           : transition.status === 'active'
             ? 'completed'
             : 'running';
+    if (isTerminalRunStatus(status)) return;
     this.enqueueRunStore('record run status', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, { status, updatedAt: ts });
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
@@ -482,6 +654,7 @@ export class AgentRun {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.failureClass = failureClass;
     this.failureMessage = redactTraceString(message);
+    if (this.input.runtimeEventStore) return;
     this.enqueueRunStore('mark run failed', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status: 'failed',
@@ -505,6 +678,7 @@ export class AgentRun {
 
   private markRunCancelled(reason: string | undefined, ts: number): void {
     if (!this.input.runStore || !this.runStoreAvailable) return;
+    if (this.input.runtimeEventStore) return;
     this.enqueueRunStore('mark run cancelled', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status: 'cancelled',
@@ -529,14 +703,12 @@ export class AgentRun {
   ): Promise<void> {
     await this.traceQueue.catch(() => {});
     if (!this.input.runStore || !this.runStoreAvailable) return;
-    const status = this.stopped || finalStatus?.status === 'aborted'
-      ? 'cancelled'
-      : finalStatus?.status === 'blocked'
-        ? 'failed'
-        : finalStatus?.status === 'waiting_for_user'
-          ? 'waiting_permission'
-          : 'completed';
+    const status = this.runStatusForFinalStatus(finalStatus);
     const isTerminal = status === 'completed' || status === 'failed' || status === 'cancelled';
+    if (isTerminal && this.input.runtimeEventStore) {
+      await this.commitTerminalRunHeader(status, finalStatus, ts);
+      return;
+    }
     await this.enqueueRunStore('finish run', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status,
@@ -572,6 +744,58 @@ export class AgentRun {
     await this.traceQueue.catch(() => {});
   }
 
+  private runStatusForFinalStatus(
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+  ): AgentRunHeader['status'] {
+    if (this.stopped || finalStatus?.status === 'aborted') return 'cancelled';
+    if (finalStatus?.status === 'blocked') return 'failed';
+    if (finalStatus?.status === 'waiting_for_user') return 'waiting_permission';
+    return 'completed';
+  }
+
+  private terminalStatusForFinalStatus(
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+  ): TerminalAgentRunStatus | undefined {
+    const status = this.runStatusForFinalStatus(finalStatus);
+    if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
+    return undefined;
+  }
+
+  private async commitTerminalRunHeader(
+    status: TerminalAgentRunStatus,
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+    ts: number,
+  ): Promise<boolean> {
+    if (this.terminalRunHeaderCommitted) return true;
+    const runStore = this.input.runStore;
+    const runtimeEventStore = this.input.runtimeEventStore;
+    const terminalEvent = this.terminalRuntimeEventForRunCommit;
+    if (!runStore || !this.runStoreAvailable || !runtimeEventStore || !terminalEvent) return false;
+    const failureClass = status === 'failed'
+      ? this.failureClass ?? finalStatus?.blockedReason ?? 'unknown'
+      : undefined;
+    await this.enqueueRunStore('commit terminal run header', async () => {
+      await commitTerminalRunWithRuntimeFact({
+        runStore,
+        runtimeEventStore,
+        newId: this.input.newId,
+        sessionId: this.sessionId,
+        runId: this.runId,
+        turnId: this.turnId,
+        status,
+        ts,
+        terminalEvent,
+        terminalEventAlreadyPersisted: true,
+        ...(failureClass ? { failureClass } : {}),
+        ...(this.failureMessage ? { failureMessage: this.failureMessage } : {}),
+        ...(status === 'cancelled' && this.abortSource ? { abortSource: this.abortSource } : {}),
+      });
+      this.terminalRunHeaderCommitted = true;
+    });
+    await this.traceQueue.catch(() => {});
+    return this.terminalRunHeaderCommitted;
+  }
+
   private enqueueRunStore(label: string, operation: () => Promise<void>): Promise<void> {
     if (!this.input.runStore || !this.runStoreAvailable) return Promise.resolve();
     const next = this.traceQueue.then(operation, operation).catch(async (error) => {
@@ -582,11 +806,16 @@ export class AgentRun {
     return next;
   }
 
-  private enqueueRuntimeEventStore(label: string, operation: () => Promise<void>): Promise<void> {
+  private enqueueRuntimeEventStore(
+    label: string,
+    operation: () => Promise<void>,
+    options: { rethrow?: boolean } = {},
+  ): Promise<void> {
     if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) return Promise.resolve();
     const next = this.runtimeEventQueue.then(operation, operation).catch(async (error) => {
       this.runtimeEventStoreAvailable = false;
       await this.enqueueTraceWriteFailure(error, label);
+      if (options.rethrow) throw error;
     });
     this.runtimeEventQueue = next.catch(() => {});
     return next;
@@ -660,6 +889,14 @@ function errorMessage(error: unknown): string {
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function isPermissionHandoffTerminal(event: RuntimeEvent): boolean {
+  return event.actions?.stateDelta?.stopReason === 'permission_handoff';
+}
+
+function isNonTerminalErrorRuntimeEvent(event: RuntimeEvent): boolean {
+  return event.content?.kind === 'error' && !isTerminalRuntimeEvent(event);
 }
 
 function statusFromEvent(event: SessionEvent): { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined {

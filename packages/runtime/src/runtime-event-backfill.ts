@@ -315,6 +315,10 @@ function terminalRuntimeEvent(input: {
     };
   }
   const ts = turnState?.ts ?? input.run.completedAt ?? input.run.updatedAt;
+  const failureClass = status === 'failed' ? turnState?.errorClass ?? input.run.failureClass : undefined;
+  const abortSource = status === 'aborted'
+    ? turnState?.abortSource ?? input.run.abortSource ?? (turnState?.status === 'aborted' ? 'unknown' : undefined)
+    : undefined;
   return {
     event: {
       id: input.newId(),
@@ -331,7 +335,8 @@ function terminalRuntimeEvent(input: {
         endInvocation: true,
         stateDelta: {
           ...terminalRecoveryState(input.now, turnState),
-          ...(turnState?.abortSource !== undefined ? { abortSource: turnState.abortSource } : {}),
+          ...(failureClass !== undefined ? { failureClass, errorClass: failureClass } : {}),
+          ...(abortSource !== undefined ? { abortSource } : {}),
         },
       },
       ...(turnState ? { refs: { storedMessageId: turnState.id } } : {}),
@@ -345,7 +350,9 @@ function terminalStatus(
 ): RuntimeEventStatus | undefined {
   const legacyStatus = turnState?.status;
   if (legacyStatus === 'completed' || run.status === 'completed') return 'completed';
-  if ((legacyStatus === 'failed' || run.status === 'failed') && run.failureClass) return 'failed';
+  if (legacyStatus === 'failed' && run.status === 'failed') return 'failed';
+  if ((legacyStatus === 'failed' || run.status === 'failed') && (run.failureClass || turnState?.errorClass)) return 'failed';
+  if (legacyStatus === 'aborted' && run.status === 'cancelled') return 'aborted';
   if ((legacyStatus === 'aborted' || run.status === 'cancelled') && turnState?.abortSource) return 'aborted';
   return undefined;
 }

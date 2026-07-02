@@ -16,6 +16,7 @@ import {
 } from './runtime-event-read-model.js';
 import { buildRuntimeEventModelReplayPlan, type RuntimeEventModelReplayPlan } from './model-history.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
+import { effectiveRunHeaderFromTerminalFact, terminalRunHeaderMatchesFact } from './terminal-run-commit.js';
 
 export interface RuntimeReadModelProjectionCache {
   readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -84,6 +85,17 @@ export class RuntimeReadModel {
     for (let runIndex = 0; runIndex < topLevelRuns.length; runIndex += 1) {
       const run = topLevelRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
+        const terminalFactContext = await this.readNonTerminalRunWithTerminalFact(sessionId, run);
+        if (terminalFactContext) {
+          topLevelRuns[runIndex] = terminalFactContext.run;
+          terminalFacts.push(terminalFactContext.fact);
+          diagnostics.push(...terminalFactContext.fact.diagnostics);
+          for (let eventIndex = 0; eventIndex < terminalFactContext.events.length; eventIndex += 1) {
+            ordered.push({ event: terminalFactContext.events[eventIndex]!, runIndex, eventIndex });
+          }
+          continue;
+        }
+
         const diagnostic = readModelDiagnostic('incomplete_event', 'active run is using the in-flight projection cache', {
           runId: run.runId,
           turnId: run.turnId,
@@ -125,6 +137,10 @@ export class RuntimeReadModel {
             }),
           ]);
         }
+        diagnostics.push(readModelDiagnostic('incomplete_event', 'terminal run recovered from legacy projection cache', {
+          runId: run.runId,
+          turnId: run.turnId,
+        }));
         runEvents = recovered;
       }
       if (!runEvents.some(isTerminalRuntimeEvent)) {
@@ -138,7 +154,23 @@ export class RuntimeReadModel {
 
       const terminalFact = classifyRuntimeEventTerminalFact(run, runEvents);
       diagnostics.push(...terminalFact.diagnostics);
-      if (terminalFact.fact) terminalFacts.push(terminalFact.fact);
+      if (!terminalFact.fact) {
+        throw new RuntimeReadModelError('RuntimeEvent ledger has no valid terminal fact for a terminal run', diagnostics);
+      }
+      if (!terminalRunHeaderMatchesFact(run, terminalFact.fact)) {
+        diagnostics.push(readModelDiagnostic('incomplete_event', 'terminal run header does not match RuntimeEvent terminal fact', {
+          runId: run.runId,
+          turnId: run.turnId,
+          headerStatus: run.status,
+          factStatus: terminalFact.fact.runStatus,
+          headerFailureClass: run.failureClass,
+          factFailureClass: terminalFact.fact.failureClass,
+          headerAbortSource: run.abortSource,
+          factAbortSource: terminalFact.fact.abortSource,
+        }));
+      }
+      topLevelRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact.fact);
+      terminalFacts.push(terminalFact.fact);
 
       for (let eventIndex = 0; eventIndex < runEvents.length; eventIndex += 1) {
         ordered.push({ event: runEvents[eventIndex]!, runIndex, eventIndex });
@@ -159,6 +191,25 @@ export class RuntimeReadModel {
       terminalFacts,
       inFlightTurnIds,
     });
+  }
+
+  private async readNonTerminalRunWithTerminalFact(
+    sessionId: string,
+    run: AgentRunHeader,
+  ): Promise<{ events: RuntimeEvent[]; fact: RuntimeEventTerminalFact; run: AgentRunHeader } | undefined> {
+    let runEvents: RuntimeEvent[];
+    try {
+      runEvents = await this.deps.runtimeEventStore.readRuntimeEvents(sessionId, run.runId);
+    } catch {
+      return undefined;
+    }
+    const fact = classifyRuntimeEventTerminalFact(run, runEvents).fact;
+    if (!fact) return undefined;
+    return {
+      events: runEvents,
+      fact,
+      run: effectiveRunHeaderFromTerminalFact(run, fact),
+    };
   }
 
   private async backfillMissingRuntimeEvents(

@@ -82,6 +82,7 @@ export function mapCompleteStopReason(reason: CompleteStopReason): RuntimeEventS
  */
 export interface SessionEventMapMemory {
   toolNameByUseId: Map<string, string>;
+  failureClass?: string;
 }
 
 export function createSessionEventMapMemory(): SessionEventMapMemory {
@@ -339,6 +340,7 @@ export function mapSessionEventToRuntimeEvent(
       // No status here: the backend follows with a terminal `complete(error)`.
       // Keeping status off the error event avoids a double-terminal in the
       // error path; the trailing complete carries the terminal signal.
+      memory.failureClass = event.reason ?? event.code ?? 'unknown';
       return {
         ...base,
         role: 'system',
@@ -359,17 +361,10 @@ export function mapSessionEventToRuntimeEvent(
         role: 'system',
         author: 'system',
         status: 'aborted',
-        actions: { endInvocation: true },
+        actions: { endInvocation: true, stateDelta: { abortSource: event.reason } },
       };
     case 'complete':
-      return {
-        ...base,
-        role: 'system',
-        author: 'system',
-        status: mapCompleteStopReason(event.stopReason),
-        actions: { endInvocation: true },
-      };
-
+      return completeRuntimeEvent(base, event.stopReason, memory);
     default: {
       // Exhaustiveness guard: if SessionEvent grows a new variant, the
       // mapping falls through to a diagnostic event instead of dropping it.
@@ -385,6 +380,26 @@ export function mapSessionEventToRuntimeEvent(
       };
     }
   }
+}
+
+function completeRuntimeEvent(
+  base: ReturnType<typeof resolveBase>,
+  stopReason: CompleteStopReason,
+  memory: SessionEventMapMemory,
+): RuntimeEvent {
+  const status = memory.failureClass && stopReason !== 'user_stop'
+    ? 'failed'
+    : mapCompleteStopReason(stopReason);
+  const stateDelta: Record<string, unknown> = { stopReason };
+  if (status === 'failed') stateDelta.failureClass = memory.failureClass ?? 'runtime_error';
+  if (status === 'aborted') stateDelta.abortSource = stopReason;
+  return {
+    ...base,
+    role: 'system',
+    author: 'system',
+    status,
+    actions: { endInvocation: true, stateDelta },
+  };
 }
 
 // ============================================================================
@@ -406,7 +421,8 @@ export interface AiSdkFlowInput {
   onFinally?: () => Promise<void> | void;
   /**
    * Keep consuming backend events after the first terminal RuntimeEvent.
-   * Duplicate terminal RuntimeEvents are still coalesced from flow output.
+   * Events consumed during that drain are silent: they are not yielded and
+   * are not sent through onSessionEvent.
    */
   drainAfterTerminal?: boolean;
 }
@@ -473,6 +489,8 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
 
     const memory = createSessionEventMapMemory();
     let terminalEmitted = false;
+    let terminalAccepted = false;
+    let errorEmitted = false;
     try {
       for await (const sessionEvent of this.backend.send({
         runId: ctx.runId,
@@ -482,18 +500,30 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         context: input.context,
         ...(input.runtimeContext !== undefined ? { runtimeContext: input.runtimeContext } : {}),
       })) {
+        if (terminalEmitted) continue;
         const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
-        await this.onSessionEvent?.(sessionEvent, runtimeEvent);
+        if (sessionEvent.type === 'error') errorEmitted = true;
         if (isTerminalRuntimeEvent(runtimeEvent)) {
-          if (terminalEmitted) continue;
           terminalEmitted = true;
+          await this.onSessionEvent?.(sessionEvent, runtimeEvent);
+          terminalAccepted = true;
           yield runtimeEvent;
           if (!this.drainAfterTerminal) break;
           continue;
         }
+        await this.onSessionEvent?.(sessionEvent, runtimeEvent);
         yield runtimeEvent;
       }
+      if (!terminalEmitted) {
+        for (const sessionEvent of missingTerminalSessionEvents(ctx, { includeError: !errorEmitted })) {
+          const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
+          await this.onSessionEvent?.(sessionEvent, runtimeEvent);
+          if (isTerminalRuntimeEvent(runtimeEvent)) terminalEmitted = true;
+          yield runtimeEvent;
+        }
+      }
     } catch (error) {
+      if (terminalAccepted) return;
       await this.onError?.(error);
       throw error;
     } finally {
@@ -515,4 +545,32 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
   async dispose(): Promise<void> {
     await this.backend.dispose();
   }
+}
+
+function missingTerminalSessionEvents(
+  ctx: InvocationContext,
+  options: { includeError: boolean },
+): SessionEvent[] {
+  const ts = ctx.now();
+  const events: SessionEvent[] = [];
+  if (options.includeError) {
+    events.push({
+      type: 'error',
+      id: ctx.newId(),
+      turnId: ctx.turnId,
+      ts,
+      recoverable: false,
+      code: 'missing_terminal_event',
+      reason: 'missing_terminal_event',
+      message: 'flow exhausted without a terminal RuntimeEvent',
+    });
+  }
+  events.push({
+    type: 'complete',
+    id: ctx.newId(),
+    turnId: ctx.turnId,
+    ts,
+    stopReason: 'error',
+  });
+  return events;
 }
