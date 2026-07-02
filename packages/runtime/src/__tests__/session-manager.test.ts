@@ -2085,6 +2085,46 @@ describe('SessionManager permission mode updates', () => {
     expect(childInput.runtimeContext?.[0]?.sessionId).toBe(child.id);
   });
 
+  test('branchFromTurn never leaves a terminal cloned run header without a terminal RuntimeEvent fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 5 });
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+    await seedRuntimeReadTurn({
+      store,
+      runStore,
+      sessionId: session.id,
+      turnId: 'source',
+      runId: 'source-run',
+      userText: 'runtime branch context',
+      assistantText: 'runtime branch answer',
+      legacyIdPrefix: 'legacy',
+    });
+
+    let branchError: unknown;
+    try {
+      await manager.branchFromTurn(session.id, { sourceTurnId: 'source', name: 'Child' });
+    } catch (error) {
+      branchError = error;
+    }
+    expect(branchError instanceof Error ? branchError.message : String(branchError)).toContain('runtime event append failed');
+
+    const child = (await store.list()).find((summary) => summary.parentSessionId === session.id);
+    expect(child).toBeDefined();
+    const childRuns = await runStore.listSessionRuns(child!.id);
+    for (const run of childRuns) {
+      const runtimeEvents = await runStore.readRuntimeEvents(child!.id, run.runId);
+      const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
+      expect(
+        run.status === 'completed' ||
+        run.status === 'failed' ||
+        run.status === 'cancelled'
+          ? hasTerminalFact
+          : true,
+      ).toBe(true);
+    }
+  });
+
   test('multi-run RuntimeEvent projection preserves retry regenerate and branch lineage on turns', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3853,11 +3893,11 @@ describe('SessionManager permission mode updates', () => {
     await unreadableManager.recoverInterruptedSessions();
     await incompleteManager.recoverInterruptedSessions();
 
-    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('failed');
-    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('failed');
+    expect((await unreadableRunStore.readRun(unreadable.id, 'run-1')).status).toBe('running');
+    expect((await unreadableStore.listTurns(unreadable.id))[0]?.status).toBe('running');
     expect((await incompleteRunStore.readRun(incomplete.id, 'run-1')).status).toBe('failed');
     expect((await incompleteStore.listTurns(incomplete.id))[0]?.status).toBe('failed');
-    expect((await unreadableRunStore.readEvents(unreadable.id, 'run-1')).find((event) => event.type === 'run_failed')?.data?.recoveryReason).toBe('model_stream_completed_without_runtime_terminal');
+    expect((await unreadableRunStore.readEvents(unreadable.id, 'run-1')).find((event) => event.type === 'run_failed')).toBeUndefined();
     expect((await incompleteRunStore.readEvents(incomplete.id, 'run-1')).find((event) => event.type === 'run_failed')?.data?.recoveryReason).toBe('model_stream_completed_without_runtime_terminal');
   });
 

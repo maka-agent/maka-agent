@@ -143,7 +143,7 @@ function terminalRunEventData(
   };
 }
 
-function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): TerminalAgentRunStatus | undefined {
+export function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): TerminalAgentRunStatus | undefined {
   if (event.status === 'completed') return 'completed';
   if (event.status === 'failed') return 'failed';
   if (event.status === 'aborted' || event.status === 'cancelled') return 'cancelled';

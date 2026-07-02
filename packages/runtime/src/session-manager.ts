@@ -47,7 +47,7 @@ import type {
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
-import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
+import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession, isTerminalRuntimeEvent } from '@maka/core';
 import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
   type RuntimeEventTerminalFact,
@@ -58,6 +58,7 @@ import { firstRuntimeRepairRunId, RuntimeLedgerRepair } from './runtime-ledger-r
 import {
   buildRecoveredTerminalRuntimeEvent,
   commitTerminalRunWithRuntimeFact,
+  terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
 
 import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
@@ -796,23 +797,44 @@ export class SessionManager {
 
       const runId = this.deps.newId();
       const invocationIds = new Map<string, string>();
-      await this.deps.runStore.createRun({
-        ...sourceRun,
-        sessionId: childSessionId,
-        runId,
-      });
+      const clonedRun = cloneRunHeaderForBranchCreate(sourceRun, childSessionId, runId);
+      await this.deps.runStore.createRun(clonedRun);
 
+      const clonedEvents: RuntimeEvent[] = [];
       for (const event of sourceEvents) {
-        await this.deps.runtimeEventStore.appendRuntimeEvent(
-          childSessionId,
+        const clonedEvent = cloneRuntimeEventForBranch(event, {
+          sessionId: childSessionId,
           runId,
-          cloneRuntimeEventForBranch(event, {
-            sessionId: childSessionId,
-            runId,
-            eventId: this.deps.newId(),
-            invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
-          }),
-        );
+          eventId: this.deps.newId(),
+          invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
+        });
+        await this.deps.runtimeEventStore.appendRuntimeEvent(childSessionId, runId, clonedEvent);
+        clonedEvents.push(clonedEvent);
+      }
+
+      const terminalEvent = clonedEvents.find(isTerminalRuntimeEvent);
+      const terminalStatus = terminalEvent ? terminalRunStatusFromRuntimeEvent(terminalEvent) : undefined;
+      if (terminalEvent && terminalStatus && isTerminalRunStatus(sourceRun.status)) {
+        await commitTerminalRunWithRuntimeFact({
+          runStore: this.deps.runStore,
+          newId: this.deps.newId,
+          sessionId: childSessionId,
+          runId,
+          turnId: sourceRun.turnId,
+          status: terminalStatus,
+          ts: terminalEvent.ts,
+          terminalEvent,
+          terminalEventAlreadyPersisted: true,
+          ...(sourceRun.failureClass ? { failureClass: sourceRun.failureClass } : {}),
+          ...(sourceRun.failureMessage ? { failureMessage: sourceRun.failureMessage } : {}),
+          ...(sourceRun.abortSource ? { abortSource: sourceRun.abortSource } : {}),
+          runEventData: {
+            recovered: true,
+            recoveryReason: 'branch_runtime_ledger_clone',
+            sourceSessionId: sourceRun.sessionId,
+            sourceRunId: sourceRun.runId,
+          },
+        });
       }
     }
   }
@@ -831,6 +853,7 @@ export class SessionManager {
         this.deps.runtimeEventStore,
         { sessionId, runId: run.runId, header: run },
       );
+      if (inspected.sourceHealth.runtimeLedger === 'read_failed') continue;
       const runtimeDecision = this.classifyRuntimeEventRecovery(inspected);
       const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events);
       if (!decision) continue;
@@ -1081,6 +1104,22 @@ function cloneRuntimeEventForBranch(
     sessionId: ids.sessionId,
     runId: ids.runId,
   };
+}
+
+function cloneRunHeaderForBranchCreate(
+  sourceRun: AgentRunHeader,
+  childSessionId: string,
+  runId: string,
+): AgentRunHeader {
+  const cloned = { ...sourceRun, sessionId: childSessionId, runId };
+  if (isTerminalRunStatus(sourceRun.status)) {
+    cloned.status = 'running';
+    delete cloned.completedAt;
+    delete cloned.failureClass;
+    delete cloned.failureMessage;
+    delete cloned.abortSource;
+  }
+  return cloned;
 }
 
 function remapInvocationId(
