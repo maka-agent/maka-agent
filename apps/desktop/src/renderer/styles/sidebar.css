@@ -24,6 +24,11 @@
   --maka-sidebar-topbar-gap: 8px;
   --maka-sidebar-topbar-offset-y: calc(var(--maka-titlebar-control-safe-top) - 18px);
   --maka-sidebar-topbar-offset-x: calc(var(--maka-titlebar-control-safe-left) - 10px);
+  --maka-sidebar-collapsed-topbar-inset: calc(
+    var(--maka-sidebar-topbar-offset-x) + var(--maka-sidebar-topbar-button-size) +
+      var(--maka-sidebar-topbar-button-size) + var(--maka-sidebar-topbar-button-size) +
+      var(--maka-sidebar-topbar-gap) + var(--maka-sidebar-topbar-gap) + 8px
+  );
   position: relative;
   display: grid;
   grid-template-columns:
@@ -491,11 +496,14 @@
   gap: 5px;
   padding: 6px 6px 7px;
   border-bottom: 0;
-  -webkit-app-region: drag;
 }
 
 .maka-sidebar-drag-strip {
   min-height: 34px;
+  margin-left: calc(
+    var(--maka-sidebar-topbar-offset-x) + var(--maka-sidebar-topbar-button-size) +
+      var(--maka-sidebar-topbar-button-size) + var(--maka-sidebar-topbar-gap) + 8px
+  );
   box-sizing: border-box;
   -webkit-app-region: drag;
 }

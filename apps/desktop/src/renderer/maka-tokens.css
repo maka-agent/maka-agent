@@ -309,9 +309,10 @@
      toolbar occupies in the top-right corner: its right offset + four 24px icon
      buttons with 6px gaps (114px) + a 12px clearance gap. Right-aligned
      chat-header content (model switcher, .maka-chat-header-mode-pill, memory
-     pill) reserves this as right padding so it does not render underneath the
-     toolbar. Companion to PR-CHAT-HEADER-STATUS-CLUSTER-0, which only relocated
-     the status cluster and left the in-header pills overlapping. */
+     pill) and the chat-header drag strip reserve this footprint so neither
+     content nor titlebar hit regions sit underneath the toolbar. Companion to
+     PR-CHAT-HEADER-STATUS-CLUSTER-0, which only relocated the status cluster and
+     left the in-header pills overlapping. */
   --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 126px);
 
   /* session list geometry */

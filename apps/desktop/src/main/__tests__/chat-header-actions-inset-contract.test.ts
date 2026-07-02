@@ -71,18 +71,18 @@ describe('chat header actions inset contract', () => {
     );
   });
 
-  it('reserves the toolbar inset as chat-header right padding', async () => {
+  it('reserves the toolbar inset by ending the chat-header drag box before the actions', async () => {
     const css = await readRendererContractCss();
     const body = ruleBody(css, '.maka-chat-header');
     assert.match(
       body,
-      /padding:[^;]*var\(--maka-workspace-top-actions-inset\)/,
-      '.maka-chat-header must reserve --maka-workspace-top-actions-inset as right padding so right-aligned content does not render under .maka-workspace-top-actions',
+      /margin-right:\s*var\(--maka-workspace-top-actions-inset\)/,
+      '.maka-chat-header must reserve --maka-workspace-top-actions-inset in its box geometry so the drag region does not cover .maka-workspace-top-actions',
     );
-    assert.doesNotMatch(
+    assert.match(
       body,
       /padding:\s*0\s+10px\s*;/,
-      'the header should no longer use the pre-fix symmetric 10px padding that let pills overlap the toolbar',
+      'after margin-right reserves the toolbar footprint, the header can keep compact symmetric padding for its own content',
     );
   });
 });

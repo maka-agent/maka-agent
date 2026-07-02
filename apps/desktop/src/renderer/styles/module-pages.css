@@ -1945,14 +1945,19 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  /* Right padding reserves space for the absolutely-positioned
-     .maka-workspace-top-actions toolbar so right-aligned content
-     (.maka-chat-header-mode-pill, .maka-model-switcher, memory pill) stops
-     before the toolbar instead of rendering underneath it. */
-  padding: 0 var(--maka-workspace-top-actions-inset) 0 10px;
+  /* The header is also a drag strip, so its box must stop before the
+     absolutely-positioned .maka-workspace-top-actions toolbar instead of
+     merely padding content away from it. Otherwise the transparent drag
+     region covers the titlebar icon buttons. */
+  margin-right: var(--maka-workspace-top-actions-inset);
+  padding: 0 10px;
   background: transparent;
   border-bottom: 0;
   -webkit-app-region: drag;
+}
+
+.maka-shell-2col[data-sidebar-state="collapsed"] .maka-chat-header {
+  margin-left: var(--maka-sidebar-collapsed-topbar-inset);
 }
 
 /* PR-CHAT-HEADER-STATUS-CLUSTER-0: the session-status / connection /
