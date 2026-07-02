@@ -16,6 +16,7 @@ import {
 } from './runtime-event-read-model.js';
 import { buildRuntimeEventModelReplayPlan, type RuntimeEventModelReplayPlan } from './model-history.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
+import { effectiveRunHeaderFromTerminalFact, terminalRunHeaderMatchesFact } from './terminal-run-commit.js';
 
 export interface RuntimeReadModelProjectionCache {
   readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -325,31 +326,6 @@ function readModelDiagnostic(
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
-}
-
-function effectiveRunHeaderFromTerminalFact(
-  run: AgentRunHeader,
-  fact: RuntimeEventTerminalFact,
-): AgentRunHeader {
-  const completedAt = run.completedAt ?? fact.terminalEvent.ts;
-  return {
-    ...run,
-    status: fact.runStatus,
-    updatedAt: Math.max(run.updatedAt, completedAt),
-    completedAt,
-    ...(fact.failureClass ? { failureClass: fact.failureClass } : {}),
-    ...(fact.abortSource ? { abortSource: fact.abortSource } : {}),
-  };
-}
-
-function terminalRunHeaderMatchesFact(
-  run: AgentRunHeader,
-  fact: RuntimeEventTerminalFact,
-): boolean {
-  if (run.status !== fact.runStatus) return false;
-  if (fact.runStatus === 'failed' && run.failureClass !== fact.failureClass) return false;
-  if (fact.runStatus === 'cancelled' && run.abortSource !== fact.abortSource) return false;
-  return true;
 }
 
 function errorMessage(error: unknown): string {

@@ -462,6 +462,58 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(turnState.errorClass).toBe('tool_failed');
   });
 
+  test('RuntimeReadModel treats the terminal RuntimeEvent as the failure fact when the header is stale', async () => {
+    const runStore = new TinyAgentRunStore();
+    const run = makeRunHeader({
+      sessionId: 'session-stale-failure-class',
+      runId: 'run-stale-failure-class',
+      turnId: 'turn-stale-failure-class',
+      status: 'failed',
+      completedAt: 10,
+      failureClass: 'stale_header_failure',
+    });
+    await runStore.createRun(run);
+    await runStore.appendRuntimeEvent(run.sessionId, run.runId, runtimeEvent({
+      id: 'rt-user-stale-failure',
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 8,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'hello' },
+    }));
+    await runStore.appendRuntimeEvent(run.sessionId, run.runId, runtimeEvent({
+      id: 'rt-failed-runtime-fact',
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 10,
+      status: 'failed',
+      content: {
+        kind: 'error',
+        code: 'runtime_failure',
+        reason: 'runtime_failure',
+        message: 'Runtime failed',
+      },
+      actions: {
+        endInvocation: true,
+        stateDelta: { failureClass: 'runtime_failure' },
+      },
+    }));
+
+    const view = await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(run.sessionId);
+
+    expect(view.terminalFacts[0]?.failureClass).toBe('runtime_failure');
+    expect(view.runs[0]?.failureClass).toBe('runtime_failure');
+    const turnState = view.messages.find((message) => message.type === 'turn_state');
+    if (turnState?.type !== 'turn_state') throw new Error('turn_state was not projected');
+    expect(turnState.errorClass).toBe('runtime_failure');
+    expect(view.diagnostics.some((diagnostic) =>
+      diagnostic.message === 'terminal run header does not match RuntimeEvent terminal fact'
+    )).toBe(true);
+  });
+
   test('RuntimeReadModel rejects terminal headers when the ledger has no valid terminal fact', async () => {
     const runStore = new TinyAgentRunStore();
     const run = makeRunHeader({
