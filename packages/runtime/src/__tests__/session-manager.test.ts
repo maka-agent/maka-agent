@@ -2951,6 +2951,32 @@ describe('SessionManager permission mode updates', () => {
     expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].status : undefined).toBe('aborted');
   });
 
+  test('sendMessage ignores backend errors thrown after a completed terminal event is recorded', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowAfterTerminalBackend(ctx));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_716) });
+    const session = await manager.createSession(makeInput());
+
+    const emitted = await collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run!.runId);
+    const turnStates = (await store.readMessages(session.id)).filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1' && message.status !== 'running'
+    );
+
+    expect(emitted.map((event) => event.type)).toEqual(['text_delta', 'complete']);
+    expect(run?.status).toBe('completed');
+    expect(runtimeEvents.filter((event) => event.role === 'model' && event.content?.kind === 'text').map((event) =>
+      event.content?.kind === 'text' ? event.content.text : ''
+    )).toEqual(['before']);
+    expect(runtimeEvents.filter((event) => event.status === 'completed')).toHaveLength(1);
+    expect(runtimeEvents.filter((event) => event.status === 'failed')).toHaveLength(0);
+    expect(turnStates).toHaveLength(1);
+    expect(turnStates[0]?.type === 'turn_state' ? turnStates[0].status : undefined).toBe('completed');
+  });
+
   test('stopSession keeps aborted state even if the backend emits a late error', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -3878,6 +3904,25 @@ class EventBackend implements AgentBackend {
         ts: index,
       } as SessionEvent;
     }
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class ThrowAfterTerminalBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 1, messageId: `${input.turnId}-m`, text: 'before' };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 2, stopReason: 'end_turn' };
+    throw new Error('cleanup after terminal failed');
   }
 
   async stop(): Promise<void> {}

@@ -467,6 +467,33 @@ describe('AiSdkFlow seam', () => {
     assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
   });
 
+  test('reports terminal onSessionEvent failures before accepting the terminal event', async () => {
+    const seenErrors: string[] = [];
+    const backend = new ScriptedBackend({
+      events: [
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+        ev({ type: 'text_delta', messageId: 'm1', text: 'after-terminal' }),
+      ],
+    });
+    const flow = new AiSdkFlow({
+      backend,
+      drainAfterTerminal: true,
+      onSessionEvent: () => {
+        throw new Error('terminal write failed');
+      },
+      onError: (error) => {
+        seenErrors.push(error instanceof Error ? error.message : String(error));
+      },
+    });
+
+    await assert.rejects(
+      collect(flow.run(ctx, { text: 'hi', context: [] })),
+      /terminal write failed/,
+    );
+    assert.deepEqual(seenErrors, ['terminal write failed']);
+    assert.equal(backend.yieldedEvents, 1);
+  });
+
   test('RuntimeRunner consumes AiSdkFlow abort as one coherent failed outcome', async () => {
     const backend = new ScriptedBackend({
       events: [

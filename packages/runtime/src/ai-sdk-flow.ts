@@ -474,6 +474,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
 
     const memory = createSessionEventMapMemory();
     let terminalEmitted = false;
+    let terminalAccepted = false;
     let errorEmitted = false;
     try {
       for await (const sessionEvent of this.backend.send({
@@ -490,6 +491,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         if (isTerminalRuntimeEvent(runtimeEvent)) {
           terminalEmitted = true;
           await this.onSessionEvent?.(sessionEvent, runtimeEvent);
+          terminalAccepted = true;
           yield runtimeEvent;
           if (!this.drainAfterTerminal) break;
           continue;
@@ -506,6 +508,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         }
       }
     } catch (error) {
+      if (terminalAccepted) return;
       await this.onError?.(error);
       throw error;
     } finally {
