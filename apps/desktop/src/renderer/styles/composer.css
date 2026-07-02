@@ -129,7 +129,7 @@
   margin-inline: 9px;
   border-radius: 50%;
   background: var(--accent);
-  animation: maka-composer-stream-bounce 1.05s ease-in-out -0.2s infinite both;
+  animation: maka-composer-stream-bounce 1.05s var(--ease-in-out-strong) -0.2s infinite both;
 }
 
 .maka-composer-streaming-dot::before,
@@ -141,7 +141,7 @@
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
-  animation: maka-composer-stream-bounce 1.05s ease-in-out infinite both;
+  animation: maka-composer-stream-bounce 1.05s var(--ease-in-out-strong) infinite both;
 }
 
 .maka-composer-streaming-dot::before {
@@ -192,7 +192,7 @@
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  animation: maka-composer-permission-pulse 1.4s ease-in-out infinite;
+  animation: maka-composer-permission-pulse 1.4s var(--ease-in-out-strong) infinite;
   flex-shrink: 0;
 }
 

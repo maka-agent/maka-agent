@@ -404,9 +404,9 @@
     0 18px 42px oklch(from var(--foreground) l c h / 0.07),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.72) inset;
   transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    border-color 160ms var(--ease-out-strong),
+    box-shadow 160ms var(--ease-out-strong),
+    transform 160ms var(--ease-out-strong);
 }
 
 .maka-onboarding-quickchat-field {
@@ -646,7 +646,7 @@
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
-  animation: maka-list-row-streaming-pulse 1.2s ease-in-out infinite;
+  animation: maka-list-row-streaming-pulse 1.2s var(--ease-in-out-strong) infinite;
 }
 
 @keyframes maka-list-row-streaming-pulse {

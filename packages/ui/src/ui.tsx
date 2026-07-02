@@ -27,7 +27,7 @@ export { cn } from './utils.js';
 export const buttonVariants = cva(
   [
     'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm font-medium',
-    'transition-[background,border-color,box-shadow,transform,opacity] duration-150 ease-[var(--ease-maka)]',
+    'transition-[background,border-color,box-shadow,transform,opacity] duration-150 ease-[var(--ease-out-strong)]',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     'active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45',
     '[&_svg]:size-[var(--icon-size,1rem)] [&_svg]:shrink-0',

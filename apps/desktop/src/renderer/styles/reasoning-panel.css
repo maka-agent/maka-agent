@@ -55,7 +55,7 @@
     border-radius: 50%;
     background: var(--info);
     /* Live pulse — collapses under prefers-reduced-motion via the rule below. */
-    animation: maka-reasoning-panel-pulse 1.4s ease-in-out infinite;
+    animation: maka-reasoning-panel-pulse 1.4s var(--ease-in-out-strong) infinite;
   }
 
   @keyframes maka-reasoning-panel-pulse {
