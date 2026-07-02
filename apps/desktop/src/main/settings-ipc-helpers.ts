@@ -115,6 +115,39 @@ export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSet
   };
 }
 
+/**
+ * Empty every secret field in settings for a config export that does NOT
+ * include the `credentials` category. Unlike `maskAppSettings` (which returns
+ * a masked sentinel for display), this returns '' so a re-imported bundle
+ * carries no secret material at all — it must not round-trip a masked value as
+ * if it were real. Keep the field list in sync with `maskAppSettings`.
+ */
+export function stripSettingsSecretsForExport(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    network: {
+      ...settings.network,
+      proxy: { ...settings.network.proxy, password: '' },
+    },
+    botChat: {
+      ...settings.botChat,
+      channels: Object.fromEntries(
+        Object.entries(settings.botChat.channels).map(([provider, channel]) => [
+          provider,
+          { ...channel, token: '', appSecret: '' },
+        ]),
+      ) as AppSettings['botChat']['channels'],
+    },
+    openGateway: { ...settings.openGateway, token: '' },
+    webSearch: {
+      ...settings.webSearch,
+      providers: {
+        tavily: { ...settings.webSearch.providers.tavily, apiKey: '' },
+      },
+    },
+  };
+}
+
 export function buildSettingsUpdateResult(
   settings: AppSettings,
   patch: UpdateAppSettingsInput,

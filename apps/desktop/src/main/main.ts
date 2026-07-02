@@ -181,6 +181,7 @@ import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
 import { registerConnectionsIpc } from './connections-ipc-main.js';
+import { registerConfigIpc } from './config-ipc-main.js';
 import { registerPlanReminderIpc } from './plan-reminders-ipc-main.js';
 import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js';
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
@@ -972,6 +973,7 @@ function registerIpc(): void {
     },
   );
   registerMemoryIpc({ localMemory });
+  registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
   ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
   ipcMain.handle(
     'workspaceInstructions:openFile',

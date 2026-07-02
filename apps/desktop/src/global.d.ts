@@ -70,6 +70,7 @@ import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { SkillEntry } from '@maka/ui';
+import type { ConfigCategory } from '@maka/storage';
 import type {
   OnboardingMilestone,
   OnboardingMilestoneId,
@@ -402,6 +403,25 @@ declare global {
         // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
         // color/symbolColor to the current app theme. No-op on non-Windows.
         setTitleBarOverlayTheme(isDark: boolean): Promise<void>;
+      };
+      config: {
+        export(input: { categories: ConfigCategory[] }): Promise<
+          | { ok: false; reason: 'no_categories' | 'canceled' }
+          | { ok: true; path: string; includedData: ConfigCategory[] }
+        >;
+        import(input: { strategy: 'skip' | 'overwrite' }): Promise<
+          | { ok: false; reason: 'canceled' | 'not_json' | 'malformed' | 'unsupported_version'; message?: string }
+          | {
+              ok: true;
+              includedData: ConfigCategory[];
+              result: {
+                connections?: { created: number; overwritten: number; skipped: number };
+                settings?: { applied: boolean };
+                credentials?: { applied: number };
+                memory?: { applied: boolean };
+              };
+            }
+        >;
       };
       app: {
         info(): Promise<{
