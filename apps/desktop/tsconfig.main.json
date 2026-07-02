@@ -5,7 +5,8 @@
     "outDir": "dist",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["node", "electron"]
+    "types": ["node", "electron"],
+    "incremental": true
   },
   "include": ["src/main"]
 }

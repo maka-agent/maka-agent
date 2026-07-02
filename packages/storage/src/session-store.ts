@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { deriveTurnRecords, isPermissionMode, isSessionBlockedReason, isSessionStatus, normalizeUserSessionName } from '@maka/core';
@@ -36,6 +36,9 @@ export function createSessionStore(workspaceRoot: string): SessionStore {
 }
 
 class FileSessionStore implements SessionStore {
+  private static readonly HEADER_BUDGET = 8192;
+  private static readonly MAX_HEADER_BYTES = 1024 * 1024;
+  private static readonly TAIL_PREVIEW_BUDGET = 64 * 1024;
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
 
@@ -99,31 +102,60 @@ class FileSessionStore implements SessionStore {
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
     await mkdir(this.sessionsRoot, { recursive: true });
     const entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
-    const summaries: SessionSummary[] = [];
+
+    // Phase 1: read each header plus a bounded tail preview. That keeps
+    // list() proportional to the number of sessions rather than full
+    // transcript size, while preserving sidebar previews and timestamp
+    // fallback for sessions outside the top few.
+    const withHeaders: Array<{ id: string; header: SessionHeader; previewMessages: StoredMessage[] }> = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (!isSafeSessionId(entry.name)) continue;
       try {
-        const { header, messages } = await this.readFileParts(entry.name);
+        const header = await this.readHeaderOnly(entry.name);
         if (filter?.isArchived !== undefined && header.isArchived !== filter.isArchived) continue;
         if (filter?.isFlagged !== undefined && header.isFlagged !== filter.isFlagged) continue;
         if (filter?.labelSlug && !header.labels.includes(filter.labelSlug)) continue;
-        summaries.push(toSummary(header, messages));
+        const previewMessages = await this.readTailPreviewMessages(entry.name).catch(() => []);
+        withHeaders.push({ id: entry.name, header, previewMessages });
       } catch {
         // Ignore malformed session folders in the sidebar.
       }
     }
-    // Secondary key on `id` (lexicographic) so sessions with identical
-    // lastMessageAt always sort in the same order — fixtures with
+
+    // Secondary key on id (lexicographic) so sessions with identical
+    // lastMessageAt always sort in the same order - fixtures with
     // multiple sessions seeded at the same frozen timestamp would
     // otherwise drift across runs based on filesystem readdir order
     // (PR108k-yj per @kenji visual-smoke determinism). Negligible cost
     // for real users; identical lastMessageAt is rare in production.
-    return summaries.sort((a, b) => {
-      const tsDelta = (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
+    withHeaders.sort((a, b) => {
+      const aLastMessageAt = maxTimestamp(a.header.lastMessageAt, latestVisibleMessageAt(a.previewMessages));
+      const bLastMessageAt = maxTimestamp(b.header.lastMessageAt, latestVisibleMessageAt(b.previewMessages));
+      const tsDelta = (bLastMessageAt ?? 0) - (aLastMessageAt ?? 0);
       if (tsDelta !== 0) return tsDelta;
-      return a.id.localeCompare(b.id);
+      return a.header.id.localeCompare(b.header.id);
     });
+
+    // Phase 2: full detail read only for the most recent 3 sessions.
+    // For those, keep only the last 10 messages as preview. Remaining
+    // sessions use the bounded tail preview from phase 1.
+    const TOP_N = 3;
+    const summaries: SessionSummary[] = [];
+    for (let i = 0; i < withHeaders.length; i++) {
+      const { header, previewMessages } = withHeaders[i];
+      let messages: StoredMessage[] = previewMessages.slice(-10);
+      if (i < TOP_N) {
+        try {
+          const result = await this.readFilePartsUnlocked(header.id);
+          messages = result.messages.slice(-10);
+        } catch {
+          // Fall through to the bounded tail preview from phase 1.
+        }
+      }
+      summaries.push(toSummary(header, messages));
+    }
+    return summaries;
   }
 
   async readHeader(sessionId: string): Promise<SessionHeader> {
@@ -233,6 +265,66 @@ class FileSessionStore implements SessionStore {
 
   private sessionPath(sessionId: string): string {
     return join(this.sessionDir(sessionId), 'session.jsonl');
+  }
+
+  private async readHeaderOnly(sessionId: string): Promise<SessionHeader> {
+    // Fast path: read only the first JSON line (the header) without
+    // parsing any message payload. Used by list() to quickly scan
+    // all sessions before deciding which ones need detail reads.
+    const path = this.sessionPath(sessionId);
+    const handle = await open(path, 'r');
+    try {
+      const chunks: Buffer[] = [];
+      let offset = 0;
+      while (offset < FileSessionStore.MAX_HEADER_BYTES) {
+        const buf = Buffer.alloc(Math.min(
+          FileSessionStore.HEADER_BUDGET,
+          FileSessionStore.MAX_HEADER_BYTES - offset,
+        ));
+        const { bytesRead } = await handle.read(buf, 0, buf.length, offset);
+        if (bytesRead === 0) break;
+        chunks.push(buf.subarray(0, bytesRead));
+        const region = Buffer.concat(chunks).toString('utf8');
+        const firstNl = region.indexOf('\n');
+        if (firstNl !== -1) {
+          return migrateHeader(JSON.parse(region.slice(0, firstNl)) as StoredSessionHeader, sessionId);
+        }
+        offset += bytesRead;
+      }
+      throw new Error(`Session ${sessionId}: cannot find header line`);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async readTailPreviewMessages(sessionId: string): Promise<StoredMessage[]> {
+    const path = this.sessionPath(sessionId);
+    const handle = await open(path, 'r');
+    try {
+      const { size } = await handle.stat();
+      const start = Math.max(0, size - FileSessionStore.TAIL_PREVIEW_BUDGET);
+      const length = size - start;
+      if (length <= 0) return [];
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buf, 0, length, start);
+      const text = buf.toString('utf8', 0, bytesRead);
+      const rawLines = text.split('\n');
+      // The first tail line is either the header (start === 0) or a partial JSONL line.
+      const lines = rawLines.slice(1);
+      const completeLines = text.endsWith('\n') ? lines : lines.slice(0, -1);
+      const messages: StoredMessage[] = [];
+      for (const line of completeLines) {
+        if (line.trim().length === 0) continue;
+        try {
+          messages.push(JSON.parse(line) as StoredMessage);
+        } catch {
+          // Tail previews are best-effort; full reads still surface durable corruption notes.
+        }
+      }
+      return messages;
+    } finally {
+      await handle.close();
+    }
   }
 
   private async readFileParts(sessionId: string): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {

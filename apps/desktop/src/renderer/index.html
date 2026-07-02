@@ -8,9 +8,78 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
     />
     <title>Maka</title>
+    <style>
+      /*
+       * Preload skeleton — renders BEFORE React mounts and before any
+       * external CSS loads. Prevents a blank white/gray screen during
+       * the 355KB CSS + 5.8MB JS loading window.
+       *
+       * Colors are hardcoded (not CSS variables) because maka-tokens.css
+       * (70KB) hasn't loaded yet. Light/dark chosen via prefers-color-scheme
+       * to match cached-theme-bootstrap.ts fallback logic.
+       */
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      #root {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .maka-preload {
+        position: relative;
+        width: min(620px, calc(100% - 48px));
+        min-height: 132px;
+        margin: auto;
+        overflow: hidden;
+        border-radius: 12px;
+      }
+      /* light theme (default) */
+      .maka-preload {
+        background: #f3f3f5;
+        border: 1px solid #d4d4d8;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.06);
+      }
+      .maka-preload::before,
+      .maka-preload::after {
+        content: "";
+        position: absolute;
+        left: 24px;
+        right: 24px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #e4e4e7, #d4d4d8, #e4e4e7);
+      }
+      .maka-preload::before {
+        top: 34px;
+        width: min(280px, calc(100% - 48px));
+        height: 16px;
+      }
+      .maka-preload::after {
+        top: 66px;
+        width: min(460px, calc(100% - 48px));
+        height: 12px;
+        opacity: 0.7;
+      }
+      /* dark theme overrides */
+      @media (prefers-color-scheme: dark) {
+        .maka-preload {
+          background: #1c1d21;
+          border-color: #2e3035;
+          box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+        }
+        .maka-preload::before,
+        .maka-preload::after {
+          background: linear-gradient(90deg, #2a2b30, #3a3c42, #2a2b30);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="maka-preload" role="status" aria-busy="true" aria-label="加载中"></div>
+    </div>
     <script type="module" src="/main.tsx"></script>
   </body>
 </html>
