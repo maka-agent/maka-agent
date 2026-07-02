@@ -759,6 +759,14 @@ describe('SessionManager permission mode updates', () => {
       /valid terminal fact/,
     );
     expect(backend?.sendInputs.length ?? 0).toBe(0);
+    const currentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-2');
+    if (!currentRun) throw new Error('current AgentRunStore run was not created');
+    expect(currentRun.status).toBe('failed');
+    expect(currentRun.failureClass).toBe('missing_terminal_event');
+    const currentTerminalEvents = (await runStore.readRuntimeEvents(session.id, currentRun.runId)).filter(isTerminalRuntimeEvent);
+    expect(currentTerminalEvents).toHaveLength(1);
+    expect(currentTerminalEvents[0]?.status).toBe('failed');
+    expect(currentTerminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
   });
 
   test('sendMessage resumes incomplete legacy backfill for prior context', async () => {

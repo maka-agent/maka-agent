@@ -183,8 +183,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
       },
       onFinally: async () => {
         flowDone = true;
-        await run.finalize();
-        sessionEvents.close();
+        try {
+          await run.finalize();
+          sessionEvents.close();
+        } catch (error) {
+          sessionEvents.fail(error);
+          throw error;
+        }
       },
     });
     const runner = new RuntimeRunner({

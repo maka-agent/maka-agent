@@ -29,10 +29,8 @@ import {
   normalizeStopSessionSource,
 } from './session-projection-helpers.js';
 import {
-  buildRecoveredTerminalRuntimeEvent,
-  commitTerminalRunWithRuntimeFact,
+  commitOrCreateTerminalRunFact,
   effectiveRunHeaderFromTerminalFact,
-  terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
 import {
   AiSdkFlow,
@@ -788,59 +786,49 @@ export class AgentRun {
     const runStore = this.input.runStore;
     const runtimeEventStore = this.input.runtimeEventStore;
     if (!runStore || !this.runStoreAvailable || !runtimeEventStore || !this.runtimeEventStoreAvailable) return;
-    const terminalCommit = this.terminalRuntimeEventForRunCommit
-      ? {
-          terminalEvent: this.terminalRuntimeEventForRunCommit,
-          terminalEventAlreadyPersisted: true,
-        }
-      : this.buildMissingTerminalCommit(ts);
-    const terminalStatus = terminalRunStatusFromRuntimeEvent(terminalCommit.terminalEvent);
-    if (!terminalStatus) return;
-    const failureClass = terminalStatus === 'failed'
-      ? this.failureClass ?? finalStatus?.blockedReason ?? 'unknown'
-      : undefined;
-    await this.enqueueRunStore('commit terminal run header', async () => {
-      await commitTerminalRunWithRuntimeFact({
+    const fallbackFailureClass = 'missing_terminal_event';
+    const fallbackFailureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
+    try {
+      const result = await commitOrCreateTerminalRunFact({
         runStore,
         runtimeEventStore,
         newId: this.input.newId,
         sessionId: this.sessionId,
         runId: this.runId,
         turnId: this.turnId,
-        status: terminalStatus,
         ts,
-        terminalEvent: terminalCommit.terminalEvent,
-        terminalEventAlreadyPersisted: terminalCommit.terminalEventAlreadyPersisted,
-        ...(failureClass ? { failureClass } : {}),
+        ...(this.terminalRuntimeEventForRunCommit
+          ? {
+              terminalEvent: this.terminalRuntimeEventForRunCommit,
+              terminalEventAlreadyPersisted: true,
+            }
+          : {}),
+        ...(this.failureClass ?? finalStatus?.blockedReason
+          ? { failureClass: this.failureClass ?? finalStatus?.blockedReason }
+          : {}),
         ...(this.failureMessage ? { failureMessage: this.failureMessage } : {}),
-        ...(terminalStatus === 'cancelled' && this.abortSource ? { abortSource: this.abortSource } : {}),
+        ...(this.abortSource ? { abortSource: this.abortSource } : {}),
+        fallbackFailureClass,
+        fallbackRecoveryReason: fallbackFailureClass,
+        fallbackFailureMessage,
+        allowHeaderCommitFailure: true,
       });
+      if (result.createdTerminalEvent) {
+        this.failureClass = result.failureClass ?? fallbackFailureClass;
+        this.failureMessage = fallbackFailureMessage;
+      }
       this.terminalRuntimeEventRecorded = true;
-      this.terminalRuntimeEventForRunCommit = terminalCommit.terminalEvent;
-      this.terminalRunHeaderCommitted = true;
-    });
+      this.terminalRuntimeEventForRunCommit = result.terminalEvent;
+      this.terminalRunHeaderCommitted = result.headerCommitted;
+      if (result.headerCommitError !== undefined) {
+        await this.enqueueTraceWriteFailure(result.headerCommitError, 'commit terminal run header');
+      }
+    } catch (error) {
+      this.runStoreAvailable = false;
+      await this.enqueueTraceWriteFailure(error, 'commit terminal run header');
+      throw error;
+    }
     await this.traceQueue.catch(() => {});
-  }
-
-  private buildMissingTerminalCommit(ts: number): {
-    terminalEvent: RuntimeEvent;
-    terminalEventAlreadyPersisted: boolean;
-  } {
-    const failureClass = 'missing_terminal_event';
-    this.failureClass = failureClass;
-    this.failureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
-    return {
-      terminalEvent: buildRecoveredTerminalRuntimeEvent({
-        id: this.input.newId(),
-        run: { sessionId: this.sessionId, runId: this.runId, turnId: this.turnId },
-        status: 'failed',
-        ts,
-        failureClass,
-        recoveryReason: failureClass,
-        message: this.failureMessage,
-      }),
-      terminalEventAlreadyPersisted: false,
-    };
   }
 
   private enqueueRunStore(label: string, operation: () => Promise<void>): Promise<void> {

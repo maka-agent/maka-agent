@@ -121,6 +121,95 @@ export async function commitTerminalRunWithRuntimeFact(
   });
 }
 
+export interface CommitOrCreateTerminalRunFactInput extends Omit<
+  CommitTerminalRunWithRuntimeFactInput,
+  'status' | 'terminalEvent'
+> {
+  terminalEvent?: RuntimeEvent;
+  allowHeaderCommitFailure?: boolean;
+  fallbackFailureClass: string;
+  fallbackFailureMessage?: string;
+  fallbackRecoveryReason?: string;
+  fallbackDiagnostic?: Record<string, unknown>;
+}
+
+export interface CommitOrCreateTerminalRunFactResult {
+  terminalEvent: RuntimeEvent;
+  status: TerminalAgentRunStatus;
+  failureClass?: string;
+  createdTerminalEvent: boolean;
+  headerCommitted: boolean;
+  headerCommitError?: unknown;
+}
+
+export async function commitOrCreateTerminalRunFact(
+  input: CommitOrCreateTerminalRunFactInput,
+): Promise<CommitOrCreateTerminalRunFactResult> {
+  const createdTerminalEvent = !input.terminalEvent;
+  const terminalEvent = input.terminalEvent ?? buildRecoveredTerminalRuntimeEvent({
+    id: input.newId(),
+    run: {
+      sessionId: input.sessionId,
+      runId: input.runId,
+      turnId: input.turnId,
+    },
+    status: 'failed',
+    ts: input.ts,
+    failureClass: input.fallbackFailureClass,
+    recoveryReason: input.fallbackRecoveryReason ?? input.fallbackFailureClass,
+    ...(input.fallbackDiagnostic ? { diagnostic: input.fallbackDiagnostic } : {}),
+    message: input.fallbackFailureMessage ?? input.failureMessage ?? input.fallbackFailureClass,
+  });
+  const status = terminalRunStatusFromRuntimeEvent(terminalEvent);
+  if (!status) {
+    throw new Error('terminal RuntimeEvent must carry a terminal status');
+  }
+  if (isPartialRuntimeEvent(terminalEvent)) {
+    throw new Error('terminal RuntimeEvent must be final before terminal run header');
+  }
+  if (
+    terminalEvent.sessionId !== input.sessionId ||
+    terminalEvent.runId !== input.runId ||
+    terminalEvent.turnId !== input.turnId
+  ) {
+    throw new Error('terminal RuntimeEvent identity does not match run header commit');
+  }
+  const failureClass = status === 'failed'
+    ? runtimeEventFailureClass(terminalEvent) ?? input.failureClass ?? 'unknown'
+    : undefined;
+  let terminalEventAlreadyPersisted = !createdTerminalEvent && input.terminalEventAlreadyPersisted;
+  if (!terminalEventAlreadyPersisted) {
+    if (!input.runtimeEventStore) {
+      throw new Error('terminal RuntimeEvent must be persisted before terminal run header');
+    }
+    await input.runtimeEventStore.appendRuntimeEvent(input.sessionId, input.runId, terminalEvent);
+    terminalEventAlreadyPersisted = true;
+  }
+  let headerCommitted = false;
+  let headerCommitError: unknown;
+  try {
+    await commitTerminalRunWithRuntimeFact({
+      ...input,
+      terminalEvent,
+      status,
+      ...(failureClass ? { failureClass } : {}),
+      terminalEventAlreadyPersisted,
+    });
+    headerCommitted = true;
+  } catch (error) {
+    if (!input.allowHeaderCommitFailure) throw error;
+    headerCommitError = error;
+  }
+  return {
+    terminalEvent,
+    status,
+    ...(failureClass ? { failureClass } : {}),
+    createdTerminalEvent,
+    headerCommitted,
+    ...(headerCommitError !== undefined ? { headerCommitError } : {}),
+  };
+}
+
 export interface BuildRecoveredTerminalRuntimeEventInput {
   id: string;
   run: Pick<AgentRunHeader, 'runId' | 'sessionId' | 'turnId'>;
@@ -196,6 +285,17 @@ function terminalRunEventData(
     ...(status === 'failed' && failureClass ? { failureClass } : {}),
     ...(runEventData ?? {}),
   };
+}
+
+function runtimeEventFailureClass(event: RuntimeEvent): string | undefined {
+  const stateDelta = event.actions?.stateDelta;
+  if (typeof stateDelta?.failureClass === 'string' && stateDelta.failureClass.length > 0) {
+    return stateDelta.failureClass;
+  }
+  if (event.content?.kind === 'error') {
+    return event.content.code ?? event.content.reason;
+  }
+  return undefined;
 }
 
 export function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): TerminalAgentRunStatus | undefined {
