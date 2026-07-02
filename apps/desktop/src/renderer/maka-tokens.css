@@ -263,9 +263,10 @@
      `motion-token-converge-contract.test.ts` enforces this by banning
      bare `cubic-bezier(0.16, 1, 0.3, 1)` (must use --ease-out-strong)
      and `transition: all` (must enumerate properties). */
-  --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+   --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);
+   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+   --ease-linear: linear;
 
   --duration-quick: 120ms;
   --duration-base: 150ms;

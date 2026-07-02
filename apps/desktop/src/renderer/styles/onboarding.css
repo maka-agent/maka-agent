@@ -772,7 +772,7 @@
   color: var(--foreground-40);
 }
 .maka-list-row-status-icon[data-status="running"] svg {
-  animation: maka-status-spin 1.2s linear infinite;
+  animation: maka-status-spin 1.2s var(--ease-linear) infinite;
 }
 @keyframes maka-status-spin {
   to { transform: rotate(360deg); }

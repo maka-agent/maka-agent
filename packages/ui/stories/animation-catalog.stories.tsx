@@ -35,7 +35,7 @@ export const RetainedFunctionalMotion: Story = {
         <span
           aria-hidden="true"
           style={{
-            animation: 'maka-shimmer 1.8s linear infinite',
+            animation: 'maka-shimmer 1.8s var(--ease-linear) infinite',
             background:
               'linear-gradient(120deg, transparent 40%, oklch(from var(--foreground) l c h / 0.16), transparent 60%) var(--foreground-5) 0 0 / 200% 100%',
             borderRadius: 'var(--radius-surface)',
