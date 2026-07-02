@@ -414,7 +414,13 @@
   flex: 0 0 auto;
   width: 320px;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  /* Row 2 (file list): content-sized but never past 40% of the pane.
+     fit-content(40%) resolves against the pane's definite height —
+     unlike max-height:40% on the list itself, which Chromium resolved
+     against the auto track's content height and collapsed the list to
+     40% of its own rows (#443). minmax(auto,40%) is wrong too: the
+     maximize-tracks step inflates it to the full 40% even for one row. */
+  grid-template-rows: auto fit-content(40%) minmax(0, 1fr) auto;
   border-left: 1px solid var(--border);
   background: var(--background);
   overflow: hidden;
@@ -555,7 +561,11 @@
   padding: 4px 4px 0;
   overflow-y: auto;
   border-bottom: 1px solid var(--border);
-  max-height: 40%;
+  /* No max-height here: a percentage on the item resolves against the
+     auto grid track's own content height (Chromium), which crushed the
+     list to 40% of ITSELF — a single-file list showed only ~12px of
+     its one row (#443). The 40%-of-pane cap lives on the grid track
+     (minmax) in .maka-artifact-pane instead. */
 }
 
 .maka-artifact-list-item {
