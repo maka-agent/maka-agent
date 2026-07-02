@@ -129,6 +129,62 @@ describe('SessionManager terminal ledger invariants', () => {
     expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
   });
 
+  test('terminal run commits reject terminal RuntimeEvents from another run', async () => {
+    const runStore = new TinyAgentRunStore();
+    const run = makeRunHeader({ status: 'running' });
+    const foreignTerminal = runtimeEvent({
+      id: 'rt-foreign-completed',
+      runId: 'another-run',
+      status: 'completed',
+      actions: { endInvocation: true },
+    });
+    await runStore.createRun(run);
+
+    await assert.rejects(
+      commitTerminalRunWithRuntimeFact({
+        runStore,
+        runtimeEventStore: runStore,
+        newId: nextId(),
+        sessionId: run.sessionId,
+        runId: run.runId,
+        turnId: run.turnId,
+        status: 'completed',
+        ts: 3,
+        terminalEvent: foreignTerminal,
+      }),
+      /terminal RuntimeEvent identity does not match run header commit/,
+    );
+    expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
+  });
+
+  test('terminal run commits reject partial terminal RuntimeEvents', async () => {
+    const runStore = new TinyAgentRunStore();
+    const run = makeRunHeader({ status: 'running' });
+    const partialTerminal = runtimeEvent({
+      id: 'rt-partial-completed',
+      status: 'completed',
+      partial: true,
+      actions: { endInvocation: true },
+    });
+    await runStore.createRun(run);
+
+    await assert.rejects(
+      commitTerminalRunWithRuntimeFact({
+        runStore,
+        runtimeEventStore: runStore,
+        newId: nextId(),
+        sessionId: run.sessionId,
+        runId: run.runId,
+        turnId: run.turnId,
+        status: 'completed',
+        ts: 3,
+        terminalEvent: partialTerminal,
+      }),
+      /terminal RuntimeEvent must be final before terminal run header/,
+    );
+    expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
+  });
+
   test('terminal ledger classification rejects multiple terminal RuntimeEvent signals', () => {
     const run = makeRunHeader({ status: 'running' });
 

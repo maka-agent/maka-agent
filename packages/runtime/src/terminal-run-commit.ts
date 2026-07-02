@@ -72,12 +72,22 @@ export async function commitTerminalRunWithRuntimeFact(
   if (!input.terminalEvent) {
     throw new Error('terminal RuntimeEvent must be provided before terminal run header');
   }
+  if (isPartialRuntimeEvent(input.terminalEvent)) {
+    throw new Error('terminal RuntimeEvent must be final before terminal run header');
+  }
   const terminalStatus = terminalRunStatusFromRuntimeEvent(input.terminalEvent);
   if (!terminalStatus) {
     throw new Error('terminal RuntimeEvent must carry a terminal status');
   }
   if (terminalStatus !== input.status) {
     throw new Error(`terminal RuntimeEvent status ${input.terminalEvent.status} cannot commit ${input.status} run header`);
+  }
+  if (
+    input.terminalEvent.sessionId !== input.sessionId ||
+    input.terminalEvent.runId !== input.runId ||
+    input.terminalEvent.turnId !== input.turnId
+  ) {
+    throw new Error('terminal RuntimeEvent identity does not match run header commit');
   }
   if (!input.terminalEventAlreadyPersisted) {
     if (!input.runtimeEventStore) {
