@@ -14,7 +14,7 @@
      - Sharp 0px radius corners + 1px subtle border rings (--shadow-minimal-flat).
      - Multi-layer soft shadows with very low opacity (0.06) instead of one heavy shadow.
      - System UI fonts with optical antialiasing.
-     - 15px base font, 0.25rem (4px) spacing unit → dense but readable.
+      - 15px base font, 4px spacing unit → dense but readable.
 ============================================================================ */
 
 /* =============================================================================
@@ -259,7 +259,40 @@
   --radius-surface: 8px;
   --radius-modal: 12px;
   --radius-pill: 999px;
-  --spacing: 0.25rem;          /* 4px base step */
+
+  /* PR-SPACING-CONVERGE-0 (issue #430 PR3, 2026-07-03):
+     One ruler for every padding/gap/margin. Absolute 4px (not 0.25rem)
+     so it holds under any root font-size — the previous 0.25rem was
+     3.75px under the 15px root, silently mis-aligning Tailwind's spacing
+     scale (p-2 = 7.5px) with hand-written px (padding: 8px). The
+     @theme inline bridge below exports this same 4px to Tailwind so
+     p-2/gap-2/m-4 and var(--space-*) share one ruler.
+
+     Scale: 16-and-below keeps every even number (0/2/4/6/8/10/12) because
+     dense UI needs the half-steps (6 between 4-8, 10 between 8-12).
+     16-and-above is pure 4px multiples (16/20/24/32/40/48/64) — large
+     spacing doesn't need half-step precision. 1px stays a literal
+     (hairline, not a spacing beat). Deliberately absent: 14/18/22/26/28/
+     30/34/36/52/56 — snapped to the nearest scale value to kill magic
+     numbers. Spacing has no single-property anchor like border-radius,
+     so the contract scopes to padding/margin/gap only (not width/height/
+     inset/grid), per the adversarial review in #430. */
+  --spacing: 4px;              /* base step — the single ruler */
+  --space-0: 0;
+  --space-0-5: calc(var(--spacing) * 0.5);   /* 2px */
+  --space-1: calc(var(--spacing) * 1);       /* 4px */
+  --space-1-5: calc(var(--spacing) * 1.5);   /* 6px */
+  --space-2: calc(var(--spacing) * 2);       /* 8px */
+  --space-2-5: calc(var(--spacing) * 2.5);   /* 10px */
+  --space-3: calc(var(--spacing) * 3);       /* 12px */
+  --space-4: calc(var(--spacing) * 4);       /* 16px */
+  --space-5: calc(var(--spacing) * 5);       /* 20px */
+  --space-6: calc(var(--spacing) * 6);       /* 24px */
+  --space-8: calc(var(--spacing) * 8);       /* 32px */
+  --space-10: calc(var(--spacing) * 10);     /* 40px */
+  --space-12: calc(var(--spacing) * 12);     /* 48px */
+  --space-16: calc(var(--spacing) * 16);     /* 64px */
+
   --icon-size: 16px;           /* chrome glyph size (nav + button icons); dense
                                   meta (12-14) and hero (20+) stay call-site */
 
