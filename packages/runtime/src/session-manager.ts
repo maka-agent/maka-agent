@@ -55,6 +55,10 @@ import {
 import { RuntimeReadModel, RuntimeReadModelError, type RuntimeReadModelSessionView } from './runtime-read-model.js';
 import { inspectAgentRunReadModel, type AgentRunInspectModel } from './agent-run-inspect.js';
 import { firstRuntimeRepairRunId, RuntimeLedgerRepair } from './runtime-ledger-repair.js';
+import {
+  buildRecoveredTerminalRuntimeEvent,
+  commitTerminalRunWithRuntimeFact,
+} from './terminal-run-commit.js';
 
 import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
@@ -825,8 +829,9 @@ export class SessionManager {
       const runtimeDecision = this.classifyRuntimeEventRecovery(inspected);
       const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events);
       if (!decision) continue;
-      await this.applyAgentRunRecovery(sessionId, decision, inspected.events);
-      recovered = true;
+      if (await this.applyAgentRunRecovery(sessionId, decision, inspected)) {
+        recovered = true;
+      }
     }
     return { hasLedger: true, recovered };
   }
@@ -841,77 +846,51 @@ export class SessionManager {
   private async applyAgentRunRecovery(
     sessionId: string,
     decision: AgentRunRecoveryDecision,
-    existingEvents: readonly { type: string }[] = [],
-  ): Promise<void> {
+    inspected: AgentRunInspectModel,
+  ): Promise<boolean> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
     const ts = this.deps.now();
-    if (decision.status === 'completed') {
-      await this.deps.runStore?.updateRun(sessionId, decision.runId, {
-        status: 'completed',
-        completedAt: ts,
-        updatedAt: ts,
-      });
-      if (!hasTerminalAgentRunEvent(existingEvents)) {
-        await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
-          type: 'run_completed',
-          id: this.deps.newId(),
-          runId: decision.runId,
-          sessionId,
-          turnId: decision.turnId,
-          ts,
-          data: { recovered: true, ...decision.diagnostic },
-        });
-      }
-      await this.appendTerminalTurnStateIfNeeded(sessionId, decision, 'completed', { ts }).catch(() => {});
-      return;
-    }
-
-    if (decision.status === 'cancelled') {
-      await this.deps.runStore?.updateRun(sessionId, decision.runId, {
-        status: 'cancelled',
-        completedAt: ts,
-        updatedAt: ts,
-        ...(decision.abortSource ? { abortSource: decision.abortSource } : {}),
-      });
-      if (!hasTerminalAgentRunEvent(existingEvents)) {
-        await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
-          type: 'run_cancelled',
-          id: this.deps.newId(),
-          runId: decision.runId,
-          sessionId,
-          turnId: decision.turnId,
-          ts,
-          data: { recovered: true, ...decision.diagnostic },
-        });
-      }
-      await this.appendTerminalTurnStateIfNeeded(sessionId, decision, 'aborted', {
-        ts,
-        abortSource: decision.abortSource,
-      }).catch(() => {});
-      return;
-    }
-
-    const failureClass = decision.failureClass ?? 'app_restarted';
-    await this.deps.runStore?.updateRun(sessionId, decision.runId, {
-      status: 'failed',
-      completedAt: ts,
-      updatedAt: ts,
-      failureClass,
-    });
-    if (!hasTerminalAgentRunEvent(existingEvents)) {
-      await this.deps.runStore?.appendEvent(sessionId, decision.runId, {
-        type: 'run_failed',
-        id: this.deps.newId(),
-        runId: decision.runId,
-        sessionId,
-        turnId: decision.turnId,
-        ts,
-        data: { recovered: true, failureClass, ...decision.diagnostic },
-      });
-    }
-    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, 'failed', {
+    const failureClass = decision.status === 'failed' ? decision.failureClass ?? 'app_restarted' : undefined;
+    const abortSource = decision.status === 'cancelled' ? decision.abortSource ?? 'unknown' : undefined;
+    const terminalFact = inspected.terminalRuntimeFact;
+    const terminalEvent = terminalFact?.terminalEvent ?? buildRecoveredTerminalRuntimeEvent({
+      id: this.deps.newId(),
+      run: inspected.header,
+      status: decision.status,
       ts,
-      errorClass: failureClass,
+      recoveryReason: diagnosticRecoveryReason(decision.diagnostic),
+      ...(inspected.runtimeEvents[0]?.invocationId ? { invocationId: inspected.runtimeEvents[0].invocationId } : {}),
+      ...(failureClass ? { failureClass, message: failureClass } : {}),
+      ...(abortSource ? { abortSource } : {}),
+      ...(decision.diagnostic ? { diagnostic: decision.diagnostic } : {}),
+    });
+    try {
+      await commitTerminalRunWithRuntimeFact({
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        newId: this.deps.newId,
+        sessionId,
+        runId: decision.runId,
+        turnId: decision.turnId,
+        status: decision.status,
+        ts,
+        terminalEvent,
+        terminalEventAlreadyPersisted: terminalFact !== undefined,
+        ...(failureClass ? { failureClass } : {}),
+        ...(abortSource ? { abortSource } : {}),
+        runEventData: { recovered: true, ...decision.diagnostic },
+        existingEvents: inspected.events,
+      });
+    } catch {
+      return false;
+    }
+
+    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, terminalTurnStatus(decision.status), {
+      ts,
+      ...(failureClass ? { errorClass: failureClass } : {}),
+      ...(abortSource ? { abortSource } : {}),
     }).catch(() => {});
+    return true;
   }
 
   private async appendTerminalTurnStateIfNeeded(
@@ -1136,12 +1115,16 @@ function isTerminalTurnStatus(status: TurnRecord['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'aborted';
 }
 
-function hasTerminalAgentRunEvent(events: readonly { type: string }[]): boolean {
-  return events.some((event) =>
-    event.type === 'run_completed' ||
-    event.type === 'run_failed' ||
-    event.type === 'run_cancelled'
-  );
+function terminalTurnStatus(status: AgentRunRecoveryDecision['status']): TurnRecord['status'] {
+  if (status === 'cancelled') return 'aborted';
+  return status;
+}
+
+function diagnosticRecoveryReason(diagnostic: Record<string, unknown> | undefined): string {
+  const recoveryReason = diagnostic?.recoveryReason;
+  return typeof recoveryReason === 'string' && recoveryReason.length > 0
+    ? recoveryReason
+    : 'agent_run_recovery';
 }
 
 function latestTurnState(

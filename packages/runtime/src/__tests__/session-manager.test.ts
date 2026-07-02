@@ -531,6 +531,84 @@ describe('SessionManager permission mode updates', () => {
     expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
   });
 
+  test('startup recovery preserves the terminal header RuntimeEvent invariant', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 2 });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_850),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /runtime event append failed/,
+    );
+
+    await manager.recoverInterruptedSessions();
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const hasTerminalHeader = ['completed', 'failed', 'cancelled'].includes(run.status);
+    const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
+    expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
+  test('startup recovery preserves the terminal invariant after a pre-terminal backend error', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ThrowBeforeTerminalBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_875),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /backend failed before terminal/,
+    );
+
+    await manager.recoverInterruptedSessions();
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    const hasTerminalHeader = ['completed', 'failed', 'cancelled'].includes(run.status);
+    const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
+    expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.messages.some((message) => message.type === 'user')).toBe(true);
+    expect((await manager.getMessages(session.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
   test('sendMessage backfills an empty prior runtime ledger for model context', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

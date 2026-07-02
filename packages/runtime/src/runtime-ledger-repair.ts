@@ -4,6 +4,10 @@ import type { StoredMessage, TurnRecord } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
 import type { AgentRunLineage } from './agent-run.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
+import {
+  buildRecoveredTerminalRuntimeEvent,
+  commitTerminalRunWithRuntimeFact,
+} from './terminal-run-commit.js';
 
 export interface RuntimeLedgerRepairDeps {
   runStore: AgentRunStore;
@@ -60,34 +64,23 @@ export class RuntimeLedgerRepair {
         : recovered.filter((event) => !isMatchingTerminalRuntimeEvent(run, event));
       const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recoveredEventsToPersist);
       if (recoveredTerminal && canTrustRecoveredTerminal) {
-        await this.updateRunFromRecoveredTerminal(sessionId, run, legacyTerminal, recoveredTerminal);
         for (const event of eventsToAppend) {
           await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
         }
-        return eventsToAppend.length > 0;
+        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, legacyTerminal, recoveredTerminal) ||
+          eventsToAppend.length > 0;
       }
 
       for (const event of eventsToAppend) {
         await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
       }
 
-      const existingFailedTerminal = runtimeEvents.find((event) =>
-        isMatchingTerminalRuntimeEvent(run, event) && event.status === 'failed'
+      const existingTerminal = [...runtimeEvents, ...eventsToAppend].find((event) =>
+        isMatchingTerminalRuntimeEvent(run, event)
       );
-      if (existingFailedTerminal && run.status === 'failed' && !run.failureClass) {
-        await this.updateFailedRunClassFromTerminal(sessionId, run, existingFailedTerminal);
-        return true;
-      }
-      const existingAbortedTerminal = runtimeEvents.find((event) =>
-        isMatchingTerminalRuntimeEvent(run, event) && (event.status === 'aborted' || event.status === 'cancelled')
-      );
-      if (existingAbortedTerminal && run.status === 'cancelled' && !run.abortSource) {
-        await this.updateCancelledRunSourceFromTerminal(sessionId, run, existingAbortedTerminal);
-        return true;
-      }
-
-      if (runtimeEvents.some((event) => isMatchingTerminalRuntimeEvent(run, event))) {
-        return eventsToAppend.length > 0;
+      if (existingTerminal) {
+        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, legacyTerminal, existingTerminal) ||
+          eventsToAppend.length > 0;
       }
 
       await this.repairMissingTerminalAsFailed(sessionId, run, [...runtimeEvents, ...eventsToAppend]);
@@ -95,43 +88,55 @@ export class RuntimeLedgerRepair {
     });
   }
 
-  private async updateCancelledRunSourceFromTerminal(
-    sessionId: string,
-    run: AgentRunHeader,
-    terminal: RuntimeEvent,
-  ): Promise<void> {
-    await this.deps.runStore.updateRun(sessionId, run.runId, {
-      status: 'cancelled',
-      abortSource: abortSourceFromExistingTerminal(terminal) ?? 'unknown',
-      updatedAt: run.completedAt ?? run.updatedAt,
-    });
-  }
-
-  private async updateFailedRunClassFromTerminal(
-    sessionId: string,
-    run: AgentRunHeader,
-    terminal: RuntimeEvent,
-  ): Promise<void> {
-    await this.deps.runStore.updateRun(sessionId, run.runId, {
-      status: 'failed',
-      failureClass: failureClassFromExistingTerminal(terminal) ?? 'missing_terminal_event',
-      updatedAt: run.completedAt ?? run.updatedAt,
-    });
-  }
-
-  private async updateRunFromRecoveredTerminal(
+  private async repairRunHeaderFromExistingTerminal(
     sessionId: string,
     run: AgentRunHeader,
     turnState: Extract<StoredMessage, { type: 'turn_state' }> | undefined,
     terminal: RuntimeEvent,
-  ): Promise<void> {
-    if (terminal.status === 'failed' && run.status === 'failed' && !run.failureClass) {
-      await this.deps.runStore.updateRun(sessionId, run.runId, {
-        status: 'failed',
-        failureClass: turnState?.status === 'failed' ? turnState.errorClass ?? 'unknown' : 'unknown',
-        updatedAt: run.completedAt ?? run.updatedAt,
-      });
-    }
+  ): Promise<boolean> {
+    const status = terminalRunStatusFromEvent(run, terminal);
+    if (!status) return false;
+    const ts = run.completedAt ?? terminal.ts ?? run.updatedAt ?? this.deps.now();
+    const failureClass = status === 'failed'
+      ? failureClassFromExistingTerminal(terminal) ?? (turnState?.status === 'failed' ? turnState.errorClass : undefined) ?? 'missing_terminal_event'
+      : undefined;
+    const abortSource = status === 'cancelled'
+      ? abortSourceFromExistingTerminal(terminal) ?? (turnState?.status === 'aborted' ? turnState.abortSource : undefined) ?? 'unknown'
+      : undefined;
+    const existingEvents = await this.deps.runStore.readEvents(sessionId, run.runId).catch(() => []);
+    await commitTerminalRunWithRuntimeFact({
+      runStore: this.deps.runStore,
+      newId: this.deps.newId,
+      sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      status,
+      ts,
+      terminalEvent: terminal,
+      terminalEventAlreadyPersisted: true,
+      ...(failureClass ? { failureClass } : {}),
+      ...(abortSource ? { abortSource } : {}),
+      runEventData: {
+        recovered: true,
+        recoveryReason: 'runtime_event_terminal_fact',
+        runtimeEventId: terminal.id,
+        runtimeEventStatus: terminal.status,
+      },
+      existingEvents,
+    });
+    await this.appendTerminalTurnStateIfNeeded(sessionId, {
+      runId: run.runId,
+      turnId: run.turnId,
+      status,
+      ...(failureClass ? { failureClass } : {}),
+      diagnostic: { recoveryReason: 'runtime_event_terminal_fact', runtimeEventId: terminal.id },
+      lineage: headerLineage(run),
+    }, terminalTurnStatus(status), {
+      ts,
+      ...(failureClass ? { errorClass: failureClass } : {}),
+      ...(abortSource ? { abortSource } : {}),
+    }).catch(() => {});
+    return true;
   }
 
   private async withRepairQueue<T>(
@@ -160,51 +165,31 @@ export class RuntimeLedgerRepair {
   ): Promise<void> {
     const ts = run.completedAt ?? run.updatedAt ?? this.deps.now();
     const failureClass = 'missing_terminal_event';
-    const terminalEvent: RuntimeEvent = {
+    const terminalEvent = buildRecoveredTerminalRuntimeEvent({
       id: this.deps.newId(),
-      invocationId: runtimeEvents[0]?.invocationId ?? `recovery-${run.runId}`,
-      runId: run.runId,
-      sessionId,
-      turnId: run.turnId,
+      run,
+      status: 'failed',
       ts,
-      partial: false,
-      role: 'system',
-      author: 'system',
-      status: 'failed',
-      content: {
-        kind: 'error',
-        code: failureClass,
-        reason: failureClass,
-        message: 'terminal run header had no terminal RuntimeEvent',
-      },
-      actions: {
-        endInvocation: true,
-        stateDelta: {
-          recovered: true,
-          recoveryReason: failureClass,
-          failureClass,
-        },
-      },
-    };
-    await this.deps.runStore.updateRun(sessionId, run.runId, {
-      status: 'failed',
-      completedAt: ts,
-      updatedAt: ts,
+      invocationId: runtimeEvents[0]?.invocationId ?? `recovery-${run.runId}`,
       failureClass,
+      recoveryReason: failureClass,
+      message: 'terminal run header had no terminal RuntimeEvent',
     });
-    await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, terminalEvent);
     const existingEvents = await this.deps.runStore.readEvents(sessionId, run.runId).catch(() => []);
-    if (latestTerminalAgentRunStatus(existingEvents) !== 'failed') {
-      await this.deps.runStore.appendEvent(sessionId, run.runId, {
-        type: 'run_failed',
-        id: this.deps.newId(),
-        runId: run.runId,
-        sessionId,
-        turnId: run.turnId,
-        ts,
-        data: { recovered: true, recoveryReason: failureClass, failureClass },
-      });
-    }
+    await commitTerminalRunWithRuntimeFact({
+      runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
+      newId: this.deps.newId,
+      sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: 'failed',
+      ts,
+      terminalEvent,
+      failureClass,
+      runEventData: { recovered: true, recoveryReason: failureClass },
+      existingEvents,
+    });
     await this.appendTerminalTurnStateIfNeeded(sessionId, {
       runId: run.runId,
       turnId: run.turnId,
@@ -274,15 +259,20 @@ function isTerminalTurnStatus(status: TurnRecord['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'aborted';
 }
 
-function latestTerminalAgentRunStatus(events: readonly { type: string }[]): 'completed' | 'failed' | 'cancelled' | undefined {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (!event) continue;
-    if (event.type === 'run_completed') return 'completed';
-    if (event.type === 'run_failed') return 'failed';
-    if (event.type === 'run_cancelled') return 'cancelled';
-  }
+function terminalRunStatusFromEvent(
+  run: AgentRunHeader,
+  event: RuntimeEvent,
+): 'completed' | 'failed' | 'cancelled' | undefined {
+  if (event.status === 'completed') return 'completed';
+  if (event.status === 'failed') return 'failed';
+  if (event.status === 'aborted' || event.status === 'cancelled') return 'cancelled';
+  if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') return run.status;
   return undefined;
+}
+
+function terminalTurnStatus(status: 'completed' | 'failed' | 'cancelled'): TurnRecord['status'] {
+  if (status === 'cancelled') return 'aborted';
+  return status;
 }
 
 function isMatchingTerminalRuntimeEvent(run: AgentRunHeader, event: RuntimeEvent): boolean {

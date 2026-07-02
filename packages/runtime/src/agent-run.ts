@@ -25,6 +25,10 @@ import {
   buildStatusPatch,
   normalizeStopSessionSource,
 } from './session-projection-helpers.js';
+import {
+  commitTerminalRunWithRuntimeFact,
+  type TerminalAgentRunStatus,
+} from './terminal-run-commit.js';
 
 export interface AgentRunActiveSession {
   sessionId: string;
@@ -100,6 +104,8 @@ export class AgentRun {
   private turnFailed = false;
   private finalized = false;
   private terminalRuntimeEventRecorded = false;
+  private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
+  private terminalRunHeaderCommitted = false;
 
   constructor(private readonly input: AgentRunInput) {
     this.runId = input.newId();
@@ -242,9 +248,6 @@ export class AgentRun {
         : (transition ?? { status: 'active' });
       // A complete(error) without a preceding error event leaves failureClass
       // unset — record it now so finalize does not fall back to 'unknown'.
-      // This emits a run_failed event here AND another in finishRun, mirroring
-      // the error-event path (which also double-records). Event-stream
-      // consumers already tolerate duplicate terminal events.
       if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass && !this.stopped) {
         this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
       }
@@ -272,17 +275,23 @@ export class AgentRun {
     if (ev.type === 'error') {
       if (this.stopped) {
         this.finalStatus = { status: 'aborted' };
-        return;
+      } else {
+        this.turnFailed = true;
+        this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
+        if (this.recordsSessionMessages()) {
+          await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
+            ts: ev.ts,
+            errorClass: ev.reason ?? ev.code ?? 'unknown',
+          });
+        }
+        this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
       }
-      this.turnFailed = true;
-      this.finalStatus = transition ?? { status: 'blocked', blockedReason: 'unknown' };
-      if (this.recordsSessionMessages()) {
-        await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'failed', this.lineage, {
-          ts: ev.ts,
-          errorClass: ev.reason ?? ev.code ?? 'unknown',
-        });
-      }
-      this.markRunFailed(ev.reason ?? ev.code ?? 'unknown', ev.message, ev.ts);
+    }
+    const terminalStatus = terminalSessionEvent || ev.type === 'error'
+      ? this.terminalStatusForFinalStatus(this.finalStatus)
+      : undefined;
+    if (terminalStatus) {
+      await this.commitTerminalRunHeader(terminalStatus, this.finalStatus, ev.ts);
     }
   }
 
@@ -304,7 +313,10 @@ export class AgentRun {
       await this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
       }, { rethrow: terminal && options.requireTerminalWrite });
-      if (terminal) this.terminalRuntimeEventRecorded = true;
+      if (terminal) {
+        this.terminalRuntimeEventRecorded = true;
+        this.terminalRuntimeEventForRunCommit = eventForStore;
+      }
     }
   }
 
@@ -519,7 +531,7 @@ export class AgentRun {
           : transition.status === 'active'
             ? 'completed'
             : 'running';
-    if (!this.canPersistRunStatus(status)) return;
+    if (isTerminalRunStatus(status)) return;
     this.enqueueRunStore('record run status', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, { status, updatedAt: ts });
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
@@ -541,7 +553,7 @@ export class AgentRun {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.failureClass = failureClass;
     this.failureMessage = redactTraceString(message);
-    if (!this.canPersistRunStatus('failed')) return;
+    if (this.input.runtimeEventStore) return;
     this.enqueueRunStore('mark run failed', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status: 'failed',
@@ -565,7 +577,7 @@ export class AgentRun {
 
   private markRunCancelled(reason: string | undefined, ts: number): void {
     if (!this.input.runStore || !this.runStoreAvailable) return;
-    if (!this.canPersistRunStatus('cancelled')) return;
+    if (this.input.runtimeEventStore) return;
     this.enqueueRunStore('mark run cancelled', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status: 'cancelled',
@@ -590,15 +602,12 @@ export class AgentRun {
   ): Promise<void> {
     await this.traceQueue.catch(() => {});
     if (!this.input.runStore || !this.runStoreAvailable) return;
-    const status = this.stopped || finalStatus?.status === 'aborted'
-      ? 'cancelled'
-      : finalStatus?.status === 'blocked'
-        ? 'failed'
-        : finalStatus?.status === 'waiting_for_user'
-          ? 'waiting_permission'
-          : 'completed';
+    const status = this.runStatusForFinalStatus(finalStatus);
     const isTerminal = status === 'completed' || status === 'failed' || status === 'cancelled';
-    if (!this.canPersistRunStatus(status)) return;
+    if (isTerminal && this.input.runtimeEventStore) {
+      await this.commitTerminalRunHeader(status, finalStatus, ts);
+      return;
+    }
     await this.enqueueRunStore('finish run', async () => {
       await this.input.runStore?.updateRun(this.sessionId, this.runId, {
         status,
@@ -634,9 +643,56 @@ export class AgentRun {
     await this.traceQueue.catch(() => {});
   }
 
-  private canPersistRunStatus(status: AgentRunHeader['status']): boolean {
-    if (!isTerminalRunStatus(status)) return true;
-    return !this.input.runtimeEventStore || this.terminalRuntimeEventRecorded;
+  private runStatusForFinalStatus(
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+  ): AgentRunHeader['status'] {
+    if (this.stopped || finalStatus?.status === 'aborted') return 'cancelled';
+    if (finalStatus?.status === 'blocked') return 'failed';
+    if (finalStatus?.status === 'waiting_for_user') return 'waiting_permission';
+    return 'completed';
+  }
+
+  private terminalStatusForFinalStatus(
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+  ): TerminalAgentRunStatus | undefined {
+    const status = this.runStatusForFinalStatus(finalStatus);
+    if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
+    return undefined;
+  }
+
+  private async commitTerminalRunHeader(
+    status: TerminalAgentRunStatus,
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+    ts: number,
+  ): Promise<boolean> {
+    if (this.terminalRunHeaderCommitted) return true;
+    const runStore = this.input.runStore;
+    const runtimeEventStore = this.input.runtimeEventStore;
+    const terminalEvent = this.terminalRuntimeEventForRunCommit;
+    if (!runStore || !this.runStoreAvailable || !runtimeEventStore || !terminalEvent) return false;
+    const failureClass = status === 'failed'
+      ? this.failureClass ?? finalStatus?.blockedReason ?? 'unknown'
+      : undefined;
+    await this.enqueueRunStore('commit terminal run header', async () => {
+      await commitTerminalRunWithRuntimeFact({
+        runStore,
+        runtimeEventStore,
+        newId: this.input.newId,
+        sessionId: this.sessionId,
+        runId: this.runId,
+        turnId: this.turnId,
+        status,
+        ts,
+        terminalEvent,
+        terminalEventAlreadyPersisted: true,
+        ...(failureClass ? { failureClass } : {}),
+        ...(this.failureMessage ? { failureMessage: this.failureMessage } : {}),
+        ...(status === 'cancelled' && this.abortSource ? { abortSource: this.abortSource } : {}),
+      });
+      this.terminalRunHeaderCommitted = true;
+    });
+    await this.traceQueue.catch(() => {});
+    return this.terminalRunHeaderCommitted;
   }
 
   private enqueueRunStore(label: string, operation: () => Promise<void>): Promise<void> {
