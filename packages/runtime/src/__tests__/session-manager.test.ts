@@ -560,6 +560,14 @@ describe('SessionManager permission mode updates', () => {
     const hasTerminalHeader = ['completed', 'failed', 'cancelled'].includes(run.status);
     const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
     expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+    expect(run.status).toBe('failed');
+    expect(run.failureClass).toBe('app_restarted');
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBe(true);
+    expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBe('run_interrupted');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('app_restarted');
 
     const view = await new RuntimeReadModel({
       runStore,
@@ -599,6 +607,14 @@ describe('SessionManager permission mode updates', () => {
     const hasTerminalHeader = ['completed', 'failed', 'cancelled'].includes(run.status);
     const hasTerminalFact = runtimeEvents.some(isTerminalRuntimeEvent);
     expect(!hasTerminalHeader || hasTerminalFact).toBe(true);
+    const terminalEvents = runtimeEvents.filter(isTerminalRuntimeEvent);
+    expect(run.status).toBe('failed');
+    expect(run.failureClass).toBe('app_restarted');
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('failed');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBe(true);
+    expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBe('run_interrupted');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('app_restarted');
 
     const view = await new RuntimeReadModel({
       runStore,
@@ -2082,6 +2098,40 @@ describe('SessionManager permission mode updates', () => {
     if (!secondInput) throw new Error('second backend input was not recorded');
     expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-1')).toBe(true);
     expect(secondInput.context.some((message) => message.type === 'user' && message.turnId === 'turn-2')).toBe(false);
+    expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
+    expect(secondInput.runtimeContext?.map((event) => event.role)).toEqual(['user', 'model', 'system']);
+    expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
+  });
+
+  test('next turn uses prior RuntimeEvents when terminal header commit was interrupted', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunStatusOnce: 'completed' });
+    const backends = new BackendRegistry();
+    const backendInstances: TestBackend[] = [];
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx);
+      backendInstances.push(backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore, runtimeEventStore: runStore, backends,
+      newId: nextId(),
+      now: nextNow(6_805),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' }));
+    const [firstRun] = await runStore.listSessionRuns(session.id);
+    if (!firstRun) throw new Error('first run was not recorded');
+    expect(firstRun.status).toBe('running');
+    expect((await runStore.readRuntimeEvents(session.id, firstRun.runId)).some(isTerminalRuntimeEvent)).toBe(true);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' }));
+
+    const secondInput = backendInstances[0]?.sendInputs[1];
+    if (!secondInput) throw new Error('second backend input was not recorded');
     expect(secondInput.runtimeContext?.map((event) => event.turnId)).toEqual(['turn-1', 'turn-1', 'turn-1']);
     expect(secondInput.runtimeContext?.map((event) => event.role)).toEqual(['user', 'model', 'system']);
     expect(secondInput.runtimeContext?.[0]?.content).toEqual({ kind: 'text', text: 'first' });
@@ -4379,6 +4429,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     failRuntimeEventAppendAfter?: number;
     failRuntimeEventReads?: boolean;
     failUpdateRunOnce?: boolean;
+    failUpdateRunStatusOnce?: AgentRunHeader['status'];
     beforeRuntimeEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
   } = {}) {}
 
@@ -4390,6 +4441,10 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
     if (this.options.failUpdateRunOnce) {
       this.options.failUpdateRunOnce = false;
+      throw new Error('update run failed');
+    }
+    if (patch.status && patch.status === this.options.failUpdateRunStatusOnce) {
+      this.options.failUpdateRunStatusOnce = undefined;
       throw new Error('update run failed');
     }
     const current = await this.readRun(sessionId, runId);

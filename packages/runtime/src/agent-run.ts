@@ -19,7 +19,11 @@ import type { SessionStore, StopSessionInput } from './session-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
-import { projectRuntimeEventsToStoredMessages } from './runtime-event-read-model.js';
+import {
+  classifyRuntimeEventTerminalFact,
+  projectRuntimeEventsToStoredMessages,
+  type RuntimeEventTerminalFact,
+} from './runtime-event-read-model.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
 import {
   buildStatusPatch,
@@ -452,6 +456,13 @@ export class AgentRun {
     for (let runIndex = 0; runIndex < priorRuns.length; runIndex += 1) {
       const run = priorRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
+        const terminalFactEvents = await this.readNonTerminalPriorRunWithTerminalFact(run);
+        if (!terminalFactEvents) continue;
+        for (let eventIndex = 0; eventIndex < terminalFactEvents.length; eventIndex += 1) {
+          const event = terminalFactEvents[eventIndex]!;
+          if (event.runId === this.runId || event.turnId === this.turnId) continue;
+          ordered.push({ event, runIndex, eventIndex });
+        }
         continue;
       }
       let events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId);
@@ -489,6 +500,45 @@ export class AgentRun {
     const runtimeReplayPlan = buildRuntimeEventModelReplayPlan(events);
     if (runtimeReplayPlan.items.length === 0) return undefined;
     return { events, runs: priorRuns };
+  }
+
+  private async readNonTerminalPriorRunWithTerminalFact(
+    run: AgentRunHeader,
+  ): Promise<RuntimeEvent[] | undefined> {
+    if (!this.input.runtimeEventStore) return undefined;
+    const events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId).catch(() => []);
+    const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
+    if (!terminalFact) return undefined;
+    await this.repairPriorRunHeaderFromTerminalFact(run, terminalFact).catch(() => {});
+    return events;
+  }
+
+  private async repairPriorRunHeaderFromTerminalFact(
+    run: AgentRunHeader,
+    terminalFact: RuntimeEventTerminalFact,
+  ): Promise<void> {
+    if (!this.input.runStore) return;
+    const existingEvents = await this.input.runStore.readEvents(this.sessionId, run.runId).catch(() => []);
+    await commitTerminalRunWithRuntimeFact({
+      runStore: this.input.runStore,
+      newId: this.input.newId,
+      sessionId: this.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      status: terminalFact.runStatus,
+      ts: run.completedAt ?? terminalFact.terminalEvent.ts ?? run.updatedAt,
+      terminalEvent: terminalFact.terminalEvent,
+      terminalEventAlreadyPersisted: true,
+      ...(terminalFact.failureClass ? { failureClass: terminalFact.failureClass } : {}),
+      ...(terminalFact.abortSource ? { abortSource: terminalFact.abortSource } : {}),
+      runEventData: {
+        recovered: true,
+        recoveryReason: 'runtime_event_terminal_fact',
+        runtimeEventId: terminalFact.terminalEvent.id,
+        runtimeEventStatus: terminalFact.terminalEvent.status,
+      },
+      existingEvents,
+    });
   }
 
   private async backfillMissingPriorRuntimeEvents(run: AgentRunHeader): Promise<RuntimeEvent[]> {
