@@ -616,6 +616,7 @@ function projectTerminalTurnState(
     return false;
   }
   const abortSource = status === 'aborted' ? abortSourceFromRuntime(event, header) : undefined;
+  const failureClass = status === 'failed' ? failureClassFromRuntimeEvent(event, header) : undefined;
   const partialOutputRetained = messages.some((message) =>
     message.turnId === event.turnId &&
     ((message.type === 'assistant' && message.text.trim().length > 0) || message.type === 'tool_result')
@@ -633,10 +634,10 @@ function projectTerminalTurnState(
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(status === 'aborted' ? { abortedAt: event.ts } : {}),
     ...(abortSource ? { abortSource } : {}),
-    ...(status === 'failed' ? { errorClass: header.failureClass ?? 'unknown' } : {}),
+    ...(status === 'failed' ? { errorClass: failureClass ?? 'unknown' } : {}),
     partialOutputRetained,
   });
-  if (status === 'failed' && !header.failureClass) {
+  if (status === 'failed' && !failureClass) {
     diagnostic(state, event, 'incomplete_event', 'failed terminal event did not carry an exact AgentRunHeader.failureClass');
   }
   if (status === 'aborted' && !abortSource) {
@@ -688,13 +689,13 @@ function abortSourceFromRuntime(event: RuntimeEvent, header: AgentRunHeader): st
 }
 
 function failureClassFromRuntimeEvent(event: RuntimeEvent, header: AgentRunHeader): string | undefined {
-  if (header.failureClass) return header.failureClass;
   return stringStateDelta(event, 'failureClass')
     ?? stringStateDelta(event, 'errorClass')
     ?? stringStateDelta(event, 'reason')
     ?? stringStateDelta(event, 'code')
     ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined)
-    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined);
+    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined)
+    ?? header.failureClass;
 }
 
 function stringRecordValue(value: unknown, key: string): string | undefined {

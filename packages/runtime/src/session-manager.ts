@@ -59,6 +59,7 @@ import {
   buildRecoveredTerminalRuntimeEvent,
   classifyTerminalRuntimeLedger,
   commitTerminalRunWithRuntimeFact,
+  effectiveRunHeaderFromTerminalFact,
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
 
@@ -524,10 +525,17 @@ export class SessionManager {
     });
     if (!this.deps.runStore) return { definitions, runs: [] };
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    const childRuns = await Promise.all(
+      runs
+        .filter((run): run is AgentRunHeader & { parentRunId: string } => !!run.parentRunId)
+        .map(async (run): Promise<AgentRunHeader & { parentRunId: string }> => ({
+          ...await this.effectiveRunHeaderFromRuntimeLedger(run),
+          parentRunId: run.parentRunId,
+        })),
+    );
     return {
       definitions,
-      runs: runs
-        .filter((run): run is AgentRunHeader & { parentRunId: string } => !!run.parentRunId)
+      runs: childRuns
         .map((run) => ({
           runId: run.runId,
           turnId: run.turnId,
@@ -661,7 +669,8 @@ export class SessionManager {
   ): Promise<AgentRunHeader | undefined> {
     if (!this.deps.runStore) return undefined;
     const runs = await this.deps.runStore.listSessionRuns(sessionId).catch(() => []);
-    return runs.find((run) => run.turnId === turnId);
+    const run = runs.find((candidate) => candidate.turnId === turnId);
+    return run ? this.effectiveRunHeaderFromRuntimeLedger(run) : undefined;
   }
 
   private async findChildRunForOutput(
@@ -677,7 +686,15 @@ export class SessionManager {
     );
     if (!header) throw new Error('agent_output could not find the requested child agent run');
     if (!header.parentRunId) throw new Error('agent_output only reads child agent runs');
-    return header;
+    return this.effectiveRunHeaderFromRuntimeLedger(header);
+  }
+
+  private async effectiveRunHeaderFromRuntimeLedger(run: AgentRunHeader): Promise<AgentRunHeader> {
+    if (!this.deps.runtimeEventStore) return run;
+    const runtimeEvents = await this.deps.runtimeEventStore.readRuntimeEvents(run.sessionId, run.runId).catch(() => undefined);
+    if (!runtimeEvents) return run;
+    const ledger = classifyTerminalRuntimeLedger(run, runtimeEvents);
+    return ledger.kind === 'fact' ? effectiveRunHeaderFromTerminalFact(run, ledger.fact) : run;
   }
 
   private async updateStatus(

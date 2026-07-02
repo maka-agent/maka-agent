@@ -195,6 +195,36 @@ export function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): Terminal
   return undefined;
 }
 
+export function effectiveRunHeaderFromTerminalFact(
+  run: AgentRunHeader,
+  fact: RuntimeEventTerminalFact,
+): AgentRunHeader {
+  const completedAt = run.completedAt ?? fact.terminalEvent.ts;
+  const base = { ...run };
+  delete base.failureClass;
+  delete base.failureMessage;
+  delete base.abortSource;
+  return {
+    ...base,
+    status: fact.runStatus,
+    updatedAt: Math.max(run.updatedAt, completedAt),
+    completedAt,
+    ...(fact.runStatus === 'failed' && fact.failureClass ? { failureClass: fact.failureClass } : {}),
+    ...(fact.runStatus === 'failed' && run.failureMessage ? { failureMessage: run.failureMessage } : {}),
+    ...(fact.runStatus === 'cancelled' && fact.abortSource ? { abortSource: fact.abortSource } : {}),
+  };
+}
+
+export function terminalRunHeaderMatchesFact(
+  run: AgentRunHeader,
+  fact: RuntimeEventTerminalFact,
+): boolean {
+  if (run.status !== fact.runStatus) return false;
+  if (fact.runStatus === 'failed' && run.failureClass !== fact.failureClass) return false;
+  if (fact.runStatus === 'cancelled' && run.abortSource !== fact.abortSource) return false;
+  return true;
+}
+
 export function matchingTerminalRuntimeEvents(
   run: AgentRunHeader,
   events: readonly RuntimeEvent[],

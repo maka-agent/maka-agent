@@ -2746,6 +2746,49 @@ describe('SessionManager permission mode updates', () => {
     expect(result.artifactIds).toEqual(['artifact-1']);
   });
 
+  test('spawnChildAgent returns the terminal RuntimeEvent status when the child header commit fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore({ failUpdateRunStatusOnce: 'completed' });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_843),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const parentRun = makeRunHeader({
+      sessionId: session.id,
+      runId: 'parent-run',
+      turnId: 'parent-turn',
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 110,
+      completedAt: 110,
+    });
+    await seedRuntimeRun(runStore, parentRun, [
+      runtimeEvent({ id: 'parent-complete', sessionId: session.id, runId: parentRun.runId, turnId: parentRun.turnId, ts: 110, status: 'completed', actions: { endInvocation: true } }),
+    ]);
+
+    const result = await manager.spawnChildAgent(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Researcher', systemPrompt: 'read only' },
+      prompt: 'inspect',
+    });
+
+    expect(result.status).toBe('completed');
+    const childRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'child-turn');
+    expect(childRun?.status).toBe('running');
+    const childTerminalEvents = (await runStore.readRuntimeEvents(session.id, childRun!.runId)).filter(isTerminalRuntimeEvent);
+    expect(childTerminalEvents).toHaveLength(1);
+  });
+
   test('spawnChildAgent summarizes high-volume child output without returning the full stream', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -2967,6 +3010,59 @@ describe('SessionManager permission mode updates', () => {
     expect(output.header.runId).toBe('child-run');
     expect(output.runtimeEvents.map((event) => event.id)).toEqual(['child-user', 'child-answer', 'child-complete']);
     expect(output.artifacts.map((artifact) => artifact.id)).toEqual(['artifact-1']);
+  });
+
+  test('child agent projections use the terminal RuntimeEvent fact when the child header is stale', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_900),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'execute' }));
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'parent-run',
+      turnId: 'parent-turn',
+      status: 'running',
+      createdAt: 100,
+      updatedAt: 120,
+    }), [
+      runtimeEvent({ id: 'parent-complete', sessionId: session.id, runId: 'parent-run', turnId: 'parent-turn', ts: 120, status: 'completed', actions: { endInvocation: true } }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'child-run',
+      turnId: 'child-turn',
+      status: 'running',
+      createdAt: 130,
+      updatedAt: 140,
+      parentRunId: 'parent-run',
+      agentId: LOCAL_READ_AGENT_ID,
+      agentName: 'Researcher',
+      permissionMode: 'explore',
+    }), [
+      runtimeEvent({ id: 'child-answer', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 135, role: 'model', author: 'agent', content: { kind: 'text', text: 'child answer' } }),
+      runtimeEvent({ id: 'child-complete', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 140, role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true } }),
+    ]);
+
+    const list = await manager.listChildAgents(session.id);
+    expect(list.runs[0]?.runId).toBe('child-run');
+    expect(list.runs[0]?.status).toBe('completed');
+    expect(list.runs[0]?.completedAt).toBe(140);
+    expect(list.runs[0]?.durationMs).toBe(10);
+
+    const output = await manager.readChildAgentOutput(session.id, { runId: 'child-run' });
+    expect(output.header.status).toBe('completed');
+    expect(output.header.completedAt).toBe(140);
   });
 
   test('agent output returns a bounded child inspection instead of full replay internals', async () => {

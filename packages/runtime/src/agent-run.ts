@@ -22,7 +22,6 @@ import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import {
   classifyRuntimeEventTerminalFact,
   projectRuntimeEventsToStoredMessages,
-  type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
 import {
@@ -31,6 +30,7 @@ import {
 } from './session-projection-helpers.js';
 import {
   commitTerminalRunWithRuntimeFact,
+  effectiveRunHeaderFromTerminalFact,
   type TerminalAgentRunStatus,
 } from './terminal-run-commit.js';
 import {
@@ -552,8 +552,7 @@ export class AgentRun {
       if (!terminalFact) {
         throw new Error(`Cannot build model context: RuntimeEvent ledger has no valid terminal fact for prior run ${run.runId}`);
       }
-      priorRuns[runIndex] = this.effectivePriorRunHeaderFromTerminalFact(run, terminalFact);
-      await this.repairPriorRunHeaderFromTerminalFact(run, terminalFact).catch(() => {});
+      priorRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact);
       for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
         const event = events[eventIndex]!;
         if (event.runId === this.runId || event.turnId === this.turnId) continue;
@@ -577,52 +576,7 @@ export class AgentRun {
     const events = await this.input.runtimeEventStore.readRuntimeEvents(this.sessionId, run.runId).catch(() => []);
     const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
     if (!terminalFact) return undefined;
-    const effectiveRun = this.effectivePriorRunHeaderFromTerminalFact(run, terminalFact);
-    await this.repairPriorRunHeaderFromTerminalFact(run, terminalFact).catch(() => {});
-    return { events, run: effectiveRun };
-  }
-
-  private effectivePriorRunHeaderFromTerminalFact(
-    run: AgentRunHeader,
-    terminalFact: RuntimeEventTerminalFact,
-  ): AgentRunHeader {
-    const completedAt = run.completedAt ?? terminalFact.terminalEvent.ts;
-    return {
-      ...run,
-      status: terminalFact.runStatus,
-      updatedAt: Math.max(run.updatedAt, completedAt),
-      completedAt,
-      ...(terminalFact.failureClass ? { failureClass: terminalFact.failureClass } : {}),
-      ...(terminalFact.abortSource ? { abortSource: terminalFact.abortSource } : {}),
-    };
-  }
-
-  private async repairPriorRunHeaderFromTerminalFact(
-    run: AgentRunHeader,
-    terminalFact: RuntimeEventTerminalFact,
-  ): Promise<void> {
-    if (!this.input.runStore) return;
-    const existingEvents = await this.input.runStore.readEvents(this.sessionId, run.runId).catch(() => []);
-    await commitTerminalRunWithRuntimeFact({
-      runStore: this.input.runStore,
-      newId: this.input.newId,
-      sessionId: this.sessionId,
-      runId: run.runId,
-      turnId: run.turnId,
-      status: terminalFact.runStatus,
-      ts: run.completedAt ?? terminalFact.terminalEvent.ts ?? run.updatedAt,
-      terminalEvent: terminalFact.terminalEvent,
-      terminalEventAlreadyPersisted: true,
-      ...(terminalFact.failureClass ? { failureClass: terminalFact.failureClass } : {}),
-      ...(terminalFact.abortSource ? { abortSource: terminalFact.abortSource } : {}),
-      runEventData: {
-        recovered: true,
-        recoveryReason: 'runtime_event_terminal_fact',
-        runtimeEventId: terminalFact.terminalEvent.id,
-        runtimeEventStatus: terminalFact.terminalEvent.status,
-      },
-      existingEvents,
-    });
+    return { events, run: effectiveRunHeaderFromTerminalFact(run, terminalFact) };
   }
 
   private async backfillMissingPriorRuntimeEvents(run: AgentRunHeader): Promise<RuntimeEvent[]> {
