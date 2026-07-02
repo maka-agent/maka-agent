@@ -96,12 +96,6 @@ export interface RuntimeRunnerDeps {
   /** Injectable id/time providers. Defaults to crypto.randomUUID / Date.now. */
   providers?: InvocationProviders;
   /**
-   * Called after the initial user RuntimeEvent is built and before the flow is
-   * dispatched. RuntimeRunner still does not own storage; orchestration layers
-   * can use this to keep durable ledgers ahead of renderer-visible events.
-   */
-  onInitialRuntimeEvent?: (event: RuntimeEvent) => Promise<void> | void;
-  /**
    * Whether to stop collecting at the first terminal RuntimeEvent. Defaults
    * to true for standalone runner callers; production bridges can set false
    * to keep draining cleanup/trailing events from wrapped streams.
@@ -129,14 +123,12 @@ export class RuntimeRunner {
   private readonly flow: RunnableAgentFlow;
   private readonly gate: RuntimeGate | undefined;
   private readonly providers: InvocationProviders;
-  private readonly onInitialRuntimeEvent: RuntimeRunnerDeps['onInitialRuntimeEvent'];
   private readonly stopOnTerminal: boolean;
 
   constructor(deps: RuntimeRunnerDeps) {
     this.flow = deps.flow;
     this.gate = deps.gate;
     this.providers = deps.providers ?? createDefaultInvocationProviders();
-    this.onInitialRuntimeEvent = deps.onInitialRuntimeEvent;
     this.stopOnTerminal = deps.stopOnTerminal ?? true;
   }
 
@@ -229,7 +221,6 @@ export class RuntimeRunner {
       text: request.text,
       ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
     });
-    await this.onInitialRuntimeEvent?.(userEvent);
     events.push(userEvent);
     const flowInput = buildFlowInput(request);
 

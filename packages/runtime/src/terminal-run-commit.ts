@@ -127,10 +127,10 @@ export interface CommitOrCreateTerminalRunFactInput extends Omit<
 > {
   terminalEvent?: RuntimeEvent;
   allowHeaderCommitFailure?: boolean;
-  fallbackFailureClass: string;
+  fallbackStatus: TerminalAgentRunStatus;
+  fallbackInvocationId: string;
+  fallbackFailureClass?: string;
   fallbackFailureMessage?: string;
-  fallbackRecoveryReason?: string;
-  fallbackDiagnostic?: Record<string, unknown>;
 }
 
 export interface CommitOrCreateTerminalRunFactResult {
@@ -146,19 +146,24 @@ export async function commitOrCreateTerminalRunFact(
   input: CommitOrCreateTerminalRunFactInput,
 ): Promise<CommitOrCreateTerminalRunFactResult> {
   const createdTerminalEvent = !input.terminalEvent;
-  const terminalEvent = input.terminalEvent ?? buildRecoveredTerminalRuntimeEvent({
+  const effectiveAbortSource = input.fallbackStatus === 'cancelled'
+    ? input.abortSource ?? 'user_stop'
+    : input.abortSource;
+  const terminalEvent = input.terminalEvent ?? buildSyntheticTerminalRuntimeEvent({
     id: input.newId(),
+    invocationId: input.fallbackInvocationId,
     run: {
       sessionId: input.sessionId,
       runId: input.runId,
       turnId: input.turnId,
     },
-    status: 'failed',
+    status: input.fallbackStatus,
     ts: input.ts,
-    failureClass: input.fallbackFailureClass,
-    recoveryReason: input.fallbackRecoveryReason ?? input.fallbackFailureClass,
-    ...(input.fallbackDiagnostic ? { diagnostic: input.fallbackDiagnostic } : {}),
-    message: input.fallbackFailureMessage ?? input.failureMessage ?? input.fallbackFailureClass,
+    ...(input.fallbackFailureClass ? { failureClass: input.fallbackFailureClass } : {}),
+    ...(effectiveAbortSource ? { abortSource: effectiveAbortSource } : {}),
+    ...(input.fallbackFailureMessage ?? input.failureMessage
+      ? { message: input.fallbackFailureMessage ?? input.failureMessage }
+      : {}),
   });
   const status = terminalRunStatusFromRuntimeEvent(terminalEvent);
   if (!status) {
@@ -193,6 +198,7 @@ export async function commitOrCreateTerminalRunFact(
       terminalEvent,
       status,
       ...(failureClass ? { failureClass } : {}),
+      ...(effectiveAbortSource ? { abortSource: effectiveAbortSource } : {}),
       terminalEventAlreadyPersisted,
     });
     headerCommitted = true;
@@ -210,27 +216,27 @@ export async function commitOrCreateTerminalRunFact(
   };
 }
 
-export interface BuildRecoveredTerminalRuntimeEventInput {
+export interface BuildSyntheticTerminalRuntimeEventInput {
   id: string;
+  invocationId: string;
   run: Pick<AgentRunHeader, 'runId' | 'sessionId' | 'turnId'>;
   status: TerminalAgentRunStatus;
   ts: number;
-  invocationId?: string;
   failureClass?: string;
   abortSource?: string;
-  recoveryReason: string;
+  recoveryReason?: string;
   diagnostic?: Record<string, unknown>;
   message?: string;
 }
 
-export function buildRecoveredTerminalRuntimeEvent(
-  input: BuildRecoveredTerminalRuntimeEventInput,
+export function buildSyntheticTerminalRuntimeEvent(
+  input: BuildSyntheticTerminalRuntimeEventInput,
 ): RuntimeEvent {
   const failureClass = input.status === 'failed' ? input.failureClass ?? 'unknown' : undefined;
-  const abortSource = input.status === 'cancelled' ? input.abortSource ?? 'unknown' : undefined;
+  const abortSource = input.status === 'cancelled' ? input.abortSource : undefined;
   return {
     id: input.id,
-    invocationId: input.invocationId ?? `recovery-${input.run.runId}`,
+    invocationId: input.invocationId,
     runId: input.run.runId,
     sessionId: input.run.sessionId,
     turnId: input.run.turnId,
@@ -252,14 +258,43 @@ export function buildRecoveredTerminalRuntimeEvent(
     actions: {
       endInvocation: true,
       stateDelta: {
-        recovered: true,
-        recoveryReason: input.recoveryReason,
+        ...(input.recoveryReason ? { recovered: true, recoveryReason: input.recoveryReason } : {}),
         ...(input.diagnostic ?? {}),
         ...(failureClass ? { failureClass } : {}),
         ...(abortSource ? { abortSource } : {}),
       },
     },
   };
+}
+
+export interface BuildRecoveredTerminalRuntimeEventInput {
+  id: string;
+  run: Pick<AgentRunHeader, 'runId' | 'sessionId' | 'turnId'>;
+  status: TerminalAgentRunStatus;
+  ts: number;
+  invocationId?: string;
+  failureClass?: string;
+  abortSource?: string;
+  recoveryReason: string;
+  diagnostic?: Record<string, unknown>;
+  message?: string;
+}
+
+export function buildRecoveredTerminalRuntimeEvent(
+  input: BuildRecoveredTerminalRuntimeEventInput,
+): RuntimeEvent {
+  return buildSyntheticTerminalRuntimeEvent({
+    id: input.id,
+    invocationId: input.invocationId ?? `recovery-${input.run.runId}`,
+    run: input.run,
+    ts: input.ts,
+    status: input.status,
+    ...(input.failureClass ? { failureClass: input.failureClass } : {}),
+    ...(input.status === 'cancelled' ? { abortSource: input.abortSource ?? 'unknown' } : {}),
+    recoveryReason: input.recoveryReason,
+    ...(input.diagnostic ? { diagnostic: input.diagnostic } : {}),
+    ...(input.message ? { message: input.message } : {}),
+  });
 }
 
 export function hasTerminalAgentRunEvent(events: readonly Pick<AgentRunEvent, 'type'>[]): boolean {

@@ -526,7 +526,9 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents[2]?.id).toBe(terminalEvents[0]?.id);
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('failed');
+    expect(terminalEvents[0]?.invocationId).toBe(run.runId);
     expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
 
     const view = await new RuntimeReadModel({
       runStore,
@@ -618,8 +620,9 @@ describe('SessionManager permission mode updates', () => {
     expect(run.failureClass).toBe('missing_terminal_event');
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('failed');
-    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBe(true);
-    expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBe('missing_terminal_event');
+    expect(terminalEvents[0]?.invocationId).toBe(run.runId);
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
+    expect(terminalEvents[0]?.actions?.stateDelta?.recoveryReason).toBeUndefined();
     expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
 
     const view = await new RuntimeReadModel({

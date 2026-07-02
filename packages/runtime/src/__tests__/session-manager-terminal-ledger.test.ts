@@ -25,7 +25,13 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { AgentBackend } from '../ai-sdk-backend.js';
-import { classifyTerminalRuntimeLedger, commitTerminalRunWithRuntimeFact } from '../terminal-run-commit.js';
+import {
+  buildRecoveredTerminalRuntimeEvent,
+  buildSyntheticTerminalRuntimeEvent,
+  classifyTerminalRuntimeLedger,
+  commitOrCreateTerminalRunFact,
+  commitTerminalRunWithRuntimeFact,
+} from '../terminal-run-commit.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import { RuntimeKernel } from '../runtime-kernel.js';
 
@@ -183,6 +189,62 @@ describe('SessionManager terminal ledger invariants', () => {
       /terminal RuntimeEvent must be final before terminal run header/,
     );
     expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
+  });
+
+  test('synthetic cancelled terminal commits the fallback abortSource to the run header', async () => {
+    const runStore = new TinyAgentRunStore();
+    const run = makeRunHeader({ status: 'running' });
+    await runStore.createRun(run);
+
+    await commitOrCreateTerminalRunFact({
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      sessionId: run.sessionId,
+      runId: run.runId,
+      turnId: run.turnId,
+      ts: 3,
+      fallbackStatus: 'cancelled',
+      fallbackInvocationId: run.runId,
+    });
+
+    const header = await runStore.readRun(run.sessionId, run.runId);
+    expect(header.status).toBe('cancelled');
+    expect(header.abortSource).toBe('user_stop');
+    const terminalEvents = (await runStore.readRuntimeEvents(run.sessionId, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('aborted');
+    expect(terminalEvents[0]?.actions?.stateDelta?.abortSource).toBe('user_stop');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
+  });
+
+  test('synthetic terminal builder keeps live and recovered metadata distinct', () => {
+    const run = makeRunHeader({ status: 'running' });
+    const live = buildSyntheticTerminalRuntimeEvent({
+      id: 'live-terminal',
+      invocationId: run.runId,
+      run,
+      status: 'failed',
+      ts: 3,
+      failureClass: 'missing_terminal_event',
+    });
+    expect(live.invocationId).toBe(run.runId);
+    expect(live.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(live.actions?.stateDelta?.recovered).toBeUndefined();
+    expect(live.actions?.stateDelta?.recoveryReason).toBeUndefined();
+
+    const recovered = buildRecoveredTerminalRuntimeEvent({
+      id: 'recovered-terminal',
+      run,
+      status: 'failed',
+      ts: 4,
+      failureClass: 'missing_terminal_event',
+      recoveryReason: 'run_interrupted',
+    });
+    expect(recovered.invocationId).toBe(`recovery-${run.runId}`);
+    expect(recovered.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(recovered.actions?.stateDelta?.recovered).toBe(true);
+    expect(recovered.actions?.stateDelta?.recoveryReason).toBe('run_interrupted');
   });
 
   test('terminal ledger classification rejects multiple terminal RuntimeEvent signals', () => {
@@ -465,7 +527,59 @@ describe('SessionManager terminal ledger invariants', () => {
     const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
     expect(terminalEvents).toHaveLength(1);
     expect(terminalEvents[0]?.status).toBe('failed');
+    expect(terminalEvents[0]?.invocationId).toBe(run.runId);
     expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
+    await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id);
+  });
+
+  test('direct AgentRun stop synthesizes a cancelled terminal fact when no terminal event was recorded', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const session = await store.create(makeInput());
+    const backend = new ScriptBackend({ sessionId: session.id } as BackendFactoryContext, []);
+    const activeRuns = new Map<string, AgentRun>();
+    const turnToRunId = new Map<string, string>();
+    const run = new AgentRun({
+      sessionId: session.id,
+      header: session,
+      userInput: { turnId: 'turn-1', text: 'hello' },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      now: nextNow(41_250),
+      hooks: {
+        ensureActive: async () => ({ sessionId: session.id, backend, cachedHeader: session, activeRuns, turnToRunId }),
+        registerRun: (_active, activeRun) => {
+          activeRuns.set(activeRun.runId, activeRun);
+          turnToRunId.set(activeRun.turnId, activeRun.runId);
+        },
+        unregisterRun: (_active, activeRun) => {
+          activeRuns.delete(activeRun.runId);
+          turnToRunId.delete(activeRun.turnId);
+        },
+        updateHeader: (sessionId, patch) => store.updateHeader(sessionId, patch),
+        updateStatus: async () => {},
+        appendTurnState: async () => {},
+      },
+    });
+
+    const begin = await run.begin();
+    run.stop('stop_button');
+    await run.finalize();
+
+    const header = await runStore.readRun(session.id, run.runId);
+    expect(header.status).toBe('cancelled');
+    expect(header.failureClass).toBeUndefined();
+    expect(header.abortSource).toBe('renderer.stop_button');
+    const terminalEvents = (await runStore.readRuntimeEvents(session.id, run.runId)).filter(isTerminalRuntimeEvent);
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.status).toBe('aborted');
+    expect(terminalEvents[0]?.invocationId).toBe(begin.initialRuntimeEvent.invocationId);
+    expect(terminalEvents[0]?.actions?.stateDelta?.abortSource).toBe('renderer.stop_button');
+    expect(terminalEvents[0]?.actions?.stateDelta?.failureClass).toBeUndefined();
+    expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
     await new RuntimeReadModel({ runStore, runtimeEventStore: runStore }).getSessionView(session.id);
   });
 
