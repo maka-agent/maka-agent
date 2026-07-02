@@ -233,22 +233,13 @@ export class AgentRun {
   async recordSessionEvent(ev: SessionEvent): Promise<void> {
     this.lastTs = ev.ts;
     const transition = statusFromEvent(ev);
-    if (transition && !this.stopped) {
-      await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts);
-      this.recordStatusFromTransition(ev, transition, ev.ts);
-    }
-    if ((ev.type === 'complete' || ev.type === 'abort') && !this.turnFailed) {
+    const terminalSessionEvent = (ev.type === 'complete' || ev.type === 'abort') && !this.turnFailed;
+    const turnStatus = terminalSessionEvent ? turnStatusFromEvent(ev) : undefined;
+    if (terminalSessionEvent) {
       this.sawCompletion = true;
       this.finalStatus = this.stopped
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });
-      const turnStatus = turnStatusFromEvent(ev);
-      if (turnStatus && !this.stopped && this.recordsSessionMessages()) {
-        await this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
-          ts: ev.ts,
-          errorClass: turnStatus.errorClass,
-        });
-      }
       // A complete(error) without a preceding error event leaves failureClass
       // unset — record it now so finalize does not fall back to 'unknown'.
       // This emits a run_failed event here AND another in finishRun, mirroring
@@ -256,6 +247,26 @@ export class AgentRun {
       // consumers already tolerate duplicate terminal events.
       if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass && !this.stopped) {
         this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
+      }
+    }
+    if (transition && !this.stopped) {
+      if (terminalSessionEvent) {
+        await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts)
+          .catch((error) => this.enqueueTraceWriteFailure(error, 'terminal session projection'));
+      } else {
+        await this.input.hooks.updateStatus(this.sessionId, transition.status, transition.blockedReason, ev.ts);
+      }
+      this.recordStatusFromTransition(ev, transition, ev.ts);
+    }
+    if (turnStatus && !this.stopped && this.recordsSessionMessages()) {
+      const appendTurnState = this.input.hooks.appendTurnState(this.sessionId, this.turnId, turnStatus.status, this.lineage, {
+        ts: ev.ts,
+        errorClass: turnStatus.errorClass,
+      });
+      if (terminalSessionEvent) {
+        await appendTurnState.catch((error) => this.enqueueTraceWriteFailure(error, 'terminal session projection'));
+      } else {
+        await appendTurnState;
       }
     }
     if (ev.type === 'error') {
@@ -275,15 +286,24 @@ export class AgentRun {
     }
   }
 
-  async recordRuntimeEvents(events: readonly RuntimeEvent[]): Promise<void> {
-    if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable || events.length === 0) return;
+  async recordRuntimeEvents(
+    events: readonly RuntimeEvent[],
+    options: { requireTerminalWrite?: boolean } = {},
+  ): Promise<void> {
+    if (events.length === 0) return;
     for (const event of events) {
       const eventForStore = this.runtimeEventForStore(event);
       const terminal = isTerminalRuntimeEvent(eventForStore);
       if (terminal && this.terminalRuntimeEventRecorded) continue;
+      if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
+        if (terminal && options.requireTerminalWrite) {
+          throw new Error('terminal RuntimeEvent store is unavailable');
+        }
+        continue;
+      }
       await this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
-      });
+      }, { rethrow: terminal && options.requireTerminalWrite });
       if (terminal) this.terminalRuntimeEventRecorded = true;
     }
   }
@@ -620,11 +640,16 @@ export class AgentRun {
     return next;
   }
 
-  private enqueueRuntimeEventStore(label: string, operation: () => Promise<void>): Promise<void> {
+  private enqueueRuntimeEventStore(
+    label: string,
+    operation: () => Promise<void>,
+    options: { rethrow?: boolean } = {},
+  ): Promise<void> {
     if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) return Promise.resolve();
     const next = this.runtimeEventQueue.then(operation, operation).catch(async (error) => {
       this.runtimeEventStoreAvailable = false;
       await this.enqueueTraceWriteFailure(error, label);
+      if (options.rethrow) throw error;
     });
     this.runtimeEventQueue = next.catch(() => {});
     return next;

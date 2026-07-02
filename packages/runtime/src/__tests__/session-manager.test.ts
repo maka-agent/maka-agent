@@ -333,6 +333,43 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
   });
 
+  test('terminal RuntimeEvent is recorded when terminal session projection fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_626),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const iterator = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+
+    expect((await iterator.next()).value?.type).toBe('text_delta');
+    store.failUpdateHeaderFor.add(session.id);
+    expect((await iterator.next()).value?.type).toBe('complete');
+    store.failUpdateHeaderFor.delete(session.id);
+    await iterator.next();
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    if (!run) throw new Error('AgentRunStore run was not created');
+    expect(run.status).toBe('completed');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    expect(runtimeEvents.filter((event) => event.status === 'completed')).toHaveLength(1);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+      projectionCache: store,
+    }).getSessionView(session.id);
+    expect(view.terminalFacts.map((fact) => fact.runStatus)).toEqual(['completed']);
+  });
+
   test('reading messages keeps the session unread marker as a pure query', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -414,16 +451,15 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(session.id)).hasUnread).toBe(true);
   });
 
-  test('runtime event ledger write failure does not fail sendMessage', async () => {
+  test('terminal RuntimeEvent write failure fails the run instead of completing it', async () => {
     const store = new MemorySessionStore();
-    const runStore = new MemoryAgentRunStore();
-    const runtimeEventStore = new MemoryRuntimeEventStore({ failRuntimeEventAppends: true });
+    const runStore = new MemoryAgentRunStore({ failRuntimeEventAppendAfter: 2 });
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
     const manager = new SessionManager({
       store,
       runStore,
-      runtimeEventStore,
+      runtimeEventStore: runStore,
       backends,
       newId: nextId(),
       now: nextNow(6_750),
@@ -431,15 +467,17 @@ describe('SessionManager permission mode updates', () => {
     });
     const session = await manager.createSession(makeInput());
 
-    const sessionEvents = await collectSessionEvents(
-      manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }),
+    await expectRejects(
+      collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })),
+      /runtime event append failed/,
     );
 
-    expect(sessionEvents.map((event) => event.type)).toEqual(['text_delta', 'complete']);
-    expect(sessionEvents.map((event) => event.id)).toEqual(['turn-1-delta', 'turn-1-complete']);
     const [run] = await runStore.listSessionRuns(session.id);
     if (!run) throw new Error('AgentRunStore run was not created');
-    expect(await runtimeEventStore.readRuntimeEvents(session.id, run.runId)).toEqual([]);
+    expect(run.status).toBe('failed');
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    expect(runtimeEvents.map((event) => event.id)).toEqual(['id-7', 'turn-1-delta']);
+    expect(runtimeEvents.some((event) => event.status === 'completed')).toBe(false);
   });
 
   test('sendMessage backfills an empty prior runtime ledger for model context', async () => {

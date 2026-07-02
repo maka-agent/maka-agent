@@ -1,4 +1,5 @@
 import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
+import { isTerminalRuntimeEvent } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type {
   SessionBlockedReason,
@@ -166,6 +167,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
       backend: begin.backend,
       drainAfterTerminal: true,
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
+        if (isTerminalRuntimeEvent(runtimeEvent)) {
+          await run.recordRuntimeEvents([runtimeEvent], { requireTerminalWrite: Boolean(this.deps.runtimeEventStore) });
+          await run.recordSessionEvent(sessionEvent);
+          await sessionEvents.push(sessionEvent);
+          return;
+        }
         await run.recordSessionEvent(sessionEvent);
         await run.recordRuntimeEvents([runtimeEvent]);
         await sessionEvents.push(sessionEvent);
