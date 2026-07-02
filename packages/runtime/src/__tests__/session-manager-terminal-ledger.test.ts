@@ -381,6 +381,51 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(terminalEvents[0]?.status).toBe('completed');
   });
 
+  test('direct AgentRun execute ignores backend events after the terminal event', async () => {
+    const store = new TinySessionStore();
+    const runStore = new TinyAgentRunStore();
+    const session = await store.create(makeInput());
+    const backend = new ScriptBackend({ sessionId: session.id } as BackendFactoryContext, [
+      { type: 'complete', stopReason: 'end_turn' },
+      { type: 'text_delta', messageId: 'message-after-terminal', text: 'after-terminal' },
+    ]);
+    const activeRuns = new Map<string, AgentRun>();
+    const turnToRunId = new Map<string, string>();
+    const run = new AgentRun({
+      sessionId: session.id,
+      header: session,
+      userInput: { turnId: 'turn-1', text: 'hello' },
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      newId: nextId(),
+      now: nextNow(40_500),
+      hooks: {
+        ensureActive: async () => ({ sessionId: session.id, backend, cachedHeader: session, activeRuns, turnToRunId }),
+        registerRun: (_active, activeRun) => {
+          activeRuns.set(activeRun.runId, activeRun);
+          turnToRunId.set(activeRun.turnId, activeRun.runId);
+        },
+        unregisterRun: (_active, activeRun) => {
+          activeRuns.delete(activeRun.runId);
+          turnToRunId.delete(activeRun.turnId);
+        },
+        updateHeader: (sessionId, patch) => store.updateHeader(sessionId, patch),
+        updateStatus: async () => {},
+        appendTurnState: async () => {},
+      },
+    });
+
+    const yielded: SessionEvent[] = [];
+    for await (const event of run.execute()) {
+      yielded.push(event);
+    }
+
+    expect(yielded.map((event) => event.type)).toEqual(['complete']);
+    const runtimeEvents = await runStore.readRuntimeEvents(session.id, run.runId);
+    expect(runtimeEvents.map((event) => event.content?.kind === 'text' ? event.content.text : event.status)).toEqual(['completed']);
+  });
+
   test('startup recovery reuses an incomplete existing terminal RuntimeEvent instead of appending another', async () => {
     const store = new TinySessionStore();
     const runStore = new TinyAgentRunStore();

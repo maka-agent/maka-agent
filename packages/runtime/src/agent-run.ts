@@ -34,8 +34,7 @@ import {
   type TerminalAgentRunStatus,
 } from './terminal-run-commit.js';
 import {
-  createSessionEventMapMemory,
-  mapSessionEventToRuntimeEvent,
+  AiSdkFlow,
 } from './ai-sdk-flow.js';
 import type { InvocationContext } from './invocation-context.js';
 
@@ -221,11 +220,25 @@ export class AgentRun {
         newId: this.input.newId,
         now: this.input.now,
       };
-      const memory = createSessionEventMapMemory();
-      for await (const ev of begin.backend.send(begin.backendInput)) {
-        const runtimeEvent = mapSessionEventToRuntimeEvent(ev, ctx, memory);
-        await this.recordMappedSessionEvent(ev, runtimeEvent);
-        yield ev;
+      let acceptedSessionEvent: SessionEvent | undefined;
+      const flow = new AiSdkFlow({
+        backend: begin.backend,
+        drainAfterTerminal: true,
+        onSessionEvent: async (sessionEvent, runtimeEvent) => {
+          await this.recordMappedSessionEvent(sessionEvent, runtimeEvent);
+          acceptedSessionEvent = sessionEvent;
+        },
+      });
+      for await (const _runtimeEvent of flow.run(ctx, {
+        text: begin.backendInput.text,
+        ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+        context: begin.backendInput.context,
+        ...(begin.backendInput.runtimeContext ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
+      })) {
+        if (acceptedSessionEvent) {
+          yield acceptedSessionEvent;
+          acceptedSessionEvent = undefined;
+        }
       }
     } catch (error) {
       await this.recordFailure(error);
