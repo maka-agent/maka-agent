@@ -12,6 +12,7 @@ __pycache__/
 *.pyc
 .agents-workspace-data
 .agents
+.suncode/
 skills-lock.json
 # PR-IR-01 captured screenshots — generated artifacts, not committed.
 # The committed baseline lives in `apps/desktop/tests/screenshots-baseline/`.

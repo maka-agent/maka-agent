@@ -511,6 +511,67 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('list derives previews for sessions outside the first three without full detail reads', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      for (let index = 0; index < 5; index += 1) {
+        const sessionId = `preview-tail-${index}`;
+        await mkdir(join(workspaceRoot, 'sessions', sessionId), { recursive: true });
+        await writeFile(
+          join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'),
+          [
+            JSON.stringify(makeRawHeader({
+              id: sessionId,
+              workspaceRoot,
+              name: `Preview tail ${index}`,
+              lastMessageAt: 100 - index,
+            })),
+            JSON.stringify({ type: 'assistant', id: `a-${index}`, turnId: `t-${index}`, ts: 100 - index, text: `tail preview ${index}`, modelId: 'fake' }),
+            '',
+          ].join('\n'),
+          'utf8',
+        );
+      }
+
+      const summaries = await store.list();
+
+      assert.equal(summaries.length, 5);
+      assert.deepEqual(summaries.map((summary) => summary.lastMessagePreview), [
+        'tail preview 0',
+        'tail preview 1',
+        'tail preview 2',
+        'tail preview 3',
+        'tail preview 4',
+      ]);
+    });
+  });
+
+  test('list accepts unusually large but valid session headers', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'large-valid-header';
+      await mkdir(join(workspaceRoot, 'sessions', sessionId), { recursive: true });
+      await writeFile(
+        join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'),
+        [
+          JSON.stringify(makeRawHeader({
+            id: sessionId,
+            workspaceRoot,
+            name: 'Large header',
+            labels: Array.from({ length: 700 }, (_, index) => `label-${index}`),
+            lastMessageAt: 10,
+          })),
+          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 10, text: 'large header survives', modelId: 'fake' }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const [summary] = await store.list();
+
+      assert.equal(summary?.id, sessionId);
+      assert.equal(summary?.lastMessagePreview, 'large header survives');
+    });
+  });
+
   test('summary lastMessageAt does not move backwards when copying older visible messages', async () => {
     await withStore(async (store, workspaceRoot) => {
       const sessionId = 'newer-header-with-old-copy';

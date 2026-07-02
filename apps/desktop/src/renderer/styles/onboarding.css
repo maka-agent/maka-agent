@@ -615,7 +615,45 @@
    default EmptyChatHero so the user doesn't see prompt suggestions
    flash before the state-routed hero mounts. */
 .maka-onboarding-loading {
-  min-height: 120px;
+  position: relative;
+  width: min(620px, calc(100% - 48px));
+  min-height: 132px;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--foreground-5);
+  box-shadow:
+    0 0 0 1px oklch(from var(--foreground) l c h / 0.03),
+    0 10px 24px oklch(from var(--foreground) l c h / 0.06);
+}
+
+.maka-onboarding-loading::before,
+.maka-onboarding-loading::after {
+  content: "";
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--foreground-8),
+    oklch(from var(--foreground) l c h / 0.16),
+    var(--foreground-8)
+  );
+}
+
+.maka-onboarding-loading::before {
+  top: 34px;
+  width: min(280px, calc(100% - 48px));
+  height: 16px;
+}
+
+.maka-onboarding-loading::after {
+  top: 66px;
+  width: min(460px, calc(100% - 48px));
+  height: 12px;
+  opacity: 0.7;
 }
 
 .maka-list-row-name {

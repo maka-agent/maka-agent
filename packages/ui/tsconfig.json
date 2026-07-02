@@ -5,8 +5,10 @@
     "outDir": "dist",
     "declaration": true,
     "declarationMap": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "composite": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.stories.ts", "src/**/*.stories.tsx"]
+  "exclude": ["src/**/*.stories.ts", "src/**/*.stories.tsx"],
+  "references": [{ "path": "../core" }]
 }

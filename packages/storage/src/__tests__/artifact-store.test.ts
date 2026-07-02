@@ -266,14 +266,23 @@ describe('FileArtifactStore', () => {
     }
   });
 
-  test('path guard rejects symlink escapes from artifact root', async () => {
+  test('path guard rejects symlink escapes from artifact root', async (t) => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-artifact-store-'));
     const outsideRoot = await mkdtemp(join(tmpdir(), 'maka-artifact-outside-'));
     try {
       const artifactRoot = join(workspaceRoot, 'artifacts');
       await mkdir(artifactRoot, { recursive: true });
       await writeFile(join(outsideRoot, 'secret.txt'), 'secret', 'utf8');
-      await symlink(outsideRoot, join(artifactRoot, 'session-1'));
+      try {
+        await symlink(outsideRoot, join(artifactRoot, 'session-1'));
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) {
+          t.skip('Windows symlink creation requires elevated privileges or Developer Mode');
+          return;
+        }
+        throw error;
+      }
 
       assert.deepEqual(
         await resolveArtifactPath({ artifactRoot, relativePath: 'session-1/secret.txt' }),
