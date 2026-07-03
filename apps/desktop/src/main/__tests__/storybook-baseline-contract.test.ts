@@ -120,6 +120,21 @@ describe('Storybook baseline contract', () => {
     assert.match(emptySrc, /\bSpinner\b/, 'empty.stories.tsx Loading story must cover Spinner');
   });
 
+  it('covers every public UI component export with at least one story', () => {
+    const storiesDir = join(REPO_ROOT, 'packages', 'ui', 'stories');
+    const storyFiles = readdirSync(storiesDir).filter((f) => f.endsWith('.stories.tsx'));
+    const allStorySrc = storyFiles.map((f) => readFileSync(join(storiesDir, f), 'utf8')).join('\n');
+
+    const requiredComponents = [
+      'Button', 'Badge', 'Input', 'Textarea', 'Separator', 'Checkbox',
+      'Dialog', 'Tabs', 'Select', 'Label', 'Switch', 'Toggle', 'ToggleGroup',
+      'RadioGroup', 'Radio', 'Progress', 'Alert', 'Empty', 'Spinner', 'Kbd',
+      'Menu', 'Accordion', 'Toolbar', 'ToastProvider',
+    ];
+    const missing = requiredComponents.filter((name) => !new RegExp(`\\b${name}\\b`).test(allStorySrc));
+    assert.deepEqual(missing, [], `Public UI components without any story coverage: ${missing.join(', ')}`);
+  });
+
   it('storyboards the sidebar session list states before visual polish', () => {
     const sidebarStories = join(REPO_ROOT, 'packages', 'ui', 'stories', 'session-list-panel.stories.tsx');
     assert.ok(existsSync(sidebarStories), 'Sidebar session-list states must be inspectable in Storybook');
