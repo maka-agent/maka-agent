@@ -118,7 +118,24 @@
 6. **P-4PT** ✅：ratchet 契约上线
    （spacing-4pt-ratchet-contract.test.ts）：442 个存量违例按文件冻结
    只减不增，新文件零容忍，防 baseline 生锈的 slack 检查
-7. **P-DARK**：dark elevation 独立化（依赖 P-SHADOW）
-8. **P-STATE**：状态全周期补齐审计（skeleton 对形/empty 构图/inline error）
+7. **P-DARK** ✅：elevation 独立化由 P-SHADOW dark-collapse 完成；
+   语义色审计通过（dark 的 chroma 微调是感知补偿而非过饱和，
+   accent 0.135→0.15 配 L+0.04 在暗底维持等感知强度）
+8. **P-STATE** ✅（审计轮）：技能/回顾/聊天 empty 构图完备；发送失败
+   = toast + turn 级失败徽章双通道；会话列表本地快路径合理缺席
+   skeleton（300ms 延迟原则，本地 SQLite <50ms）；无通用 Skeleton
+   组件正符合「形状对齐」原则。缺口留逐面触碰时补。
 
 每项独立 PR，双主题截图验收（D2），契约测试锁行为。
+
+## 3. 队列完成记录（2026-07-03 首轮全清）
+
+- #457 P-SHADOW（roadmap + 阴影配方 + dark collapse）
+- #458 P-INSET + P-RADIUS 首轮 + P-MOTION 审计
+- #459 P-4PT ratchet 契约 + P-TEXT 孤儿档清理
+- 前置质感修复：#454（玻璃色板复活/token 卫生）、#452（blocked
+  语义/时间戳/i18n）、#451（copy-feedback 契约同步）
+
+下一轮候选（按杠杆）：module-pages.css 76 个 off-grid 值的批量收敛、
+文字档 60/80 的逐面归并（→四档制）、P-STATE 边缘面补齐、
+storybook Design System 页同步新阴影/层级规则。
