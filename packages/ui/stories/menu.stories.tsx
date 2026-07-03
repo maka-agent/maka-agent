@@ -30,10 +30,9 @@ type Story = StoryObj<typeof meta>;
 
 function OpenMenuCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: 220, minWidth: 180, position: 'relative' }}>
-      <span style={{ color: 'var(--muted-foreground)', fontSize: 11, position: 'absolute', top: 0, left: 0 }}>{label}</span>
+    <div style={{ minHeight: 220, minWidth: 180 }}>
       <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} style={{ marginTop: 20 }} />
+        <MenuTrigger render={<Button variant="outline" size="sm" />}>{label}</MenuTrigger>
         <MenuPopup>{children}</MenuPopup>
       </Menu>
     </div>
