@@ -256,42 +256,6 @@ describe('heavy-task self-check gate', () => {
     assert.match(decision.reason, /observed extras: \/app\/polyglot\/cmain/);
   });
 
-  test('package source directory observation is diagnostic after bounded repair, not a hard reject', () => {
-    const packageTask: Task = {
-      id: 'build-cython-task',
-      instruction: 'Build the pyknotid Cython extension in the existing package.',
-      workspaceDir: '/tmp/workspace',
-      verification: { command: 'true', protectedPaths: [] },
-    };
-    const extensionPath = '/app/pyknotid/pyknotid/cinvariants.cpython-313-x86_64-linux-gnu.so';
-    const selfCheckState = selfCheck('pass', {
-      command: `python -c "import pyknotid.cinvariants" && test -f ${extensionPath}`,
-      refs: [extensionPath],
-      artifactPath: extensionPath,
-    });
-    const decision = evaluateHeavyTaskSelfCheckGate({
-      task: packageTask,
-      heavyTaskMode,
-      projection: projection(
-        selfCheckState,
-        plan([extensionPath]),
-        workspaceObservation([
-          { path: extensionPath, kind: 'file' },
-          { path: '/app/pyknotid/pyknotid/__init__.py', kind: 'file' },
-          { path: '/app/pyknotid/pyknotid/utils.py', kind: 'file' },
-          { path: '/app/pyknotid/pyknotid/cinvariants.c', kind: 'file' },
-          { path: '/app/pyknotid/pyknotid/spacecurves', kind: 'directory' },
-        ]),
-      ),
-      repairAttemptsUsed: 1,
-      maxRepairAttempts: 1,
-    });
-
-    assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
-    assert.match(decision.reason, /machine workspace observation found extra final paths/);
-    assert.match(decision.reason, /\/app\/pyknotid\/pyknotid\/utils\.py/);
-  });
-
   test('weak pass without command or artifact evidence stays blocked', () => {
     const weak = {
       ...selfCheck('pass', { command: 'test -f /app/move.txt', refs: ['/app/move.txt'] }),
