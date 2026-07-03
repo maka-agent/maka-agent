@@ -54,7 +54,7 @@ export const SingleSelect: Story = {
     const [value, setValue] = useState<string | null>('bold');
     return (
       <div style={{ display: 'grid', gap: 12, width: 360 }}>
-        <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>单选（toggleMultiple=false，value 为单值）</span>
+        <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>单选（multiple=false，value 为单值）</span>
         <ToggleGroup value={value ? [value] : []} onValueChange={(v) => setValue(v[0] ?? null)}>
           <Toggle value="bold" aria-label="加粗">B</Toggle>
           <Toggle value="italic" aria-label="斜体">I</Toggle>
@@ -70,8 +70,8 @@ export const MultiSelect: Story = {
     const [value, setValue] = useState<string[]>(['bold', 'underline']);
     return (
       <div style={{ display: 'grid', gap: 12, width: 360 }}>
-        <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>多选（toggleMultiple，value 为数组）</span>
-        <ToggleGroup toggleMultiple value={value} onValueChange={setValue}>
+        <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>多选（multiple，value 为数组）</span>
+        <ToggleGroup multiple value={value} onValueChange={setValue}>
           <Toggle value="bold" aria-label="加粗">B</Toggle>
           <Toggle value="italic" aria-label="斜体">I</Toggle>
           <Toggle value="underline" aria-label="下划线">U</Toggle>

@@ -209,12 +209,13 @@ export const ChecklistAllTodo: Story = {
 };
 
 const checklistSomeDoneFixture: ChecklistFixture = (() => {
-  const settings = createDefaultSettings();
-  settings.personalization.displayName = '小马';
-  settings.webSearch.enabled = true;
-  settings.webSearch.providers.tavily.apiKey = 'tvly-storybook';
-  settings.localMemory.enabled = true;
-  settings.localMemory.agentReadEnabled = true;
+  const base = createDefaultSettings();
+  const settings: ReturnType<typeof createDefaultSettings> = {
+    ...base,
+    personalization: { ...base.personalization, displayName: '小马' },
+    webSearch: { ...base.webSearch, enabled: true, providers: { ...base.webSearch.providers, tavily: { ...base.webSearch.providers.tavily, apiKey: 'tvly-storybook' } } },
+    localMemory: { ...base.localMemory, enabled: true, agentReadEnabled: true },
+  };
   const plan: PlanReminder = {
     id: 'plan-1',
     title: '每周回顾',

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "include": [
+    "stories",
+    "src",
+    "../../packages/ui/stories",
+    "../../packages/ui/src",
+    "../../packages/core/src",
+    "../../packages/runtime/src",
+    "../../packages/storage/src",
+    "../../packages/headless/src"
+  ]
+}

@@ -97,13 +97,16 @@ const connectionsBridge: ConnectionsBridge = {
 
 const usageStats: UsageStats = {
   summary: {
-    range: 'month',
-    fromMs: NOW - 30 * 86_400_000,
-    toMs: NOW,
-    requestCount: 420,
+    totalRequests: 420,
+    totalCostUsd: 2.34,
     totalTokens: 186_000,
-    costUsd: 2.34,
-    errorCount: 3,
+    inputTokens: 100_000,
+    outputTokens: 86_000,
+    cacheTokens: 0,
+    cacheMiss: 0,
+    cacheRead: 0,
+    cacheCreation: 0,
+    reasoning: 0,
   },
   logs: [],
   byProvider: [{ provider: 'zai-coding-plan', requests: 280, tokens: 124_000, costUsd: 1.5 }],
@@ -116,7 +119,7 @@ const makaBridge = {
   settings: {
     get: async () => createDefaultSettings(),
     update: async (patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult> => {
-      const merged = { ...createDefaultSettings(), ...patch };
+      const merged = { ...createDefaultSettings(), ...patch } as ReturnType<typeof createDefaultSettings>;
       return { settings: merged };
     },
     usageStats: async (): Promise<UsageStats> => usageStats,
