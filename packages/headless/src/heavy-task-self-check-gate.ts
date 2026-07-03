@@ -40,11 +40,17 @@ export function evaluateHeavyTaskSelfCheckGate(input: HeavyTaskSelfCheckGateInpu
     error: input.projection.error,
     heavyTaskMode: input.projection.heavyTaskMode ?? input.heavyTaskMode,
     latestHeavyTaskTodos: input.projection.latestHeavyTaskTodos,
+    latestHeavyTaskSelfCheckPlan: input.projection.latestHeavyTaskSelfCheckPlan,
     latestHeavyTaskSelfCheck: input.projection.latestHeavyTaskSelfCheck,
     decisions: input.projection.decisions,
   });
   const selfCheck = input.projection.latestHeavyTaskSelfCheck;
-  const reason = gateBlockerReason(selfCheck, completion.semantic.reason, checklist);
+  const reason = gateBlockerReason(
+    selfCheck,
+    input.projection.latestHeavyTaskSelfCheckPlan,
+    completion.semantic.reason,
+    checklist,
+  );
   if (!reason && completion.semantic.status === 'complete' && selfCheck) {
     return {
       action: 'allow_finalize',
@@ -205,6 +211,7 @@ export function renderHeavyTaskSelfCheckGatePrompt(input: {
 
 function gateBlockerReason(
   selfCheck: HeavyTaskSemanticSelfCheckState | undefined,
+  plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan'],
   semanticReason: string,
   checklist: readonly HeavyTaskAcceptanceCheck[],
 ): string | undefined {
@@ -214,7 +221,7 @@ function gateBlockerReason(
   if (selfCheck.commandEvidence.length + selfCheck.artifactEvidence.length === 0) {
     return 'latest pass self-check lacks concrete command or artifact evidence';
   }
-  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck);
+  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck, plan);
   if (strongPassBlocker) return strongPassBlocker;
   if (!selfCheckAddressesRequiredArtifacts(selfCheck, checklist)) {
     return 'latest self-check does not address visible required artifact contract';

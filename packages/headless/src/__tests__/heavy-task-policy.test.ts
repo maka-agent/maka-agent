@@ -151,7 +151,7 @@ describe('heavy-task policy', () => {
     assert.match(prompt, /public, task-derived semantic self-check evidence/);
     assert.match(prompt, /required runnable artifact or deliverable is present/);
     assert.match(prompt, /may be rejected once before official verification/);
-    assert.match(prompt, /bounded repair\/check prompt/);
+    assert.match(prompt, /bounded gate message as a diagnostic/);
     assert.match(prompt, /submit and finish/);
     assert.match(prompt, /derived from the trace/);
     assert.match(prompt, /source guard rejects hidden, private, or evaluator-only material/);

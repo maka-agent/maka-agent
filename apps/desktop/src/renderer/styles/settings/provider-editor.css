@@ -15,18 +15,18 @@
 .catalogTabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .catalogTab {
   min-height: 38px;
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   border: 1px solid transparent;
   border-radius: var(--radius-surface);
   background: var(--foreground-3);
   color: var(--foreground);
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   text-align: left;
 }
 
@@ -64,8 +64,8 @@
 }
 
 .providerCatalogRow {
-  gap: 12px;
-  padding: 11px 6px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-1-5);
 }
 
 /* Gated providers (preview / not-yet-open) stay inert and muted; the
@@ -84,11 +84,11 @@
  * so they sit vertically centered against the full two-line row rather than
  * pinned to the title line. */
 .providerCatalogActions {
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .providerCatalogCount {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   color: var(--foreground-50);
   font-size: var(--font-size-ui);
 }
@@ -105,7 +105,7 @@
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-60);
-  padding: 2px 7px;
+  padding: var(--space-0-5) var(--space-1-5);
   font-size: var(--font-size-caption);
   font-style: normal;
   font-weight: 600;
@@ -114,17 +114,17 @@
 
 .providerEditor {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .providerUnavailableNotice {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   border: 1px solid oklch(from var(--info) l c h / 0.22);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .providerUnavailableNotice span {
@@ -140,17 +140,17 @@
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   /* Reserve the top-right corner for the absolutely-positioned sheet
    * close button (.providerConfigSheetClose: 32px wide at right:14px,
    * intruding ~30px into the 16px-padded content box). Without this the
    * right-aligned header badges (默认 / 国内) slide under the X. */
-  padding-right: 36px;
+  padding-right: var(--space-10);
 }
 
 .providerEditor label {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
   color: var(--foreground-60);
   font-size: var(--font-size-ui);
   font-weight: 500;
@@ -170,7 +170,7 @@
   border-radius: var(--radius-surface);
   background: var(--background-elevated);
   color: var(--foreground);
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   outline: none;
   font-size: var(--font-size-ui);
   transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong), background 140ms var(--ease-out-strong);
@@ -186,7 +186,7 @@
 .providerActions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -194,7 +194,7 @@
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .providerExternalLink {
@@ -206,8 +206,8 @@
   /* PR-UI-LAYOUT-33: explicit padding + radius so the focus halo
    * has a defined shape. Was a borderless inline link with no
    * focus-visible — keyboard users couldn't see it. */
-  padding: 2px 6px;
-  margin: -2px -6px;
+  padding: var(--space-0-5) var(--space-1-5);
+  margin: calc(var(--space-0-5) * -1) calc(var(--space-1-5) * -1);
   border-radius: var(--radius-control);
   transition: background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong), text-decoration-color var(--duration-quick) var(--ease-out-strong);
 }
@@ -233,8 +233,8 @@
    * short of the card edge, so the right-aligned refresh button never
    * reaches the right margin. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-2);
+  padding: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--foreground-2);
@@ -245,12 +245,12 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .modelTableHeaderText {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   min-width: 0;
 }
 
@@ -280,7 +280,7 @@
 
 .modelTableSearch {
   width: 100%;
-  padding: 7px 11px;
+  padding: var(--space-1-5) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
@@ -299,7 +299,7 @@
 }
 
 .modelTableEmpty {
-  padding: 18px;
+  padding: var(--space-4);
   border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground-60);
@@ -313,7 +313,7 @@
 .modelTableDefaultHint {
   display: block;
   text-align: left;
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
   border-radius: var(--radius-surface);
   border: 1px solid oklch(from var(--focus-ring) l c h / 0.22);
   background: oklch(from var(--focus-ring) l c h / 0.06);
@@ -339,7 +339,7 @@
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   max-height: 280px;
   overflow: auto;
 }
@@ -349,8 +349,8 @@
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
   border: 1px solid transparent;
   border-radius: var(--radius-surface);
   background: transparent;
@@ -409,7 +409,7 @@
 .modelTableRowText {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .modelTableRowName {
@@ -442,12 +442,12 @@
 .modelTableChips {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
   justify-self: end;
 }
 
 .modelTableChip {
-  padding: 1px 6px;
+  padding: 1px var(--space-1-5);
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-60);
@@ -458,7 +458,7 @@
 }
 
 .modelTableDefaultBadge {
-  padding: 1px 7px;
+  padding: 1px var(--space-1-5);
   border-radius: var(--radius-control);
   background: oklch(from var(--nav-active) l c h / 0.14);
   color: var(--nav-active);
@@ -525,7 +525,7 @@
   min-height: 500px;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 /* Account-bound OAuth providers live under the OAuth catalog tab, as
@@ -535,9 +535,9 @@
 .providerOAuthCatalog {
   min-height: 0;
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   overflow: auto;
-  padding-right: 4px;
+  padding-right: var(--space-1);
 }
 .providerOAuthError {
   border: 1px solid color-mix(in srgb, var(--warning) 32%, transparent);
@@ -546,7 +546,7 @@
   color: var(--warning-text);
   font-size: var(--font-size-ui);
   line-height: 1.5;
-  padding: 9px 11px;
+  padding: var(--space-2) var(--space-3);
 }
 .providerOAuthGrid {
   display: grid;
@@ -576,13 +576,13 @@
 .enabledStrip {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .enabledStripHeader {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .enabledStripHeader h3,
@@ -608,12 +608,12 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: var(--space-0-5);
   border: 1px dashed var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
-  padding: 12px 14px;
+  padding: var(--space-3) var(--space-3);
   text-align: left;
 }
 
@@ -623,4 +623,4 @@
 }
 
 .enabledEmptyChip strong { font-size: var(--font-size-caption); font-weight: 700; }
-.enabledEmptyChip small { margin-top: 2px; color: var(--foreground-50); font-size: var(--font-size-ui); }
+.enabledEmptyChip small { margin-top: var(--space-0-5); color: var(--foreground-50); font-size: var(--font-size-ui); }

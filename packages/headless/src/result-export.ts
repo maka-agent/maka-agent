@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ResultRecord } from './contracts.js';
-import { isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
+import { auditSelfCheckPlanConsistency, isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
 import {
   isTerminalTaskRunStatus,
   type AutonomousResultTaxonomy,
+  type HeavyTaskSelfCheckPlanAuditSummary,
   type ScoreResult,
   type TaskEvent,
   type VerifierResult,
@@ -63,6 +64,10 @@ export interface TaskRunExport {
     mode?: TaskRunProjection['heavyTaskMode'];
     completion: NonNullable<TaskRunProjection['heavyTaskCompletion']>;
     selfCheckGate?: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheckGate']>;
+    selfCheckPlan?: {
+      latest?: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheckPlan']>;
+      audit?: HeavyTaskSelfCheckPlanAuditSummary;
+    };
   };
   progress?: {
     inventory?: {
@@ -76,6 +81,11 @@ export interface TaskRunExport {
     selfChecks?: {
       latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheck']>;
       historyCount: number;
+    };
+    selfCheckPlans?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheckPlan']>;
+      historyCount: number;
+      audit?: HeavyTaskSelfCheckPlanAuditSummary;
     };
     selfCheckGates?: {
       latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheckGate']>;
@@ -167,6 +177,14 @@ export function taskRunExportFromProjection(
         mode: projection.heavyTaskMode,
         completion: projection.heavyTaskCompletion,
         ...(projection.latestHeavyTaskSelfCheckGate ? { selfCheckGate: projection.latestHeavyTaskSelfCheckGate } : {}),
+        ...(projection.latestHeavyTaskSelfCheckPlan || projection.latestHeavyTaskSelfCheck
+          ? {
+              selfCheckPlan: {
+                ...(projection.latestHeavyTaskSelfCheckPlan ? { latest: projection.latestHeavyTaskSelfCheckPlan } : {}),
+                audit: auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck),
+              },
+            }
+          : {}),
       }
     : undefined;
   const progress = progressFromProjection(projection);
@@ -338,6 +356,13 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
       historyCount: projection.heavyTaskSelfChecks.length,
     };
   }
+  if (projection.latestHeavyTaskSelfCheckPlan) {
+    progress.selfCheckPlans = {
+      latest: projection.latestHeavyTaskSelfCheckPlan,
+      historyCount: projection.heavyTaskSelfCheckPlans.length,
+      audit: auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck),
+    };
+  }
   if (projection.latestHeavyTaskSelfCheckGate) {
     progress.selfCheckGates = {
       latest: projection.latestHeavyTaskSelfCheckGate,
@@ -351,7 +376,7 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
       historyCount: projection.heavyTaskEvidence.length,
     };
   }
-  return progress.inventory || progress.todos || progress.selfChecks || progress.selfCheckGates || progress.evidence ? progress : undefined;
+  return progress.inventory || progress.todos || progress.selfChecks || progress.selfCheckPlans || progress.selfCheckGates || progress.evidence ? progress : undefined;
 }
 
 function runtimeEventIdsFrom(runtimeRefs: unknown): string[] {
@@ -409,6 +434,9 @@ function eventsJsonl(events: readonly TaskEvent[]): string {
 }
 
 export function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
+  if (event.type === 'heavy_task_self_check_plan_recorded') {
+    return event.plan.guard.status === 'accepted' ? [event] : [];
+  }
   if (event.type === 'heavy_task_self_check_recorded') {
     return isAcceptedHeavyTaskSelfCheck(event.selfCheck) ? [event] : [];
   }

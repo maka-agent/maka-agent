@@ -1,8 +1,8 @@
 @layer components {
   .settingsConnectionRow {
     display: grid;
-    gap: 6px;
-    padding: 12px 14px;
+    gap: var(--space-1-5);
+    padding: var(--space-3) var(--space-3);
     border-radius: var(--radius-surface);
     border: 1px solid var(--border);
     background: var(--foreground-2);
@@ -52,8 +52,8 @@
 
   .settingsQuotaSection {
     display: grid;
-    gap: 4px;
-    padding: 8px 10px;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-2-5);
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.03);
   }
@@ -66,15 +66,15 @@
 
   .settingsOauthPastePanel {
     display: grid;
-    gap: 8px;
-    margin-top: 4px;
-    padding: 12px 14px;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+    padding: var(--space-3) var(--space-3);
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.04);
   }
   .settingsOauthPastePanel textarea {
     width: 100%;
-    padding: 8px;
+    padding: var(--space-2);
     border-radius: var(--radius-control);
     border: 1px solid var(--border);
     background: var(--background);
@@ -97,14 +97,14 @@
   .settingsConnectionRowName {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
   .settingsConnectionDefaultBadge {
     display: inline-flex;
     align-items: center;
-    padding: 1px 7px;
+    padding: 1px var(--space-1-5);
     border-radius: var(--radius-control);
     background: oklch(from var(--nav-active) l c h / 0.14);
     color: var(--nav-active);
@@ -117,12 +117,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .settingsConnectionRowText {
     display: grid;
-    gap: 2px;
+    gap: var(--space-0-5);
     min-width: 0;
   }
 
@@ -142,7 +142,7 @@
     display: inline-flex;
     align-items: center;
     min-height: 20px;
-    padding: 2px 8px;
+    padding: var(--space-0-5) var(--space-2);
     border-radius: var(--radius-control);
     font-size: var(--font-size-caption);
     font-weight: 600;
@@ -182,8 +182,8 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 10px;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
@@ -192,7 +192,7 @@
 
   .settingsAuthContractText {
     display: grid;
-    gap: 2px;
+    gap: var(--space-0-5);
     min-width: 0;
   }
 
@@ -220,7 +220,7 @@
   }
 
   .settingsAuthContractBadge {
-    padding: 2px 9px;
+    padding: var(--space-0-5) var(--space-2);
     background: var(--foreground-5);
     color: var(--foreground-60);
   }
@@ -252,7 +252,7 @@
   .settingsConnectionMeta {
     margin: 0;
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     font-family: var(--font-mono);
@@ -261,7 +261,7 @@
   .settingsInlineFileState {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
   }
 
   .settingsInlineTextButton {
@@ -281,12 +281,12 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     align-items: center;
-    gap: 8px;
-    margin-top: 4px;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
   }
 
   .settingsAuthActionPill {
-    padding: 2px 9px;
+    padding: var(--space-0-5) var(--space-2);
     background: var(--foreground-5);
     color: var(--foreground-60);
   }
@@ -313,7 +313,7 @@
 
   .settingsRow small {
     display: block;
-    margin-top: 4px;
+    margin-top: var(--space-1);
     color: var(--foreground-50);
     font-size: var(--font-size-ui);
     line-height: 1.4;
@@ -323,7 +323,7 @@
     min-height: 420px;
     display: grid;
     grid-template-columns: minmax(190px, 0.82fr) minmax(0, 1.5fr);
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .settingsSurface[data-modal="true"] .providersPanel {
@@ -338,7 +338,7 @@
      tail visible; title= carries the full path on hover). */
   .settingsMemoryMeta {
     flex-wrap: wrap;
-    row-gap: 4px;
+    row-gap: var(--space-1);
   }
 
   .settingsMemoryPath {

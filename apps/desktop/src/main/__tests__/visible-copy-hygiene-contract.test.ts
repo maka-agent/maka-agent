@@ -516,7 +516,7 @@ describe('turn footer copy feedback contract', () => {
     );
     assert.match(
       src,
-      /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\]/,
+      /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\]/,
       'Turn footer copied state should have a stable styling hook.',
     );
     assert.match(
@@ -584,7 +584,7 @@ describe('tool error copy feedback contract', () => {
     );
     assert.match(
       block,
-      /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\] data-\[copy-feedback=copied\]:border-\[oklch\(from_var\(--accent\)_l_c_h_\/_0\.35\)\]/,
+      /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\] data-\[copy-feedback=copied\]:border-\[oklch\(from_var\(--link\)_l_c_h_\/_0\.35\)\]/,
       'Tool-error copied state should have a stable color + border styling hook.',
     );
     assert.match(
@@ -623,10 +623,14 @@ describe('chat markdown copy feedback contract', () => {
   it('gates code-block copy and keeps code-copy accessibility copy Chinese-first', async () => {
     // PR-UI-LIB-EXTRACT-6 (round 7/10): `CodeBlock` moved out of
     // `components.tsx` into `markdown.tsx` (along with `Markdown`,
-    // `MarkdownLink`, and the helper functions). The behavioral
-    // assertions stay; we just read from the file where the
-    // component now lives.
-    const markdownPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'markdown.tsx');
+    // `MarkdownLink`, and the helper functions). A later lazy-load
+    // split then moved the heavy markdown pipeline (`Markdown`,
+    // `MarkdownLink`, `CodeBlock`, helpers) into `markdown-body.tsx`
+    // so the initial renderer chunk doesn't parse react-markdown /
+    // remark / rehype-highlight (highlight.js) before first paint.
+    // The behavioral assertions stay; we just read from the file where
+    // the component now lives.
+    const markdownPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'markdown-body.tsx');
     const src = await readFile(markdownPath, 'utf8');
     const block = src.match(/function CodeBlock[\s\S]*?function isElementWithClassName/)?.[0] ?? '';
 

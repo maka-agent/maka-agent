@@ -3,7 +3,7 @@ import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { HeavyTaskSemanticSelfCheckState, TaskEvent } from '../task-contracts.js';
+import type { HeavyTaskSelfCheckPlanState, HeavyTaskSemanticSelfCheckState, TaskEvent } from '../task-contracts.js';
 import { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from '../task-run-store.js';
 
 function eventIdFactory(): () => string {
@@ -406,6 +406,13 @@ describe('TaskRunStore', () => {
         },
       },
       {
+        type: 'heavy_task_self_check_plan_recorded',
+        id: 'e-3-plan',
+        taskRunId,
+        ts: 3.5,
+        plan: acceptedSelfCheckPlan(taskRunId),
+      },
+      {
         type: 'heavy_task_self_check_recorded',
         id: 'e-4',
         taskRunId,
@@ -438,6 +445,8 @@ describe('TaskRunStore', () => {
     ], taskRunId);
 
     assert.equal(projection.heavyTaskCompletion?.runtime.taskRunStatus, 'budget_exhausted');
+    assert.equal(projection.heavyTaskSelfCheckPlans.length, 1);
+    assert.equal(projection.latestHeavyTaskSelfCheckPlan?.planId, 'plan-1');
     assert.equal(projection.heavyTaskCompletion?.runtime.taxonomy, 'verification_failed');
     assert.equal(projection.heavyTaskCompletion?.runtime.capKind, 'runtime_step_cap');
     assert.equal(projection.heavyTaskCompletion?.semantic.status, 'complete');
@@ -481,6 +490,8 @@ describe('TaskRunStore', () => {
     const oldTrace = projectTaskRun([
       { type: 'task_run_created', id: 'e-1', taskRunId: 'tr-old', ts: 1, taskId: 'task-old', configId: 'cfg-1' },
     ], 'tr-old');
+    assert.deepEqual(oldTrace.heavyTaskSelfCheckPlans, []);
+    assert.equal(oldTrace.latestHeavyTaskSelfCheckPlan, undefined);
     assert.deepEqual(oldTrace.heavyTaskSelfCheckGates, []);
     assert.equal(oldTrace.latestHeavyTaskSelfCheckGate, undefined);
   });
@@ -788,5 +799,38 @@ function acceptedSelfCheck(
       publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
     },
     source: { kind: 'model_tool', toolCallId: 'tool-1' },
+  };
+}
+
+function acceptedSelfCheckPlan(taskRunId: string): HeavyTaskSelfCheckPlanState {
+  return {
+    schemaVersion: 1,
+    planId: 'plan-1',
+    taskRunId,
+    ts: 3.5,
+    finalArtifacts: [{
+      path: 'build-output.log',
+      purpose: 'public self-check artifact',
+      publicReason: 'visible public check creates this artifact',
+    }],
+    selfCheckScratch: {
+      root: '/tmp/maka-self-check/run-1',
+      expectedGeneratedPaths: ['/tmp/maka-self-check/run-1/check.log'],
+      publicReason: 'public checks write temporary output under scratch',
+    },
+    workspaceGuardPlan: {
+      checkedPaths: ['/app'],
+      expectedAddedPaths: ['build-output.log'],
+      expectedGeneratedPathsOutsideScratch: [],
+      publicReason: 'public guard checks the deliverable workspace',
+    },
+    publicReason: 'plan is derived from visible public task evidence',
+    guard: {
+      status: 'accepted',
+      checkedAt: 3.5,
+      categories: [],
+      publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+    },
+    source: { kind: 'model_tool', toolCallId: 'tool-plan' },
   };
 }

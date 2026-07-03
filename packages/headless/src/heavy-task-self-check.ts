@@ -3,6 +3,9 @@ import { z } from 'zod';
 import type {
   HeavyTaskArtifactEvidence,
   HeavyTaskCommandEvidence,
+  HeavyTaskSelfCheckPlanAuditSummary,
+  HeavyTaskSelfCheckPlanRiskFlag,
+  HeavyTaskSelfCheckPlanState,
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskSelfCheckExecutionHygiene,
   HeavyTaskSourceGuardResult,
@@ -10,7 +13,7 @@ import type {
 } from './task-contracts.js';
 import type { TaskRunStore } from './task-run-store.js';
 
-export const HEAVY_TASK_SELF_CHECK_TOOL_NAMES = ['self_check_submit'] as const;
+export const HEAVY_TASK_SELF_CHECK_TOOL_NAMES = ['self_check_plan_submit', 'self_check_submit'] as const;
 
 const MAX_REASON_CHARS = 2_000;
 const MAX_COMMAND_CHARS = 1_000;
@@ -23,6 +26,8 @@ const MAX_METADATA_KEYS = 30;
 const MAX_METADATA_DEPTH = 3;
 const MAX_METADATA_STRING_CHARS = 500;
 const MAX_GUARD_STRING_CHARS = 2_000;
+const MAX_PLAN_ITEMS = 20;
+const MAX_PLAN_PURPOSE_CHARS = 500;
 
 const metadataValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
   z.string().max(MAX_METADATA_STRING_CHARS),
@@ -103,11 +108,43 @@ export const heavyTaskSelfCheckSubmitSchema = z.object({
 
 export type HeavyTaskSelfCheckSubmitInput = z.infer<typeof heavyTaskSelfCheckSubmitSchema>;
 
+export const heavyTaskSelfCheckPlanArtifactSchema = z.object({
+  path: z.string().trim().min(1).max(MAX_PATH_CHARS),
+  purpose: z.string().trim().min(1).max(MAX_PLAN_PURPOSE_CHARS),
+  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+}).strict();
+
+export const heavyTaskSelfCheckPlanSubmitSchema = z.object({
+  finalArtifacts: z.array(heavyTaskSelfCheckPlanArtifactSchema).min(1).max(MAX_PLAN_ITEMS),
+  selfCheckScratch: z.object({
+    root: z.string().trim().min(1).max(MAX_PATH_CHARS),
+    expectedGeneratedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_PLAN_ITEMS).optional(),
+    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+  }).strict(),
+  workspaceGuardPlan: z.object({
+    checkedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).min(1).max(MAX_PLAN_ITEMS),
+    expectedAddedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_PLAN_ITEMS).optional(),
+    expectedGeneratedPathsOutsideScratch: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_PLAN_ITEMS).optional(),
+    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+  }).strict(),
+  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+}).strict();
+
+export type HeavyTaskSelfCheckPlanSubmitInput = z.infer<typeof heavyTaskSelfCheckPlanSubmitSchema>;
+
 export type HeavyTaskPublicSelfCheckValidation =
   | { ok: true; guard: HeavyTaskSourceGuardResult & { status: 'accepted' } }
   | { ok: false; guard: HeavyTaskSourceGuardResult & { status: 'rejected' } };
 
 export interface HeavyTaskSelfCheckRecorder {
+  recordSelfCheckPlan(
+    input: HeavyTaskSelfCheckPlanSubmitInput,
+    ctx: MakaToolContext,
+  ): Promise<
+    | { accepted: true; plan: HeavyTaskSelfCheckPlanState }
+    | { accepted: false; guard: HeavyTaskSourceGuardResult & { status: 'rejected' } }
+  >;
+
   recordSelfCheck(
     input: HeavyTaskSelfCheckSubmitInput,
     ctx: MakaToolContext,
@@ -125,6 +162,35 @@ export function createHeavyTaskSelfCheckRecorder(input: {
   newId: () => string;
 }): HeavyTaskSelfCheckRecorder {
   return {
+    async recordSelfCheckPlan(args, ctx) {
+      const ts = input.now();
+      const validation = validateHeavyTaskPublicSelfCheckPlan(args, ts);
+      if (!validation.ok) {
+        return { accepted: false, guard: validation.guard };
+      }
+      const plan: HeavyTaskSelfCheckPlanState = {
+        schemaVersion: 1,
+        planId: input.newId(),
+        taskRunId: input.taskRunId,
+        ...(input.attemptId ? { attemptId: input.attemptId } : {}),
+        ts,
+        finalArtifacts: args.finalArtifacts,
+        selfCheckScratch: args.selfCheckScratch,
+        workspaceGuardPlan: args.workspaceGuardPlan,
+        publicReason: args.publicReason,
+        guard: validation.guard,
+        source: sourceFromContext(ctx),
+      };
+      await input.store.appendEvent(input.taskRunId, {
+        type: 'heavy_task_self_check_plan_recorded',
+        id: input.newId(),
+        taskRunId: input.taskRunId,
+        ts,
+        plan,
+      });
+      return { accepted: true, plan };
+    },
+
     async recordSelfCheck(args, ctx) {
       const ts = input.now();
       const validation = validateHeavyTaskPublicSelfCheck(args, ts);
@@ -160,6 +226,13 @@ export function createHeavyTaskSelfCheckRecorder(input: {
 export function buildHeavyTaskSelfCheckTools(recorder: HeavyTaskSelfCheckRecorder): MakaTool[] {
   return [
     {
+      name: 'self_check_plan_submit',
+      description: 'Submit the public final-artifact, scratch, and workspace-guard plan required before final heavy-task self_check_submit.',
+      parameters: heavyTaskSelfCheckPlanSubmitSchema,
+      permissionRequired: false,
+      impl: async (args, ctx) => recorder.recordSelfCheckPlan(heavyTaskSelfCheckPlanSubmitSchema.parse(args), ctx),
+    },
+    {
       name: 'self_check_submit',
       description: 'Submit public, task-derived advisory semantic self-check evidence for this heavy-task run, including scratch/cleanup hygiene for any local check side effects.',
       parameters: heavyTaskSelfCheckSubmitSchema,
@@ -169,12 +242,35 @@ export function buildHeavyTaskSelfCheckTools(recorder: HeavyTaskSelfCheckRecorde
   ];
 }
 
+export function validateHeavyTaskPublicSelfCheckPlan(
+  input: HeavyTaskSelfCheckPlanSubmitInput,
+  now: number,
+): HeavyTaskPublicSelfCheckValidation {
+  return validateHeavyTaskPublicStrings(
+    stringsFromSelfCheckPlan(input),
+    now,
+    'Accepted as public, task-derived advisory self-check plan.',
+  );
+}
+
 export function validateHeavyTaskPublicSelfCheck(
   input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'>,
   now: number,
 ): HeavyTaskPublicSelfCheckValidation {
+  return validateHeavyTaskPublicStrings(
+    stringsFromSelfCheck(input),
+    now,
+    'Accepted as public, task-derived advisory self-check evidence.',
+  );
+}
+
+export function validateHeavyTaskPublicStrings(
+  values: readonly string[],
+  now: number,
+  acceptedPublicReason: string,
+): HeavyTaskPublicSelfCheckValidation {
   const categories = new Set<string>();
-  for (const value of stringsFromSelfCheck(input)) {
+  for (const value of values) {
     for (const category of categoriesForString(value)) {
       categories.add(category);
     }
@@ -196,7 +292,7 @@ export function validateHeavyTaskPublicSelfCheck(
       status: 'accepted',
       checkedAt: now,
       categories: [],
-      publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+      publicReason: acceptedPublicReason,
     },
   };
 }
@@ -209,12 +305,115 @@ export function isAcceptedHeavyTaskSelfCheck(
   return validateHeavyTaskPublicSelfCheck(selfCheck, now).ok;
 }
 
-export function hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck: HeavyTaskSemanticSelfCheckState): boolean {
+export function auditSelfCheckPlanConsistency(
+  plan: HeavyTaskSelfCheckPlanState | undefined,
+  selfCheck: HeavyTaskSemanticSelfCheckState | undefined,
+): HeavyTaskSelfCheckPlanAuditSummary {
+  if (!plan) {
+    return {
+      status: 'fail',
+      riskFlags: ['missing_self_check_plan'],
+      diagnostics: ['Self-check plan consistency error:', '- no accepted self_check_plan_submit state is available', '- risks: missing_self_check_plan'],
+    };
+  }
+  if (!selfCheck) {
+    return {
+      status: 'unknown',
+      riskFlags: [],
+      diagnostics: [
+        'Self-check plan consistency unknown:',
+        `- accepted plan finalArtifacts: ${listForDiagnostic(plan.finalArtifacts.map((artifact) => artifact.path))}`,
+        `- accepted plan scratch root: ${plan.selfCheckScratch.root}`,
+        '- no accepted self_check_submit state is available',
+      ],
+    };
+  }
+
+  const riskFlags: HeavyTaskSelfCheckPlanRiskFlag[] = [];
+  const diagnostics = [
+    'Self-check plan consistency error:',
+    `- accepted plan finalArtifacts: ${listForDiagnostic(plan.finalArtifacts.map((artifact) => artifact.path))}`,
+    `- accepted plan scratch root: ${plan.selfCheckScratch.root}`,
+  ];
+  const finalArtifactPaths = new Set(plan.finalArtifacts.map((artifact) => normalizePlanPath(artifact.path)));
+  const expectedAddedPaths = new Set((plan.workspaceGuardPlan.expectedAddedPaths ?? []).map(normalizePlanPath));
+  const expectedOutsideScratchPaths = new Set((plan.workspaceGuardPlan.expectedGeneratedPathsOutsideScratch ?? []).map(normalizePlanPath));
+  const allowedAddedPaths = new Set([...finalArtifactPaths, ...expectedAddedPaths]);
+  const addedPaths = uniqueStrings((selfCheck.executionHygiene?.workspaceGuard?.addedPaths ?? []).map(normalizePlanPath));
+  const unplannedAddedPaths = addedPaths.filter((path) => !allowedAddedPaths.has(path));
+  const plannedAddedPaths = addedPaths.filter((path) => allowedAddedPaths.has(path));
+  if (plannedAddedPaths.length > 0) {
+    riskFlags.push('planned_final_artifact_added');
+    diagnostics.push(`- planned added paths observed: ${listForDiagnostic(plannedAddedPaths)}`);
+  }
+  if (unplannedAddedPaths.length > 0) {
+    riskFlags.push('unplanned_added_path');
+    diagnostics.push(`- unplanned workspace added paths: ${listForDiagnostic(unplannedAddedPaths)}`);
+  }
+
+  const mentionedPaths = evidenceGeneratedOutputPaths(selfCheck);
+  const scratchRoot = normalizePlanPath(plan.selfCheckScratch.root);
+  const scratchEscapes = mentionedPaths.filter((path) =>
+    !isPathWithin(path, scratchRoot)
+    && !finalArtifactPaths.has(path)
+    && !expectedOutsideScratchPaths.has(path)
+  );
+  if (scratchEscapes.length > 0) {
+    riskFlags.push('scratch_escape');
+    diagnostics.push(`- observed command/artifact evidence mentions: ${listForDiagnostic(scratchEscapes)}`);
+    diagnostics.push(`- mentioned paths are not declared as final artifacts or expected outside-scratch generated paths`);
+  }
+
+  const uniqueRiskFlags = uniqueStrings(riskFlags) as HeavyTaskSelfCheckPlanRiskFlag[];
+  const blockingFlags = uniqueRiskFlags.filter((flag) => flag !== 'planned_final_artifact_added');
+  if (blockingFlags.length === 0) {
+    return {
+      status: 'pass',
+      riskFlags: uniqueRiskFlags,
+      diagnostics: uniqueRiskFlags.length > 0
+        ? [
+            'Self-check plan consistency passed:',
+            `- accepted plan finalArtifacts: ${listForDiagnostic(plan.finalArtifacts.map((artifact) => artifact.path))}`,
+            `- accepted plan scratch root: ${plan.selfCheckScratch.root}`,
+            `- risks: ${uniqueRiskFlags.join(', ')}`,
+          ]
+        : [],
+    };
+  }
+
+  diagnostics.push(`- risks: ${blockingFlags.join(', ')}`);
+  return {
+    status: 'fail',
+    riskFlags: uniqueRiskFlags,
+    diagnostics,
+  };
+}
+
+export function renderSelfCheckPlanAuditDiagnostic(audit: HeavyTaskSelfCheckPlanAuditSummary): string {
+  return audit.diagnostics.join('\n');
+}
+
+export function hasBlockingHeavyTaskSelfCheckWorkspaceDelta(
+  selfCheck: HeavyTaskSemanticSelfCheckState,
+  plan?: HeavyTaskSelfCheckPlanState,
+): boolean {
   const hygiene = selfCheck.executionHygiene;
   if (!hygiene) return false;
-  if (hygiene.workspaceSideEffects === 'present') return true;
   if ((hygiene.remainingSideEffectPaths?.length ?? 0) > 0) return true;
-  if ((hygiene.workspaceGuard?.addedPaths?.length ?? 0) > 0) return true;
+  const audit = plan ? auditSelfCheckPlanConsistency(plan, selfCheck) : undefined;
+  if (hygiene.workspaceSideEffects === 'present') {
+    const addedPaths = hygiene.workspaceGuard?.addedPaths ?? [];
+    const onlyPlannedAddedPaths = addedPaths.length > 0
+      && audit?.status === 'pass'
+      && audit.riskFlags.length > 0
+      && audit.riskFlags.every((flag) => flag === 'planned_final_artifact_added');
+    return !onlyPlannedAddedPaths;
+  }
+  if ((hygiene.workspaceGuard?.addedPaths?.length ?? 0) > 0) {
+    if (!plan) return true;
+    if (!audit) return true;
+    return audit.riskFlags.includes('unplanned_added_path');
+  }
   return false;
 }
 
@@ -224,25 +423,36 @@ export function heavyTaskSelfCheckSandboxStatus(
   return selfCheck.executionHygiene?.sandbox?.root ? 'present' : 'missing';
 }
 
-export function heavyTaskSelfCheckStrongPassBlocker(selfCheck: HeavyTaskSemanticSelfCheckState): string | undefined {
+export function heavyTaskSelfCheckStrongPassBlocker(
+  selfCheck: HeavyTaskSemanticSelfCheckState,
+  plan?: HeavyTaskSelfCheckPlanState,
+): string | undefined {
   if (heavyTaskSelfCheckSandboxStatus(selfCheck) !== 'present') {
     return 'latest self-check is missing sandbox execution evidence';
   }
-  if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck)) {
-    return 'latest self-check reports uncleaned workspace side effects';
-  }
   if (selfCheck.executionHygiene?.workspaceGuard?.checked !== true) {
     return 'latest self-check is missing public workspace hygiene guard evidence';
+  }
+  if ((selfCheck.executionHygiene.remainingSideEffectPaths?.length ?? 0) > 0) {
+    return 'latest self-check reports uncleaned workspace side effects';
+  }
+  const audit = auditSelfCheckPlanConsistency(plan, selfCheck);
+  if (audit.status === 'fail') {
+    return renderSelfCheckPlanAuditDiagnostic(audit);
+  }
+  if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck, plan)) {
+    return 'latest self-check reports uncleaned workspace side effects';
   }
   return undefined;
 }
 
 export function heavyTaskSelfCheckWorkspaceGuardStatus(
   selfCheck: HeavyTaskSemanticSelfCheckState,
+  plan?: HeavyTaskSelfCheckPlanState,
 ): 'clean' | 'dirty' | 'unchecked' | 'unknown' {
   const hygiene = selfCheck.executionHygiene;
   if (!hygiene) return 'unchecked';
-  if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck)) return 'dirty';
+  if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck, plan)) return 'dirty';
   if (hygiene.workspaceGuard?.checked === true || hygiene.workspaceSideEffects === 'none' || hygiene.workspaceSideEffects === 'cleaned') {
     return 'clean';
   }
@@ -297,6 +507,18 @@ function stringsFromSelfCheck(input: Pick<HeavyTaskSelfCheckSubmitInput, 'public
     collectMetadataStrings(artifact.metadata, strings);
   }
   collectExecutionHygieneStrings(input.executionHygiene, strings);
+  return strings.filter((value) => value.length > 0).map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
+}
+
+function stringsFromSelfCheckPlan(input: HeavyTaskSelfCheckPlanSubmitInput): string[] {
+  const strings = [input.publicReason, input.selfCheckScratch.root, input.selfCheckScratch.publicReason, input.workspaceGuardPlan.publicReason];
+  strings.push(...(input.selfCheckScratch.expectedGeneratedPaths ?? []));
+  strings.push(...input.workspaceGuardPlan.checkedPaths);
+  strings.push(...(input.workspaceGuardPlan.expectedAddedPaths ?? []));
+  strings.push(...(input.workspaceGuardPlan.expectedGeneratedPathsOutsideScratch ?? []));
+  for (const artifact of input.finalArtifacts) {
+    strings.push(artifact.path, artifact.purpose, artifact.publicReason);
+  }
   return strings.filter((value) => value.length > 0).map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
 }
 
@@ -365,6 +587,48 @@ function categoriesForString(value: string): string[] {
     if (pattern.test(normalized)) categories.push(category);
   }
   return categories;
+}
+
+const COMMAND_OUTPUT_PATH_PATTERN = /(?:^|\s)-o\s+["']?(\/(?:app|tmp)\/[A-Za-z0-9._@%+=:,/-]+)/g;
+
+function evidenceGeneratedOutputPaths(selfCheck: HeavyTaskSemanticSelfCheckState): string[] {
+  const paths = [
+    ...selfCheck.commandEvidence.flatMap((evidence) => commandOutputPaths(evidence.command)),
+    ...selfCheck.artifactEvidence
+      .filter((artifact) => artifact.kind === 'build_output' || artifact.kind === 'generated_output')
+      .map((artifact) => artifact.path),
+    ...(selfCheck.executionHygiene?.remainingSideEffectPaths ?? []),
+    ...(selfCheck.executionHygiene?.workspaceGuard?.addedPaths ?? []),
+  ];
+  return uniqueStrings(paths.map(normalizePlanPath));
+}
+
+function commandOutputPaths(value: string): string[] {
+  return [...value.matchAll(COMMAND_OUTPUT_PATH_PATTERN)]
+    .map((match) => match[1])
+    .filter((path): path is string => Boolean(path))
+    .map(cleanPathMention);
+}
+
+function cleanPathMention(value: string): string {
+  return value.replace(/[),.;:'"`\]]+$/g, '');
+}
+
+function normalizePlanPath(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/g, '');
+  return trimmed.length > 0 ? trimmed : '/';
+}
+
+function isPathWithin(path: string, root: string): boolean {
+  return path === root || path.startsWith(`${root}/`);
+}
+
+function listForDiagnostic(values: readonly string[]): string {
+  return values.length > 0 ? values.map((value) => oneLine(value, 160)).join(', ') : 'none';
+}
+
+function uniqueStrings<T extends string>(values: readonly T[]): T[] {
+  return [...new Set(values)];
 }
 
 function metadataWithinBounds(value: unknown, depth = 0): boolean {

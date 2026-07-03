@@ -18,12 +18,31 @@ describe('session startup recovery contract', () => {
     assert.match(src, /latest\.status === 'completed' && !bucket\.hasAssistant && failed/);
   });
 
-  it('desktop runs recovery before creating the renderer window', async () => {
+  it('desktop runs recovery during background startup with the active-run guard in place', async () => {
+    // PR #456 moved recovery OFF the createWindow critical path so the
+    // first paint is not blocked by ledger repair. That is only safe
+    // because recovery skips any session with live runs
+    // (runtimeKernel.hasActiveRuns) and repairs target PRIOR runs'
+    // ledgers, so a user racing in a new message writes a different
+    // runId. This contract pins all three legs: recovery still runs at
+    // startup, it runs inside runBackgroundStartup (not before the
+    // window), and the kernel guard that makes that safe stays put.
     const src = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
-    const startupBlock = src.match(/app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*?await mainWindowController\.createWindow\(\);/)?.[0] ?? '';
+    const sessionManager = await readFile(join(REPO_ROOT, 'packages/runtime/src/session-manager.ts'), 'utf8');
+    const backgroundBlock = src.match(/async function runBackgroundStartup\(\): Promise<void> \{[\s\S]*?\n\}/)?.[0] ?? '';
 
     assert.match(src, /async function recoverInterruptedSessionsOnStartup\(\): Promise<void>/);
-    assert.match(startupBlock, /await recoverInterruptedSessionsOnStartup\(\);[\s\S]*await mainWindowController\.createWindow\(\);/);
+    assert.match(backgroundBlock, /await recoverInterruptedSessionsOnStartup\(\);/, 'recovery must run inside background startup');
+    assert.match(
+      src,
+      /const backgroundStartup = runBackgroundStartup\(\);[\s\S]*?await mainWindowController\.createWindow\(\);[\s\S]*?await backgroundStartup;/,
+      'window creation must not wait on background startup, but the process must await it before settling',
+    );
+    assert.match(
+      sessionManager,
+      /if \(this\.runtimeKernel\.hasActiveRuns\(session\.id\)\) continue;/,
+      'recovery must skip sessions with live runs — this guard is what makes background recovery safe',
+    );
   });
 
   it('turn summary only shows in-progress for genuinely running turns', async () => {

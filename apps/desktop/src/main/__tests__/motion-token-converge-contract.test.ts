@@ -183,7 +183,15 @@ describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
         const full = resolve(dir, entry.name);
         if (entry.isDirectory()) await walk(full);
         else if (entry.isFile() && /\.(tsx|ts)$/.test(entry.name)) {
-          offenders.push(...scanBareTimingKeywords(await readFile(full, 'utf8'), full.replace(REPO_ROOT + '/', '')));
+          // Strip //-line and /*-block comments before scanning so a
+          // prose word like "ease" or "linear" in a doc comment can't
+          // false-positive (the CSS path already strips comments —
+          // this closes the asymmetry noted in #431 review).
+          const raw = await readFile(full, 'utf8');
+          const withoutComments = raw
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+          offenders.push(...scanBareTimingKeywords(withoutComments, full.replace(REPO_ROOT + '/', '')));
         }
       }
     }

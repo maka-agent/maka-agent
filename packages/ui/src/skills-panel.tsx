@@ -59,7 +59,10 @@ function SkillLibraryPanel(props: {
 
   const tabs = (
     <div className="maka-skill-tabs-bar">
-      <div className="maka-skill-tabs" role="tablist" aria-label="技能视图">
+      {/* Not role=tablist: these are plain buttons without the ARIA tabs
+          keyboard contract (roving tabindex, arrow keys, linked panels).
+          aria-pressed states the truth — a segmented view switcher. */}
+      <div className="maka-skill-tabs" aria-label="技能视图">
         {([
           ['market', '市场', filteredMarketCards.length],
           ['builtin', '内置', filteredSkills.length],
@@ -69,8 +72,7 @@ function SkillLibraryPanel(props: {
             key={tab}
             type="button"
             variant="ghost"
-            role="tab"
-            aria-selected={activeSkillTab === tab}
+            aria-pressed={activeSkillTab === tab}
             className="maka-skill-tab"
             data-state={activeSkillTab === tab ? 'active' : 'inactive'}
             onClick={() => setActiveSkillTab(tab)}
@@ -82,12 +84,11 @@ function SkillLibraryPanel(props: {
       </div>
       {activeSkillTab === 'market' && (
         <div className="maka-skill-filter-actions" aria-label="技能筛选排序">
-          <UiButton type="button" variant="secondary" className="maka-skill-filter-pill" disabled aria-disabled="true">
-            全部
-          </UiButton>
-          <UiButton type="button" variant="secondary" className="maka-skill-filter-pill" disabled aria-disabled="true">
-            排序：热门
-          </UiButton>
+          {/* Static labels, not disabled buttons: filter/sort are not
+              wired yet, and a styled-but-dead button visually promises
+              interactivity it can't deliver. */}
+          <span className="maka-skill-filter-pill" data-static="true">全部</span>
+          <span className="maka-skill-filter-pill" data-static="true">排序：热门</span>
         </div>
       )}
     </div>

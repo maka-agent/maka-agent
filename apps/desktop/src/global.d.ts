@@ -88,6 +88,9 @@ export type QuickChatResult =
 export interface OnboardingSnapshot {
   state: OnboardingState;
   milestones: OnboardingMilestone[];
+  sessions: import('@maka/core').SessionSummary[];
+  connections: import('@maka/core').LlmConnection[];
+  defaultSlug: string | null;
 }
 
 export type WorkspaceInstructionFileStatus =

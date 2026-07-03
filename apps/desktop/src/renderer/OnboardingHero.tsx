@@ -35,7 +35,7 @@ import {
   detectUiLocale,
   type UiLocale,
 } from '@maka/ui';
-import { ProviderLogo, providerDisplay } from './settings/ProvidersPanel';
+import { ProviderLogo, providerDisplay } from './settings/provider-display';
 import { FIRST_RUN_TASK_SUGGESTIONS } from './first-run-task-suggestions';
 import { getOnboardingSetupSteps, type OnboardingSetupStep } from './onboarding-hero-copy';
 

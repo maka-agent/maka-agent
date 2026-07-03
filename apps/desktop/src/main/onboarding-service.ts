@@ -42,6 +42,14 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 export interface OnboardingSnapshot {
   state: OnboardingState;
   milestones: OnboardingMilestone[];
+  /**
+   * Session list, included so the renderer can populate the sidebar
+   * without a separate `sessions:list` IPC.
+   */
+  sessions: SessionSummary[];
+  /** Connection list — bundled to avoid a separate `connections:list` + `getDefault` IPC. */
+  connections: LlmConnection[];
+  defaultSlug: string | null;
 }
 
 export interface OnboardingServiceDeps {
@@ -125,10 +133,10 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
       // get auto-marked as completed so the hero never appears.
       if (sessions.length > 0 && !hasSettledInitialOnboarding(milestones)) {
         const updated = await deps.upsertMilestone('initial_onboarding', 'completed');
-        return { state, milestones: updated };
+        return { state, milestones: updated, sessions, connections, defaultSlug: defaultSlug ?? null };
       }
 
-      return { state, milestones };
+      return { state, milestones, sessions, connections, defaultSlug: defaultSlug ?? null };
     },
 
     async setMilestone(id: unknown, status: unknown): Promise<OnboardingSnapshot> {
@@ -167,7 +175,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
         sessions,
         secrets,
       });
-      return { state, milestones };
+      return { state, milestones, sessions, connections, defaultSlug: defaultSlug ?? null };
     },
 
     async clearMilestone(id: unknown): Promise<OnboardingSnapshot> {
@@ -196,7 +204,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
         sessions,
         secrets,
       });
-      return { state, milestones };
+      return { state, milestones, sessions, connections, defaultSlug: defaultSlug ?? null };
     },
   };
 }

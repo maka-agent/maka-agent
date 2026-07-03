@@ -29,7 +29,6 @@ interface MainWindowControllerDeps {
   workspaceRoot: string;
   visualSmokeFixture: VisualSmokeFixture | null;
   settingsStore: SettingsReader;
-  ensureBundledOfficeSkills(workspaceRoot: string): Promise<unknown>;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -58,7 +57,7 @@ const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
-  const { workspaceRoot, visualSmokeFixture, settingsStore, ensureBundledOfficeSkills } = deps;
+  const { workspaceRoot, visualSmokeFixture, settingsStore } = deps;
 
   function getBrowserViews(): BrowserViewManager<BrowserViewController> {
     if (!browserViews) {
@@ -81,7 +80,6 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
 
   async function createWindow(): Promise<void> {
     await mkdir(workspaceRoot, { recursive: true });
-    await ensureBundledOfficeSkills(workspaceRoot);
     installApplicationMenu();
     // Restore previously-saved bounds when available; first launch and
     // legacy installs both fall back to the default 1240x820 frame. After

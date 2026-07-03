@@ -55,7 +55,7 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       inputWrapStyle,
-      /margin:\s*8px 10px;/,
+      /margin:\s*var\(--space-2\)\s*var\(--space-2-5\);/,
       'Palette InputGroup should preserve the compact command-modal inset spacing',
     );
     assert.match(

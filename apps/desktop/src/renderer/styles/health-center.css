@@ -11,21 +11,21 @@
   .settingsHealthPage {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--space-5);
   }
 
   .settingsHealthIntro {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 20px;
-    padding: 16px;
+    gap: var(--space-5);
+    padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
   .settingsHealthIntro h3 {
-    margin: 0 0 6px;
+    margin: 0 0 var(--space-1-5);
     font-size: var(--font-size-ui);
     font-weight: 600;
   }
@@ -43,7 +43,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 6px;
+    gap: var(--space-1-5);
     flex-shrink: 0;
   }
   .settingsHealthMeta small {
@@ -59,7 +59,7 @@
   border: 1px solid var(--border);
   background: var(--background);
   border-radius: var(--radius-control);
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   color: var(--foreground-80);
   font-size: var(--font-size-ui);
   transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
@@ -78,8 +78,8 @@
   .settingsHealthError {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 16px;
+    gap: var(--space-2);
+    padding: var(--space-4);
     border: 1px solid oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.08);
     border-radius: var(--radius-surface);
@@ -106,14 +106,14 @@
     padding: 0;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
+    gap: var(--space-2-5);
   }
   .settingsHealthSummaryTile {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    padding: 12px 14px;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
@@ -163,16 +163,16 @@
   .settingsHealthBlockers {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .settingsHealthLayer {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2-5);
   }
   .settingsHealthLayer > header h4 {
-    margin: 0 0 2px;
+    margin: 0 0 var(--space-0-5);
     font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--foreground);
@@ -187,14 +187,14 @@
     padding: 0;
     margin: 0;
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .settingsHealthSignalRow {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 12px 14px;
+    gap: var(--space-1-5);
+    padding: var(--space-3) var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
@@ -214,12 +214,12 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
   }
   .settingsHealthSignalHeading {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0-5);
   }
   .settingsHealthSignalHeading strong {
     font-size: var(--font-size-ui);
@@ -247,7 +247,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2-5);
     font-size: var(--font-size-caption);
     color: var(--foreground-50);
   }
@@ -255,12 +255,12 @@
     font-family: var(--font-mono);
     background: var(--foreground-5);
     border-radius: var(--radius-control);
-    padding: 1px 5px;
+    padding: 1px var(--space-1);
     color: var(--foreground-70);
   }
   .settingsHealthSignalBlocker {
     font-size: var(--font-size-caption);
-    padding: 1px 8px;
+    padding: 1px var(--space-2);
     border-radius: var(--radius-pill);
     border: 1px solid var(--border);
   }
@@ -277,7 +277,7 @@
 
   .settingsHealthFootnote {
     margin: 0;
-    padding: 12px 14px;
+    padding: var(--space-3) var(--space-3);
     border: 1px dashed var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);

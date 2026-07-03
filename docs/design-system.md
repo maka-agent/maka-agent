@@ -191,13 +191,27 @@ Tailwind alias：`--radius-sm`→control, `--radius-md`/`--radius-lg`→surface,
 
 ### 1.5 间距（Spacing）
 
-| Token / 值 | 用法 |
-|---|---|
-| `--spacing` = 0.25rem (4px) | 基础步距 |
-| chat gap = 18px | 每条 turn 之间 |
-| message pad-x = 24px | 消息行水平 padding |
-| composer pad-y = 18px | 输入区上下 padding |
-| turn inner gap = 8px | turn 内三段（user / tools / assistant）间隙 |
+| Token | 值 | 用法 |
+|---|---|---|
+| `--spacing` = 4px | 基础步距（绝对值，非 0.25rem） |
+| `--space-0` = 0 | 无间距 |
+| `--space-0-5` = 2px | 极小间隙（chip 内图标） |
+| `--space-1` = 4px | 小间隙 |
+| `--space-1-5` = 6px | dense UI 半步（chip gap、meta 行） |
+| `--space-2` = 8px | turn 内间隙、卡片内边距 |
+| `--space-2-5` = 10px | section 间距半步 |
+| `--space-3` = 12px | 卡片内边距、section gap |
+| `--space-4` = 16px | chat turn gap、卡片大边距 |
+| `--space-5` = 20px | 页面 padding |
+| `--space-6` = 24px | 消息行水平 padding |
+| `--space-8` = 32px | 大留白 |
+| `--space-10` = 40px | hero 区上下 padding |
+| `--space-12` = 48px | 大段落间距 |
+| `--space-16` = 64px | 响应式大留白上限 |
+
+16 以下保留所有偶数（0/2/4/6/8/10/12），dense UI 需要半步（6 在 4-8 之间，10 在 8-12 之间）。16 以上是纯 4px 倍数（16/20/24/32/40/48/64），大间距不需要半步精度。1px 作为 hairline literal 保留，不进 scale。Tailwind 的 `p-N`/`gap-N`/`m-N` 通过 `@theme inline` 的 `--spacing: 4px` 和手写 CSS 共用同一把尺子。
+
+`spacing-converge-contract.test.ts` 锁住两条规则：(1) `padding`/`margin`/`gap` 不准裸写 `Npx`，必须引用 `var(--space-*)` token、`calc(var(--spacing) * N)` 或 literal（`0`/`auto`/`inherit`/`1px` hairline）；`clamp()`/`max()`/`min()` 里的响应式参数例外。(2) TSX 不准用 `p-[Npx]`/`gap-[Npx]`/`m-[Npx]` arbitrary utility（1px 除外），必须用 Tailwind scale utility（`p-2`、`gap-1.5` 等）。
 
 Maka 不提供用户可配置的界面密度。新增布局应按具体 surface 的信息量定间距，不要新增全局 density switch。
 

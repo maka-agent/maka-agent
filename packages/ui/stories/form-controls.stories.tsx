@@ -31,16 +31,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export const InputStates: Story = {
   render: () => (
     <div style={{ display: 'grid', gap: 20, maxWidth: 440 }}>
-      <Section title="default">
+      <Section title="默认">
         <Input placeholder="输入内容…" aria-label="默认输入" />
       </Section>
-      <Section title="with value">
+      <Section title="已填值">
         <Input defaultValue="已经填好的文本" aria-label="有值输入" />
       </Section>
-      <Section title="disabled">
+      <Section title="禁用">
         <Input defaultValue="禁用态" disabled aria-label="禁用输入" />
       </Section>
-      <Section title="aria-invalid (error)">
+      <Section title="错误态">
         <Input defaultValue="错误值" aria-invalid="true" aria-label="错误态输入" />
       </Section>
     </div>
@@ -50,10 +50,10 @@ export const InputStates: Story = {
 export const TextareaStates: Story = {
   render: () => (
     <div style={{ display: 'grid', gap: 20, maxWidth: 440 }}>
-      <Section title="default">
+      <Section title="默认">
         <Textarea placeholder="多行输入…" aria-label="默认多行" />
       </Section>
-      <Section title="disabled">
+      <Section title="禁用">
         <Textarea defaultValue="禁用态多行文本" disabled aria-label="禁用多行" />
       </Section>
     </div>
@@ -70,7 +70,7 @@ export const Field: Story = {
           <FieldDescription>显示在侧栏和会话标题里。</FieldDescription>
         </FieldRoot>
       </Section>
-      <Section title="Field + Textarea">
+      <Section title="Field + Textarea 组合">
         <FieldRoot className="grid gap-1.5">
           <Label>项目说明</Label>
           <Textarea defaultValue="一个本地优先的 AI agent。" aria-label="项目说明" />
@@ -84,14 +84,14 @@ export const Field: Story = {
 export const SeparatorStates: Story = {
   render: () => (
     <div style={{ display: 'grid', gap: 20, maxWidth: 440 }}>
-      <Section title="horizontal">
+      <Section title="横向排列">
         <div style={{ display: 'grid', gap: 8 }}>
           <span style={{ fontSize: 13 }}>上方</span>
           <Separator />
           <span style={{ fontSize: 13 }}>下方</span>
         </div>
       </Section>
-      <Section title="vertical">
+      <Section title="纵向排列">
         <div style={{ alignItems: 'center', display: 'flex', gap: 12, height: 48 }}>
           <span style={{ fontSize: 13 }}>左</span>
           <Separator orientation="vertical" />

@@ -253,6 +253,42 @@ describe('task run export', () => {
         },
       },
       {
+        type: 'heavy_task_self_check_plan_recorded',
+        id: 'e3-plan',
+        taskRunId: 'run-progress',
+        ts: 3.5,
+        plan: {
+          schemaVersion: 1,
+          planId: 'plan-1',
+          taskRunId: 'run-progress',
+          ts: 3.5,
+          finalArtifacts: [{
+            path: 'build-output.log',
+            purpose: 'public self-check artifact',
+            publicReason: 'visible public check creates this artifact',
+          }],
+          selfCheckScratch: {
+            root: '/tmp/maka-self-check/run-progress',
+            expectedGeneratedPaths: ['/tmp/maka-self-check/run-progress/check.log'],
+            publicReason: 'public check outputs stay under scratch',
+          },
+          workspaceGuardPlan: {
+            checkedPaths: ['/app'],
+            expectedAddedPaths: ['build-output.log'],
+            expectedGeneratedPathsOutsideScratch: [],
+            publicReason: 'public guard checks visible workspace paths',
+          },
+          publicReason: 'plan is derived from visible public task evidence',
+          guard: {
+            status: 'accepted',
+            checkedAt: 3.5,
+            categories: [],
+            publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+          },
+          source: { kind: 'model_tool', toolCallId: 'tool-plan' },
+        },
+      },
+      {
         type: 'heavy_task_self_check_recorded',
         id: 'e4',
         taskRunId: 'run-progress',
@@ -345,6 +381,8 @@ describe('task run export', () => {
     assert.equal(exported.progress?.todos?.historyCount, 1);
     assert.equal(exported.progress?.selfChecks?.latest.selfCheckId, 'self-check-1');
     assert.equal(exported.progress?.selfChecks?.historyCount, 1);
+    assert.equal(exported.progress?.selfCheckPlans?.latest.planId, 'plan-1');
+    assert.equal(exported.progress?.selfCheckPlans?.audit?.status, 'pass');
     assert.equal(exported.progress?.evidence?.latest.evidenceId, 'evidence-bash-1');
     assert.equal(exported.progress?.evidence?.historyCount, 4);
     assert.ok(exported.progress?.evidence?.recent.some((item) => item.check?.linkedSelfCheckId === 'self-check-1'));
@@ -390,6 +428,8 @@ describe('task run export', () => {
     assert.equal(exported.heavyTask?.completion.runtime.capLike, true);
     assert.equal(exported.heavyTask?.completion.semantic.status, 'complete');
     assert.equal(exported.heavyTask?.completion.semantic.advisory, true);
+    assert.equal(exported.heavyTask?.selfCheckPlan?.latest?.planId, 'plan-1');
+    assert.equal(exported.heavyTask?.selfCheckPlan?.audit?.status, 'pass');
     assert.deepEqual(exported.heavyTask?.completion.semantic.unresolvedTodoIds, []);
     assert.deepEqual(exported.heavyTask?.completion.semantic.nonblockingTodoIds, ['optional-polish']);
     assert.equal(exported.heavyTask?.completion.finalization.eligible, true);
@@ -809,6 +849,42 @@ function heavyTaskCompletionEvents(todos: HeavyTaskTodoItem[] = [
         ts: 3,
         items: todos,
         source: { kind: 'model_tool', toolCallId: 'tool-todos' },
+      },
+    },
+    {
+      type: 'heavy_task_self_check_plan_recorded',
+      id: 'hc-plan',
+      taskRunId,
+      ts: 3.5,
+      plan: {
+        schemaVersion: 1,
+        planId: 'plan-1',
+        taskRunId,
+        ts: 3.5,
+        finalArtifacts: [{
+          path: 'build-output.log',
+          purpose: 'public self-check artifact',
+          publicReason: 'visible public check creates this artifact',
+        }],
+        selfCheckScratch: {
+          root: '/tmp/maka-self-check/run-heavy-complete',
+          expectedGeneratedPaths: ['/tmp/maka-self-check/run-heavy-complete/check.log'],
+          publicReason: 'public checks write temporary output under scratch',
+        },
+        workspaceGuardPlan: {
+          checkedPaths: ['/app'],
+          expectedAddedPaths: ['build-output.log'],
+          expectedGeneratedPathsOutsideScratch: [],
+          publicReason: 'public guard checks visible workspace paths',
+        },
+        publicReason: 'plan is derived from visible public task evidence',
+        guard: {
+          status: 'accepted',
+          checkedAt: 3.5,
+          categories: [],
+          publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+        },
+        source: { kind: 'model_tool', toolCallId: 'tool-plan' },
       },
     },
     {

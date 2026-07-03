@@ -14,7 +14,7 @@
      light row sits at y=14–28 on macOS; 22px sidebar top padding put
      the 设置 brand right against it. Bump to 52px so the brand label
      starts well below the traffic lights, matching reference. */
-  padding: 52px 10px 12px 14px;
+  padding: var(--space-12) var(--space-2-5) var(--space-3) var(--space-3);
   background: transparent;
 }
 
@@ -35,9 +35,9 @@
   min-height: 38px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 0 4px 4px;
-  padding: 6px 12px;
+  gap: var(--space-3);
+  margin: 0 var(--space-1) var(--space-1);
+  padding: var(--space-1-5) var(--space-3);
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground-70);
@@ -67,13 +67,13 @@
   min-height: 36px;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 var(--space-2-5);
 }
 
 .settingsSidebar header span {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--foreground);
   font-size: 1.2em;
   font-weight: 700;
@@ -81,21 +81,21 @@
 
 .settingsSidebar header .maka-shortcut-kbd {
   font-size: var(--font-size-caption);
-  padding: 0 4px;
+  padding: 0 var(--space-1);
 }
 
 .settingsSidebar nav {
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: var(--space-2-5);
   overflow: auto;
-  padding: 8px 0 0;
+  padding: var(--space-2) 0 0;
 }
 
 .settingsNavGroup {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .settingsNavGroupLabel {
@@ -110,7 +110,7 @@
   letter-spacing: 0.05em;
   text-transform: none;
   color: var(--foreground-40);
-  padding: 18px 12px 6px;
+  padding: var(--space-4) var(--space-3) var(--space-1-5);
 }
 
 .settingsNavGroupLabel::after {
@@ -130,14 +130,14 @@
   min-height: 38px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   box-shadow: none;
   color: var(--foreground-70);
-  margin-inline: 4px;
-  padding: 6px 12px;
+  margin-inline: var(--space-1);
+  padding: var(--space-1-5) var(--space-3);
   text-align: left;
   justify-content: initial;
   font-size: var(--font-size-ui);
@@ -165,7 +165,7 @@
   display: inline-flex;
   align-items: center;
   height: 18px;
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
   border-radius: var(--radius-control);
   background: oklch(from var(--nav-active) l c h / 0.12);
   color: var(--nav-active);
@@ -250,15 +250,15 @@
 .settingsFeatureStatusPage {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 /* Status banner at the top of feature settings pages. */
 .settingsFeatureStatusBanner {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px dashed oklch(from var(--info) l c h / 0.32);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.06);
@@ -285,8 +285,8 @@
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
   align-items: start;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--foreground-3);
@@ -303,7 +303,7 @@
 }
 
 .settingsFeatureStatusHero h3 {
-  margin: 0 0 3px;
+  margin: 0 0 var(--space-0-5);
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: 600;
@@ -319,9 +319,9 @@
 
 .settingsFeatureStatusList {
   margin: 0;
-  padding: 0 0 0 14px;
+  padding: 0 0 0 var(--space-3);
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--foreground-70);
   font-size: var(--font-size-caption);
   line-height: 1.45;
@@ -335,8 +335,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 6px;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1-5);
 }
 
 .settingsFeatureStatusHeroHeading h3 {
@@ -355,8 +355,8 @@
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
 /* PR audit2-bundled (@kenji audit #5 msg `e4cfbfb0`): names for the
@@ -364,11 +364,11 @@
    settings surfaces. Keeps the spacing decision discoverable + locked
    in the design token surface instead of buried in JSX. */
 .settingsSurfaceAlert {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .settingsNoticeAction {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* PR daily-review-bundled (@kenji audit finding #5): semantic width
@@ -389,7 +389,7 @@
 .settingsFeatureStatusBadge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-pill);
   background: oklch(from var(--nav-active) l c h / 0.12);
   color: var(--nav-active);
@@ -400,26 +400,26 @@
 }
 
 .settingsLoadingSkeleton {
-  padding: 8px 0;
+  padding: var(--space-2) 0;
   max-width: 540px;
 }
 
 .providersLoading {
   display: grid;
   align-content: start;
-  gap: 14px;
-  padding: 8px 4px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
 }
 
 .providersLoadingStrip {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .providersLoadingGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(198px, 1fr));
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 /* PR-SETTINGS-REVIEW-0 (2026-06-23, WAWQAQ msgs `f97ed407` + `8577326c`):
@@ -451,7 +451,7 @@
   overflow: hidden;
   /* Traffic-light-aligned top padding so the page title sits at the
      same Y baseline as the sidebar brand. */
-  padding: 52px 0 0;
+  padding: var(--space-12) 0 0;
 }
 
 /* PR-SETTINGS-REVIEW-0 fix-2: max-width centering on a grid child
@@ -461,18 +461,18 @@
    with row cards regardless of viewport width. */
 .settingsPageHeader {
   min-height: 36px;
-  padding: 0 max(24px, calc((100% - 768px) / 2 + 24px));
+  padding: 0 max(var(--space-6), calc((100% - 768px) / 2 + var(--space-6)));
   display: flex;
   align-items: center;
   /* X close button moved to the sidebar `返回应用` — header hosts the
      page title only, left-aligned. */
   justify-content: flex-start;
-  gap: 18px;
+  gap: var(--space-4);
 }
 
 .settingsPageHeaderTitleStack {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .settingsPageHeader h2 {
@@ -529,7 +529,7 @@
 .settingsPageContentInner {
   max-width: 768px;
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: var(--space-10) var(--space-6) var(--space-16);
 }
 
 /* PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the renamed
@@ -550,7 +550,7 @@
 .settingsStructuredPage {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: var(--space-4);
   background: transparent;
 }
 
@@ -558,7 +558,7 @@
    sub-pages, each wrapping in their own `.settingsStructuredPage`):
    the inner one just passes through. */
 .settingsStructuredPage .settingsStructuredPage {
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 /* PR-SETTINGS-SWEEP-0: section heading for merged pages. Mirrors
@@ -568,7 +568,7 @@
    to 12/2px tracking so it reads as a real sub-section break rather
    than a hairline. */
 .settingsSectionHeading {
-  margin: 24px 2px 10px;
+  margin: var(--space-6) var(--space-0-5) var(--space-2-5);
   color: var(--foreground-50);
   font-size: var(--font-size-ui);
   font-weight: 600;
@@ -598,8 +598,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 20px 24px;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
   border: 0;
   border-bottom: 1px solid oklch(from var(--foreground) l c h / 0.06);
   border-radius: 0;
@@ -729,7 +729,7 @@
 .settingsFormRow small,
 .settingsField small {
   display: block;
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
   color: var(--foreground-50);
   /* Hint is the most-read body text on the page; use the base scale so
      it clears the 14px legibility floor. */
@@ -739,7 +739,7 @@
 
 .settingsFieldWarning {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--warning-text, var(--info-text));
 }
 
@@ -753,7 +753,7 @@
 .settingsFormGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .settingsFormGridProxy {
@@ -763,7 +763,7 @@
 .settingsField,
 .settingsFormGrid label {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 /* PR-S2 (2026-06-23): reference-style horizontal Settings row — label
@@ -779,10 +779,10 @@
   grid-template-areas:
     "label control"
     "hint  control";
-  column-gap: 16px;
-  row-gap: 2px;
+  column-gap: var(--space-4);
+  row-gap: var(--space-0-5);
   align-items: center;
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border);
 }
 .settingsField[data-orient="horizontal"] > span {

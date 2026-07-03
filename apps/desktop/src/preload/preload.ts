@@ -92,6 +92,9 @@ export type QuickChatResult =
 export interface OnboardingSnapshot {
   state: OnboardingState;
   milestones: OnboardingMilestone[];
+  sessions: SessionSummary[];
+  connections: LlmConnection[];
+  defaultSlug: string | null;
 }
 
 type LocalMemoryMutationResult =

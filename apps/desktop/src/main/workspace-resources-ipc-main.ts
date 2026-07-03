@@ -18,6 +18,14 @@ interface WorkspaceResourcesIpcDeps {
   artifactStore: ArtifactStore;
   mainWindowController: MainWindowController;
   sendToRenderer: MainWindowController['send'];
+  /**
+   * Resolves once background startup has finished copying the bundled
+   * Office skills into the workspace (#456 moved that off the
+   * first-paint path). skills:list awaits it so an early Skills-page
+   * open cannot observe a half-bundled list. Already-settled after
+   * startup, so steady-state reads pay nothing.
+   */
+  bundledSkillsReady?: Promise<unknown>;
 }
 
 export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): void {
@@ -94,7 +102,10 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     }
   });
 
-  ipcMain.handle('skills:list', async () => listInstalledSkills(deps.workspaceRoot));
+  ipcMain.handle('skills:list', async () => {
+    await deps.bundledSkillsReady?.catch(() => {});
+    return listInstalledSkills(deps.workspaceRoot);
+  });
   ipcMain.handle('skills:createStarter', async () => createStarterSkill(deps.workspaceRoot));
   ipcMain.handle('skills:open', async (_event, id: string, target: 'file' | 'directory' = 'file') => {
     const resolved = await resolveSkillOpenPath(deps.workspaceRoot, id, target);

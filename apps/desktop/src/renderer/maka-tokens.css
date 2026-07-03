@@ -14,7 +14,7 @@
      - Sharp 0px radius corners + 1px subtle border rings (--shadow-minimal-flat).
      - Multi-layer soft shadows with very low opacity (0.06) instead of one heavy shadow.
      - System UI fonts with optical antialiasing.
-     - 15px base font, 0.25rem (4px) spacing unit → dense but readable.
+      - 15px base font, 4px spacing unit → dense but readable.
 ============================================================================ */
 
 /* =============================================================================
@@ -126,8 +126,11 @@
   --foreground-5:  color-mix(in oklch, var(--foreground) 5%,  var(--background));
   --foreground-8:  color-mix(in oklch, var(--foreground) 8%,  var(--background));
   --foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
-  --foreground-20: color-mix(in oklch, var(--foreground) 20%, var(--background));
-  --foreground-30: color-mix(in oklch, var(--foreground) 30%, var(--background));
+  /* P-TEXT (roadmap §1.6): the -20/-30 text tiers were orphans (8 call
+     sites total) sitting between the surface washes (2..10) and the
+     real text ladder (40/50/60/70/80). Text uses moved to -40 (also a
+     contrast fix: 30% ink fails 4.5:1); decorative uses inlined their
+     color-mix. Fewer tiers = crisper hierarchy. */
   --foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
   --foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
   --foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
@@ -166,36 +169,41 @@
   /* === shadow recipes ===
      Always include the 1px border ring as the FIRST inset-like layer.
      Subsequent layers are very low-opacity blurs that stack into a soft glow. */
+  /* P-SHADOW (design-refinement-roadmap-2026-07 §1.2): blur layers were
+     pure-black rgba — on a light warm-gray shell a pure black shadow
+     reads as a dirty smudge (taste-skill ban). Every layer now derives
+     from the warm foreground so shadow, border ring, and ink share one
+     light source. Dark mode collapses these to border rings below. */
   --shadow-minimal:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0,0,0, var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
-    rgba(0,0,0, var(--shadow-blur-opacity)) 0 3px 3px -1.5px;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
+    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
+    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 3px 3px -1.5px;
 
   --shadow-minimal-flat:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px;
 
   --shadow-medium:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0,0,0,0.06) 0 1px 1px -0.5px,
-    rgba(0,0,0,0.06) 0 3px 3px -1.5px,
-    rgba(0,0,0,0.06) 0 6px 6px -3px,
-    rgba(0,0,0,0.04) 0 12px 12px -6px;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
+    oklch(from var(--foreground) l c h / 0.06) 0 1px 1px -0.5px,
+    oklch(from var(--foreground) l c h / 0.06) 0 3px 3px -1.5px,
+    oklch(from var(--foreground) l c h / 0.06) 0 6px 6px -3px,
+    oklch(from var(--foreground) l c h / 0.04) 0 12px 12px -6px;
 
   --shadow-modal:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0,0,0,0.04) 0 1px 1px -0.5px,
-    rgba(0,0,0,0.04) 0 3px 3px 0,
-    rgba(0,0,0,0.02) 0 6px 6px 0,
-    rgba(0,0,0,0.02) 0 12px 12px 0,
-    rgba(0,0,0,0.02) 0 24px 24px 0;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
+    oklch(from var(--foreground) l c h / 0.04) 0 1px 1px -0.5px,
+    oklch(from var(--foreground) l c h / 0.04) 0 3px 3px 0,
+    oklch(from var(--foreground) l c h / 0.02) 0 6px 6px 0,
+    oklch(from var(--foreground) l c h / 0.02) 0 12px 12px 0,
+    oklch(from var(--foreground) l c h / 0.02) 0 24px 24px 0;
 
   /* === z-index scale (semantic) === */
   --z-base: 0;
@@ -251,7 +259,40 @@
   --radius-surface: 8px;
   --radius-modal: 12px;
   --radius-pill: 999px;
-  --spacing: 0.25rem;          /* 4px base step */
+
+  /* PR-SPACING-CONVERGE-0 (issue #430 PR3, 2026-07-03):
+     One ruler for every padding/gap/margin. Absolute 4px (not 0.25rem)
+     so it holds under any root font-size — the previous 0.25rem was
+     3.75px under the 15px root, silently mis-aligning Tailwind's spacing
+     scale (p-2 = 7.5px) with hand-written px (padding: 8px). The
+     @theme inline bridge below exports this same 4px to Tailwind so
+     p-2/gap-2/m-4 and var(--space-*) share one ruler.
+
+     Scale: 16-and-below keeps every even number (0/2/4/6/8/10/12) because
+     dense UI needs the half-steps (6 between 4-8, 10 between 8-12).
+     16-and-above is pure 4px multiples (16/20/24/32/40/48/64) — large
+     spacing doesn't need half-step precision. 1px stays a literal
+     (hairline, not a spacing beat). Deliberately absent: 14/18/22/26/28/
+     30/34/36/52/56 — snapped to the nearest scale value to kill magic
+     numbers. Spacing has no single-property anchor like border-radius,
+     so the contract scopes to padding/margin/gap only (not width/height/
+     inset/grid), per the adversarial review in #430. */
+  --spacing: 4px;              /* base step — the single ruler */
+  --space-0: 0;
+  --space-0-5: calc(var(--spacing) * 0.5);   /* 2px */
+  --space-1: calc(var(--spacing) * 1);       /* 4px */
+  --space-1-5: calc(var(--spacing) * 1.5);   /* 6px */
+  --space-2: calc(var(--spacing) * 2);       /* 8px */
+  --space-2-5: calc(var(--spacing) * 2.5);   /* 10px */
+  --space-3: calc(var(--spacing) * 3);       /* 12px */
+  --space-4: calc(var(--spacing) * 4);       /* 16px */
+  --space-5: calc(var(--spacing) * 5);       /* 20px */
+  --space-6: calc(var(--spacing) * 6);       /* 24px */
+  --space-8: calc(var(--spacing) * 8);       /* 32px */
+  --space-10: calc(var(--spacing) * 10);     /* 40px */
+  --space-12: calc(var(--spacing) * 12);     /* 48px */
+  --space-16: calc(var(--spacing) * 16);     /* 64px */
+
   --icon-size: 16px;           /* chrome glyph size (nav + button icons); dense
                                   meta (12-14) and hero (20+) stay call-site */
 
@@ -369,6 +410,24 @@
 
   --shadow-border-opacity: 0.15;
   --shadow-blur-opacity:   0.12;
+
+  /* P-SHADOW dark collapse (roadmap D2): blur shadows are nearly
+     invisible on a dark shell but still cost compositing and, worse,
+     the foreground-derived layers turn WHITE-ish in dark mode and read
+     as a glow. Elevation in dark mode is carried by border rings
+     (interface-design: "dark mode shadows collapse to a single ring");
+     modal keeps one deep drop so overlays still separate from the
+     backdrop. */
+  --shadow-minimal:
+    0 0 0 1px oklch(1 0 0 / 0.08);
+  --shadow-minimal-flat:
+    0 0 0 1px oklch(1 0 0 / 0.08);
+  --shadow-medium:
+    0 0 0 1px oklch(1 0 0 / 0.09),
+    0 4px 12px -6px oklch(0 0 0 / 0.5);
+  --shadow-modal:
+    0 0 0 1px oklch(1 0 0 / 0.10),
+    0 12px 32px -8px oklch(0 0 0 / 0.6);
 
   /* Slate user bubble for dark mode — distinct from --accent and readable
      against the dark background.
@@ -658,8 +717,6 @@
   --color-foreground-5:  var(--foreground-5);
   --color-foreground-8:  var(--foreground-8);
   --color-foreground-10: var(--foreground-10);
-  --color-foreground-20: var(--foreground-20);
-  --color-foreground-30: var(--foreground-30);
   --color-foreground-40: var(--foreground-40);
   --color-foreground-50: var(--foreground-50);
   --color-foreground-60: var(--foreground-60);
@@ -757,7 +814,7 @@
     font-size: 0.82em;
     font-weight: 600;
     line-height: 1;
-    padding: 2px 6px;
+    padding: var(--space-0-5) var(--space-1-5);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
     border: 1px solid var(--border-strong);
@@ -798,8 +855,8 @@
   .pill {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
+    gap: var(--space-1);
+    padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-ui);
     font-weight: 500;
     color: var(--foreground-80);
@@ -848,7 +905,7 @@
   }
   .maka-sidebar-header {
     height: var(--h-titlebar);
-    padding: 0 12px;
+    padding: 0 var(--space-3);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -860,13 +917,13 @@
     color: var(--foreground-60);
   }
   .maka-sidebar-section {
-    padding: 8px 6px;
+    padding: var(--space-2) var(--space-1-5);
   }
   .maka-sidebar-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
+    gap: var(--space-2);
+    padding: var(--space-1-5) var(--space-2-5);
     border-radius: var(--radius-control);
     color: var(--foreground-80);
     font-size: var(--font-size-ui);
@@ -892,7 +949,7 @@
     appearance: none;
     background: transparent;
     border: none;
-    padding: 4px 8px;
+    padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-control);
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
@@ -912,8 +969,8 @@
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 0 16px;
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
     font-size: var(--font-size-ui);
     color: var(--foreground-70);
   }
@@ -924,12 +981,12 @@
   .maka-chat {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 0 16px 0;
+    padding: var(--space-6) 0 var(--space-4) 0;
     display: flex;
     flex-direction: column;
     /* PR-CHAT-CHROME-FOLLOWUP-0: looser separation BETWEEN turns so each
        Q+A unit reads as its own block (the within-turn gap stays tight). */
-    gap: 24px;
+    gap: var(--space-6);
   }
   .maka-message-row {
     max-width: var(--maka-chat-measure, 680px);
@@ -949,15 +1006,29 @@
        block, summary, tools, answer) were cramped; 8px gives a calmer
        internal rhythm while still reading as one unit against the 24px
        between-turn gap. */
-    gap: 8px;
+    gap: var(--space-2);
     max-width: var(--maka-chat-measure, 680px);
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;
+    /* Long-conversation first render: skip layout/paint for off-screen
+       turns (vercel react-best-practices rendering-content-visibility —
+       ~10x initial-render win on long sessions, keeps native Cmd+F and
+       text selection, no virtualization library). `auto 250px` keeps a
+       placeholder estimate until first render, then the remembered
+       actual size prevents scrollbar jumps. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 250px;
+  }
+
+  /* The streaming turn must never be skipped: it grows every frame and
+     anchors the auto-scroll-to-bottom behavior. */
+  .maka-turn-streaming {
+    content-visibility: visible;
   }
 
   .maka-turn-tools {
-    padding: 0 8px 0 0;
+    padding: 0 var(--space-2) 0 0;
   }
 
   /* Turn summary strip + chips (model · tools · duration · tokens) and the
@@ -983,8 +1054,8 @@
    * element JS state and isn't a single-element CSS fix; deferred
    * until we route reasoning through Base UI's Accordion. */
   .maka-turn-thinking {
-    margin: 0 0 8px;
-    padding: 8px 10px;
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px dashed oklch(from var(--focus-ring) l c h / 0.25);
     border-radius: var(--radius-surface);
     background: oklch(from var(--focus-ring) l c h / 0.03);
@@ -995,7 +1066,7 @@
   .maka-turn-thinking summary {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     font-weight: 600;
     color: var(--focus-ring);
     letter-spacing: 0.02em;
@@ -1032,7 +1103,7 @@
   }
 
   .maka-turn-thinking-body {
-    margin-top: 6px;
+    margin-top: var(--space-1-5);
     line-height: 1.55;
     font-style: italic;
     opacity: 0.9;
@@ -1041,7 +1112,7 @@
   .maka-turn-thinking-actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: 6px;
+    margin-top: var(--space-1-5);
   }
 
   /* Task list checkboxes inside assistant markdown — remark-gfm gives us
@@ -1056,11 +1127,11 @@
 
   .maka-bubble-assistant ul.contains-task-list,
   .maka-bubble-assistant ol.contains-task-list {
-    padding-left: 4px;
+    padding-left: var(--space-1);
   }
 
   .maka-bubble-assistant li.task-list-item {
-    padding-left: 2px;
+    padding-left: var(--space-0-5);
   }
 
   .maka-bubble-assistant li.task-list-item > input[type="checkbox"] {
@@ -1068,7 +1139,7 @@
     -webkit-appearance: none;
     width: 14px;
     height: 14px;
-    margin: 0 8px 0 0;
+    margin: 0 var(--space-2) 0 0;
     border: 1.5px solid var(--foreground-40);
     border-radius: var(--radius-control);
     background: transparent;
@@ -1126,7 +1197,7 @@
   .maka-bubble-assistant {
     color: var(--foreground);
     line-height: 1.68;
-    padding: 2px 0 0;
+    padding: var(--space-0-5) 0 0;
     word-wrap: break-word;
     /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills
        round task #116): cap body prose at ~72ch per pbakaus
@@ -1149,14 +1220,14 @@
   .maka-bubble-assistant > :nth-last-child(2) { margin-bottom: 0; }
   .maka-bubble-assistant > p:nth-last-child(2) { display: inline; }
   .maka-bubble-assistant p {
-    margin: 0 0 14px;
+    margin: 0 0 var(--space-3);
     text-wrap: pretty;
   }
   .maka-bubble-assistant h1,
   .maka-bubble-assistant h2,
   .maka-bubble-assistant h3,
   .maka-bubble-assistant h4 {
-    margin: 18px 0 8px;
+    margin: var(--space-4) 0 var(--space-2);
     line-height: 1.25;
     font-weight: 600;
     text-wrap: balance;
@@ -1174,10 +1245,10 @@
   .maka-bubble-assistant h4 { font-size: 0.9333em; color: var(--foreground-80); }
   .maka-bubble-assistant ul,
   .maka-bubble-assistant ol {
-    margin: 0 0 12px;
-    padding-left: 22px;
+    margin: 0 0 var(--space-3);
+    padding-left: var(--space-6);
   }
-  .maka-bubble-assistant li { margin: 2px 0; }
+  .maka-bubble-assistant li { margin: var(--space-0-5) 0; }
   .maka-bubble-assistant li > ul,
   .maka-bubble-assistant li > ol { margin-bottom: 0; }
   .maka-bubble-assistant a {
@@ -1188,8 +1259,8 @@
      * smoothly. Also: explicit padding-inline + negative margin so
      * the focus halo has hit area without pushing inline content
      * around. */
-    padding: 0 2px;
-    margin: 0 -2px;
+    padding: 0 var(--space-0-5);
+    margin: 0 calc(var(--space-0-5) * -1);
     border-radius: var(--radius-control);
     transition: border-bottom-color 120ms var(--ease-out-strong), background 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
@@ -1204,7 +1275,7 @@
   .maka-bubble-assistant code {
     font-family: var(--font-mono);
     font-size: 0.86em;
-    padding: 1px 6px;
+    padding: 1px var(--space-1-5);
     /* PR-UI-LAYOUT-28: inline code radius 4 → 5. Tiny bump but
      * pulls it slightly out of the "tight tag" feel into a calmer
      * pill rhythm that matches the rest of the warm-canvas chrome. */
@@ -1217,7 +1288,7 @@
      but the border + radius now live on the wrapper so the header reads
      as part of the same surface. */
   .maka-bubble-assistant .maka-code-block {
-    margin: 0 0 14px;
+    margin: 0 0 var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     overflow: hidden;
@@ -1227,7 +1298,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 10px 4px 12px;
+    padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-3);
     border-bottom: 1px solid var(--border);
     background: var(--foreground-5);
     color: var(--foreground-60);
@@ -1276,7 +1347,7 @@
   }
   .maka-bubble-assistant pre {
     margin: 0;
-    padding: 12px 14px;
+    padding: var(--space-3) var(--space-3);
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1323,7 +1394,7 @@
   .hljs-emphasis   { font-style: italic; }
   .hljs-strong     { font-weight: 700; }
   .maka-bubble-assistant blockquote {
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
      * Bump padding so the quote actually has air around it, switch
      * left rule to accent at 28% so it visually anchors the quote
@@ -1337,7 +1408,7 @@
      * passage" while system alerts continue to own the
      * icon + border + saturated tone pattern. The left rule keeps
      * the accent tie so quotes still feel branded, not generic. */
-    padding: 8px 16px;
+    padding: var(--space-2) var(--space-4);
     border-left: 3px solid oklch(from var(--focus-ring) l c h / 0.28);
     background: var(--foreground-3);
     border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
@@ -1345,7 +1416,7 @@
   }
   .maka-bubble-assistant table {
     width: 100%;
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     border-collapse: collapse;
     font-size: var(--font-size-ui);
     overflow: hidden;
@@ -1358,7 +1429,7 @@
   }
   .maka-bubble-assistant th,
   .maka-bubble-assistant td {
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--border);
     text-align: left;
   }
@@ -1379,7 +1450,7 @@
     letter-spacing: 0.01em;
   }
   .maka-bubble-assistant hr {
-    margin: 16px 0;
+    margin: var(--space-4) 0;
     border: 0;
     border-top: 1px solid var(--border);
   }
@@ -1429,8 +1500,8 @@
     height: auto;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 8px;
+    gap: var(--space-1-5);
+    padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-caption);
     font-weight: 600;
     opacity: 1;
@@ -1475,7 +1546,7 @@
   .maka-bubble-streaming::after {
     content: "▎";
     display: inline-block;
-    margin-left: 2px;
+    margin-left: var(--space-0-5);
      color: var(--status-running);
      animation: maka-cursor 1.1s var(--ease-in-out-strong) infinite;
     vertical-align: -2px;
@@ -1534,7 +1605,7 @@
      * a strong horizontal line slicing the panel. The composer's
      * own border + rounded chrome below is sufficient visual
      * separation; no extra line needed. */
-    padding: 18px 24px;
+    padding: var(--space-4) var(--space-6);
     background: var(--background);
   }
   .maka-composer-inner {
@@ -1554,10 +1625,10 @@
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
     border-radius: var(--radius-modal);
     background: var(--background-elevated);
-    padding: 14px 16px;
+    padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2-5);
     border: 1px solid var(--border);
     transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong), background 160ms var(--ease-out-strong);
   }
@@ -1613,7 +1684,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
   }
@@ -1630,7 +1701,7 @@
     border: 1px solid var(--border);
     background: var(--background);
     color: var(--foreground);
-    padding: 7px 14px;
+    padding: var(--space-1-5) var(--space-3);
     border-radius: var(--radius-control);
     font-size: var(--font-size-ui);
     font-weight: 500;
@@ -1675,7 +1746,7 @@
     opacity: 1;
   }
   .maka-modal-header {
-    padding: 16px 20px 8px 20px;
+    padding: var(--space-4) var(--space-5) var(--space-2) var(--space-5);
     border-bottom: 1px solid var(--border);
   }
   .maka-modal-title {
@@ -1687,16 +1758,16 @@
   .maka-modal-subtitle {
     font-size: var(--font-size-ui);
     color: var(--foreground-60);
-    margin-top: 2px;
+    margin-top: var(--space-0-5);
   }
-  .maka-modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+  .maka-modal-body { padding: var(--space-4) var(--space-5); overflow-y: auto; flex: 1; }
   .maka-modal-footer {
-    padding: 12px 20px;
+    padding: var(--space-3) var(--space-5);
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   /* ---- Permission badge tones (for status text + dialog reason) --- */
@@ -1718,7 +1789,7 @@
     background: var(--foreground-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-2-5);
     color: var(--foreground);
     overflow-x: auto;
     white-space: pre-wrap;
@@ -1780,7 +1851,7 @@
 }
 .maka-skeleton-stack {
   display: grid;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 /* =============================================================================

@@ -21,7 +21,41 @@
  *     vocabulary.
  */
 
-import type { SessionBlockedReason, SessionStatus } from '@maka/core';
+import type { SessionBlockedReason, SessionStatus, SessionSummary } from '@maka/core';
+
+/**
+ * Session-level "blocked" is only worth interrupting the user when
+ * they can ACT on it: configure a connection, re-login, or confirm a
+ * permission. `tool_failed` / `unknown` mean "the last run's bookkeeping
+ * didn't close cleanly" — the conversation itself is intact and
+ * retryable, and the failure detail already surfaces on the failed
+ * turn inside the chat. Runtime keeps writing the strict status (the
+ * #397/#410 terminal-fact invariant is untouched); this is a
+ * display-layer distinction only.
+ */
+const ACTIONABLE_BLOCKED_REASONS: ReadonlySet<SessionBlockedReason> = new Set([
+  'NO_REAL_CONNECTION',
+  'auth',
+  'permission_required',
+]);
+
+export function isActionableBlocked(reason: SessionBlockedReason | undefined): boolean {
+  return reason !== undefined && ACTIONABLE_BLOCKED_REASONS.has(reason);
+}
+
+/**
+ * Normalize a SessionSummary as it enters renderer state: non-actionable
+ * blocked sessions read as ordinary resumable sessions (`active`), so the
+ * sidebar grouping, row icon, and chat-header badge all agree without
+ * each consumer re-implementing the rule. Everything else passes through
+ * unchanged.
+ */
+export function normalizeSessionSummaryForDisplay(session: SessionSummary): SessionSummary {
+  if (session.status !== 'blocked' || isActionableBlocked(session.blockedReason)) return session;
+  const { blockedReason: _blockedReason, ...rest } = session;
+  void _blockedReason;
+  return { ...rest, status: 'active' };
+}
 
 /**
  * Status tone vocabulary — extends the chat-header-alert tone set

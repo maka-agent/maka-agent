@@ -216,9 +216,17 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(checklist, /onStartPlanReminder\?\(\): void/);
     assert.match(checklist, /id:\s*'plan-reminder'/);
     assert.match(checklist, /建一条本地计划提醒/);
+    // The old `props.onStartPlanReminder?.() ?? props.onOpenSidebarModule(...)`
+    // pattern was a bug: the callback returns void, so `?.()` always yields
+    // undefined and the "fallback" fired unconditionally. The contract now
+    // pins the explicit branch.
     assert.match(
       checklist,
-      /onClick:\s*\(\)\s*=>\s*props\.onStartPlanReminder\?\.\(\)\s*\?\?\s*props\.onOpenSidebarModule\('automations'\)/,
+      /if\s*\(props\.onStartPlanReminder\)\s*props\.onStartPlanReminder\(\);/,
+    );
+    assert.match(
+      checklist,
+      /else\s*props\.onOpenSidebarModule\('automations'\);/,
     );
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
     assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { evaluateHeavyTaskSelfCheckGate } from '../heavy-task-self-check-gate.js';
 import type { Task } from '../contracts.js';
-import type { HeavyTaskModeFacts, HeavyTaskSemanticSelfCheckState, HeavyTaskTodoItem, TaskEvent } from '../task-contracts.js';
+import type { HeavyTaskModeFacts, HeavyTaskSelfCheckPlanState, HeavyTaskSemanticSelfCheckState, HeavyTaskTodoItem, TaskEvent } from '../task-contracts.js';
 import { projectTaskRun } from '../task-run-store.js';
 
 const heavyTaskMode: HeavyTaskModeFacts = {
@@ -64,17 +64,105 @@ describe('heavy-task self-check gate', () => {
   });
 
   test('pass with sandbox, workspace guard, command evidence, and visible artifact evidence can finalize', () => {
+    const selfCheckState = selfCheck('pass', {
+      command: 'test -f /app/move.txt && python - <<PY\nimport json\nPY',
+      refs: ['/app/move.txt', '/app/report.jsonl'],
+    });
     const decision = evaluateHeavyTaskSelfCheckGate({
       task,
       heavyTaskMode,
-      projection: projection(selfCheck('pass', {
-        command: 'test -f /app/move.txt && python - <<PY\nimport json\nPY',
-        refs: ['/app/move.txt', '/app/report.jsonl'],
-      })),
+      projection: projection(selfCheckState, plan(['/app/move.txt', '/app/report.jsonl'])),
     });
 
     assert.equal(decision.action, 'allow_finalize');
     assert.equal(decision.action === 'allow_finalize' ? decision.selfCheckId : undefined, 'self-check-1');
+  });
+
+  test('pass self-check without a plan returns a plan diagnostic', () => {
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task,
+      heavyTaskMode,
+      projection: projection(selfCheck('pass', {
+        command: 'test -f /app/move.txt && test -f /app/report.jsonl',
+        refs: ['/app/move.txt', '/app/report.jsonl'],
+      })),
+    });
+
+    assert.equal(decision.action, 'repair_prompt');
+    assert.match(decision.reason, /missing_self_check_plan/);
+    assert.match(decision.reason, /no accepted self_check_plan_submit/);
+  });
+
+  test('planned /app/move.txt addition is not a dirty workspace blocker', () => {
+    const selfCheckState = selfCheck('pass', {
+      command: 'test -f /app/move.txt && test -f /app/report.jsonl',
+      refs: ['/app/move.txt', '/app/report.jsonl'],
+      executionHygiene: {
+        sandbox: {
+          root: '/tmp/maka-self-check/run-gate',
+          strategy: 'scratch_dir',
+          commandCwd: '/tmp/maka-self-check/run-gate',
+          outputPolicy: 'scratch_only',
+        },
+        scratchUsed: true,
+        scratchPath: '/tmp/maka-self-check/run-gate',
+        cleanupPerformed: true,
+        workspaceSideEffects: 'present',
+        workspaceGuard: {
+          checked: true,
+          checkedPaths: ['/app'],
+          addedPaths: ['/app/move.txt'],
+          modifiedPaths: [],
+          removedPaths: [],
+        },
+      },
+    });
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task,
+      heavyTaskMode,
+      projection: projection(selfCheckState, plan(['/app/move.txt', '/app/report.jsonl'])),
+    });
+
+    assert.equal(decision.action, 'allow_finalize');
+  });
+
+  test('unplanned /app/polyglot/cmain yields scratch and unplanned risk diagnostics without repair instructions', () => {
+    const selfCheckState = selfCheck('pass', {
+      command: 'cc /app/polyglot/main.py.c -o /app/polyglot/cmain && test -f /app/move.txt',
+      refs: ['/app/move.txt', '/app/report.jsonl'],
+      artifactPath: '/app/polyglot/cmain',
+      executionHygiene: {
+        sandbox: {
+          root: '/tmp/maka-self-check/run-gate',
+          strategy: 'scratch_dir',
+          commandCwd: '/tmp/maka-self-check/run-gate',
+          outputPolicy: 'scratch_only',
+        },
+        scratchUsed: true,
+        scratchPath: '/tmp/maka-self-check/run-gate',
+        cleanupPerformed: true,
+        workspaceSideEffects: 'present',
+        workspaceGuard: {
+          checked: true,
+          checkedPaths: ['/app/polyglot'],
+          addedPaths: ['/app/polyglot/cmain'],
+          modifiedPaths: [],
+          removedPaths: [],
+        },
+      },
+    });
+
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task,
+      heavyTaskMode,
+      projection: projection(selfCheckState, plan(['/app/move.txt', '/app/report.jsonl'])),
+    });
+
+    assert.equal(decision.action, 'repair_prompt');
+    assert.match(decision.reason, /unplanned_added_path/);
+    assert.match(decision.reason, /scratch_escape/);
+    assert.match(decision.reason, /\/app\/polyglot\/cmain/);
+    assert.doesNotMatch(decision.reason, /fix|repair|rerun|submit a revised plan/i);
   });
 
   test('weak pass without command or artifact evidence stays blocked', () => {
@@ -101,7 +189,7 @@ describe('heavy-task self-check gate', () => {
         command: 'npm test',
         refs: ['README.md'],
         artifactPath: 'README.md',
-      })),
+      }), plan(['/app/move.txt', '/app/report.jsonl'])),
     });
 
     assert.equal(decision.action, 'repair_prompt');
@@ -122,7 +210,7 @@ describe('heavy-task self-check gate', () => {
   });
 });
 
-function projection(selfCheckState?: HeavyTaskSemanticSelfCheckState) {
+function projection(selfCheckState?: HeavyTaskSemanticSelfCheckState, planState?: HeavyTaskSelfCheckPlanState) {
   const taskRunId = 'run-gate';
   const events: TaskEvent[] = [
     { type: 'task_run_created', id: 'e1', taskRunId, ts: 1, taskId: task.id, configId: 'cfg' },
@@ -142,10 +230,46 @@ function projection(selfCheckState?: HeavyTaskSemanticSelfCheckState) {
       },
     },
   ];
+  if (planState) {
+    events.push({ type: 'heavy_task_self_check_plan_recorded', id: 'e4-plan', taskRunId, ts: 4, plan: planState });
+  }
   if (selfCheckState) {
     events.push({ type: 'heavy_task_self_check_recorded', id: 'e4', taskRunId, ts: 4, selfCheck: selfCheckState });
   }
   return projectTaskRun(events, taskRunId);
+}
+
+function plan(finalArtifacts: string[]): HeavyTaskSelfCheckPlanState {
+  return {
+    schemaVersion: 1,
+    planId: 'plan-1',
+    taskRunId: 'run-gate',
+    ts: 3.5,
+    finalArtifacts: finalArtifacts.map((path) => ({
+      path,
+      purpose: `visible deliverable ${path}`,
+      publicReason: 'visible task instruction requires this artifact',
+    })),
+    selfCheckScratch: {
+      root: '/tmp/maka-self-check/run-gate',
+      expectedGeneratedPaths: ['/tmp/maka-self-check/run-gate/check.log'],
+      publicReason: 'public check output stays under scratch',
+    },
+    workspaceGuardPlan: {
+      checkedPaths: ['/app'],
+      expectedAddedPaths: finalArtifacts,
+      expectedGeneratedPathsOutsideScratch: [],
+      publicReason: 'public guard checks visible deliverables',
+    },
+    publicReason: 'plan is derived from visible task artifacts and public checks',
+    guard: {
+      status: 'accepted',
+      checkedAt: 3.5,
+      categories: [],
+      publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+    },
+    source: { kind: 'model_tool', toolCallId: 'tool-plan' },
+  };
 }
 
 function phaseGateTodos(): HeavyTaskTodoItem[] {

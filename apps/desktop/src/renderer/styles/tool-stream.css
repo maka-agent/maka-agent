@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .settingsWebSearchStatusCluster {
@@ -18,7 +18,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-left: auto;
 }
 
@@ -52,16 +52,16 @@
 @layer components {
   .settingsWebSearchResults {
     list-style: none;
-    margin: 12px 0 0;
+    margin: var(--space-3) 0 0;
     padding: 0;
     display: grid;
-    gap: 10px;
+    gap: var(--space-2-5);
   }
 
   .settingsWebSearchResult {
     display: grid;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
@@ -133,8 +133,8 @@
 @layer components {
   .settingsMemoryPreview {
     display: grid;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
@@ -161,8 +161,8 @@
 
   .settingsMemoryPromptPreview {
     display: grid;
-    gap: 8px;
-    padding: 12px;
+    gap: var(--space-2);
+    padding: var(--space-3);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
@@ -177,7 +177,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .settingsMemoryPromptPreviewHeader strong {
@@ -188,7 +188,7 @@
   .settingsMemoryPromptPreviewHeader div {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2-5);
   }
 
   .settingsMemoryPromptPreviewHeader span {
@@ -215,7 +215,7 @@
   .settingsMemoryPromptPreview pre {
     max-height: 220px;
     margin: 0;
-    padding: 10px;
+    padding: var(--space-2-5);
     overflow: auto;
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-control);
@@ -237,8 +237,8 @@
 
   .settingsMemoryEntryPreviewNotice {
     display: grid;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid oklch(from var(--warning) l c h / 0.34);
     border-radius: var(--radius-surface);
     background: oklch(from var(--warning) l c h / 0.08);
@@ -257,8 +257,8 @@
 
   .settingsMemorySaveSummary {
     display: grid;
-    gap: 3px;
-    padding: 8px 10px;
+    gap: var(--space-0-5);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px solid oklch(from var(--success) l c h / 0.28);
     border-radius: var(--radius-surface);
     background: oklch(from var(--success) l c h / 0.08);
@@ -289,8 +289,8 @@
 
   .settingsMemoryBackupList {
     display: grid;
-    gap: 6px;
-    padding: 8px 10px;
+    gap: var(--space-1-5);
+    padding: var(--space-2) var(--space-2-5);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
@@ -312,7 +312,7 @@
     padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-1-5);
   }
 
   .settingsMemoryBackupCandidates > li {
@@ -329,8 +329,8 @@
   .settingsMemoryBackupCandidate {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 7px;
+    gap: var(--space-1-5);
+    padding: var(--space-0-5) var(--space-1-5);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-pill);
     background: var(--background);
@@ -342,12 +342,12 @@
 @layer components {
   .settingsMemoryEntryGroups {
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .settingsMemoryEntryGroup {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .settingsMemoryEntryGroup[data-archived="true"] {
@@ -358,7 +358,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
     font-size: var(--font-size-ui);
     color: var(--foreground-60);
   }
@@ -370,7 +370,7 @@
 
   .settingsMemoryEntryDraftNotice {
     margin: 0;
-    padding: 6px 8px;
+    padding: var(--space-1-5) var(--space-2);
     border: 1px solid oklch(from var(--warning) l c h / 0.30);
     border-radius: var(--radius-surface);
     background: oklch(from var(--warning) l c h / 0.08);
@@ -402,8 +402,8 @@
 
   .settingsMemoryEntryCard {
     display: grid;
-    gap: 3px;
-    padding: 9px 11px;
+    gap: var(--space-0-5);
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--foreground-8);
   }
 
@@ -430,7 +430,7 @@
   .settingsMemoryEntryFacts {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 10px;
+    gap: var(--space-1) var(--space-2-5);
   }
 
   .settingsMemoryEntryFacts span {
@@ -440,7 +440,7 @@
   .settingsMemoryPromptScope {
     width: max-content;
     max-width: 100%;
-    padding: 2px 6px;
+    padding: var(--space-0-5) var(--space-1-5);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
@@ -480,7 +480,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settingsMemoryFilter input {
@@ -491,7 +491,7 @@
   color: var(--foreground);
   font: inherit;
   font-size: var(--font-size-ui);
-  padding: 8px 9px;
+  padding: var(--space-2) var(--space-2);
 }
 
 .settingsMemoryFilter small {
@@ -509,8 +509,8 @@
   .settingsMemoryFilterEmpty,
   .settingsMemoryListEmpty {
     display: grid;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
@@ -532,8 +532,8 @@
 
 .settingsMemoryManualAdd {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--foreground-10);
   border-radius: var(--radius-surface);
   background: var(--foreground-2);
@@ -541,7 +541,7 @@
 
 .settingsMemoryManualAddHeader {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .settingsMemoryManualAddHeader strong {
@@ -556,7 +556,7 @@
 
 .settingsMemoryManualAddGrid {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settingsMemoryManualAddGrid input,
@@ -568,7 +568,7 @@
   color: var(--foreground);
   font: inherit;
   font-size: var(--font-size-ui);
-  padding: 8px 9px;
+  padding: var(--space-2) var(--space-2);
 }
 
 .settingsMemoryManualAddGrid textarea {
@@ -584,8 +584,8 @@
 
 .settingsMemoryDraftWarning {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: var(--space-1);
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid oklch(from var(--warning) l c h / 0.38);
   border-radius: var(--radius-surface);
   background: oklch(from var(--warning) l c h / 0.09);
@@ -604,7 +604,7 @@
 
 .settingsMemoryEditor {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settingsMemoryEditor > span {
@@ -619,7 +619,7 @@
   resize: vertical;
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  padding: 10px 12px;
+  padding: var(--space-2-5) var(--space-3);
   background: var(--background-elevated, var(--background));
   color: var(--foreground);
   font-family: var(--font-mono);
@@ -645,12 +645,12 @@
 @layer components {
   .maka-onboarding-stack {
     display: grid;
-    gap: 28px;
+    gap: var(--space-6);
     align-content: start;
     justify-items: center;
     width: 100%;
     min-height: calc(100dvh - 84px);
-    padding: clamp(40px, 7vh, 76px) 28px 48px;
+    padding: clamp(var(--space-10), 7vh, 76px) var(--space-6) var(--space-12);
   }
 
   .maka-onboarding-stack > .maka-onboarding-ready {
@@ -667,19 +667,19 @@
     width: min(760px, 100%);
     border: 1px solid oklch(from var(--foreground) l c h / 0.07);
     border-radius: var(--radius-surface);
-    padding: 14px;
+    padding: var(--space-3);
     background: oklch(from var(--background-elevated, var(--background)) l c h / 0.58);
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
     box-shadow: 0 10px 30px oklch(from var(--foreground) l c h / 0.04);
   }
 
   .maka-first-run-checklist-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     color: var(--foreground-60);
-    padding: 0 4px 2px;
+    padding: 0 var(--space-1) var(--space-0-5);
   }
 
   .maka-first-run-checklist-header strong {
@@ -700,24 +700,24 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
   border-radius: var(--radius-surface);
   background: oklch(from var(--warning, var(--info)) l c h / 0.08);
   color: var(--warning-text, var(--info-text));
   font-size: var(--font-size-ui);
   line-height: 1.45;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
 }
 
 .maka-first-run-checklist-error-action {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 4px;
+  gap: var(--space-1);
   height: auto;
   min-height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
   border-radius: var(--radius-control);
   background: var(--background);
@@ -746,7 +746,7 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 }
 
@@ -756,11 +756,11 @@
   background: var(--background);
   border: 1px solid oklch(from var(--foreground) l c h / 0.07);
   border-radius: var(--radius-control);
-  padding: 7px 10px 7px 8px;
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1-5) var(--space-2);
   display: inline-grid;
   grid-template-columns: 20px max-content 0;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-1-5);
   width: auto;
   text-align: left;
   color: var(--foreground-70);
@@ -828,8 +828,8 @@
 @media (max-width: 760px) {
   @layer components {
     .maka-onboarding-stack {
-      gap: 22px;
-      padding: 28px 16px 32px;
+      gap: var(--space-6);
+      padding: var(--space-6) var(--space-4) var(--space-8);
     }
   }
 
@@ -839,7 +839,7 @@
   }
 
   .maka-onboarding-ready header p {
-    margin-top: 8px;
+    margin-top: var(--space-2);
   }
 
   .maka-onboarding-quickchat-input {
@@ -848,7 +848,7 @@
   }
 
   .maka-onboarding-quickchat-field {
-    padding: 16px 16px 72px;
+    padding: var(--space-4) var(--space-4) var(--space-16);
   }
 
   .maka-onboarding-quickchat-example {
@@ -873,7 +873,7 @@
     }
 
     .maka-first-run-checklist {
-      padding: 12px;
+      padding: var(--space-3);
     }
   }
 }
@@ -886,6 +886,6 @@
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 8px;
-  padding: 18px 20px 20px;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
 }

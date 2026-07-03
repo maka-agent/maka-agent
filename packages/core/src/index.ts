@@ -770,6 +770,7 @@ export type {
 } from './usage-stats/types.js';
 
 export {
+  formatCompactTimestamp,
   formatRelativeTimestamp,
   nextRelativeRefreshDelay,
   resetRelativeTimeFormatters,

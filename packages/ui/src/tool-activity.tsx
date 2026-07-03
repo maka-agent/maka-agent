@@ -284,7 +284,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
   }
 
   return (
-    <Alert variant="error" className="mb-[10px]">
+    <Alert variant="error" className="mb-2.5">
       <AlertOctagon size={16} strokeWidth={2} aria-hidden="true" />
       <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (

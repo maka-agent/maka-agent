@@ -169,7 +169,12 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
           : '计划提醒状态暂时没刷新成功，打开计划页可查看。',
         done: hasPlanReminder,
         trackCompletion: planStatusKnown,
-        onClick: () => props.onStartPlanReminder?.() ?? props.onOpenSidebarModule('automations'),
+        // `onStartPlanReminder` returns void, so `?.() ?? fallback()` would
+        // ALWAYS also fire the fallback — explicit branch instead.
+        onClick: () => {
+          if (props.onStartPlanReminder) props.onStartPlanReminder();
+          else props.onOpenSidebarModule('automations');
+        },
       },
       {
         id: 'daily-review',

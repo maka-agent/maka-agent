@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
   ConnectionEvent,
   LlmConnection,
@@ -35,14 +35,19 @@ import { useCommandPalette } from './command-palette';
 import { OnboardingHero } from './OnboardingHero';
 import { FirstRunChecklist } from './FirstRunChecklist';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
-import { ProviderLogo } from './settings/ProvidersPanel';
+import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
-import { ArtifactPane } from './artifact-pane';
-import { BrowserPanel } from './browser-panel';
+// Artifact pane + embedded browser panel are only mounted for sessions
+// that actually have artifacts / a live browser view. Loading them lazily
+// keeps their (heavy) code out of the initial chunk so first paint of the
+// chat shell is not blocked on parsing them.
+const ArtifactPane = lazy(() => import('./artifact-pane').then((m) => ({ default: m.ArtifactPane })));
+const BrowserPanel = lazy(() => import('./browser-panel').then((m) => ({ default: m.BrowserPanel })));
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
 import {
+  normalizeSessionSummaryForDisplay,
   presentSessionStatus,
   sessionStatusAriaLabel,
 } from './session-status-presentation';
@@ -53,7 +58,7 @@ import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
 import { safeLocalStorageSet } from './browser-storage';
-import { applyLocalSessionRead, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
+import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { countSessions, filterSessions, readNavSelection } from './nav-selection';
 import {
   readSessionListCollapsed,
@@ -111,8 +116,12 @@ export function AppShell() {
       readBoundaries: () => sessionReadBoundariesRef.current,
       currentSessions: () => sessionsRef.current,
       commitSessions: (next) => {
-        sessionsRef.current = next;
-        setSessions(next);
+        // Display normalization at the state boundary: non-actionable
+        // blocked (missing terminal bookkeeping) reads as an ordinary
+        // resumable session everywhere in the renderer.
+        const displayNext = next.map(normalizeSessionSummaryForDisplay);
+        sessionsRef.current = displayNext;
+        setSessions(displayNext);
       },
       onError: (error) => {
         toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
@@ -657,6 +666,41 @@ export function AppShell() {
   });
   const onboardingState = onboarding.snapshot?.state;
   const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
+  // Seed sessions from the onboarding snapshot on first load — the snapshot
+  // already fetches the session list + connections internally, so separate
+  // `sessions:list` / `connections:list` / `getDefault` IPCs are redundant.
+  // This lets the UI show the sidebar + model picker immediately on first load.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    // Snapshot IPC failed — the seed path will never run, so fall back
+    // to the classic boot pull or the sidebar stays empty forever.
+    if (onboarding.error && !onboarding.snapshot && !seededRef.current) {
+      seededRef.current = true;
+      void bootstrapSessions();
+      void refreshConnections();
+      return;
+    }
+    const snapshot = onboarding.snapshot;
+    if (!snapshot || seededRef.current) return;
+    seededRef.current = true;
+    // Seed sessions. Display normalization MUST run here too — this is
+    // a third renderer state entry alongside commitSessions /
+    // upsertSessionSummary (#452): without it, legacy blocked/unknown
+    // sessions flash an 已阻塞 group on first paint until the first
+    // refreshSessions() overwrites the seed.
+    if (snapshot.sessions.length > 0) {
+      const next = applySessionReadOverrides(snapshot.sessions, sessionReadBoundariesRef.current)
+        .map(normalizeSessionSummaryForDisplay);
+      sessionsRef.current = next;
+      setSessions(next);
+      if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
+    }
+    // Seed connections — avoids separate connections:list + getDefault IPCs
+    if (snapshot.connections.length > 0) {
+      setConnections(snapshot.connections);
+      setDefaultConnection(snapshot.defaultSlug);
+    }
+  }, [onboarding.snapshot, onboarding.error]);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
   // + snapshot===null flashes the prompt-suggestion EmptyChatHero before
@@ -664,6 +708,7 @@ export function AppShell() {
   const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined && !onboardingSettled;
   const showOnboardingHero =
     !onboardingSettled && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
+  const onboardingComposerHidden = isOnboardingLoading || (showOnboardingHero && onboardingState !== undefined);
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
   const [sessionListCollapsed, setSessionListCollapsed] = useState(() => readSessionListCollapsed());
   const { startColumnResize, onResizeHandleKeyDown } = createAppShellLayoutActions({
@@ -947,7 +992,10 @@ export function AppShell() {
 
   function upsertSessionSummary(session: SessionSummary): void {
     setSessions((current) => {
-      const next = [session, ...current.filter((entry) => entry.id !== session.id)];
+      const next = [
+        normalizeSessionSummaryForDisplay(session),
+        ...current.filter((entry) => entry.id !== session.id),
+      ];
       sessionsRef.current = next;
       return next;
     });
@@ -1101,7 +1149,6 @@ export function AppShell() {
     && activeThinking.length === 0
     && liveTools.length === 0
     && !activeMessageLoadError;
-  const onboardingComposerHidden = showOnboardingHero && onboardingState !== undefined;
   const commandOptions: AppShellCommandListOptions = {
     activeId,
     activePermissionMode: activeSessionForView?.permissionMode,
@@ -1402,9 +1449,13 @@ export function AppShell() {
               />
             </div>
             {activeId && liveBrowserSessionIds.includes(activeId) && (
-              <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
+              <Suspense fallback={null}>
+                <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
+              </Suspense>
             )}
-            <ArtifactPane sessionId={activeId} />
+            <Suspense fallback={null}>
+              <ArtifactPane sessionId={activeId} />
+            </Suspense>
           </div>
           </MakaUriContext.Provider>
         </div>
