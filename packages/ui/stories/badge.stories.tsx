@@ -13,25 +13,17 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function Group({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ alignItems: 'center', display: 'flex', gap: 12, width: 480 }}>
-      <span style={{ color: 'var(--muted-foreground)', fontSize: 12, width: 80 }}>{label}</span>
-      <div style={{ alignItems: 'center', display: 'flex', gap: 8, flexWrap: 'wrap' }}>{children}</div>
-    </div>
-  );
-}
-
 const UI_VARIANTS = ['default', 'secondary', 'success', 'warning', 'destructive', 'muted'] as const;
 
 export const UiBadgeVariants: Story = {
   render: () => (
     <div style={{ display: 'grid', gap: 12, width: 480 }}>
       {UI_VARIANTS.map((variant) => (
-        <Group key={variant} label={variant}>
+        <div key={variant} style={{ alignItems: 'center', display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--muted-foreground)', fontSize: 12, width: 80 }}>{variant}</span>
           <Badge variant={variant}>{variant}</Badge>
           <Badge variant={variant}>{variant} 12</Badge>
-        </Group>
+        </div>
       ))}
     </div>
   ),
@@ -40,28 +32,23 @@ export const UiBadgeVariants: Story = {
 const PRIM_VARIANTS = ['default', 'destructive', 'error', 'info', 'outline', 'secondary', 'success', 'warning'] as const;
 const SIZES = ['sm', 'default', 'lg'] as const;
 
-export const PrimitiveBadgeVariants: Story = {
+export const PrimitiveBadgeMatrix: Story = {
   render: () => (
-    <div style={{ display: 'grid', gap: 12, width: 560 }}>
-      {PRIM_VARIANTS.map((variant) => (
-        <Group key={variant} label={variant}>
-          <PrimitiveBadge variant={variant}>{variant}</PrimitiveBadge>
-          <PrimitiveBadge variant={variant}>{variant} 3</PrimitiveBadge>
-        </Group>
-      ))}
-    </div>
-  ),
-};
-
-export const PrimitiveBadgeSizes: Story = {
-  render: () => (
-    <div style={{ display: 'grid', gap: 12, width: 480 }}>
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ alignItems: 'center', display: 'flex', gap: 8, paddingLeft: 80 }}>
+        {PRIM_VARIANTS.map((v) => (
+          <span key={v} style={{ color: 'var(--muted-foreground)', fontSize: 11, width: 72 }}>{v}</span>
+        ))}
+      </div>
       {SIZES.map((size) => (
-        <Group key={size} label={`size=${size}`}>
-          <PrimitiveBadge size={size}>Aa</PrimitiveBadge>
-          <PrimitiveBadge size={size} variant="info">info</PrimitiveBadge>
-          <PrimitiveBadge size={size} variant="success">ok 12</PrimitiveBadge>
-        </Group>
+        <div key={size} style={{ alignItems: 'center', display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--muted-foreground)', fontSize: 12, width: 72 }}>{size}</span>
+          {PRIM_VARIANTS.map((variant) => (
+            <PrimitiveBadge key={variant} size={size} variant={variant} style={{ width: 72, justifyContent: 'center' }}>
+              {variant}
+            </PrimitiveBadge>
+          ))}
+        </div>
       ))}
     </div>
   ),
