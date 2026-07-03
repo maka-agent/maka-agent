@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deriveOnboardingState,
+  hasSettledInitialOnboarding,
   isOnboardingMilestone,
   ONBOARDING_MILESTONE_IDS,
   sanitizeOnboardingMilestones,
@@ -599,5 +600,49 @@ describe('sanitizeOnboardingMilestones', () => {
 
   it('returns [] when input is an empty array', () => {
     assert.deepEqual(sanitizeOnboardingMilestones([]), []);
+  });
+});
+
+describe('hasSettledInitialOnboarding', () => {
+  it('returns false for empty milestones', () => {
+    assert.equal(hasSettledInitialOnboarding([]), false);
+  });
+
+  it('returns false when initial_onboarding is absent', () => {
+    assert.equal(
+      hasSettledInitialOnboarding([{ id: 'first_chat_sent', completedAt: 1 }]),
+      false,
+    );
+  });
+
+  it('returns false for a bare placeholder {id} without terminal timestamp', () => {
+    assert.equal(
+      hasSettledInitialOnboarding([{ id: 'initial_onboarding' }]),
+      false,
+    );
+  });
+
+  it('returns true when initial_onboarding has completedAt', () => {
+    assert.equal(
+      hasSettledInitialOnboarding([{ id: 'initial_onboarding', completedAt: 1 }]),
+      true,
+    );
+  });
+
+  it('returns true when initial_onboarding has skippedAt', () => {
+    assert.equal(
+      hasSettledInitialOnboarding([{ id: 'initial_onboarding', skippedAt: 1 }]),
+      true,
+    );
+  });
+
+  it('returns true alongside other milestones', () => {
+    assert.equal(
+      hasSettledInitialOnboarding([
+        { id: 'first_chat_sent', completedAt: 1 },
+        { id: 'initial_onboarding', completedAt: 2 },
+      ]),
+      true,
+    );
   });
 });
