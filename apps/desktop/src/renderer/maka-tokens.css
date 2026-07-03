@@ -731,11 +731,6 @@
   --color-foreground-5:  var(--foreground-5);
   --color-foreground-8:  var(--foreground-8);
   --color-foreground-10: var(--foreground-10);
-  --color-foreground-40: var(--foreground-40);
-  --color-foreground-50: var(--foreground-50);
-  --color-foreground-60: var(--foreground-60);
-  --color-foreground-70: var(--foreground-70);
-  --color-foreground-80: var(--foreground-80);
   --color-foreground-secondary: var(--foreground-secondary);
 
   --color-border: var(--border);

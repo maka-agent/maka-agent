@@ -40,7 +40,7 @@ export const buttonVariants = cva(
         ghost: 'bg-transparent text-foreground hover:bg-muted',
         outline: 'border border-border bg-background text-foreground hover:bg-muted',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        quiet: 'bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+        quiet: 'bg-transparent text-foreground-secondary hover:bg-muted hover:text-foreground',
       },
       size: {
         sm: 'h-8 rounded-sm px-2.5 text-xs',
@@ -93,7 +93,7 @@ export const badgeVariants = cva(
         success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
         warning: 'border-amber-500/25 bg-amber-500/10 text-amber-800',
         destructive: 'border-destructive/25 bg-destructive/10 text-destructive',
-        muted: 'border-border bg-muted text-muted-foreground',
+        muted: 'border-border bg-muted text-foreground-secondary',
       },
     },
     defaultVariants: {
@@ -112,7 +112,7 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
 
 const inputClasses = [
   'flex min-h-9 w-full rounded-sm border border-input bg-[oklch(from_var(--foreground)_l_c_h_/_0.02)] px-3 py-2 text-sm text-foreground shadow-sm',
-  'placeholder:text-muted-foreground/70',
+  'placeholder:text-foreground-secondary/70',
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
   'disabled:cursor-not-allowed disabled:opacity-50',
 ].join(' ');
@@ -270,7 +270,7 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWit
     <BaseTabs.Tab
       ref={ref}
       className={cn(
-        'inline-flex h-8 items-center justify-center rounded-sm px-3 text-sm font-medium text-muted-foreground transition-colors data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'inline-flex h-8 items-center justify-center rounded-sm px-3 text-sm font-medium text-foreground-secondary transition-colors data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}
       {...props}
@@ -336,7 +336,7 @@ export const SelectGroupLabel = forwardRef<HTMLDivElement, React.ComponentPropsW
   { className, ...props },
   ref,
 ) {
-  return <BaseSelect.GroupLabel ref={ref} className={cn('px-2 py-1 text-xs font-medium text-muted-foreground', className)} {...props} />;
+  return <BaseSelect.GroupLabel ref={ref} className={cn('px-2 py-1 text-xs font-medium text-foreground-secondary', className)} {...props} />;
 });
 export const SelectSeparator = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Separator>>(function SelectSeparator(
   { className, ...props },
@@ -378,7 +378,7 @@ export const FieldDescription = forwardRef<HTMLParagraphElement, React.Component
   { className, ...props },
   ref,
 ) {
-  return <BaseField.Description ref={ref} className={cn('text-xs text-muted-foreground', className)} {...props} />;
+  return <BaseField.Description ref={ref} className={cn('text-xs text-foreground-secondary', className)} {...props} />;
 });
 export const Label = forwardRef<HTMLLabelElement, React.ComponentPropsWithoutRef<typeof BaseField.Label>>(function Label(
   { className, ...props },

@@ -155,7 +155,7 @@ export function ItemDescription({
 }: useRender.ComponentProps<"span">): React.ReactElement {
   const defaultProps = {
     className: cn(
-      "line-clamp-2 text-xs leading-snug text-muted-foreground",
+      "line-clamp-2 text-xs leading-snug text-foreground-secondary",
       className,
     ),
     "data-slot": "item-description",
@@ -173,7 +173,7 @@ export function ItemActions({
   ...props
 }: useRender.ComponentProps<"span">): React.ReactElement {
   const defaultProps = {
-    className: cn("flex shrink-0 items-center gap-1 text-muted-foreground", className),
+    className: cn("flex shrink-0 items-center gap-1 text-foreground-secondary", className),
     "data-slot": "item-actions",
   };
   return useRender({

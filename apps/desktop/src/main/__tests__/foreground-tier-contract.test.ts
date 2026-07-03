@@ -80,9 +80,29 @@ function findCssTextOffenders(css: string, label: string): string[] {
 
 // --- TSX scanning -----------------------------------------------------------
 
-const TSX_TEXT_RE = /(?:text|color|fill|stroke)\[color:var\(\s*(--foreground-\d+)\s*\)\]/g;
+/**
+ * Tailwind arbitrary value referencing a raw foreground mix stop.
+ * Matches any utility (text, color, fill, stroke, bg, border, etc.)
+ * with optional variant prefix (disabled:, hover:, etc.) and optional
+ * `color:` inner prefix:
+ *   text-[color:var(--foreground-60)]     ✓ caught
+ *   text-[var(--foreground-60)]            ✓ caught
+ *   disabled:text-[var(--foreground-40)]  ✓ caught
+ *   bg-[var(--foreground-50)]             ✓ caught
+ *
+ * Note: the utility name is followed by `-[` (e.g. `text-[`), not `[`
+ * directly — the `-` is the Tailwind arbitrary value separator.
+ */
+const TSX_ARBITRARY_RE = /(?:^|\s|:)(?:text|color|fill|stroke|bg|border|ring|from|to|via)-\[(?:color:)?var\(\s*(--foreground-\d+)\s*\)\]/g;
 
-async function collectTsxOffenders(): Promise<string[]> {
+/**
+ * Tailwind utility-class form: text-foreground-40, bg-foreground-50, etc.
+ * These should not exist once @theme stops exporting the raw stops,
+ * but the regex catches them defensively if someone re-adds the export.
+ */
+const TSX_UTILITY_RE = /(?:^|\s|:)(?:text|bg|border|fill|stroke|ring|from|to|via)-foreground-(\d+)\b/g;
+
+async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
   const offenders: string[] = [];
   async function walk(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -98,11 +118,21 @@ async function collectTsxOffenders(): Promise<string[]> {
       const src = await readFile(full, 'utf8');
       const label = full.replace(REPO_ROOT + '/', '');
 
-      // Tailwind arbitrary value: text-[color:var(--foreground-N)] / color-[...]
-      for (const m of src.matchAll(TSX_TEXT_RE)) {
+      // Tailwind arbitrary value: text-[color:var(--foreground-N)],
+      // text-[var(--foreground-N)], disabled:text-[var(--foreground-N)], etc.
+      for (const m of src.matchAll(TSX_ARBITRARY_RE)) {
         const tok = m[1]!;
         if (BANNED_TEXT_STOPS.includes(tok)) {
-          offenders.push(`${label}: ${m[0]} [banned ${tok}]`);
+          offenders.push(`${label}: ${m[0].trim()} [banned ${tok}]`);
+        }
+      }
+
+      // Tailwind utility class: text-foreground-40, bg-foreground-50, etc.
+      for (const m of src.matchAll(TSX_UTILITY_RE)) {
+        const num = m[1]!;
+        const tok = `--foreground-${num}`;
+        if (BANNED_TEXT_STOPS.includes(tok)) {
+          offenders.push(`${label}: ${m[0].trim()} [banned ${tok}]`);
         }
       }
 
@@ -116,12 +146,32 @@ async function collectTsxOffenders(): Promise<string[]> {
       }
     }
   }
-  await walk(resolve(REPO_ROOT, 'packages/ui/src'));
-  await walk(resolve(REPO_ROOT, 'apps/desktop/src/renderer'));
+  for (const dir of dirs) {
+    await walk(resolve(REPO_ROOT, dir));
+  }
   return offenders;
 }
 
 // === tests ==================================================================
+
+/** Scan a TSX source snippet for banned foreground references. */
+function scanTsxSnippet(src: string): string[] {
+  const offenders: string[] = [];
+  for (const m of src.matchAll(TSX_ARBITRARY_RE)) {
+    const tok = m[1]!;
+    if (BANNED_TEXT_STOPS.includes(tok)) {
+      offenders.push(`${m[0].trim()} [banned ${tok}]`);
+    }
+  }
+  for (const m of src.matchAll(TSX_UTILITY_RE)) {
+    const num = m[1]!;
+    const tok = `--foreground-${num}`;
+    if (BANNED_TEXT_STOPS.includes(tok)) {
+      offenders.push(`${m[0].trim()} [banned ${tok}]`);
+    }
+  }
+  return offenders;
+}
 
 describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
   it('CSS text-color props use semantic aliases, not raw --foreground-40..80', async () => {
@@ -145,7 +195,11 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
   });
 
   it('TSX text-color uses semantic aliases, not raw --foreground-40..80', async () => {
-    const offenders = await collectTsxOffenders();
+    const offenders = await collectTsxOffenders([
+      'packages/ui/src',
+      'packages/ui/stories',
+      'apps/desktop/src/renderer',
+    ]);
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
@@ -172,6 +226,14 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
     assert.match(tokens, /--color-foreground-secondary:\s*var\(--foreground-secondary\)/, '@theme must export --color-foreground-secondary');
     assert.match(tokens, /--color-muted-foreground:\s*var\(--muted-foreground\)/, '@theme must export --color-muted-foreground');
   });
+
+  it('@theme inline does not export raw text stops --foreground-40/50/60/70/80', async () => {
+    const tokens = await readFile(TOKENS_FILE, 'utf8');
+    for (const stop of BANNED_TEXT_STOPS) {
+      const re = new RegExp(`--color-${stop}:`);
+      assert.doesNotMatch(tokens, re, `@theme must not export ${stop} as a Tailwind color utility`);
+    }
+  });
 });
 
 describe('foreground-tier negative cases', () => {
@@ -194,5 +256,35 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts --foreground (100% ink) in color props', () => {
     assert.deepEqual(findCssTextOffenders('color: var(--foreground)', 'test'), []);
+  });
+
+  it('rejects text-[color:var(--foreground-60)] in TSX', () => {
+    const offenders = scanTsxSnippet("text-[color:var(--foreground-60)]");
+    assert.ok(offenders.length > 0, 'text-[color:var(--foreground-60)] must fail');
+  });
+
+  it('rejects text-[var(--foreground-60)] in TSX', () => {
+    const offenders = scanTsxSnippet("text-[var(--foreground-60)]");
+    assert.ok(offenders.length > 0, 'text-[var(--foreground-60)] must fail');
+  });
+
+  it('rejects disabled:text-[var(--foreground-40)] in TSX', () => {
+    const offenders = scanTsxSnippet("disabled:text-[var(--foreground-40)]");
+    assert.ok(offenders.length > 0, 'disabled:text-[var(--foreground-40)] must fail');
+  });
+
+  it('rejects text-foreground-60 Tailwind utility in TSX', () => {
+    const offenders = scanTsxSnippet("text-foreground-60");
+    assert.ok(offenders.length > 0, 'text-foreground-60 must fail');
+  });
+
+  it('accepts text-[color:var(--foreground-secondary)] in TSX', () => {
+    const offenders = scanTsxSnippet("text-[color:var(--foreground-secondary)]");
+    assert.deepEqual(offenders, []);
+  });
+
+  it('accepts text-[color:var(--muted-foreground)] in TSX', () => {
+    const offenders = scanTsxSnippet("text-[color:var(--muted-foreground)]");
+    assert.deepEqual(offenders, []);
   });
 });
