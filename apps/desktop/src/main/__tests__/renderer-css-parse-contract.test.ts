@@ -29,7 +29,7 @@ describe('renderer CSS parse contract', () => {
     for (const { file, source } of await readRendererCssFiles()) {
       assert.doesNotMatch(
         stripCssComments(source),
-        /html\[data-theme=/,
+        /html\[\s*data-theme(?:\s*[~|^$*]?=|\s*\])/,
         `${file} must use .dark / [data-maka-theme], not retired html[data-theme] selectors`,
       );
     }
@@ -39,7 +39,7 @@ describe('renderer CSS parse contract', () => {
     for (const { file, source } of await readRendererCssFiles()) {
       assert.doesNotMatch(
         stripCssComments(source),
-        /--font-sans\s*:\s*var\(--font-sans\)\s*;|--font-mono\s*:\s*var\(--font-mono\)\s*;/,
+        /--font-(sans|mono)\s*:\s*var\(\s*--font-\1\s*\)\s*;/,
         `${file} must not declare self-referential --font-sans / --font-mono tokens`,
       );
     }
