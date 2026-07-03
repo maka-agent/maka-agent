@@ -70,9 +70,12 @@
 
 ### 1.6 文字层级（收敛，而非增加）
 
-- 四档制：primary（600/full）/ secondary（500/70%）/ tertiary（50%）/
-  muted（40%）。`--foreground-N` 十几档是层级糊的来源，UI 新代码只从
-  四档语义别名取值。
+- 三档制：primary（`--foreground`，100% ink）/ secondary
+  （`--foreground-secondary`，80% ink）/ muted
+  （`--muted-foreground`，50% ink）。`--foreground-N` 十几档是
+  层级糊的来源，UI 新代码只从三档语义别名取值。40% 和 50% 肉眼
+  barely 可分，桌面工具场景不需要在"不重要"内部再分一档，所以
+  从原四档制进一步收敛到三档。
 - CJK 注意：Windows 中文字体缺中间字重 → color/opacity 杠杆权重高于
   weight；**禁收紧 CJK letter-spacing**（拉丁负 tracking 规则不适用）。
 - 数字全面 tabular-nums（token 数、时间戳、计数）——部分已 shipped，
@@ -137,9 +140,18 @@
 - #459 P-4PT ratchet 契约 + P-TEXT 孤儿档清理
 - 前置质感修复：#454（玻璃色板复活/token 卫生）、#452（blocked
   语义/时间戳/i18n）、#451（copy-feedback 契约同步）
+- P-FOREGROUND-TIER-CONVERGE（issue #430 PR4）：5 档文字梯
+  （40/50/60/70/80）收敛到 3 档语义别名 — `--foreground`
+  （100% ink）、`--foreground-secondary`（80% ink）、
+  `--muted-foreground`（50% ink）。-90/-95 零调用直接删。
+  444 处调用点全量替换，契约测试锁住文字用法不回退到裸
+  mix stops。
 
-下一轮候选（按杠杆）：文字档 60/80 的逐面归并（→四档制）、
-P-STATE 边缘面补齐、storybook Design System 页同步新阴影/层级规则。
+下一轮候选（按杠杆）：P-STATE 边缘面补齐、storybook Design
+System 页同步新阴影/层级规则。
+（原「文字档 60/80 的逐面归并」已由 P-FOREGROUND-TIER-CONVERGE
+解决，落地为 3 档制而非 4 档 — 50% 和 40% 肉眼 barely 可分，
+桌面工具场景不需要在"不重要"内部再分一档。）
 （原「module-pages 76 个 off-grid 值」已由 #448 全量收敛解决。）
 
 ## 4. 第二轮全量精读增补（2026-07-03，四源全覆盖）
