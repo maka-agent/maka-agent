@@ -20,45 +20,6 @@ export function Toolbar({
   );
 }
 
-export function ToolbarButton({
-  className,
-  ...props
-}: ToolbarPrimitive.Button.Props): React.ReactElement {
-  return (
-    <ToolbarPrimitive.Button
-      className={cn(className)}
-      data-slot="toolbar-button"
-      {...props}
-    />
-  );
-}
-
-export function ToolbarLink({
-  className,
-  ...props
-}: ToolbarPrimitive.Link.Props): React.ReactElement {
-  return (
-    <ToolbarPrimitive.Link
-      className={cn(className)}
-      data-slot="toolbar-link"
-      {...props}
-    />
-  );
-}
-
-export function ToolbarInput({
-  className,
-  ...props
-}: ToolbarPrimitive.Input.Props): React.ReactElement {
-  return (
-    <ToolbarPrimitive.Input
-      className={cn(className)}
-      data-slot="toolbar-input"
-      {...props}
-    />
-  );
-}
-
 export function ToolbarGroup({
   className,
   ...props

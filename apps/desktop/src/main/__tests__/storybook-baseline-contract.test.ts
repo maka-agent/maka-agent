@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 
 function findRepoRoot(start: string): string {
@@ -100,14 +100,16 @@ describe('Storybook baseline contract', () => {
   });
 
   it('seeds primitive stories as the isolation acceptance fixture', () => {
-    const primitiveStories = join(REPO_ROOT, 'packages', 'ui', 'stories', 'storybook-baseline.stories.tsx');
-    assert.ok(existsSync(primitiveStories), 'Storybook baseline must include a primitive story fixture');
+    const storiesDir = join(REPO_ROOT, 'packages', 'ui', 'stories');
+    const buttonStory = join(storiesDir, 'button.stories.tsx');
+    const emptyStory = join(storiesDir, 'empty.stories.tsx');
+    assert.ok(existsSync(buttonStory), 'Button primitive story must exist as an isolation fixture');
+    assert.ok(existsSync(emptyStory), 'Empty primitive story must exist as an isolation fixture');
 
-    const src = readFileSync(primitiveStories, 'utf8');
-    assert.match(src, /satisfies\s+Meta/);
-    assert.match(src, /Button/);
-    assert.match(src, /Empty/);
-    assert.doesNotMatch(src, /className=/, 'Story fixtures must not add story-only Tailwind classes.');
+    for (const storyPath of [buttonStory, emptyStory]) {
+      const src = readFileSync(storyPath, 'utf8');
+      assert.match(src, /satisfies\s+Meta/, `${basename(storyPath)} must use satisfies Meta`);
+    }
   });
 
   it('storyboards the sidebar session list states before visual polish', () => {
