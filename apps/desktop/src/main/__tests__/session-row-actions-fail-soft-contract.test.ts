@@ -86,7 +86,7 @@ describe('session row actions fail soft', () => {
     assert.match(sessionRow, /const \[pendingAction,\s*setPendingAction\] = useState<SessionRowActionId \| null>\(null\);/);
     assert.match(sessionRow, /const rowMountedRef = useRef\(true\);/);
     assert.match(sessionRow, /const pendingActionRef = useRef<SessionRowActionId \| null>\(null\);/);
-    assert.match(sessionRow, /if \(pendingActionRef\.current\) return;[\s\S]*pendingActionRef\.current = actionId;[\s\S]*Promise\.resolve\(\)\.then\(action\)\.finally/);
+    assert.match(sessionRow, /if \(pendingActionRef\.current\) return;[\s\S]*pendingActionRef\.current = actionId;[\s\S]*runAsyncActionBoundary\(action, \(\) => \{/);
     assert.match(
       sessionRow,
       /useEffect\(\(\) => \{\s*rowMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*rowMountedRef\.current = false;\s*pendingActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
