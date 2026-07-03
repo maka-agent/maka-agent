@@ -149,9 +149,11 @@ function SkillLibraryPanel(props: {
               <p>{card.body}</p>
               <div className="maka-skill-market-card-foot">
                 <span>{card.source}</span>
-                <UiButton className="maka-skill-market-install" type="button" variant="ghost" disabled aria-disabled="true">
-                  安装
-                </UiButton>
+                {/* Static label, not a disabled button — same rationale as
+                    the filter pills above: marketplace install isn't wired
+                    yet, and a dead 安装 button promises interactivity it
+                    can't deliver. */}
+                <span className="maka-skill-market-install" data-static="true">即将上线</span>
               </div>
             </article>
           ))}

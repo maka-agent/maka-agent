@@ -23,7 +23,7 @@
 
 import { detectUiLocale } from './locale-helpers.js';
 
-export function createAbsoluteTimeFormat(): Intl.DateTimeFormat {
+function createAbsoluteTimeFormat(): Intl.DateTimeFormat {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
     return { format: (d: Date) => d.toISOString() } as unknown as Intl.DateTimeFormat;
   }

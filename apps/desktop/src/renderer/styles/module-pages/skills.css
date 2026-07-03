@@ -378,15 +378,18 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-market-install {
-  height: 26px;
+  /* Static 「即将上线」 tag (was a disabled 安装 button — dead
+     buttons promise interactivity; see the filter-pill precedent). */
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--muted-foreground);
-  cursor: not-allowed;
-  font-size: var(--font-size-ui);
-  font-weight: 650;
-  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--foreground-2);
+  color: var(--foreground-50);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  padding: 0 var(--space-2-5);
 }
 
 .maka-skill-examples,

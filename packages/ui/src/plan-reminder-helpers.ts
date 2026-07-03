@@ -163,18 +163,18 @@ export function comparePlanReminderBySort(a: PlanReminder, b: PlanReminder, sort
   return comparePlanReminderForDisplay(a, b);
 }
 
-export function planReminderStatusDisplayRank(reminder: PlanReminder): number {
+function planReminderStatusDisplayRank(reminder: PlanReminder): number {
   if (reminder.status === 'scheduled') return 0;
   if (reminder.status === 'paused') return 1;
   if (reminder.status === 'completed') return 2;
   return 3;
 }
 
-export function planReminderNextRunSortValue(reminder: PlanReminder): number {
+function planReminderNextRunSortValue(reminder: PlanReminder): number {
   return typeof reminder.nextRunAt === 'number' ? reminder.nextRunAt : Number.MAX_SAFE_INTEGER;
 }
 
-export function planReminderLastRunSortValue(reminder: PlanReminder): number {
+function planReminderLastRunSortValue(reminder: PlanReminder): number {
   return reminder.lastRun?.at ?? 0;
 }
 
