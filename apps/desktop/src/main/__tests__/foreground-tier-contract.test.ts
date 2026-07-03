@@ -175,8 +175,9 @@ function isTextLikeClass(cls: string): boolean {
   return m !== null && TEXT_PREFIXES.has(m[1]!);
 }
 
-/** Bare arbitrary property setting text color: [color:...], [caret-color:...], etc. */
-const BARE_TEXT_PROP_RE = /^\[(color|caret-color|text-decoration-color|column-rule-color):/i;
+/** Bare arbitrary property setting text color: [color:...], [fill:...],
+ *  [stroke:...], [caret-color:...], etc. */
+const BARE_TEXT_PROP_RE = /^\[(color|fill|stroke|caret-color|text-decoration-color|column-rule-color):/i;
 
 function isBareTextProperty(cls: string): boolean {
   return BARE_TEXT_PROP_RE.test(stripVariant(cls));
@@ -191,8 +192,13 @@ const TOKEN_RE = /[^\s"'`;{}=]+/g;
 /** Find --(?:color-)?foreground-N (any N) inside a token string. */
 const FG_IN_TOKEN_RE = /--(?:color-)?foreground-(\d+)\b/g;
 
-/** Text-like property names (kebab-case CSS + camelCase JS). */
-const TEXT_PROP_NAMES_RE = /\b(?:color|fill|stroke|caretColor|textDecorationColor|columnRuleColor|caret-color|text-decoration-color|column-rule-color)\b/i;
+/** Text-like property names (kebab-case CSS + camelCase JS + SVG attrs).
+ *  Shared by scanTextPropValue and BARE_TEXT_PROP_RE to avoid drift. */
+const TEXT_PROP_NAMES = [
+  'color', 'fill', 'stroke',
+  'caret-color', 'text-decoration-color', 'column-rule-color',
+  'caretColor', 'textDecorationColor', 'columnRuleColor',
+];
 
 /**
  * Scan inline-style declarations and JSX attributes for text-like
@@ -200,13 +206,17 @@ const TEXT_PROP_NAMES_RE = /\b(?:color|fill|stroke|caretColor|textDecorationColo
  *
  * Locates the property name (preceded by `{`, `,`, `<`, or whitespace
  * to avoid matching inside Tailwind class tokens), then extracts the
- * full value (quoted or bare) and searches for foreground tokens.
+ * full value:
+ *  - Quoted ("...' / '...' / `...`): scan until closing quote
+ *  - Unquoted expression: scan with bracket depth tracking, stop at
+ *    matching `}` (depth 0), `;`, or newline — so commas inside
+ *    function calls (e.g. pick(base, "var(--foreground-5)")) are
+ *    included.
  */
 function scanTextPropValue(src: string): string[] {
   const offenders: string[] = [];
-  // Match prop name preceded by {, ,, <, whitespace (not inside [...])
-  // followed by : (inline style) or = (JSX attr)
-  const propRe = /(?:[{,]\s*|^\s*|\s)(color|fill|stroke|caretColor|textDecorationColor|columnRuleColor|caret-color|text-decoration-color|column-rule-color)\s*[:=]\s*/gi;
+  const namesAlt = TEXT_PROP_NAMES.join('|');
+  const propRe = new RegExp(`(?:[{,]\\s*|^\\s*|\\s)(${namesAlt})\\s*[:=]\\s*`, 'gi');
   let m: RegExpExecArray | null;
   while ((m = propRe.exec(src)) !== null) {
     let i = m.index + m[0].length;
@@ -219,7 +229,15 @@ function scanTextPropValue(src: string): string[] {
     if (quote) {
       while (i < src.length && src[i] !== quote) { val += src[i]!; i++; }
     } else {
-      while (i < src.length && !/[\};,\n]/.test(src[i]!)) { val += src[i]!; i++; }
+      let depth = 0;
+      while (i < src.length) {
+        const c = src[i]!;
+        if (c === '{' || c === '(') depth++;
+        else if (c === '}' && depth === 0) break;
+        else if (c === '}') depth--;
+        else if (c === ';' || c === '\n') break;
+        val += c; i++;
+      }
     }
     for (const fm of val.matchAll(FG_IN_TOKEN_RE)) {
       const num = fm[1]!;
@@ -731,5 +749,39 @@ describe('foreground-tier negative cases', () => {
 
   it('rejects <path stroke={"var(--foreground-5)"} /> in TSX (SVG attr expression)', () => {
     assert.ok(scanTsxSnippet('<path stroke={"var(--foreground-5)"} />').length > 0);
+  });
+
+  // P2: bare arbitrary property [fill:] / [stroke:] must be caught
+  it('rejects [fill:var(--foreground-5)] in TSX (bare arbitrary property)', () => {
+    assert.ok(scanTsxSnippet("[fill:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects [stroke:var(--foreground-5)] in TSX (bare arbitrary property)', () => {
+    assert.ok(scanTsxSnippet("[stroke:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects hover:[fill:var(--color-foreground-5)] in TSX (variant + theme mirror)', () => {
+    assert.ok(scanTsxSnippet("hover:[fill:var(--color-foreground-5)]").length > 0);
+  });
+
+  it('accepts [background:var(--foreground-5)] in TSX (bg bare property)', () => {
+    assert.deepEqual(scanTsxSnippet("[background:var(--foreground-5)]"), []);
+  });
+
+  it('accepts [border-color:var(--foreground-10)] in TSX (border bare property)', () => {
+    assert.deepEqual(scanTsxSnippet("[border-color:var(--foreground-10)]"), []);
+  });
+
+  // P2: unquoted complex expression in inline style / JSX attr
+  it('rejects style={{ color: pick(base, "var(--foreground-5)") }} in TSX (unquoted expr)', () => {
+    assert.ok(scanTsxSnippet('style={{ color: pick(base, "var(--foreground-5)") }}').length > 0);
+  });
+
+  it('rejects <path fill={pick(base, "var(--foreground-5)")} /> in TSX (JSX expr)', () => {
+    assert.ok(scanTsxSnippet('<path fill={pick(base, "var(--foreground-5)")} />').length > 0);
+  });
+
+  it('accepts style={{ background: pick(base, "var(--foreground-5)") }} in TSX (bg expr)', () => {
+    assert.deepEqual(scanTsxSnippet('style={{ background: pick(base, "var(--foreground-5)") }}'), []);
   });
 });
