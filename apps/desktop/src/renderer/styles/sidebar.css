@@ -336,7 +336,7 @@
   min-height: 32px;
   margin: 8px 12px;
   border-color: var(--border);
-  background: var(--surface);
+  background: var(--background-elevated);
 }
 .maka-search-modal-input-icon {
   color: var(--foreground-50);

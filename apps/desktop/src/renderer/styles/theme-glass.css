@@ -76,15 +76,33 @@
    prefixed `state` rather than `row` so it can be reused for chip /
    tab / nav selected states later (per @maka-审美专家 token-naming
    suggestion). */
-@layer base {
-  html[data-os="darwin"] {
-    --color-bg-layout: #fdfcfa;
-    --color-bg-highlight: #c9c4b8;
-    --color-bg-container: #faf9f6;
-    --color-bg-element: #f5f3ee;
-    --color-state-selected: #8ee5a1;
-    --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
-  }
+/* UNLAYERED on purpose: reference-shell.css defines the same custom
+   properties in an unlayered :root block, and unlayered declarations
+   beat @layer ones regardless of specificity — inside @layer base this
+   entire warm glass palette was silently dead (the documented
+   "parchment glass" never shipped). html[data-os] (0,1,1) outranks
+   :root (0,1,0), so the darwin override now actually applies. */
+html[data-os="darwin"] {
+  --color-bg-layout: #fdfcfa;
+  --color-bg-highlight: #c9c4b8;
+  --color-bg-container: #faf9f6;
+  --color-bg-element: #f5f3ee;
+  --color-state-selected: #8ee5a1;
+  --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
+}
+
+/* Dark-mode variants for the darwin glass palette. The light hexes above
+   are QoderWork light-glass extractions; reused verbatim in dark mode the
+   mint selected-row fill sat under near-white foreground text (unreadable)
+   and the parchment surfaces glowed against the dark shell. Deep sage keeps
+   the selected row's "color block IS the signal" behavior with ~7:1
+   contrast against the dark foreground. */
+html[data-os="darwin"].dark {
+  --color-bg-layout: oklch(0.22 0.006 96);
+  --color-bg-highlight: oklch(0.34 0.008 96);
+  --color-bg-container: oklch(0.24 0.006 96);
+  --color-bg-element: oklch(0.27 0.006 96);
+  --color-state-selected: oklch(0.42 0.075 152);
 }
 
 /* L3 — selected list-row uses the QoderWork mint state fill instead of

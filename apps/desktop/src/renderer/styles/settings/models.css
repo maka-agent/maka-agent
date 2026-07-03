@@ -370,13 +370,13 @@
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--text);
+  color: var(--foreground);
   font-size: var(--font-size-base);
   line-height: 1;
 }
 
 .maka-browser-navbtn:hover:not(:disabled) {
-  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+  background: var(--foreground-8);
 }
 
 .maka-browser-navbtn:disabled {
@@ -392,7 +392,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface, var(--background));
-  color: var(--text);
+  color: var(--foreground);
   font-size: var(--font-size-ui);
 }
 
@@ -403,7 +403,7 @@
 }
 
 .maka-browser-empty {
-  color: var(--text-muted, #888);
+  color: var(--foreground-50);
 }
 
 .maka-browser-empty-hint {
@@ -734,7 +734,7 @@
   object-fit: contain;
   border-radius: var(--radius-control);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--foreground-3);
 }
 
 /* PR-UI-RENDER-3a — Unsupported preview card. Shown when the

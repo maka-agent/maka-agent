@@ -544,7 +544,7 @@
   min-height: 32px;
   margin: 8px 10px;
   border-color: var(--border);
-  background: var(--surface);
+  background: var(--background-elevated);
 }
 
 .maka-palette-input {
