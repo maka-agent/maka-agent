@@ -335,8 +335,11 @@
   width: auto;
   min-height: 32px;
   margin: 8px 12px;
+  /* P-RADIUS concentric formula: dialog shell 12px − 8px inset = 4px. */
+  border-radius: calc(var(--radius-modal)-8px);
   border-color: var(--border);
-  background: var(--background-elevated);
+  /* P-INSET: inset step-down on the elevated modal surface. */
+  background: oklch(from var(--foreground) l c h / 0.03);
 }
 .maka-search-modal-input-icon {
   color: var(--foreground-50);

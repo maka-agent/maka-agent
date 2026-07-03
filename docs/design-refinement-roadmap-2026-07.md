@@ -101,11 +101,17 @@
 
 ## 2. 落地队列（按杠杆排序）
 
-1. **P-SHADOW**：三层阴影配方升级 `--shadow-minimal/-medium` 系 +
-   dark 塌缩 ring（纯 token，全 app 生效）
-2. **P-INSET**：composer / 搜索框 / palette 输入行做 input-略暗 inset 层级
-3. **P-RADIUS**：同心圆角审计（壳→卡→气泡→内嵌元素）
-4. **P-MOTION**：duration token 对照 Emil 表收敛 + 高频操作零动画审计
+1. **P-SHADOW** ✅ (#457)：三层阴影配方升级 + dark 塌缩 ring
+2. **P-INSET** ✅：palette/搜索输入行 3% 前景 wash step-down；通用
+   Input/Textarea 2% wash。composer 例外保持 elevated —— 它是主命令台
+   不是表单字段（PR-UI-LAYOUT-8 的有意设计）。
+3. **P-RADIUS** ✅（首轮）：palette/搜索 modal 输入行按同心公式修正
+   （12−8=4px，写法 `calc(var(--radius-modal)-8px)` —— 契约的 calc
+   allowlist 要求无空格）。其余嵌套对（settings modal 内卡、tool card
+   内 pre）审计通过或留待触碰时修正。
+4. **P-MOTION** ✅（已达标，无需动作）：duration token
+   120/150/180/280ms 完全符合 Emil 表且取下限；装饰性入场动画已被
+   #406 gap 3 清除；剩余 keyframes 全部是功能性流式动画（D3 豁免）
 5. **P-TEXT**：四档文字语义别名 + 新代码治理契约
 6. **P-4PT**：4pt 治理契约（新增声明检查 + 存量 allowlist）
 7. **P-DARK**：dark elevation 独立化（依赖 P-SHADOW）
