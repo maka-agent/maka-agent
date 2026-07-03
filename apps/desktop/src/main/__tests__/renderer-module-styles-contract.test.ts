@@ -22,6 +22,23 @@ function readCssImports(source: string): string[] {
   return [...source.matchAll(/@import\s+"([^"]+)";/g)].map((match) => match[1]);
 }
 
+function findModuleOwnerSelectorViolations(file: string, source: string): string[] {
+  const violations: string[] = [];
+  const root = postcss.parse(source, { from: file });
+  root.walkRules((rule) => {
+    for (const selector of postcss.list.comma(rule.selector)) {
+      if (FORBIDDEN_MODULE_SELECTOR_RE.test(selector)) {
+        violations.push(`${file}: ${selector}`);
+        continue;
+      }
+      if (!MODULE_OWNER_SELECTOR_RE.test(selector)) {
+        violations.push(`${file}: ${selector}`);
+      }
+    }
+  });
+  return violations;
+}
+
 describe('renderer module styles contract', () => {
   it('keeps module-pages.css as an ordered import manifest', async () => {
     const source = await readFile(MODULE_PAGES_ENTRY, 'utf8');
@@ -44,22 +61,27 @@ describe('renderer module styles contract', () => {
 
     for (const file of await readCssTree(MODULE_PAGES_DIR)) {
       const source = await readFile(file, 'utf8');
-      const root = postcss.parse(source, { from: file });
-      root.walkRules((rule) => {
-        if (FORBIDDEN_MODULE_SELECTOR_RE.test(rule.selector)) {
-          violations.push(`${file}: ${rule.selector}`);
-          return;
-        }
-        if (!MODULE_OWNER_SELECTOR_RE.test(rule.selector)) {
-          violations.push(`${file}: ${rule.selector}`);
-        }
-      });
+      violations.push(...findModuleOwnerSelectorViolations(file, source));
     }
 
     assert.deepEqual(
       violations,
       [],
       'styles/module-pages/** must only contain module-page owned selectors. Move global focus, SettingsSelect, chat header, model switcher, and shared shell rules to their real owner stylesheet.',
+    );
+  });
+
+  it('rejects a mixed comma selector list when one selector is not module-owned', () => {
+    assert.deepEqual(
+      findModuleOwnerSelectorViolations('fixture.css', '.foreign-owner, .maka-plan-card { color: red; }'),
+      ['fixture.css: .foreign-owner'],
+    );
+  });
+
+  it('allows comma selector lists when every selector is module-owned', () => {
+    assert.deepEqual(
+      findModuleOwnerSelectorViolations('fixture.css', '.maka-plan-a, .maka-plan-b { color: red; }'),
+      [],
     );
   });
 });
