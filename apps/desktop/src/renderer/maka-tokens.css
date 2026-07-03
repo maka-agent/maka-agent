@@ -166,36 +166,41 @@
   /* === shadow recipes ===
      Always include the 1px border ring as the FIRST inset-like layer.
      Subsequent layers are very low-opacity blurs that stack into a soft glow. */
+  /* P-SHADOW (design-refinement-roadmap-2026-07 §1.2): blur layers were
+     pure-black rgba — on a light warm-gray shell a pure black shadow
+     reads as a dirty smudge (taste-skill ban). Every layer now derives
+     from the warm foreground so shadow, border ring, and ink share one
+     light source. Dark mode collapses these to border rings below. */
   --shadow-minimal:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0,0,0, var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
-    rgba(0,0,0, var(--shadow-blur-opacity)) 0 3px 3px -1.5px;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
+    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
+    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 3px 3px -1.5px;
 
   --shadow-minimal-flat:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px;
 
   --shadow-medium:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0,0,0,0.06) 0 1px 1px -0.5px,
-    rgba(0,0,0,0.06) 0 3px 3px -1.5px,
-    rgba(0,0,0,0.06) 0 6px 6px -3px,
-    rgba(0,0,0,0.04) 0 12px 12px -6px;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
+    oklch(from var(--foreground) l c h / 0.06) 0 1px 1px -0.5px,
+    oklch(from var(--foreground) l c h / 0.06) 0 3px 3px -1.5px,
+    oklch(from var(--foreground) l c h / 0.06) 0 6px 6px -3px,
+    oklch(from var(--foreground) l c h / 0.04) 0 12px 12px -6px;
 
   --shadow-modal:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0,0,0,0.04) 0 1px 1px -0.5px,
-    rgba(0,0,0,0.04) 0 3px 3px 0,
-    rgba(0,0,0,0.02) 0 6px 6px 0,
-    rgba(0,0,0,0.02) 0 12px 12px 0,
-    rgba(0,0,0,0.02) 0 24px 24px 0;
+    oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
+    oklch(from var(--foreground) l c h / 0.04) 0 1px 1px -0.5px,
+    oklch(from var(--foreground) l c h / 0.04) 0 3px 3px 0,
+    oklch(from var(--foreground) l c h / 0.02) 0 6px 6px 0,
+    oklch(from var(--foreground) l c h / 0.02) 0 12px 12px 0,
+    oklch(from var(--foreground) l c h / 0.02) 0 24px 24px 0;
 
   /* === z-index scale (semantic) === */
   --z-base: 0;
@@ -369,6 +374,24 @@
 
   --shadow-border-opacity: 0.15;
   --shadow-blur-opacity:   0.12;
+
+  /* P-SHADOW dark collapse (roadmap D2): blur shadows are nearly
+     invisible on a dark shell but still cost compositing and, worse,
+     the foreground-derived layers turn WHITE-ish in dark mode and read
+     as a glow. Elevation in dark mode is carried by border rings
+     (interface-design: "dark mode shadows collapse to a single ring");
+     modal keeps one deep drop so overlays still separate from the
+     backdrop. */
+  --shadow-minimal:
+    0 0 0 1px oklch(1 0 0 / 0.08);
+  --shadow-minimal-flat:
+    0 0 0 1px oklch(1 0 0 / 0.08);
+  --shadow-medium:
+    0 0 0 1px oklch(1 0 0 / 0.09),
+    0 4px 12px -6px oklch(0 0 0 / 0.5);
+  --shadow-modal:
+    0 0 0 1px oklch(1 0 0 / 0.10),
+    0 12px 32px -8px oklch(0 0 0 / 0.6);
 
   /* Slate user bubble for dark mode — distinct from --accent and readable
      against the dark background.
