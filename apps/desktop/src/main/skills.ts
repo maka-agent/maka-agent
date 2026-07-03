@@ -33,6 +33,17 @@ export interface InstalledSkill {
   validationMessages?: string[];
 }
 
+export interface SkillEntry {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  declaredTools: string[];
+  sourceType: 'workspace' | 'bundled' | 'unknown';
+  userModified: boolean;
+  validationStatus: SkillValidationStatus;
+}
+
 export type CreateStarterSkillResult =
   | { ok: true; skill: InstalledSkill; filePath: string }
   | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' };
@@ -71,6 +82,9 @@ const BUNDLED_OFFICE_SKILLS: Array<{ id: string; body: string }> = [
   { id: 'officecli-pptx', body: officeCliPptxSkillTemplate() },
 ];
 const BUNDLED_OFFICE_SKILL_IDS = new Set(BUNDLED_OFFICE_SKILLS.map((skill) => skill.id));
+const BUNDLED_OFFICE_SKILL_HASH_BY_ID = new Map(
+  BUNDLED_OFFICE_SKILLS.map((skill) => [skill.id, `sha256:${sha256(skill.body)}`]),
+);
 
 const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
 const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
@@ -93,6 +107,23 @@ const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string> = {
 export async function listInstalledSkills(root: string): Promise<InstalledSkill[]> {
   const definitions = await readInstalledSkillDefinitions(root);
   return definitions.map(({ content: _content, ...skill }) => skill);
+}
+
+export async function listSkillEntries(root: string): Promise<SkillEntry[]> {
+  return (await listInstalledSkills(root)).map(toSkillEntry);
+}
+
+export function toSkillEntry(skill: InstalledSkill): SkillEntry {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    path: skill.path,
+    declaredTools: skill.declaredTools,
+    sourceType: skill.sourceType === 'bundled' || skill.sourceType === 'unknown' ? skill.sourceType : 'workspace',
+    userModified: skill.userModified,
+    validationStatus: skill.validationStatus,
+  };
 }
 
 export async function ensureBundledOfficeSkills(root: string): Promise<{ created: string[]; updated: string[]; skipped: string[]; failed: string[] }> {
@@ -187,7 +218,7 @@ function sha256Buffer(buffer: Buffer): string {
 
 async function writeBundledSkillLock(skillDir: string, id: string, body: string): Promise<boolean> {
   const lockPath = join(skillDir, 'skill.lock.json');
-  const contentSha256 = `sha256:${sha256(body)}`;
+  const contentSha256 = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id) ?? `sha256:${sha256(body)}`;
   const existing = await readExistingRegularFile(lockPath);
   if (existing.kind === 'blocked') return false;
   if (existing.kind === 'file') {
@@ -530,10 +561,14 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
 }
 
 function isTrustedSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
+  const expectedHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id);
   return lock.sourceType === 'bundled' &&
     BUNDLED_OFFICE_SKILL_IDS.has(id) &&
     lock.sourceName === BUNDLED_OFFICE_SKILL_SOURCE_NAME &&
-    lock.sourceVersion === BUNDLED_OFFICE_SKILL_SOURCE_VERSION;
+    lock.sourceVersion === BUNDLED_OFFICE_SKILL_SOURCE_VERSION &&
+    typeof lock.contentSha256 === 'string' &&
+    expectedHash !== undefined &&
+    lock.contentSha256.toLowerCase() === expectedHash.toLowerCase();
 }
 
 function metadataError(validationCodes: SkillValidationCode[], message: string): Pick<

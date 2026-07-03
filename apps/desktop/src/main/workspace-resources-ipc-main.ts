@@ -6,8 +6,9 @@ import { createArtifactStore, resolveArtifactPath } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
 import {
   createStarterSkill,
-  listInstalledSkills,
+  listSkillEntries,
   resolveSkillOpenPath,
+  toSkillEntry,
 } from './skills.js';
 
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
@@ -94,8 +95,12 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     }
   });
 
-  ipcMain.handle('skills:list', async () => listInstalledSkills(deps.workspaceRoot));
-  ipcMain.handle('skills:createStarter', async () => createStarterSkill(deps.workspaceRoot));
+  ipcMain.handle('skills:list', async () => listSkillEntries(deps.workspaceRoot));
+  ipcMain.handle('skills:createStarter', async () => {
+    const result = await createStarterSkill(deps.workspaceRoot);
+    if (!result.ok) return result;
+    return { ok: true as const, skill: toSkillEntry(result.skill), filePath: result.filePath };
+  });
   ipcMain.handle('skills:open', async (_event, id: string, target: 'file' | 'directory' = 'file') => {
     const resolved = await resolveSkillOpenPath(deps.workspaceRoot, id, target);
     if (!resolved.ok) return resolved;

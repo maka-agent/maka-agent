@@ -398,6 +398,22 @@ name: Linked Lock
 
   it('does not trust forged bundled or managed skill lock metadata', async () => {
     await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'officecli-docx', `---
+name: Fake OfficeCLI DOCX
+---
+# Fake OfficeCLI DOCX
+This is not the bundled template.`);
+      const fakeOfficeContent = await readFile(join(workspaceRoot, 'skills', 'officecli-docx', 'SKILL.md'), 'utf8');
+      await writeFile(join(workspaceRoot, 'skills', 'officecli-docx', 'skill.lock.json'), JSON.stringify({
+        schemaVersion: 1,
+        id: 'officecli-docx',
+        sourceType: 'bundled',
+        sourceName: 'maka-officecli',
+        sourceVersion: '1',
+        contentSha256: `sha256:${sha256Hex(fakeOfficeContent)}`,
+        installedAt: new Date(0).toISOString(),
+      }), 'utf8');
+
       await writeSkill(workspaceRoot, 'not-officecli', `---
 name: Not OfficeCLI
 ---
@@ -429,8 +445,14 @@ name: Managed Forgery
       }), 'utf8');
 
       const skills = await listInstalledSkills(workspaceRoot);
+      const fakeOffice = skills.find((skill) => skill.id === 'officecli-docx');
       const notOffice = skills.find((skill) => skill.id === 'not-officecli');
       const managed = skills.find((skill) => skill.id === 'managed-forgery');
+      assert.ok(fakeOffice);
+      assert.equal(fakeOffice.sourceType, 'unknown');
+      assert.equal(fakeOffice.sourceName, undefined);
+      assert.equal(fakeOffice.validationStatus, 'metadata_error');
+      assert.deepEqual(fakeOffice.validationCodes, ['unsupported_schema']);
       assert.ok(notOffice);
       assert.equal(notOffice.sourceType, 'unknown');
       assert.equal(notOffice.sourceName, undefined);
@@ -540,11 +562,14 @@ name: Writer
       : process.cwd();
     const chatViewSource = await readFile(join(repoRoot, 'packages/ui/src/chat-view.tsx'), 'utf8');
     const ui = await readFile(join(repoRoot, 'packages/ui/src/skills-panel.tsx'), 'utf8');
+    const modulePanelTypes = await readFile(join(repoRoot, 'packages/ui/src/module-panel-types.ts'), 'utf8');
+    const workspaceResourcesIpc = await readFile(join(repoRoot, 'apps/desktop/src/main/workspace-resources-ipc-main.ts'), 'utf8');
     const emptyStateSource = await readFile(join(repoRoot, 'packages/ui/src/empty-state.tsx'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const chatView = chatViewSource.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
     const skillsModuleMain = extractFunctionBlock(ui, 'SkillsModuleMain');
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function SkillsModuleMain/)?.[0] ?? '';
+    const skillEntryContract = modulePanelTypes.match(/export interface SkillEntry[\s\S]*?\n}/)?.[0] ?? '';
     const emptyState = emptyStateSource;
 
     assert.match(chatView, /if \(props\.mode === 'skills'\) \{[\s\S]*<SkillsModuleMain/, 'Skills mode must mount its own main surface component');
@@ -591,6 +616,10 @@ name: Writer
     assert.match(ui, /sourceType === 'bundled'[\s\S]*内置/);
     assert.doesNotMatch(ui, /sourceType === 'managed'[\s\S]*受管理/, 'Phase 1 must not present forged managed locks as trusted');
     assert.match(ui, /return '本地'/);
+    assert.match(skillEntryContract, /sourceType\?: 'workspace' \| 'bundled' \| 'unknown'/);
+    assert.doesNotMatch(skillEntryContract, /managed|sourceName|sourceVersion|contentSha256|installedAt|validationCodes|validationMessages|write_failed/, 'renderer SkillEntry must not expose Phase 1 lock internals');
+    assert.match(workspaceResourcesIpc, /toSkillEntry/, 'Skills IPC must scrub main-internal lock fields before crossing to renderer');
+    assert.doesNotMatch(workspaceResourcesIpc, /ipcMain\.handle\('skills:list'[\s\S]*listInstalledSkills\(deps\.workspaceRoot\)/, 'Skills list IPC must not return InstalledSkill objects directly');
     assert.doesNotMatch(skillPanel, /更新|恢复|修复|合并/, 'Phase 1 Skills status UI must stay informational only');
     assert.match(skillPanel, /<span className="maka-skill-library-action" aria-hidden="true">[\s\S]*打开[\s\S]*<\/span>/);
     assert.match(skillPanel, /label: props\.createPending \? '创建中…' : '创建示例技能'/);
