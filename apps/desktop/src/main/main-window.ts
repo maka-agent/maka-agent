@@ -29,7 +29,6 @@ interface MainWindowControllerDeps {
   workspaceRoot: string;
   visualSmokeFixture: VisualSmokeFixture | null;
   settingsStore: SettingsReader;
-  ensureBundledOfficeSkills(workspaceRoot: string): Promise<unknown>;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -58,7 +57,7 @@ const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
-  const { workspaceRoot, visualSmokeFixture, settingsStore, ensureBundledOfficeSkills } = deps;
+  const { workspaceRoot, visualSmokeFixture, settingsStore } = deps;
 
   function getBrowserViews(): BrowserViewManager<BrowserViewController> {
     if (!browserViews) {
@@ -257,14 +256,6 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     } else {
       await mainWindow.loadFile(join(import.meta.dirname, '..', 'renderer', 'index.html'));
     }
-    // Bundle/copy bundled Office skills in the background. This is pure
-    // disk I/O (writing a handful of SKILL.md files into the workspace)
-    // that the renderer never blocks on — skills are loaded lazily via
-    // the skill agent tool only when a task matches. Running it after
-    // loadFile is kicked off keeps it off the first-paint critical path.
-    void ensureBundledOfficeSkills(workspaceRoot).catch((error) => {
-      console.error('[skills] ensureBundledOfficeSkills failed:', error);
-    });
     if (process.env.MAKA_REAL_WINDOW_SMOKE === '1') {
       emitRealWindowSmokeDiagnostic('after-load');
       setTimeout(() => emitRealWindowSmokeDiagnostic('settled-1000ms'), 1000);

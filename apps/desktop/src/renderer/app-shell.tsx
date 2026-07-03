@@ -671,12 +671,25 @@ export function AppShell() {
   // This lets the UI show the sidebar + model picker immediately on first load.
   const seededRef = useRef(false);
   useEffect(() => {
+    // Snapshot IPC failed — the seed path will never run, so fall back
+    // to the classic boot pull or the sidebar stays empty forever.
+    if (onboarding.error && !onboarding.snapshot && !seededRef.current) {
+      seededRef.current = true;
+      void bootstrapSessions();
+      void refreshConnections();
+      return;
+    }
     const snapshot = onboarding.snapshot;
     if (!snapshot || seededRef.current) return;
     seededRef.current = true;
-    // Seed sessions
+    // Seed sessions. Display normalization MUST run here too — this is
+    // a third renderer state entry alongside commitSessions /
+    // upsertSessionSummary (#452): without it, legacy blocked/unknown
+    // sessions flash an 已阻塞 group on first paint until the first
+    // refreshSessions() overwrites the seed.
     if (snapshot.sessions.length > 0) {
-      const next = applySessionReadOverrides(snapshot.sessions, sessionReadBoundariesRef.current);
+      const next = applySessionReadOverrides(snapshot.sessions, sessionReadBoundariesRef.current)
+        .map(normalizeSessionSummaryForDisplay);
       sessionsRef.current = next;
       setSessions(next);
       if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
@@ -686,7 +699,7 @@ export function AppShell() {
       setConnections(snapshot.connections);
       setDefaultConnection(snapshot.defaultSlug);
     }
-  }, [onboarding.snapshot]);
+  }, [onboarding.snapshot, onboarding.error]);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
   // + snapshot===null flashes the prompt-suggestion EmptyChatHero before
