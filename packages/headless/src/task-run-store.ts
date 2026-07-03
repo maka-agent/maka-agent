@@ -10,6 +10,7 @@ import type {
   HeavyTaskCompactEvidenceEnvelope,
   HeavyTaskSelfCheckPlanState,
   HeavyTaskSelfCheckGateState,
+  HeavyTaskWorkspaceObservationState,
   EconomyTaskModeFacts,
   HeavyTaskInventoryState,
   TaskInboxItem,
@@ -61,6 +62,8 @@ export interface TaskRunProjection extends TaskRun {
   latestHeavyTaskSelfCheckPlan?: HeavyTaskSelfCheckPlanState;
   heavyTaskSelfCheckGates: HeavyTaskSelfCheckGateState[];
   latestHeavyTaskSelfCheckGate?: HeavyTaskSelfCheckGateState;
+  heavyTaskWorkspaceObservations: HeavyTaskWorkspaceObservationState[];
+  latestHeavyTaskWorkspaceObservation?: HeavyTaskWorkspaceObservationState;
   heavyTaskEvidence: HeavyTaskCompactEvidenceEnvelope[];
   latestHeavyTaskEvidence?: HeavyTaskCompactEvidenceEnvelope;
   heavyTaskCompletion?: HeavyTaskCompletionStatus;
@@ -109,6 +112,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     heavyTaskSelfCheckPlans: [],
     heavyTaskSelfChecks: [],
     heavyTaskSelfCheckGates: [],
+    heavyTaskWorkspaceObservations: [],
     heavyTaskEvidence: [],
   };
   const attempts = new Map<string, TaskAttempt>();
@@ -222,6 +226,10 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
       case 'heavy_task_self_check_gate_recorded':
         projection.heavyTaskSelfCheckGates.push(event.gate);
         projection.latestHeavyTaskSelfCheckGate = event.gate;
+        break;
+      case 'heavy_task_workspace_observation_recorded':
+        projection.heavyTaskWorkspaceObservations.push(event.observation);
+        projection.latestHeavyTaskWorkspaceObservation = event.observation;
         break;
       case 'heavy_task_evidence_recorded':
         if (!appendCompactEvidence(projection, event.evidence)) {

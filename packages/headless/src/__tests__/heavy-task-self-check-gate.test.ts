@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { evaluateHeavyTaskSelfCheckGate } from '../heavy-task-self-check-gate.js';
 import type { Task } from '../contracts.js';
-import type { HeavyTaskModeFacts, HeavyTaskSelfCheckPlanState, HeavyTaskSemanticSelfCheckState, HeavyTaskTodoItem, TaskEvent } from '../task-contracts.js';
+import type {
+  HeavyTaskModeFacts,
+  HeavyTaskSelfCheckPlanState,
+  HeavyTaskSemanticSelfCheckState,
+  HeavyTaskTodoItem,
+  HeavyTaskWorkspaceObservationState,
+  TaskEvent,
+} from '../task-contracts.js';
 import { projectTaskRun } from '../task-run-store.js';
 
 const heavyTaskMode: HeavyTaskModeFacts = {
@@ -25,7 +32,7 @@ describe('heavy-task self-check gate', () => {
     const decision = evaluateHeavyTaskSelfCheckGate({
       task,
       heavyTaskMode,
-      projection: projection(),
+      projection: projection(undefined, plan(['/app/move.txt', '/app/report.jsonl'])),
     });
 
     assert.equal(decision.action, 'repair_prompt');
@@ -33,6 +40,23 @@ describe('heavy-task self-check gate', () => {
     assert.match(decision.action === 'repair_prompt' ? decision.prompt : '', /not accepted for heavy-task finalization/);
     assert.ok(decision.checklist.some((check) => check.path === '/app/move.txt'));
     assert.ok(decision.checklist.some((check) => check.path === '/app/report.jsonl' && check.kind === 'artifact_parse'));
+  });
+
+  test('does not derive required artifacts by parsing raw instruction text', () => {
+    const polyglotTask: Task = {
+      id: 'polyglot-task',
+      instruction: 'Write me a single file in /app/polyglot/main.py.c which is a polyglot.',
+      workspaceDir: '/tmp/workspace',
+      verification: { command: 'true', protectedPaths: [] },
+    };
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task: polyglotTask,
+      heavyTaskMode,
+      projection: projection(),
+    });
+
+    assert.ok(!decision.checklist.some((check) => check.kind === 'required_artifact'));
+    assert.ok(!decision.checklist.some((check) => check.path === '/app/polyglot/main.py'));
   });
 
   test('fail and inconclusive self-checks return repair prompts', () => {
@@ -165,6 +189,38 @@ describe('heavy-task self-check gate', () => {
     assert.doesNotMatch(decision.reason, /fix|repair|rerun|submit a revised plan/i);
   });
 
+  test('machine workspace observation blocks extra sibling in a single-file deliverable directory', () => {
+    const polyglotTask: Task = {
+      id: 'polyglot-task',
+      instruction: 'Write me a single file in /app/polyglot/main.py.c which is a polyglot.',
+      workspaceDir: '/tmp/workspace',
+      verification: { command: 'true', protectedPaths: [] },
+    };
+    const selfCheckState = selfCheck('pass', {
+      command: 'python3 /app/polyglot/main.py.c 10 && python3 /app/polyglot/main.py 10',
+      refs: ['/app/polyglot/main.py.c', '/app/polyglot/main.py'],
+      artifactPath: '/app/polyglot/main.py.c',
+    });
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task: polyglotTask,
+      heavyTaskMode,
+      projection: projection(
+        selfCheckState,
+        plan(['/app/polyglot/main.py.c']),
+        workspaceObservation([
+          { path: '/app/polyglot/main.py.c', kind: 'file' },
+          { path: '/app/polyglot/main.py', kind: 'symlink', symlinkTarget: 'main.py.c' },
+        ]),
+      ),
+      repairAttemptsUsed: 1,
+      maxRepairAttempts: 1,
+    });
+
+    assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
+    assert.match(decision.reason, /machine workspace observation found extra final paths/);
+    assert.match(decision.reason, /\/app\/polyglot\/main\.py/);
+  });
+
   test('weak pass without command or artifact evidence stays blocked', () => {
     const weak = {
       ...selfCheck('pass', { command: 'test -f /app/move.txt', refs: ['/app/move.txt'] }),
@@ -210,7 +266,11 @@ describe('heavy-task self-check gate', () => {
   });
 });
 
-function projection(selfCheckState?: HeavyTaskSemanticSelfCheckState, planState?: HeavyTaskSelfCheckPlanState) {
+function projection(
+  selfCheckState?: HeavyTaskSemanticSelfCheckState,
+  planState?: HeavyTaskSelfCheckPlanState,
+  observation?: HeavyTaskWorkspaceObservationState,
+) {
   const taskRunId = 'run-gate';
   const events: TaskEvent[] = [
     { type: 'task_run_created', id: 'e1', taskRunId, ts: 1, taskId: task.id, configId: 'cfg' },
@@ -236,7 +296,24 @@ function projection(selfCheckState?: HeavyTaskSemanticSelfCheckState, planState?
   if (selfCheckState) {
     events.push({ type: 'heavy_task_self_check_recorded', id: 'e4', taskRunId, ts: 4, selfCheck: selfCheckState });
   }
+  if (observation) {
+    events.push({ type: 'heavy_task_workspace_observation_recorded', id: 'e5-observation', taskRunId, ts: 5, observation });
+  }
   return projectTaskRun(events, taskRunId);
+}
+
+function workspaceObservation(entries: HeavyTaskWorkspaceObservationState['entries']): HeavyTaskWorkspaceObservationState {
+  return {
+    schemaVersion: 1,
+    observationId: 'workspace-observation-1',
+    taskRunId: 'run-gate',
+    ts: 5,
+    roots: ['/app/polyglot'],
+    entries,
+    status: 'ok',
+    command: 'find /app/polyglot -mindepth 1 -maxdepth 1',
+    source: { kind: 'system', label: 'unit test' },
+  };
 }
 
 function plan(finalArtifacts: string[]): HeavyTaskSelfCheckPlanState {

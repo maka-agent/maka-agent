@@ -49,6 +49,7 @@ import {
   evaluateHeavyTaskSelfCheckGate,
   heavyTaskSelfCheckGateStateFromDecision,
 } from './heavy-task-self-check-gate.js';
+import { observeHeavyTaskWorkspace } from './heavy-task-workspace-observation.js';
 import type { HeadlessBackendContext } from './isolation.js';
 import {
   ISOLATED_HEADLESS_TOOL_NAMES,
@@ -369,7 +370,17 @@ export async function runTaskOnce(
     let runtimeSummary = summarizeRuntime(invocation, deps.realBackendIsolation);
     await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, runtimeSummary);
     if (heavyTaskMode.enabled) {
-      const gateProjection = await taskRunStore.project(taskRunId);
+      let gateProjection = await taskRunStore.project(taskRunId);
+      await appendHeavyTaskWorkspaceObservation({
+        taskRunStore,
+        taskRunId,
+        projection: gateProjection,
+        executor: deps.realBackendIsolation?.toolExecutor,
+        cwd: agentWorkspaceDir,
+        now,
+        newId,
+      });
+      gateProjection = await taskRunStore.project(taskRunId);
       const gateDecision = evaluateHeavyTaskSelfCheckGate({
         task,
         heavyTaskMode,
@@ -445,7 +456,17 @@ export async function runTaskOnce(
         await appendRuntimeFeedback(taskRunStore, taskRunId, attemptId, now, newId, repairSummary);
         runtimeSummary = mergeRuntimeSummaries(runtimeSummary, repairSummary);
 
-        const boundedProjection = await taskRunStore.project(taskRunId);
+        let boundedProjection = await taskRunStore.project(taskRunId);
+        await appendHeavyTaskWorkspaceObservation({
+          taskRunStore,
+          taskRunId,
+          projection: boundedProjection,
+          executor: deps.realBackendIsolation?.toolExecutor,
+          cwd: agentWorkspaceDir,
+          now,
+          newId,
+        });
+        boundedProjection = await taskRunStore.project(taskRunId);
         const boundedDecision = evaluateHeavyTaskSelfCheckGate({
           task,
           heavyTaskMode,
@@ -611,6 +632,26 @@ export async function runTaskOnce(
   } finally {
     await workspace.cleanup();
   }
+}
+
+async function appendHeavyTaskWorkspaceObservation(input: {
+  taskRunStore: TaskRunStore;
+  taskRunId: string;
+  projection: TaskRunProjection;
+  executor?: NonNullable<RunTaskOnceDeps['realBackendIsolation']>['toolExecutor'];
+  cwd: string;
+  now: () => number;
+  newId: () => string;
+}): Promise<void> {
+  const event = await observeHeavyTaskWorkspace({
+    taskRunId: input.taskRunId,
+    projection: input.projection,
+    executor: input.executor,
+    cwd: input.cwd,
+    now: input.now,
+    newId: input.newId,
+  });
+  if (event) await appendTaskEvent(input.taskRunStore, input.taskRunId, event);
 }
 
 const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };

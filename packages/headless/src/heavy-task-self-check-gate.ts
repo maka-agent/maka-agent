@@ -6,6 +6,7 @@ import type {
   HeavyTaskAcceptanceCheck,
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskSelfCheckGateState,
+  HeavyTaskWorkspaceObservationState,
   HeavyTaskTodoItem,
 } from './task-contracts.js';
 import type { TaskRunProjection } from './task-run-store.js';
@@ -48,6 +49,7 @@ export function evaluateHeavyTaskSelfCheckGate(input: HeavyTaskSelfCheckGateInpu
   const reason = gateBlockerReason(
     selfCheck,
     input.projection.latestHeavyTaskSelfCheckPlan,
+    input.projection.latestHeavyTaskWorkspaceObservation,
     completion.semantic.reason,
     checklist,
   );
@@ -110,7 +112,7 @@ export function heavyTaskSelfCheckGateStateFromDecision(input: {
 
 export function deriveHeavyTaskAcceptanceChecks(
   task: Task,
-  projection: Pick<TaskRunProjection, 'latestHeavyTaskTodos'> = {},
+  projection: Pick<TaskRunProjection, 'latestHeavyTaskTodos' | 'latestHeavyTaskSelfCheckPlan'> = {},
 ): HeavyTaskAcceptanceCheck[] {
   const checks: HeavyTaskAcceptanceCheck[] = [];
   const seen = new Set<string>();
@@ -121,16 +123,17 @@ export function deriveHeavyTaskAcceptanceChecks(
     checks.push({ id: `check-${checks.length + 1}`, ...check });
   };
 
-  for (const path of publicPathsFromText(task.instruction)) {
+  for (const artifact of projection.latestHeavyTaskSelfCheckPlan?.finalArtifacts ?? []) {
+    const path = artifact.path;
     add({
       kind: 'required_artifact',
-      source: 'task_instruction',
-      description: `Visible task instruction requires artifact ${path}`,
+      source: 'self_check_plan',
+      description: `Accepted self_check_plan_submit declares final artifact ${path}`,
       evidenceRequired: 'command_or_artifact',
       path,
       commandHint: `test -e ${shellQuote(path)}`,
     });
-    const parseHint = parseCheckForPath(path);
+    const parseHint = parseCheckForPath(path, 'self_check_plan');
     if (parseHint) add(parseHint);
   }
 
@@ -212,6 +215,7 @@ export function renderHeavyTaskSelfCheckGatePrompt(input: {
 function gateBlockerReason(
   selfCheck: HeavyTaskSemanticSelfCheckState | undefined,
   plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan'],
+  workspaceObservation: HeavyTaskWorkspaceObservationState | undefined,
   semanticReason: string,
   checklist: readonly HeavyTaskAcceptanceCheck[],
 ): string | undefined {
@@ -223,6 +227,8 @@ function gateBlockerReason(
   }
   const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck, plan);
   if (strongPassBlocker) return strongPassBlocker;
+  const workspaceObservationBlocker = machineWorkspaceObservationBlocker(plan, workspaceObservation);
+  if (workspaceObservationBlocker) return workspaceObservationBlocker;
   if (!selfCheckAddressesRequiredArtifacts(selfCheck, checklist)) {
     return 'latest self-check does not address visible required artifact contract';
   }
@@ -252,31 +258,64 @@ function selfCheckAddressesRequiredArtifacts(
   return requiredPaths.some((path) => evidenceText.includes(path.toLowerCase()) || evidenceText.includes(basename(path).toLowerCase()));
 }
 
-function publicPathsFromText(text: string): string[] {
-  const matches = text.matchAll(/(?:^|[\s'"`(])((?:\/app\/|\.{0,2}\/)?[A-Za-z0-9._/-]+\.(?:jsonl|json|txt|csv|py|js|ts|mjs|cjs|md|html|xml|yaml|yml|toml|ini|log|out|bin|png|jpg|jpeg|bmp|gif|svg))(?:$|[\s'"`),.;:])/g);
-  return unique([...matches]
-    .map((match) => match[1])
-    .filter((path): path is string => Boolean(path))
-    .filter((path) => !/hidden|private|evaluator|official[-_ ]?verifier|scorer/i.test(path))
-    .map((path) => path.replace(/^\.\//, '')));
+function machineWorkspaceObservationBlocker(
+  plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan'],
+  observation: HeavyTaskWorkspaceObservationState | undefined,
+): string | undefined {
+  if (!observation || observation.status !== 'ok') return undefined;
+  for (const expectedPath of plannedSingleArtifactDirectoryPaths(plan)) {
+    const expectedDir = dirname(expectedPath);
+    const entries = observation.entries.filter((entry) => dirname(entry.path) === expectedDir);
+    if (entries.length === 0 || !entries.some((entry) => entry.path === expectedPath)) continue;
+    const extras = entries
+      .map((entry) => entry.path)
+      .filter((path) => path !== expectedPath);
+    if (extras.length > 0) {
+      return [
+        `machine workspace observation found extra final paths in single-file deliverable directory ${expectedDir}`,
+        `- expected only: ${expectedPath}`,
+        `- observed extras: ${extras.join(', ')}`,
+      ].join('\n');
+    }
+  }
+  return undefined;
 }
 
-function parseCheckForPath(path: string): Omit<HeavyTaskAcceptanceCheck, 'id'> | undefined {
-  if (/\.jsonl$/i.test(path)) {
+function plannedSingleArtifactDirectoryPaths(plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan']): string[] {
+  if (!plan) return [];
+  const byDir = new Map<string, string[]>();
+  for (const artifact of plan.finalArtifacts) {
+    if (!artifact.path.startsWith('/app/')) continue;
+    const dir = dirname(artifact.path);
+    byDir.set(dir, [...(byDir.get(dir) ?? []), artifact.path]);
+  }
+  const paths: string[] = [];
+  for (const artifacts of byDir.values()) {
+    if (artifacts.length === 1) paths.push(artifacts[0]!);
+  }
+  return paths;
+}
+
+function parseCheckForPath(
+  path: string,
+  source: HeavyTaskAcceptanceCheck['source'],
+): Omit<HeavyTaskAcceptanceCheck, 'id'> | undefined {
+  const lowerPath = path.toLowerCase();
+  if (lowerPath.endsWith('.jsonl')) {
     return {
       kind: 'artifact_parse',
-      source: 'task_instruction',
-      description: `Visible JSONL artifact ${path} should be parseable or line-inspected`,
+      source,
+      description: `Declared JSONL artifact ${path} should be parseable or line-inspected`,
       evidenceRequired: 'command_or_artifact',
       path,
       commandHint: `python - <<'PY'\nimport json\nfrom pathlib import Path\np=Path(${JSON.stringify(path)})\nfor line in p.read_text().splitlines(): json.loads(line)\nPY`,
     };
   }
-  if (/\.json$/i.test(path)) {
+  if (lowerPath.endsWith('.json')) {
     return {
       kind: 'artifact_parse',
-      source: 'task_instruction',
-      description: `Visible JSON artifact ${path} should be parseable`,
+      source,
+      description: `Declared JSON artifact ${path} should be parseable`,
       evidenceRequired: 'command_or_artifact',
       path,
       commandHint: `python -m json.tool ${shellQuote(path)} >/tmp/maka-self-check/json-parse.out`,
@@ -321,6 +360,8 @@ function basename(path: string): string {
   return parts.at(-1) ?? path;
 }
 
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
+function dirname(path: string): string {
+  const index = path.lastIndexOf('/');
+  if (index <= 0) return '.';
+  return path.slice(0, index);
 }

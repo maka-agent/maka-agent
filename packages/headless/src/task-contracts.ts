@@ -437,6 +437,25 @@ export interface HeavyTaskSelfCheckPlanAuditSummary {
   diagnostics: string[];
 }
 
+export interface HeavyTaskWorkspaceObservationEntry {
+  path: string;
+  kind: 'file' | 'directory' | 'symlink' | 'other';
+  symlinkTarget?: string;
+}
+
+export interface HeavyTaskWorkspaceObservationState {
+  schemaVersion: 1;
+  observationId: string;
+  taskRunId: string;
+  ts: number;
+  roots: string[];
+  entries: HeavyTaskWorkspaceObservationEntry[];
+  status: 'ok' | 'error';
+  command: string;
+  errorExcerpt?: string;
+  source: { kind: 'system'; label: string };
+}
+
 export interface HeavyTaskSemanticSelfCheckState {
   schemaVersion: 1;
   selfCheckId: string;
@@ -455,7 +474,7 @@ export interface HeavyTaskSemanticSelfCheckState {
 export interface HeavyTaskAcceptanceCheck {
   id: string;
   kind: 'required_artifact' | 'artifact_parse' | 'public_command' | 'fresh_context' | 'workspace_hygiene' | 'task_family_hint';
-  source: 'task_instruction' | 'task_metadata' | 'todo' | 'terminal_bench_hint' | 'generic_heavy_task';
+  source: 'task_instruction' | 'task_metadata' | 'todo' | 'self_check_plan' | 'terminal_bench_hint' | 'generic_heavy_task';
   description: string;
   evidenceRequired: 'command' | 'artifact' | 'command_or_artifact';
   path?: string;
@@ -789,6 +808,11 @@ export interface HeavyTaskSelfCheckGateRecordedEvent extends BaseTaskEvent {
   gate: HeavyTaskSelfCheckGateState;
 }
 
+export interface HeavyTaskWorkspaceObservationRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_workspace_observation_recorded';
+  observation: HeavyTaskWorkspaceObservationState;
+}
+
 export interface HeavyTaskEvidenceRecordedEvent extends BaseTaskEvent {
   type: 'heavy_task_evidence_recorded';
   evidence: HeavyTaskCompactEvidenceEnvelope;
@@ -924,6 +948,7 @@ export type TaskEvent =
   | HeavyTaskSelfCheckPlanRecordedEvent
   | HeavyTaskSelfCheckRecordedEvent
   | HeavyTaskSelfCheckGateRecordedEvent
+  | HeavyTaskWorkspaceObservationRecordedEvent
   | HeavyTaskEvidenceRecordedEvent
   | IsolationPolicyRecordedEvent
   | WorkspaceLeaseRecordedEvent
