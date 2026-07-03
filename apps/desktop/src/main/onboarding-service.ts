@@ -30,6 +30,7 @@
 
 import {
   deriveOnboardingState,
+  hasSettledInitialOnboarding,
   ONBOARDING_MILESTONE_IDS,
   type OnboardingMilestone,
   type OnboardingMilestoneId,
@@ -118,6 +119,14 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
         sessions,
         secrets,
       });
+
+      // Backfill: existing users who already have sessions but no
+      // initial_onboarding milestone (upgraded from before this PR)
+      // get auto-marked as completed so the hero never appears.
+      if (sessions.length > 0 && !hasSettledInitialOnboarding(milestones)) {
+        const updated = await deps.upsertMilestone('initial_onboarding', 'completed');
+        return { state, milestones: updated };
+      }
 
       return { state, milestones };
     },
