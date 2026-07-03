@@ -36,6 +36,10 @@
 .maka-lazy-fallback[data-surface="modal"] {
     min-height: 100%;
   }
+.maka-lazy-fallback[data-surface="module"] {
+    align-self: stretch;
+    min-height: min(280px, 45vh);
+  }
 .os-theme-maka {
     /* local: OverlayScrollbars theme overrides */
     --os-size: 8px;

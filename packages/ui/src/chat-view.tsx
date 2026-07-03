@@ -43,6 +43,24 @@ import type {
 const SkillsModuleMain = lazy(() => import('./skills-panel.js').then((m) => ({ default: m.SkillsModuleMain })));
 const DailyReviewPanel = lazy(() => import('./daily-review-panel.js').then((m) => ({ default: m.DailyReviewPanel })));
 const PlanReminderPanel = lazy(() => import('./plan-reminder-panel.js').then((m) => ({ default: m.PlanReminderPanel })));
+
+function ModulePageFallback(props: { label: string; message: string }) {
+  return (
+    <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label={props.label}>
+      <div className="maka-lazy-fallback" data-surface="module" role="status" aria-busy="true">
+        {props.message}
+      </div>
+    </main>
+  );
+}
+
+function ModulePanelFallback(props: { message: string }) {
+  return (
+    <div className="maka-lazy-fallback" data-surface="module" role="status" aria-busy="true">
+      {props.message}
+    </div>
+  );
+}
 import { RelativeTime } from './relative-time.js';
 import { ToolActivity } from './tool-activity.js';
 
@@ -364,7 +382,7 @@ export function ChatView(props: {
 
   if (props.mode === 'skills') {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModulePageFallback label="技能" message="正在加载技能…" />}>
         <SkillsModuleMain
           skills={props.skills}
           auditReport={capabilityAuditReport}
@@ -379,8 +397,8 @@ export function ChatView(props: {
 
   if (props.mode === 'automations') {
     return (
-      <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="定时任务">
-        <Suspense fallback={null}>
+      <Suspense fallback={<ModulePageFallback label="定时任务" message="正在加载定时任务…" />}>
+        <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="定时任务">
           <PlanReminderPanel
             reminders={props.planReminders ?? []}
             auditReport={capabilityAuditReport}
@@ -393,8 +411,8 @@ export function ChatView(props: {
             onClearRunHistory={props.onClearPlanReminderRunHistory}
             onDelete={props.onDeletePlanReminder}
           />
-        </Suspense>
-      </main>
+        </main>
+      </Suspense>
     );
   }
 
@@ -412,7 +430,7 @@ export function ChatView(props: {
           </div>
         </header>
         {props.dailyReviewBridge ? (
-          <Suspense fallback={null}>
+          <Suspense fallback={<ModulePanelFallback message="正在加载每日回顾…" />}>
             <DailyReviewPanel
               bridge={props.dailyReviewBridge}
               onSelectSession={props.onSelectSession}
