@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import { evaluateHeavyTaskCompletionStatus } from '../heavy-task-finalization.js';
 import type {
   HeavyTaskModeFacts,
+  HeavyTaskSelfCheckPlanState,
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskSelfCheckStatus,
   HeavyTaskTodoItem,
@@ -24,6 +25,7 @@ describe('heavy-task finalization status', () => {
       status: 'budget_exhausted',
       taxonomy: 'budget_exhausted',
       heavyTaskMode,
+      latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
       latestHeavyTaskSelfCheck: selfCheck('pass'),
       latestHeavyTaskTodos: phaseGateTodos([{ id: 'edit', status: 'completed' }]),
     });
@@ -42,6 +44,7 @@ describe('heavy-task finalization status', () => {
       status: 'incomplete',
       taxonomy: 'agent_incomplete',
       heavyTaskMode,
+      latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
       latestHeavyTaskSelfCheck: selfCheck('pass'),
       latestHeavyTaskTodos: phaseGateTodos([
         { id: 'implemented', status: 'completed' },
@@ -162,6 +165,7 @@ describe('heavy-task finalization status', () => {
         status: 'budget_exhausted',
         taxonomy: 'budget_exhausted',
         heavyTaskMode,
+        latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
         latestHeavyTaskSelfCheck: selfCheck('pass'),
         latestHeavyTaskTodos: item.todos,
       });
@@ -201,6 +205,7 @@ describe('heavy-task finalization status', () => {
         status: 'budget_exhausted',
         taxonomy: 'budget_exhausted',
         heavyTaskMode,
+        latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
         latestHeavyTaskSelfCheck: selfCheck('pass'),
         latestHeavyTaskTodos: item.todos,
       });
@@ -238,6 +243,7 @@ describe('heavy-task finalization status', () => {
         error: item.errorClass || item.message ? { class: item.errorClass, message: item.message ?? item.errorClass ?? '' } : undefined,
         decisions: item.reason ? [{ id: `decision-${item.name}`, taskRunId: 'run-1', ts: 1, decision: 'stop', reason: item.reason }] : undefined,
         heavyTaskMode,
+        latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
         latestHeavyTaskSelfCheck: selfCheck('pass'),
         latestHeavyTaskTodos: phaseGateTodos([{ id: 'edit', status: 'completed' }]),
       });
@@ -251,6 +257,7 @@ describe('heavy-task finalization status', () => {
       status: 'completed',
       taxonomy: 'verification_failed',
       heavyTaskMode,
+      latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
       latestHeavyTaskSelfCheck: selfCheck('pass'),
       latestHeavyTaskTodos: phaseGateTodos([{ id: 'edit', status: 'completed' }]),
     });
@@ -306,6 +313,39 @@ function selfCheck(
         : 'Accepted as public, task-derived advisory self-check evidence.',
     } as unknown as HeavyTaskSemanticSelfCheckState['guard'],
     source: { kind: 'model_tool', toolCallId: 'tool-self-check' },
+  };
+}
+
+function selfCheckPlan(): HeavyTaskSelfCheckPlanState {
+  return {
+    schemaVersion: 1,
+    planId: 'plan-1',
+    taskRunId: 'run-1',
+    ts: 1,
+    finalArtifacts: [{
+      path: 'build-output.log',
+      purpose: 'public self-check artifact',
+      publicReason: 'visible public check creates this artifact',
+    }],
+    selfCheckScratch: {
+      root: '/tmp/maka-self-check/run-1',
+      expectedGeneratedPaths: ['/tmp/maka-self-check/run-1/check.log'],
+      publicReason: 'public checks write temporary output under scratch',
+    },
+    workspaceGuardPlan: {
+      checkedPaths: ['/app'],
+      expectedAddedPaths: ['build-output.log'],
+      expectedGeneratedPathsOutsideScratch: [],
+      publicReason: 'public guard checks visible workspace paths',
+    },
+    publicReason: 'plan is derived from visible public task evidence',
+    guard: {
+      status: 'accepted',
+      checkedAt: 1,
+      categories: [],
+      publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+    },
+    source: { kind: 'model_tool', toolCallId: 'tool-plan' },
   };
 }
 

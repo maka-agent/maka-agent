@@ -389,6 +389,54 @@ export interface HeavyTaskSourceGuardResult {
   publicReason: string;
 }
 
+export interface HeavyTaskSelfCheckPlanArtifact {
+  path: string;
+  purpose: string;
+  publicReason: string;
+}
+
+export interface HeavyTaskSelfCheckScratchPlan {
+  root: string;
+  expectedGeneratedPaths?: string[];
+  publicReason: string;
+}
+
+export interface HeavyTaskSelfCheckWorkspaceGuardPlan {
+  checkedPaths: string[];
+  expectedAddedPaths?: string[];
+  expectedGeneratedPathsOutsideScratch?: string[];
+  publicReason: string;
+}
+
+export interface HeavyTaskSelfCheckPlanState {
+  schemaVersion: 1;
+  planId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  finalArtifacts: HeavyTaskSelfCheckPlanArtifact[];
+  selfCheckScratch: HeavyTaskSelfCheckScratchPlan;
+  workspaceGuardPlan: HeavyTaskSelfCheckWorkspaceGuardPlan;
+  publicReason: string;
+  guard: HeavyTaskSourceGuardResult & { status: 'accepted' };
+  source: HeavyTaskProgressSource;
+}
+
+export type HeavyTaskSelfCheckPlanAuditStatus = 'pass' | 'fail' | 'unknown';
+
+export type HeavyTaskSelfCheckPlanRiskFlag =
+  | 'missing_self_check_plan'
+  | 'planned_final_artifact_added'
+  | 'unplanned_added_path'
+  | 'scratch_escape'
+  | 'plan_drift';
+
+export interface HeavyTaskSelfCheckPlanAuditSummary {
+  status: HeavyTaskSelfCheckPlanAuditStatus;
+  riskFlags: HeavyTaskSelfCheckPlanRiskFlag[];
+  diagnostics: string[];
+}
+
 export interface HeavyTaskSemanticSelfCheckState {
   schemaVersion: 1;
   selfCheckId: string;
@@ -731,6 +779,11 @@ export interface HeavyTaskSelfCheckRecordedEvent extends BaseTaskEvent {
   selfCheck: HeavyTaskSemanticSelfCheckState;
 }
 
+export interface HeavyTaskSelfCheckPlanRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_self_check_plan_recorded';
+  plan: HeavyTaskSelfCheckPlanState;
+}
+
 export interface HeavyTaskSelfCheckGateRecordedEvent extends BaseTaskEvent {
   type: 'heavy_task_self_check_gate_recorded';
   gate: HeavyTaskSelfCheckGateState;
@@ -868,6 +921,7 @@ export type TaskEvent =
   | EconomyTaskModeRecordedEvent
   | HeavyTaskInventoryRecordedEvent
   | HeavyTaskTodosRecordedEvent
+  | HeavyTaskSelfCheckPlanRecordedEvent
   | HeavyTaskSelfCheckRecordedEvent
   | HeavyTaskSelfCheckGateRecordedEvent
   | HeavyTaskEvidenceRecordedEvent

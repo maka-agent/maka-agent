@@ -8,6 +8,7 @@ import type {
   AutonomousDecision,
   FeedbackObservation,
   HeavyTaskCompactEvidenceEnvelope,
+  HeavyTaskSelfCheckPlanState,
   HeavyTaskSelfCheckGateState,
   EconomyTaskModeFacts,
   HeavyTaskInventoryState,
@@ -56,6 +57,8 @@ export interface TaskRunProjection extends TaskRun {
   latestHeavyTaskTodos?: HeavyTaskTodoState;
   heavyTaskSelfChecks: HeavyTaskSemanticSelfCheckState[];
   latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
+  heavyTaskSelfCheckPlans: HeavyTaskSelfCheckPlanState[];
+  latestHeavyTaskSelfCheckPlan?: HeavyTaskSelfCheckPlanState;
   heavyTaskSelfCheckGates: HeavyTaskSelfCheckGateState[];
   latestHeavyTaskSelfCheckGate?: HeavyTaskSelfCheckGateState;
   heavyTaskEvidence: HeavyTaskCompactEvidenceEnvelope[];
@@ -103,6 +106,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     warnings: [],
     heavyTaskInventory: [],
     heavyTaskTodoStates: [],
+    heavyTaskSelfCheckPlans: [],
     heavyTaskSelfChecks: [],
     heavyTaskSelfCheckGates: [],
     heavyTaskEvidence: [],
@@ -195,6 +199,10 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
       case 'heavy_task_todos_recorded':
         projection.heavyTaskTodoStates.push(event.todos);
         projection.latestHeavyTaskTodos = event.todos;
+        break;
+      case 'heavy_task_self_check_plan_recorded':
+        projection.heavyTaskSelfCheckPlans.push(event.plan);
+        projection.latestHeavyTaskSelfCheckPlan = event.plan;
         break;
       case 'heavy_task_self_check_recorded':
         if (isAcceptedHeavyTaskSelfCheck(event.selfCheck)) {
@@ -350,6 +358,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
       error: projection.error,
       heavyTaskMode: projection.heavyTaskMode,
       latestHeavyTaskTodos: projection.latestHeavyTaskTodos,
+      latestHeavyTaskSelfCheckPlan: projection.latestHeavyTaskSelfCheckPlan,
       latestHeavyTaskSelfCheck: projection.latestHeavyTaskSelfCheck,
       decisions: projection.decisions,
     });
@@ -534,6 +543,7 @@ function hasHeavyTaskCompletionState(projection: TaskRunProjection): boolean {
   return projection.heavyTaskMode?.enabled === true
     || projection.heavyTaskInventory.length > 0
     || projection.heavyTaskTodoStates.length > 0
+    || projection.heavyTaskSelfCheckPlans.length > 0
     || projection.heavyTaskSelfChecks.length > 0
     || projection.heavyTaskEvidence.length > 0;
 }

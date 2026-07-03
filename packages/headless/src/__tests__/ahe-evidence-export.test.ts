@@ -198,10 +198,17 @@ describe('AHE evidence export', () => {
       const projection = projectTaskRun([
         { type: 'task_run_created', id: 'e1', taskRunId: 'run-official', ts: 1, taskId: 'task-1', configId: 'cfg-1' },
         {
+          type: 'heavy_task_self_check_plan_recorded',
+          id: 'self-check-plan-event',
+          taskRunId: 'run-official',
+          ts: 2,
+          plan: acceptedHeavySelfCheckPlan('run-official'),
+        },
+        {
           type: 'heavy_task_self_check_recorded',
           id: 'self-check-event',
           taskRunId: 'run-official',
-          ts: 2,
+          ts: 2.1,
           selfCheck: acceptedHeavySelfCheck('run-official', true),
         },
         {
@@ -301,7 +308,16 @@ describe('AHE evidence export', () => {
       assert.deepEqual(failureDigest.selfCheck.hygiene.checkedPaths, ['/app/polyglot']);
       assert.ok(failureDigest.selfCheck.hygiene.riskFlags.includes('workspace_side_effects_present'));
       assert.ok(failureDigest.selfCheck.hygiene.riskFlags.includes('workspace_guard_added_paths_reported'));
+      assert.ok(failureDigest.selfCheck.hygiene.riskFlags.includes('unplanned_added_path'));
+      assert.ok(failureDigest.selfCheck.hygiene.riskFlags.includes('scratch_escape'));
       assert.equal(failureDigest.selfCheck.heavyTaskSelfChecks[0].status, 'pass');
+      assert.equal(failureDigest.selfCheck.selfCheckPlan.latest.planId, 'plan-1');
+      assert.equal(failureDigest.selfCheck.selfCheckPlan.audit.status, 'fail');
+      assert.ok(failureDigest.selfCheck.selfCheckPlan.audit.riskFlags.includes('unplanned_added_path'));
+      const taskRunExport = JSON.parse(await readFile(join(out, 'traces', 'run-official', 'task-run.json'), 'utf8'));
+      assert.equal(taskRunExport.progress.selfCheckPlans.latest.planId, 'plan-1');
+      assert.equal(taskRunExport.progress.selfCheckPlans.audit.status, 'fail');
+      assert.equal(taskRunExport.heavyTask.selfCheckPlan.audit.status, 'fail');
       assert.equal(failureDigest.finalState.selfCheckGate.action, 'repair_prompt');
       assert.match(failureDigest.finalState.selfCheckGate.reason, /uncleaned workspace side effects/);
       assert.match(failureDigest.officialHarbor.verifier.stdoutExcerpt, /expected move e2e4/);
@@ -421,5 +437,38 @@ function acceptedHeavySelfCheck(taskRunId: string, passed: boolean) {
       publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
     },
     source: { kind: 'model_tool' as const, toolCallId: 'tool-1' },
+  };
+}
+
+function acceptedHeavySelfCheckPlan(taskRunId: string) {
+  return {
+    schemaVersion: 1 as const,
+    planId: 'plan-1',
+    taskRunId,
+    ts: 2,
+    finalArtifacts: [{
+      path: '/app/move.txt',
+      purpose: 'visible final deliverable',
+      publicReason: 'visible task requires this artifact',
+    }],
+    selfCheckScratch: {
+      root: `/tmp/maka-self-check/${taskRunId}`,
+      expectedGeneratedPaths: [`/tmp/maka-self-check/${taskRunId}/check.log`],
+      publicReason: 'public checks should generate outputs under scratch',
+    },
+    workspaceGuardPlan: {
+      checkedPaths: ['/app/polyglot'],
+      expectedAddedPaths: ['/app/move.txt'],
+      expectedGeneratedPathsOutsideScratch: [],
+      publicReason: 'public guard checks visible deliverable paths',
+    },
+    publicReason: 'plan is derived from visible public task requirements',
+    guard: {
+      status: 'accepted' as const,
+      checkedAt: 2,
+      categories: [],
+      publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+    },
+    source: { kind: 'model_tool' as const, toolCallId: 'tool-plan' },
   };
 }

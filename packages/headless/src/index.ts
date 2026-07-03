@@ -268,18 +268,24 @@ export {
 } from './heavy-task-progress.js';
 export type {
   HeavyTaskPublicSelfCheckValidation,
+  HeavyTaskSelfCheckPlanSubmitInput,
   HeavyTaskSelfCheckRecorder,
   HeavyTaskSelfCheckSubmitInput,
 } from './heavy-task-self-check.js';
 export {
+  auditSelfCheckPlanConsistency,
   buildHeavyTaskSelfCheckTools,
   createHeavyTaskSelfCheckRecorder,
   HEAVY_TASK_SELF_CHECK_TOOL_NAMES,
   heavyTaskArtifactEvidenceSchema,
   heavyTaskCommandEvidenceSchema,
+  heavyTaskSelfCheckPlanArtifactSchema,
+  heavyTaskSelfCheckPlanSubmitSchema,
   heavyTaskSelfCheckSubmitSchema,
   isAcceptedHeavyTaskSelfCheck,
   renderHeavyTaskSelfCheckForPrompt,
+  renderSelfCheckPlanAuditDiagnostic,
+  validateHeavyTaskPublicSelfCheckPlan,
   validateHeavyTaskPublicSelfCheck,
 } from './heavy-task-self-check.js';
 export type {

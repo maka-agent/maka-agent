@@ -3,6 +3,7 @@ import type {
   AutonomousDecision,
   AutonomousResultTaxonomy,
   HeavyTaskModeFacts,
+  HeavyTaskSelfCheckPlanState,
   HeavyTaskSelfCheckStatus,
   HeavyTaskSemanticSelfCheckState,
   HeavyTaskTodoItem,
@@ -61,6 +62,7 @@ export interface HeavyTaskCompletionInput {
   error?: TaskRunError;
   heavyTaskMode?: HeavyTaskModeFacts;
   latestHeavyTaskTodos?: HeavyTaskTodoState;
+  latestHeavyTaskSelfCheckPlan?: HeavyTaskSelfCheckPlanState;
   latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
   decisions?: readonly AutonomousDecision[];
 }
@@ -122,7 +124,7 @@ function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskComp
   if (selfCheck.status !== 'pass') {
     return { ...base, status: 'incomplete', reason: `latest self-check status is ${selfCheck.status}` };
   }
-  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck);
+  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck, input.latestHeavyTaskSelfCheckPlan);
   if (strongPassBlocker) {
     return { ...base, status: 'incomplete', reason: strongPassBlocker };
   }

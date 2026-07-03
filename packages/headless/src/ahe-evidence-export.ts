@@ -28,11 +28,12 @@ import {
 import { harborOfficialVerifierOutputFromArtifacts } from './harbor-official-artifacts.js';
 import type { BenchmarkVerifierOutput } from './benchmark-adapters.js';
 import {
+  auditSelfCheckPlanConsistency,
   heavyTaskSelfCheckSandboxStatus,
   heavyTaskSelfCheckStrongPassBlocker,
   heavyTaskSelfCheckWorkspaceGuardStatus,
 } from './heavy-task-self-check.js';
-import type { AutonomousResultTaxonomy, HeavyTaskSelfCheckExecutionHygiene, ScoreResult, TaskRunArtifact, VerifierResult } from './task-contracts.js';
+import type { AutonomousResultTaxonomy, HeavyTaskSelfCheckExecutionHygiene, HeavyTaskSelfCheckPlanAuditSummary, ScoreResult, TaskRunArtifact, VerifierResult } from './task-contracts.js';
 import type { TaskRunProjection } from './task-run-store.js';
 
 export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260701' as const;
@@ -131,6 +132,10 @@ export interface MakaAheFailureDigest {
       latest?: HeavyTaskSelfCheckExecutionHygiene;
     };
     heavyTaskSelfChecks: TaskRunProjection['heavyTaskSelfChecks'];
+    selfCheckPlan?: {
+      latest?: TaskRunProjection['latestHeavyTaskSelfCheckPlan'];
+      audit?: HeavyTaskSelfCheckPlanAuditSummary;
+    };
     legacySelfChecks: TaskRunProjection['selfChecks'];
   };
   finalState: {
@@ -483,6 +488,14 @@ function failureDigestFromProjection(
       divergence: selfCheckDivergence(projection, exported),
       hygiene: selfCheckHygieneSummary(projection),
       heavyTaskSelfChecks: projection.heavyTaskSelfChecks,
+      ...(projection.latestHeavyTaskSelfCheckPlan || projection.latestHeavyTaskSelfCheck
+        ? {
+            selfCheckPlan: {
+              ...(projection.latestHeavyTaskSelfCheckPlan ? { latest: projection.latestHeavyTaskSelfCheckPlan } : {}),
+              audit: auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck),
+            },
+          }
+        : {}),
       legacySelfChecks: projection.selfChecks,
     },
     finalState: {
@@ -651,14 +664,15 @@ function selfCheckHygieneSummary(projection: TaskRunProjection): MakaAheFailureD
   const removedPaths = uniqueStrings(latest.workspaceGuard?.removedPaths ?? []);
   const checkedPaths = uniqueStrings(latest.workspaceGuard?.checkedPaths ?? []);
   const workspaceGuardStatus = projection.latestHeavyTaskSelfCheck
-    ? heavyTaskSelfCheckWorkspaceGuardStatus(projection.latestHeavyTaskSelfCheck)
+    ? heavyTaskSelfCheckWorkspaceGuardStatus(projection.latestHeavyTaskSelfCheck, projection.latestHeavyTaskSelfCheckPlan)
     : 'unchecked';
   const sandboxStatus = projection.latestHeavyTaskSelfCheck
     ? heavyTaskSelfCheckSandboxStatus(projection.latestHeavyTaskSelfCheck)
     : 'missing';
   const strongPassBlocker = projection.latestHeavyTaskSelfCheck
-    ? heavyTaskSelfCheckStrongPassBlocker(projection.latestHeavyTaskSelfCheck)
+    ? heavyTaskSelfCheckStrongPassBlocker(projection.latestHeavyTaskSelfCheck, projection.latestHeavyTaskSelfCheckPlan)
     : 'latest self-check is missing sandbox execution evidence';
+  const planAudit = auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck);
   const riskFlags = [
     ...(sandboxStatus === 'missing' ? ['sandbox_not_reported'] : []),
     ...(latest.scratchUsed === false ? ['scratch_not_used'] : []),
@@ -670,6 +684,7 @@ function selfCheckHygieneSummary(projection: TaskRunProjection): MakaAheFailureD
     ...(remainingSideEffectPaths.length > 0 ? ['remaining_side_effect_paths_reported'] : []),
     ...(latest.workspaceGuard?.checked !== true ? ['workspace_guard_not_checked'] : []),
     ...(addedPaths.length > 0 ? ['workspace_guard_added_paths_reported'] : []),
+    ...planAudit.riskFlags,
   ];
 
   return {

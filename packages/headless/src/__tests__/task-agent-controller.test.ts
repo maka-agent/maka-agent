@@ -252,9 +252,11 @@ class ProgressToolBackend implements AgentBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const inventorySubmit = this.ctx.tools.find((tool) => tool.name === 'inventory_submit');
     const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
+    const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
     const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
     assert.ok(inventorySubmit);
     assert.ok(todoUpdate);
+    assert.ok(selfCheckPlanSubmit);
     assert.ok(selfCheckSubmit);
     const toolCtx = {
       sessionId: this.sessionId,
@@ -273,6 +275,25 @@ class ProgressToolBackend implements AgentBackend {
         { id: 'artifact', kind: 'runnable_artifact', content: 'Patch first runnable artifact', status: 'in_progress', priority: 'high' },
         { id: 'check', kind: 'public_check', content: 'Run public check after artifact exists', status: 'pending', priority: 'high' },
       ],
+    }, toolCtx);
+    await selfCheckPlanSubmit.impl({
+      finalArtifacts: [{
+        path: 'README.md',
+        purpose: 'visible public artifact inspected by the check',
+        publicReason: 'visible task notes are public',
+      }],
+      selfCheckScratch: {
+        root: '/tmp/maka-self-check/progress',
+        expectedGeneratedPaths: ['/tmp/maka-self-check/progress/check.log'],
+        publicReason: 'public check outputs stay under scratch',
+      },
+      workspaceGuardPlan: {
+        checkedPaths: ['README.md'],
+        expectedAddedPaths: [],
+        expectedGeneratedPathsOutsideScratch: [],
+        publicReason: 'public guard checks visible artifact paths',
+      },
+      publicReason: 'plan is derived from visible public task files',
     }, toolCtx);
     await selfCheckSubmit.impl({
       status: 'pass',
@@ -323,8 +344,10 @@ class GateRepairBackend implements AgentBackend {
     const turnNumber = this.ctx.prompts.length;
     if (turnNumber === 2 && this.ctx.repairSubmitsSelfCheck) {
       const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
+      const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
       const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
       assert.ok(todoUpdate);
+      assert.ok(selfCheckPlanSubmit);
       assert.ok(selfCheckSubmit);
       const toolCtx = {
         sessionId: this.sessionId,
@@ -353,6 +376,25 @@ class GateRepairBackend implements AgentBackend {
             evidence: 'test -f marker.txt passed.',
           },
         ],
+      }, toolCtx);
+      await selfCheckPlanSubmit.impl({
+        finalArtifacts: [{
+          path: 'marker.txt',
+          purpose: 'visible runnable artifact',
+          publicReason: 'visible task asks for marker.txt to exist',
+        }],
+        selfCheckScratch: {
+          root: '/tmp/maka-self-check/gate-repair',
+          expectedGeneratedPaths: ['/tmp/maka-self-check/gate-repair/check.log'],
+          publicReason: 'public check outputs stay under scratch',
+        },
+        workspaceGuardPlan: {
+          checkedPaths: ['marker.txt'],
+          expectedAddedPaths: [],
+          expectedGeneratedPathsOutsideScratch: [],
+          publicReason: 'public guard checks marker.txt',
+        },
+        publicReason: 'plan is derived from visible public task evidence',
       }, toolCtx);
       await selfCheckSubmit.impl({
         status: 'pass',
@@ -520,6 +562,7 @@ describe('runTaskOnce', () => {
       assert.equal(result.resultRecord.passed, true);
       assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('inventory_submit'));
       assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('todo_update'));
+      assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('self_check_plan_submit'));
       assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('self_check_submit'));
     });
   });
@@ -586,6 +629,7 @@ describe('runTaskOnce', () => {
       assert.ok(seenContexts[0]?.heavyTaskSelfCheck);
       assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('inventory_submit'));
       assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('todo_update'));
+      assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('self_check_plan_submit'));
       assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('self_check_submit'));
       assert.equal(result.projection.latestHeavyTaskInventory?.summary, 'Inspected public files.');
       assert.equal(result.projection.latestHeavyTaskInventory?.items[0]?.path, 'README.md');
@@ -593,6 +637,7 @@ describe('runTaskOnce', () => {
       assert.equal(result.projection.latestHeavyTaskTodos?.items[0]?.kind, 'runnable_artifact');
       assert.equal(result.projection.latestHeavyTaskTodos?.items[1]?.kind, 'public_check');
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.status, 'pass');
+      assert.equal(result.projection.latestHeavyTaskSelfCheckPlan?.guard.status, 'accepted');
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.guard.status, 'accepted');
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
@@ -600,6 +645,10 @@ describe('runTaskOnce', () => {
       );
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_todos_recorded').length,
+        2,
+      );
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_plan_recorded').length,
         2,
       );
       assert.equal(
@@ -645,6 +694,7 @@ describe('runTaskOnce', () => {
 
       assert.equal(prompts.length, 2);
       assert.match(prompts[1] ?? '', /not accepted for heavy-task finalization/);
+      assert.equal(result.projection.latestHeavyTaskSelfCheckPlan?.guard.status, 'accepted');
       assert.equal(result.projection.latestHeavyTaskSelfCheck?.status, 'pass');
       assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_finalize');
       assert.equal(result.projection.latestVerifierResult?.passed, true);

@@ -175,6 +175,7 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('agent_output'));
     assert.ok(!names.includes('inventory_submit'));
     assert.ok(!names.includes('todo_update'));
+    assert.ok(!names.includes('self_check_plan_submit'));
     assert.ok(!names.includes('self_check_submit'));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
@@ -211,6 +212,28 @@ describe('isolated headless tools', () => {
         },
       },
       heavyTaskSelfCheck: {
+        async recordSelfCheckPlan(input) {
+          return {
+            accepted: true,
+            plan: {
+              schemaVersion: 1,
+              planId: 'plan-1',
+              taskRunId: 'run-1',
+              ts: 1,
+              finalArtifacts: input.finalArtifacts,
+              selfCheckScratch: input.selfCheckScratch,
+              workspaceGuardPlan: input.workspaceGuardPlan,
+              publicReason: input.publicReason,
+              guard: {
+                status: 'accepted',
+                checkedAt: 1,
+                categories: [],
+                publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+              },
+              source: { kind: 'model_tool', toolCallId: 'tool-1' },
+            },
+          };
+        },
         async recordSelfCheck(input) {
           return {
             accepted: true,
@@ -239,6 +262,7 @@ describe('isolated headless tools', () => {
     const names = tools.map((tool) => tool.name);
     assert.ok(names.includes('inventory_submit'));
     assert.ok(names.includes('todo_update'));
+    assert.ok(names.includes('self_check_plan_submit'));
     assert.ok(names.includes('self_check_submit'));
     assert.ok(!names.includes('engineering_record'));
     assert.ok(!names.includes('check_record'));
