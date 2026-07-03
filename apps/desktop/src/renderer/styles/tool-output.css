@@ -376,7 +376,7 @@
 .maka-composer-context-plus {
   width: 26px;
   height: 26px;
-  border: 1px solid var(--foreground-20);
+  border: 1px solid color-mix(in oklch, var(--foreground) 20%, var(--background));
   border-radius: var(--radius-pill);
   background: transparent;
 }

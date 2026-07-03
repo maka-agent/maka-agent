@@ -863,7 +863,7 @@
 }
 .maka-list-group-count {
   font-variant-numeric: tabular-nums;
-  color: var(--foreground-30);
+  color: var(--foreground-40);
   font-size: var(--font-size-caption);
   font-weight: 500;
 }

@@ -114,7 +114,7 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: var(--foreground-30);
+    background: color-mix(in oklch, var(--foreground) 30%, var(--background));
     box-shadow: 0 0 0 2px var(--background);
   }
   .settingsBotLogo[data-large="true"] .settingsBotLogoStatusDot {

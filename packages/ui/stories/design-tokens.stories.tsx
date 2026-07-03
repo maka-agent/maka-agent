@@ -35,7 +35,7 @@ const foregroundScale = [
   ['foreground-2', '--foreground-2'],
   ['foreground-5', '--foreground-5'],
   ['foreground-10', '--foreground-10'],
-  ['foreground-20', '--foreground-20'],
+  ['foreground-50', '--foreground-50'],
   ['foreground-40', '--foreground-40'],
   ['foreground-60', '--foreground-60'],
   ['foreground-80', '--foreground-80'],
