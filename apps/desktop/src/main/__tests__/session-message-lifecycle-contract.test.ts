@@ -22,20 +22,40 @@ describe('active session message lifecycle contract', () => {
       'app-shell-copy.ts',
     ]);
     const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
-    const activeSessionEffect = src.match(/useEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
+    const activeSessionEffect = src.match(/useLayoutEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
     const activeReadCatch = activeSessionEffect.match(/readMessages\(activeId\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*?\n      \}\);/)?.[0] ?? '';
     const refreshMessages = src.match(/async function refreshMessages\(sessionId: string\)(?:: Promise<boolean>)? \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const retryMessages = src.match(/async function retryMessages\(sessionId: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
+      src,
+      /const \[messageLoadPending, setMessageLoadPending\] = useState\(false\);/,
+      'desktop shell must track the selected session message-read pending state',
+    );
+    assert.match(
+      src,
+      /const activeMessageLoading = Boolean\(activeId && messageLoadPending\);/,
+      'desktop shell must distinguish message-read loading from a genuinely empty session',
+    );
+    assert.match(
+      src,
+      /function setActiveId\(next: string \| undefined\): void \{[\s\S]*else if \(next !== activeIdRef\.current\) \{[\s\S]*setMessages\(\[\]\);[\s\S]*setMessageLoadPending\(true\)/,
+      'setActiveId must clear stale messages and mark the read pending only when the active session actually changes, in the same React batch as the switch so the empty hero does not flash',
+    );
+    assert.doesNotMatch(
       activeSessionEffect,
-      /const subscribedAt = Date\.now\(\);[\s\S]*setMessages\(\[\]\);[\s\S]*readMessages\(activeId\)/,
-      'selecting a new active session must clear the old chat body before async message read resolves',
+      /const subscribedAt = Date\.now\(\);[\s\S]*setMessages\(\[\]\)/,
+      'the active-session read-start effect must not clear messages; a layout-effect clear can wipe an optimistic user message for a brand-new session before the first paint',
+    );
+    assert.match(
+      src,
+      /setActiveId\(session\.id\);[\s\S]*?showOptimisticUserMessage\(session\.id, turnId, text, \{ replaceCurrentMessages: true \}\)/,
+      'the new-session-then-send path lets the optimistic user message overwrite the setActiveId clear in the same React batch, so the first message survives until the real read lands',
     );
     assert.match(
       activeSessionEffect,
-      /if \(!disposed && activeIdRef\.current === activeId\) \{[\s\S]*markSessionReadLocally\(activeId, next\);[\s\S]*setMessages\(next\);[\s\S]*\}/,
-      'late active-session reads may set messages only while the same session is still active',
+      /if \(!disposed && activeIdRef\.current === activeId\) \{[\s\S]*markSessionReadLocally\(activeId, next\);[\s\S]*if \(next\.length > 0\) setMessages\(next\);[\s\S]*setMessageLoadPending\(false\);[\s\S]*\}/,
+      'late active-session reads skip an empty result so an in-flight optimistic user message is not blanked while the same session is still active',
     );
     assert.match(
       activeReadCatch,
@@ -44,8 +64,8 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       activeReadCatch,
-      /\.catch\(\(error\) => \{[\s\S]*const message = messageReadErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
-      'active-session read failures must set a visible per-session load error after the old chat body has already been cleared',
+      /\.catch\(\(error\) => \{[\s\S]*const message = messageReadErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*setMessageLoadPending\(false\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
+      'active-session read failures must clear pending and set a visible per-session load error after stale content was cleared',
     );
     assert.doesNotMatch(activeReadCatch, /const message = cleanErrorMessage\(error\)/);
     assert.doesNotMatch(
@@ -56,7 +76,7 @@ describe('active session message lifecycle contract', () => {
     assert.doesNotMatch(
       activeReadCatch,
       /setMessages\(\[\]\)/,
-      'the read-failure catch must not perform a second destructive clear; the pre-read clear is the only stale-content boundary',
+      'the read-failure catch must not perform a second destructive clear; the setActiveId transition clear is the only stale-content boundary',
     );
     assert.match(
       refreshMessages,
@@ -96,13 +116,23 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       src,
-      /messageLoadError=\{activeId \? messageLoadErrorBySession\[activeId\] : undefined\}[\s\S]*messageLoadRetryPending=\{activeId \? messageRetryPendingBySession\[activeId\] === true : false\}[\s\S]*onRetryMessages=\{activeId \? \(\) => void retryMessages\(activeId\) : undefined\}/,
+      /messages=\{messages\}[\s\S]*messageLoading=\{activeMessageLoading\}[\s\S]*messageLoadError=\{activeId \? messageLoadErrorBySession\[activeId\] : undefined\}[\s\S]*messageLoadRetryPending=\{activeId \? messageRetryPendingBySession\[activeId\] === true : false\}[\s\S]*onRetryMessages=\{activeId \? \(\) => void retryMessages\(activeId\) : undefined\}/,
       'desktop shell must pass the active session load error, pending state, and guarded retry action to ChatView',
     );
     assert.doesNotMatch(
       src,
       /onRetryMessages=\{activeId \? \(\) => void refreshMessages\(activeId\) : undefined\}/,
       'manual retry must not call refreshMessages directly because that allows duplicate read IPCs',
+    );
+    assert.match(
+      ui,
+      /messageLoading\?: boolean/,
+      'ChatView must accept explicit message-read loading state',
+    );
+    assert.match(
+      ui,
+      /props\.messageLoading \? null : props\.messageLoadError \? \([\s\S]*\) : props\.emptyOverride/,
+      'ChatView must suppress the stale load error and the normal empty-chat hero while the selected session message read is still in flight',
     );
     assert.match(
       ui,

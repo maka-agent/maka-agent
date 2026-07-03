@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import type {
   ConnectionEvent,
   PlanReminder,
@@ -316,6 +316,7 @@ export function useActiveSessionEvents(options: {
   setMessageLoadErrorBySession: (
     updater: (current: Record<string, string>) => Record<string, string>,
   ) => void;
+  setMessageLoadPending: (pending: boolean) => void;
   setMessages: (messages: StoredMessage[]) => void;
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: Pick<ToastApi, 'error'>;
@@ -326,16 +327,16 @@ export function useActiveSessionEvents(options: {
     handleEvent,
     markSessionReadLocally,
     setMessageLoadErrorBySession,
+    setMessageLoadPending,
     setMessages,
     setSessionEventHealthBySession,
     toastApi,
   } = options;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
-    setMessages([]);
     setMessageLoadErrorBySession((current) => {
       if (!current[activeId]) return current;
       const next = { ...current };
@@ -350,13 +351,19 @@ export function useActiveSessionEvents(options: {
       .then((next) => {
         if (!disposed && activeIdRef.current === activeId) {
           markSessionReadLocally(activeId, next);
-          setMessages(next);
+          // Ignore an empty read: it can race a just-sent message's save and wipe
+          // the optimistic copy shown to the user. length is enough only because
+          // sends are serialized (one optimistic per session); parallel sends
+          // would need a merge instead.
+          if (next.length > 0) setMessages(next);
+          setMessageLoadPending(false);
         }
       })
       .catch((error) => {
         if (!disposed && activeIdRef.current === activeId) {
           const message = messageReadErrorMessage(error);
           setMessageLoadErrorBySession((current) => ({ ...current, [activeId]: message }));
+          setMessageLoadPending(false);
           toastApi.error('读取对话失败', message);
         }
       });

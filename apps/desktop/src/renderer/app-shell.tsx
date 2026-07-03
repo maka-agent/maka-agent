@@ -140,6 +140,7 @@ export function AppShell() {
   const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
   const navSelectionRef = useRef<NavSelection>(navSelection);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
+  const [messageLoadPending, setMessageLoadPending] = useState(false);
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
   const stopPendingRef = useRef<Set<string>>(new Set());
   const {
@@ -601,6 +602,7 @@ export function AppShell() {
     model: 'fake-model',
     permissionMode: 'ask',
   } : undefined);
+  const activeMessageLoading = Boolean(activeId && messageLoadPending);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
@@ -684,6 +686,14 @@ export function AppShell() {
   });
 
   function setActiveId(next: string | undefined): void {
+    // Clear here, not in the read effect: a layout-effect clear would wipe an
+    // optimistic first message before the first paint.
+    if (!next) {
+      setMessageLoadPending(false);
+    } else if (next !== activeIdRef.current) {
+      setMessages([]);
+      setMessageLoadPending(true);
+    }
     activeIdRef.current = next;
     setActiveIdState(next);
   }
@@ -888,6 +898,7 @@ export function AppShell() {
     handleEvent,
     markSessionReadLocally,
     setMessageLoadErrorBySession,
+    setMessageLoadPending,
     setMessages,
     setSessionEventHealthBySession,
     toastApi,
@@ -997,6 +1008,7 @@ export function AppShell() {
     setActiveId(undefined);
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setSearchScrollTarget(null);
+    setMessageLoadPending(false);
     setMessages([]);
   }
 
@@ -1241,6 +1253,7 @@ export function AppShell() {
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
               <ChatView
                 messages={messages}
+                messageLoading={activeMessageLoading}
                 streamingText={activeStreaming}
                 streamingComplete={activeStreamingComplete}
                 streamingMessageId={activeStreamingMessageId}
