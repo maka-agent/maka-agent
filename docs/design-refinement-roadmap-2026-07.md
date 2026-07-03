@@ -115,9 +115,11 @@
 5. **P-TEXT** ✅（首轮）：孤儿档 -20/-30 清除（8 处调用点：文字并入
    -40 兼修对比度、装饰内联 color-mix）；文字主力收敛为
    40/50/60/70/80。全量四档语义别名迁移留待逐面触碰。
-6. **P-4PT** ✅：ratchet 契约上线
-   （spacing-4pt-ratchet-contract.test.ts）：442 个存量违例按文件冻结
-   只减不增，新文件零容忍，防 baseline 生锈的 slack 检查
+6. **P-4PT** ✅✅（#448 完全体）：#459 的渐进 ratchet 服役半天后被
+   #448（#430 PR3）取代 —— 它修复了 --spacing 0.25rem=3.75px 的真 bug
+   （Tailwind 与手写 px 两把尺），全量 687 CSS + 125 TSX 收敛到 14 档
+   --space-* scale，并用 spacing-converge-contract 硬 ban bare px。
+   ratchet 契约已删除（一个机制，留强的）
 7. **P-DARK** ✅：elevation 独立化由 P-SHADOW dark-collapse 完成；
    语义色审计通过（dark 的 chroma 微调是感知补偿而非过饱和，
    accent 0.135→0.15 配 L+0.04 在暗底维持等感知强度）
@@ -136,6 +138,6 @@
 - 前置质感修复：#454（玻璃色板复活/token 卫生）、#452（blocked
   语义/时间戳/i18n）、#451（copy-feedback 契约同步）
 
-下一轮候选（按杠杆）：module-pages.css 76 个 off-grid 值的批量收敛、
-文字档 60/80 的逐面归并（→四档制）、P-STATE 边缘面补齐、
-storybook Design System 页同步新阴影/层级规则。
+下一轮候选（按杠杆）：文字档 60/80 的逐面归并（→四档制）、
+P-STATE 边缘面补齐、storybook Design System 页同步新阴影/层级规则。
+（原「module-pages 76 个 off-grid 值」已由 #448 全量收敛解决。）
