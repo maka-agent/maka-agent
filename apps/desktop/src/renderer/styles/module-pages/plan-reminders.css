@@ -1,0 +1,1054 @@
+.maka-plan-panel {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  padding: 0;
+}
+
+.maka-module-main .maka-plan-panel {
+  padding: 0;
+  width: 100%;
+}
+
+/* PR-UI-ALIGN-2 (2026-06-21): the page content is NOT a nested card — it
+   fills the one floating content-area card directly, exactly like 参考实现's
+   定时任务 page (header → banner → tabs → grid sit straight on the white card).
+   Removed the inner border/radius/shadow/1080-center so there's no card-in-card,
+   and opened up the padding so the page breathes like the reference. */
+/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Plan/Reminder
+   page card uses the universal recipe: 1px hairline border + 6px radius +
+   single 4% lift + 1px inner top highlight. Tight 4-6px internal gaps
+   (`--card-gap`) replace the old 14-18px loose stacking. */
+.maka-plan-shell {
+  width: min(100%, 900px);
+  margin-inline: auto;
+  display: grid;
+  /* Atlas §14.6 quick-win: section gap tightens 14 -> 8 (reference uses
+     `--agents-content-area-gap: 4px`; 8 keeps long-page readability while
+     pulling toward the dense reference cadence). */
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-color);
+  border-radius: var(--radius-surface);
+  box-shadow:
+    var(--card-shadow),
+    var(--card-highlight);
+}
+
+.maka-plan-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.maka-plan-heading {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 560px;
+}
+
+.maka-plan-eyebrow {
+  margin: 0;
+  color: var(--foreground-40);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.maka-plan-heading h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 2em;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+}
+
+.maka-plan-heading p:last-child {
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: var(--font-size-ui);
+  line-height: 1.45;
+}
+
+.maka-plan-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+  flex-wrap: wrap;
+}
+
+.maka-plan-create-through {
+  gap: var(--space-1);
+  background: var(--foreground-3);
+  color: var(--foreground);
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+/* PR-UI-PIXEL-3: signature off-black CTA, matching the reference's restrained
+   primary command treatment without using the app accent. Pure #000 is banned
+   per design-taste rules — use oklch off-black (charcoal) for premium feel. */
+.maka-plan-new-task-button {
+  gap: var(--space-1);
+  border-color: oklch(0.20 0 0);
+  border-radius: var(--radius-pill);
+  background: oklch(0.18 0 0);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.15),
+    0 1px 2px oklch(0 0 0 / 0.10);
+  color: oklch(1 0 0);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    border-color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    box-shadow 200ms var(--ease-out-strong);
+}
+
+.maka-plan-new-task-button:hover {
+  border-color: oklch(0.28 0 0);
+  background: oklch(0.26 0 0);
+  color: oklch(1 0 0);
+  transform: translateY(-0.5px);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.20),
+    0 4px 14px -8px oklch(0 0 0 / 0.32);
+}
+
+.maka-plan-new-task-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.maka-plan-refresh-button {
+  color: var(--foreground-60);
+}
+
+.maka-plan-template-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.maka-plan-template-strip[data-layout="cards"] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2-5);
+}
+
+.maka-plan-template-card {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: var(--space-2-5);
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  justify-content: stretch;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  padding: var(--space-1-5) var(--space-2);
+  text-align: left;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card {
+  min-height: 134px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--background);
+  box-shadow: none;
+  padding: var(--space-3);
+}
+
+.maka-plan-template-card:hover {
+  border-color: transparent;
+  background: oklch(from var(--foreground) l c h / 0.04);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card:hover {
+  border-color: var(--border);
+  background: var(--background);
+  box-shadow: 0 4px 14px -12px oklch(from var(--foreground) l c h / 0.22);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card::after {
+  content: "•••";
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  color: var(--foreground-40);
+  font-size: var(--font-size-ui);
+  letter-spacing: 1px;
+  line-height: 20px;
+}
+
+.maka-plan-template-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  background: var(--foreground-3);
+  color: var(--foreground-70);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-icon {
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--foreground) l c h / 0.16);
+  color: transparent;
+}
+
+.maka-plan-template-switch {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--foreground) l c h / 0.16);
+}
+
+.maka-plan-template-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.22);
+}
+
+.maka-plan-template-main {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-0-5);
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-main {
+  grid-column: 1 / -1;
+  gap: var(--space-1-5);
+}
+
+.maka-plan-template-title {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-title {
+  font-size: var(--font-size-base);
+  line-height: 1.3;
+}
+
+.maka-plan-template-note {
+  color: var(--foreground-50);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-note {
+  color: var(--foreground-60);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.maka-plan-template-schedule {
+  display: inline-flex;
+  align-self: start;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--foreground-2);
+  color: var(--foreground-50);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: 1;
+  padding: var(--space-0-5) var(--space-1-5);
+  white-space: nowrap;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-schedule {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: auto;
+  border: 0;
+  border-top: 1px dashed var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground-60);
+  padding: var(--space-3) 0 0;
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-schedule::before {
+  content: "";
+}
+
+.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-schedule > svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* PR-UI-PIXEL-2: reference's info strip is a calm, roomy blue banner
+   (≈#e6f7ff bg / #b0e3ff border, r8, 12×16 padding) — not a tight chip. */
+.maka-plan-system-alert {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-color: oklch(0.90 0.04 240);
+  border-radius: var(--radius-surface);
+  background: oklch(0.965 0.035 235);
+  color: oklch(0.50 0.13 245);
+  padding: var(--space-3) var(--space-4);
+}
+
+.maka-plan-system-alert [class*="lucide"] {
+  color: oklch(0.42 0.095 245);
+}
+
+.maka-plan-system-alert-main,
+.maka-plan-system-alert-switch {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.maka-plan-system-alert-main div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.maka-plan-system-alert-main [data-slot="alert-description"] {
+  display: none;
+}
+
+.maka-plan-system-alert-main > [class*="lucide"] {
+  flex: 0 0 auto;
+}
+
+.maka-plan-system-alert-switch {
+  flex: 0 0 auto;
+  color: oklch(0.38 0.075 245);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dark .maka-plan-system-alert {
+  border-color: oklch(0.56 0.08 245 / 0.44);
+  background: oklch(0.25 0.04 245 / 0.52);
+  color: oklch(0.84 0.07 245);
+}
+
+.dark .maka-plan-system-alert [class*="lucide"],
+.dark .maka-plan-system-alert-switch {
+  color: oklch(0.84 0.07 245);
+}
+
+.maka-plan-tabs {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.maka-plan-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2-5);
+  flex-wrap: wrap;
+  row-gap: var(--space-2-5);
+}
+
+.maka-plan-tabs-list {
+  gap: var(--space-4);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.maka-plan-tab {
+  position: relative;
+  gap: var(--space-1-5);
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground-40);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+}
+
+.maka-plan-tab[data-state="active"] {
+  color: var(--foreground);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* PR-UI-PIXEL-2 (2026-06-21): reference keeps the active-tab under-bar
+   NEUTRAL (the text/foreground color), not a brand tint — structural chrome
+   stays calm, brand color is reserved as a garnish (study §4 rule 2/3). */
+.maka-plan-tab[data-state="active"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--foreground);
+}
+
+.maka-plan-tab span {
+  color: var(--foreground-40);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-plan-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.maka-plan-toolbar-compact {
+  display: flex;
+}
+
+.maka-plan-tab-panel {
+  display: grid;
+  gap: var(--space-2-5);
+}
+
+/* PR-UI-PIXEL-1: reference lays scheduled tasks out in a responsive card
+   grid (~2-up), not a single vertical column of rows. */
+.maka-plan-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.maka-plan-form,
+.maka-plan-run-row {
+  display: grid;
+  gap: var(--space-2-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  padding: var(--space-4);
+}
+
+/* PR-UI-PIXEL-1 (2026-06-21): scheduled-task cards rebuilt to match the
+   reference's roomy vertical card (study §3.3): switch top-left + ⋯ top-right,
+   title, 2-line note, dashed divider, clock pill footer — laid out in a
+   responsive 2-up grid instead of the previous compact horizontal rows. */
+.maka-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  position: relative;
+  border: 1px solid var(--foreground-8);
+  border-radius: var(--radius-surface);
+  background: var(--background);
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  min-height: 148px;
+  transition:
+    border-color var(--duration-base) var(--ease-out-strong),
+    box-shadow var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-plan-card:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.13);
+  box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
+  transform: translateY(-1px);
+}
+
+.maka-plan-card[data-status="completed"] {
+  opacity: 0.62;
+}
+
+.maka-plan-card-chrome,
+.maka-plan-card-footer,
+.maka-plan-form-header,
+.maka-plan-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2-5);
+}
+
+.maka-plan-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.maka-plan-card-title-row > span {
+  display: none;
+}
+
+/* PR-UI-PIXEL-1: switch + ⋯ menu now sit persistently at the top of the
+   card (reference shows the on/off switch at all times), spread to opposite
+   corners by the shared `justify-content: space-between`. */
+.maka-plan-card-chrome {
+  order: 1;
+  gap: var(--space-1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.maka-plan-card-menu-trigger {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground-60);
+}
+
+.maka-plan-card-menu-trigger:hover {
+  background: oklch(from var(--foreground) l c h / 0.06);
+  color: var(--foreground);
+}
+
+.maka-plan-card-menu-trigger:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.maka-plan-card-menu {
+  min-width: 132px;
+}
+
+.maka-plan-dialog {
+  max-height: min(86dvh, 760px);
+}
+
+.maka-plan-form {
+  border: 0;
+  border-radius: 0;
+  background: var(--background);
+  padding: var(--space-3);
+  overflow: auto;
+}
+
+.maka-plan-form-header {
+  align-items: flex-start;
+  padding-bottom: var(--space-0-5);
+}
+
+.maka-plan-form-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.maka-plan-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1-5);
+}
+
+.maka-plan-field {
+  display: grid;
+  gap: var(--space-0-5);
+  color: var(--foreground-60);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.maka-plan-field input,
+.maka-plan-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  font-weight: 500;
+  padding: var(--space-1-5) var(--space-2);
+  outline: none;
+  resize: vertical;
+}
+
+.maka-plan-field input:focus,
+.maka-plan-field textarea:focus {
+  border-color: oklch(from var(--focus-ring) l c h / 0.55);
+  box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.12);
+}
+
+.maka-plan-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.maka-plan-preset {
+  min-width: 0;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-plan-preset:hover {
+  background: var(--foreground-2);
+}
+
+.maka-plan-validation {
+  margin: 0;
+  border: 1px solid oklch(from var(--warning) l c h / 0.34);
+  border-radius: var(--radius-control);
+  background: oklch(from var(--warning) l c h / 0.08);
+  color: var(--foreground-80);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: 1.4;
+  padding: var(--space-1) var(--space-2);
+}
+
+.maka-plan-delivery-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-1-5);
+}
+
+.maka-plan-delivery-help {
+  margin: 0;
+  color: var(--foreground-60);
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.maka-plan-submit {
+  justify-content: center;
+}
+
+.maka-plan-search,
+.maka-plan-compact-select {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--foreground-60);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.maka-plan-search {
+  width: min(200px, 28vw);
+}
+
+.maka-plan-compact-select {
+  width: 124px;
+  gap: 0;
+}
+
+.maka-plan-sort-select {
+  width: 168px;
+}
+
+/* PR-UI-ALIGN-1 (2026-06-21): the reference's task toolbar is a single bare
+   sort control on the right of the tabs — not a form. Hide the stacked field
+   labels (排序 / 搜索计划提醒 / 状态) so the controls read as light inline chips,
+   and let the bar sit on the tabs row instead of wrapping to its own block. */
+.maka-plan-toolbar label > span:first-child {
+  display: none;
+}
+
+.maka-panel-detail[data-agents-view="cron"] .maka-plan-tabs-bar .maka-plan-search,
+.maka-panel-detail[data-agents-view="cron"] .maka-plan-tabs-bar .maka-plan-compact-select:not(.maka-plan-sort-select) {
+  display: none;
+}
+
+.maka-plan-search input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  font-weight: 500;
+  outline: none;
+  padding: var(--space-1-5) var(--space-2);
+}
+
+.maka-plan-search input:focus {
+  border-color: oklch(from var(--focus-ring) l c h / 0.55);
+  box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.12);
+}
+
+/* PR round-AB-shared-select (yuejing 2026-06-25): the Plan Reminder
+   delivery select and the 5 Settings selects used to ship two slightly
+   different wrappers — different option shapes, different selected
+   trigger renderers, different CSS recipes. They are now one
+   `SettingsSelect` primitive in `@maka/ui` (see kenji styles inventory
+   `notes/maka-styles-css-inventory-2026-06-25-task-128.md`). These
+   `.settingsSelect*` rules pin the unified chrome. */
+.settingsSelectTrigger {
+  min-width: 0;
+  height: 34px;
+  justify-content: space-between;
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+}
+
+.settingsSelectPositioner {
+  z-index: var(--z-dropdown);
+  outline: none;
+}
+
+.settingsSelectPopup {
+  min-width: var(--anchor-width);
+}
+
+/* The icon slot lines up with the text via inline-flex; the icon tile
+   is a fixed 16x16 to absorb Iconify's size: '100%' rendering of the
+   simple-icons svg without pushing option row height around. */
+.settingsSelectOption {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.settingsSelectOptionIcon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Grouped menu form of the settings-select family (`SettingsSelectGroups`):
+   provider groups, each heading carrying a brand mark, over the shared
+   checkmark rows. The chat model pickers render this body inside their own
+   pill trigger; any future grouped select reuses it. Geometry traces to the
+   former bespoke model-switcher menu (max-content hug, 32px rows), now folded
+   into this one family instead of a parallel `.maka-model-switcher-*` recipe. */
+.settingsSelectMenuPopup {
+  width: max-content;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: min(420px, var(--available-height));
+  /* The popup itself is the scroll container: the row list can exceed the cap
+     when a provider exposes many models, and the inner SelectList's
+     `--available-height` ceiling is too tall to engage here, so without this
+     the overflow rows spill out below the rounded box. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2);
+  border-radius: var(--radius-modal);
+  background: var(--background);
+  box-shadow: var(--shadow-maka-panel);
+}
+
+.settingsSelectMenuPopup [role="option"] {
+  min-height: 32px;
+  align-items: center;
+  border-radius: var(--radius-surface);
+  padding: var(--space-1-5) var(--space-3);
+}
+
+.settingsSelectMenuOption {
+  display: block;
+  color: var(--foreground);
+  font-size: var(--font-size-ui); /* text-sm on the 15px root — same scale as headings */
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* Heading: same 13px as the rows; hierarchy comes from weight 500 + muted ink
+   + the brand mark, not a different size or an uppercase eyebrow. The mark sits
+   in the 1rem leading column so it lines up under each row's selected check. */
+.settingsSelectMenuPopup .settingsSelectMenuGroupLabel {
+  display: grid;
+  grid-template-columns: 1rem 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3) var(--space-1);
+  font-size: var(--font-size-ui);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+.settingsSelectMenuGroupLogo {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--foreground); /* monochrome marks read full-ink, not muted */
+}
+
+.settingsSelectMenuGroupLogo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.maka-plan-search-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1-5);
+  color: var(--foreground-50);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.maka-plan-empty {
+  position: static;
+  width: auto;
+  transform: none;
+  padding: var(--space-4) var(--space-2-5);
+}
+
+.maka-plan-empty-wrap[data-mode="starter-cards"] {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.maka-plan-card-main {
+  order: 2;
+  display: grid;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.maka-plan-card-title {
+  margin: 0;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-plan-card-run {
+  display: none;
+}
+
+/* PR-UI-PIXEL-1: footer drops to the card bottom behind a dashed divider
+   (reference §3.3), holding the clock schedule pill left-aligned. */
+.maka-plan-card-footer {
+  order: 3;
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border);
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+/* PR-UI-PIXEL-1: schedule pill gets a filled tint (reference uses
+   fill-tertiary, not an outline) so it reads as a metadata chip. */
+.maka-plan-card-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 21px;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-60);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: 1;
+  padding: var(--space-0-5) var(--space-2);
+}
+
+.maka-plan-card-chip + .maka-plan-card-chip {
+  display: none;
+}
+
+/* PR-PLAN-NEXT-RUN-COUNTDOWN-0: small accent pill next to the
+   absolute next-run time so user sees both wall-clock and
+   distance-from-now in one glance. */
+.maka-plan-card-countdown {
+  display: inline-block;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--nav-active) l c h / 0.10);
+  color: var(--nav-active);
+  font-weight: 600;
+  font-size: var(--font-size-caption);
+  letter-spacing: 0;
+}
+
+/* PR-UI-PIXEL-1: note clamps to two lines (reference cards show a 2-line
+   description), replacing the single-line ellipsis used by the old row layout. */
+.maka-plan-card-note {
+  color: var(--foreground-60);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.maka-plan-run-list {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.maka-plan-run-row {
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2-5);
+}
+
+.maka-plan-run-status {
+  border-radius: var(--radius-pill);
+  background: var(--foreground-3);
+  color: var(--foreground-60);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  padding: var(--space-0-5) var(--space-1-5);
+}
+
+.maka-plan-run-status[data-status="triggered"] {
+  background: oklch(from var(--success) l c h / 0.10);
+  color: var(--success-text);
+}
+
+.maka-plan-run-status[data-status="blocked"],
+.maka-plan-run-status[data-status="failed"] {
+  background: oklch(from var(--warning) l c h / 0.10);
+  color: var(--warning-text);
+}
+
+.maka-plan-run-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.maka-plan-run-main strong {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-plan-run-main span,
+.maka-plan-run-row time {
+  color: var(--foreground-50);
+  font-size: var(--font-size-caption);
+  line-height: 1.35;
+}
+
+.maka-plan-run-row time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.maka-plan-runs-empty {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 1100px) {
+  .maka-plan-hero,
+  .maka-plan-tabs-bar {
+    display: grid;
+  }
+
+  .maka-plan-system-alert {
+    display: grid;
+  }
+
+  .maka-plan-template-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maka-plan-template-card {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+
+  .maka-plan-template-schedule {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .maka-plan-top-actions {
+    justify-content: flex-start;
+  }
+
+  .maka-plan-card-grid,
+  .maka-plan-form-grid,
+  .maka-plan-delivery-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maka-plan-toolbar,
+  .maka-plan-toolbar-compact {
+    justify-content: flex-start;
+  }
+
+  .maka-plan-search,
+  .maka-plan-compact-select,
+  .maka-plan-sort-select {
+    width: min(100%, 260px);
+  }
+
+  .maka-plan-run-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

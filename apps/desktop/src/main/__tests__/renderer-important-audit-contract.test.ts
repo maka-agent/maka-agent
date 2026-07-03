@@ -47,12 +47,12 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared sidebar/session primitive chrome reset',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages/skills.css',
     anchor: '.maka-skill-library-row',
     reason: 'shared ghost button layout override',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages/field-focus.css',
     anchor: ':where(input, select, textarea):focus',
     reason: 'shared field ring shadow override',
   },
@@ -75,7 +75,7 @@ const ALLOWLIST: ImportantAllowance[] = [
 
 const RETIRED_RING_RESET_BLOCKS = [
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages/skills.css',
     anchor: '.maka-skill-search input',
   },
   {
@@ -167,8 +167,8 @@ describe('renderer !important audit contract', () => {
   });
 
   it('keeps embedded bare fields off page-level important ring resets', async () => {
-    const modulePages = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/module-pages.css`, 'utf8'));
-    const fieldFocusSelector = findFieldFocusSelector(modulePages);
+    const fieldFocus = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/module-pages/field-focus.css`, 'utf8'));
+    const fieldFocusSelector = findFieldFocusSelector(fieldFocus);
     assert.equal(
       fieldFocusSelector,
       ':where(input, select, textarea):focus:not(:where([data-maka-field-chrome="none"]))',

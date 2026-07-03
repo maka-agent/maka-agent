@@ -1,0 +1,90 @@
+.maka-model-switcher {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 var(--space-1) var(--space-0-5) 0;
+  min-width: 0;
+  max-width: min(320px, 28vw);
+  -webkit-app-region: no-drag;
+}
+
+.maka-model-switcher[data-disabled="true"] {
+  opacity: 0.56;
+}
+
+.maka-model-switcher[data-pending="true"] {
+  opacity: 0.78;
+  cursor: progress;
+}
+
+.maka-model-switcher-trigger {
+  width: 100%;
+  min-width: 120px;
+  max-width: min(320px, 28vw);
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1-5);
+  padding: 1px var(--space-1-5) 1px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--foreground-5);
+  color: var(--foreground);
+  font-size: var(--font-size-caption);
+  box-shadow: none;
+  /* PR-MODEL-SWITCHER-TACTILE-0 (WAWQAQ msg `ed67a267`, skills round
+     task #116): tactile press feedback so the switch-model flow
+     feels physical. Same convention as the other interactive
+     surfaces in this round (artifact-row, session-row,
+     onboarding-card, prompt-chip). */
+  transition: background 140ms var(--ease-out-strong), transform var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
+  background: var(--foreground-8, var(--foreground-5));
+}
+
+.maka-model-switcher-trigger:active:not(:disabled):not([data-disabled]) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-model-switcher-trigger {
+    transition: background 0ms;
+  }
+  .maka-model-switcher-trigger:active:not(:disabled):not([data-disabled]) {
+    transform: none;
+  }
+}
+
+.maka-model-switcher-trigger[data-popup-open] {
+  background: var(--background);
+  box-shadow: var(--shadow-minimal-flat);
+}
+
+.maka-model-switcher-trigger:disabled,
+.maka-model-switcher-trigger[data-disabled] {
+  cursor: not-allowed;
+}
+
+.maka-model-switcher-label {
+  flex: 0 0 auto;
+  font-size: var(--font-size-caption);
+  font-weight: 650;
+  color: var(--foreground-50);
+}
+
+.maka-model-switcher-value {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+}
+
+/* The popup, group headings, and option rows now render through the shared
+   `.settingsSelectMenu*` recipe (see the settings-select family above); the
+   trigger chrome above stays bespoke to the composer pill. */
