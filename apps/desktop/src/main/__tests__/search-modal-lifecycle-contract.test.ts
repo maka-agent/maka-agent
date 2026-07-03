@@ -265,7 +265,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       searchModal,
-      /useModalA11y\(dialogRef,\s*props\.onClose,\s*inputRef\)/,
+      /useModalA11y\(dialogRef,\s*props\.onClose,\s*inputRef,\s*\{\s*suppressFocusRestoreRef\s*\}\)/,
       'SearchModal must give initial modal focus to the search input, not the close button',
     );
     assert.match(
@@ -431,7 +431,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(
       hook,
-      /queueMicrotask\(\(\) => \{\s*if \(document\.contains\(container\)\) return;\s*if \(previouslyFocused && document\.contains\(previouslyFocused\)\)/m,
+      /queueMicrotask\(\(\) => \{\s*if \(suppressFocusRestoreRef\?\.current\) return;\s*if \(document\.contains\(container\)\) return;\s*if \(previouslyFocused && document\.contains\(previouslyFocused\)\)/m,
       'StrictMode effect cleanup must not restore focus to the opener while the modal container is still mounted',
     );
   });

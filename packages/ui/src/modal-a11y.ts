@@ -17,7 +17,18 @@ export function useModalA11y(
   containerRef: RefObject<HTMLElement | null>,
   onEscape?: () => void,
   initialFocusRef?: RefObject<HTMLElement | null>,
+  options?: {
+    /**
+     * When the ref's current value is true at unmount, skip restoring
+     * focus to the pre-modal element. Needed by flows that CLOSE the
+     * modal by navigating somewhere else (e.g. search -> jump to a chat
+     * turn): unconditionally yanking focus back to the trigger button
+     * would fight the destination's own focus management.
+     */
+    suppressFocusRestoreRef?: RefObject<boolean>;
+  },
 ): void {
+  const suppressFocusRestoreRef = options?.suppressFocusRestoreRef;
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -67,13 +78,14 @@ export function useModalA11y(
       // Defer restoration so any in-flight focus changes (e.g. clicking a
       // button that unmounts the modal) settle before we yank focus back.
       queueMicrotask(() => {
+        if (suppressFocusRestoreRef?.current) return;
         if (document.contains(container)) return;
         if (previouslyFocused && document.contains(previouslyFocused)) {
           previouslyFocused.focus?.({ preventScroll: true });
         }
       });
     };
-  }, [containerRef, onEscape, initialFocusRef]);
+  }, [containerRef, onEscape, initialFocusRef, suppressFocusRestoreRef]);
 }
 
 const FOCUSABLE_SELECTOR =
