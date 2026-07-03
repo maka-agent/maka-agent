@@ -35,6 +35,17 @@ describe('voice capture smoke Settings contract', () => {
     assert.doesNotMatch(src, /localStorage\.setItem\([^)]*voice/i, 'voice smoke must not persist audio state in localStorage');
   });
 
+  it('keeps the microphone permission probe rejection-safe', async () => {
+    const src = await readSettingsCombinedSource();
+    const probe = src.match(/async function readBrowserMicrophonePermission[\s\S]*?function classifyVoicePermissionError/)?.[0];
+    assert.ok(probe, 'voice microphone permission probe must be discoverable');
+    assert.match(
+      probe!,
+      /try \{[\s\S]*const result = await query\.call\(navigator\.permissions, \{ name: 'microphone' \}\);[\s\S]*\} catch \{[\s\S]*return 'unknown';[\s\S]*\}/,
+      'permission query rejection must degrade to unknown instead of surfacing an unhandled rejection',
+    );
+  });
+
   it('gates voice capture smoke with a synchronous pending owner', async () => {
     const src = await readSettingsCombinedSource();
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
