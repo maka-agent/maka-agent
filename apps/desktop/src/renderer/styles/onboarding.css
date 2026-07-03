@@ -407,7 +407,7 @@
    * family (same chrome as inline code badges). */
   border-radius: var(--radius-surface);
   background: var(--foreground-5, oklch(from var(--foreground) l c h / 0.06));
-  color: var(--foreground-80, oklch(from var(--foreground) l c h / 0.80));
+  color: var(--foreground-secondary);
 }
 
 /* Quick Chat composer (ready_empty branch). Looks similar to the

@@ -46,8 +46,9 @@ const ALL_BANNED_NUMS = [...BANNED_TEXT_NUMS, ...SURFACE_WASH_NUMS];
 // Properties that set TEXT color (not background/border/shadow).
 const TEXT_PROP_RE = /^(color|fill|stroke|caret-color|text-decoration-color|column-rule-color)$/i;
 
-// CSS `var(--foreground-N)` reference (N = digits).
-const VAR_FOREGROUND_N_RE = /var\(\s*(--foreground-\d+)\s*\)/g;
+// CSS `--foreground-N` token reference (N = digits). Does NOT require
+// var() to be closed — catches `var(--foreground-5, currentColor)`.
+const FOREGROUND_TOKEN_RE = /--foreground-(\d+)\b/g;
 
 // --- CSS scanning -----------------------------------------------------------
 
@@ -69,11 +70,10 @@ function findCssTextOffenders(css: string, label: string): string[] {
     const rawVal = m[2]!.trim();
     if (!TEXT_PROP_RE.test(prop)) continue;
 
-    for (const vm of rawVal.matchAll(VAR_FOREGROUND_N_RE)) {
-      const tok = vm[1]!;
-      const num = tok.replace('--foreground-', '');
+    for (const vm of rawVal.matchAll(FOREGROUND_TOKEN_RE)) {
+      const num = vm[1]!;
       if (bannedNumsSet.has(num)) {
-        offenders.push(`${label}: ${prop}: ${rawVal} [banned ${tok}]`);
+        offenders.push(`${label}: ${prop}: ${rawVal} [banned --foreground-${num}]`);
       }
     }
   }
@@ -146,10 +146,18 @@ const TEXT_CONTEXT_RE = new RegExp(
   //    text-(color:--fg-N), fill-[...], stroke-(...)
   + '|(?:text|fill|stroke|caret|decoration)-[(\\[](?:color:)?(?:var\\()?(?:\\s*)?--foreground-(\\d+)'
   // C) arbitrary property (no utility prefix): [color:var(--fg-N)]
-  //    Must start with [color: to distinguish from bg-[var(--fg-N)].
+  //    Must start with [color: to distinguish from bg-[var(--fg-N)]
+  //    and [border-color:...] / [background-color:...].
   + '|\\[color:(?:var\\()?(?:\\s*)?--foreground-(\\d+)'
-  // D) inline style string: color: "var(--foreground-N...", color: var(--fg-N...
-  + '|(?:color|fill|stroke)\\s*:\\s*["\']?var\\(\\s*--foreground-(\\d+)'
+  // D) inline style: the property name must be exactly color/fill/stroke
+  //    (not border-color or background-color). Require the property
+  //    name to start at a declaration boundary (^, whitespace, ;, {, ").
+  //    Matches: color: var(--fg-N, color: "var(--fg-N
+  + '|(?:^|\\s|;\\s*|\\{\\s*|["\']\\s*)(?:color|fill|stroke)\\s*:\\s*["\']?var\\(\\s*--foreground-(\\d+)'
+  // E) arbitrary property for text-like CSS props: [caret-color:...],
+  //    [text-decoration-color:...]. These have hyphenated property names
+  //    that D won't catch.
+  + '|\\[(?:caret-color|text-decoration-color|column-rule-color):(?:var\\()?(?:\\s*)?--foreground-(\\d+)'
   , 'g');
 
 async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
@@ -176,14 +184,14 @@ async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
       // Surface wash in text-like context, OR any text-foreground-N
       // utility class (all N banned as text, not just surface wash).
       for (const m of src.matchAll(TEXT_CONTEXT_RE)) {
-        const num = m[1] || m[2] || m[3] || m[4];
+        const num = m[1] || m[2] || m[3] || m[4] || m[5];
         if (!num) continue;
         // Alternative A (utility class): ban all N — deleted stops
         // (40..95) and surface wash (2/3/5/8/10) alike.
         if (m[1]) {
           offenders.push(`${label}: text-foreground-${num}`);
         }
-        // Alternatives B/C/D: only surface wash banned in text context.
+        // Alternatives B/C/D/E: only surface wash banned in text context.
         else if (surfaceSet.has(num)) {
           offenders.push(`${label}: text-context --foreground-${num}`);
         }
@@ -206,7 +214,7 @@ function scanTsxSnippet(src: string): string[] {
     offenders.push(`--foreground-${m[1]}`);
   }
   for (const m of src.matchAll(TEXT_CONTEXT_RE)) {
-    const num = m[1] || m[2] || m[3] || m[4];
+    const num = m[1] || m[2] || m[3] || m[4] || m[5];
     if (!num) continue;
     if (m[1]) {
       offenders.push(`text-foreground-${num}`);
@@ -441,6 +449,36 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts border-foreground-10 in TSX (border context)', () => {
     assert.deepEqual(scanTsxSnippet("border-foreground-10"), []);
+  });
+
+  // P3: surface arbitrary property must not be误杀
+  it('accepts [border-color:var(--foreground-10)] in TSX (border arbitrary property)', () => {
+    assert.deepEqual(scanTsxSnippet("[border-color:var(--foreground-10)]"), []);
+  });
+
+  it('accepts [background-color:var(--foreground-5)] in TSX (bg arbitrary property)', () => {
+    assert.deepEqual(scanTsxSnippet("[background-color:var(--foreground-5)]"), []);
+  });
+
+  it('rejects [caret-color:var(--foreground-5)] in TSX (text-like arbitrary property)', () => {
+    assert.ok(scanTsxSnippet("[caret-color:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects [text-decoration-color:var(--foreground-5)] in TSX (text-like arbitrary property)', () => {
+    assert.ok(scanTsxSnippet("[text-decoration-color:var(--foreground-5)]").length > 0);
+  });
+
+  // P2: CSS var() fallback — text context must fail even with fallback
+  it('rejects color: var(--foreground-5, currentColor) in CSS (var with fallback)', () => {
+    assert.ok(findCssTextOffenders('color: var(--foreground-5, currentColor)', 'test').length > 0);
+  });
+
+  it('rejects fill: var(--foreground-95, currentColor) in CSS (var with fallback)', () => {
+    assert.ok(findCssTextOffenders('fill: var(--foreground-95, currentColor)', 'test').length > 0);
+  });
+
+  it('accepts background: var(--foreground-5, currentColor) in CSS (bg context with fallback)', () => {
+    assert.deepEqual(findCssTextOffenders('background: var(--foreground-5, currentColor)', 'test'), []);
   });
 
   // P2: @theme 90/95 export banned
