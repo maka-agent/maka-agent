@@ -1011,6 +1011,20 @@
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;
+    /* Long-conversation first render: skip layout/paint for off-screen
+       turns (vercel react-best-practices rendering-content-visibility —
+       ~10x initial-render win on long sessions, keeps native Cmd+F and
+       text selection, no virtualization library). `auto 250px` keeps a
+       placeholder estimate until first render, then the remembered
+       actual size prevents scrollbar jumps. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 250px;
+  }
+
+  /* The streaming turn must never be skipped: it grows every frame and
+     anchors the auto-scroll-to-bottom behavior. */
+  .maka-turn-streaming {
+    content-visibility: visible;
   }
 
   .maka-turn-tools {
