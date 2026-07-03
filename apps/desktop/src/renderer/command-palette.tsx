@@ -45,7 +45,7 @@ import {
   KbdGroup,
   useModalA11y,
 } from '@maka/ui';
-import { SETTINGS_NAV } from './settings/SettingsModal';
+import { SETTINGS_NAV } from './settings/settings-nav';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
 import type { Command, CommandKind } from './command-palette-types';

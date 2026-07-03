@@ -81,7 +81,6 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
 
   async function createWindow(): Promise<void> {
     await mkdir(workspaceRoot, { recursive: true });
-    await ensureBundledOfficeSkills(workspaceRoot);
     installApplicationMenu();
     // Restore previously-saved bounds when available; first launch and
     // legacy installs both fall back to the default 1240x820 frame. After
@@ -258,6 +257,14 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     } else {
       await mainWindow.loadFile(join(import.meta.dirname, '..', 'renderer', 'index.html'));
     }
+    // Bundle/copy bundled Office skills in the background. This is pure
+    // disk I/O (writing a handful of SKILL.md files into the workspace)
+    // that the renderer never blocks on — skills are loaded lazily via
+    // the skill agent tool only when a task matches. Running it after
+    // loadFile is kicked off keeps it off the first-paint critical path.
+    void ensureBundledOfficeSkills(workspaceRoot).catch((error) => {
+      console.error('[skills] ensureBundledOfficeSkills failed:', error);
+    });
     if (process.env.MAKA_REAL_WINDOW_SMOKE === '1') {
       emitRealWindowSmokeDiagnostic('after-load');
       setTimeout(() => emitRealWindowSmokeDiagnostic('settled-1000ms'), 1000);

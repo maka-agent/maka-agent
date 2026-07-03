@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -35,9 +35,14 @@ import type {
   PlanReminderUpdatePatch,
   SkillEntry,
 } from './module-panel-types.js';
-import { SkillsModuleMain } from './skills-panel.js';
-import { DailyReviewPanel } from './daily-review-panel.js';
-import { PlanReminderPanel } from './plan-reminder-panel.js';
+// The Skills / Automations / Daily-Review surfaces are whole nav sections of
+// their own — they only render when `mode` flips to `skills` / `automations` /
+// `daily-review`, never on the default chat first paint. Loading them lazily
+// keeps their code (incl. the base-ui Select primitive they pull in) out of
+// the initial chunk so the chat shell mounts faster.
+const SkillsModuleMain = lazy(() => import('./skills-panel.js').then((m) => ({ default: m.SkillsModuleMain })));
+const DailyReviewPanel = lazy(() => import('./daily-review-panel.js').then((m) => ({ default: m.DailyReviewPanel })));
+const PlanReminderPanel = lazy(() => import('./plan-reminder-panel.js').then((m) => ({ default: m.PlanReminderPanel })));
 import { RelativeTime } from './relative-time.js';
 import { ToolActivity } from './tool-activity.js';
 
@@ -334,32 +339,36 @@ export function ChatView(props: {
 
   if (props.mode === 'skills') {
     return (
-      <SkillsModuleMain
-        skills={props.skills}
-        auditReport={capabilityAuditReport}
-        onRefreshSkills={props.onRefreshSkills}
-        onCreateSkillTemplate={props.onCreateSkillTemplate}
-        onOpenSkill={props.onOpenSkill}
-        onOpenSkillsFolder={props.onOpenSkillsFolder}
-      />
+      <Suspense fallback={null}>
+        <SkillsModuleMain
+          skills={props.skills}
+          auditReport={capabilityAuditReport}
+          onRefreshSkills={props.onRefreshSkills}
+          onCreateSkillTemplate={props.onCreateSkillTemplate}
+          onOpenSkill={props.onOpenSkill}
+          onOpenSkillsFolder={props.onOpenSkillsFolder}
+        />
+      </Suspense>
     );
   }
 
   if (props.mode === 'automations') {
     return (
       <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="定时任务">
-        <PlanReminderPanel
-          reminders={props.planReminders ?? []}
-          auditReport={capabilityAuditReport}
-          onRefresh={props.onRefreshPlanReminders}
-          onCreate={props.onCreatePlanReminder}
-          onUpdate={props.onUpdatePlanReminder}
-          onToggle={props.onTogglePlanReminder}
-          onTriggerNow={props.onTriggerPlanReminderNow}
-          onSnooze={props.onSnoozePlanReminder}
-          onClearRunHistory={props.onClearPlanReminderRunHistory}
-          onDelete={props.onDeletePlanReminder}
-        />
+        <Suspense fallback={null}>
+          <PlanReminderPanel
+            reminders={props.planReminders ?? []}
+            auditReport={capabilityAuditReport}
+            onRefresh={props.onRefreshPlanReminders}
+            onCreate={props.onCreatePlanReminder}
+            onUpdate={props.onUpdatePlanReminder}
+            onToggle={props.onTogglePlanReminder}
+            onTriggerNow={props.onTriggerPlanReminderNow}
+            onSnooze={props.onSnoozePlanReminder}
+            onClearRunHistory={props.onClearPlanReminderRunHistory}
+            onDelete={props.onDeletePlanReminder}
+          />
+        </Suspense>
       </main>
     );
   }
@@ -378,13 +387,15 @@ export function ChatView(props: {
           </div>
         </header>
         {props.dailyReviewBridge ? (
-          <DailyReviewPanel
-            bridge={props.dailyReviewBridge}
-            onSelectSession={props.onSelectSession}
-            onCopyMarkdown={props.onCopyDailyReviewMarkdown}
-            onAppendMarkdown={props.onAppendDailyReviewMarkdown}
-            onSaveMarkdown={props.onSaveDailyReviewMarkdown}
-          />
+          <Suspense fallback={null}>
+            <DailyReviewPanel
+              bridge={props.dailyReviewBridge}
+              onSelectSession={props.onSelectSession}
+              onCopyMarkdown={props.onCopyDailyReviewMarkdown}
+              onAppendMarkdown={props.onAppendDailyReviewMarkdown}
+              onSaveMarkdown={props.onSaveDailyReviewMarkdown}
+            />
+          </Suspense>
         ) : (
           <EmptyState
             Icon={CalendarDays}
