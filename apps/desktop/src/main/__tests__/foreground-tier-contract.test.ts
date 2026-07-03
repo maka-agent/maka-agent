@@ -206,12 +206,9 @@ const TEXT_PROP_NAMES = [
  *
  * Locates the property name (preceded by `{`, `,`, `<`, or whitespace
  * to avoid matching inside Tailwind class tokens), then extracts the
- * full value:
- *  - Quoted ("...' / '...' / `...`): scan until closing quote
- *  - Unquoted expression: scan with bracket depth tracking, stop at
- *    matching `}` (depth 0), `;`, or newline — so commas inside
- *    function calls (e.g. pick(base, "var(--foreground-5)")) are
- *    included.
+ * full value via readExpressionValue — a bracket/quote-depth-aware
+ * reader that stops at the real end of the current property/attribute,
+ * not at the first comma or newline.
  */
 function scanTextPropValue(src: string): string[] {
   const offenders: string[] = [];
@@ -219,32 +216,61 @@ function scanTextPropValue(src: string): string[] {
   const propRe = new RegExp(`(?:[{,]\\s*|^\\s*|\\s)(${namesAlt})\\s*[:=]\\s*`, 'gi');
   let m: RegExpExecArray | null;
   while ((m = propRe.exec(src)) !== null) {
-    let i = m.index + m[0].length;
-    let quote = '';
-    if (src[i] === '"' || src[i] === "'" || src[i] === '`') {
-      quote = src[i]!;
-      i++;
-    }
-    let val = '';
-    if (quote) {
-      while (i < src.length && src[i] !== quote) { val += src[i]!; i++; }
-    } else {
-      let depth = 0;
-      while (i < src.length) {
-        const c = src[i]!;
-        if (c === '{' || c === '(') depth++;
-        else if (c === '}' && depth === 0) break;
-        else if (c === '}') depth--;
-        else if (c === ';' || c === '\n') break;
-        val += c; i++;
-      }
-    }
+    const val = readExpressionValue(src, m.index + m[0].length);
     for (const fm of val.matchAll(FG_IN_TOKEN_RE)) {
       const num = fm[1]!;
       offenders.push(`text-prop --foreground-${num}`);
     }
   }
   return offenders;
+}
+
+/**
+ * Read a single JS/CSS expression value starting at `start`, tracking
+ * quote, parenthesis, bracket, and brace depth. Stops at:
+ *  - Closing quote (if the value starts with one)
+ *  - Depth-0 comma (next property in an object/style declaration)
+ *  - Depth-0 semicolon (CSS declaration end)
+ *  - Depth-0 closing brace (style object end, or JSX expression end)
+ *
+ * Characters inside quotes do not affect depth, so commas/braces in
+ * string literals are ignored. Handles multi-line expressions.
+ * If the value starts with `{` (JSX expression), it is treated as a
+ * nested expression — the opening brace increments depth so the
+ * matching closing brace terminates the value.
+ */
+function readExpressionValue(src: string, start: number): string {
+  let i = start;
+  // Skip leading whitespace.
+  while (i < src.length && /\s/.test(src[i]!)) i++;
+  // Quoted value: read to closing quote.
+  const ch = src[i];
+  if (ch === '"' || ch === "'" || ch === '`') {
+    const end = src.indexOf(ch, i + 1);
+    return end < 0 ? src.slice(i) : src.slice(i, end + 1);
+  }
+  // Unquoted: track ()[]{} depth, stop at depth-0 , ; }
+  const out: string[] = [];
+  let depth = 0;
+  // JSX expression {value}: opening brace is part of the value.
+  if (ch === '{') { depth = 1; out.push(ch); i++; }
+  while (i < src.length) {
+    const c = src[i]!;
+    // Skip over string literals so their contents don't affect depth.
+    if (c === '"' || c === "'" || c === '`') {
+      const close = src.indexOf(c, i + 1);
+      const segEnd = close < 0 ? src.length : close + 1;
+      out.push(src.slice(i, segEnd));
+      i = segEnd;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') { depth++; out.push(c); i++; continue; }
+    if (c === ')' || c === ']') { depth--; out.push(c); i++; continue; }
+    if (c === '}') { depth--; out.push(c); i++; if (depth <= 0) break; continue; }
+    if ((c === ',' || c === ';') && depth <= 0) break;
+    out.push(c); i++;
+  }
+  return out.join('');
 }
 
 async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
@@ -783,5 +809,15 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts style={{ background: pick(base, "var(--foreground-5)") }} in TSX (bg expr)', () => {
     assert.deepEqual(scanTsxSnippet('style={{ background: pick(base, "var(--foreground-5)") }}'), []);
+  });
+
+  // P2: multi-line expression + depth-aware property boundary
+  it('rejects multi-line style={{ color: colorMix(...) }} in TSX', () => {
+    const snippet = 'style={{ color: colorMix(\n  base,\n  "var(--foreground-5)"\n) }}';
+    assert.ok(scanTsxSnippet(snippet).length > 0);
+  });
+
+  it('accepts style={{ color: semantic, background: "var(--foreground-5)" }} in TSX (surface after text prop)', () => {
+    assert.deepEqual(scanTsxSnippet('style={{ color: semantic, background: "var(--foreground-5)" }}'), []);
   });
 });
