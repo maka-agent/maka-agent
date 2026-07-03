@@ -58,7 +58,7 @@ const MODAL_DECLS: readonly ModalDecl[] = [
     // settings chunk stays out of the initial bundle. The lifecycle contract
     // (parent owns the mount via `{settingsOpen && ...}`, no `open=` prop)
     // is unchanged, so the pattern tolerates an optional Suspense boundary.
-    parentMountPattern: /\{settingsOpen\s*&&\s*\(?\s*(?:<Suspense[^>]*>\s*)?<SettingsModal/,
+    parentMountPattern: /\{settingsOpen\s*&&\s*\(?\s*<Suspense\b[\s\S]*?<SettingsModal[\s\S]*?<\/Suspense>/,
   },
   {
     name: 'CommandPalette',

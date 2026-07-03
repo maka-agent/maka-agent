@@ -43,6 +43,32 @@ import { ProviderBrandMark } from './settings/provider-brand-marks';
 // chat shell is not blocked on parsing them.
 const ArtifactPane = lazy(() => import('./artifact-pane').then((m) => ({ default: m.ArtifactPane })));
 const BrowserPanel = lazy(() => import('./browser-panel').then((m) => ({ default: m.BrowserPanel })));
+
+function BrowserPanelFallback() {
+  return (
+    <div className="maka-browser-panel" role="status" aria-busy="true" aria-label="正在加载嵌入式浏览器">
+      <div className="maka-lazy-fallback" data-surface="panel">正在加载嵌入式浏览器…</div>
+    </div>
+  );
+}
+
+function ArtifactPaneFallback() {
+  return (
+    <aside
+      className="maka-artifact-pane"
+      data-collapsed="false"
+      data-layout="responsive-bottom-sheet"
+      role="status"
+      aria-busy="true"
+      aria-label="正在加载生成文件面板"
+    >
+      <header className="maka-artifact-pane-header">
+        <span className="maka-artifact-pane-title">生成文件</span>
+      </header>
+      <div className="maka-lazy-fallback" data-surface="panel">正在加载生成文件…</div>
+    </aside>
+  );
+}
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
@@ -1453,11 +1479,11 @@ export function AppShell() {
               />
             </div>
             {activeId && liveBrowserSessionIds.includes(activeId) && (
-              <Suspense fallback={null}>
+              <Suspense fallback={<BrowserPanelFallback />}>
                 <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
               </Suspense>
             )}
-            <Suspense fallback={null}>
+            <Suspense fallback={<ArtifactPaneFallback />}>
               <ArtifactPane sessionId={activeId} />
             </Suspense>
           </div>

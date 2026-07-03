@@ -21,6 +21,20 @@ const SettingsModal = lazy(() => import('./settings/SettingsModal').then((m) => 
 
 type SearchModalProps = Parameters<typeof SearchModal>[0];
 
+function SettingsModalFallback() {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="正在加载设置"
+      className="settingsModal settingsPage agents-layout-root"
+      data-agents-page
+    >
+      <div className="maka-lazy-fallback" data-surface="modal">正在加载设置…</div>
+    </div>
+  );
+}
+
 export function AppShellOverlays(props: {
   activePermission: PermissionRequestEvent | undefined;
   respondToPermission(response: PermissionResponse): void | Promise<void>;
@@ -83,7 +97,7 @@ export function AppShellOverlays(props: {
         />
       )}
       {settingsOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<SettingsModalFallback />}>
           <SettingsModal
             connections={connections}
             defaultSlug={defaultConnection}

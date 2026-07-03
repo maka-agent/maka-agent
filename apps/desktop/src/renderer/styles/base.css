@@ -18,6 +18,24 @@
 .maka-overlay-scrollarea-content {
     min-width: 0;
   }
+.maka-lazy-fallback {
+    min-width: 0;
+    min-height: 72px;
+    display: grid;
+    place-items: center;
+    padding: var(--space-4);
+    color: var(--foreground-50);
+    font-size: var(--font-size-ui);
+    font-weight: 600;
+    text-align: center;
+  }
+.maka-lazy-fallback[data-surface="panel"] {
+    min-height: 160px;
+    height: 100%;
+  }
+.maka-lazy-fallback[data-surface="modal"] {
+    min-height: 100%;
+  }
 .os-theme-maka {
     /* local: OverlayScrollbars theme overrides */
     --os-size: 8px;
