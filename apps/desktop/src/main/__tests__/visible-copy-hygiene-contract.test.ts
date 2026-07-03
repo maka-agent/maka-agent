@@ -516,7 +516,7 @@ describe('turn footer copy feedback contract', () => {
     );
     assert.match(
       src,
-      /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\]/,
+      /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\]/,
       'Turn footer copied state should have a stable styling hook.',
     );
     assert.match(
@@ -584,7 +584,7 @@ describe('tool error copy feedback contract', () => {
     );
     assert.match(
       block,
-      /data-\[copy-feedback=copied\]:text-\[color:var\(--accent\)\] data-\[copy-feedback=copied\]:border-\[oklch\(from_var\(--accent\)_l_c_h_\/_0\.35\)\]/,
+      /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\] data-\[copy-feedback=copied\]:border-\[oklch\(from_var\(--link\)_l_c_h_\/_0\.35\)\]/,
       'Tool-error copied state should have a stable color + border styling hook.',
     );
     assert.match(
