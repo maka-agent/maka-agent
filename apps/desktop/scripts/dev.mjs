@@ -20,12 +20,12 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
+import { build as esbuildBuild } from 'esbuild';
 
 const DESKTOP_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const REPO_ROOT    = resolve(DESKTOP_DIR, '..', '..');
 const ON_WINDOWS   = process.platform === 'win32';
 const TSC_CLI      = join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
-const ESBUILD_CLI  = join(REPO_ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,7 +71,20 @@ await Promise.all([
     () => log('build', 'libraries (all) — done'),
     (e) => { log('build', `libraries — FAILED: ${e.message}`); throw e; },
   ),
-  runNodeTool(DESKTOP_DIR, ESBUILD_CLI, ['src/preload/preload.ts', '--bundle', '--platform=node', '--format=cjs', '--outfile=dist/preload/preload.cjs', '--external:electron']).then(
+  // esbuild via its JS API — NOT `node node_modules/esbuild/bin/esbuild`:
+  // esbuild's postinstall swaps that file for a platform-native binary,
+  // and executing a Mach-O file with node throws SyntaxError (broke
+  // `npm run dev` on any machine where postinstall ran).
+  esbuildBuild({
+    absWorkingDir: DESKTOP_DIR,
+    entryPoints: ['src/preload/preload.ts'],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: 'dist/preload/preload.cjs',
+    external: ['electron'],
+    logLevel: 'warning',
+  }).then(
     () => log('build', 'preload — done'),
     (e) => { log('build', `preload — FAILED: ${e.message}`); throw e; },
   ),
@@ -81,7 +94,17 @@ await Promise.all([
 // tsconfig.main.json still compiles tests for `npm test` and typechecks
 // main-process code in verification commands.
 log('build', 'main — starting');
-await runNodeTool(DESKTOP_DIR, ESBUILD_CLI, ['src/main/main.ts', '--bundle', '--platform=node', '--format=esm', '--packages=external', '--outfile=dist/main/main.js', '--external:electron']);
+await esbuildBuild({
+  absWorkingDir: DESKTOP_DIR,
+  entryPoints: ['src/main/main.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  packages: 'external',
+  outfile: 'dist/main/main.js',
+  external: ['electron'],
+  logLevel: 'warning',
+});
 log('build', 'main — done');
 
 const BUILD_MS = Date.now() - TIMER_START;
