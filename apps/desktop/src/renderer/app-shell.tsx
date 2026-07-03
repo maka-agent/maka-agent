@@ -11,7 +11,7 @@ import type {
   ThemePalette,
   ThemePreference,
 } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
   type AssistantStreamSlot,
   type ChatHeaderAlert,
@@ -656,13 +656,14 @@ export function AppShell() {
     toastApi,
   });
   const onboardingState = onboarding.snapshot?.state;
+  const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
   // PR110c (@kenji review): suppress hero AND the fallback EmptyChatHero
   // while the initial snapshot is in flight. Otherwise sessions.length===0
   // + snapshot===null flashes the prompt-suggestion EmptyChatHero before
   // the state-routed OnboardingHero mounts.
-  const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined;
+  const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined && !onboardingSettled;
   const showOnboardingHero =
-    sessions.length === 0 && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
+    !onboardingSettled && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
   const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
   const [sessionListCollapsed, setSessionListCollapsed] = useState(() => readSessionListCollapsed());
   const { startColumnResize, onResizeHandleKeyDown } = createAppShellLayoutActions({
