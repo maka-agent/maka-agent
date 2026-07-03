@@ -709,11 +709,11 @@ const previewVariants = cva("", {
       // `.maka-load-tool-title`
       "load-tool-title": "font-semibold",
       // `.maka-load-tool-count`
-      "load-tool-count": "text-[color:var(--foreground-2)]",
+      "load-tool-count": "text-[color:var(--muted-foreground)]",
       // `.maka-load-tool-tools`
       "load-tool-tools": "[font-family:var(--font-mono)] [word-break:break-word]",
       // `.maka-load-tool-footer`
-      "load-tool-footer": "text-[color:var(--foreground-2)] text-[11px]",
+      "load-tool-footer": "text-[color:var(--muted-foreground)] text-[11px]",
     },
   },
 });

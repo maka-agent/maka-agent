@@ -1,32 +1,29 @@
 /**
  * PR-FOREGROUND-TIER-CONVERGE-0 (issue #430 PR4, 2026-07-03):
  * lock the text-color vocabulary so individual PRs can't silently drift
- * back to the 5-step text ladder (40/50/60/70/80) or the deleted 90/95
- * stops. Text call sites must use the 3 semantic aliases:
+ * back to the old multi-step ladder. Text call sites must use the 3
+ * semantic aliases:
  *
  *   var(--foreground)            — primary text (100% ink)
  *   var(--foreground-secondary)  — secondary text (80% ink)
  *   var(--muted-foreground)      — muted text (50% ink)
  *
- * The underlying mix stops (--foreground-40..80) stay in maka-tokens.css
- * so the aliases can target them, and surface washes (-2/-3/-5/-8/-10)
- * are NOT text so they remain call-site addressable. -90/-95 had zero
- * call sites and were deleted.
+ * --foreground-40..95 are deleted and must not be re-introduced.
+ * Surface wash stops (-2/-3/-5/-8/-10) exist for backgrounds, borders,
+ * and other non-text surfaces; they must NOT be used as text color.
  *
- * Three invariants:
+ * Invariants:
  *
- * 1. CSS `color:` / `fill:` / `stroke:` properties must not reference
- *    --foreground-40/50/60/70/80 directly — they must use the semantic
- *    aliases. Background/border/etc. properties are out of scope (those
- *    use the surface-wash scale, not the text ladder).
+ * 1. CSS text-color props (color/fill/stroke/caret-color/...) must not
+ *    reference --foreground-2..95. Only --foreground, --foreground-
+ *    secondary, --muted-foreground are allowed as text color.
  *
- * 2. TSX inline styles and Tailwind arbitrary values must not reference
- *    the raw mix stops for text color. Tailwind utility aliases
- *    (text-muted-foreground, text-foreground-secondary) are OK.
+ * 2. TS/TSX files must not reference --foreground-40..95 at all (any
+ *    syntax form). Tailwind utility classes text-foreground-2..95 are
+ *    also banned as text color.
  *
- * 3. The aliases are defined in maka-tokens.css with pinned targets:
- *    --muted-foreground → --foreground-50, --foreground-secondary →
- *    --foreground-80. --foreground-90/95 must not be defined.
+ * 3. @theme must not export --color-foreground-40..95 as Tailwind
+ *    color utilities.
  */
 
 import { strict as assert } from 'node:assert';
@@ -35,30 +32,36 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
 
-// --- banned raw text stops --------------------------------------------------
+// --- banned foreground numbers ----------------------------------------------
 
-const BANNED_TEXT_STOPS = ['--foreground-40', '--foreground-50', '--foreground-60', '--foreground-70', '--foreground-80'];
-const DELETED_STOPS = ['--foreground-90', '--foreground-95'];
+/** All foreground mix-stop numbers that must never be used as text color. */
+const BANNED_TEXT_NUMS = ['40', '50', '60', '70', '80', '90', '95'];
+
+/** Surface-wash numbers — allowed in bg/border context, banned in text context. */
+const SURFACE_WASH_NUMS = ['2', '3', '5', '8', '10'];
+
+/** All banned numbers for TSX (text + surface, since TSX can't distinguish context). */
+const ALL_BANNED_NUMS = [...BANNED_TEXT_NUMS, ...SURFACE_WASH_NUMS];
 
 // Properties that set TEXT color (not background/border/shadow).
-// Border-color is excluded — borders use the surface-wash scale or
-// alpha overlays, not the text ladder; a separate contract can govern
-// border tokens if needed.
 const TEXT_PROP_RE = /^(color|fill|stroke|caret-color|text-decoration-color|column-rule-color)$/i;
 
-// CSS `var(--foreground-N)` reference (N = 2 digits).
+// CSS `var(--foreground-N)` reference (N = digits).
 const VAR_FOREGROUND_N_RE = /var\(\s*(--foreground-\d+)\s*\)/g;
 
 // --- CSS scanning -----------------------------------------------------------
 
 /**
  * Extract color property declarations and check they don't reference
- * the banned raw text stops. Background, border, box-shadow etc. are
- * out of scope — those use the surface-wash scale.
+ * any banned foreground stop as text color. Text props must only use
+ * the 3 semantic aliases (--foreground, --foreground-secondary,
+ * --muted-foreground). Surface wash stops are banned in text context
+ * but allowed in bg/border context.
  */
 function findCssTextOffenders(css: string, label: string): string[] {
   const stripped = stripCssComments(css);
   const offenders: string[] = [];
+  const bannedNumsSet = new Set(BANNED_TEXT_NUMS.concat(SURFACE_WASH_NUMS));
 
   const declRe = /([\w-]+)\s*:\s*([^;}\n]+?)\s*(?:[;}|\n]|$)/gi;
   for (const m of stripped.matchAll(declRe)) {
@@ -66,10 +69,10 @@ function findCssTextOffenders(css: string, label: string): string[] {
     const rawVal = m[2]!.trim();
     if (!TEXT_PROP_RE.test(prop)) continue;
 
-    // Scan for var(--foreground-N) references.
     for (const vm of rawVal.matchAll(VAR_FOREGROUND_N_RE)) {
       const tok = vm[1]!;
-      if (BANNED_TEXT_STOPS.includes(tok)) {
+      const num = tok.replace('--foreground-', '');
+      if (bannedNumsSet.has(num)) {
         offenders.push(`${label}: ${prop}: ${rawVal} [banned ${tok}]`);
       }
     }
@@ -81,32 +84,31 @@ function findCssTextOffenders(css: string, label: string): string[] {
 // --- TSX scanning -----------------------------------------------------------
 
 /**
- * Scan TS/TSX source for any reference to banned raw foreground mix stops.
- * Instead of matching Tailwind syntax shapes (which evolve and have many
- * forms — arbitrary values, shorthand, variant prefixes, quoted strings,
- * template literals, inline styles), we simply ban the raw token names
- * from appearing in TS/TSX at all. The semantic aliases
- * (--muted-foreground, --foreground-secondary) are the only sanctioned
- * text-color tokens; the raw stops should never be referenced directly.
+ * RAW_STOP_RE: bans --foreground-40..95 from TS/TSX entirely (any syntax
+ * form). These stops are deleted; the only valid text tokens are
+ * --foreground, --foreground-secondary, --muted-foreground.
  *
- * RAW_STOP_RE catches every form that contains the CSS variable name:
- *   className="text-[var(--foreground-60)]"     ✓
- *   cn("text-[var(--foreground-60)]")            ✓
- *   `text-[var(--foreground-60)]`               ✓
- *   style={{ color: "var(--foreground-60)" }}    ✓
- *   text-(--foreground-60)                      ✓ (Tailwind shorthand)
- *   text-[color:var(--foreground-60)]           ✓
+ * TEXT_UTILITY_RE: bans text-foreground-N (Tailwind utility class form)
+ * for ALL N (2..95). Surface wash stops (2/3/5/8/10) are allowed as
+ * bg-foreground-N / border-foreground-N but NOT as text-foreground-N.
  *
- * UTILITY_CLASS_RE catches the Tailwind utility-class form that omits
- * the `--` prefix (these don't contain a CSS var() reference):
- *   text-foreground-60                          ✓
- *   bg-foreground-50                            ✓
+ * TEXT_ARBITRARY_RE: bans surface wash stops (2/3/5/8/10) when used in
+ * a text-color Tailwind arbitrary value or shorthand —
+ *   text-[color:var(--foreground-5)]   ✓
+ *   text-[var(--foreground-5)]          ✓
+ *   text-(--foreground-5)               ✓ (Tailwind v4 shorthand)
+ * Inline styles (color: "var(--foreground-5)") are caught by
+ * TEXT_INLINE_RE.
  */
 const RAW_STOP_RE = /--foreground-(40|50|60|70|80|90|95)\b/g;
-const UTILITY_CLASS_RE = /(?:text|bg|border|fill|stroke|ring|from|to|via)-foreground-(40|50|60|70|80|90|95)\b/g;
+const TEXT_UTILITY_RE = /text-foreground-(\d+)\b/g;
+const TEXT_ARBITRARY_RE = /(?:text|fill|stroke)-\[(?:color:)?var\(\s*--foreground-(\d+)\s*\)\]/g;
+const TEXT_SHORTHAND_RE = /(?:text|fill|stroke)-\(\s*--foreground-(\d+)\s*\)/g;
+const TEXT_INLINE_RE = /(?:color|fill|stroke)\s*:\s*['"]var\(\s*--foreground-(\d+)\s*\)['"]/g;
 
 async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
   const offenders: string[] = [];
+  const surfaceSet = new Set(SURFACE_WASH_NUMS);
   async function walk(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
@@ -120,11 +122,32 @@ async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
       if (entry.name.includes('.test.')) continue;
       const src = await readFile(full, 'utf8');
       const label = full.replace(REPO_ROOT + '/', '');
+
+      // Deleted stops: banned in any context.
       for (const m of src.matchAll(RAW_STOP_RE)) {
         offenders.push(`${label}: --foreground-${m[1]}`);
       }
-      for (const m of src.matchAll(UTILITY_CLASS_RE)) {
-        offenders.push(`${label}: ${m[0]}`);
+      // text-foreground-N utility class: banned for all N (text context).
+      for (const m of src.matchAll(TEXT_UTILITY_RE)) {
+        offenders.push(`${label}: text-foreground-${m[1]}`);
+      }
+      // Surface wash in text arbitrary value: text-[var(--foreground-N)]
+      for (const m of src.matchAll(TEXT_ARBITRARY_RE)) {
+        if (surfaceSet.has(m[1]!)) {
+          offenders.push(`${label}: text-context --foreground-${m[1]}`);
+        }
+      }
+      // Surface wash in text shorthand: text-(--foreground-N)
+      for (const m of src.matchAll(TEXT_SHORTHAND_RE)) {
+        if (surfaceSet.has(m[1]!)) {
+          offenders.push(`${label}: text-context --foreground-${m[1]}`);
+        }
+      }
+      // Surface wash in inline style: color: "var(--foreground-N)"
+      for (const m of src.matchAll(TEXT_INLINE_RE)) {
+        if (surfaceSet.has(m[1]!)) {
+          offenders.push(`${label}: text-context --foreground-${m[1]}`);
+        }
       }
     }
   }
@@ -139,11 +162,27 @@ async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
 /** Scan a TSX source snippet for banned foreground references. */
 function scanTsxSnippet(src: string): string[] {
   const offenders: string[] = [];
+  const surfaceSet = new Set(SURFACE_WASH_NUMS);
   for (const m of src.matchAll(RAW_STOP_RE)) {
     offenders.push(`--foreground-${m[1]}`);
   }
-  for (const m of src.matchAll(UTILITY_CLASS_RE)) {
-    offenders.push(m[0]);
+  for (const m of src.matchAll(TEXT_UTILITY_RE)) {
+    offenders.push(`text-foreground-${m[1]}`);
+  }
+  for (const m of src.matchAll(TEXT_ARBITRARY_RE)) {
+    if (surfaceSet.has(m[1]!)) {
+      offenders.push(`text-context --foreground-${m[1]}`);
+    }
+  }
+  for (const m of src.matchAll(TEXT_SHORTHAND_RE)) {
+    if (surfaceSet.has(m[1]!)) {
+      offenders.push(`text-context --foreground-${m[1]}`);
+    }
+  }
+  for (const m of src.matchAll(TEXT_INLINE_RE)) {
+    if (surfaceSet.has(m[1]!)) {
+      offenders.push(`text-context --foreground-${m[1]}`);
+    }
   }
   return offenders;
 }
@@ -187,12 +226,11 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
     assert.match(tokens, /--foreground-secondary:\s*color-mix\(in oklch,\s*var\(--foreground\)\s*80%,\s*var\(--background\)\)/, '--foreground-secondary must be 80% foreground mix');
   });
 
-  it('raw text mix stops --foreground-40/50/60/70/80/90/95 are not defined', async () => {
+  it('raw text mix stops --foreground-40..95 are not defined', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    const allBanned = [...BANNED_TEXT_STOPS, ...DELETED_STOPS];
-    for (const stop of allBanned) {
-      const re = new RegExp(`^\\s*${stop}:`, 'm');
-      assert.doesNotMatch(tokens, re, `${stop} must not be defined`);
+    for (const num of BANNED_TEXT_NUMS) {
+      const re = new RegExp(`^\\s*--foreground-${num}:`, 'm');
+      assert.doesNotMatch(tokens, re, `--foreground-${num} must not be defined`);
     }
   });
 
@@ -202,9 +240,9 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
     assert.match(tokens, /--color-muted-foreground:\s*var\(--muted-foreground\)/, '@theme must export --color-muted-foreground');
   });
 
-  it('@theme inline does not export raw text stops --foreground-40/50/60/70/80', async () => {
+  it('@theme inline does not export raw text stops --foreground-40..95', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
-    for (const num of ['40', '50', '60', '70', '80']) {
+    for (const num of BANNED_TEXT_NUMS) {
       const re = new RegExp(`--color-foreground-${num}\\s*:`);
       assert.doesNotMatch(tokens, re, `@theme must not export --color-foreground-${num}`);
     }
@@ -283,5 +321,57 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts text-[color:var(--muted-foreground)] in TSX', () => {
     assert.deepEqual(scanTsxSnippet("text-[color:var(--muted-foreground)]"), []);
+  });
+
+  // P2: CSS 90/95 must be banned in text props too
+  it('rejects color: var(--foreground-90) in CSS', () => {
+    assert.ok(findCssTextOffenders('color: var(--foreground-90)', 'test').length > 0);
+  });
+
+  it('rejects fill: var(--foreground-95) in CSS', () => {
+    assert.ok(findCssTextOffenders('fill: var(--foreground-95)', 'test').length > 0);
+  });
+
+  // P2: surface wash stops banned in text context
+  it('rejects text-foreground-5 (surface wash as text) in TSX', () => {
+    assert.ok(scanTsxSnippet("text-foreground-5").length > 0);
+  });
+
+  it('rejects text-[color:var(--foreground-5)] in TSX', () => {
+    assert.ok(scanTsxSnippet("text-[color:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects text-(--foreground-5) in TSX', () => {
+    assert.ok(scanTsxSnippet("text-(--foreground-5)").length > 0);
+  });
+
+  it('rejects color: var(--foreground-5) in CSS text prop', () => {
+    assert.ok(findCssTextOffenders('color: var(--foreground-5)', 'test').length > 0);
+  });
+
+  // P2: surface wash stops allowed in non-text context
+  it('accepts bg-foreground-5 in TSX (bg context)', () => {
+    assert.deepEqual(scanTsxSnippet("bg-foreground-5"), []);
+  });
+
+  it('accepts bg-[var(--foreground-5)] in TSX (bg context)', () => {
+    assert.deepEqual(scanTsxSnippet("bg-[var(--foreground-5)]"), []);
+  });
+
+  it('accepts background: var(--foreground-5) in CSS (bg context)', () => {
+    assert.deepEqual(findCssTextOffenders('background: var(--foreground-5)', 'test'), []);
+  });
+
+  it('accepts border-color: var(--foreground-10) in CSS (border context)', () => {
+    assert.deepEqual(findCssTextOffenders('border-color: var(--foreground-10)', 'test'), []);
+  });
+
+  // P2: @theme 90/95 export banned
+  it('@theme must not export --color-foreground-90/95', async () => {
+    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    for (const num of ['90', '95']) {
+      const re = new RegExp(`--color-foreground-${num}\\s*:`);
+      assert.doesNotMatch(tokens, re, `@theme must not export --color-foreground-${num}`);
+    }
   });
 });
