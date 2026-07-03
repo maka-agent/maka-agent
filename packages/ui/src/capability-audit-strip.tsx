@@ -2,11 +2,13 @@ import type { CapabilityAuditReport } from '@maka/core';
 
 export function CapabilityAuditStrip(props: { report: CapabilityAuditReport; focus: 'skills' | 'automations' }) {
   const report = props.report;
+  // Metric labels live in the <dt> (来源/技能/自动化) — the <dd> only
+  // carries count + state so the strip doesn't read「技能 3/3 技能启用」.
   const sourceCopy = report.summary.sourceCount === 0
-    ? '0 个来源'
-    : `${report.summary.readySourceCount}/${report.summary.sourceCount} 来源就绪`;
-  const skillCopy = `${report.summary.enabledSkillCount}/${report.summary.skillCount} 技能启用`;
-  const automationCopy = `${report.summary.enabledAutomationCount}/${report.summary.automationCount} 自动化启用`;
+    ? '暂无'
+    : `${report.summary.readySourceCount}/${report.summary.sourceCount} 就绪`;
+  const skillCopy = `${report.summary.enabledSkillCount}/${report.summary.skillCount} 启用`;
+  const automationCopy = `${report.summary.enabledAutomationCount}/${report.summary.automationCount} 启用`;
   const riskCopy = capabilityAuditRiskCopy(report);
   const primaryCopy = props.focus === 'skills'
     ? `${report.summary.declaredToolKindCount} 类声明工具`
