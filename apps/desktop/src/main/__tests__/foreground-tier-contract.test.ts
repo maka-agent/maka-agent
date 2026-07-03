@@ -84,27 +84,73 @@ function findCssTextOffenders(css: string, label: string): string[] {
 // --- TSX scanning -----------------------------------------------------------
 
 /**
- * RAW_STOP_RE: bans --foreground-40..95 from TS/TSX entirely (any syntax
- * form). These stops are deleted; the only valid text tokens are
- * --foreground, --foreground-secondary, --muted-foreground.
+ * Two-layer scan strategy:
  *
- * TEXT_UTILITY_RE: bans text-foreground-N (Tailwind utility class form)
- * for ALL N (2..95). Surface wash stops (2/3/5/8/10) are allowed as
- * bg-foreground-N / border-foreground-N but NOT as text-foreground-N.
+ * 1. RAW_STOP_RE: --foreground-40..95 are deleted; ban them from TS/TSX
+ *    entirely (any syntax form, any context).
  *
- * TEXT_ARBITRARY_RE: bans surface wash stops (2/3/5/8/10) when used in
- * a text-color Tailwind arbitrary value or shorthand —
- *   text-[color:var(--foreground-5)]   ✓
- *   text-[var(--foreground-5)]          ✓
- *   text-(--foreground-5)               ✓ (Tailwind v4 shorthand)
- * Inline styles (color: "var(--foreground-5)") are caught by
- * TEXT_INLINE_RE.
+ * 2. TEXT_CONTEXT_RE: surface wash stops (2/3/5/8/10) are allowed in
+ *    surface context (bg-/background/border-/ring-/from-/to-/via-) but
+ *    banned in text-like context. We match any occurrence of
+ *    --foreground-N preceded by a text-like utility prefix, regardless
+ *    of the surrounding Tailwind syntax (arbitrary value, shorthand,
+ *    inline style, var with fallback, etc.).
+ *
+ *    Text-like prefixes: text-, fill-, stroke-, caret-, decoration-,
+ *    color: (inline style), [color: (arbitrary property), and the
+ *    Tailwind v4 shorthand type-hint form text-(color:...).
+ *
+ *    This approach does NOT depend on var() being properly closed,
+ *    so `var(--foreground-5, currentColor)` is caught.
+ *
+ *    Surface-context prefixes (bg-, border-, ring-, from-, to-, via-,
+ *    background:, [background:, [border:) are NOT matched — surface
+ *    wash stops remain addressable there.
  */
 const RAW_STOP_RE = /--foreground-(40|50|60|70|80|90|95)\b/g;
-const TEXT_UTILITY_RE = /text-foreground-(\d+)\b/g;
-const TEXT_ARBITRARY_RE = /(?:text|fill|stroke)-\[(?:color:)?var\(\s*--foreground-(\d+)\s*\)\]/g;
-const TEXT_SHORTHAND_RE = /(?:text|fill|stroke)-\(\s*--foreground-(\d+)\s*\)/g;
-const TEXT_INLINE_RE = /(?:color|fill|stroke)\s*:\s*['"]var\(\s*--foreground-(\d+)\s*\)['"]/g;
+
+/**
+ * TEXT_CONTEXT_RE: matches surface wash stops (2/3/5/8/10) when preceded
+ * by a text-like context. Matches the full sequence from prefix to token,
+ * capturing N. Does NOT depend on var() being properly closed.
+ *
+ * Text-like prefixes matched:
+ *   text-foreground-N          (utility class)
+ *   text-[color:var(--fg-N)]   (arbitrary value)
+ *   text-[var(--fg-N)]         (arbitrary value, no color:)
+ *   text-(--fg-N)              (shorthand)
+ *   text-(color:--fg-N)       (type-hint shorthand)
+ *   fill/stroke/caret/decoration-foreground-N
+ *   fill/stroke-[...var(--fg-N)]
+ *   fill/stroke-(--fg-N)
+ *   [color:var(--fg-N)]        (arbitrary property)
+ *   color: var(--fg-N)         (inline style)
+ *   color: var(--fg-N, ...)    (inline style w/ fallback)
+ *
+ * Surface prefixes NOT matched (allowed):
+ *   bg-foreground-N, bg-[var(--fg-N)], border-foreground-N,
+ *   background: var(--fg-N), [background:var(--fg-N)]
+ *
+ * The regex has three alternatives:
+ * A) Utility class form: (text|fill|stroke|caret|decoration)-foreground-N
+ * B) Arbitrary value / shorthand form with bracket or paren:
+ *    (text|fill|stroke|caret|decoration)-[\( or \[](?:color:)?var?...--foreground-N
+ *    Also covers bare [color:var(--fg-N)] (no utility prefix).
+ * C) Inline style: color/fill/stroke: "...var(--fg-N"
+ */
+const TEXT_CONTEXT_RE = new RegExp(
+  // A) utility class: text-foreground-5, fill-foreground-5, etc.
+  '(?:text|fill|stroke|caret|decoration)-foreground-(\\d+)'
+  // B) arbitrary value or shorthand with text-like utility prefix:
+  //    text-[color:var(--fg-N)], text-[var(--fg-N)], text-(--fg-N),
+  //    text-(color:--fg-N), fill-[...], stroke-(...)
+  + '|(?:text|fill|stroke|caret|decoration)-[(\\[](?:color:)?(?:var\\()?(?:\\s*)?--foreground-(\\d+)'
+  // C) arbitrary property (no utility prefix): [color:var(--fg-N)]
+  //    Must start with [color: to distinguish from bg-[var(--fg-N)].
+  + '|\\[color:(?:var\\()?(?:\\s*)?--foreground-(\\d+)'
+  // D) inline style string: color: "var(--foreground-N...", color: var(--fg-N...
+  + '|(?:color|fill|stroke)\\s*:\\s*["\']?var\\(\\s*--foreground-(\\d+)'
+  , 'g');
 
 async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
   const offenders: string[] = [];
@@ -127,26 +173,19 @@ async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
       for (const m of src.matchAll(RAW_STOP_RE)) {
         offenders.push(`${label}: --foreground-${m[1]}`);
       }
-      // text-foreground-N utility class: banned for all N (text context).
-      for (const m of src.matchAll(TEXT_UTILITY_RE)) {
-        offenders.push(`${label}: text-foreground-${m[1]}`);
-      }
-      // Surface wash in text arbitrary value: text-[var(--foreground-N)]
-      for (const m of src.matchAll(TEXT_ARBITRARY_RE)) {
-        if (surfaceSet.has(m[1]!)) {
-          offenders.push(`${label}: text-context --foreground-${m[1]}`);
+      // Surface wash in text-like context, OR any text-foreground-N
+      // utility class (all N banned as text, not just surface wash).
+      for (const m of src.matchAll(TEXT_CONTEXT_RE)) {
+        const num = m[1] || m[2] || m[3] || m[4];
+        if (!num) continue;
+        // Alternative A (utility class): ban all N — deleted stops
+        // (40..95) and surface wash (2/3/5/8/10) alike.
+        if (m[1]) {
+          offenders.push(`${label}: text-foreground-${num}`);
         }
-      }
-      // Surface wash in text shorthand: text-(--foreground-N)
-      for (const m of src.matchAll(TEXT_SHORTHAND_RE)) {
-        if (surfaceSet.has(m[1]!)) {
-          offenders.push(`${label}: text-context --foreground-${m[1]}`);
-        }
-      }
-      // Surface wash in inline style: color: "var(--foreground-N)"
-      for (const m of src.matchAll(TEXT_INLINE_RE)) {
-        if (surfaceSet.has(m[1]!)) {
-          offenders.push(`${label}: text-context --foreground-${m[1]}`);
+        // Alternatives B/C/D: only surface wash banned in text context.
+        else if (surfaceSet.has(num)) {
+          offenders.push(`${label}: text-context --foreground-${num}`);
         }
       }
     }
@@ -166,22 +205,13 @@ function scanTsxSnippet(src: string): string[] {
   for (const m of src.matchAll(RAW_STOP_RE)) {
     offenders.push(`--foreground-${m[1]}`);
   }
-  for (const m of src.matchAll(TEXT_UTILITY_RE)) {
-    offenders.push(`text-foreground-${m[1]}`);
-  }
-  for (const m of src.matchAll(TEXT_ARBITRARY_RE)) {
-    if (surfaceSet.has(m[1]!)) {
-      offenders.push(`text-context --foreground-${m[1]}`);
-    }
-  }
-  for (const m of src.matchAll(TEXT_SHORTHAND_RE)) {
-    if (surfaceSet.has(m[1]!)) {
-      offenders.push(`text-context --foreground-${m[1]}`);
-    }
-  }
-  for (const m of src.matchAll(TEXT_INLINE_RE)) {
-    if (surfaceSet.has(m[1]!)) {
-      offenders.push(`text-context --foreground-${m[1]}`);
+  for (const m of src.matchAll(TEXT_CONTEXT_RE)) {
+    const num = m[1] || m[2] || m[3] || m[4];
+    if (!num) continue;
+    if (m[1]) {
+      offenders.push(`text-foreground-${num}`);
+    } else if (surfaceSet.has(num)) {
+      offenders.push(`text-context --foreground-${num}`);
     }
   }
   return offenders;
@@ -364,6 +394,53 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts border-color: var(--foreground-10) in CSS (border context)', () => {
     assert.deepEqual(findCssTextOffenders('border-color: var(--foreground-10)', 'test'), []);
+  });
+
+  // P2: arbitrary property, type-hint shorthand, fill/stroke/caret/decoration utility
+  it('rejects [color:var(--foreground-5)] (arbitrary property) in TSX', () => {
+    assert.ok(scanTsxSnippet("[color:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects hover:[color:var(--foreground-5)] in TSX', () => {
+    assert.ok(scanTsxSnippet("hover:[color:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects text-(color:--foreground-5) (type-hint shorthand) in TSX', () => {
+    assert.ok(scanTsxSnippet("text-(color:--foreground-5)").length > 0);
+  });
+
+  it('rejects fill-foreground-5 in TSX', () => {
+    assert.ok(scanTsxSnippet("fill-foreground-5").length > 0);
+  });
+
+  it('rejects stroke-foreground-5 in TSX', () => {
+    assert.ok(scanTsxSnippet("stroke-foreground-5").length > 0);
+  });
+
+  it('rejects caret-foreground-5 in TSX', () => {
+    assert.ok(scanTsxSnippet("caret-foreground-5").length > 0);
+  });
+
+  it('rejects decoration-foreground-5 in TSX', () => {
+    assert.ok(scanTsxSnippet("decoration-foreground-5").length > 0);
+  });
+
+  // P2: var() with fallback — must not depend on closing paren
+  it('rejects color: var(--foreground-5, currentColor) (var with fallback) in TSX', () => {
+    assert.ok(scanTsxSnippet("color: var(--foreground-5, currentColor)").length > 0);
+  });
+
+  it('rejects text-[color:var(--foreground-5,currentColor)] in TSX', () => {
+    assert.ok(scanTsxSnippet("text-[color:var(--foreground-5,currentColor)]").length > 0);
+  });
+
+  // P2: surface context still allowed
+  it('accepts [background:var(--foreground-5)] in TSX (bg arbitrary property)', () => {
+    assert.deepEqual(scanTsxSnippet("[background:var(--foreground-5)]"), []);
+  });
+
+  it('accepts border-foreground-10 in TSX (border context)', () => {
+    assert.deepEqual(scanTsxSnippet("border-foreground-10"), []);
   });
 
   // P2: @theme 90/95 export banned

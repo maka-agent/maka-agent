@@ -124,8 +124,9 @@
 
   /* === foreground solid mix scale ===
      foreground-N = N% of foreground interpolated INTO background.
-     These are the SOLID gray tones used for body text, captions, dividers.
-     Prefer these over alpha overlays when stacking on a non-background surface. */
+     These are surface wash stops for backgrounds, borders, and other
+     non-text surfaces only. Text color uses --foreground (primary),
+     --foreground-secondary, or --muted-foreground — never these. */
   --foreground-2:  color-mix(in oklch, var(--foreground) 2%,  var(--background));
   --foreground-3:  color-mix(in oklch, var(--foreground) 3%,  var(--background));
   --foreground-5:  color-mix(in oklch, var(--foreground) 5%,  var(--background));
