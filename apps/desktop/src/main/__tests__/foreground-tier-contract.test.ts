@@ -43,9 +43,10 @@ const SURFACE_WASH_NUMS = ['2', '3', '5', '8', '10'];
 // Properties that set TEXT color (not background/border/shadow).
 const TEXT_PROP_RE = /^(color|fill|stroke|caret-color|text-decoration-color|column-rule-color)$/i;
 
-// CSS `--foreground-N` token reference (N = digits). Does NOT require
+// CSS foreground token reference — matches both --foreground-N and
+// --color-foreground-N (the @theme mirror form). Does NOT require
 // var() to be closed — catches `var(--foreground-5, currentColor)`.
-const FOREGROUND_TOKEN_RE = /--foreground-(\d+)\b/g;
+const FOREGROUND_TOKEN_RE = /--(?:color-)?foreground-(\d+)\b/g;
 
 // --- CSS scanning -----------------------------------------------------------
 
@@ -59,6 +60,8 @@ const FOREGROUND_TOKEN_RE = /--foreground-(\d+)\b/g;
  * Declaration values may span multiple lines (e.g. color-mix() with
  * line breaks). The value regex matches [^;}]+ so newlines are
  * included.
+ *
+ * Also scans @apply utility lists via findCssApplyOffenders.
  */
 function findCssTextOffenders(css: string, label: string): string[] {
   const stripped = stripCssComments(css);
@@ -83,31 +86,65 @@ function findCssTextOffenders(css: string, label: string): string[] {
   return offenders;
 }
 
+/**
+ * Scan @apply utility lists for text-like foreground classes.
+ * Reuses the TSX token classifier (isTextLikeClass / isBareTextProperty)
+ * to determine context. Surface utilities (bg-/border-/ring-) pass.
+ */
+function findCssApplyOffenders(css: string, label: string): string[] {
+  const stripped = stripCssComments(css);
+  const offenders: string[] = [];
+  const applyRe = /@apply\s+([^;]+);/gi;
+  for (const m of stripped.matchAll(applyRe)) {
+    const utilityList = m[1]!;
+    for (const tm of utilityList.matchAll(TOKEN_RE)) {
+      const tok = tm[0];
+      if (!tok.includes('foreground')) continue;
+      if (!isTextLikeClass(tok) && !isBareTextProperty(tok)) continue;
+      const um = stripVariant(tok).match(UTILITY_CLASS_RE);
+      if (um) {
+        offenders.push(`${label}: @apply text-foreground-${um[1]}`);
+      }
+      for (const fm of tok.matchAll(FG_IN_TOKEN_RE)) {
+        const num = fm[1]!;
+        if (SURFACE_WASH_NUMS.includes(num)) {
+          offenders.push(`${label}: @apply text-context --foreground-${num}`);
+        }
+      }
+    }
+  }
+  return offenders;
+}
+
 // --- TSX scanning -----------------------------------------------------------
 
 /**
  * Two-layer scan strategy:
  *
- * 1. RAW_STOP_RE: --foreground-40..95 are deleted; ban them from TS/TSX
- *    entirely (any syntax form, any context).
+ * 1. RAW_STOP_THEME_RE: --foreground-40..95 and --color-foreground-40..95
+ *    (the @theme mirror form) are deleted; ban them from TS/TSX entirely
+ *    (any syntax form, any context).
  *
  * 2. Token-based context scan: split source into class-like tokens, then
  *    classify each token as text-like or surface-like by its prefix.
  *    Text-like tokens (text/fill/stroke/caret/decoration prefix, or bare
- *    [color:...] arbitrary property) trigger a search for --foreground-N
- *    anywhere inside the token — not just right after the prefix. This
- *    catches complex arbitrary values like
+ *    [color:...] arbitrary property) trigger a search for
+ *    --(?:color-)?foreground-N anywhere inside the token — not just right
+ *    after the prefix. This catches complex arbitrary values like
  *    text-[color:color-mix(in_oklch,var(--foreground-5),...)].
  *
- *    Inline-style declarations (color:/fill:/stroke: followed by a value
- *    that may span whitespace) are scanned separately, since the
- *    property name and value can be split across tokens by whitespace.
+ * 3. Text-property value scan: inline-style declarations
+ *    (style={{ color: "..." }}) and JSX attributes (fill="...", stroke={...})
+ *    are scanned by locating the property name, then extracting the full
+ *    value (quoted or bare) and searching for foreground tokens inside.
+ *    Covers camelCase props (caretColor, textDecorationColor) and complex
+ *    values (color-mix(...)).
  *
  *    Surface-context prefixes (bg-, border-, ring-, from-, to-, via-,
  *    [background:, [border-color:) are NOT matched — surface wash stops
  *    remain addressable there.
  */
-const RAW_STOP_RE = /--foreground-(40|50|60|70|80|90|95)\b/g;
+const RAW_STOP_THEME_RE = /--(?:color-)?foreground-(40|50|60|70|80|90|95)\b/g;
 
 /** Utility prefixes that set TEXT color. */
 const TEXT_PREFIXES = new Set(['text', 'fill', 'stroke', 'caret', 'decoration']);
@@ -148,15 +185,49 @@ function isBareTextProperty(cls: string): boolean {
 /** Utility class form: text-foreground-N (no --). Captures N. */
 const UTILITY_CLASS_RE = /^(?:text|fill|stroke|caret|decoration)-foreground-(\d+)/;
 
-/** Inline-style declaration: color/fill/stroke: ... var(--foreground-N) ...
- *  Value may be quoted ("...", '...', `...`) or bare. */
-const INLINE_STYLE_RE = /(?:^|[\s;{])(?:color|fill|stroke)\s*:\s*["'`]?\s*var\(\s*--foreground-(\d+)/gi;
-
 /** Splits source into class-like tokens (non-whitespace, non-quote, non-brace). */
 const TOKEN_RE = /[^\s"'`;{}=]+/g;
 
-/** Find --foreground-N (any N) inside a token string. */
-const FG_IN_TOKEN_RE = /--foreground-(\d+)\b/g;
+/** Find --(?:color-)?foreground-N (any N) inside a token string. */
+const FG_IN_TOKEN_RE = /--(?:color-)?foreground-(\d+)\b/g;
+
+/** Text-like property names (kebab-case CSS + camelCase JS). */
+const TEXT_PROP_NAMES_RE = /\b(?:color|fill|stroke|caretColor|textDecorationColor|columnRuleColor|caret-color|text-decoration-color|column-rule-color)\b/i;
+
+/**
+ * Scan inline-style declarations and JSX attributes for text-like
+ * properties whose value references a foreground stop.
+ *
+ * Locates the property name (preceded by `{`, `,`, `<`, or whitespace
+ * to avoid matching inside Tailwind class tokens), then extracts the
+ * full value (quoted or bare) and searches for foreground tokens.
+ */
+function scanTextPropValue(src: string): string[] {
+  const offenders: string[] = [];
+  // Match prop name preceded by {, ,, <, whitespace (not inside [...])
+  // followed by : (inline style) or = (JSX attr)
+  const propRe = /(?:[{,]\s*|^\s*|\s)(color|fill|stroke|caretColor|textDecorationColor|columnRuleColor|caret-color|text-decoration-color|column-rule-color)\s*[:=]\s*/gi;
+  let m: RegExpExecArray | null;
+  while ((m = propRe.exec(src)) !== null) {
+    let i = m.index + m[0].length;
+    let quote = '';
+    if (src[i] === '"' || src[i] === "'" || src[i] === '`') {
+      quote = src[i]!;
+      i++;
+    }
+    let val = '';
+    if (quote) {
+      while (i < src.length && src[i] !== quote) { val += src[i]!; i++; }
+    } else {
+      while (i < src.length && !/[\};,\n]/.test(src[i]!)) { val += src[i]!; i++; }
+    }
+    for (const fm of val.matchAll(FG_IN_TOKEN_RE)) {
+      const num = fm[1]!;
+      offenders.push(`text-prop --foreground-${num}`);
+    }
+  }
+  return offenders;
+}
 
 async function collectTsxOffenders(dirs: string[]): Promise<string[]> {
   const offenders: string[] = [];
@@ -188,13 +259,14 @@ function scanTsx(src: string): string[] {
   const offenders: string[] = [];
   const surfaceSet = new Set(SURFACE_WASH_NUMS);
 
-  // 1. Deleted stops: banned in any context.
-  for (const m of src.matchAll(RAW_STOP_RE)) {
+  // 1. Deleted stops (incl. --color-foreground-N mirror): banned anywhere.
+  for (const m of src.matchAll(RAW_STOP_THEME_RE)) {
     offenders.push(`--foreground-${m[1]}`);
   }
 
   // 2. Class-like tokens: check if text-like context, then search for
-  //    --foreground-N anywhere inside (handles complex arbitrary values).
+  //    --(?:color-)?foreground-N anywhere inside (handles complex
+  //    arbitrary values like color-mix() wrapping).
   for (const m of src.matchAll(TOKEN_RE)) {
     const tok = m[0];
     if (!tok.includes('foreground')) continue;
@@ -206,7 +278,7 @@ function scanTsx(src: string): string[] {
       offenders.push(`text-foreground-${um[1]}`);
     }
 
-    // CSS var form: --foreground-N anywhere in token — ban surface wash.
+    // CSS var form: --(?:color-)?foreground-N anywhere in token — ban surface wash.
     for (const fm of tok.matchAll(FG_IN_TOKEN_RE)) {
       const num = fm[1]!;
       if (surfaceSet.has(num)) {
@@ -215,15 +287,10 @@ function scanTsx(src: string): string[] {
     }
   }
 
-  // 3. Inline-style: color/fill/stroke: var(--foreground-N) — value may
-  //    span whitespace (e.g. "color: var(--foreground-5)").
-  INLINE_STYLE_RE.lastIndex = 0;
-  for (const m of src.matchAll(INLINE_STYLE_RE)) {
-    const num = m[1]!;
-    if (surfaceSet.has(num) || BANNED_TEXT_NUMS.includes(num)) {
-      offenders.push(`inline-style --foreground-${num}`);
-    }
-  }
+  // 3. Text-property values: inline style (style={{ color: "..." }})
+  //    and JSX attributes (fill="...", stroke={...}). Scans the full
+  //    value for foreground tokens, handles camelCase + complex values.
+  offenders.push(...scanTextPropValue(src));
 
   return offenders;
 }
@@ -258,7 +325,7 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
   it('renderer CSS has no deleted raw --foreground-40..95 (any context)', async () => {
     const css = stripCssComments(await readAllRendererCss());
     const offenders: string[] = [];
-    for (const m of css.matchAll(RAW_STOP_RE)) {
+    for (const m of css.matchAll(RAW_STOP_THEME_RE)) {
       offenders.push(`renderer CSS: --foreground-${m[1]}`);
     }
     assert.deepEqual(offenders, [], `Deleted raw stops must not appear:\n  ${offenders.join('\n  ')}`);
@@ -267,7 +334,7 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
   it('maka-tokens.css has no deleted raw --foreground-40..95 (any context)', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
     const offenders: string[] = [];
-    for (const m of tokens.matchAll(RAW_STOP_RE)) {
+    for (const m of tokens.matchAll(RAW_STOP_THEME_RE)) {
       offenders.push(`maka-tokens.css: --foreground-${m[1]}`);
     }
     assert.deepEqual(offenders, [], `Deleted raw stops must not appear:\n  ${offenders.join('\n  ')}`);
@@ -279,6 +346,12 @@ describe('PR-FOREGROUND-TIER-CONVERGE-0 contract', () => {
       'packages/ui/stories',
       'apps/desktop/src/renderer',
     ]);
+    assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
+  });
+
+  it('renderer CSS @apply does not use text-like foreground utilities', async () => {
+    const css = await readAllRendererCss();
+    const offenders = findCssApplyOffenders(css, 'renderer CSS');
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
@@ -560,12 +633,11 @@ describe('foreground-tier negative cases', () => {
 
   // P2-a: global raw stop ban in CSS (non-text context)
   it('rejects background: var(--foreground-80) in renderer CSS (global raw ban)', async () => {
-    // Simulate by scanning a snippet with stripCssComments
-    assert.ok(stripCssComments('background: var(--foreground-80)').match(RAW_STOP_RE));
+    assert.ok(stripCssComments('background: var(--foreground-80)').match(RAW_STOP_THEME_RE));
   });
 
   it('rejects border-color: var(--foreground-60) in renderer CSS (global raw ban)', async () => {
-    assert.ok(stripCssComments('border-color: var(--foreground-60)').match(RAW_STOP_RE));
+    assert.ok(stripCssComments('border-color: var(--foreground-60)').match(RAW_STOP_THEME_RE));
   });
 
   // P2: complex Tailwind variants must be stripped correctly
@@ -604,5 +676,60 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts style={{ background: "var(--foreground-5)" }} in TSX (bg inline)', () => {
     assert.deepEqual(scanTsxSnippet('style={{ background: "var(--foreground-5)" }}'), []);
+  });
+
+  // P2-a: --color-foreground-N theme mirror must be caught as text color
+  it('rejects text-[color:var(--color-foreground-5)] in TSX (theme mirror)', () => {
+    assert.ok(scanTsxSnippet("text-[color:var(--color-foreground-5)]").length > 0);
+  });
+
+  it('rejects color: var(--color-foreground-5) in CSS (theme mirror text prop)', () => {
+    assert.ok(findCssTextOffenders('color: var(--color-foreground-5)', 'test').length > 0);
+  });
+
+  it('rejects style={{ color: "var(--color-foreground-5)" }} in TSX (theme mirror inline)', () => {
+    assert.ok(scanTsxSnippet('style={{ color: "var(--color-foreground-5)" }}').length > 0);
+  });
+
+  it('accepts background: var(--color-foreground-5) in CSS (theme mirror bg)', () => {
+    assert.deepEqual(findCssTextOffenders('background: var(--color-foreground-5)', 'test'), []);
+  });
+
+  it('accepts bg-[color:var(--color-foreground-5)] in TSX (theme mirror surface)', () => {
+    assert.deepEqual(scanTsxSnippet("bg-[color:var(--color-foreground-5)]"), []);
+  });
+
+  // P2-b: @apply with text-like foreground utility
+  it('rejects @apply text-foreground-5; in CSS', () => {
+    assert.ok(findCssApplyOffenders('@apply text-foreground-5;', 'test').length > 0);
+  });
+
+  it('rejects @apply fill-foreground-5; in CSS', () => {
+    assert.ok(findCssApplyOffenders('@apply fill-foreground-5;', 'test').length > 0);
+  });
+
+  it('rejects @apply text-[color:var(--foreground-5)]; in CSS', () => {
+    assert.ok(findCssApplyOffenders('@apply text-[color:var(--foreground-5)];', 'test').length > 0);
+  });
+
+  it('accepts @apply bg-foreground-5 border-foreground-10; in CSS (surface)', () => {
+    assert.deepEqual(findCssApplyOffenders('@apply bg-foreground-5 border-foreground-10;', 'test'), []);
+  });
+
+  // P2-c: complex inline style value + camelCase + SVG attrs
+  it('rejects style={{ color: `color-mix(in oklch, var(--foreground-5), var(--background))` }} in TSX', () => {
+    assert.ok(scanTsxSnippet('style={{ color: `color-mix(in oklch, var(--foreground-5), var(--background))` }}').length > 0);
+  });
+
+  it('rejects style={{ caretColor: "var(--foreground-5)" }} in TSX (camelCase)', () => {
+    assert.ok(scanTsxSnippet('style={{ caretColor: "var(--foreground-5)" }}').length > 0);
+  });
+
+  it('rejects <path fill="var(--foreground-5)" /> in TSX (SVG attr)', () => {
+    assert.ok(scanTsxSnippet('<path fill="var(--foreground-5)" />').length > 0);
+  });
+
+  it('rejects <path stroke={"var(--foreground-5)"} /> in TSX (SVG attr expression)', () => {
+    assert.ok(scanTsxSnippet('<path stroke={"var(--foreground-5)"} />').length > 0);
   });
 });
