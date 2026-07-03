@@ -71,7 +71,7 @@ export function createAppShellSessionSettingsActions(deps: {
         explore: '只读模式',
         ask: '询问权限',
         execute: '自动执行',
-        bypass: 'Bypass permissions',
+        bypass: '跳过确认',
       };
       if (activeIdRef.current === sessionId) toastApi.success(`已切到 ${labels[mode]}`, permissionModeDescriptions[mode]);
       await refreshSessions();

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { PlanReminder, SessionSummary } from '@maka/core';
-import { formatRelativeTimestamp } from '@maka/core';
+import { formatCompactTimestamp } from '@maka/core';
 import {
   Archive,
   ArchiveRestore,
@@ -1099,5 +1099,5 @@ function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
 
 function formatSessionMeta(session: SessionSummary): string {
   if (!session.lastMessageAt) return noMessagesYet;
-  return formatRelativeTimestamp(session.lastMessageAt);
+  return formatCompactTimestamp(session.lastMessageAt);
 }

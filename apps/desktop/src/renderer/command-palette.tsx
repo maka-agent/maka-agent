@@ -475,7 +475,7 @@ export function buildCommandList(args: {
       { id: 'explore', label: '权限 · 只读', hintCopy: '读取和搜索直通，写入仍确认' },
       { id: 'ask', label: '权限 · 询问权限', hintCopy: '每条敏感工具都先确认（默认）' },
       { id: 'execute', label: '权限 · 自动执行', hintCopy: '常见工具直通，破坏性操作仍确认' },
-      { id: 'bypass', label: '权限 · Bypass permissions', hintCopy: '全部工具直通，不再弹权限确认' },
+      { id: 'bypass', label: '权限 · 跳过确认', hintCopy: '全部工具直通，不再弹权限确认' },
     ];
     for (const entry of modes) {
       cmds.push({

@@ -43,6 +43,7 @@ import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
 import {
+  normalizeSessionSummaryForDisplay,
   presentSessionStatus,
   sessionStatusAriaLabel,
 } from './session-status-presentation';
@@ -111,8 +112,12 @@ export function AppShell() {
       readBoundaries: () => sessionReadBoundariesRef.current,
       currentSessions: () => sessionsRef.current,
       commitSessions: (next) => {
-        sessionsRef.current = next;
-        setSessions(next);
+        // Display normalization at the state boundary: non-actionable
+        // blocked (missing terminal bookkeeping) reads as an ordinary
+        // resumable session everywhere in the renderer.
+        const displayNext = next.map(normalizeSessionSummaryForDisplay);
+        sessionsRef.current = displayNext;
+        setSessions(displayNext);
       },
       onError: (error) => {
         toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
@@ -946,7 +951,10 @@ export function AppShell() {
 
   function upsertSessionSummary(session: SessionSummary): void {
     setSessions((current) => {
-      const next = [session, ...current.filter((entry) => entry.id !== session.id)];
+      const next = [
+        normalizeSessionSummaryForDisplay(session),
+        ...current.filter((entry) => entry.id !== session.id),
+      ];
       sessionsRef.current = next;
       return next;
     });

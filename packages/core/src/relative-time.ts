@@ -92,6 +92,45 @@ export function formatRelativeTimestamp(ts: number, now: number = Date.now()): s
   return getRelativeFormat().format(-diffDays, 'day');
 }
 
+let cachedCompactSameYearFormat: Intl.DateTimeFormat | null = null;
+let cachedCompactOtherYearFormat: Intl.DateTimeFormat | null = null;
+let cachedCompactLocale: string | null = null;
+
+function getCompactFormats(): { sameYear: Intl.DateTimeFormat; otherYear: Intl.DateTimeFormat } {
+  const locale = resolveLocale();
+  if (!cachedCompactSameYearFormat || !cachedCompactOtherYearFormat || cachedCompactLocale !== locale) {
+    cachedCompactSameYearFormat = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
+    cachedCompactOtherYearFormat = new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    cachedCompactLocale = locale;
+  }
+  return { sameYear: cachedCompactSameYearFormat, otherYear: cachedCompactOtherYearFormat };
+}
+
+/**
+ * Compact variant for space-starved rows (sidebar session list): same
+ * relative buckets inside the 7-day horizon, then a DATE-ONLY label —
+ * "6月20日" within the current year, "2025年6月20日" across years.
+ * `formatRelativeTimestamp`'s medium-date + time fallback
+ * ("2026年6月20日 16:33") is right for wide surfaces but crushed the
+ * session title next to it to ~2 characters. Minute precision belongs
+ * in tooltips/detail surfaces, not scan-level list rows.
+ */
+export function formatCompactTimestamp(ts: number, now: number = Date.now()): string {
+  const diffMs = now - ts;
+  if (diffMs >= 0 && diffMs <= RELATIVE_HORIZON_MS) {
+    return formatRelativeTimestamp(ts, now);
+  }
+  if (diffMs < 0) return formatRelativeTimestamp(ts, now);
+  const { sameYear, otherYear } = getCompactFormats();
+  const date = new Date(ts);
+  const nowDate = new Date(now);
+  return date.getFullYear() === nowDate.getFullYear() ? sameYear.format(date) : otherYear.format(date);
+}
+
 /**
  * Reset the cached formatters. Used by `applyUiLocale()` so a language
  * change takes effect without a full reload — the next call will
@@ -101,6 +140,9 @@ export function resetRelativeTimeFormatters(): void {
   cachedRelativeFormat = null;
   cachedAbsoluteFormat = null;
   cachedLocale = null;
+  cachedCompactSameYearFormat = null;
+  cachedCompactOtherYearFormat = null;
+  cachedCompactLocale = null;
 }
 
 /**

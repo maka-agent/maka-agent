@@ -156,7 +156,7 @@ export function AccountSettingsPage(props: {
       <SettingsRows>
         <SettingRow
           title="默认权限模式"
-          detail="新会话默认从询问权限开始；可在输入框左下角切到自动执行或 Bypass permissions。"
+          detail="新会话默认从询问权限开始；可在输入框左下角切到自动执行或跳过确认。"
           value="询问权限"
         />
         <SettingRow

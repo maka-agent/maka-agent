@@ -65,7 +65,7 @@ const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
     tone: 'caution',
   },
   bypass: {
-    label: 'Bypass permissions',
+    label: '跳过确认',
     hint: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。只在完全信任本轮任务时使用。',
     tone: 'caution',
   },
@@ -190,7 +190,7 @@ export const Composer = forwardRef<
      * PR-MOVE-PERMISSION-MODE (WAWQAQ 47fe0d0e + a667cf6c): the
      * permission mode picker lives inside the composer left-controls
      * instead of the chat header. Composer renders a dropdown labelled
-     * by the current mode (询问权限 / 自动执行 / Bypass permissions);
+     * by the current mode (询问权限 / 自动执行 / 跳过确认);
      * selecting an option fires `onPermissionModeChange`. When the
      * active session is in the legacy `explore` mode the picker
      * collapses to display 询问权限 — explore is internal-only now and
