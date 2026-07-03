@@ -10,7 +10,7 @@ const APP_SHELL_OVERLAYS_PATH = resolve(RENDERER_ROOT, 'app-shell-overlays.tsx')
 const CHAT_VIEW_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
 
 describe('renderer lazy fallback contract', () => {
-  it('keeps shell lazy chunks on compact non-null fallbacks', async () => {
+  it('keeps visible shell lazy chunks on compact non-null fallbacks', async () => {
     const appShell = await readFile(APP_SHELL_PATH, 'utf8');
     const overlays = await readFile(APP_SHELL_OVERLAYS_PATH, 'utf8');
 
@@ -19,11 +19,32 @@ describe('renderer lazy fallback contract', () => {
     assert.doesNotMatch(overlays, /settingsOpen[\s\S]{0,120}<Suspense fallback=\{null\}>/);
 
     assert.match(appShell, /function BrowserPanelFallback/, 'Browser panel must reserve a loading shell');
-    assert.match(appShell, /function ArtifactPaneFallback/, 'Artifact pane must reserve a loading shell');
+    assert.match(
+      appShell,
+      /\{activeId && liveBrowserSessionIds\.includes\(activeId\) && \([\s\S]*?<Suspense fallback=\{<BrowserPanelFallback \/>\}>[\s\S]*?<BrowserPanel sessionId=\{activeId\} hidden=\{hasModalOpen\} \/>[\s\S]*?<\/Suspense>[\s\S]*?\)\}/,
+      'Browser panel fallback is safe because AppShell already knows this session owns a live browser view',
+    );
     assert.match(appShell, /<Suspense fallback=\{<BrowserPanelFallback \/>\}>/);
-    assert.match(appShell, /<Suspense fallback=\{<ArtifactPaneFallback \/>\}>/);
-    assert.doesNotMatch(appShell, /BrowserPanel[\s\S]{0,160}<Suspense fallback=\{null\}>/);
-    assert.doesNotMatch(appShell, /ArtifactPane[\s\S]{0,160}<Suspense fallback=\{null\}>/);
+  });
+
+  it('keeps ArtifactPane hidden while its lazy chunk loads without artifact evidence', async () => {
+    const appShell = await readFile(APP_SHELL_PATH, 'utf8');
+
+    assert.doesNotMatch(
+      appShell,
+      /function ArtifactPaneFallback/,
+      'ArtifactPane must not fake the right-side generated-file pane while it is still loading',
+    );
+    assert.match(
+      appShell,
+      /<Suspense fallback=\{null\}>\s*<ArtifactPane sessionId=\{activeId\} \/>\s*<\/Suspense>/,
+      'AppShell does not know live artifacts or list errors, so ArtifactPane lazy loading must preserve the default hidden layout',
+    );
+    assert.doesNotMatch(
+      appShell,
+      /fallback=\{<[^}]*Artifact[^}]*>\}/,
+      'ArtifactPane may only show a fallback after AppShell owns an explicit artifact/list-error visibility gate',
+    );
   });
 
   it('keeps module lazy chunks on compact non-null fallbacks', async () => {

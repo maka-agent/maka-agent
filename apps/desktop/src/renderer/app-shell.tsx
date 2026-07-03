@@ -51,24 +51,6 @@ function BrowserPanelFallback() {
     </div>
   );
 }
-
-function ArtifactPaneFallback() {
-  return (
-    <aside
-      className="maka-artifact-pane"
-      data-collapsed="false"
-      data-layout="responsive-bottom-sheet"
-      role="status"
-      aria-busy="true"
-      aria-label="正在加载生成文件面板"
-    >
-      <header className="maka-artifact-pane-header">
-        <span className="maka-artifact-pane-title">生成文件</span>
-      </header>
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载生成文件…</div>
-    </aside>
-  );
-}
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
@@ -1483,7 +1465,7 @@ export function AppShell() {
                 <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
               </Suspense>
             )}
-            <Suspense fallback={<ArtifactPaneFallback />}>
+            <Suspense fallback={null}>
               <ArtifactPane sessionId={activeId} />
             </Suspense>
           </div>
