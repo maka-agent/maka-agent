@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -261,13 +261,38 @@ export function ChatView(props: {
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
   // turn-grouping projection).
-  const visibleMessages = props.streamingComplete && props.streamingMessageId
-    ? props.messages.filter((message) => !(message.type === 'assistant' && message.id === props.streamingMessageId))
-    : props.messages;
-  const chat = materializeChat(visibleMessages);
-  const storedTools = materializeTools(visibleMessages);
-  const tools = mergeTools(storedTools, props.tools);
-  const turns = materializeTurns(visibleMessages, props.tools);
+  // Memoized derivation chain (vercel rerender rules): during PLAIN-TEXT
+  // streaming — the hottest path, dozens of state updates per second —
+  // `messages` and `tools` don't change, so every turn object keeps its
+  // identity and the memoized TurnViews below skip re-rendering entirely.
+  // Tool-activity updates legitimately invalidate the chain.
+  const visibleMessages = useMemo(
+    () =>
+      props.streamingComplete && props.streamingMessageId
+        ? props.messages.filter((message) => !(message.type === 'assistant' && message.id === props.streamingMessageId))
+        : props.messages,
+    [props.messages, props.streamingComplete, props.streamingMessageId],
+  );
+  const chat = useMemo(() => materializeChat(visibleMessages), [visibleMessages]);
+  const storedTools = useMemo(() => materializeTools(visibleMessages), [visibleMessages]);
+  const tools = useMemo(() => mergeTools(storedTools, props.tools), [storedTools, props.tools]);
+  const turns = useMemo(() => materializeTurns(visibleMessages, props.tools), [visibleMessages, props.tools]);
+  // Stable event wrappers (advanced-use-latest): parent handlers are
+  // recreated per render upstream; routing through refs keeps the
+  // memoized TurnView's function props identity-stable without
+  // demanding useCallback discipline from every caller.
+  const onTurnFooterActionRef = useRef(props.onTurnFooterAction);
+  onTurnFooterActionRef.current = props.onTurnFooterAction;
+  const stableTurnFooterAction = useCallback(
+    (turnId: string, actionId: TurnFooterActionMeta['id']) => onTurnFooterActionRef.current?.(turnId, actionId),
+    [],
+  );
+  const onLineageBadgeClickRef = useRef(props.onLineageBadgeClick);
+  onLineageBadgeClickRef.current = props.onLineageBadgeClick;
+  const stableLineageBadgeClick = useCallback(
+    (targetTurnId: string) => onLineageBadgeClickRef.current?.(targetTurnId),
+    [],
+  );
   const capabilityAuditReport = useMemo(
     () => deriveCapabilityAuditReport({
       skills: props.skills ?? [],
@@ -562,11 +587,11 @@ export function ChatView(props: {
                 turn={turn}
                 userLabel={props.userLabel}
                 footerActions={props.turnFooterActionsByTurn?.[turn.turnId]}
-                onFooterAction={(actionId) => props.onTurnFooterAction?.(turn.turnId, actionId)}
+                onFooterAction={stableTurnFooterAction}
                 failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
-                onLineageBadgeClick={props.onLineageBadgeClick}
+                onLineageBadgeClick={stableLineageBadgeClick}
                 previousModelId={expectedModelId}
                 searchHighlighted={highlightedTurnId === turn.turnId}
               />
@@ -881,7 +906,7 @@ function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
  * "message stack + tools panel at end" layout so the user sees the
  * narrative of "ask → tools fired → answer" as one work unit.
  */
-function TurnView(props: {
+const TurnView = memo(function TurnView(props: {
   turn: TurnViewModel;
   userLabel?: string;
   /**
@@ -892,7 +917,7 @@ function TurnView(props: {
    * map is built.
    */
   footerActions?: ReadonlyArray<TurnFooterActionMeta>;
-  onFooterAction?: (actionId: TurnFooterActionMeta['id']) => void;
+  onFooterAction?: (turnId: string, actionId: TurnFooterActionMeta['id']) => void;
   /**
    * PR109e-d: pre-translated Chinese phrase for a failed turn's
    * `errorClass`. Caller computes via `describeTurnErrorClass()`.
@@ -1055,7 +1080,7 @@ function TurnView(props: {
           {props.footerActions && props.footerActions.length > 0 && (
             <TurnFooterActions
               actions={props.footerActions}
-              onAction={props.onFooterAction}
+              onAction={props.onFooterAction ? (actionId) => props.onFooterAction?.(turn.turnId, actionId) : undefined}
               assistantText={turn.assistant.text}
             />
           )}
@@ -1063,7 +1088,7 @@ function TurnView(props: {
       )}
     </section>
   );
-}
+});
 
 /**
  * Turn footer actions row (PR109d-b). Renders icon+text buttons for
