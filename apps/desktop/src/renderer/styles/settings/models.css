@@ -655,6 +655,7 @@
 .maka-artifact-row-badge {
   grid-column: 1 / -1;
   justify-self: start;
+  margin-top: var(--space-0-5);
 }
 
 .maka-artifact-preview {

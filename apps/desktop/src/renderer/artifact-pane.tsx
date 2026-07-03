@@ -445,6 +445,11 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   id={`maka-artifact-row-${record.id}`}
                   type="button"
                   variant="ghost"
+                  // size="nav": className owns layout. The default md size
+                  // pins h-9 on the button, but deleted rows add a badge on
+                  // an implicit second grid row — fixed height + centering
+                  // painted the badge over the icon/name.
+                  size="nav"
                   className="maka-artifact-row"
                   role="option"
                   aria-selected={record.id === selectedId}
