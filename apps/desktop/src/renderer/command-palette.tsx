@@ -5,7 +5,7 @@
 // the user can fuzzy-search across both. Renders as a portal-style modal
 // with focus trap (via useModalA11y) and Arrow/Enter/Esc navigation.
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   CalendarDays,
   ChevronRight,
@@ -603,8 +603,12 @@ export function CommandPalette(props: {
   // safety. Query body never enters telemetry or local history.
   const threadSearch = useThreadSearch(query, props.threadSearchDeps);
 
+  // Keystrokes stay urgent; list filtering renders at deferred priority
+  // (vercel rerender-use-deferred-value) so fast typing in the palette
+  // never waits on the filter + content-command list re-render.
+  const deferredQuery = useDeferredValue(query);
   const filtered = useMemo(() => {
-    const q = query.trim();
+    const q = deferredQuery.trim();
     if (!q) return props.commands;
     return props.commands.filter((cmd) => {
       if (fuzzy(q, cmd.label)) return true;
@@ -612,7 +616,7 @@ export function CommandPalette(props: {
       if (cmd.keywords && cmd.keywords.some((kw) => fuzzy(q, kw))) return true;
       return false;
     });
-  }, [props.commands, query]);
+  }, [props.commands, deferredQuery]);
 
   // Build content-search commands from the hook state. These are
   // merged into the palette's command list after the existing
