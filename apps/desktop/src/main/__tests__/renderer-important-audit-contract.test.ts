@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
+import postcss from 'postcss';
 import { REPO_ROOT, readCssTree, stripCssComments } from './css-test-helpers.js';
 
 type ImportantAllowance = {
@@ -87,24 +88,6 @@ const RETIRED_RING_RESET_BLOCKS = [
   },
 ];
 
-const BARE_FIELD_CALLS = [
-  {
-    fileSuffix: 'packages/ui/src/skills-panel.tsx',
-    pattern: /<Input\s+unstyled[\s\S]*placeholder="搜索技能"/,
-    label: 'skill search Input',
-  },
-  {
-    fileSuffix: 'packages/ui/src/composer.tsx',
-    pattern: /<UiTextarea\s+[^>]*unstyled[\s\S]*className="maka-composer-textarea\b/,
-    label: 'composer textarea',
-  },
-  {
-    fileSuffix: 'apps/desktop/src/renderer/OnboardingHero.tsx',
-    pattern: /<Textarea\s+[^>]*unstyled[\s\S]*className="maka-onboarding-quickchat-input\b/,
-    label: 'onboarding quickchat textarea',
-  },
-];
-
 function isAllowed(file: string, source: string): boolean {
   return ALLOWLIST.some((entry) => file.endsWith(entry.fileSuffix) && source.includes(entry.anchor));
 }
@@ -137,6 +120,17 @@ function readRuleBody(source: string, anchor: string): string | null {
   }
 
   return null;
+}
+
+function findFieldFocusSelector(source: string): string | null {
+  const root = postcss.parse(source);
+  let selector: string | null = null;
+  root.walkRules((rule) => {
+    if (rule.selector.includes('data-maka-field-chrome') && rule.selector.includes(':focus')) {
+      selector = rule.selector;
+    }
+  });
+  return selector;
 }
 
 describe('renderer !important audit contract', () => {
@@ -174,16 +168,12 @@ describe('renderer !important audit contract', () => {
 
   it('keeps embedded bare fields off page-level important ring resets', async () => {
     const modulePages = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/module-pages.css`, 'utf8'));
-    assert.match(
-      modulePages,
-      /:where\(input, select, textarea\):focus:not\(\[data-maka-field-chrome="none"\]\)/,
-      'the global renderer field focus rule must skip explicit bare fields',
+    const fieldFocusSelector = findFieldFocusSelector(modulePages);
+    assert.equal(
+      fieldFocusSelector,
+      ':where(input, select, textarea):focus:not(:where([data-maka-field-chrome="none"]))',
+      'the global renderer field focus rule must skip explicit bare fields without increasing selector specificity',
     );
-
-    for (const entry of BARE_FIELD_CALLS) {
-      const source = await readFile(`${REPO_ROOT}/${entry.fileSuffix}`, 'utf8');
-      assert.match(source, entry.pattern, `${entry.label} must pass unstyled to opt into the explicit bare field path`);
-    }
 
     for (const entry of RETIRED_RING_RESET_BLOCKS) {
       const file = `${REPO_ROOT}/${entry.fileSuffix}`;

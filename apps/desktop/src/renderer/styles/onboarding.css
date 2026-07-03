@@ -462,19 +462,15 @@
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.75) inset;
 }
 /* The visible quick-chat chrome belongs to `.maka-onboarding-quickchat`;
-   the textarea uses the explicit bare field path so no primitive ring
-   chrome has to be reset in page CSS. */
+   the textarea owns bare field reset through the shared UI component. */
 .maka-onboarding-quickchat .maka-onboarding-quickchat-input {
-  appearance: none;
   box-sizing: border-box;
   width: 100%;
   resize: none;
   min-height: 90px;
   color: var(--foreground);
-  font: inherit;
   font-size: var(--font-size-base);
   line-height: 1.5;
-  outline: none;
 }
 /* Drag-active feedback lives on the wrapper, not the inner textarea, because
    the wrapper owns the visible field chrome for this bare textarea. */
@@ -484,13 +480,6 @@
   box-shadow:
     0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22),
     0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08);
-}
-.maka-onboarding-quickchat-input:focus-visible {
-  outline: none;
-}
-.maka-onboarding-quickchat-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 /* PR-UI-15 (@yuejing 2026-05-22): small example hint shown below the
  * quickChat textarea so first-run users still see an example of what

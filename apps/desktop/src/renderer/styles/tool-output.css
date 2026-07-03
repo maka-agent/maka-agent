@@ -129,10 +129,8 @@
 }
 
 /* The composer wrapper owns the visible field chrome. The textarea uses
-   the explicit bare field path, so primitive and page-level focus rings do
-   not need to be reset here. */
+   bare field reset from the shared UI component. */
 .composer .maka-composer-textarea {
-  appearance: none;
   display: block;
   width: 100%;
   min-height: var(--h-composer-min, 56px);
@@ -140,15 +138,6 @@
   font-family: var(--font-default);
   font-size: var(--font-size-base);
   line-height: 1.55;
-}
-
-.composer textarea:focus {
-  outline: 0;
-}
-
-.composer textarea:focus-visible,
-.composer .maka-composer-textarea:focus-visible {
-  outline: 0;
 }
 
 .maka-composer-streaming-hint .maka-shortcut-kbd {
