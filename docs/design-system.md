@@ -108,7 +108,6 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 | `--success-text` / `--info-text` / `--destructive-text` | 文字色（向 foreground 拉过） | 不要用作背景或边框 |
 | `--foreground-2 / 3 / 5` | 极淡填充：sidebar、code、tool 卡片（表面 wash 档，非文字） | 不要做正文 |
 | `--foreground-8 / 10` | 分割、shadow accent、block bg（表面 wash 档，非文字） | 不要做正文 |
-| `--foreground-40 / 50 / 60 / 70 / 80` | 内部 mix stops，文字用法经语义别名访问（`--muted-foreground` = 50, `--foreground-secondary` = 80）；表面 wash 可直接引用 | 文字不要直接引用，用别名 |
 | `--border` | 1px 默认分割线 / 卡片外框 | 不要做 hover ring（那是 `--ring`） |
 | `--border-strong` | 选中态/active 卡片框 | 不要做默认外框 |
 | `--muted` | 与 border 同 α，语义上"作为背景而非分割" | 不要混用 |
