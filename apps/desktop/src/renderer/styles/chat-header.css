@@ -349,6 +349,18 @@
   animation: maka-toast-enter 240ms var(--ease-out-strong);
 }
 
+/* Exit = enter x 75% (roadmap §4.1), ease-in per the enter-out/exit-in
+   rule — the toast shrinks away instead of vanishing mid-glance. */
+@keyframes maka-toast-exit {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+
+.maka-toast[data-exiting="true"] {
+  animation: maka-toast-exit 180ms var(--ease-in-out-strong) forwards;
+  pointer-events: none;
+}
+
 /* D6 spectrum #2 (Command Input processing): while the assistant is
    streaming, a slow top-edge light sweep on the composer shell keeps
    "working" visible at the exact place the user's attention returns

@@ -64,6 +64,8 @@ interface InternalToast extends Required<Pick<ToastInput, 'title' | 'variant' | 
   id: string;
   description?: string;
   action?: ToastAction;
+  /** Two-phase dismissal: exit animation plays, then the entry unmounts. */
+  exiting?: boolean;
 }
 
 interface PendingConfirm extends ConfirmInput {
@@ -81,8 +83,16 @@ export function ToastProvider(props: { children: ReactNode }) {
   const confirmQueueRef = useRef<PendingConfirm[]>([]);
   const idSeed = useRef(0);
 
+  const TOAST_EXIT_MS = 180; // exit = enter (240ms) x 75% per the motion roadmap
   const dismiss = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((entry) => entry.id !== id));
+    // Two-phase dismissal (D6 spectrum): mark exiting so CSS can play a
+    // shrink/fade, then unmount after the exit window. Instant unmount
+    // (the old behavior) made toasts vanish mid-glance. Re-entrant calls
+    // for an already-exiting id are no-ops.
+    setToasts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, exiting: true } : entry)));
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((entry) => entry.id !== id));
+    }, TOAST_EXIT_MS);
   }, []);
 
   const push = useCallback(
@@ -198,7 +208,7 @@ function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): 
         // browsers / AT pairings handle the live region announce
         // better when the live items themselves carry an alert
         // role rather than relying on the region inheritance.
-        <li key={entry.id} className="maka-toast" data-variant={entry.variant} role="alert">
+        <li key={entry.id} className="maka-toast" data-variant={entry.variant} data-exiting={entry.exiting ? 'true' : undefined} role="alert">
           <span className="maka-toast-icon" aria-hidden="true">{VARIANT_ICON[entry.variant]}</span>
           <div className="maka-toast-copy">
             <strong>{entry.title}</strong>

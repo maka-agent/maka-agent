@@ -53,11 +53,23 @@ describe('icon system contract (single chrome size token)', () => {
     );
   });
 
+  it('unifies lucide stroke weight through one governed rule (D5)', async () => {
+    const styles = await readRendererContractCss();
+    const blanket = ruleBody(styles, 'svg.lucide');
+    assert.ok(blanket, 'the global svg.lucide stroke governance rule must exist');
+    assert.match(
+      blanket!,
+      /stroke-width:\s*1\.75/,
+      'all lucide glyphs render at one stroke weight (1.75) — call-site strokeWidth props are overridden by design',
+    );
+  });
+
   it('forbids a blanket svg.lucide size rule (no app-wide resize hammer)', async () => {
     const styles = await readRendererContractCss();
     const blanket = ruleBody(styles, 'svg.lucide');
     assert.ok(
-      !blanket || !/\b(width|height)\s*:/.test(blanket),
+      // (?<!-) so the governed `stroke-width` rule doesn't false-positive.
+      !blanket || !/(?<!-)\b(width|height)\s*:/.test(blanket),
       'a global `svg.lucide { width/height }` rule would silently resize every '
         + 'icon, including intentional 11-14px dense glyphs — it must not exist',
     );

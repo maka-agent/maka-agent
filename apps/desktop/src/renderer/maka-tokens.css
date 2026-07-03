@@ -1860,6 +1860,22 @@
 }
 
 /* =============================================================================
+   Icon stroke governance (decision D5, roadmap §4.1): call sites had
+   accumulated EIGHT different strokeWidth values (1.5 → 2) across 143
+   usages, plus the lucide default of 2 wherever unspecified — the
+   classic "can't say why it looks unpolished" tell. One CSS rule beats
+   every SVG presentation attribute, so all lucide glyphs render at a
+   single weight without touching call sites. Width/height stay
+   per-call-site by contract (icon-system-contract forbids a global
+   size hammer). If a surface ever needs a heavier stroke, scope a more
+   specific selector with a comment.
+============================================================================= */
+svg.lucide {
+  stroke-width: 1.75;
+}
+
+
+/* =============================================================================
    REDUCED-MOTION
 
    Users with `prefers-reduced-motion: reduce` get instant transitions and

@@ -83,6 +83,7 @@ describe('issue #406 design-system governance contract', () => {
       // guidance for new information) + composer streaming top sweep
       // (visible "working" status) — both functional, not decorative.
       'maka-toast-enter',
+      'maka-toast-exit',
       'maka-processing-sweep',
       'maka-cursor',
       'maka-list-row-streaming-pulse',
