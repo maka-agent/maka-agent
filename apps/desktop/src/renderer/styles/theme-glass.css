@@ -11,15 +11,12 @@
    opaque chrome since vibrancy is a no-op there.
 ============================================================================= */
 
-@layer base {
-  html[data-os="darwin"],
+html[data-os="darwin"],
   html[data-os="darwin"] body {
     background: transparent;
   }
-}
 
-@layer components {
-  /* PR-SIDEBAR-GLASS-VIBRANCY-0 (WAWQAQ msg `6c0b8a7c` 2026-06-27):
+/* PR-SIDEBAR-GLASS-VIBRANCY-0 (WAWQAQ msg `6c0b8a7c` 2026-06-27):
      `vibrancy: 'sidebar'` was being set on the BrowserWindow and the
      shell-level `background: transparent` rule was already here, BUT
      the parent `.appFrame` was still painting solid `--surface-canvas`
@@ -28,15 +25,16 @@
      the native blur substrate actually shows through. This is the
      reference-atlas `light-glass` / `dark-glass` mode that we documented
      but never wired all the way through. */
-  html[data-os="darwin"] .appFrame {
+
+html[data-os="darwin"] .appFrame {
     background: transparent;
   }
 
-  html[data-os="darwin"] .maka-shell-2col {
+html[data-os="darwin"] .maka-shell-2col {
     background: transparent;
   }
 
-  html[data-os="darwin"] .maka-session-panel {
+html[data-os="darwin"] .maka-session-panel {
     /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): the previous 172deg
        gradient + 1px border-right reintroduced exactly the
        "上面灰下面白" + visible seam that WAWQAQ called out in
@@ -49,7 +47,6 @@
     backdrop-filter: saturate(140%) blur(8px);
     -webkit-backdrop-filter: saturate(140%) blur(8px);
   }
-}
 
 /* =============================================================================
    PR-QODERWORK-GLASS-RESHIP-L3-L6-L7 (WAWQAQ msg `c71b4dcb` thread,
@@ -143,13 +140,11 @@ html[data-os="darwin"] .maka-list-group-label {
    (audit finding §6). The wash + 50% base provide enough contrast for
    foreground @ full alpha; nav rows / list rows / settings button all
    inherit. */
-@layer components {
-  html[data-os="darwin"] .maka-session-panel-header,
+html[data-os="darwin"] .maka-session-panel-header,
   html[data-os="darwin"] .maka-session-list,
   html[data-os="darwin"] .maka-list-row {
     color: var(--foreground);
   }
-}
 
 /* Unlayered on purpose: `.maka-nav-row` is a shared `UiButton size="nav"`
    surface, so this darwin glass override must outrank the primitive's quiet
@@ -158,8 +153,7 @@ html[data-os="darwin"] .maka-nav-row {
   color: var(--foreground);
 }
 
-@layer components {
-  html[data-os="darwin"] .maka-session-panel-footer {
+html[data-os="darwin"] .maka-session-panel-footer {
     /* PR-FE-BUG-HUNT-8 (kenji aesthetic-audit reminder 9, finding #2):
        drop the 180deg footer linear-gradient. Even though it was a
        subtle transparent→30% surface-canvas fade, it's exactly the
@@ -171,23 +165,25 @@ html[data-os="darwin"] .maka-nav-row {
     background: oklch(from var(--surface-canvas) l c h / 0.15);
   }
 
-  /* The main content column stays on its existing solid `var(--background)` so
+/* The main content column stays on its existing solid `var(--background)` so
      chat text and cards remain legible. Without this, the page card would also
      go translucent and hurt readability. */
-  html[data-os="darwin"] .maka-panel-detail {
+
+html[data-os="darwin"] .maka-panel-detail {
     background: var(--background);
   }
 
-  /* =============================================================================
+/* =============================================================================
      Phase 3 quick-wins — atlas §13.7 + §14.6
      Pure CSS, no JSX surgery, all gated on theme/attribute selectors.
   ============================================================================= */
 
-  /* §14.4 — chrome surfaces opt out of text selection. Selectable text is
+/* §14.4 — chrome surfaces opt out of text selection. Selectable text is
      restricted to actual content (Markdown body, composer textarea, readonly
      pre/code). This prevents accidental "click-drag on nav row starts text
      selection" footgun and makes click+drag-to-resize feel native. */
-  .maka-session-panel,
+
+.maka-session-panel,
   .maka-session-panel-header,
   .maka-session-panel-footer,
   .maka-nav-row,
@@ -200,7 +196,6 @@ html[data-os="darwin"] .maka-nav-row {
     -webkit-user-select: none;
     user-select: none;
   }
-}
 
 /* PR-FE-BUG-HUNT-8 (kenji aesthetic-audit reminder 9, finding #3):
    `[data-gradual-blur-layer]` block removed. Originally ported from

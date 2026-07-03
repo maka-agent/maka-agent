@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { readAllRendererCss } from './css-test-helpers.js';
+import { readAllRendererCss, readCssTree, RENDERER_STYLES_DIR, stripCssComments } from './css-test-helpers.js';
 
 /**
  * Returns the number of `@layer` blocks enclosing the first occurrence of
@@ -35,6 +36,22 @@ function enclosingLayerCount(styles: string, selectorLine: string): number {
 }
 
 describe('renderer style layer cascade contract', () => {
+  it('keeps feature stylesheets unlayered so renderer author CSS has one cascade model', async () => {
+    const layeredFiles: string[] = [];
+    for (const file of await readCssTree(RENDERER_STYLES_DIR)) {
+      const source = stripCssComments(await readFile(file, 'utf8'));
+      if (/@layer\b/.test(source)) {
+        layeredFiles.push(file);
+      }
+    }
+
+    assert.deepEqual(
+      layeredFiles,
+      [],
+      'Feature stylesheets under apps/desktop/src/renderer/styles must stay unlayered. Keep Tailwind layer integration in maka-tokens.css instead of mixing local @layer blocks with unlayered override rules.',
+    );
+  });
+
   /**
    * Regression guard for #257 / #253 Round A.
    *

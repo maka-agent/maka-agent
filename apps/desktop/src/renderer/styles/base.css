@@ -1,23 +1,19 @@
-@layer base {
+
   body {
     margin: 0;
   }
-
-  .maka-overlay-scrollarea {
+.maka-overlay-scrollarea {
     min-width: 0;
     min-height: 0;
   }
-
-  .maka-overlay-scrollarea-viewport {
+.maka-overlay-scrollarea-viewport {
     min-width: 0;
     min-height: 0;
   }
-
-  .maka-overlay-scrollarea-content {
+.maka-overlay-scrollarea-content {
     min-width: 0;
   }
-
-  .os-theme-maka {
+.os-theme-maka {
     /* local: OverlayScrollbars theme overrides */
     --os-size: 8px;
     --os-padding-perpendicular: 1px;
@@ -34,28 +30,23 @@
     --os-handle-min-size: 40px;
     box-sizing: border-box;
   }
-
-  .os-theme-maka.os-scrollbar-vertical {
+.os-theme-maka.os-scrollbar-vertical {
     width: var(--os-size);
   }
-
-  .os-theme-maka.os-scrollbar-horizontal {
+.os-theme-maka.os-scrollbar-horizontal {
     height: var(--os-size);
   }
-
-  .maka-overlay-scrollarea-viewport:focus-visible {
+.maka-overlay-scrollarea-viewport:focus-visible {
     outline: none;
     box-shadow: none;
   }
-
-  button,
+button,
   textarea,
   input,
   select {
     font: inherit;
   }
-
-  .maka-visually-hidden {
+.maka-visually-hidden {
     position: absolute !important;
     width: 1px !important;
     height: 1px !important;
@@ -66,26 +57,22 @@
     white-space: nowrap !important;
     border: 0 !important;
   }
-
-  button {
+button {
     transition:
       background var(--duration-base) var(--ease-out-strong),
       border-color var(--duration-base) var(--ease-out-strong),
       color var(--duration-base) var(--ease-out-strong),
       transform var(--duration-base) var(--ease-out-strong);
   }
-
-  button:active {
+button:active {
     transform: scale(0.97);
   }
-
-  @media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
     button:active {
       transform: none;
     }
   }
-
-  /* PR-IR-04: Test-fixture-driven reduced-motion variant (per
+/* PR-IR-04: Test-fixture-driven reduced-motion variant (per
      docs/ui-quality-plan.md §5). Mirrors `prefers-reduced-motion: reduce`
      via an attribute on `<html>` so visual smoke fixtures can capture a
      "reduced motion" screenshot variant without depending on the host OS
@@ -94,7 +81,7 @@
      The `data-maka-reduced-motion="true"` attribute is applied by the
      renderer when `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1` is set in the env.
      Real users still get motion as configured by their OS. */
-  [data-maka-reduced-motion="true"] *,
+[data-maka-reduced-motion="true"] *,
   [data-maka-reduced-motion="true"] *::before,
   [data-maka-reduced-motion="true"] *::after {
     animation-duration: 0.01ms !important;
@@ -103,20 +90,17 @@
     /* Scroll behavior + view transition durations also collapse */
     scroll-behavior: auto !important;
   }
-
-  [data-maka-reduced-motion="true"] button:active {
+[data-maka-reduced-motion="true"] button:active {
     transform: none;
   }
-
-  /* Visual smoke captures must be deterministic. We still exercise the
+/* Visual smoke captures must be deterministic. We still exercise the
      normal DOM for every scenario, but pause purely decorative animation,
      transitions, and caret blink so screenshot hashes don't depend on the
      exact millisecond when Electron captures the page. */
-  [data-maka-visual-smoke="true"] *,
+[data-maka-visual-smoke="true"] *,
   [data-maka-visual-smoke="true"] *::before,
   [data-maka-visual-smoke="true"] *::after {
     animation-play-state: paused !important;
     transition-duration: 0.01ms !important;
     caret-color: transparent !important;
   }
-}

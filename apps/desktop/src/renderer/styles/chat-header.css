@@ -1,4 +1,4 @@
-@layer components {
+
   .maka-chat-header-alert {
     display: inline-flex;
     align-items: center;
@@ -15,30 +15,35 @@
     -webkit-app-region: no-drag;
     transition: transform 0.12s var(--ease-out-strong);
   }
-  .maka-chat-header-alert:hover {
+
+.maka-chat-header-alert:hover {
     transform: translateY(-1px);
   }
-  .maka-chat-header-alert:focus-visible {
+
+.maka-chat-header-alert:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
-  .maka-chat-header-alert[data-tone="info"] {
+
+.maka-chat-header-alert[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);
     color: var(--info-text);
     border-color: oklch(from var(--info) l c h / 0.20);
   }
-  .maka-chat-header-alert[data-tone="warning"] {
+
+.maka-chat-header-alert[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
     border-color: oklch(from var(--info) l c h / 0.30);
   }
-  .maka-chat-header-alert[data-tone="destructive"] {
+
+.maka-chat-header-alert[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.14);
     color: var(--destructive);
     border-color: oklch(from var(--destructive) l c h / 0.28);
   }
 
-  .maka-chat-header-status {
+.maka-chat-header-status {
     display: inline-flex;
     align-items: center;
     /* PR-CHAT-HEADER-BADGE-SCALE-0: matches .maka-chat-header-alert's
@@ -57,56 +62,62 @@
     white-space: nowrap;
     flex: 0 0 auto;
   }
-  .maka-chat-header-status[data-tone="accent"] {
+
+.maka-chat-header-status[data-tone="accent"] {
     background: oklch(from var(--nav-active) l c h / 0.14);
     color: var(--nav-active);
     border-color: oklch(from var(--nav-active) l c h / 0.24);
   }
-  .maka-chat-header-status[data-tone="warning"] {
+
+.maka-chat-header-status[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
     border-color: oklch(from var(--info) l c h / 0.30);
   }
-  .maka-chat-header-status[data-tone="destructive"] {
+
+.maka-chat-header-status[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.14);
     color: var(--destructive);
     border-color: oklch(from var(--destructive) l c h / 0.28);
   }
-  .maka-chat-header-status[data-tone="info"] {
+
+.maka-chat-header-status[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);
     color: var(--info-text);
     border-color: oklch(from var(--info) l c h / 0.20);
   }
-  .maka-chat-header-status[data-tone="success"] {
+
+.maka-chat-header-status[data-tone="success"] {
     background: oklch(from var(--brand-deep) l c h / 0.14);
     color: var(--brand-deep);
     border-color: oklch(from var(--brand-deep) l c h / 0.28);
   }
-  .maka-chat-header-status[data-tone="muted"] {
+
+.maka-chat-header-status[data-tone="muted"] {
     background: var(--foreground-5);
     color: var(--foreground-60);
     border-color: var(--border);
   }
 
-  .messages {
+.messages {
     position: relative;
     flex: 1;
     min-height: 0;
     overflow: hidden;
   }
 
-  .maka-chatViewport {
+.maka-chatViewport {
     height: 100%;
     overscroll-behavior: contain;
   }
 
-  .maka-chatContent {
+.maka-chatContent {
     position: relative;
     min-height: 100%;
     padding-inline: clamp(var(--space-6), 4vw, var(--space-10));
   }
 
-  .maka-chat-shell {
+.maka-chat-shell {
     position: relative;
     min-height: 0;
     display: flex;
@@ -114,10 +125,8 @@
     flex: 1;
     overflow: hidden;
   }
-}
 
-@layer components {
-  .maka-chat-jump-bottom {
+.maka-chat-jump-bottom {
     position: absolute;
     bottom: 10px;
     left: 50%;
@@ -138,20 +147,17 @@
     background 120ms var(--ease-out-strong);
   }
 
-  .maka-chat-jump-bottom:hover {
+.maka-chat-jump-bottom:hover {
     color: var(--foreground);
     background: var(--foreground-3);
     transform: translateX(-50%) translateY(-2px);
   }
 
-  .maka-chat-jump-bottom:active {
+.maka-chat-jump-bottom:active {
     transform: translateX(-50%) scale(0.97);
   }
 
-}
-
-@layer components {
-  .maka-error-surface {
+.maka-error-surface {
     position: fixed;
     inset: 0;
     z-index: var(--z-overlay);
@@ -161,7 +167,7 @@
     background: var(--background);
   }
 
-  .maka-error-card {
+.maka-error-card {
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr);
     align-items: start;
@@ -174,7 +180,7 @@
     box-shadow: var(--shadow-modal);
   }
 
-  .maka-error-icon {
+.maka-error-icon {
     width: 32px;
     height: 32px;
     display: grid;
@@ -184,19 +190,19 @@
     color: var(--destructive-text);
   }
 
-  .maka-error-copy {
+.maka-error-copy {
     display: grid;
     gap: var(--space-1-5);
   }
 
-  .maka-error-copy h2 {
+.maka-error-copy h2 {
     margin: 0;
     color: var(--foreground);
     font-size: var(--font-size-ui);
     font-weight: 600;
   }
 
-  .maka-error-copy p {
+.maka-error-copy p {
     margin: 0;
     color: var(--foreground-70);
     font-size: var(--font-size-ui);
@@ -204,7 +210,7 @@
     max-width: 56ch;
   }
 
-  .maka-error-stack {
+.maka-error-stack {
     margin: var(--space-1) 0 0;
     max-height: 220px;
     padding: var(--space-2-5) var(--space-3);
@@ -220,26 +226,25 @@
     word-break: break-word;
   }
 
-  .maka-error-actions {
+.maka-error-actions {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-1-5);
   }
 
-  .maka-error-copy-action[data-copy-state="pending"] {
+.maka-error-copy-action[data-copy-state="pending"] {
     cursor: progress;
   }
 
-  .maka-error-copy-action[data-copy-state="failed"] {
+.maka-error-copy-action[data-copy-state="failed"] {
     color: var(--destructive);
     border-color: oklch(from var(--destructive) l c h / 0.35);
   }
 
-  .maka-error-copy-status {
+.maka-error-copy-status {
     color: var(--destructive-text);
   }
-}
 
 .maka-fake-backend-banner {
   display: flex;

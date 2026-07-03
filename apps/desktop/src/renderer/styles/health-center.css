@@ -7,14 +7,13 @@
    diagnostic detail.
 ============================================================================= */
 
-@layer components {
-  .settingsHealthPage {
+.settingsHealthPage {
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
   }
 
-  .settingsHealthIntro {
+.settingsHealthIntro {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -24,33 +23,37 @@
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
-  .settingsHealthIntro h3 {
+
+.settingsHealthIntro h3 {
     margin: 0 0 var(--space-1-5);
     font-size: var(--font-size-ui);
     font-weight: 600;
   }
-  .settingsHealthIntro p {
+
+.settingsHealthIntro p {
     margin: 0;
     color: var(--foreground-70);
     font-size: var(--font-size-ui);
     line-height: 1.55;
     max-width: 60ch;
   }
-  .settingsHealthIntro p strong {
+
+.settingsHealthIntro p strong {
     color: var(--foreground);
   }
-  .settingsHealthMeta {
+
+.settingsHealthMeta {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     gap: var(--space-1-5);
     flex-shrink: 0;
   }
-  .settingsHealthMeta small {
+
+.settingsHealthMeta small {
     color: var(--foreground-60);
     font-size: var(--font-size-caption);
   }
-}
 
 /* Unlayered on purpose: this class customizes a shared `Button
    variant="secondary"` and must outrank the Tailwind utility classes baked
@@ -74,8 +77,7 @@
   outline-offset: 2px;
 }
 
-@layer components {
-  .settingsHealthError {
+.settingsHealthError {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -85,18 +87,21 @@
     border-radius: var(--radius-surface);
     color: var(--destructive-text);
   }
-  .settingsHealthError strong {
+
+.settingsHealthError strong {
     font-size: var(--font-size-ui);
   }
-  .settingsHealthError small {
+
+.settingsHealthError small {
     color: var(--foreground-70);
     font-size: var(--font-size-ui);
   }
-  .settingsHealthError button {
+
+.settingsHealthError button {
     align-self: flex-start;
   }
 
-  .settingsHealthSummary {
+.settingsHealthSummary {
     /* PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): switched from
        `<section role="list">` to semantic `<ul>`. Reset the UA's
        default bullet + 40px padding-left so the 5-column grid
@@ -108,7 +113,8 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: var(--space-2-5);
   }
-  .settingsHealthSummaryTile {
+
+.settingsHealthSummaryTile {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -118,71 +124,85 @@
     border-radius: var(--radius-surface);
     background: var(--background);
   }
-  .settingsHealthSummaryTile strong {
+
+.settingsHealthSummaryTile strong {
     font-size: 1.4em;
     font-weight: 600;
     line-height: 1.1;
   }
-  .settingsHealthSummaryTile small {
+
+.settingsHealthSummaryTile small {
     font-size: var(--font-size-caption);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--foreground-50);
   }
-  .settingsHealthSummaryTile[data-empty="true"] {
+
+.settingsHealthSummaryTile[data-empty="true"] {
     opacity: 0.55;
   }
-  .settingsHealthSummaryTile[data-tone="success"] {
+
+.settingsHealthSummaryTile[data-tone="success"] {
     border-color: oklch(from var(--success) l c h / 0.24);
   }
-  .settingsHealthSummaryTile[data-tone="success"] strong {
+
+.settingsHealthSummaryTile[data-tone="success"] strong {
     color: var(--success-text);
   }
-  .settingsHealthSummaryTile[data-tone="info"] {
+
+.settingsHealthSummaryTile[data-tone="info"] {
     border-color: oklch(from var(--info) l c h / 0.24);
   }
-  .settingsHealthSummaryTile[data-tone="info"] strong {
+
+.settingsHealthSummaryTile[data-tone="info"] strong {
     color: var(--info-text);
   }
-  .settingsHealthSummaryTile[data-tone="warning"] {
+
+.settingsHealthSummaryTile[data-tone="warning"] {
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
   }
-  .settingsHealthSummaryTile[data-tone="warning"] strong {
+
+.settingsHealthSummaryTile[data-tone="warning"] strong {
     color: var(--warning-text, var(--info-text));
   }
-  .settingsHealthSummaryTile[data-tone="destructive"] {
+
+.settingsHealthSummaryTile[data-tone="destructive"] {
     border-color: oklch(from var(--destructive) l c h / 0.30);
   }
-  .settingsHealthSummaryTile[data-tone="destructive"] strong {
+
+.settingsHealthSummaryTile[data-tone="destructive"] strong {
     color: var(--destructive-text);
   }
-  .settingsHealthSummaryTile[data-tone="neutral"] strong {
+
+.settingsHealthSummaryTile[data-tone="neutral"] strong {
     color: var(--foreground-70);
   }
 
-  .settingsHealthBlockers {
+.settingsHealthBlockers {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
   }
 
-  .settingsHealthLayer {
+.settingsHealthLayer {
     display: flex;
     flex-direction: column;
     gap: var(--space-2-5);
   }
-  .settingsHealthLayer > header h4 {
+
+.settingsHealthLayer > header h4 {
     margin: 0 0 var(--space-0-5);
     font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--foreground);
   }
-  .settingsHealthLayer > header small {
+
+.settingsHealthLayer > header small {
     color: var(--foreground-60);
     font-size: var(--font-size-caption);
   }
 
-  .settingsHealthSignalList {
+.settingsHealthSignalList {
     list-style: none;
     padding: 0;
     margin: 0;
@@ -190,7 +210,7 @@
     gap: var(--space-2);
   }
 
-  .settingsHealthSignalRow {
+.settingsHealthSignalRow {
     display: flex;
     flex-direction: column;
     gap: var(--space-1-5);
@@ -200,50 +220,57 @@
     background: var(--background);
     transition: border-color var(--duration-base) var(--ease-out-strong);
   }
-  .settingsHealthSignalRow[data-status="ok"] {
+
+.settingsHealthSignalRow[data-status="ok"] {
     border-color: oklch(from var(--success) l c h / 0.24);
   }
-  .settingsHealthSignalRow[data-status="warning"] {
+
+.settingsHealthSignalRow[data-status="warning"] {
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
   }
-  .settingsHealthSignalRow[data-status="error"] {
+
+.settingsHealthSignalRow[data-status="error"] {
     border-color: oklch(from var(--destructive) l c h / 0.30);
   }
 
-  .settingsHealthSignalHeader {
+.settingsHealthSignalHeader {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: var(--space-3);
   }
-  .settingsHealthSignalHeading {
+
+.settingsHealthSignalHeading {
     display: flex;
     flex-direction: column;
     gap: var(--space-0-5);
   }
-  .settingsHealthSignalHeading strong {
+
+.settingsHealthSignalHeading strong {
     font-size: var(--font-size-ui);
     font-weight: 600;
   }
-  .settingsHealthSignalScope {
+
+.settingsHealthSignalScope {
     font-size: var(--font-size-caption);
     color: var(--foreground-50);
     letter-spacing: 0.04em;
   }
 
-  .settingsHealthSignalMessage {
+.settingsHealthSignalMessage {
     margin: 0;
     font-size: var(--font-size-ui);
     color: var(--foreground-80);
     line-height: 1.5;
   }
-  .settingsHealthSignalDetail {
+
+.settingsHealthSignalDetail {
     font-size: var(--font-size-caption);
     color: var(--foreground-60);
     line-height: 1.45;
   }
 
-  .settingsHealthSignalMeta {
+.settingsHealthSignalMeta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -251,31 +278,35 @@
     font-size: var(--font-size-caption);
     color: var(--foreground-50);
   }
-  .settingsHealthSignalMeta code {
+
+.settingsHealthSignalMeta code {
     font-family: var(--font-mono);
     background: var(--foreground-5);
     border-radius: var(--radius-control);
     padding: 1px var(--space-1);
     color: var(--foreground-70);
   }
-  .settingsHealthSignalBlocker {
+
+.settingsHealthSignalBlocker {
     font-size: var(--font-size-caption);
     padding: 1px var(--space-2);
     border-radius: var(--radius-pill);
     border: 1px solid var(--border);
   }
-  .settingsHealthSignalBlocker[data-tone="destructive"] {
+
+.settingsHealthSignalBlocker[data-tone="destructive"] {
     color: var(--destructive-text);
     background: oklch(from var(--destructive) l c h / 0.08);
     border-color: oklch(from var(--destructive) l c h / 0.22);
   }
-  .settingsHealthSignalBlocker[data-tone="warning"] {
+
+.settingsHealthSignalBlocker[data-tone="warning"] {
     color: var(--warning-text, var(--info-text));
     background: oklch(from var(--warning, var(--info)) l c h / 0.10);
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.22);
   }
 
-  .settingsHealthFootnote {
+.settingsHealthFootnote {
     margin: 0;
     padding: var(--space-3) var(--space-3);
     border: 1px dashed var(--border);
@@ -285,4 +316,3 @@
     font-size: var(--font-size-caption);
     line-height: 1.55;
   }
-}

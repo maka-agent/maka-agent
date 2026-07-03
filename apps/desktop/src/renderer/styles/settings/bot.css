@@ -81,8 +81,7 @@
    `BotBrandLogo` for the status-dot tint and Hero brand wash. The
    glyph fallback (`微` / `企` / `飞` / `钉` / `T` / `D` / `Q`)
    renders centered in the brand color when an SVG fails to load. */
-@layer components {
-  .settingsBotLogo {
+.settingsBotLogo {
     position: relative;
     width: 28px;
     height: 28px;
@@ -95,19 +94,17 @@
     letter-spacing: 0;
     flex-shrink: 0;
   }
-  .settingsBotLogo svg {
+.settingsBotLogo svg {
     width: 100%;
     height: 100%;
     display: block;
   }
-
-  .settingsBotLogo[data-large="true"] {
+.settingsBotLogo[data-large="true"] {
     width: 44px;
     height: 44px;
     font-size: 1.3333em;
   }
-
-  .settingsBotLogoStatusDot {
+.settingsBotLogoStatusDot {
     position: absolute;
     right: -2px;
     bottom: -2px;
@@ -117,29 +114,27 @@
     background: color-mix(in oklch, var(--foreground) 30%, var(--background));
     box-shadow: 0 0 0 2px var(--background);
   }
-  .settingsBotLogo[data-large="true"] .settingsBotLogoStatusDot {
+.settingsBotLogo[data-large="true"] .settingsBotLogoStatusDot {
     width: 11px;
     height: 11px;
     right: -3px;
     bottom: -3px;
     box-shadow: 0 0 0 2.5px var(--background);
   }
-  .settingsBotLogoStatusDot[data-tone="info"] { background: var(--status-running); }
-  .settingsBotLogoStatusDot[data-tone="success"] { background: var(--success); }
-  .settingsBotLogoStatusDot[data-tone="warning"] { background: var(--info); }
-  .settingsBotLogoStatusDot[data-tone="destructive"] { background: var(--destructive); }
-
-  .settingsBotDetail {
+.settingsBotLogoStatusDot[data-tone="info"] { background: var(--status-running); }
+.settingsBotLogoStatusDot[data-tone="success"] { background: var(--success); }
+.settingsBotLogoStatusDot[data-tone="warning"] { background: var(--info); }
+.settingsBotLogoStatusDot[data-tone="destructive"] { background: var(--destructive); }
+.settingsBotDetail {
     display: grid;
     align-content: start;
     gap: var(--space-3);
   }
-
-  /* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
+/* PR-BOT-SETTINGS-UI-0 (WAWQAQ msg `51c7b4ff`): brand-tinted hero
      card. Background uses the brand color at ~7% so the platform
      identity is visible without overpowering the form. Telegram-style
      light blue, WeChat green, Discord purple, etc. */
-  .settingsBotHero {
+.settingsBotHero {
     min-height: 76px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -150,27 +145,23 @@
     border: 1px solid color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 14%, transparent);
     padding: var(--space-4) var(--space-4);
   }
-
-  .settingsBotHero[data-support="planned"] {
+.settingsBotHero[data-support="planned"] {
     background: var(--foreground-5);
     border-color: var(--border);
   }
-
-  /* Re-export the brand color on the hero card so child logo + accents
+/* Re-export the brand color on the hero card so child logo + accents
      pick up the right CSS var without needing a second prop pass. */
-  .settingsBotHero[data-provider="telegram"] { --bot-brand-color: #229ED9; }
-  .settingsBotHero[data-provider="feishu"]   { --bot-brand-color: #00C6B7; }
-  .settingsBotHero[data-provider="wecom"]    { --bot-brand-color: #0089FF; }
-  .settingsBotHero[data-provider="wechat"]   { --bot-brand-color: #07C160; }
-  .settingsBotHero[data-provider="discord"]  { --bot-brand-color: #5865F2; }
-  .settingsBotHero[data-provider="dingtalk"] { --bot-brand-color: #1372FB; }
-  .settingsBotHero[data-provider="qq"]       { --bot-brand-color: #12B7F5; }
-
-  .settingsBotHeroBody {
+.settingsBotHero[data-provider="telegram"] { --bot-brand-color: #229ED9; }
+.settingsBotHero[data-provider="feishu"]   { --bot-brand-color: #00C6B7; }
+.settingsBotHero[data-provider="wecom"]    { --bot-brand-color: #0089FF; }
+.settingsBotHero[data-provider="wechat"]   { --bot-brand-color: #07C160; }
+.settingsBotHero[data-provider="discord"]  { --bot-brand-color: #5865F2; }
+.settingsBotHero[data-provider="dingtalk"] { --bot-brand-color: #1372FB; }
+.settingsBotHero[data-provider="qq"]       { --bot-brand-color: #12B7F5; }
+.settingsBotHeroBody {
     min-width: 0;
   }
-
-  .settingsBotHero h3 {
+.settingsBotHero h3 {
     margin: 0 0 var(--space-1);
     font-size: 1.0667em;
     display: flex;
@@ -178,31 +169,27 @@
     gap: var(--space-2-5);
     flex-wrap: wrap;
   }
-
-  .settingsBotHero small,
+.settingsBotHero small,
   .settingsHelpText {
     color: var(--foreground-50);
     font-size: var(--font-size-ui);
     line-height: 1.5;
   }
-
-  .settingsBotEnableHint {
+.settingsBotEnableHint {
     display: block;
     margin-top: var(--space-1);
     color: var(--warning-text, var(--foreground-70));
   }
-
-  .settingsBotConfigDocLink {
+.settingsBotConfigDocLink {
     color: var(--bot-brand-color, var(--bot-brand-default));
     text-decoration: none;
     font-weight: 500;
     white-space: nowrap;
   }
-  .settingsBotConfigDocLink:hover {
+.settingsBotConfigDocLink:hover {
     text-decoration: underline;
   }
-
-  .settingsBotStatusPill {
+.settingsBotStatusPill {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
@@ -214,74 +201,64 @@
     font-weight: 500;
     letter-spacing: 0.01em;
   }
-
-  .settingsBotStatusPillDot {
+.settingsBotStatusPillDot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--foreground-40);
   }
-  .settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--status-running); }
-  .settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
-  .settingsBotStatusPill[data-tone="success"] .settingsBotStatusPillDot { background: var(--success); }
-  .settingsBotStatusPill[data-tone="warning"] { color: var(--info-text); }
-  .settingsBotStatusPill[data-tone="warning"] .settingsBotStatusPillDot { background: var(--info); }
-  .settingsBotStatusPill[data-tone="destructive"] { color: var(--destructive-text); }
-  .settingsBotStatusPill[data-tone="destructive"] .settingsBotStatusPillDot { background: var(--destructive); }
-
-  .settingsHelpText {
+.settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--status-running); }
+.settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
+.settingsBotStatusPill[data-tone="success"] .settingsBotStatusPillDot { background: var(--success); }
+.settingsBotStatusPill[data-tone="warning"] { color: var(--info-text); }
+.settingsBotStatusPill[data-tone="warning"] .settingsBotStatusPillDot { background: var(--info); }
+.settingsBotStatusPill[data-tone="destructive"] { color: var(--destructive-text); }
+.settingsBotStatusPill[data-tone="destructive"] .settingsBotStatusPillDot { background: var(--destructive); }
+.settingsHelpText {
     margin: 0;
   }
-
-  .settingsBotStatusGrid {
+.settingsBotStatusGrid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-2);
     margin: 0;
   }
-
-  .settingsBotStatusGrid div {
+.settingsBotStatusGrid div {
     min-height: 52px;
     border: 1px solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
     padding: var(--space-2-5) var(--space-3);
   }
-
-  @media (max-width: 1100px) {
+@media (max-width: 1100px) {
     .settingsBotStatusGrid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
-
-  .settingsBotStatusGrid dt {
+.settingsBotStatusGrid dt {
     margin-bottom: var(--space-1);
     color: var(--foreground-40);
     font-size: var(--font-size-caption);
   }
-
-  .settingsBotStatusGrid dd {
+.settingsBotStatusGrid dd {
     margin: 0;
     color: var(--foreground);
     font-size: var(--font-size-ui);
     word-break: break-word;
   }
-
-  .settingsBotReason {
+.settingsBotReason {
     border-left: 2px solid var(--focus-ring);
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
     line-height: 1.5;
     padding-left: var(--space-2-5);
   }
-
-  /* PR-BOT-CHAT-POLISH-0: error tone for persisted lastError so the
+/* PR-BOT-CHAT-POLISH-0: error tone for persisted lastError so the
      user can spot a failed test past the toast lifetime. */
-  .settingsBotReason[data-tone="error"] {
+.settingsBotReason[data-tone="error"] {
     border-left-color: var(--destructive, var(--warning));
     color: var(--destructive-text, var(--info-text));
   }
-}
 
 .settingsUsagePage {
   display: grid;

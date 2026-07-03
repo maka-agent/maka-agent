@@ -1,4 +1,4 @@
-@layer components {
+
   .settingsConnectionRow {
     display: grid;
     gap: var(--space-1-5);
@@ -8,63 +8,59 @@
     background: var(--foreground-2);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   }
-
-  .settingsConnectionRow[data-status="verified"] {
+.settingsConnectionRow[data-status="verified"] {
     border-color: oklch(from var(--success) l c h / 0.24);
     background: oklch(from var(--success) l c h / 0.04);
   }
-  .settingsConnectionRow[data-status="needs_reauth"] {
+.settingsConnectionRow[data-status="needs_reauth"] {
     border-color: oklch(from var(--info) l c h / 0.30);
     background: oklch(from var(--info) l c h / 0.06);
   }
-  .settingsConnectionRow[data-status="error"] {
+.settingsConnectionRow[data-status="error"] {
     border-color: oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.05);
   }
-  .settingsConnectionRow[data-status="not_configured"] {
+.settingsConnectionRow[data-status="not_configured"] {
     border-color: oklch(from var(--info) l c h / 0.20);
     background: oklch(from var(--info) l c h / 0.03);
   }
-
-  /* PR-OAUTH-SUBSCRIPTION-0: Claude subscription card states. */
-  .settingsConnectionRow[data-status="not_logged_in"] {
+/* PR-OAUTH-SUBSCRIPTION-0: Claude subscription card states. */
+.settingsConnectionRow[data-status="not_logged_in"] {
     border-color: var(--border);
     background: var(--foreground-2);
   }
-  .settingsConnectionRow[data-status="authorizing"],
+.settingsConnectionRow[data-status="authorizing"],
   .settingsConnectionRow[data-status="refreshing"] {
     border-color: oklch(from var(--info) l c h / 0.30);
     background: oklch(from var(--info) l c h / 0.04);
   }
-  .settingsConnectionRow[data-status="authenticated"] {
+.settingsConnectionRow[data-status="authenticated"] {
     border-color: oklch(from var(--success) l c h / 0.24);
     background: oklch(from var(--success) l c h / 0.04);
   }
-  .settingsConnectionRow[data-status="refresh_failed"],
+.settingsConnectionRow[data-status="refresh_failed"],
   .settingsConnectionRow[data-status="quota_unavailable"] {
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.30);
     background: oklch(from var(--warning, var(--info)) l c h / 0.05);
   }
-  .settingsConnectionRow[data-status="provider_rejected"] {
+.settingsConnectionRow[data-status="provider_rejected"] {
     border-color: oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.05);
   }
-
-  .settingsQuotaSection {
+.settingsQuotaSection {
     display: grid;
     gap: var(--space-1);
     padding: var(--space-2) var(--space-2-5);
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.03);
   }
-  .settingsQuotaRow {
+.settingsQuotaRow {
     display: flex;
     justify-content: space-between;
     font-size: var(--font-size-ui);
     font-variant-numeric: tabular-nums;
   }
-
-  .settingsOauthPastePanel {
+.settingsOauthPastePanel {
     display: grid;
     gap: var(--space-2);
     margin-top: var(--space-1);
@@ -72,7 +68,7 @@
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.04);
   }
-  .settingsOauthPastePanel textarea {
+.settingsOauthPastePanel textarea {
     width: 100%;
     padding: var(--space-2);
     border-radius: var(--radius-control);
@@ -83,25 +79,22 @@
     font-size: var(--font-size-ui);
     resize: vertical;
   }
-  .settingsErrorText {
+.settingsErrorText {
     color: var(--destructive-text, var(--destructive, red));
   }
-  .settingsConnectionRow[data-status="disabled"] {
+.settingsConnectionRow[data-status="disabled"] {
     opacity: 0.72;
   }
-
-  .settingsConnectionRow[data-default="true"] {
+.settingsConnectionRow[data-default="true"] {
     box-shadow: 0 0 0 2px oklch(from var(--control) l c h / 0.12);
   }
-
-  .settingsConnectionRowName {
+.settingsConnectionRowName {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     min-width: 0;
   }
-
-  .settingsConnectionDefaultBadge {
+.settingsConnectionDefaultBadge {
     display: inline-flex;
     align-items: center;
     padding: 1px var(--space-1-5);
@@ -112,33 +105,28 @@
     font-weight: 700;
     letter-spacing: 0;
   }
-
-  .settingsConnectionRowHead {
+.settingsConnectionRowHead {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
   }
-
-  .settingsConnectionRowText {
+.settingsConnectionRowText {
     display: grid;
     gap: var(--space-0-5);
     min-width: 0;
   }
-
-  .settingsConnectionRowText strong {
+.settingsConnectionRowText strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
     font-weight: 600;
   }
-
-  .settingsConnectionRowText small {
+.settingsConnectionRowText small {
     color: var(--foreground-50);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
   }
-
-  .settingsConnectionBadge {
+.settingsConnectionBadge {
     display: inline-flex;
     align-items: center;
     min-height: 20px;
@@ -151,34 +139,31 @@
     color: var(--foreground-60);
     white-space: nowrap;
   }
-
-  .settingsConnectionBadge[data-tone="success"] {
+.settingsConnectionBadge[data-tone="success"] {
     background: oklch(from var(--success) l c h / 0.12);
     color: var(--success);
   }
-  .settingsConnectionBadge[data-tone="info"] {
+.settingsConnectionBadge[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);
     color: var(--info-text);
   }
-  .settingsConnectionBadge[data-tone="warning"] {
+.settingsConnectionBadge[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
     font-weight: 700;
   }
-  .settingsConnectionBadge[data-tone="destructive"] {
+.settingsConnectionBadge[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.15);
     color: var(--destructive);
     font-weight: 700;
   }
-
-  .settingsConnectionDetail {
+.settingsConnectionDetail {
     margin: 0;
     color: var(--foreground-70);
     font-size: var(--font-size-caption);
     line-height: 1.45;
   }
-
-  .settingsAuthContract {
+.settingsAuthContract {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -189,26 +174,22 @@
     background: var(--foreground-3);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   }
-
-  .settingsAuthContractText {
+.settingsAuthContractText {
     display: grid;
     gap: var(--space-0-5);
     min-width: 0;
   }
-
-  .settingsAuthContractText strong {
+.settingsAuthContractText strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
     font-weight: 650;
   }
-
-  .settingsAuthContractText span {
+.settingsAuthContractText span {
     color: var(--foreground-60);
     font-size: var(--font-size-caption);
     line-height: 1.45;
   }
-
-  .settingsAuthContractBadge,
+.settingsAuthContractBadge,
   .settingsAuthActionPill {
     display: inline-flex;
     align-items: center;
@@ -218,38 +199,32 @@
     font-size: var(--font-size-caption);
     font-weight: 650;
   }
-
-  .settingsAuthContractBadge {
+.settingsAuthContractBadge {
     padding: var(--space-0-5) var(--space-2);
     background: var(--foreground-5);
     color: var(--foreground-60);
   }
-
-  .settingsAuthContractBadge[data-tone="success"],
+.settingsAuthContractBadge[data-tone="success"],
   .settingsAuthActionPill[data-tone="success"] {
     background: oklch(from var(--success) l c h / 0.12);
     color: var(--success);
   }
-
-  .settingsAuthContractBadge[data-tone="info"],
+.settingsAuthContractBadge[data-tone="info"],
   .settingsAuthActionPill[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);
     color: var(--info-text);
   }
-
-  .settingsAuthContractBadge[data-tone="warning"],
+.settingsAuthContractBadge[data-tone="warning"],
   .settingsAuthActionPill[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
   }
-
-  .settingsAuthContractBadge[data-tone="destructive"],
+.settingsAuthContractBadge[data-tone="destructive"],
   .settingsAuthActionPill[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.14);
     color: var(--destructive);
   }
-
-  .settingsConnectionMeta {
+.settingsConnectionMeta {
     margin: 0;
     display: flex;
     gap: var(--space-3);
@@ -257,26 +232,22 @@
     font-size: var(--font-size-caption);
     font-family: var(--font-mono);
   }
-
-  .settingsInlineFileState {
+.settingsInlineFileState {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1-5);
   }
-
-  .settingsInlineTextButton {
+.settingsInlineTextButton {
     border: 0;
     padding: 0;
     background: transparent;
     color: var(--link);
     font: inherit;
   }
-
-  .settingsInlineTextButton:hover {
+.settingsInlineTextButton:hover {
     text-decoration: underline;
   }
-
-  .settingsConnectionActions {
+.settingsConnectionActions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
@@ -284,64 +255,53 @@
     gap: var(--space-2);
     margin-top: var(--space-1);
   }
-
-  .settingsAuthActionPill {
+.settingsAuthActionPill {
     padding: var(--space-0-5) var(--space-2);
     background: var(--foreground-5);
     color: var(--foreground-60);
   }
-
-  .settingsAuthActionPill[data-kind="preview"] {
+.settingsAuthActionPill[data-kind="preview"] {
     border: 1px dashed oklch(from var(--info) l c h / 0.30);
   }
-
-  /* PR-SETTINGS-GROUPED-CARD-0: rows flush inside outer card, hairline
+/* PR-SETTINGS-GROUPED-CARD-0: rows flush inside outer card, hairline
      divider, last-child no border. Matches the reference grouped-list
      pattern. */
-
-  .settingsRow:last-child {
+.settingsRow:last-child {
     border-bottom: 0;
   }
-
-  .settingsRow:hover {
+.settingsRow:hover {
     background: oklch(from var(--foreground) l c h / 0.025);
   }
-
-  .settingsRow > div {
+.settingsRow > div {
     min-width: 0;
   }
-
-  .settingsRow small {
+.settingsRow small {
     display: block;
     margin-top: var(--space-1);
     color: var(--foreground-50);
     font-size: var(--font-size-ui);
     line-height: 1.4;
   }
-
-  .providersPanel {
+.providersPanel {
     min-height: 420px;
     display: grid;
     grid-template-columns: minmax(190px, 0.82fr) minmax(0, 1.5fr);
     gap: var(--space-3);
   }
-
-  .settingsSurface[data-modal="true"] .providersPanel {
+.settingsSurface[data-modal="true"] .providersPanel {
     min-height: 480px;
     grid-template-columns: minmax(190px, 0.7fr) minmax(250px, 1fr);
   }
-
-  /* Memory page meta row: the absolute MEMORY.md path used to render
+/* Memory page meta row: the absolute MEMORY.md path used to render
      full-width mono text that shoved the sibling status words into a
      cramped vertical stack. Give the path its own full row with
      head-side ellipsis (RTL trick keeps the meaningful .../MEMORY.md
      tail visible; title= carries the full path on hover). */
-  .settingsMemoryMeta {
+.settingsMemoryMeta {
     flex-wrap: wrap;
     row-gap: var(--space-1);
   }
-
-  .settingsMemoryPath {
+.settingsMemoryPath {
     /* The component already shortens the path for display
        (displayMemoryPath); this is just the safety net so an
        unexpectedly long tail can never shove the status words into a
@@ -352,4 +312,3 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-}

@@ -2,8 +2,7 @@
    Skills + Plan shells (1px hairline border + 6px radius + 4% lift + inner
    highlight). Was flat (transparent) which felt orphaned next to the other
    module pages. */
-@layer components {
-  .maka-module-main .maka-daily-review-panel {
+.maka-module-main .maka-daily-review-panel {
     max-width: 980px;
     width: 100%;
     margin-inline: auto;
@@ -14,8 +13,7 @@
       var(--card-shadow),
       var(--card-highlight);
   }
-
-  .maka-daily-review-header {
+.maka-daily-review-header {
     display: grid;
     grid-template-columns: 24px 1fr 24px;
     align-items: center;
@@ -23,13 +21,11 @@
     padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
     border-bottom: 1px solid var(--foreground-10);
   }
-}
 
 /* PR-DAILY-REVIEW-FULL-0: info banner explaining the feature, plus a
    manual-trigger row. Banner uses the page-card recipe with a softer
    tint so it reads as supporting context, not a primary surface. */
-@layer components {
-  .maka-daily-review-info {
+.maka-daily-review-info {
     display: grid;
     gap: var(--space-1);
     padding: var(--space-2-5) var(--space-3);
@@ -38,31 +34,26 @@
     background: oklch(from var(--foreground) l c h / 0.03);
     box-shadow: var(--card-highlight);
   }
-
-  .maka-daily-review-info-body {
+.maka-daily-review-info-body {
     margin: 0;
     font-size: var(--font-size-ui);
     line-height: 1.55;
     color: var(--foreground-80);
   }
-
-  .maka-daily-review-info-body strong {
+.maka-daily-review-info-body strong {
     font-weight: 600;
     color: var(--foreground);
   }
-
-  .maka-daily-review-info-hint {
+.maka-daily-review-info-hint {
     margin: 0;
     font-size: var(--font-size-caption);
     line-height: 1.5;
     color: var(--foreground-50);
   }
-
-  .maka-daily-review-info-hint strong {
+.maka-daily-review-info-hint strong {
     font-weight: 600;
     color: var(--foreground-80);
   }
-}
 
 .maka-daily-review-quick-runs {
   /* WAWQAQ msg `3871e56b` 2026-06-25: "按钮的位置也不对。按道理一般都
@@ -93,35 +84,34 @@
   opacity: 0.7;
 }
 
-@layer components {
-  .maka-daily-review-archives {
+.maka-daily-review-archives {
     display: grid;
     gap: var(--space-1-5);
     padding: var(--space-2) 0 var(--space-2-5);
     border-bottom: 1px solid var(--foreground-10);
   }
 
-  .maka-daily-review-archives-header {
+.maka-daily-review-archives-header {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-2);
   }
 
-  .maka-daily-review-archive-count {
+.maka-daily-review-archive-count {
     font-size: var(--font-size-caption);
     color: var(--foreground-40);
     font-variant-numeric: tabular-nums;
   }
 
-  .maka-daily-review-archive-layout {
+.maka-daily-review-archive-layout {
     display: grid;
     grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
     gap: var(--space-2);
     align-items: start;
   }
 
-  .maka-daily-review-archive-list {
+.maka-daily-review-archive-list {
     /* PR-DAILYREVIEW-ARCHIVE-ROW-A11Y-0 (round 7/30): changed
        from `<div role="list">` to semantic `<ul>`. Reset the
        UA's default list bullet + padding-left so the visual
@@ -134,11 +124,10 @@
     min-width: 0;
   }
 
-  .maka-daily-review-archive-list > li {
+.maka-daily-review-archive-list > li {
     margin: 0;
     padding: 0;
   }
-}
 
 .maka-daily-review-archive-row {
   appearance: none;
@@ -165,8 +154,7 @@
   border-color: oklch(from var(--nav-active) l c h / 0.18);
 }
 
-@layer components {
-  .maka-daily-review-archive-row-title {
+.maka-daily-review-archive-row-title {
     color: var(--foreground);
     font-size: var(--font-size-ui);
     font-weight: 600;
@@ -175,7 +163,7 @@
     white-space: nowrap;
   }
 
-  .maka-daily-review-archive-row-meta {
+.maka-daily-review-archive-row-meta {
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     font-variant-numeric: tabular-nums;
@@ -184,7 +172,7 @@
     white-space: nowrap;
   }
 
-  .maka-daily-review-archive-body {
+.maka-daily-review-archive-body {
     display: grid;
     gap: var(--space-2);
     min-width: 0;
@@ -195,21 +183,21 @@
     box-shadow: var(--card-highlight);
   }
 
-  .maka-daily-review-archive-body[data-empty="true"],
+.maka-daily-review-archive-body[data-empty="true"],
   .maka-daily-review-archive-empty {
     color: var(--foreground-50);
     font-size: var(--font-size-ui);
     line-height: 1.5;
   }
 
-  .maka-daily-review-archive-body-header {
+.maka-daily-review-archive-body-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-2-5);
   }
 
-  .maka-daily-review-archive-body-header h4 {
+.maka-daily-review-archive-body-header h4 {
     margin: 0;
     color: var(--foreground);
     font-size: var(--font-size-ui);
@@ -217,7 +205,7 @@
     letter-spacing: 0;
   }
 
-  .maka-daily-review-archive-body-header p {
+.maka-daily-review-archive-body-header p {
     margin: var(--space-0-5) 0 0;
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
@@ -225,7 +213,7 @@
     overflow-wrap: anywhere;
   }
 
-  .maka-daily-review-archive-status {
+.maka-daily-review-archive-status {
     flex: none;
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-pill);
@@ -236,35 +224,35 @@
     white-space: nowrap;
   }
 
-  .maka-daily-review-archive-status[data-status="ok"] {
+.maka-daily-review-archive-status[data-status="ok"] {
     border-color: oklch(from var(--success, var(--status-running)) l c h / 0.26);
     color: var(--success, var(--status-running));
   }
 
-  .maka-daily-review-archive-status[data-status="failed"],
+.maka-daily-review-archive-status[data-status="failed"],
   .maka-daily-review-archive-status[data-status="no_model"] {
     border-color: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.30);
     color: var(--destructive, var(--warning, var(--foreground)));
   }
 
-  .maka-daily-review-archive-error {
+.maka-daily-review-archive-error {
     margin: 0;
     color: var(--destructive, var(--foreground));
     font-size: var(--font-size-ui);
     line-height: 1.5;
   }
 
-  .maka-daily-review-archive-sections {
+.maka-daily-review-archive-sections {
     display: grid;
     gap: var(--space-2);
   }
 
-  .maka-daily-review-archive-section {
+.maka-daily-review-archive-section {
     display: grid;
     gap: var(--space-0-5);
   }
 
-  .maka-daily-review-archive-section h5 {
+.maka-daily-review-archive-section h5 {
     margin: 0;
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
@@ -272,7 +260,7 @@
     letter-spacing: 0;
   }
 
-  .maka-daily-review-archive-section p {
+.maka-daily-review-archive-section p {
     margin: 0;
     color: var(--foreground-80);
     font-size: var(--font-size-ui);
@@ -281,7 +269,7 @@
     white-space: pre-wrap;
   }
 
-  .maka-daily-review-day {
+.maka-daily-review-day {
     text-align: center;
     font-weight: 600;
     font-size: var(--font-size-ui);
@@ -289,13 +277,11 @@
     letter-spacing: 0.005em;
     color: var(--foreground);
   }
-}
 
 /* PR-DAILY-REVIEW-RANGE-0: 今日 / 本周 / 本月 tabs. Active tab uses
    the same accent-emphasis as the surrounding Settings nav so the
    visual language stays consistent. */
-@layer components {
-  .maka-daily-review-range {
+.maka-daily-review-range {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -303,14 +289,12 @@
     padding: var(--space-0-5) 0 var(--space-1-5);
     border-bottom: 1px solid var(--foreground-10);
   }
-
-  .maka-daily-review-range-tabs,
+.maka-daily-review-range-tabs,
   .maka-daily-review-actions {
     display: flex;
     gap: var(--space-1);
     min-width: 0;
   }
-}
 
 .maka-daily-review-range-tab {
   flex: 1;
@@ -330,8 +314,7 @@
   font-weight: 600;
 }
 
-@layer components {
-  .maka-daily-review-alert {
+.maka-daily-review-alert {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -344,10 +327,9 @@
     font-size: var(--font-size-ui);
   }
 
-  .maka-daily-review-alert > span {
+.maka-daily-review-alert > span {
     min-width: 0;
   }
-}
 
 .maka-daily-review-alert-retry {
   flex: none;
@@ -355,7 +337,6 @@
 }
 
 @media (max-width: 720px) {
-  @layer components {
     .maka-daily-review-range {
       grid-template-columns: 1fr;
     }
@@ -363,20 +344,16 @@
     .maka-daily-review-archive-layout {
       grid-template-columns: 1fr;
     }
-  }
 }
-@layer components {
-  .maka-daily-review-totals {
+.maka-daily-review-totals {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
     gap: var(--space-1);
   }
-
-  .maka-module-main .maka-daily-review-totals {
+.maka-module-main .maka-daily-review-totals {
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
-
-  .maka-daily-review-totals-cell {
+.maka-daily-review-totals-cell {
     display: grid;
     gap: 1px;
     padding: var(--space-1) var(--space-2);
@@ -384,26 +361,22 @@
     border-radius: var(--radius-control);
     background: oklch(from var(--foreground) l c h / 0.04);
   }
-
-  .maka-daily-review-totals-cell[data-tone="error"] {
+.maka-daily-review-totals-cell[data-tone="error"] {
     border-color: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.35);
     background: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.06);
   }
-
-  .maka-daily-review-totals-value {
+.maka-daily-review-totals-value {
     font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--foreground);
     font-variant-numeric: tabular-nums;
   }
-
-  .maka-daily-review-totals-label {
+.maka-daily-review-totals-label {
     font-size: var(--font-size-caption);
     text-transform: none;
     letter-spacing: 0;
     color: var(--foreground-50);
   }
-}
 
 /* PR-DAILY-REVIEW-EYEBROW-RHYTHM-0 (WAWQAQ msg `7f0ec4a5`): granularity
    bump. Each section now starts with a prominent eyebrow badge above
@@ -411,20 +384,17 @@
    "minimalist-ui §5 keystroke badges" + "design-taste-frontend §3
    eyebrow + accent bar" rules from the skills audit. Visible every time
    the user opens Daily Review. */
-@layer components {
-  .maka-daily-review-section {
+.maka-daily-review-section {
     display: grid;
     gap: var(--space-2);
     padding: var(--space-3) 0 0;
     border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
   }
-
-  .maka-daily-review-section:first-of-type {
+.maka-daily-review-section:first-of-type {
     border-top: 0;
     padding-top: var(--space-1);
   }
-
-  .maka-daily-review-section-title {
+.maka-daily-review-section-title {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
@@ -435,8 +405,7 @@
     color: var(--foreground-60);
     margin: 0;
   }
-
-  .maka-daily-review-section-title::before {
+.maka-daily-review-section-title::before {
     content: '';
     display: inline-block;
     width: 3px;
@@ -445,16 +414,14 @@
     background: oklch(from var(--status-running) l c h / 0.85);
     flex-shrink: 0;
   }
-
-  .maka-daily-review-list {
+.maka-daily-review-list {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
     gap: var(--space-1);
   }
-
-  .maka-daily-review-list-item {
+.maka-daily-review-list-item {
     display: grid;
     gap: var(--space-0-5);
     padding: var(--space-1-5) var(--space-2-5);
@@ -463,16 +430,13 @@
     transition: background 140ms var(--ease-out-strong),
                 transform var(--duration-quick) var(--ease-out-strong);
   }
-
-  .maka-daily-review-list-item:hover {
+.maka-daily-review-list-item:hover {
     background: oklch(from var(--foreground) l c h / 0.045);
   }
-
-  .maka-daily-review-list-item:active:not(:has(button:disabled)) {
+.maka-daily-review-list-item:active:not(:has(button:disabled)) {
     transform: scale(0.99);
   }
-
-  @media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
     .maka-daily-review-list-item {
       transition: background 0ms;
     }
@@ -480,7 +444,6 @@
       transform: none;
     }
   }
-}
 
 .maka-daily-review-session-button {
   appearance: none;
@@ -500,22 +463,21 @@
   cursor: default;
 }
 
-@layer components {
-  .maka-daily-review-session-name {
+.maka-daily-review-session-name {
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .maka-daily-review-session-time {
+.maka-daily-review-session-time {
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
 
-  .maka-daily-review-session-preview {
+.maka-daily-review-session-preview {
     font-size: var(--font-size-ui);
     color: var(--foreground-50);
     overflow: hidden;
@@ -523,23 +485,22 @@
     white-space: nowrap;
   }
 
-  .maka-daily-review-top-label {
+.maka-daily-review-top-label {
     font-weight: 500;
     color: var(--foreground);
   }
 
-  .maka-daily-review-top-meta {
+.maka-daily-review-top-meta {
     font-size: var(--font-size-caption);
     color: var(--foreground-50);
     font-variant-numeric: tabular-nums;
   }
 
-  .maka-daily-review-loading {
+.maka-daily-review-loading {
     display: grid;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-1);
   }
-}
 
 /* Unlayered on purpose: the shared `.maka-empty-state` base
    (onboarding.css) is unlayered `position: absolute` centering, and

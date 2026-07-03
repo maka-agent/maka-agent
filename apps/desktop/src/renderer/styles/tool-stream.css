@@ -49,16 +49,14 @@
   line-height: 1.45;
   text-align: right;
 }
-@layer components {
-  .settingsWebSearchResults {
+.settingsWebSearchResults {
     list-style: none;
     margin: var(--space-3) 0 0;
     padding: 0;
     display: grid;
     gap: var(--space-2-5);
   }
-
-  .settingsWebSearchResult {
+.settingsWebSearchResult {
     display: grid;
     gap: var(--space-1);
     padding: var(--space-2-5) var(--space-3);
@@ -66,25 +64,21 @@
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
-
-  .settingsWebSearchResult a {
+.settingsWebSearchResult a {
     font-weight: 600;
     color: var(--foreground);
     text-decoration: none;
   }
-
-  .settingsWebSearchResult a:hover {
+.settingsWebSearchResult a:hover {
     text-decoration: underline;
   }
-
-  .settingsWebSearchResult small {
+.settingsWebSearchResult small {
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-
-  .settingsWebSearchResult p {
+.settingsWebSearchResult p {
     margin: 0;
     font-size: var(--font-size-ui);
     color: var(--foreground-70);
@@ -92,7 +86,6 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-}
 
 @media (max-width: 720px) {
   .settingsWebSearchEnableRow,
@@ -130,8 +123,7 @@
    Transparent local MEMORY.md surface. Editor is intentionally plain
    textarea chrome; no rich text, no hidden extraction.
    ──────────────────────────────────────────────────────────────── */
-@layer components {
-  .settingsMemoryPreview {
+.settingsMemoryPreview {
     display: grid;
     gap: var(--space-1);
     padding: var(--space-2-5) var(--space-3);
@@ -139,18 +131,15 @@
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
-
-  .settingsMemoryPreview strong {
+.settingsMemoryPreview strong {
     font-size: var(--font-size-ui);
     color: var(--foreground);
   }
-
-  .settingsMemoryPreview small {
+.settingsMemoryPreview small {
     font-size: var(--font-size-caption);
     color: var(--foreground-50);
   }
-
-  .settingsMemoryPreview p {
+.settingsMemoryPreview p {
     margin: 0;
     color: var(--foreground-70);
     font-size: var(--font-size-ui);
@@ -158,8 +147,7 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-
-  .settingsMemoryPromptPreview {
+.settingsMemoryPromptPreview {
     display: grid;
     gap: var(--space-2);
     padding: var(--space-3);
@@ -167,52 +155,43 @@
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
-
-  .settingsMemoryPromptPreview[data-active="true"] {
+.settingsMemoryPromptPreview[data-active="true"] {
     border-color: oklch(from var(--nav-active) l c h / 0.35);
     background: oklch(from var(--nav-active) l c h / 0.06);
   }
-
-  .settingsMemoryPromptPreviewHeader {
+.settingsMemoryPromptPreviewHeader {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
   }
-
-  .settingsMemoryPromptPreviewHeader strong {
+.settingsMemoryPromptPreviewHeader strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
-
-  .settingsMemoryPromptPreviewHeader div {
+.settingsMemoryPromptPreviewHeader div {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2-5);
   }
-
-  .settingsMemoryPromptPreviewHeader span {
+.settingsMemoryPromptPreviewHeader span {
     flex-shrink: 0;
     color: var(--foreground-60);
     font-size: var(--font-size-caption);
   }
-
-  .settingsMemoryPromptPreview[data-active="true"] .settingsMemoryPromptPreviewHeader span {
+.settingsMemoryPromptPreview[data-active="true"] .settingsMemoryPromptPreviewHeader span {
     color: var(--nav-active);
   }
-
-  .settingsMemoryPromptPreview small {
+.settingsMemoryPromptPreview small {
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
-
-  .settingsMemoryPromptPreviewBudget {
+.settingsMemoryPromptPreviewBudget {
     font-family: var(--font-mono);
     color: var(--foreground-60);
   }
-
-  .settingsMemoryPromptPreview pre {
+.settingsMemoryPromptPreview pre {
     max-height: 220px;
     margin: 0;
     padding: var(--space-2-5);
@@ -227,15 +206,13 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-
-  .settingsMemoryPromptPreview p {
+.settingsMemoryPromptPreview p {
     margin: 0;
     color: var(--foreground-70);
     font-size: var(--font-size-ui);
     line-height: 1.45;
   }
-
-  .settingsMemoryEntryPreviewNotice {
+.settingsMemoryEntryPreviewNotice {
     display: grid;
     gap: var(--space-1);
     padding: var(--space-2-5) var(--space-3);
@@ -243,19 +220,16 @@
     border-radius: var(--radius-surface);
     background: oklch(from var(--warning) l c h / 0.08);
   }
-
-  .settingsMemoryEntryPreviewNotice strong {
+.settingsMemoryEntryPreviewNotice strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
-
-  .settingsMemoryEntryPreviewNotice small {
+.settingsMemoryEntryPreviewNotice small {
     color: var(--foreground-70);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
-
-  .settingsMemorySaveSummary {
+.settingsMemorySaveSummary {
     display: grid;
     gap: var(--space-0-5);
     padding: var(--space-2) var(--space-2-5);
@@ -263,31 +237,25 @@
     border-radius: var(--radius-surface);
     background: oklch(from var(--success) l c h / 0.08);
   }
-
-  .settingsMemorySaveSummary strong {
+.settingsMemorySaveSummary strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
-
-  .settingsMemorySaveSummary small {
+.settingsMemorySaveSummary small {
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
   }
-
-  .settingsMemorySaveSummaryTime {
+.settingsMemorySaveSummaryTime {
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
   }
-
-  .settingsMemoryBackupState {
+.settingsMemoryBackupState {
     color: var(--foreground-60);
   }
-
-  .settingsMemoryBackupState[data-empty="true"] {
+.settingsMemoryBackupState[data-empty="true"] {
     color: var(--foreground-40);
   }
-
-  .settingsMemoryBackupList {
+.settingsMemoryBackupList {
     display: grid;
     gap: var(--space-1-5);
     padding: var(--space-2) var(--space-2-5);
@@ -295,18 +263,16 @@
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
-
-  .settingsMemoryBackupList strong {
+.settingsMemoryBackupList strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
-
-  /* PR-MEMORY-BACKUP-LIST-A11Y-0 (round 16/30): selector
+/* PR-MEMORY-BACKUP-LIST-A11Y-0 (round 16/30): selector
      targeted the old `<div role="list">`. Container is now a
      semantic `<ul>` (`.settingsMemoryBackupCandidates`); reset
      the UA's bullet + padding-left so the flex-wrap layout stays
      the same as before. */
-  .settingsMemoryBackupCandidates {
+.settingsMemoryBackupCandidates {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -314,19 +280,16 @@
     flex-wrap: wrap;
     gap: var(--space-1-5);
   }
-
-  .settingsMemoryBackupCandidates > li {
+.settingsMemoryBackupCandidates > li {
     margin: 0;
     padding: 0;
   }
-
-  .settingsMemoryBackupList small {
+.settingsMemoryBackupList small {
     color: var(--foreground-50);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
-
-  .settingsMemoryBackupCandidate {
+.settingsMemoryBackupCandidate {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1-5);
@@ -337,24 +300,22 @@
     color: var(--foreground-60);
     font-size: var(--font-size-caption);
   }
-}
 
-@layer components {
-  .settingsMemoryEntryGroups {
+.settingsMemoryEntryGroups {
     display: grid;
     gap: var(--space-3);
   }
 
-  .settingsMemoryEntryGroup {
+.settingsMemoryEntryGroup {
     display: grid;
     gap: var(--space-2);
   }
 
-  .settingsMemoryEntryGroup[data-archived="true"] {
+.settingsMemoryEntryGroup[data-archived="true"] {
     opacity: 0.82;
   }
 
-  .settingsMemoryEntryGroupHeader {
+.settingsMemoryEntryGroupHeader {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -363,12 +324,12 @@
     color: var(--foreground-60);
   }
 
-  .settingsMemoryEntryGroupHeader strong {
+.settingsMemoryEntryGroupHeader strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
 
-  .settingsMemoryEntryDraftNotice {
+.settingsMemoryEntryDraftNotice {
     margin: 0;
     padding: var(--space-1-5) var(--space-2);
     border: 1px solid oklch(from var(--warning) l c h / 0.30);
@@ -379,7 +340,7 @@
     line-height: 1.45;
   }
 
-  .settingsMemoryEntryList {
+.settingsMemoryEntryList {
     /* PR-MEMORY-ENTRY-LIST-A11Y-0 (round 18/30): switched from
        `<div role="list">` to semantic `<ul>`. Reset the UA's
        bullet + padding-left so the grouped-card border + radius
@@ -395,49 +356,50 @@
     background: var(--foreground-2);
   }
 
-  .settingsMemoryEntryList > li {
+.settingsMemoryEntryList > li {
     margin: 0;
     padding: 0;
   }
 
-  .settingsMemoryEntryCard {
+.settingsMemoryEntryCard {
     display: grid;
     gap: var(--space-0-5);
     padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--foreground-8);
   }
 
-  /* PR-MEMORY-ENTRY-DIVIDER-FIX-0 (WAWQAQ msg `610c0e5a`): after
+/* PR-MEMORY-ENTRY-DIVIDER-FIX-0 (WAWQAQ msg `610c0e5a`): after
      PR-MEMORY-ENTRY-LIST-A11Y-0 wrapped each card in `<li>`, the
      prior `.settingsMemoryEntryCard:last-child` selector matched
      EVERY card (each is the sole child of its `<li>`), so every
      between-card divider disappeared. Target the last `<li>` in
      the list instead. */
-  .settingsMemoryEntryList > li:last-child .settingsMemoryEntryCard {
+
+.settingsMemoryEntryList > li:last-child .settingsMemoryEntryCard {
     border-bottom: 0;
   }
 
-  .settingsMemoryEntryCard strong {
+.settingsMemoryEntryCard strong {
     font-size: var(--font-size-ui);
     color: var(--foreground);
   }
 
-  .settingsMemoryEntryCard small {
+.settingsMemoryEntryCard small {
     font-size: var(--font-size-caption);
     color: var(--foreground-50);
   }
 
-  .settingsMemoryEntryFacts {
+.settingsMemoryEntryFacts {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-2-5);
   }
 
-  .settingsMemoryEntryFacts span {
+.settingsMemoryEntryFacts span {
     min-width: 0;
   }
 
-  .settingsMemoryPromptScope {
+.settingsMemoryPromptScope {
     width: max-content;
     max-width: 100%;
     padding: var(--space-0-5) var(--space-1-5);
@@ -449,18 +411,18 @@
     line-height: 1.4;
   }
 
-  .settingsMemoryPromptScope[data-active="true"] {
+.settingsMemoryPromptScope[data-active="true"] {
     border-color: oklch(from var(--success) l c h / 0.32);
     background: oklch(from var(--success) l c h / 0.08);
     color: var(--foreground-70);
   }
 
-  .settingsMemoryDirtyState[data-dirty="true"] {
+.settingsMemoryDirtyState[data-dirty="true"] {
     color: var(--warning);
     font-weight: 600;
   }
 
-  .settingsMemoryEntryCard p,
+.settingsMemoryEntryCard p,
   .settingsMemoryEntryEmpty {
     margin: 0;
     color: var(--foreground-70);
@@ -469,7 +431,6 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-}
 
 .settingsMemoryEntryActions {
   display: flex;
@@ -505,8 +466,7 @@
   outline-offset: 2px;
 }
 
-@layer components {
-  .settingsMemoryFilterEmpty,
+.settingsMemoryFilterEmpty,
   .settingsMemoryListEmpty {
     display: grid;
     gap: var(--space-1);
@@ -516,19 +476,18 @@
     background: var(--foreground-3);
   }
 
-  .settingsMemoryFilterEmpty strong,
+.settingsMemoryFilterEmpty strong,
   .settingsMemoryListEmpty strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
 
-  .settingsMemoryFilterEmpty small,
+.settingsMemoryFilterEmpty small,
   .settingsMemoryListEmpty small {
     color: var(--foreground-60);
     font-size: var(--font-size-ui);
     line-height: 1.45;
   }
-}
 
 .settingsMemoryManualAdd {
   display: grid;
@@ -642,8 +601,7 @@
    Rendered below OnboardingHero ready_empty hero. Each row is a
    real jumpable affordance; done rows mute.
    ──────────────────────────────────────────────────────────────── */
-@layer components {
-  .maka-onboarding-stack {
+.maka-onboarding-stack {
     display: grid;
     gap: var(--space-6);
     align-content: start;
@@ -652,18 +610,15 @@
     min-height: calc(100dvh - 84px);
     padding: clamp(var(--space-10), 7vh, 76px) var(--space-6) var(--space-12);
   }
-
-  .maka-onboarding-stack > .maka-onboarding-ready {
+.maka-onboarding-stack > .maka-onboarding-ready {
     margin: 0;
   }
-
-  .maka-onboarding-ready {
+.maka-onboarding-ready {
     width: min(760px, 100%);
     padding: 0;
     gap: 0;
   }
-
-  .maka-first-run-checklist {
+.maka-first-run-checklist {
     width: min(760px, 100%);
     border: 1px solid oklch(from var(--foreground) l c h / 0.07);
     border-radius: var(--radius-surface);
@@ -673,28 +628,24 @@
     gap: var(--space-3);
     box-shadow: 0 10px 30px oklch(from var(--foreground) l c h / 0.04);
   }
-
-  .maka-first-run-checklist-header {
+.maka-first-run-checklist-header {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     color: var(--foreground-60);
     padding: 0 var(--space-1) var(--space-0-5);
   }
-
-  .maka-first-run-checklist-header strong {
+.maka-first-run-checklist-header strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
   }
-
-  .maka-first-run-checklist-count {
+.maka-first-run-checklist-count {
     margin-left: auto;
     font-size: var(--font-size-caption);
     letter-spacing: 0.04em;
     color: var(--foreground-50);
     font-variant-numeric: tabular-nums;
   }
-}
 
 .maka-first-run-checklist-error {
   display: flex;
@@ -738,8 +689,7 @@
   background: var(--background);
 }
 
-@layer components {
-  .maka-first-run-checklist-list {
+.maka-first-run-checklist-list {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -748,7 +698,6 @@
     justify-content: center;
     gap: var(--space-2);
   }
-}
 
 .maka-first-run-checklist-row > button {
   height: auto;
@@ -826,12 +775,10 @@
 }
 
 @media (max-width: 760px) {
-  @layer components {
     .maka-onboarding-stack {
       gap: var(--space-6);
       padding: var(--space-6) var(--space-4) var(--space-8);
     }
-  }
 
   .maka-onboarding-ready header h1 {
     font-size: 1.6em;
@@ -866,8 +813,6 @@
   .maka-first-run-task-suggestions-header {
     justify-content: center;
   }
-
-  @layer components {
     .maka-first-run-checklist-list {
       justify-content: center;
     }
@@ -875,7 +820,6 @@
     .maka-first-run-checklist {
       padding: var(--space-3);
     }
-  }
 }
 
 /* ────────────────────────────────────────────────────────────────

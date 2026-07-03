@@ -1,4 +1,4 @@
-@layer components {
+
   /* =============================================================================
      PR-UI-RENDER-2 — Markdown link router visual states
 
@@ -16,14 +16,12 @@
      variant uses a dashed destructive underline so users can tell it
      isn't actionable.
   ============================================================================= */
-
-  .maka-markdown-link {
+.maka-markdown-link {
     text-underline-offset: 2px;
     text-decoration-thickness: 1px;
     border-radius: var(--radius-control);
   }
-
-  .maka-markdown-link-internal {
+.maka-markdown-link-internal {
     /* Reset native <button> chrome so it visually flows with prose. */
     appearance: none;
     background: transparent;
@@ -35,28 +33,25 @@
     text-decoration: underline solid color-mix(in oklch, var(--link) 50%, var(--background));
     cursor: pointer;
   }
-  .maka-markdown-link-internal:hover {
+.maka-markdown-link-internal:hover {
     text-decoration-color: var(--link);
   }
-  .maka-markdown-link-internal:focus-visible {
+.maka-markdown-link-internal:focus-visible {
     outline: 2px solid oklch(from var(--focus-ring) l c h / 0.42);
     outline-offset: 2px;
   }
-  .maka-markdown-link-internal:active {
+.maka-markdown-link-internal:active {
     transform: translateY(0.5px);
   }
-
-  .maka-markdown-link-external {
+.maka-markdown-link-external {
     color: var(--link);
     text-decoration: underline solid color-mix(in oklch, var(--link) 50%, var(--background));
   }
-  .maka-markdown-link-external:hover {
+.maka-markdown-link-external:hover {
     text-decoration-color: var(--link);
   }
-
-  .maka-markdown-link-broken {
+.maka-markdown-link-broken {
     color: var(--destructive);
     text-decoration: underline dashed oklch(from var(--destructive) l c h / 0.55);
     cursor: not-allowed;
   }
-}
