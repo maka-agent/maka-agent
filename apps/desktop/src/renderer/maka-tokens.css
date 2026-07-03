@@ -131,25 +131,17 @@
   --foreground-5:  color-mix(in oklch, var(--foreground) 5%,  var(--background));
   --foreground-8:  color-mix(in oklch, var(--foreground) 8%,  var(--background));
   --foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
-  /* P-TEXT (roadmap §1.6): the -20/-30 text tiers were orphans (8 call
-     sites total) sitting between the surface washes (2..10) and the
-     real text ladder (40/50/60/70/80). Text uses moved to -40 (also a
-     contrast fix: 30% ink fails 4.5:1); decorative uses inlined their
-     color-mix. Fewer tiers = crisper hierarchy.
-     P-FOREGROUND-TIER-CONVERGE (issue #430 PR4, 2026-07-03): the 5-step
-     text ladder (40/50/60/70/80) collapsed to 3 semantic tiers —
-     primary (var(--foreground), 100% ink), secondary (--foreground-
-     secondary, 80% ink), muted (--muted-foreground, 50% ink). The 40/50
-     pair mapped to muted (both barely distinguishable to the eye); the
-     60/70/80 triple mapped to secondary (all "supporting text" that
-     must stay readable). -90/-95 had zero call sites and were deleted.
-     The underlying mix stops stay so the aliases can target them; text
-     call sites use the semantic aliases, never the raw stops. */
-  --foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
-  --foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
-  --foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
-  --foreground-70: color-mix(in oklch, var(--foreground) 70%, var(--background));
-  --foreground-80: color-mix(in oklch, var(--foreground) 80%, var(--background));
+   /* P-TEXT (roadmap §1.6): the -20/-30 text tiers were orphans (8 call
+      sites total) sitting between the surface washes (2..10) and the
+      real text ladder. Text uses moved to -40 (also a contrast fix:
+      30% ink fails 4.5:1); decorative uses inlined their color-mix.
+      Fewer tiers = crisper hierarchy.
+      P-FOREGROUND-TIER-CONVERGE (issue #430 PR4, 2026-07-03): the 5-step
+      text ladder (40/50/60/70/80) collapsed to 3 semantic tiers —
+      primary (var(--foreground), 100% ink), secondary (--foreground-
+      secondary, 80% ink), muted (--muted-foreground, 50% ink). The raw
+      mix stops are gone; the aliases ARE the definitions. Text call
+      sites use the semantic aliases only. */
 
   /* === alpha overlays via oklch(from ...) ===
      Use these when stacking on a tinted surface (e.g. a card on background-elevated).
@@ -160,8 +152,8 @@
   --border:        oklch(from var(--foreground) l c h / 0.10);
   --border-strong: oklch(from var(--foreground) l c h / 0.16);
   --muted:         oklch(from var(--foreground) l c h / 0.05);
-  --muted-foreground: var(--foreground-50);
-  --foreground-secondary: var(--foreground-80);
+  --muted-foreground: color-mix(in oklch, var(--foreground) 50%, var(--background));
+  --foreground-secondary: color-mix(in oklch, var(--foreground) 80%, var(--background));
   --ring:          oklch(from var(--foreground) l c h / 0.25);
   --hover:         oklch(from var(--foreground) l c h / 0.04);
   --active:        oklch(from var(--foreground) l c h / 0.08);
