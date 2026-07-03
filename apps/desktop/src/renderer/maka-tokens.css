@@ -135,14 +135,21 @@
      sites total) sitting between the surface washes (2..10) and the
      real text ladder (40/50/60/70/80). Text uses moved to -40 (also a
      contrast fix: 30% ink fails 4.5:1); decorative uses inlined their
-     color-mix. Fewer tiers = crisper hierarchy. */
+     color-mix. Fewer tiers = crisper hierarchy.
+     P-FOREGROUND-TIER-CONVERGE (issue #430 PR4, 2026-07-03): the 5-step
+     text ladder (40/50/60/70/80) collapsed to 3 semantic tiers —
+     primary (var(--foreground), 100% ink), secondary (--foreground-
+     secondary, 80% ink), muted (--muted-foreground, 50% ink). The 40/50
+     pair mapped to muted (both barely distinguishable to the eye); the
+     60/70/80 triple mapped to secondary (all "supporting text" that
+     must stay readable). -90/-95 had zero call sites and were deleted.
+     The underlying mix stops stay so the aliases can target them; text
+     call sites use the semantic aliases, never the raw stops. */
   --foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
   --foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
   --foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
   --foreground-70: color-mix(in oklch, var(--foreground) 70%, var(--background));
   --foreground-80: color-mix(in oklch, var(--foreground) 80%, var(--background));
-  --foreground-90: color-mix(in oklch, var(--foreground) 90%, var(--background));
-  --foreground-95: color-mix(in oklch, var(--foreground) 95%, var(--background));
 
   /* === alpha overlays via oklch(from ...) ===
      Use these when stacking on a tinted surface (e.g. a card on background-elevated).
@@ -154,6 +161,7 @@
   --border-strong: oklch(from var(--foreground) l c h / 0.16);
   --muted:         oklch(from var(--foreground) l c h / 0.05);
   --muted-foreground: var(--foreground-50);
+  --foreground-secondary: var(--foreground-80);
   --ring:          oklch(from var(--foreground) l c h / 0.25);
   --hover:         oklch(from var(--foreground) l c h / 0.04);
   --active:        oklch(from var(--foreground) l c h / 0.08);
@@ -688,13 +696,14 @@
 /* =============================================================================
    TAILWIND v4 THEME INTEGRATION
    Make tokens addressable as Tailwind utilities:
-     bg-foreground-5       → background of subtle hover surface
-     text-foreground-60    → secondary text
-     bg-accent             → accent garnish fill
-     bg-action             → primary action fill
-     bg-control            → checked/on/progress fill
-     text-link             → link emphasis
-     border-border         → 1px subtle divider
+      bg-foreground-5       → background of subtle hover surface
+      text-muted-foreground → muted text (50% ink)
+      text-foreground-secondary → secondary text (80% ink)
+      bg-accent             → accent garnish fill
+      bg-action             → primary action fill
+      bg-control            → checked/on/progress fill
+      text-link             → link emphasis
+      border-border         → 1px subtle divider
    See https://tailwindcss.com/docs/v4-beta for @theme inline semantics.
 ============================================================================= */
 
@@ -727,8 +736,7 @@
   --color-foreground-60: var(--foreground-60);
   --color-foreground-70: var(--foreground-70);
   --color-foreground-80: var(--foreground-80);
-  --color-foreground-90: var(--foreground-90);
-  --color-foreground-95: var(--foreground-95);
+  --color-foreground-secondary: var(--foreground-secondary);
 
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
@@ -821,7 +829,7 @@
     background: var(--foreground-5);
     border: 1px solid var(--border-strong);
     box-shadow: inset 0 -1px 0 var(--border);
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
   }
 }
 
@@ -861,7 +869,7 @@
     padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-ui);
     font-weight: 500;
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
     background: var(--foreground-5);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
@@ -916,7 +924,7 @@
     font-size: var(--font-size-ui);
     letter-spacing: 0.02em;
     text-transform: uppercase;
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
   }
   .maka-sidebar-section {
     padding: var(--space-2) var(--space-1-5);
@@ -927,7 +935,7 @@
     gap: var(--space-2);
     padding: var(--space-1-5) var(--space-2-5);
     border-radius: var(--radius-control);
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.4;
     user-select: none;
@@ -953,7 +961,7 @@
     border: none;
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-control);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
   }
   .maka-sidebar-button:hover { background: var(--hover); color: var(--foreground); }
@@ -974,7 +982,7 @@
     gap: var(--space-3);
     padding: 0 var(--space-4);
     font-size: var(--font-size-ui);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
   }
   .maka-titlebar strong { color: var(--foreground); font-weight: 500; }
 
@@ -1062,7 +1070,7 @@
     border-radius: var(--radius-surface);
     background: oklch(from var(--focus-ring) l c h / 0.03);
     font-size: var(--font-size-ui);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
   }
 
   .maka-turn-thinking summary {
@@ -1100,7 +1108,7 @@
     font-size: var(--font-size-caption);
     font-weight: 500;
     letter-spacing: 0.04em;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     text-transform: uppercase;
   }
 
@@ -1142,7 +1150,7 @@
     width: 14px;
     height: 14px;
     margin: 0 var(--space-2) 0 0;
-    border: 1.5px solid var(--foreground-40);
+    border: 1.5px solid var(--muted-foreground);
     border-radius: var(--radius-control);
     background: transparent;
     vertical-align: text-bottom;
@@ -1244,7 +1252,7 @@
   .maka-bubble-assistant h1 { font-size: 1.4667em; }
   .maka-bubble-assistant h2 { font-size: 1.2667em; }
   .maka-bubble-assistant h3 { font-size: 1.0667em; }
-  .maka-bubble-assistant h4 { font-size: 0.9333em; color: var(--foreground-80); }
+  .maka-bubble-assistant h4 { font-size: 0.9333em; color: var(--foreground-secondary); }
   .maka-bubble-assistant ul,
   .maka-bubble-assistant ol {
     margin: 0 0 var(--space-3);
@@ -1310,7 +1318,7 @@
     padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-3);
     border-bottom: 1px solid var(--border);
     background: var(--foreground-5);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
     letter-spacing: 0.02em;
@@ -1331,7 +1339,7 @@
      * would change the header height. */
     border-radius: var(--radius-control);
     background: transparent;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
   .maka-code-block-copy:hover {
@@ -1377,7 +1385,7 @@
      in sync without per-theme overrides. */
   .hljs            { color: var(--foreground); }
   .hljs-comment,
-  .hljs-quote      { color: var(--foreground-50); font-style: italic; }
+  .hljs-quote      { color: var(--muted-foreground); font-style: italic; }
   .hljs-keyword,
   .hljs-selector-tag,
   .hljs-literal,
@@ -1421,7 +1429,7 @@
     border-left: 3px solid oklch(from var(--focus-ring) l c h / 0.28);
     background: var(--foreground-3);
     border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
   }
   .maka-bubble-assistant table {
     width: 100%;
@@ -1449,7 +1457,7 @@
     border-bottom: 0;
   }
   .maka-bubble-assistant th {
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-weight: 600;
     background: var(--foreground-3);
     /* PR-UI-LAYOUT-28: header tone slightly darker than body cell
@@ -1482,7 +1490,7 @@
     border: 0;
     border-radius: var(--radius-pill);
     background: oklch(from var(--background) l c h / 0.88);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     opacity: 0;
     /* PR-CHAT-COPY-BUTTON-POLISH-0 (WAWQAQ 10min loop): the copy
        button used to fade in on hover but never moved — felt like
@@ -1677,7 +1685,7 @@
     max-height: 240px;
   }
   .maka-composer textarea::placeholder {
-    color: var(--foreground-40);
+    color: var(--muted-foreground);
     /* PR-CHAT-COMPOSER-PLACEHOLDER-0 (WAWQAQ 10min loop):
        fade the placeholder slightly when the textarea is focused
        and not yet typed in, so the focus state reads as "we're
@@ -1694,7 +1702,7 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
   }
 
@@ -1766,7 +1774,7 @@
   }
   .maka-modal-subtitle {
     font-size: var(--font-size-ui);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     margin-top: var(--space-0-5);
   }
   .maka-modal-body { padding: var(--space-4) var(--space-5); overflow-y: auto; flex: 1; }
@@ -1788,7 +1796,7 @@
   .maka-reason-text[data-reason="privileged"]       { color: var(--destructive-text); font-weight: 500; }
   .maka-reason-text[data-reason="network"]          { color: var(--info-text); }
   .maka-reason-text[data-reason="browser"]          { color: var(--info-text); }
-  .maka-reason-text[data-reason="custom"]           { color: var(--foreground-70); }
+  .maka-reason-text[data-reason="custom"]           { color: var(--foreground-secondary); }
 
   /* ---- Code blocks (used in args preview inside permission dialog) --- */
 

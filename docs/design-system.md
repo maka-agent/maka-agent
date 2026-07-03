@@ -94,8 +94,10 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 |---|---|---|
 | `--background` | 顶层背景、modal 体 | 不要用作"灰底卡片"——卡片用 `--background-elevated` |
 | `--background-elevated` | 卡片、Pill 内部填充 | 不要用作页面主背景 |
-| `--foreground` | 主文字、Active 行文字、modal title | 不要在 `--background-elevated` 上做"略低对比" — 用 `--foreground-80` |
-| `--foreground-dimmed` | 极少用 — 主要是 placeholder hover 时的过渡 | 一般用 `--foreground-50/60` 替代 |
+| `--foreground` | 主文字（primary, 100% ink）、Active 行文字、modal title | 不要在 `--background-elevated` 上做"略低对比" — 用 `--foreground-secondary` |
+| `--foreground-secondary` | 副文字（80% ink）：tool meta、titlebar、sidebar row、caption heading | 不要做大段正文或主文字 |
+| `--muted-foreground` | muted 文字（50% ink）：placeholder、disabled text、scrollbar hover、极弱标注 | 不要做 caption 或副文字 — 那是 `--foreground-secondary` |
+| `--foreground-dimmed` | 极少用 — 主要是 placeholder hover 时的过渡 | 一般用 `--muted-foreground` 替代 |
 | `--accent` | 链接、focus ring、active 状态、live/status dot、toast/sidebar accent 等 garnish | 不要做 primary CTA 或 checked 控件；用 `--action` / `--control` |
 | `--action` / `--action-foreground` | primary CTA、submit/send/apply/done 等实心动作按钮 | 不要做 checkbox/radio/switch/progress 的 selected 状态 |
 | `--control` / `--control-foreground` | checkbox/radio/switch/progress 等 checked/on/progress 状态 | 不要做 primary CTA |
@@ -104,15 +106,12 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 | `--destructive` | 红，error、denied、fs_destructive、git_destructive | 不要因为 hover/active 看起来更"突出"就升级到 destructive |
 | `--brand-deep` / `--brand-deep-hover` | 少数品牌强调位、reverse lineage 提示 | 不要做 CTA 或 checked 控件，不要新增调用 |
 | `--success-text` / `--info-text` / `--destructive-text` | 文字色（向 foreground 拉过） | 不要用作背景或边框 |
-| `--foreground-2 / 3 / 5` | 极淡填充：sidebar、code、tool 卡片 | 不要做正文 |
-| `--foreground-10 / 20 / 30` | 分割、shadow accent | 不要做正文 |
-| `--foreground-40 / 50 / 60` | placeholder / caption / muted heading | 不要做主文字 |
-| `--foreground-70 / 80` | 副文字、tool meta、titlebar | 不要做大段正文 |
-| `--foreground-90 / 95` | 极少用 — 几乎等同主文 | 用 `--foreground` 即可 |
+| `--foreground-2 / 3 / 5` | 极淡填充：sidebar、code、tool 卡片（表面 wash 档，非文字） | 不要做正文 |
+| `--foreground-8 / 10` | 分割、shadow accent、block bg（表面 wash 档，非文字） | 不要做正文 |
+| `--foreground-40 / 50 / 60 / 70 / 80` | 内部 mix stops，文字用法经语义别名访问（`--muted-foreground` = 50, `--foreground-secondary` = 80）；表面 wash 可直接引用 | 文字不要直接引用，用别名 |
 | `--border` | 1px 默认分割线 / 卡片外框 | 不要做 hover ring（那是 `--ring`） |
 | `--border-strong` | 选中态/active 卡片框 | 不要做默认外框 |
 | `--muted` | 与 border 同 α，语义上"作为背景而非分割" | 不要混用 |
-| `--muted-foreground` | scrollbar hover、disabled text 的最后一层 | 不要做 caption |
 | `--ring` | focus-visible 的 2px box-shadow | 不要做静态边框 |
 | `--hover` | sidebar row / button ghost hover 填充 | 不要用作 active（那是 `--active`） |
 | `--active` | sidebar row active / button :active | 不要做 hover（视觉会"提前"） |

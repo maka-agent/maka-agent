@@ -46,7 +46,7 @@
   --color-secondary: var(--foreground-5);
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--foreground-5);
-  --color-muted-foreground: var(--foreground-60);
+  --color-muted-foreground: var(--foreground-secondary);
   --color-accent: var(--accent);
   --color-accent-foreground: oklch(0.985 0.003 250);
   --color-control: var(--control);
