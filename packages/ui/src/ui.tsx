@@ -117,18 +117,26 @@ const inputClasses = [
   'disabled:cursor-not-allowed disabled:opacity-50',
 ].join(' ');
 
-export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(
-  { className, ...props },
+export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  unstyled?: boolean;
+};
+
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { className, unstyled = false, ...props },
   ref,
 ) {
-  return <input ref={ref} className={cn(inputClasses, className)} {...props} />; // a11y-allow: generic wrapper; callers must provide label or aria-label
+  return <input ref={ref} className={cn(!unstyled && inputClasses, className)} {...props} data-maka-field-chrome={unstyled ? 'none' : undefined} />; // a11y-allow: generic wrapper; callers must provide label or aria-label
 });
 
-export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
-  { className, ...props },
+export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  unstyled?: boolean;
+};
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { className, unstyled = false, ...props },
   ref,
 ) {
-  return <textarea ref={ref} className={cn(inputClasses, 'min-h-24 resize-y leading-6', className)} {...props} />; // a11y-allow: generic wrapper; callers must provide label or aria-label
+  return <textarea ref={ref} className={cn(!unstyled && inputClasses, !unstyled && 'min-h-24 resize-y leading-6', className)} {...props} data-maka-field-chrome={unstyled ? 'none' : undefined} />; // a11y-allow: generic wrapper; callers must provide label or aria-label
 });
 
 export const Separator = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSeparator>>(function Separator(

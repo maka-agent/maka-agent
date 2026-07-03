@@ -734,6 +734,7 @@ function ReadyEmptyHero(props: {
         <div className="maka-onboarding-quickchat-field">
           <Textarea
             ref={inputRef}
+            unstyled
             className="maka-onboarding-quickchat-input border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder={copy.quickChatPlaceholder}
             rows={3}

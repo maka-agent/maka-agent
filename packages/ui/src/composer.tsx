@@ -516,6 +516,7 @@ export const Composer = forwardRef<
       >
         <UiTextarea
           ref={textareaRef}
+          unstyled
           name="text"
           className="maka-composer-textarea min-h-[44px] resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           placeholder={copy.placeholder}

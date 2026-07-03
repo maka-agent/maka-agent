@@ -424,6 +424,7 @@ export function SkillsModuleMain(props: {
           <label className="maka-skill-search" aria-label="搜索技能">
             <Search size={15} strokeWidth={1.75} aria-hidden="true" />
             <Input
+              unstyled
               value={skillSearchQuery}
               onChange={(event) => setSkillSearchQuery(event.currentTarget.value)}
               maxLength={120}

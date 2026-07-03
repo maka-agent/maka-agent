@@ -1223,23 +1223,9 @@
 }
 
 .maka-skill-search input {
-  /* PR-SKILL-SEARCH-DOUBLE-BOX-0 (WAWQAQ msg `703f2167` + screenshot
-     `d6218b43`): the `<Input>` primitive carries Tailwind utilities
-     `rounded-md border border-input bg-background shadow-sm` from
-     `@maka/ui inputClasses`. The per-page overrides killed
-     `border` + `background`, but `border-radius`, `box-shadow`, and
-     `min-height` (via `min-h-9` = 36px) leaked through and painted
-     a second visible rounded card INSIDE the outer
-     `.maka-skill-search` label — reading as two stacked search
-     bars. The fix zeroes every visual property the primitive can
-     paint, so the inner `<input>` reads as a bare text field and
-     the outer label is the only box.
-     Correction (double-border textarea sweep, verified live via CDP):
-     `box-shadow`/ring-var reset need `!important` to beat the global
-     `:where(input, select, textarea):focus` rule below on focus — see
-     `.composer .maka-composer-textarea` in tool-output.css for why.
-     `border-radius`/`background` don't need it (nothing else sets them
-     on focus). */
+  /* The visible search chrome belongs to `.maka-skill-search`; the inner
+     `Input` uses the explicit bare field path so no primitive chrome or
+     page-level focus ring has to be reset here. */
   min-width: 0;
   width: 100%;
   height: 30px;
@@ -1247,12 +1233,9 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  box-shadow: none !important;
   outline: none;
   padding: 0;
   font-size: var(--font-size-ui);
-  --tw-ring-shadow: 0 0 #0000 !important;
-  --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
 
 .maka-skill-search input::placeholder {
@@ -1950,9 +1933,9 @@ color: oklch(0.55 0.015 220);
 
 /* Justified: renderer form fields and input-group wrappers ship their own
    focus ring shadow. This global chrome rule collapses that into the
-   converged inset accent line, so the shadow reset must outrank primitive
-   ring utilities. */
-:where(input, select, textarea):focus {
+   converged inset accent line, while explicit bare fields opt out through
+   `data-maka-field-chrome="none"`. */
+:where(input, select, textarea):focus:not([data-maka-field-chrome="none"]) {
   outline: none;
   border-color: oklch(from var(--focus-ring) l c h / 0.48);
   box-shadow: inset 0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22) !important;

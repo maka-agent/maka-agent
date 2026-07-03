@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, readCssTree } from './css-test-helpers.js';
+import { REPO_ROOT, readCssTree, stripCssComments } from './css-test-helpers.js';
 
 type ImportantAllowance = {
   fileSuffix: string;
@@ -56,21 +56,6 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared field ring shadow override',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages.css',
-    anchor: '.maka-skill-search input',
-    reason: 'shared input ring reset inside wrapper-owned surface, defensive against the global focus rule above being scoped away',
-  },
-  {
-    fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
-    anchor: '.maka-onboarding-quickchat-input',
-    reason: 'shared textarea chrome reset inside wrapper-owned surface',
-  },
-  {
-    fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
-    anchor: '.maka-onboarding-quickchat-input:focus-visible',
-    reason: 'shared textarea ring reset inside wrapper-owned surface',
-  },
-  {
     fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
     anchor: '.maka-session-list .maka-session-empty-state',
     reason: 'shared empty-state card reset in sidebar surface',
@@ -85,20 +70,38 @@ const ALLOWLIST: ImportantAllowance[] = [
     anchor: '.maka-session-panel[data-collapsed="true"] .maka-list-stack',
     reason: 'shared list/empty-state collapse override',
   },
+];
+
+const RETIRED_RING_RESET_BLOCKS = [
+  {
+    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages.css',
+    anchor: '.maka-skill-search input',
+  },
+  {
+    fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
+    anchor: '.maka-onboarding-quickchat .maka-onboarding-quickchat-input',
+  },
   {
     fileSuffix: 'apps/desktop/src/renderer/styles/tool-output.css',
     anchor: '.composer .maka-composer-textarea',
-    reason: 'shared textarea chrome reset inside composer wrapper',
+  },
+];
+
+const BARE_FIELD_CALLS = [
+  {
+    fileSuffix: 'packages/ui/src/skills-panel.tsx',
+    pattern: /<Input\s+unstyled[\s\S]*placeholder="搜索技能"/,
+    label: 'skill search Input',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/tool-output.css',
-    anchor: '.composer textarea:focus',
-    reason: 'shared textarea ring reset inside composer wrapper',
+    fileSuffix: 'packages/ui/src/composer.tsx',
+    pattern: /<UiTextarea\s+[^>]*unstyled[\s\S]*className="maka-composer-textarea\b/,
+    label: 'composer textarea',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/tool-output.css',
-    anchor: '.composer textarea:focus-visible',
-    reason: 'shared textarea ring reset inside composer wrapper',
+    fileSuffix: 'apps/desktop/src/renderer/OnboardingHero.tsx',
+    pattern: /<Textarea\s+[^>]*unstyled[\s\S]*className="maka-onboarding-quickchat-input\b/,
+    label: 'onboarding quickchat textarea',
   },
 ];
 
@@ -112,6 +115,28 @@ function isA11yOnlyFile(file: string): boolean {
     file.endsWith('apps/desktop/src/renderer/maka-tokens.css') ||
     file.endsWith('apps/desktop/src/renderer/styles/settings/nav-sidebar.css')
   );
+}
+
+function readRuleBody(source: string, anchor: string): string | null {
+  const start = source.indexOf(anchor);
+  if (start === -1) return null;
+
+  const open = source.indexOf('{', start);
+  if (open === -1) return null;
+
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    const ch = source[index];
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(open + 1, index);
+      }
+    }
+  }
+
+  return null;
 }
 
 describe('renderer !important audit contract', () => {
@@ -145,5 +170,31 @@ describe('renderer !important audit contract', () => {
       [],
       'Non-a11y `!important` usage must be explicitly justified in-file and tracked in renderer-important-audit-contract.test.ts.',
     );
+  });
+
+  it('keeps embedded bare fields off page-level important ring resets', async () => {
+    const modulePages = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/module-pages.css`, 'utf8'));
+    assert.match(
+      modulePages,
+      /:where\(input, select, textarea\):focus:not\(\[data-maka-field-chrome="none"\]\)/,
+      'the global renderer field focus rule must skip explicit bare fields',
+    );
+
+    for (const entry of BARE_FIELD_CALLS) {
+      const source = await readFile(`${REPO_ROOT}/${entry.fileSuffix}`, 'utf8');
+      assert.match(source, entry.pattern, `${entry.label} must pass unstyled to opt into the explicit bare field path`);
+    }
+
+    for (const entry of RETIRED_RING_RESET_BLOCKS) {
+      const file = `${REPO_ROOT}/${entry.fileSuffix}`;
+      const source = stripCssComments(await readFile(file, 'utf8'));
+      const body = readRuleBody(source, entry.anchor);
+      assert.notEqual(body, null, `${entry.anchor} rule not found in ${entry.fileSuffix}`);
+      assert.doesNotMatch(
+        body ?? '',
+        /!important|--tw-ring-(?:offset-)?shadow/,
+        `${entry.anchor} must route through the explicit bare field path instead of resetting primitive ring chrome in page CSS.`,
+      );
+    }
   });
 });

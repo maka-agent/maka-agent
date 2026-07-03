@@ -51,6 +51,7 @@ export function Input({
           size={typeof size === "number" ? size : undefined}
           style={typeof style === "function" ? undefined : style}
           {...props}
+          data-maka-field-chrome={unstyled ? "none" : undefined}
         />
       ) : (
         <InputPrimitive
@@ -59,6 +60,7 @@ export function Input({
           size={typeof size === "number" ? size : undefined}
           style={style}
           {...props}
+          data-maka-field-chrome={unstyled ? "none" : undefined}
         />
       )}
     </span>

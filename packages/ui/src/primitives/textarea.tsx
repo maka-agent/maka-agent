@@ -48,6 +48,7 @@ export function Textarea({
             )}
             data-slot="textarea"
             {...mergeProps(defaultProps, props)}
+            data-maka-field-chrome={unstyled ? "none" : undefined}
           />
         )}
       />
