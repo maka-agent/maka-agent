@@ -94,12 +94,12 @@ export function InputGroupInput({
   className,
   ...props
 }: InputProps): React.ReactElement {
-  return <Input className={className} unstyled {...props} />;
+  return <Input className={className} unstyled {...props} data-maka-field-chrome="none" />;
 }
 
 export function InputGroupTextarea({
   className,
   ...props
 }: TextareaProps): React.ReactElement {
-  return <Textarea className={className} unstyled {...props} />;
+  return <Textarea className={className} unstyled {...props} data-maka-field-chrome="none" />;
 }
