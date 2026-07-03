@@ -366,7 +366,6 @@ function formatSkillStatusLabel(skill: SkillEntry): string {
   if (skill.validationStatus === 'metadata_error') return '元数据异常';
   if (skill.userModified) return '已修改';
   if (skill.sourceType === 'bundled') return '内置';
-  if (skill.sourceType === 'managed') return '受管理';
   return '本地';
 }
 

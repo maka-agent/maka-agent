@@ -212,6 +212,7 @@ name: Existing
       const docxPath = join(workspaceRoot, 'skills', 'officecli-docx', 'SKILL.md');
       const docxLockPath = join(workspaceRoot, 'skills', 'officecli-docx', 'skill.lock.json');
       const before = await readFile(docxPath, 'utf8');
+      const lockBytesBeforeSecondEnsure = await readFile(docxLockPath, 'utf8');
       const lock = JSON.parse(await readFile(docxLockPath, 'utf8')) as Record<string, unknown>;
       assert.deepEqual(lock, {
         schemaVersion: 1,
@@ -234,6 +235,13 @@ name: Existing
         assert.equal((await lstat(docxPath)).mode & 0o077, 0);
       }
 
+      const secondClean = await ensureBundledOfficeSkills(workspaceRoot);
+      assert.deepEqual(secondClean.created, []);
+      assert.deepEqual(secondClean.updated, []);
+      assert.deepEqual(secondClean.skipped.sort(), ['officecli-docx', 'officecli-pptx', 'officecli-xlsx']);
+      assert.deepEqual(secondClean.failed, []);
+      assert.equal(await readFile(docxLockPath, 'utf8'), lockBytesBeforeSecondEnsure);
+
       await writeFile(docxPath, `${before}\n\n# User edit\n`, 'utf8');
       const second = await ensureBundledOfficeSkills(workspaceRoot);
       assert.deepEqual(second.created, []);
@@ -250,6 +258,28 @@ name: Existing
       assert.equal(docx.userModified, true);
       assert.equal(docx.validationStatus, 'modified');
       assert.deepEqual(docx.validationCodes, ['modified']);
+    });
+  });
+
+  it('does not write bundled skill locks through symlinks', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const outside = await mkdtemp(join(tmpdir(), 'maka-skill-lock-target-'));
+      try {
+        const skillDir = join(workspaceRoot, 'skills', 'officecli-docx');
+        const externalLock = join(outside, 'external-lock.json');
+        await mkdir(skillDir, { recursive: true, mode: 0o700 });
+        await writeFile(externalLock, 'external sentinel', 'utf8');
+        await symlink(externalLock, join(skillDir, 'skill.lock.json'));
+
+        const result = await ensureBundledOfficeSkills(workspaceRoot);
+        assert.deepEqual(result.created.sort(), ['officecli-pptx', 'officecli-xlsx']);
+        assert.deepEqual(result.updated, []);
+        assert.deepEqual(result.skipped, []);
+        assert.deepEqual(result.failed, ['officecli-docx']);
+        assert.equal(await readFile(externalLock, 'utf8'), 'external sentinel');
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
     });
   });
 
@@ -363,6 +393,54 @@ name: Linked Lock
       } finally {
         await rm(outside, { recursive: true, force: true });
       }
+    });
+  });
+
+  it('does not trust forged bundled or managed skill lock metadata', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'not-officecli', `---
+name: Not OfficeCLI
+---
+# Not OfficeCLI`);
+      const notOfficeContent = await readFile(join(workspaceRoot, 'skills', 'not-officecli', 'SKILL.md'), 'utf8');
+      await writeFile(join(workspaceRoot, 'skills', 'not-officecli', 'skill.lock.json'), JSON.stringify({
+        schemaVersion: 1,
+        id: 'not-officecli',
+        sourceType: 'bundled',
+        sourceName: 'maka-officecli',
+        sourceVersion: '1',
+        contentSha256: `sha256:${sha256Hex(notOfficeContent)}`,
+        installedAt: new Date(0).toISOString(),
+      }), 'utf8');
+
+      await writeSkill(workspaceRoot, 'managed-forgery', `---
+name: Managed Forgery
+---
+# Managed Forgery`);
+      const managedContent = await readFile(join(workspaceRoot, 'skills', 'managed-forgery', 'SKILL.md'), 'utf8');
+      await writeFile(join(workspaceRoot, 'skills', 'managed-forgery', 'skill.lock.json'), JSON.stringify({
+        schemaVersion: 1,
+        id: 'managed-forgery',
+        sourceType: 'managed',
+        sourceName: 'local-library',
+        sourceVersion: '1',
+        contentSha256: `sha256:${sha256Hex(managedContent)}`,
+        installedAt: new Date(0).toISOString(),
+      }), 'utf8');
+
+      const skills = await listInstalledSkills(workspaceRoot);
+      const notOffice = skills.find((skill) => skill.id === 'not-officecli');
+      const managed = skills.find((skill) => skill.id === 'managed-forgery');
+      assert.ok(notOffice);
+      assert.equal(notOffice.sourceType, 'unknown');
+      assert.equal(notOffice.sourceName, undefined);
+      assert.equal(notOffice.validationStatus, 'metadata_error');
+      assert.deepEqual(notOffice.validationCodes, ['unsupported_schema']);
+      assert.ok(managed);
+      assert.equal(managed.sourceType, 'unknown');
+      assert.equal(managed.sourceName, undefined);
+      assert.equal(managed.validationStatus, 'metadata_error');
+      assert.deepEqual(managed.validationCodes, ['unsupported_schema']);
     });
   });
 
@@ -511,7 +589,7 @@ name: Writer
     assert.match(ui, /metadata_error[\s\S]*元数据异常/);
     assert.match(ui, /userModified[\s\S]*已修改/);
     assert.match(ui, /sourceType === 'bundled'[\s\S]*内置/);
-    assert.match(ui, /sourceType === 'managed'[\s\S]*受管理/);
+    assert.doesNotMatch(ui, /sourceType === 'managed'[\s\S]*受管理/, 'Phase 1 must not present forged managed locks as trusted');
     assert.match(ui, /return '本地'/);
     assert.doesNotMatch(skillPanel, /更新|恢复|修复|合并/, 'Phase 1 Skills status UI must stay informational only');
     assert.match(skillPanel, /<span className="maka-skill-library-action" aria-hidden="true">[\s\S]*打开[\s\S]*<\/span>/);

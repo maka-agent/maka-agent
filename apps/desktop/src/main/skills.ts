@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
 import type { MakaTool } from '@maka/runtime';
@@ -70,6 +70,7 @@ const BUNDLED_OFFICE_SKILLS: Array<{ id: string; body: string }> = [
   { id: 'officecli-xlsx', body: officeCliXlsxSkillTemplate() },
   { id: 'officecli-pptx', body: officeCliPptxSkillTemplate() },
 ];
+const BUNDLED_OFFICE_SKILL_IDS = new Set(BUNDLED_OFFICE_SKILLS.map((skill) => skill.id));
 
 const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
 const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
@@ -130,7 +131,9 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
         continue;
       }
       await writeFile(skillFile, skill.body, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-      await writeBundledSkillLock(skillDir, skill.id, skill.body);
+      if (!await writeBundledSkillLock(skillDir, skill.id, skill.body)) {
+        throw new Error('failed to write bundled skill lock');
+      }
       created.push(skill.id);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
@@ -162,12 +165,12 @@ async function migrateLegacyBundledOfficeSkill(id: string, skillFile: string, cu
     const existing = await readFile(skillFile, 'utf8');
     if (sha256(existing) !== legacyHash) {
       if (sha256(existing) === sha256(currentBody)) {
-        await writeBundledSkillLock(dirname(skillFile), id, currentBody);
+        if (!await writeBundledSkillLock(dirname(skillFile), id, currentBody)) return 'failed';
       }
       return 'skipped';
     }
     await writeFile(skillFile, currentBody, { encoding: 'utf8', mode: 0o600 });
-    await writeBundledSkillLock(dirname(skillFile), id, currentBody);
+    if (!await writeBundledSkillLock(dirname(skillFile), id, currentBody)) return 'failed';
     return 'updated';
   } catch {
     return 'failed';
@@ -182,17 +185,67 @@ function sha256Buffer(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
-async function writeBundledSkillLock(skillDir: string, id: string, body: string): Promise<void> {
+async function writeBundledSkillLock(skillDir: string, id: string, body: string): Promise<boolean> {
+  const lockPath = join(skillDir, 'skill.lock.json');
+  const contentSha256 = `sha256:${sha256(body)}`;
+  const existing = await readExistingRegularFile(lockPath);
+  if (existing.kind === 'blocked') return false;
+  if (existing.kind === 'file') {
+    try {
+      const parsed = JSON.parse(existing.content);
+      if (isMatchingBundledSkillLock(parsed, id, contentSha256)) return true;
+    } catch {
+      // Invalid lock metadata is replaced by the trusted bundled writer.
+    }
+  }
+
   const lock = {
     schemaVersion: 1,
     id,
     sourceType: 'bundled',
     sourceName: BUNDLED_OFFICE_SKILL_SOURCE_NAME,
     sourceVersion: BUNDLED_OFFICE_SKILL_SOURCE_VERSION,
-    contentSha256: `sha256:${sha256(body)}`,
+    contentSha256,
     installedAt: new Date().toISOString(),
   };
-  await writeFile(join(skillDir, 'skill.lock.json'), `${JSON.stringify(lock, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  const tempPath = join(skillDir, `.skill.lock.json.${process.pid}.${Date.now()}.tmp`);
+  try {
+    await writeFile(tempPath, `${JSON.stringify(lock, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    const tempStat = await lstat(tempPath);
+    if (!tempStat.isFile() || tempStat.isSymbolicLink()) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    await rename(tempPath, lockPath);
+    return true;
+  } catch {
+    await unlink(tempPath).catch(() => {});
+    return false;
+  }
+}
+
+async function readExistingRegularFile(path: string): Promise<{ kind: 'missing' } | { kind: 'blocked' } | { kind: 'file'; content: string }> {
+  try {
+    const existingStat = await lstat(path);
+    if (!existingStat.isFile() || existingStat.isSymbolicLink()) return { kind: 'blocked' };
+    return { kind: 'file', content: await readFile(path, 'utf8') };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' };
+    return { kind: 'blocked' };
+  }
+}
+
+function isMatchingBundledSkillLock(value: unknown, id: string, contentSha256: string): boolean {
+  if (!isRecord(value)) return false;
+  return value.schemaVersion === 1 &&
+    value.id === id &&
+    value.sourceType === 'bundled' &&
+    value.sourceName === BUNDLED_OFFICE_SKILL_SOURCE_NAME &&
+    value.sourceVersion === BUNDLED_OFFICE_SKILL_SOURCE_VERSION &&
+    typeof value.installedAt === 'string' &&
+    value.installedAt.length > 0 &&
+    typeof value.contentSha256 === 'string' &&
+    value.contentSha256.toLowerCase() === contentSha256.toLowerCase();
 }
 
 export async function createStarterSkill(root: string): Promise<CreateStarterSkillResult> {
@@ -459,6 +512,9 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
   if (typeof parsed.contentSha256 !== 'string' || !/^sha256:[a-f0-9]{64}$/i.test(parsed.contentSha256)) {
     return metadataError(['invalid_hash'], 'Skill lock hash is invalid.');
   }
+  if (!isTrustedSkillLockSource(parsed, id)) {
+    return metadataError(['unsupported_schema'], 'Skill lock source is not trusted in this Maka version.');
+  }
 
   const userModified = parsed.contentSha256.toLowerCase() !== currentHash.toLowerCase();
   return {
@@ -471,6 +527,13 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
     validationStatus: userModified ? 'modified' : 'ok',
     validationCodes: userModified ? ['modified'] : [],
   };
+}
+
+function isTrustedSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
+  return lock.sourceType === 'bundled' &&
+    BUNDLED_OFFICE_SKILL_IDS.has(id) &&
+    lock.sourceName === BUNDLED_OFFICE_SKILL_SOURCE_NAME &&
+    lock.sourceVersion === BUNDLED_OFFICE_SKILL_SOURCE_VERSION;
 }
 
 function metadataError(validationCodes: SkillValidationCode[], message: string): Pick<
