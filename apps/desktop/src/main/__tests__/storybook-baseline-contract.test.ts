@@ -106,10 +106,18 @@ describe('Storybook baseline contract', () => {
     assert.ok(existsSync(buttonStory), 'Button primitive story must exist as an isolation fixture');
     assert.ok(existsSync(emptyStory), 'Empty primitive story must exist as an isolation fixture');
 
-    for (const storyPath of [buttonStory, emptyStory]) {
-      const src = readFileSync(storyPath, 'utf8');
-      assert.match(src, /satisfies\s+Meta/, `${basename(storyPath)} must use satisfies Meta`);
+    const buttonSrc = readFileSync(buttonStory, 'utf8');
+    assert.match(buttonSrc, /satisfies\s+Meta/, 'button.stories.tsx must use satisfies Meta');
+    for (const exportName of ['VariantMatrix', 'SizeMatrix', 'WithIcon', 'Loading']) {
+      assert.match(buttonSrc, new RegExp(`export const ${exportName}: Story`), `button.stories.tsx must export ${exportName}`);
     }
+
+    const emptySrc = readFileSync(emptyStory, 'utf8');
+    assert.match(emptySrc, /satisfies\s+Meta/, 'empty.stories.tsx must use satisfies Meta');
+    for (const exportName of ['IconOnly', 'TitleAndDescription', 'WithAction', 'Loading']) {
+      assert.match(emptySrc, new RegExp(`export const ${exportName}: Story`), `empty.stories.tsx must export ${exportName}`);
+    }
+    assert.match(emptySrc, /\bSpinner\b/, 'empty.stories.tsx Loading story must cover Spinner');
   });
 
   it('storyboards the sidebar session list states before visual polish', () => {
