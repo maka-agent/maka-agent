@@ -147,7 +147,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /const sessionId = props\.activeSession\.id;[\s\S]*const token = pendingModelChangeTokenRef\.current \+ 1;[\s\S]*pendingModelChangeRef\.current = \{ sessionId, token \};/);
     assert.match(
       ui,
-      /Promise\.resolve\(\)[\s\S]*\.then\(\(\) => props\.onChange\?\.\(next\)\)[\s\S]*\.finally\(\(\) => \{[\s\S]*const owner = pendingModelChangeRef\.current;[\s\S]*modelSwitcherMountedRef\.current && owner\?\.sessionId === sessionId && owner\.token === token[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingRef\.current = false;[\s\S]*setLocalPending\(false\);/,
+      /runAsyncActionBoundary\([\s\S]*\(\) => props\.onChange\?\.\(next\),[\s\S]*\(\) => \{[\s\S]*const owner = pendingModelChangeRef\.current;[\s\S]*modelSwitcherMountedRef\.current && owner\?\.sessionId === sessionId && owner\.token === token[\s\S]*pendingModelChangeRef\.current = null;[\s\S]*pendingRef\.current = false;[\s\S]*setLocalPending\(false\);/,
       'model switcher must only clear pending state for the matching session/token owner',
     );
     assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);
