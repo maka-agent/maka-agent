@@ -960,7 +960,12 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    background: var(--background);
+    /* Transparent, NOT var(--background): the right panel already paints
+       its own surface (--agents-content-area-bg = #fafafa on darwin
+       glass). A solid white here covered only the chat scroll area, so
+       the composer region below read as a THIRD color band (shell /
+       chat / composer). One panel, one surface. */
+    background: transparent;
   }
   .maka-titlebar {
     height: var(--h-titlebar);

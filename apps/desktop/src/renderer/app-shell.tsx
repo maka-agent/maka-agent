@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
   ConnectionEvent,
   LlmConnection,
@@ -671,7 +671,13 @@ export function AppShell() {
   // `sessions:list` / `connections:list` / `getDefault` IPCs are redundant.
   // This lets the UI show the sidebar + model picker immediately on first load.
   const seededRef = useRef(false);
-  useEffect(() => {
+  // useLayoutEffect, NOT useEffect: the snapshot render flips
+  // `isOnboardingLoading` off while `sessions` is still []. A passive
+  // effect seeds sessions AFTER the browser paints that frame, so users
+  // with history saw a one-frame flash of the empty-state hero (the
+  // "配置页闪了一下" startup flash). Layout effects run before paint,
+  // so the seeded sessions and the un-gated frame commit together.
+  useLayoutEffect(() => {
     // Snapshot IPC failed — the seed path will never run, so fall back
     // to the classic boot pull or the sidebar stays empty forever.
     if (onboarding.error && !onboarding.snapshot && !seededRef.current) {

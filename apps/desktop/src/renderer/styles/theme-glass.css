@@ -165,13 +165,13 @@ html[data-os="darwin"] .maka-session-panel-footer {
     background: oklch(from var(--surface-canvas) l c h / 0.15);
   }
 
-/* The main content column stays on its existing solid `var(--background)` so
-     chat text and cards remain legible. Without this, the page card would also
-     go translucent and hurt readability. */
-
-html[data-os="darwin"] .maka-panel-detail {
-    background: var(--background);
-  }
+  /* (dead rule removed) `html[data-os="darwin"] .maka-panel-detail
+     { background: var(--background) }` never applied — the unlayered
+     `.maka-panel-detail.maka-floating-panel.agents-content-area` rule in
+     reference-shell.css wins on specificity (0,3,0 vs 0,2,1), so the
+     panel has always painted `--agents-content-area-bg`. Its intent
+     (solid white chat) survived only via `.maka-main`, which is exactly
+     what produced the three-color-band bug fixed alongside this. */
 
 /* =============================================================================
      Phase 3 quick-wins — atlas §13.7 + §14.6

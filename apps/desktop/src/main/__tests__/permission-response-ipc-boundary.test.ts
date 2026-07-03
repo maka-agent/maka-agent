@@ -356,12 +356,15 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       renderer,
-      /useEffect\(\(\) => \{[\s\S]*?void bootstrapSessions\(\)/,
+      // useLayoutEffect allowed: the snapshot seed moved to a layout
+      // effect so users with history don't get a one-frame empty-state
+      // flash on startup (the seed must commit before paint).
+      /use(?:Layout)?Effect\(\(\) => \{[\s\S]*?void bootstrapSessions\(\)/,
       'initial mount must use the boot-only selector instead of putting selection side effects inside refreshSessions()',
     );
     assert.doesNotMatch(
       renderer,
-      /useEffect\(\(\) => \{[\s\S]{0,120}?void refreshSessions\(\)/,
+      /use(?:Layout)?Effect\(\(\) => \{[\s\S]{0,120}?void refreshSessions\(\)/,
       'initial mount should call bootstrapSessions(), not raw refreshSessions(), for boot-only selection',
     );
     const quickChatHandler = renderer.match(
