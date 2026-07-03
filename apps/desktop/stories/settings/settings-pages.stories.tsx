@@ -10,7 +10,7 @@ import type {
   UpdateAppSettingsResult,
   UsageStats,
 } from '@maka/core';
-import { createDefaultSettings, DEFAULT_DAILY_REVIEW_CONFIG } from '@maka/core';
+import { createDefaultSettings, DEFAULT_DAILY_REVIEW_CONFIG, mergeSettings } from '@maka/core';
 import { SettingsSurface } from '../../src/renderer/settings/settings-surface';
 import type { ConnectionsBridge } from '../../src/renderer/settings/ProvidersPanel';
 import { withScopedMakaBridge } from '../maka-bridge';
@@ -119,8 +119,7 @@ const makaBridge = {
   settings: {
     get: async () => createDefaultSettings(),
     update: async (patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult> => {
-      const merged = { ...createDefaultSettings(), ...patch } as ReturnType<typeof createDefaultSettings>;
-      return { settings: merged };
+      return { settings: mergeSettings(createDefaultSettings(), patch) };
     },
     usageStats: async (): Promise<UsageStats> => usageStats,
     bots: {
