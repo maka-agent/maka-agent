@@ -15,6 +15,9 @@
 @import "./styles/sidebar.css";
 @import "./styles/onboarding.css";
 @import "./styles/module-pages.css";
+@import "./styles/settings-select.css";
+@import "./styles/field-focus.css";
+@import "./styles/model-switcher.css";
 @import "./styles/chat-header.css";
 @import "./styles/chat-message.css";
 @import "./styles/tool-output.css";

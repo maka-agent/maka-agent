@@ -1,9 +1,3 @@
-.detailPane {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
 /* PR-UI-ALIGN-2: the module pages (技能 / 定时任务 / 每日回顾) breathe with a
    single generous padding layer on the content-area card — ~24px like 参考实现,
    not the old cramped 12px. Inner wrappers (plan-shell etc.) no longer re-pad. */

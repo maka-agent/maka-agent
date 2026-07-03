@@ -11,9 +11,6 @@ const EXPECTED_MODULE_PAGE_IMPORTS = [
   './module-pages/capability-audit.css',
   './module-pages/module-shell.css',
   './module-pages/skills.css',
-  './module-pages/field-focus.css',
-  './module-pages/chat-header-bridge.css',
-  './module-pages/model-switcher.css',
 ];
 
 function readCssImports(source: string): string[] {

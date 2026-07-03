@@ -52,7 +52,7 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared ghost button layout override',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/module-pages/field-focus.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/field-focus.css',
     anchor: ':where(input, select, textarea):focus',
     reason: 'shared field ring shadow override',
   },
@@ -167,7 +167,7 @@ describe('renderer !important audit contract', () => {
   });
 
   it('keeps embedded bare fields off page-level important ring resets', async () => {
-    const fieldFocus = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/module-pages/field-focus.css`, 'utf8'));
+    const fieldFocus = stripCssComments(await readFile(`${REPO_ROOT}/apps/desktop/src/renderer/styles/field-focus.css`, 'utf8'));
     const fieldFocusSelector = findFieldFocusSelector(fieldFocus);
     assert.equal(
       fieldFocusSelector,
