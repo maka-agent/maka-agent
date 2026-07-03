@@ -456,6 +456,116 @@ const registerGateRepairBackend = (
   }));
 };
 
+class GateLaunderBackend implements AgentBackend {
+  readonly kind: BackendKind = 'ai-sdk';
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: {
+    sessionId: string;
+    header: SessionHeader;
+    tools: ReturnType<typeof buildIsolatedHeadlessTools>;
+    prompts: string[];
+  }) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.ctx.prompts.push(input.text);
+    const ts = Date.now();
+    const turnNumber = this.ctx.prompts.length;
+    const selfCheckPlanSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_plan_submit');
+    const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
+    assert.ok(selfCheckPlanSubmit);
+    assert.ok(selfCheckSubmit);
+    const toolCtx = {
+      sessionId: this.sessionId,
+      turnId: input.turnId,
+      cwd: this.ctx.header.cwd,
+      toolCallId: `launder-tool-call-${turnNumber}`,
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+    };
+    await selfCheckPlanSubmit.impl({
+      finalArtifacts: [{
+        path: '/app/polyglot/main.py.c',
+        purpose: 'single-file polyglot source',
+        publicReason: 'visible task asks for this final file',
+      }],
+      selfCheckScratch: {
+        root: '/tmp/maka-self-check/polyglot',
+        expectedGeneratedPaths: ['/tmp/maka-self-check/polyglot/cmain'],
+        publicReason: 'compile checks should stay under scratch',
+      },
+      workspaceGuardPlan: {
+        checkedPaths: ['/app/polyglot'],
+        expectedAddedPaths: [],
+        expectedGeneratedPathsOutsideScratch: turnNumber === 1 ? [] : ['/app/polyglot/cmain'],
+        publicReason: turnNumber === 1
+          ? 'first plan only declares the final source file'
+          : 'repair attempt tries to launder the observed cmain path',
+      },
+      publicReason: 'public polyglot self-check plan',
+    }, toolCtx);
+    await selfCheckSubmit.impl({
+      status: 'pass',
+      publicReason: 'python and gcc checks passed, but cmain remains in /app/polyglot',
+      commandEvidence: [{
+        command: 'gcc /app/polyglot/main.py.c -o /app/polyglot/cmain && /app/polyglot/cmain 10',
+        exitCode: 0,
+        outputExcerpt: '55',
+        artifactRefs: ['/app/polyglot/main.py.c', '/app/polyglot/cmain'],
+      }],
+      artifactEvidence: [
+        { path: '/app/polyglot/main.py.c', kind: 'file', exists: true },
+        { path: '/app/polyglot/cmain', kind: 'file', exists: true },
+      ],
+      executionHygiene: {
+        sandbox: {
+          root: '/tmp/maka-self-check/polyglot',
+          strategy: 'copied_inputs',
+          commandCwd: '/tmp/maka-self-check/polyglot',
+          outputPolicy: 'scratch_only',
+        },
+        scratchUsed: true,
+        scratchPath: '/tmp/maka-self-check/polyglot',
+        cleanupPerformed: true,
+        workspaceSideEffects: 'present',
+        workspaceGuard: {
+          checked: true,
+          checkedPaths: ['/app/polyglot'],
+          beforeListingCommand: 'find /app/polyglot -maxdepth 1',
+          afterListingCommand: 'find /app/polyglot -maxdepth 1',
+          addedPaths: ['/app/polyglot/cmain'],
+          modifiedPaths: [],
+          removedPaths: [],
+        },
+      },
+    }, toolCtx);
+    yield { type: 'text_complete', id: `launder-text-${turnNumber}`, turnId: input.turnId, ts, messageId: `launder-message-${turnNumber}`, text: 'done' };
+    yield { type: 'complete', id: `launder-complete-${turnNumber}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+const registerGateLaunderBackend = (
+  prompts: string[],
+) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+  assert.ok(context.toolExecutor);
+  registry.register('ai-sdk', (ctx) => new GateLaunderBackend({
+    sessionId: ctx.sessionId,
+    header: ctx.header,
+    tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
+      ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+      ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
+    }),
+    prompts,
+  }));
+};
+
 async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'maka-task-controller-fx-'));
   const storageRoot = await mkdtemp(join(tmpdir(), 'maka-task-controller-store-'));
@@ -749,6 +859,51 @@ describe('runTaskOnce', () => {
         result.projection.events.filter((event) => event.type === 'heavy_task_self_check_gate_recorded').length,
         2,
       );
+    });
+  });
+
+  test('bounded repair records machine-observed extra final path diagnostic before official verifier', async () => {
+    await withDirs(async (fixtureDir, storageRoot) => {
+      const prompts: string[] = [];
+      const config: Config = {
+        ...fakeConfig,
+        backend: 'ai-sdk',
+        heavyTaskMode: true,
+      };
+      const task: Task = {
+        id: 'polyglot-launder-task',
+        instruction: 'Write a single file in /app/polyglot/main.py.c.',
+        workspaceDir: fixtureDir,
+        verification: { command: 'true', protectedPaths: [] },
+      };
+
+      const result = await runTaskOnce(config, task, {
+        storageRoot,
+        registerBackends: registerGateLaunderBackend(prompts),
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit isolated executor',
+          toolExecutor: {
+            async exec() {
+              return {
+                exitCode: 0,
+                stdout: 'file\t/app/polyglot/main.py.c\t\nfile\t/app/polyglot/cmain\t\n',
+                stderr: '',
+              };
+            },
+          },
+        },
+      });
+
+      assert.equal(prompts.length, 2);
+      assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
+      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /\/app\/polyglot\/cmain/);
+      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /unplanned_added_path|observed extras/);
+      assert.equal(result.projection.latestVerifierResult?.passed, true);
+      assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
+      assert.equal(result.resultRecord.status, 'completed');
+      assert.equal(result.resultRecord.passed, true);
+      assert.equal(result.projection.events.some((event) => event.type === 'task_run_verifying'), true);
     });
   });
 

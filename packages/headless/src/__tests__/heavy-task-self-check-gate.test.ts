@@ -189,7 +189,7 @@ describe('heavy-task self-check gate', () => {
     assert.doesNotMatch(decision.reason, /fix|repair|rerun|submit a revised plan/i);
   });
 
-  test('machine workspace observation blocks extra sibling in a single-file deliverable directory', () => {
+  test('machine workspace observation remains diagnostic after bounded repair in a single-file deliverable directory', () => {
     const polyglotTask: Task = {
       id: 'polyglot-task',
       instruction: 'Write me a single file in /app/polyglot/main.py.c which is a polyglot.',
@@ -219,6 +219,77 @@ describe('heavy-task self-check gate', () => {
     assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
     assert.match(decision.reason, /machine workspace observation found extra final paths/);
     assert.match(decision.reason, /\/app\/polyglot\/main\.py/);
+  });
+
+  test('bounded repair records observed extra sibling diagnostic without local rejection', () => {
+    const polyglotTask: Task = {
+      id: 'polyglot-task',
+      instruction: 'Write me a single file in /app/polyglot/main.py.c which is a polyglot.',
+      workspaceDir: '/tmp/workspace',
+      verification: { command: 'true', protectedPaths: [] },
+    };
+    const revisedPlan = plan(['/app/polyglot/main.py.c']);
+    revisedPlan.workspaceGuardPlan.expectedGeneratedPathsOutsideScratch = ['/app/polyglot/cmain'];
+    const selfCheckState = selfCheck('pass', {
+      command: 'gcc /app/polyglot/main.py.c -o /tmp/maka-self-check/run-gate/cmain && /tmp/maka-self-check/run-gate/cmain 10',
+      refs: ['/app/polyglot/main.py.c'],
+      artifactPath: '/app/polyglot/main.py.c',
+    });
+
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task: polyglotTask,
+      heavyTaskMode,
+      projection: projection(
+        selfCheckState,
+        revisedPlan,
+        workspaceObservation([
+          { path: '/app/polyglot/main.py.c', kind: 'file' },
+          { path: '/app/polyglot/cmain', kind: 'file' },
+        ]),
+      ),
+      repairAttemptsUsed: 1,
+      maxRepairAttempts: 1,
+    });
+
+    assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
+    assert.match(decision.reason, /expected only: \/app\/polyglot\/main\.py\.c/);
+    assert.match(decision.reason, /observed extras: \/app\/polyglot\/cmain/);
+  });
+
+  test('package source directory observation is diagnostic after bounded repair, not a hard reject', () => {
+    const packageTask: Task = {
+      id: 'build-cython-task',
+      instruction: 'Build the pyknotid Cython extension in the existing package.',
+      workspaceDir: '/tmp/workspace',
+      verification: { command: 'true', protectedPaths: [] },
+    };
+    const extensionPath = '/app/pyknotid/pyknotid/cinvariants.cpython-313-x86_64-linux-gnu.so';
+    const selfCheckState = selfCheck('pass', {
+      command: `python -c "import pyknotid.cinvariants" && test -f ${extensionPath}`,
+      refs: [extensionPath],
+      artifactPath: extensionPath,
+    });
+    const decision = evaluateHeavyTaskSelfCheckGate({
+      task: packageTask,
+      heavyTaskMode,
+      projection: projection(
+        selfCheckState,
+        plan([extensionPath]),
+        workspaceObservation([
+          { path: extensionPath, kind: 'file' },
+          { path: '/app/pyknotid/pyknotid/__init__.py', kind: 'file' },
+          { path: '/app/pyknotid/pyknotid/utils.py', kind: 'file' },
+          { path: '/app/pyknotid/pyknotid/cinvariants.c', kind: 'file' },
+          { path: '/app/pyknotid/pyknotid/spacecurves', kind: 'directory' },
+        ]),
+      ),
+      repairAttemptsUsed: 1,
+      maxRepairAttempts: 1,
+    });
+
+    assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
+    assert.match(decision.reason, /machine workspace observation found extra final paths/);
+    assert.match(decision.reason, /\/app\/pyknotid\/pyknotid\/utils\.py/);
   });
 
   test('weak pass without command or artifact evidence stays blocked', () => {
