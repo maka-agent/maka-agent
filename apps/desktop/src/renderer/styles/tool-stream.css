@@ -23,7 +23,7 @@
 }
 
 .settingsWebSearchStatusCluster small {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -44,7 +44,7 @@
 }
 
 .settingsWebSearchDisabledReason {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   line-height: 1.45;
   text-align: right;
@@ -73,7 +73,7 @@
     text-decoration: underline;
   }
 .settingsWebSearchResult small {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -81,7 +81,7 @@
 .settingsWebSearchResult p {
     margin: 0;
     font-size: var(--font-size-ui);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
@@ -137,11 +137,11 @@
   }
 .settingsMemoryPreview small {
     font-size: var(--font-size-caption);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
   }
 .settingsMemoryPreview p {
     margin: 0;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.45;
     white-space: pre-wrap;
@@ -176,20 +176,20 @@
   }
 .settingsMemoryPromptPreviewHeader span {
     flex-shrink: 0;
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
   }
 .settingsMemoryPromptPreview[data-active="true"] .settingsMemoryPromptPreviewHeader span {
     color: var(--nav-active);
   }
 .settingsMemoryPromptPreview small {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
 .settingsMemoryPromptPreviewBudget {
     font-family: var(--font-mono);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
   }
 .settingsMemoryPromptPreview pre {
     max-height: 220px;
@@ -199,7 +199,7 @@
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-control);
     background: var(--background);
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
     line-height: 1.45;
@@ -208,7 +208,7 @@
   }
 .settingsMemoryPromptPreview p {
     margin: 0;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.45;
   }
@@ -225,7 +225,7 @@
     font-size: var(--font-size-ui);
   }
 .settingsMemoryEntryPreviewNotice small {
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
@@ -242,18 +242,18 @@
     font-size: var(--font-size-ui);
   }
 .settingsMemorySaveSummary small {
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
   }
 .settingsMemorySaveSummaryTime {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
   }
 .settingsMemoryBackupState {
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
   }
 .settingsMemoryBackupState[data-empty="true"] {
-    color: var(--foreground-40);
+    color: var(--muted-foreground);
   }
 .settingsMemoryBackupList {
     display: grid;
@@ -285,7 +285,7 @@
     padding: 0;
   }
 .settingsMemoryBackupList small {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
@@ -297,7 +297,7 @@
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-pill);
     background: var(--background);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
   }
 
@@ -321,7 +321,7 @@
     justify-content: space-between;
     gap: var(--space-3);
     font-size: var(--font-size-ui);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
   }
 
 .settingsMemoryEntryGroupHeader strong {
@@ -335,7 +335,7 @@
     border: 1px solid oklch(from var(--warning) l c h / 0.30);
     border-radius: var(--radius-surface);
     background: oklch(from var(--warning) l c h / 0.08);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.45;
   }
@@ -386,7 +386,7 @@
 
 .settingsMemoryEntryCard small {
     font-size: var(--font-size-caption);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
   }
 
 .settingsMemoryEntryFacts {
@@ -406,7 +406,7 @@
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.4;
   }
@@ -414,7 +414,7 @@
 .settingsMemoryPromptScope[data-active="true"] {
     border-color: oklch(from var(--success) l c h / 0.32);
     background: oklch(from var(--success) l c h / 0.08);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
   }
 
 .settingsMemoryDirtyState[data-dirty="true"] {
@@ -425,7 +425,7 @@
 .settingsMemoryEntryCard p,
   .settingsMemoryEntryEmpty {
     margin: 0;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.45;
     white-space: pre-wrap;
@@ -456,7 +456,7 @@
 }
 
 .settingsMemoryFilter small {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   white-space: nowrap;
 }
@@ -484,7 +484,7 @@
 
 .settingsMemoryFilterEmpty small,
   .settingsMemoryListEmpty small {
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.45;
   }
@@ -509,7 +509,7 @@
 }
 
 .settingsMemoryManualAddHeader small {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
 }
 
@@ -556,7 +556,7 @@
 }
 
 .settingsMemoryDraftWarning small {
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   line-height: 1.4;
 }
@@ -567,7 +567,7 @@
 }
 
 .settingsMemoryEditor > span {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   font-weight: 600;
 }
@@ -632,7 +632,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     padding: 0 var(--space-1) var(--space-0-5);
   }
 .maka-first-run-checklist-header strong {
@@ -643,7 +643,7 @@
     margin-left: auto;
     font-size: var(--font-size-caption);
     letter-spacing: 0.04em;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
 
@@ -712,7 +712,7 @@
   gap: var(--space-1-5);
   width: auto;
   text-align: left;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.03);
 }
 
@@ -723,7 +723,7 @@
 }
 
 .maka-first-run-checklist-row[data-done="true"] > button {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   cursor: default;
 }
 
@@ -739,7 +739,7 @@
   height: 20px;
   border-radius: 50%;
   background: var(--foreground-5);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
 }
 
 .maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-status {
@@ -761,13 +761,13 @@
 .maka-first-run-checklist-copy small {
   display: none;
   font-size: var(--font-size-ui);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   line-height: 1.45;
 }
 
 .maka-first-run-checklist-arrow {
   display: none;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
 }
 
 .maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-arrow {

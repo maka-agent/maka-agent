@@ -4,7 +4,7 @@
    muted — and rides in the user turn's meta row beneath the block. */
 .maka-message-time-inline {
   display: inline-block;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   font-weight: 500;
   line-height: 1;
@@ -183,7 +183,7 @@
 .maka-composer-status-slot {
   min-width: 0;
   flex: 1 1 auto;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   text-align: center;
 }
@@ -198,7 +198,7 @@
   border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
   background: oklch(from var(--background) l c h / 0.82);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
   white-space: nowrap;
@@ -273,7 +273,7 @@
 }
 .maka-composer-mode-menu-hint {
   font-size: var(--font-size-caption);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   line-height: 1.4;
   white-space: normal;
 }
@@ -295,7 +295,7 @@
   padding: 0 var(--space-2);
   border-color: var(--color-border-tertiary);
   background: var(--background);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
@@ -339,7 +339,7 @@
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
     color var(--duration-base) var(--ease-out-strong),
@@ -386,6 +386,6 @@
 .maka-composer-tool-button.maka-composer-mic-button:disabled {
   border: 0;
   background: transparent;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   opacity: 1;
 }

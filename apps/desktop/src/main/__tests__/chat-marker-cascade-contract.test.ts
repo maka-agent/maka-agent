@@ -75,11 +75,11 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
       'max-w-[var(--maka-chat-measure,680px)]',
       "[&:not(:first-child)]:before:content-['·']",
       '[&_code]:[font-family:var(--font-mono)]',
-      'data-[kind=model]:[&_code]:text-[color:var(--foreground-60)]',
+      'data-[kind=model]:[&_code]:text-[color:var(--foreground-secondary)]',
       // every chip `data-[kind]` conditional is pinned, not just `model`, so
       // dropping the tools tint / duration+tokens tabular-nums / tokens mono
       // fails the contract.
-      'data-[kind=tools]:text-[color:var(--foreground-50)]',
+      'data-[kind=tools]:text-[color:var(--muted-foreground)]',
       'data-[kind=duration]:[font-variant-numeric:tabular-nums]',
       'data-[kind=tokens]:[font-family:var(--font-mono)]',
       'data-[state=in-progress]:text-[color:var(--status-running)]',

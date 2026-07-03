@@ -38,7 +38,7 @@
     margin: 0;
     font-size: var(--font-size-ui);
     line-height: 1.55;
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
   }
 .maka-daily-review-info-body strong {
     font-weight: 600;
@@ -48,11 +48,11 @@
     margin: 0;
     font-size: var(--font-size-caption);
     line-height: 1.5;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
   }
 .maka-daily-review-info-hint strong {
     font-weight: 600;
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
   }
 
 .maka-daily-review-quick-runs {
@@ -100,7 +100,7 @@
 
 .maka-daily-review-archive-count {
     font-size: var(--font-size-caption);
-    color: var(--foreground-40);
+    color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
 
@@ -164,7 +164,7 @@
   }
 
 .maka-daily-review-archive-row-meta {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     font-variant-numeric: tabular-nums;
     overflow: hidden;
@@ -185,7 +185,7 @@
 
 .maka-daily-review-archive-body[data-empty="true"],
   .maka-daily-review-archive-empty {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-ui);
     line-height: 1.5;
   }
@@ -207,7 +207,7 @@
 
 .maka-daily-review-archive-body-header p {
     margin: var(--space-0-5) 0 0;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     line-height: 1.45;
     overflow-wrap: anywhere;
@@ -217,7 +217,7 @@
     flex: none;
     border: 1px solid var(--foreground-10);
     border-radius: var(--radius-pill);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     line-height: 1;
     padding: var(--space-1) var(--space-1-5);
@@ -254,7 +254,7 @@
 
 .maka-daily-review-archive-section h5 {
     margin: 0;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     font-weight: 600;
     letter-spacing: 0;
@@ -262,7 +262,7 @@
 
 .maka-daily-review-archive-section p {
     margin: 0;
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.6;
     overflow-wrap: anywhere;
@@ -375,7 +375,7 @@
     font-size: var(--font-size-caption);
     text-transform: none;
     letter-spacing: 0;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
   }
 
 /* PR-DAILY-REVIEW-EYEBROW-RHYTHM-0 (WAWQAQ msg `7f0ec4a5`): granularity
@@ -402,7 +402,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     margin: 0;
   }
 .maka-daily-review-section-title::before {
@@ -471,7 +471,7 @@
   }
 
 .maka-daily-review-session-time {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -479,7 +479,7 @@
 
 .maka-daily-review-session-preview {
     font-size: var(--font-size-ui);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -492,7 +492,7 @@
 
 .maka-daily-review-top-meta {
     font-size: var(--font-size-caption);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
 

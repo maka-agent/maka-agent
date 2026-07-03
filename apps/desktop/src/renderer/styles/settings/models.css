@@ -55,7 +55,7 @@
 }
 
 .enabledChevron {
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   transition: transform 160ms var(--ease-out-strong);
 }
 
@@ -73,7 +73,7 @@
   gap: var(--space-1-5);
   font-size: var(--font-size-ui);
   white-space: nowrap;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .enabledStatusDot {
@@ -91,7 +91,7 @@
 .enabledRollup.is-err,
 .enabledConnStatus.is-error { color: var(--destructive); }
 .enabledRollup.is-idle,
-.enabledConnStatus.is-untested { color: var(--foreground-50); }
+.enabledConnStatus.is-untested { color: var(--muted-foreground); }
 
 .enabledProviderPanel {
   background: oklch(from var(--foreground) l c h / 0.02);
@@ -152,7 +152,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
   background: var(--foreground-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: 0 var(--space-4);
 }
 
@@ -403,7 +403,7 @@
 }
 
 .maka-browser-empty {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .maka-browser-empty-hint {
@@ -453,7 +453,7 @@
   justify-content: center;
   border: 0;
   background: transparent;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   border-radius: var(--radius-control);
   padding: 0;
   transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
@@ -484,7 +484,7 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -515,7 +515,7 @@
 
 .maka-artifact-list-error p {
   margin: 0;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   overflow-wrap: anywhere;
 }
 
@@ -750,7 +750,7 @@
   border-radius: var(--radius-surface);
   border: 1px dashed oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.06);
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
 }
 
 .maka-artifact-preview-unsupported-title {
@@ -763,7 +763,7 @@
   margin: 0;
   font-size: var(--font-size-ui);
   line-height: 1.55;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
 }
 
 .maka-artifact-preview-unsupported-meta {
@@ -773,13 +773,13 @@
   margin: 0;
   padding: 0;
   font-size: var(--font-size-ui);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
 }
 .maka-artifact-preview-unsupported-meta > div {
   display: contents;
 }
 .maka-artifact-preview-unsupported-meta dt {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-weight: 500;
 }
 .maka-artifact-preview-unsupported-meta dd {

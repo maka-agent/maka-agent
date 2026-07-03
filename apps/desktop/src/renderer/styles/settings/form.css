@@ -60,7 +60,7 @@
   align-items: center;
   gap: var(--space-1-5);
   padding: var(--space-1) var(--space-2-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
 }
 

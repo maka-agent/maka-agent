@@ -32,7 +32,7 @@
 
 .settingsHealthIntro p {
     margin: 0;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.55;
     max-width: 60ch;
@@ -51,7 +51,7 @@
   }
 
 .settingsHealthMeta small {
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
   }
 
@@ -63,7 +63,7 @@
   background: var(--background);
   border-radius: var(--radius-control);
   padding: var(--space-1) var(--space-2-5);
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
 }
@@ -93,7 +93,7 @@
   }
 
 .settingsHealthError small {
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
   }
 
@@ -135,7 +135,7 @@
     font-size: var(--font-size-caption);
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
   }
 
 .settingsHealthSummaryTile[data-empty="true"] {
@@ -175,7 +175,7 @@
   }
 
 .settingsHealthSummaryTile[data-tone="neutral"] strong {
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
   }
 
 .settingsHealthBlockers {
@@ -198,7 +198,7 @@
   }
 
 .settingsHealthLayer > header small {
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
   }
 
@@ -253,20 +253,20 @@
 
 .settingsHealthSignalScope {
     font-size: var(--font-size-caption);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     letter-spacing: 0.04em;
   }
 
 .settingsHealthSignalMessage {
     margin: 0;
     font-size: var(--font-size-ui);
-    color: var(--foreground-80);
+    color: var(--foreground-secondary);
     line-height: 1.5;
   }
 
 .settingsHealthSignalDetail {
     font-size: var(--font-size-caption);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     line-height: 1.45;
   }
 
@@ -276,7 +276,7 @@
     align-items: center;
     gap: var(--space-2-5);
     font-size: var(--font-size-caption);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
   }
 
 .settingsHealthSignalMeta code {
@@ -284,7 +284,7 @@
     background: var(--foreground-5);
     border-radius: var(--radius-control);
     padding: 1px var(--space-1);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
   }
 
 .settingsHealthSignalBlocker {
@@ -312,7 +312,7 @@
     border: 1px dashed var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.55;
   }

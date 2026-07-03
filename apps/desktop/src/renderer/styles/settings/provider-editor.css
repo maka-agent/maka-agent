@@ -7,7 +7,7 @@
 
 .providerEditor p {
   margin: 0;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   line-height: 1.4;
 }
@@ -45,7 +45,7 @@
 }
 
 .catalogTabs small {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   line-height: 1.2;
 }
@@ -89,13 +89,13 @@
 
 .providerCatalogCount {
   margin-left: var(--space-2);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
 }
 
 .providerCatalogChevron {
   flex: 0 0 auto;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
 }
 
 /* category / preview / login badges — compact squared corners, never pills */
@@ -104,7 +104,7 @@
   width: fit-content;
   border-radius: var(--radius-control);
   background: var(--foreground-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: var(--space-0-5) var(--space-1-5);
   font-size: var(--font-size-caption);
   font-style: normal;
@@ -151,7 +151,7 @@
 .providerEditor label {
   display: grid;
   gap: var(--space-1-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   font-weight: 500;
 }
@@ -263,7 +263,7 @@
 .modelTableHeaderText small {
   font-size: var(--font-size-caption);
   line-height: 1.5;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .modelTable[data-source="fetched"] .modelTableHeaderText small {
@@ -275,7 +275,7 @@
 }
 
 .modelTableHeaderText .modelTableStickyHint {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .modelTableSearch {
@@ -302,7 +302,7 @@
   padding: var(--space-4);
   border-radius: var(--radius-surface);
   background: var(--background);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.55;
   text-align: center;
@@ -389,7 +389,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1.5px solid var(--foreground-40);
+  border: 1.5px solid var(--muted-foreground);
   background: transparent;
   position: relative;
 }
@@ -424,7 +424,7 @@
   background: transparent;
   font-family: var(--font-mono);
   font-size: var(--font-size-ui);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -450,7 +450,7 @@
   padding: 1px var(--space-1-5);
   border-radius: var(--radius-control);
   background: var(--foreground-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
   letter-spacing: 0;
@@ -487,7 +487,7 @@
      when stacked vertically. baseline-ui + /typeset both require this
      for any numeric data. */
   min-width: 0;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -598,7 +598,7 @@
 .providerMarketHeader p,
 .customProviderEntry p {
   margin: 0;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   line-height: 1.35;
 }
@@ -623,4 +623,4 @@
 }
 
 .enabledEmptyChip strong { font-size: var(--font-size-caption); font-weight: 700; }
-.enabledEmptyChip small { margin-top: var(--space-0-5); color: var(--foreground-50); font-size: var(--font-size-ui); }
+.enabledEmptyChip small { margin-top: var(--space-0-5); color: var(--muted-foreground); font-size: var(--font-size-ui); }

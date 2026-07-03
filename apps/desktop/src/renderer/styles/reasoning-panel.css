@@ -94,7 +94,7 @@
 .maka-reasoning-panel-chevron {
     font-size: var(--font-size-ui);
     line-height: 1;
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     transition: transform var(--duration-base) var(--ease-out-strong);
   }
 .maka-reasoning-panel[open] .maka-reasoning-panel-chevron {
@@ -105,7 +105,7 @@
     padding: var(--space-1-5) var(--space-2-5) var(--space-2);
     border-top: 1px solid oklch(from var(--info) l c h / 0.14);
     background: transparent;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
     line-height: 1.55;

@@ -18,7 +18,7 @@
     min-height: 32px;
     border-radius: var(--radius-modal);
     background: var(--foreground-3);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-ui);
     font-weight: 600;
     line-height: 1;
@@ -91,7 +91,7 @@
 .maka-hero p {
     margin: 0;
     max-width: 54ch;
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.55;
     text-wrap: pretty;

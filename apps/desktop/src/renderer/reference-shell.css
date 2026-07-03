@@ -10,9 +10,9 @@
   --color-bg-spotlight: oklch(from var(--background) calc(l - 0.03) c h);
   --color-text-base: var(--foreground);
   --color-text: var(--foreground);
-  --color-text-secondary: var(--foreground-70);
-  --color-text-tertiary: var(--foreground-50);
-  --color-text-quaternary: var(--foreground-40);
+  --color-text-secondary: var(--foreground-secondary);
+  --color-text-tertiary: var(--muted-foreground);
+  --color-text-quaternary: var(--muted-foreground);
   --color-text-on-primary: #fff;
   --color-border: var(--border);
   --color-border-secondary: var(--border);

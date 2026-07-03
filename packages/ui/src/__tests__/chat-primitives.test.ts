@@ -87,7 +87,7 @@ test('footer-action merge drops the UiButton base shell so the retired footer pi
     'px-[8px]',
     'py-[4px]',
     'rounded-[var(--radius-surface)]',
-    'text-[color:var(--foreground-50)]',
+    'text-[color:var(--muted-foreground)]',
     'text-[12px]',
   ]) {
     assert.ok(merged.includes(win), `footer pixel "${win}" must survive the merge`);
@@ -115,7 +115,7 @@ test('lineage-badge merge drops the UiButton base shell so the retired badge pix
     'px-[5px]',
     'py-[1px]',
     'rounded-[var(--radius-pill)]',
-    'text-[color:var(--foreground-50)]',
+    'text-[color:var(--muted-foreground)]',
     'text-[9px]',
   ]) {
     assert.ok(merged.includes(win), `lineage pixel "${win}" must survive the merge`);

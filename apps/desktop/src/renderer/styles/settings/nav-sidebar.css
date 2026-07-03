@@ -40,7 +40,7 @@
   padding: var(--space-1-5) var(--space-3);
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   font-weight: 500;
   text-align: left;
@@ -109,7 +109,7 @@
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: none;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   padding: var(--space-4) var(--space-3) var(--space-1-5);
 }
 
@@ -135,7 +135,7 @@
   border-radius: var(--radius-control);
   background: transparent;
   box-shadow: none;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   margin-inline: var(--space-1);
   padding: var(--space-1-5) var(--space-3);
   text-align: left;
@@ -228,7 +228,7 @@
   height: 24px;
   display: grid;
   place-items: center;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .settingsNavGlyph svg {
@@ -262,7 +262,7 @@
   border: 1px dashed oklch(from var(--info) l c h / 0.32);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.06);
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.5;
   width: fit-content;
@@ -312,7 +312,7 @@
 .settingsFeatureStatusHero p {
   margin: 0;
   max-width: 56ch;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   line-height: 1.45;
 }
@@ -322,13 +322,13 @@
   padding: 0 0 0 var(--space-3);
   display: grid;
   gap: var(--space-1);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   line-height: 1.45;
 }
 
 .settingsFeatureStatusList li::marker {
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
 }
 
 .settingsFeatureStatusHeroHeading {
@@ -497,7 +497,7 @@
 .settingsPageHeaderDescription {
   margin: 0;
   max-width: 56ch;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   line-height: 1.5;
   text-wrap: pretty;
@@ -569,7 +569,7 @@
    than a hairline. */
 .settingsSectionHeading {
   margin: var(--space-6) var(--space-0-5) var(--space-2-5);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -584,7 +584,7 @@
   min-height: 240px;
   display: grid;
   place-items: center;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
 }
 
@@ -730,7 +730,7 @@
 .settingsField small {
   display: block;
   margin-top: var(--space-1-5);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   /* Hint is the most-read body text on the page; use the base scale so
      it clears the 14px legibility floor. */
   font-size: var(--font-size-base);

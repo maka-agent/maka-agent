@@ -15,7 +15,7 @@
   border: 0;
   border-radius: var(--radius-surface);
   background: transparent;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   padding: var(--space-1-5) var(--space-2-5);
   text-align: left;
 }
@@ -40,7 +40,7 @@
 .settingsBotList em {
   font-size: var(--font-size-caption);
   font-style: normal;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .settingsBotList em[data-tone="info"] { color: var(--status-running); }
@@ -65,7 +65,7 @@
   border: 1px solid var(--foreground-10);
   border-radius: var(--radius-pill);
   padding: 0 var(--space-1-5);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-style: normal;
   letter-spacing: 0.04em;
 }
@@ -171,14 +171,14 @@
   }
 .settingsBotHero small,
   .settingsHelpText {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-ui);
     line-height: 1.5;
   }
 .settingsBotEnableHint {
     display: block;
     margin-top: var(--space-1);
-    color: var(--warning-text, var(--foreground-70));
+    color: var(--warning-text, var(--foreground-secondary));
   }
 .settingsBotConfigDocLink {
     color: var(--bot-brand-color, var(--bot-brand-default));
@@ -196,7 +196,7 @@
     padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-1-5);
     border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--foreground) 5%, transparent);
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
     font-weight: 500;
     letter-spacing: 0.01em;
@@ -205,7 +205,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--foreground-40);
+    background: var(--muted-foreground);
   }
 .settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--status-running); }
 .settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
@@ -237,7 +237,7 @@
   }
 .settingsBotStatusGrid dt {
     margin-bottom: var(--space-1);
-    color: var(--foreground-40);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
   }
 .settingsBotStatusGrid dd {
@@ -248,7 +248,7 @@
   }
 .settingsBotReason {
     border-left: 2px solid var(--focus-ring);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: 1.5;
     padding-left: var(--space-2-5);
@@ -290,7 +290,7 @@
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: 0 var(--space-2);
   font-size: var(--font-size-caption);
 }
@@ -319,7 +319,7 @@
 
 .settingsMetricCard small,
 .settingsMetricCard span {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
 }
 
@@ -339,13 +339,13 @@
 .settingsStatsTable th,
 .settingsStatsTable td {
   border-bottom: 1px solid var(--border);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: var(--space-1) var(--space-2);
   text-align: left;
 }
 
 .settingsStatsTable th {
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-weight: 600;
 }
 
@@ -357,7 +357,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   line-height: 1;
 }
 
@@ -390,7 +390,7 @@
   min-height: 18px;
   border-radius: var(--radius-control);
   background: var(--foreground-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: 0 var(--space-1-5);
   font-size: var(--font-size-caption);
 }

@@ -38,12 +38,12 @@ import { cva, type VariantProps } from 'class-variance-authority';
 const navRowVariants = cva(
   [
     'min-h-[30px] gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
-    'text-left text-sm leading-[1.43] text-[var(--foreground-80)]',
+    'text-left text-sm leading-[1.43] text-[var(--foreground-secondary)]',
     'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)]',
     'hover:bg-foreground/6 hover:text-foreground',
     'data-[active=true]:bg-foreground/9 data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
     'data-[active=true]:[&_.maka-nav-icon]:text-foreground',
-    '[&_.maka-nav-count]:bg-foreground/6 [&_.maka-nav-count]:text-[var(--foreground-40)]',
+    '[&_.maka-nav-count]:bg-foreground/6 [&_.maka-nav-count]:text-[var(--muted-foreground)]',
     'data-[active=true]:[&_.maka-nav-count]:bg-foreground/8 data-[active=true]:[&_.maka-nav-count]:text-foreground',
     'aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:hover:bg-transparent',
     'data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-55 data-[disabled=true]:hover:bg-transparent',
@@ -52,7 +52,7 @@ const navRowVariants = cva(
     variants: {
       tone: {
         default: '',
-        newTask: 'text-foreground [&_.maka-nav-icon]:text-[var(--foreground-70)]',
+        newTask: 'text-foreground [&_.maka-nav-icon]:text-[var(--foreground-secondary)]',
       },
     },
     defaultVariants: {
@@ -65,19 +65,19 @@ type NavRowVariants = VariantProps<typeof navRowVariants>;
 
 const settingsButtonClass =
   'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-2 py-1.5 ' +
-  'text-left text-sm font-medium text-[var(--foreground-60)] ' +
+  'text-left text-sm font-medium text-[var(--foreground-secondary)] ' +
   'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)] ' +
   'hover:bg-foreground/6 hover:text-foreground';
 
 const rowActionVariants = cva(
   [
     'grid h-[26px] w-[26px] place-items-center rounded-sm border-0 bg-transparent',
-    'text-[var(--foreground-60)]',
+    'text-[var(--foreground-secondary)]',
     'transition-[background-color,color,box-shadow] duration-[var(--duration-quick)] ease-[var(--ease-out-strong)]',
     'hover:bg-foreground/5 hover:text-foreground',
     'focus-visible:outline-none focus-visible:bg-foreground/5 focus-visible:text-foreground focus-visible:ring-[3px] focus-visible:ring-accent/14',
-    'disabled:cursor-default disabled:bg-transparent disabled:text-[var(--foreground-40)] disabled:shadow-none',
-    'disabled:hover:bg-transparent disabled:hover:text-[var(--foreground-40)]',
+    'disabled:cursor-default disabled:bg-transparent disabled:text-[var(--muted-foreground)] disabled:shadow-none',
+    'disabled:hover:bg-transparent disabled:hover:text-[var(--muted-foreground)]',
     'data-[active=true]:text-accent',
     'data-[pending=true]:cursor-progress data-[pending=true]:bg-foreground/5 data-[pending=true]:text-foreground data-[pending=true]:opacity-78',
   ],

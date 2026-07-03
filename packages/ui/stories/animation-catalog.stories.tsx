@@ -15,7 +15,7 @@ export const RetainedFunctionalMotion: Story = {
     <div style={{ alignItems: 'end', display: 'grid', gap: 24, gridTemplateColumns: 'repeat(3, minmax(96px, 1fr))' }}>
       <div style={{ alignItems: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
         <Spinner style={{ height: 20, width: 20 }} />
-        <span style={{ color: 'var(--foreground-70)', fontSize: 12, fontWeight: 600 }}>Spinner</span>
+        <span style={{ color: 'var(--foreground-secondary)', fontSize: 12, fontWeight: 600 }}>Spinner</span>
       </div>
       <div style={{ alignItems: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
         <span
@@ -29,7 +29,7 @@ export const RetainedFunctionalMotion: Story = {
             width: 10,
           }}
         />
-        <span style={{ color: 'var(--foreground-70)', fontSize: 12, fontWeight: 600 }}>Status pulse</span>
+        <span style={{ color: 'var(--foreground-secondary)', fontSize: 12, fontWeight: 600 }}>Status pulse</span>
       </div>
       <div style={{ alignItems: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
         <span
@@ -44,7 +44,7 @@ export const RetainedFunctionalMotion: Story = {
             width: 96,
           }}
         />
-        <span style={{ color: 'var(--foreground-70)', fontSize: 12, fontWeight: 600 }}>Shimmer</span>
+        <span style={{ color: 'var(--foreground-secondary)', fontSize: 12, fontWeight: 600 }}>Shimmer</span>
       </div>
     </div>
   ),
@@ -65,7 +65,7 @@ export const DurationScale: Story = {
       <section style={{ display: 'grid', gap: 24, maxWidth: 760 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Duration Scale</h2>
-          <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+          <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
             按意图选择时长,不凭感觉。token 之外的值需要注释说明。
           </p>
         </div>
@@ -74,8 +74,8 @@ export const DurationScale: Story = {
             <div key={name} style={{ display: 'grid', gap: 8 }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
                 <strong style={{ fontSize: 14, fontWeight: 650 }}>{name}</strong>
-                <code style={{ color: 'var(--foreground-60)', fontSize: 11 }}>{token}</code>
-                <span style={{ fontSize: 11, color: 'var(--foreground-50)' }}>{value}</span>
+                <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{token}</code>
+                <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{value}</span>
               </div>
               <div
                 style={{
@@ -101,7 +101,7 @@ export const DurationScale: Story = {
                   }}
                 />
               </div>
-              <span style={{ color: 'var(--foreground-60)', fontSize: 12 }}>{usage}</span>
+              <span style={{ color: 'var(--foreground-secondary)', fontSize: 12 }}>{usage}</span>
             </div>
           ))}
         </div>
@@ -125,7 +125,7 @@ export const EasingScale: Story = {
       <section style={{ display: 'grid', gap: 24, maxWidth: 760 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Easing Scale</h2>
-          <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+          <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
             自定义曲线,内置 CSS easing 太弱。--ease-out-strong 用于反馈,--ease-in-out-strong 用于移动,--ease-drawer 用于 sheet,--ease-linear 用于无限循环功能性动画。
           </p>
         </div>
@@ -134,8 +134,8 @@ export const EasingScale: Story = {
             <div key={name} style={{ display: 'grid', gap: 8 }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
                 <strong style={{ fontSize: 14, fontWeight: 650 }}>{name}</strong>
-                <code style={{ color: 'var(--foreground-60)', fontSize: 11 }}>{token}</code>
-                <span style={{ fontSize: 11, color: 'var(--foreground-50)' }}>{value}</span>
+                <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{token}</code>
+                <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{value}</span>
               </div>
               <div
                 style={{
@@ -161,7 +161,7 @@ export const EasingScale: Story = {
                   }}
                 />
               </div>
-              <span style={{ color: 'var(--foreground-60)', fontSize: 12 }}>{usage}</span>
+              <span style={{ color: 'var(--foreground-secondary)', fontSize: 12 }}>{usage}</span>
             </div>
           ))}
         </div>

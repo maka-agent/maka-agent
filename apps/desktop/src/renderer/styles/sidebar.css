@@ -134,7 +134,7 @@
   width: var(--maka-sidebar-topbar-button-size);
   height: var(--maka-sidebar-topbar-button-size);
   border-radius: var(--radius-control);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
 }
 
 .maka-shell-topbar-button:hover {
@@ -247,7 +247,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .maka-panel-detail[data-agents-view="skills"] .maka-workspace-top-actions,
@@ -260,7 +260,7 @@
   width: 24px;
   height: 24px;
   border-radius: var(--radius-control);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .maka-shell-topbar-button,
@@ -325,7 +325,7 @@
   height: 22px;
   border: 0;
   background: transparent;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: 1.0667em;
   line-height: 1;
   border-radius: var(--radius-control);
@@ -355,7 +355,7 @@
   background: oklch(from var(--foreground) l c h / 0.03);
 }
 .maka-search-modal-input-icon {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 .maka-search-modal-input {
   width: 100%;
@@ -364,7 +364,7 @@
   line-height: 1.4;
 }
 .maka-search-modal-input::placeholder {
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
 }
 .maka-search-modal-input::-webkit-search-cancel-button {
   display: none;
@@ -373,7 +373,7 @@
   width: 22px;
   height: 22px;
   border-radius: var(--radius-control);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 .maka-search-modal-clear:hover {
   background: oklch(from var(--foreground) l c h / 0.06);
@@ -396,7 +396,7 @@
 .maka-search-modal-placeholder {
   margin: var(--space-3) var(--space-2);
   font-size: var(--font-size-ui);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   text-align: center;
 }
 /* PR-UX-POLISH-1 commit 5: state cards for incognito / error.
@@ -422,7 +422,7 @@
 }
 .maka-search-modal-state .maka-search-modal-state-detail {
   font-size: var(--font-size-caption);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .maka-search-modal-result-summary {
@@ -432,7 +432,7 @@
   gap: var(--space-3);
   padding: 0 var(--space-1-5) var(--space-1-5);
   font-size: var(--font-size-caption);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .maka-search-modal-results {
@@ -483,14 +483,14 @@
 }
 .maka-search-modal-result-meta {
   font-size: var(--font-size-caption);
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .maka-search-modal-result-snippet {
   font-size: var(--font-size-caption);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   line-height: 1.45;
   /* Plain text snippet — backend redacts secrets + bounds to
    * SNIPPET_MAX_CODE_POINTS. We cap visual lines at 3 so very
@@ -592,7 +592,7 @@
 .maka-nav-icon {
   width: var(--icon-size);
   height: var(--icon-size);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   justify-self: center;
 }
 
@@ -694,7 +694,7 @@
   align-items: baseline;
   gap: var(--space-0-5);
   padding: 0 var(--space-1-5) var(--space-0-5);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -953,7 +953,7 @@
 }
 
 .maka-prompt-chip-hint {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.45;
   overflow: hidden;
@@ -990,7 +990,7 @@
 
 .maka-deep-research-workflow-body {
   display: block;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.45;
 }
@@ -1052,7 +1052,7 @@
 .maka-deep-research-evidence-body,
 .maka-deep-research-progress-body {
   min-width: 0;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.45;
 }

@@ -27,7 +27,7 @@ export const Layering: Story = {
     <section style={{ display: 'grid', gap: 24, maxWidth: 760 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Layering / Z-index</h2>
-        <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
           语义 z-index token,按值排序。值越大越在上层。裸 z-index 数字在 renderer CSS 中被 contract 禁止。
         </p>
       </div>
@@ -48,9 +48,9 @@ export const Layering: Story = {
           >
             <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
               <strong style={{ fontSize: 13, fontWeight: 600 }}>{name}</strong>
-              <span style={{ color: 'var(--foreground-60)', fontSize: 11 }}>{usage}</span>
+              <span style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{usage}</span>
             </div>
-            <code style={{ color: 'var(--foreground-60)', fontSize: 11, textAlign: 'right' }}>{token}</code>
+            <code style={{ color: 'var(--foreground-secondary)', fontSize: 11, textAlign: 'right' }}>{token}</code>
             <span
               style={{
                 fontSize: 13,

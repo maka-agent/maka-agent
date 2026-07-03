@@ -355,7 +355,7 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     );
     assert.match(styles, /\.settingsWebSearchKeyRow > \.settingsPasswordField/);
     assert.match(styles, /\.settingsWebSearchQueryIntroRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/);
-    assert.match(styles, /\.settingsWebSearchDisabledReason\s*\{[\s\S]*?color:\s*var\(--foreground-50\);/);
+    assert.match(styles, /\.settingsWebSearchDisabledReason\s*\{[\s\S]*?color:\s*var\(--muted-foreground\);/);
   });
 
   it('Settings credential badge uses waiting-state copy instead of raw missing configuration copy', async () => {

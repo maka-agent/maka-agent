@@ -35,11 +35,9 @@ const foregroundScale = [
   ['foreground-2', '--foreground-2'],
   ['foreground-5', '--foreground-5'],
   ['foreground-10', '--foreground-10'],
-  ['foreground-50', '--foreground-50'],
-  ['foreground-40', '--foreground-40'],
-  ['foreground-60', '--foreground-60'],
-  ['foreground-80', '--foreground-80'],
-  ['foreground-95', '--foreground-95'],
+  ['muted-foreground', '--muted-foreground'],
+  ['foreground-secondary', '--foreground-secondary'],
+  ['foreground', '--foreground'],
 ] as const;
 
 const radiusSamples = [
@@ -88,8 +86,8 @@ function SwatchTile({ name, token, fill, usage }: { name: string; token: string;
         </span>
       </div>
       <strong style={{ fontSize: 12, fontWeight: 600 }}>{name}</strong>
-      <code style={{ color: 'var(--foreground-60)', fontSize: 11, wordBreak: 'break-word' }}>{token}</code>
-      <span style={{ color: 'var(--foreground-50)', fontSize: 10, lineHeight: 1.3 }}>{usage}</span>
+      <code style={{ color: 'var(--foreground-secondary)', fontSize: 11, wordBreak: 'break-word' }}>{token}</code>
+      <span style={{ color: 'var(--muted-foreground)', fontSize: 10, lineHeight: 1.3 }}>{usage}</span>
     </div>
   );
 }
@@ -105,7 +103,7 @@ function ScaleTile({ name, token }: { name: string; token: string }) {
           height: 32,
         }}
       />
-      <code style={{ color: 'var(--foreground-60)', fontSize: 10, wordBreak: 'break-word' }}>{name}</code>
+      <code style={{ color: 'var(--foreground-secondary)', fontSize: 10, wordBreak: 'break-word' }}>{name}</code>
     </div>
   );
 }
@@ -115,13 +113,13 @@ export const Colors: Story = {
     <section style={{ display: 'grid', gap: 24, maxWidth: 820 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Colors</h2>
-        <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
           六色哲学：其余派生色都是 foreground 的 alpha 叠加或 solid 混合。
         </p>
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>语义基色</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>语义基色</h3>
         <div
           style={{
             display: 'grid',
@@ -136,7 +134,7 @@ export const Colors: Story = {
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>强调色 alias</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>强调色 alias</h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {emphasisAliases.map((token) => (
             <code
@@ -146,7 +144,7 @@ export const Colors: Story = {
                 background: 'var(--foreground-5)',
                 padding: '4px 8px',
                 fontSize: 11,
-                color: 'var(--foreground-80)',
+                color: 'var(--foreground-secondary)',
                 border: '1px solid var(--border)',
               }}
             >
@@ -157,7 +155,7 @@ export const Colors: Story = {
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           前景色阶 (foreground-N)
         </h3>
         <div
@@ -196,8 +194,8 @@ export const Radius: Story = {
             <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
               <strong style={{ fontSize: 14, fontWeight: 650 }}>{name}</strong>
               <span style={{ fontSize: 28, fontWeight: 650, lineHeight: 1 }}>{value}</span>
-              <code style={{ color: 'var(--foreground-60)', fontSize: 11, wordBreak: 'break-word' }}>{token}</code>
-              <span style={{ color: 'var(--foreground-60)', fontSize: 12, lineHeight: 1.4 }}>{usage}</span>
+              <code style={{ color: 'var(--foreground-secondary)', fontSize: 11, wordBreak: 'break-word' }}>{token}</code>
+              <span style={{ color: 'var(--foreground-secondary)', fontSize: 12, lineHeight: 1.4 }}>{usage}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
               <div
@@ -231,13 +229,13 @@ export const PrimaryActions: Story = {
     <section style={{ display: 'grid', gap: 20, maxWidth: 760 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Primary Actions</h2>
-        <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
           variant 落到 token 上的实际效果。
         </p>
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           variant
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -251,7 +249,7 @@ export const PrimaryActions: Story = {
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           disabled
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -269,7 +267,7 @@ export const PrimaryActions: Story = {
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           size + icon
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -292,7 +290,7 @@ export const PrimaryActions: Story = {
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           loading
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -328,7 +326,7 @@ export const SemanticColors: Story = {
     <section style={{ display: 'grid', gap: 24, maxWidth: 820 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Semantic Color Roles</h2>
-        <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
           每个 semantic role 独立命名,即使当前多个 alias 指向同一值。PR5 将进一步分离 action/control。
         </p>
       </div>

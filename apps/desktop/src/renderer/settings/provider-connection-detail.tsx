@@ -380,11 +380,11 @@ export function ConnectionDetail(props: {
         </span>
       </header>
       <FieldRoot className="grid gap-1.5">
-        <Label className="text-xs text-foreground-60">连接标识</Label>
+        <Label className="text-xs text-foreground-secondary">连接标识</Label>
         <Input value={connection.slug} disabled aria-label="模型连接标识" />
       </FieldRoot>
       <FieldRoot className="grid gap-1.5">
-        <Label className="text-xs text-foreground-60">服务地址</Label>
+        <Label className="text-xs text-foreground-secondary">服务地址</Label>
         {hasFixedOAuthBaseUrl && <FieldDescription>OAuth 固定</FieldDescription>}
         <Input
           value={hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl}
@@ -398,7 +398,7 @@ export function ConnectionDetail(props: {
       </FieldRoot>
       {needsApiKey && (
         <FieldRoot className="grid gap-1.5">
-          <Label className="text-xs text-foreground-60">模型密钥</Label>
+          <Label className="text-xs text-foreground-secondary">模型密钥</Label>
           {hasSecret === true && <FieldDescription>已设置，粘贴新值可替换</FieldDescription>}
           {hasSecret === 'loading' && <FieldDescription>正在读取状态</FieldDescription>}
           {hasSecret === 'error' && <FieldDescription>凭据状态未知</FieldDescription>}

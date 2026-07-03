@@ -28,7 +28,7 @@ export const Elevation: Story = {
     <section style={{ display: 'grid', gap: 24, maxWidth: 820 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Elevation & Borders</h2>
-        <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
           4 个 shadow recipe 承载所有视觉层级。视觉边框走 shadow-ring,布局边框保留 border。
         </p>
       </div>
@@ -50,13 +50,13 @@ export const Elevation: Story = {
               }}
             />
             <strong style={{ fontSize: 12, fontWeight: 600 }}>{name}</strong>
-            <code style={{ color: 'var(--foreground-60)', fontSize: 11 }}>{token}</code>
-            <span style={{ color: 'var(--foreground-50)', fontSize: 10, lineHeight: 1.3 }}>{usage}</span>
+            <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{token}</code>
+            <span style={{ color: 'var(--muted-foreground)', fontSize: 10, lineHeight: 1.3 }}>{usage}</span>
           </div>
         ))}
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>Border tokens</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>Border tokens</h3>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           {borderTokens.map(([name, token, usage]) => (
             <div key={name} style={{ display: 'grid', gap: 4, placeItems: 'center' }}>
@@ -68,8 +68,8 @@ export const Elevation: Story = {
                   width: 72,
                 }}
               />
-              <code style={{ color: 'var(--foreground-60)', fontSize: 10 }}>{token}</code>
-              <span style={{ color: 'var(--foreground-50)', fontSize: 10 }}>{usage}</span>
+              <code style={{ color: 'var(--foreground-secondary)', fontSize: 10 }}>{token}</code>
+              <span style={{ color: 'var(--muted-foreground)', fontSize: 10 }}>{usage}</span>
             </div>
           ))}
         </div>

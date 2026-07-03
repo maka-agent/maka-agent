@@ -55,7 +55,7 @@
 
 .settingsNotice[data-tone="passive"] {
   background: var(--foreground-5);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .settingsActionRow {
@@ -114,7 +114,7 @@
 .settingsAboutVersion {
   font-family: var(--font-mono);
   font-size: var(--font-size-ui);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
@@ -131,7 +131,7 @@
 
 .settingsAboutTagline {
   margin: 0;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.55;
 }
@@ -159,7 +159,7 @@
   padding: 0 0 0 var(--space-4);
   display: grid;
   gap: var(--space-1-5);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.55;
 }
@@ -359,7 +359,7 @@
   margin: 0;
   font-size: var(--font-size-caption);
   font-weight: 500;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   letter-spacing: 0;
 }
 
@@ -393,7 +393,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   transition: background var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }
 .settingsPasswordToggle:hover {
@@ -445,7 +445,7 @@
 .settingsFieldHint {
   font-style: normal;
   font-weight: 400;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   margin-left: var(--space-1-5);
 }
@@ -518,14 +518,14 @@
   border-radius: var(--radius-surface);
   background: var(--foreground-5);
   border: 1px dashed var(--border);
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: 1.6em;
 }
 .settingsBotScanLoginStatus {
   margin: 0;
   font-size: var(--font-size-caption);
   font-weight: 500;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
 }
 .settingsBotScanLoginStatus[data-status="confirmed"] { color: var(--success-text); }
 .settingsBotScanLoginStatus[data-status="error"] { color: var(--destructive-text); }
@@ -547,7 +547,7 @@
   appearance: none;
   border: 0;
   background: transparent;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   padding: var(--space-1) 0;
   font-size: var(--font-size-ui);
   text-decoration: underline;
@@ -604,7 +604,7 @@
 .settingsWechatQrHeader p,
 .settingsWechatQrCaption {
   margin: 0;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   line-height: 1.5;
 }
@@ -617,7 +617,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .settingsWechatQrClose:hover {
@@ -666,7 +666,7 @@
   border: 1px dashed var(--border);
   border-radius: var(--radius-surface);
   background: var(--foreground-3);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: var(--space-4);
   font-size: var(--font-size-ui);
   line-height: 1.5;
@@ -731,7 +731,7 @@
 }
 
 .settingsThemeLabel small {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -745,7 +745,7 @@
 
 .settingsSubheading {
   margin: 0;
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   font-weight: 700;
   letter-spacing: 0.04em;

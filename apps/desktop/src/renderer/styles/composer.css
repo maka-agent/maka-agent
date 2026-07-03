@@ -70,7 +70,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font: inherit;
   font-size: var(--font-size-caption);
   line-height: 1.25;
@@ -84,7 +84,7 @@
      background ≈ #f7f7f7) was indistinguishable from the gray plate
      (≈ #ebebeb). Alpha overlay reads consistently regardless of
      plate tone. */
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   background: oklch(from var(--foreground) l c h / 0.06);
 }
 
@@ -102,7 +102,7 @@
   min-width: 0;
   max-width: 180px;
   overflow: hidden;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -114,7 +114,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
 }
 
@@ -227,7 +227,7 @@
   align-items: center;
   gap: var(--space-1);
   margin-top: var(--space-2-5);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
 }
 
@@ -273,12 +273,12 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-control);
   background: var(--foreground-5);
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   border: 1px solid oklch(from var(--foreground) l c h / 0.03);
 }
 
 .maka-permission-age {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   white-space: nowrap;
 }
@@ -303,7 +303,7 @@
 
 .maka-permission-line {
   margin: 0;
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
 }
 
@@ -330,7 +330,7 @@
 
 .maka-permission-meta {
   margin: 0;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
 }
 

@@ -41,13 +41,13 @@ export const Spacing: Story = {
     <section style={{ display: 'grid', gap: 24, maxWidth: 820 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Spacing</h2>
-        <p style={{ color: 'var(--foreground-60)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--foreground-secondary)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>
           基础步长 --spacing: 4px。14 个 --space-* token 覆盖全部 padding/gap/margin。Tailwind 的 p-N/gap-N/m-N 通过 @theme inline 共用同一把尺子。1px 作为 hairline literal 保留，不进 scale。
         </p>
       </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           --space-* scale
         </h3>
         <div
@@ -65,7 +65,7 @@ export const Spacing: Story = {
       </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           Hairline
         </h3>
         <div
@@ -76,7 +76,7 @@ export const Spacing: Story = {
             alignItems: 'center',
           }}
         >
-          <code style={{ color: 'var(--foreground-60)', fontSize: 11 }}>1px literal</code>
+          <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>1px literal</code>
           <div
             style={{
               height: 1,
@@ -84,14 +84,14 @@ export const Spacing: Story = {
               width: '100%',
             }}
           />
-          <span style={{ color: 'var(--foreground-50)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ color: 'var(--muted-foreground)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
             1px
           </span>
         </div>
       </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-70)' }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: 'var(--foreground-secondary)' }}>
           布局几何
         </h3>
         <div
@@ -114,7 +114,7 @@ export const Spacing: Story = {
 function ScaleRow({ token, px, usage }: { token: string; px: number; usage: string }) {
   return (
     <>
-      <code style={{ color: 'var(--foreground-60)', fontSize: 11 }}>{token}</code>
+      <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{token}</code>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <div
           style={{
@@ -126,11 +126,11 @@ function ScaleRow({ token, px, usage }: { token: string; px: number; usage: stri
             flexShrink: 0,
           }}
         />
-        <span style={{ color: 'var(--foreground-50)', fontSize: 10, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span style={{ color: 'var(--muted-foreground)', fontSize: 10, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {usage}
         </span>
       </div>
-      <span style={{ color: 'var(--foreground-50)', fontSize: 11, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+      <span style={{ color: 'var(--muted-foreground)', fontSize: 11, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
         {px === 0 ? '0' : `${px}px`}
       </span>
     </>
@@ -140,11 +140,11 @@ function ScaleRow({ token, px, usage }: { token: string; px: number; usage: stri
 function FragmentRow({ token, value, usage }: { token: string; value: string; usage: string }) {
   return (
     <>
-      <code style={{ color: 'var(--foreground-60)', fontSize: 11 }}>{token}</code>
-      <span style={{ color: 'var(--foreground-50)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+      <code style={{ color: 'var(--foreground-secondary)', fontSize: 11 }}>{token}</code>
+      <span style={{ color: 'var(--muted-foreground)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </span>
-      <span style={{ color: 'var(--foreground-50)', fontSize: 10, lineHeight: 1.3 }}>{usage}</span>
+      <span style={{ color: 'var(--muted-foreground)', fontSize: 10, lineHeight: 1.3 }}>{usage}</span>
     </>
   );
 }

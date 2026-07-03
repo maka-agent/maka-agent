@@ -122,7 +122,7 @@
     font-weight: 600;
   }
 .settingsConnectionRowText small {
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
   }
@@ -136,7 +136,7 @@
     font-weight: 600;
     letter-spacing: 0;
     background: var(--foreground-5);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     white-space: nowrap;
   }
 .settingsConnectionBadge[data-tone="success"] {
@@ -159,7 +159,7 @@
   }
 .settingsConnectionDetail {
     margin: 0;
-    color: var(--foreground-70);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.45;
   }
@@ -185,7 +185,7 @@
     font-weight: 650;
   }
 .settingsAuthContractText span {
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.45;
   }
@@ -202,7 +202,7 @@
 .settingsAuthContractBadge {
     padding: var(--space-0-5) var(--space-2);
     background: var(--foreground-5);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
   }
 .settingsAuthContractBadge[data-tone="success"],
   .settingsAuthActionPill[data-tone="success"] {
@@ -228,7 +228,7 @@
     margin: 0;
     display: flex;
     gap: var(--space-3);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     font-family: var(--font-mono);
   }
@@ -258,7 +258,7 @@
 .settingsAuthActionPill {
     padding: var(--space-0-5) var(--space-2);
     background: var(--foreground-5);
-    color: var(--foreground-60);
+    color: var(--foreground-secondary);
   }
 .settingsAuthActionPill[data-kind="preview"] {
     border: 1px dashed oklch(from var(--info) l c h / 0.30);
@@ -278,7 +278,7 @@
 .settingsRow small {
     display: block;
     margin-top: var(--space-1);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-ui);
     line-height: 1.4;
   }
