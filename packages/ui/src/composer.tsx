@@ -510,7 +510,10 @@ export const Composer = forwardRef<
       onDrop={onComposerDrop}
       onSubmit={submit}
     >
-      <div className="maka-composer-inner composerInner agents-parchment-paper-surface">
+      <div
+        className="maka-composer-inner composerInner agents-parchment-paper-surface"
+        data-streaming={props.streaming ? 'true' : undefined}
+      >
         <UiTextarea
           ref={textareaRef}
           name="text"

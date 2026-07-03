@@ -334,6 +334,54 @@
   transition: background 120ms var(--ease-out-strong);
 }
 
+/* D6 waiting-state spectrum #1 (taste v1 §9 Live Status): toasts used
+   to POP into existence with zero motion. A 240ms overshoot entrance
+   (rise + slight over-scale, then settle) reads as "something arrived"
+   without slowing anyone down — Emil's toast tier is 200-300ms and the
+   global reduced-motion block clamps it to a single 0.01ms frame. */
+@keyframes maka-toast-enter {
+  0%   { opacity: 0; transform: translateY(12px) scale(0.97); }
+  70%  { opacity: 1; transform: translateY(-2px) scale(1.005); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.maka-toast {
+  animation: maka-toast-enter 240ms var(--ease-out-strong);
+}
+
+/* D6 spectrum #2 (Command Input processing): while the assistant is
+   streaming, a slow top-edge light sweep on the composer shell keeps
+   "working" visible at the exact place the user's attention returns
+   to. 1px line, foreground-derived, infinite = functional status. */
+.maka-composer-inner[data-streaming="true"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.maka-composer-inner[data-streaming="true"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(from var(--status-running) l c h / 0.55) 50%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: maka-processing-sweep 2.2s var(--ease-in-out-strong) infinite;
+  pointer-events: none;
+}
+
+@keyframes maka-processing-sweep {
+  0%   { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
+}
+
 .maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }
 .maka-toast[data-variant="warning"] { border-left: 3px solid var(--info); }
 .maka-toast[data-variant="error"]   { border-left: 3px solid var(--destructive); }

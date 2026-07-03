@@ -79,6 +79,11 @@ describe('issue #406 design-system governance contract', () => {
       'animate-spin',
       'maka-composer-permission-pulse',
       'maka-composer-stream-bounce',
+      // D6 waiting-state spectrum: toast arrival overshoot (attention
+      // guidance for new information) + composer streaming top sweep
+      // (visible "working" status) — both functional, not decorative.
+      'maka-toast-enter',
+      'maka-processing-sweep',
       'maka-cursor',
       'maka-list-row-streaming-pulse',
       'maka-pulse',
