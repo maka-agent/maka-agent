@@ -120,7 +120,7 @@ describe('Storybook baseline contract', () => {
     assert.match(emptySrc, /\bSpinner\b/, 'empty.stories.tsx Loading story must cover Spinner');
   });
 
-  it('covers curated primitive components with stories', () => {
+  it('curated primitive components appear in story source', () => {
     const storiesDir = join(REPO_ROOT, 'packages', 'ui', 'stories');
     const storyFiles = readdirSync(storiesDir).filter((f) => f.endsWith('.stories.tsx'));
     const allStorySrc = storyFiles.map((f) => readFileSync(join(storiesDir, f), 'utf8')).join('\n');
@@ -137,8 +137,8 @@ describe('Storybook baseline contract', () => {
     assert.deepEqual(
       missing,
       [],
-      `Curated primitive components without JSX usage in any story: ${missing.join(', ')}. ` +
-        'This is a curated baseline, not an exhaustive export check; ' +
+      `Curated primitive components not found in story source: ${missing.join(', ')}. ` +
+        'This is a textual smoke check, not an exhaustive export or JSX AST check; ' +
         'typecheck:stories is the primary drift guard for prop/type changes.',
     );
   });
