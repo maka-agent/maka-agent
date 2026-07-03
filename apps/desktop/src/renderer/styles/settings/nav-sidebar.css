@@ -818,5 +818,3 @@
 .settingsField[data-orient="horizontal"] + .settingsField[data-orient="horizontal"] {
   border-top: 0;
 }
-
-   inputs inside settings rows were at 12px / 26px min-height with

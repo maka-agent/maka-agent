@@ -737,9 +737,6 @@
   --color-hover: var(--hover);
   --color-active: var(--active);
   --color-user-message-bubble: var(--user-message-bubble);
-
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
 }
 
 /* =============================================================================

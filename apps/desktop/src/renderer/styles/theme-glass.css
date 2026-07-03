@@ -202,36 +202,6 @@ html[data-os="darwin"] .maka-nav-row {
   }
 }
 
-@layer base {
-  /* §13.4 — `[data-parchment-brand-motion]` auto-tints any third-party brand
-     motion (Lottie / SVG / GIF) to match the current theme. Drop the attribute
-     on a brand-motion element and these filters do the per-theme tinting. */
-  html[data-theme="light-parchment"] [data-parchment-brand-motion],
-  html[data-theme="dark-parchment"] [data-parchment-brand-motion] {
-    filter: hue-rotate(-85deg) saturate(0.65);
-  }
-
-  html[data-theme="dark"] [data-parchment-brand-motion],
-  html[data-theme="dark-glass"] [data-parchment-brand-motion],
-  html[data-theme="classic-dark"] [data-parchment-brand-motion] {
-    filter: brightness(0.8);
-  }
-
-  /* §13.3 — Banner-style SVG color rewrite. Any banner / hero SVG that
-     wears `[data-banner-logo]` or `[data-skill-deco-cover]` gets its brand
-     strokes/fills auto-mapped to parchment-neutral tokens. We don't ship a
-     maka-specific mascot SVG yet, but the rule sits ready for when we do. */
-  html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[fill*="accent"],
-  html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[fill*="accent"] {
-    fill: oklch(from var(--foreground) l c h / 0.08);
-  }
-
-  html[data-theme="light-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"],
-  html[data-theme="dark-parchment"] [data-banner-logo] :is(path, circle)[stroke*="accent"] {
-    stroke: var(--card-border-color);
-  }
-}
-
 /* PR-FE-BUG-HUNT-8 (kenji aesthetic-audit reminder 9, finding #3):
    `[data-gradual-blur-layer]` block removed. Originally ported from
    atlas §15.2 as a generic linear-gradient mask + `backdrop-filter:

@@ -55,6 +55,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.27.7",
+    "postcss": "8.5.15",
     "storybook": "^10.4.6",
     "tailwindcss": "^4.3.1"
   }
