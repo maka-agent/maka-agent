@@ -83,10 +83,15 @@
    "parchment glass" never shipped). html[data-os] (0,1,1) outranks
    :root (0,1,0), so the darwin override now actually applies. */
 html[data-os="darwin"] {
-  --color-bg-layout: #fdfcfa;
-  --color-bg-highlight: #c9c4b8;
-  --color-bg-container: #faf9f6;
-  --color-bg-element: #f5f3ee;
+  /* Neutral-cool glass (owner decision 2026-07-03): the QoderWork
+     light-glass extraction was warm ivory (#fdfcfa/#faf9f6/#f5f3ee),
+     which read beige against vibrancy blur. zinc-family equivalents
+     keep the same lightness steps but zero warm cast. Mint selection
+     stays — sage is the accent, not the neutral. */
+  --color-bg-layout: #fcfcfd;
+  --color-bg-highlight: #d4d4d8;
+  --color-bg-container: #fafafa;
+  --color-bg-element: #f4f4f5;
   --color-state-selected: #8ee5a1;
   --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
 }
@@ -98,10 +103,10 @@ html[data-os="darwin"] {
    the selected row's "color block IS the signal" behavior with ~7:1
    contrast against the dark foreground. */
 html[data-os="darwin"].dark {
-  --color-bg-layout: oklch(0.22 0.006 96);
-  --color-bg-highlight: oklch(0.34 0.008 96);
-  --color-bg-container: oklch(0.24 0.006 96);
-  --color-bg-element: oklch(0.27 0.006 96);
+  --color-bg-layout: oklch(0.22 0.004 286);
+  --color-bg-highlight: oklch(0.34 0.005 286);
+  --color-bg-container: oklch(0.24 0.004 286);
+  --color-bg-element: oklch(0.27 0.004 286);
   --color-state-selected: oklch(0.42 0.075 152);
 }
 

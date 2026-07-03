@@ -99,7 +99,7 @@
    * scrim. Now: blur 14px + 0.42 scrim. The dialog itself shrinks
    * (see .settingsModal below) so the visible "frame" of chat
    * around the dialog grows — that gives the modal feeling. */
-  background: oklch(0.40 0.01 80 / 0.42);
+  background: oklch(0.40 0.004 286 / 0.42);
   backdrop-filter: blur(14px) saturate(0.85);
   -webkit-backdrop-filter: blur(14px) saturate(0.85);
   padding: var(--space-8);

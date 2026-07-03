@@ -63,7 +63,7 @@
   /* PR-UI-FRAME-4 (2026-06-22): pull back from the heavy gray plate.
      参考实现's sidebar is a light glass-like near-white gradient, with
      depth coming from translucent overlays and active rows, not a dark slab. */
-  --surface-canvas: oklch(0.976 0.003 95);
+  --surface-canvas: oklch(0.976 0.002 286);
   /* PR-GRAY-CARD-LIFT-3 (WAWQAQ msg `053ca971`): in the new
      gray-plate / white-card hierarchy, "elevated" cards live on the
      same pure white as base content cards — the lift comes from the
@@ -75,7 +75,12 @@
   /* PR-UI-ALIGN-0: warm near-black (#141414-like) at a faint warm hue, so
      ALL derived grays (#636261/#838280-like) pick up the reference's warm cast
      instead of reading as cold neutral. */
-  --foreground: oklch(0.17 0.005 75);
+  /* Neutral-cool ink (owner decision 2026-07-03, supersedes D7): the
+     warm hue-75 near-black made every derived gray read parchment-
+     beige — fighting the glass/transparency language the shell is
+     built on. zinc-family hue 286 at the same chroma reads clean and
+     cool like the reference sidebar. */
+  --foreground: oklch(0.17 0.005 286);
   --foreground-dimmed: color-mix(in srgb, var(--foreground) 80%, var(--background));
   --foreground-rgb: 32, 31, 30; /* light-mode RGB triplet used by shadow rings */
 
@@ -384,10 +389,10 @@
    * contrast tuning. */
   /* PR-UI-ALIGN-0: dark mode follows the reference's warm-neutral grays +
      sage-green accent (matches the reference dark theme's #5cb870 family). */
-  --background: oklch(0.205 0.004 75);
-  --surface-canvas: oklch(0.14 0.004 75);
+  --background: oklch(0.205 0.004 286);
+  --surface-canvas: oklch(0.14 0.004 286);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
-  --foreground: oklch(0.92 0.004 75);
+  --foreground: oklch(0.92 0.004 286);
   --foreground-rgb: 224, 222, 218;
 
   --accent: oklch(0.74 0.15 152);
