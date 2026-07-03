@@ -18,7 +18,7 @@
 }
 
 .maka-capability-audit-kicker {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0;
@@ -33,7 +33,7 @@
 }
 
 .maka-capability-audit-copy small {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
   line-height: 1.45;
@@ -56,7 +56,7 @@
 }
 
 .maka-capability-audit-metrics dt {
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0;
@@ -65,7 +65,7 @@
 
 .maka-capability-audit-metrics dd {
   margin: 0;
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 700;
   line-height: 1.3;

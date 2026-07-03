@@ -231,6 +231,7 @@ function scanTextPropValue(src: string): string[] {
  *  - Closing quote (if the value starts with one)
  *  - Depth-0 comma (next property in an object/style declaration)
  *  - Depth-0 semicolon (CSS declaration end)
+ *  - Depth-0 opening brace (function/class body — not part of the value)
  *  - Depth-0 closing brace (style object end, or JSX expression end)
  *
  * Characters inside quotes do not affect depth, so commas/braces in
@@ -249,7 +250,7 @@ function readExpressionValue(src: string, start: number): string {
     const end = src.indexOf(ch, i + 1);
     return end < 0 ? src.slice(i) : src.slice(i, end + 1);
   }
-  // Unquoted: track ()[]{} depth, stop at depth-0 , ; }
+  // Unquoted: track ()[]{} depth, stop at depth-0 , ; { }
   const out: string[] = [];
   let depth = 0;
   // JSX expression {value}: opening brace is part of the value.
@@ -264,8 +265,10 @@ function readExpressionValue(src: string, start: number): string {
       i = segEnd;
       continue;
     }
-    if (c === '(' || c === '[' || c === '{') { depth++; out.push(c); i++; continue; }
+    if (c === '(' || c === '[') { depth++; out.push(c); i++; continue; }
     if (c === ')' || c === ']') { depth--; out.push(c); i++; continue; }
+    if (c === '{' && depth <= 0) break; // function/class body boundary
+    if (c === '{') { depth++; out.push(c); i++; continue; }
     if (c === '}') { depth--; out.push(c); i++; if (depth <= 0) break; continue; }
     if ((c === ',' || c === ';') && depth <= 0) break;
     out.push(c); i++;
@@ -819,5 +822,11 @@ describe('foreground-tier negative cases', () => {
 
   it('accepts style={{ color: semantic, background: "var(--foreground-5)" }} in TSX (surface after text prop)', () => {
     assert.deepEqual(scanTsxSnippet('style={{ color: semantic, background: "var(--foreground-5)" }}'), []);
+  });
+
+  // P3: TypeScript type annotation must not scan into function body
+  it('accepts function icon(fill: string) with bg-[var(--foreground-5)] in body', () => {
+    const snippet = 'function icon(fill: string) { return <div className="bg-[var(--foreground-5)]" /> }';
+    assert.deepEqual(scanTsxSnippet(snippet), []);
   });
 });

@@ -52,7 +52,7 @@
 
 .maka-plan-eyebrow {
   margin: 0;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
   letter-spacing: 0;
@@ -69,7 +69,7 @@
 
 .maka-plan-heading p:last-child {
   margin: 0;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.45;
 }
@@ -128,7 +128,7 @@
 }
 
 .maka-plan-refresh-button {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .maka-plan-template-strip {
@@ -188,7 +188,7 @@
   grid-column: 2;
   grid-row: 1;
   justify-self: end;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   letter-spacing: 1px;
   line-height: 20px;
@@ -202,7 +202,7 @@
   justify-content: center;
   border-radius: var(--radius-control);
   background: var(--foreground-3);
-  color: var(--foreground-70);
+  color: var(--foreground-secondary);
 }
 
 .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-icon {
@@ -258,7 +258,7 @@
 }
 
 .maka-plan-template-note {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -268,7 +268,7 @@
 }
 
 .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-note {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   white-space: normal;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -285,7 +285,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--foreground-2);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
   line-height: 1;
@@ -301,7 +301,7 @@
   border-top: 1px dashed var(--border);
   border-radius: 0;
   background: transparent;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   padding: var(--space-3) 0 0;
 }
 
@@ -403,7 +403,7 @@
   padding: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   font-weight: 600;
 }
@@ -429,7 +429,7 @@
 }
 
 .maka-plan-tab span {
-  color: var(--foreground-40);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
 }
@@ -539,7 +539,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
 }
 
 .maka-plan-card-menu-trigger:hover {
@@ -590,7 +590,7 @@
 .maka-plan-field {
   display: grid;
   gap: var(--space-0-5);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
 }
@@ -640,7 +640,7 @@
   border: 1px solid oklch(from var(--warning) l c h / 0.34);
   border-radius: var(--radius-control);
   background: oklch(from var(--warning) l c h / 0.08);
-  color: var(--foreground-80);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
   line-height: 1.4;
@@ -655,7 +655,7 @@
 
 .maka-plan-delivery-help {
   margin: 0;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
   line-height: 1.4;
@@ -669,7 +669,7 @@
 .maka-plan-compact-select {
   display: grid;
   gap: var(--space-1);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
 }
@@ -724,7 +724,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1-5);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
 }
@@ -788,7 +788,7 @@
   border: 0;
   border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
   line-height: 1;
@@ -817,7 +817,7 @@
 /* PR-UI-PIXEL-1: note clamps to two lines (reference cards show a 2-line
    description), replacing the single-line ellipsis used by the old row layout. */
 .maka-plan-card-note {
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.5;
   margin: 0;
@@ -843,7 +843,7 @@
 .maka-plan-run-status {
   border-radius: var(--radius-pill);
   background: var(--foreground-3);
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
   padding: var(--space-0-5) var(--space-1-5);
@@ -876,7 +876,7 @@
 
 .maka-plan-run-main span,
 .maka-plan-run-row time {
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   line-height: 1.35;
 }

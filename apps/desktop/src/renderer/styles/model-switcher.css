@@ -71,7 +71,7 @@
   flex: 0 0 auto;
   font-size: var(--font-size-caption);
   font-weight: 650;
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
 }
 
 .maka-model-switcher-value {

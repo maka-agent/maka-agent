@@ -48,7 +48,7 @@
 
 .maka-module-main-header p {
   margin: var(--space-1) 0 0;
-  color: var(--foreground-60);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: 1.45;
 }
