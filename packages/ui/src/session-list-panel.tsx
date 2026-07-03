@@ -33,7 +33,6 @@ import type {
 import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { Button as UiButton, cn } from './ui.js';
-import { runAsyncActionBoundary } from './async-action-boundary.js';
 import { cva, type VariantProps } from 'class-variance-authority';
 
 const navRowVariants = cva(
@@ -759,10 +758,16 @@ function SessionRow(props: {
     if (pendingActionRef.current) return;
     pendingActionRef.current = actionId;
     setPendingAction(actionId);
-    void runAsyncActionBoundary(action, () => {
-      pendingActionRef.current = null;
-      if (rowMountedRef.current) setPendingAction(null);
-    });
+    void (async () => {
+      try {
+        await action();
+      } catch {
+        // The AppShell row-action owner reports the visible failure toast.
+      } finally {
+        pendingActionRef.current = null;
+        if (rowMountedRef.current) setPendingAction(null);
+      }
+    })();
   }
 
   function commitRename(rawValue: string) {

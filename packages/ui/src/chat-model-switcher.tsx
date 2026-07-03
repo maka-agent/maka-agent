@@ -33,7 +33,6 @@ import {
   modelChoiceValue,
   parseModelChoiceValue,
 } from './chat-model-helpers.js';
-import { runAsyncActionBoundary } from './async-action-boundary.js';
 import { type ProviderType, type SessionSummary } from '@maka/core';
 
 /**
@@ -171,17 +170,20 @@ export function ChatModelSwitcher(props: {
           pendingModelChangeRef.current = { sessionId, token };
           pendingRef.current = true;
           setLocalPending(true);
-          void runAsyncActionBoundary(
-            () => props.onChange?.(next),
-            () => {
+          void (async () => {
+            try {
+              await props.onChange?.(next);
+            } catch {
+              // The AppShell action owner reports the visible model-switch failure.
+            } finally {
               const owner = pendingModelChangeRef.current;
               if (modelSwitcherMountedRef.current && owner?.sessionId === sessionId && owner.token === token) {
                 pendingModelChangeRef.current = null;
                 pendingRef.current = false;
                 setLocalPending(false);
               }
-            },
-          );
+            }
+          })();
         }}
       >
         <SelectTrigger

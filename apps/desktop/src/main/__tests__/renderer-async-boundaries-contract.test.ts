@@ -6,12 +6,27 @@ import { describe, it } from 'node:test';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const CHAT_MODEL_SWITCHER_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-model-switcher.tsx');
 const SESSION_LIST_PANEL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'session-list-panel.tsx');
+const SESSION_SETTINGS_ACTIONS_PATH = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'app-shell-session-settings-actions.ts');
+const SESSION_ROW_ACTIONS_PATH = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'app-shell-session-row-actions.ts');
 
 describe('renderer async action boundary contract', () => {
   it('keeps chat model switching on a rejection-safe local async boundary', async () => {
-    const source = await readFile(CHAT_MODEL_SWITCHER_PATH, 'utf8');
+    const [source, settingsActions] = await Promise.all([
+      readFile(CHAT_MODEL_SWITCHER_PATH, 'utf8'),
+      readFile(SESSION_SETTINGS_ACTIONS_PATH, 'utf8'),
+    ]);
 
-    assert.match(source, /runAsyncActionBoundary/, 'ChatModelSwitcher must use the shared async boundary helper');
+    assert.doesNotMatch(source, /runAsyncActionBoundary|async-action-boundary/, 'ChatModelSwitcher must not depend on a shared swallow-errors helper');
+    assert.match(
+      source,
+      /void \(async \(\) => \{[\s\S]*try \{[\s\S]*await props\.onChange\?\.\(next\);[\s\S]*\} catch \{[\s\S]*\} finally \{[\s\S]*const owner = pendingModelChangeRef\.current;[\s\S]*setLocalPending\(false\);[\s\S]*\}[\s\S]*\}\)\(\);/,
+      'model switching must catch delegated action rejection locally and always release local pending chrome',
+    );
+    assert.match(
+      settingsActions,
+      /async function setSessionModel[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\)/,
+      'model switch errors must have visible feedback in the AppShell action owner',
+    );
     assert.doesNotMatch(
       source,
       /\.then\(\(\) => props\.onChange\?\.\(next\)\)\s*\.finally\(/,
@@ -20,9 +35,22 @@ describe('renderer async action boundary contract', () => {
   });
 
   it('keeps session row actions on a rejection-safe local async boundary', async () => {
-    const source = await readFile(SESSION_LIST_PANEL_PATH, 'utf8');
+    const [source, rowActions] = await Promise.all([
+      readFile(SESSION_LIST_PANEL_PATH, 'utf8'),
+      readFile(SESSION_ROW_ACTIONS_PATH, 'utf8'),
+    ]);
 
-    assert.match(source, /runAsyncActionBoundary/, 'SessionRow actions must use the shared async boundary helper');
+    assert.doesNotMatch(source, /runAsyncActionBoundary|async-action-boundary/, 'SessionRow actions must not depend on a shared swallow-errors helper');
+    assert.match(
+      source,
+      /void \(async \(\) => \{[\s\S]*try \{[\s\S]*await action\(\);[\s\S]*\} catch \{[\s\S]*\} finally \{[\s\S]*pendingActionRef\.current = null;[\s\S]*setPendingAction\(null\);[\s\S]*\}[\s\S]*\}\)\(\);/,
+      'session row actions must catch delegated action rejection locally and always release local pending chrome',
+    );
+    assert.match(
+      rowActions,
+      /async function runSessionRowAction[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)/,
+      'session row action errors must have visible feedback in the AppShell action owner',
+    );
     assert.doesNotMatch(
       source,
       /Promise\.resolve\(\)\.then\(action\)\.finally\(/,
