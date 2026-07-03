@@ -1,8 +1,20 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
 import type { MakaTool } from '@maka/runtime';
+
+export type SkillSourceType = 'workspace' | 'bundled' | 'managed' | 'unknown';
+export type SkillValidationStatus = 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
+export type SkillValidationCode =
+  | 'missing_lock'
+  | 'modified'
+  | 'invalid_json'
+  | 'id_mismatch'
+  | 'unsupported_schema'
+  | 'invalid_hash'
+  | 'write_failed'
+  | 'lock_symlink';
 
 export interface InstalledSkill {
   id: string;
@@ -10,6 +22,15 @@ export interface InstalledSkill {
   description: string;
   path: string;
   declaredTools: string[];
+  sourceType: SkillSourceType;
+  sourceName?: string;
+  sourceVersion?: string;
+  contentSha256?: string;
+  installedAt?: string;
+  userModified: boolean;
+  validationStatus: SkillValidationStatus;
+  validationCodes: SkillValidationCode[];
+  validationMessages?: string[];
 }
 
 export type CreateStarterSkillResult =
@@ -49,6 +70,9 @@ const BUNDLED_OFFICE_SKILLS: Array<{ id: string; body: string }> = [
   { id: 'officecli-xlsx', body: officeCliXlsxSkillTemplate() },
   { id: 'officecli-pptx', body: officeCliPptxSkillTemplate() },
 ];
+
+const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
+const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
 
 const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string> = {
   'officecli-docx': '63f1690d1e9dea0a4e574bc3644222279fcfee336371d842c9669fbc91e89821',
@@ -106,6 +130,7 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
         continue;
       }
       await writeFile(skillFile, skill.body, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      await writeBundledSkillLock(skillDir, skill.id, skill.body);
       created.push(skill.id);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
@@ -135,8 +160,14 @@ async function migrateLegacyBundledOfficeSkill(id: string, skillFile: string, cu
     const existingStat = await lstat(skillFile);
     if (!existingStat.isFile() || existingStat.isSymbolicLink()) return 'skipped';
     const existing = await readFile(skillFile, 'utf8');
-    if (sha256(existing) !== legacyHash) return 'skipped';
+    if (sha256(existing) !== legacyHash) {
+      if (sha256(existing) === sha256(currentBody)) {
+        await writeBundledSkillLock(dirname(skillFile), id, currentBody);
+      }
+      return 'skipped';
+    }
     await writeFile(skillFile, currentBody, { encoding: 'utf8', mode: 0o600 });
+    await writeBundledSkillLock(dirname(skillFile), id, currentBody);
     return 'updated';
   } catch {
     return 'failed';
@@ -145,6 +176,23 @@ async function migrateLegacyBundledOfficeSkill(id: string, skillFile: string, cu
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function sha256Buffer(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+async function writeBundledSkillLock(skillDir: string, id: string, body: string): Promise<void> {
+  const lock = {
+    schemaVersion: 1,
+    id,
+    sourceType: 'bundled',
+    sourceName: BUNDLED_OFFICE_SKILL_SOURCE_NAME,
+    sourceVersion: BUNDLED_OFFICE_SKILL_SOURCE_VERSION,
+    contentSha256: `sha256:${sha256(body)}`,
+    installedAt: new Date().toISOString(),
+  };
+  await writeFile(join(skillDir, 'skill.lock.json'), `${JSON.stringify(lock, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
 export async function createStarterSkill(root: string): Promise<CreateStarterSkillResult> {
@@ -193,6 +241,10 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
           description: '把常用工作流写成可复用的本地指令。',
           path: skillDir,
           declaredTools: ['Read'],
+          sourceType: 'workspace',
+          userModified: false,
+          validationStatus: 'missing_lock',
+          validationCodes: ['missing_lock'],
         },
       };
     } catch (error) {
@@ -341,8 +393,10 @@ async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinit
     const skillPath = join(dir, entry.name);
     const skillFile = join(skillPath, 'SKILL.md');
     try {
-      const text = await readFile(skillFile, 'utf8');
+      const bytes = await readFile(skillFile);
+      const text = bytes.toString('utf8');
       const { name, description, allowedTools } = parseSkillFrontMatter(text);
+      const status = await readSkillLockStatus(skillPath, entry.name, `sha256:${sha256Buffer(bytes)}`);
       out.push({
         id: entry.name,
         name: name ?? entry.name,
@@ -350,6 +404,7 @@ async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinit
         path: skillPath,
         declaredTools: allowedTools,
         content: stripFrontMatter(text).trim(),
+        ...status,
       });
     } catch {
       // Skip directories without a readable SKILL.md.
@@ -357,6 +412,82 @@ async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinit
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
+}
+
+async function readSkillLockStatus(skillPath: string, id: string, currentHash: string): Promise<Pick<
+  InstalledSkill,
+  | 'sourceType'
+  | 'sourceName'
+  | 'sourceVersion'
+  | 'contentSha256'
+  | 'installedAt'
+  | 'userModified'
+  | 'validationStatus'
+  | 'validationCodes'
+  | 'validationMessages'
+>> {
+  const lockPath = join(skillPath, 'skill.lock.json');
+  let lockStat: Awaited<ReturnType<typeof lstat>>;
+  try {
+    lockStat = await lstat(lockPath);
+  } catch {
+    return {
+      sourceType: 'workspace',
+      userModified: false,
+      validationStatus: 'missing_lock',
+      validationCodes: ['missing_lock'],
+    };
+  }
+
+  if (!lockStat.isFile() || lockStat.isSymbolicLink()) {
+    return metadataError(['lock_symlink'], 'Skill lock is not a regular file.');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(lockPath, 'utf8'));
+  } catch {
+    return metadataError(['invalid_json'], 'Skill lock JSON is invalid.');
+  }
+
+  if (!isRecord(parsed)) return metadataError(['invalid_json'], 'Skill lock JSON must be an object.');
+  if (parsed.schemaVersion !== 1) return metadataError(['unsupported_schema'], 'Skill lock schema is unsupported.');
+  if (parsed.id !== id) return metadataError(['id_mismatch'], 'Skill lock id does not match the skill directory.');
+  if (parsed.sourceType !== 'bundled' && parsed.sourceType !== 'managed') {
+    return metadataError(['unsupported_schema'], 'Skill lock source type is unsupported.');
+  }
+  if (typeof parsed.contentSha256 !== 'string' || !/^sha256:[a-f0-9]{64}$/i.test(parsed.contentSha256)) {
+    return metadataError(['invalid_hash'], 'Skill lock hash is invalid.');
+  }
+
+  const userModified = parsed.contentSha256.toLowerCase() !== currentHash.toLowerCase();
+  return {
+    sourceType: parsed.sourceType,
+    ...(typeof parsed.sourceName === 'string' && parsed.sourceName ? { sourceName: parsed.sourceName } : {}),
+    ...(typeof parsed.sourceVersion === 'string' && parsed.sourceVersion ? { sourceVersion: parsed.sourceVersion } : {}),
+    ...(typeof parsed.installedAt === 'string' && parsed.installedAt ? { installedAt: parsed.installedAt } : {}),
+    contentSha256: parsed.contentSha256,
+    userModified,
+    validationStatus: userModified ? 'modified' : 'ok',
+    validationCodes: userModified ? ['modified'] : [],
+  };
+}
+
+function metadataError(validationCodes: SkillValidationCode[], message: string): Pick<
+  InstalledSkill,
+  'sourceType' | 'userModified' | 'validationStatus' | 'validationCodes' | 'validationMessages'
+> {
+  return {
+    sourceType: 'unknown',
+    userModified: false,
+    validationStatus: 'metadata_error',
+    validationCodes,
+    validationMessages: [message],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function parseSkillFrontMatter(text: string): { name?: string; description?: string; allowedTools: string[] } {

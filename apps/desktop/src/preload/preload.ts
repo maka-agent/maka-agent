@@ -66,6 +66,7 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
+import type { SkillEntry } from '@maka/ui';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
@@ -804,11 +805,11 @@ contextBridge.exposeInMainWorld('maka', {
     },
   },
   skills: {
-    list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>> {
+    list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
     },
     createStarter(): Promise<
-      | { ok: true; skill: { id: string; name: string; description: string; path: string; declaredTools: string[] }; filePath: string }
+      | { ok: true; skill: SkillEntry; filePath: string }
       | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
     > {
       return ipcRenderer.invoke('skills:createStarter');

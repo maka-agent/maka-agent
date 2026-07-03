@@ -67,6 +67,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
+import type { SkillEntry } from '@maka/ui';
 import type {
   OnboardingMilestone,
   OnboardingMilestoneId,
@@ -463,9 +464,9 @@ declare global {
         subscribeChanges(handler: (event: ArtifactChangedEvent) => void): () => void;
       };
       skills: {
-        list(): Promise<Array<{ id: string; name: string; description: string; path: string; declaredTools: string[] }>>;
+        list(): Promise<SkillEntry[]>;
         createStarter(): Promise<
-          | { ok: true; skill: { id: string; name: string; description: string; path: string; declaredTools: string[] }; filePath: string }
+          | { ok: true; skill: SkillEntry; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }
         >;
         open(id: string, target?: 'file' | 'directory'): Promise<

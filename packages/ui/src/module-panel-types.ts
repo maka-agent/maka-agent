@@ -21,6 +21,24 @@ export interface SkillEntry {
    * can see what a skill is asking for before they install / enable it.
    */
   declaredTools?: string[];
+  sourceType?: 'workspace' | 'bundled' | 'managed' | 'unknown';
+  sourceName?: string;
+  sourceVersion?: string;
+  contentSha256?: string;
+  installedAt?: string;
+  userModified?: boolean;
+  validationStatus?: 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
+  validationCodes?: Array<
+    | 'missing_lock'
+    | 'modified'
+    | 'invalid_json'
+    | 'id_mismatch'
+    | 'unsupported_schema'
+    | 'invalid_hash'
+    | 'write_failed'
+    | 'lock_symlink'
+  >;
+  validationMessages?: string[];
 }
 
 export type PlanReminderDraftInput = {

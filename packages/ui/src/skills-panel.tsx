@@ -189,10 +189,11 @@ function SkillLibraryPanel(props: {
               const tools = skill.declaredTools ?? [];
               const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
               const description = formatSkillLibraryDescription(skill);
+              const statusLabel = formatSkillStatusLabel(skill);
               const opening = props.openingSkillId === skill.id;
               const hoverText = tools.length > 0
-                ? `打开技能文件：${skill.id}\n\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
-                : `打开技能文件：${skill.id}`;
+                ? `打开技能文件：${skill.id}\n\n来源状态：${statusLabel}\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
+                : `打开技能文件：${skill.id}\n\n来源状态：${statusLabel}`;
               return (
                 <li key={skill.id} className="maka-skill-library-item">
                   <UiButton
@@ -214,6 +215,7 @@ function SkillLibraryPanel(props: {
                     </span>
                     <span className="maka-skill-library-meta">
                       <span>{skill.id}</span>
+                      <span>{statusLabel}</span>
                       {opening && <span>打开中…</span>}
                     </span>
                     <span className="maka-skill-library-action" aria-hidden="true">
@@ -358,6 +360,14 @@ function formatSkillLibraryDescription(skill: SkillEntry): string | undefined {
     return '辅助构建和调试 macOS 应用。';
   }
   return '打开技能文件查看适用场景。';
+}
+
+function formatSkillStatusLabel(skill: SkillEntry): string {
+  if (skill.validationStatus === 'metadata_error') return '元数据异常';
+  if (skill.userModified) return '已修改';
+  if (skill.sourceType === 'bundled') return '内置';
+  if (skill.sourceType === 'managed') return '受管理';
+  return '本地';
 }
 
 
