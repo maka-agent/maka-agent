@@ -126,8 +126,11 @@
   --foreground-5:  color-mix(in oklch, var(--foreground) 5%,  var(--background));
   --foreground-8:  color-mix(in oklch, var(--foreground) 8%,  var(--background));
   --foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
-  --foreground-20: color-mix(in oklch, var(--foreground) 20%, var(--background));
-  --foreground-30: color-mix(in oklch, var(--foreground) 30%, var(--background));
+  /* P-TEXT (roadmap §1.6): the -20/-30 text tiers were orphans (8 call
+     sites total) sitting between the surface washes (2..10) and the
+     real text ladder (40/50/60/70/80). Text uses moved to -40 (also a
+     contrast fix: 30% ink fails 4.5:1); decorative uses inlined their
+     color-mix. Fewer tiers = crisper hierarchy. */
   --foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
   --foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
   --foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
@@ -681,8 +684,6 @@
   --color-foreground-5:  var(--foreground-5);
   --color-foreground-8:  var(--foreground-8);
   --color-foreground-10: var(--foreground-10);
-  --color-foreground-20: var(--foreground-20);
-  --color-foreground-30: var(--foreground-30);
   --color-foreground-40: var(--foreground-40);
   --color-foreground-50: var(--foreground-50);
   --color-foreground-60: var(--foreground-60);

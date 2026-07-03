@@ -165,7 +165,7 @@
 
 .maka-resize-handle:hover::after,
 .isResizingColumns .maka-resize-handle::after {
-  background: var(--foreground-20);
+  background: color-mix(in oklch, var(--foreground) 20%, var(--background));
 }
 
 /* Keyboard-focused separator: replace the suppressed native outline with a

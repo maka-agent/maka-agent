@@ -112,8 +112,12 @@
 4. **P-MOTION** ✅（已达标，无需动作）：duration token
    120/150/180/280ms 完全符合 Emil 表且取下限；装饰性入场动画已被
    #406 gap 3 清除；剩余 keyframes 全部是功能性流式动画（D3 豁免）
-5. **P-TEXT**：四档文字语义别名 + 新代码治理契约
-6. **P-4PT**：4pt 治理契约（新增声明检查 + 存量 allowlist）
+5. **P-TEXT** ✅（首轮）：孤儿档 -20/-30 清除（8 处调用点：文字并入
+   -40 兼修对比度、装饰内联 color-mix）；文字主力收敛为
+   40/50/60/70/80。全量四档语义别名迁移留待逐面触碰。
+6. **P-4PT** ✅：ratchet 契约上线
+   （spacing-4pt-ratchet-contract.test.ts）：442 个存量违例按文件冻结
+   只减不增，新文件零容忍，防 baseline 生锈的 slack 检查
 7. **P-DARK**：dark elevation 独立化（依赖 P-SHADOW）
 8. **P-STATE**：状态全周期补齐审计（skeleton 对形/empty 构图/inline error）
 

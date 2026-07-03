@@ -449,13 +449,13 @@ const toolVariants = cva("", {
       // `.maka-tool-status-dot` (+ the `[data-status]` color swaps; running adds
       // the box-shadow ring + `maka-tool-pulse` breath — keyframe stays in CSS).
       dot:
-        "w-[8px] h-[8px] rounded-[var(--radius-pill)] bg-[var(--foreground-30)] [flex:0_0_auto]"
+        "w-[8px] h-[8px] rounded-[var(--radius-pill)] bg-[var(--foreground-40)] [flex:0_0_auto]"
         // `waiting_permission` dot tint — see `WP_DOT_BG` above (String.raw).
         + " " + WP_DOT_BG
         + " data-[status=running]:bg-[var(--status-running)] data-[status=running]:[box-shadow:0_0_0_3px_oklch(from_var(--status-running)_l_c_h_/_0.15)] data-[status=running]:[animation:maka-tool-pulse_1.5s_ease-in-out_infinite]"
         + " data-[status=completed]:bg-[var(--success)]"
         + " data-[status=errored]:bg-[var(--destructive)]"
-        + " data-[status=interrupted]:bg-[var(--foreground-30)]",
+        + " data-[status=interrupted]:bg-[var(--foreground-40)]",
       // `.maka-tool-name` — the mono tool name, ellipsized.
       name:
         "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[color:var(--foreground)] font-medium [font-family:var(--font-mono)]",
