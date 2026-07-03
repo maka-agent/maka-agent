@@ -13,10 +13,10 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function Option({ value, children }: { value: string; children: React.ReactNode }) {
+function Option({ value, disabled, children }: { value: string; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <label style={{ alignItems: 'center', display: 'flex', gap: 8 }}>
-      <Radio value={value} />
+    <label style={{ alignItems: 'center', display: 'flex', gap: 8, opacity: disabled ? 0.5 : 1 }}>
+      <Radio value={value} disabled={disabled} />
       <span style={{ fontSize: 13 }}>{children}</span>
     </label>
   );
@@ -39,7 +39,7 @@ export const Horizontal: Story = {
   render: () => {
     const [value, setValue] = useState('a');
     return (
-      <RadioGroup value={value} onValueChange={(v) => setValue(v as string)} style={{ flexDirection: 'row', gap: 16 }}>
+      <RadioGroup value={value} onValueChange={(v) => setValue(v as string)} style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
         <Option value="a">A</Option>
         <Option value="b">B</Option>
         <Option value="c">C</Option>
@@ -52,8 +52,7 @@ export const Disabled: Story = {
   render: () => (
     <RadioGroup defaultValue="a">
       <Option value="a">可选</Option>
-      <Option value="b">禁用项</Option>
-      <Radio value="b" disabled />
+      <Option value="b" disabled>禁用项</Option>
       <Option value="c">可选</Option>
     </RadioGroup>
   ),

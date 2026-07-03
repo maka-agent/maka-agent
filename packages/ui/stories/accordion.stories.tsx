@@ -37,7 +37,7 @@ function Body({ children }: { children: React.ReactNode }) {
 
 export const SingleOpen: Story = {
   render: () => (
-    <Accordion defaultValue="item-1" style={{ width: 320 }}>
+    <Accordion defaultValue={['item-1']} style={{ width: 320 }}>
       <AccordionItem value="item-1">
         <AccordionHeader>
           <AccordionTrigger>
