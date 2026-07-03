@@ -120,19 +120,27 @@ describe('Storybook baseline contract', () => {
     assert.match(emptySrc, /\bSpinner\b/, 'empty.stories.tsx Loading story must cover Spinner');
   });
 
-  it('covers every public UI component export with at least one story', () => {
+  it('covers curated primitive components with stories', () => {
     const storiesDir = join(REPO_ROOT, 'packages', 'ui', 'stories');
     const storyFiles = readdirSync(storiesDir).filter((f) => f.endsWith('.stories.tsx'));
     const allStorySrc = storyFiles.map((f) => readFileSync(join(storiesDir, f), 'utf8')).join('\n');
 
-    const requiredComponents = [
+    const curatedPrimitives = [
       'Button', 'Badge', 'Input', 'Textarea', 'Separator', 'Checkbox',
-      'Dialog', 'Tabs', 'Select', 'Label', 'Switch', 'Toggle', 'ToggleGroup',
+      'DialogRoot', 'TabsRoot', 'SelectRoot', 'Label', 'Switch', 'Toggle', 'ToggleGroup',
       'RadioGroup', 'Radio', 'Progress', 'Alert', 'Empty', 'Spinner', 'Kbd',
       'Menu', 'Accordion', 'Toolbar', 'ToastProvider',
     ];
-    const missing = requiredComponents.filter((name) => !new RegExp(`\\b${name}\\b`).test(allStorySrc));
-    assert.deepEqual(missing, [], `Public UI components without any story coverage: ${missing.join(', ')}`);
+    const missing = curatedPrimitives.filter(
+      (name) => !new RegExp(`<${name}[\\s/>]`).test(allStorySrc),
+    );
+    assert.deepEqual(
+      missing,
+      [],
+      `Curated primitive components without JSX usage in any story: ${missing.join(', ')}. ` +
+        'This is a curated baseline, not an exhaustive export check; ' +
+        'typecheck:stories is the primary drift guard for prop/type changes.',
+    );
   });
 
   it('storyboards the sidebar session list states before visual polish', () => {
