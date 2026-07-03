@@ -125,8 +125,12 @@
 
 .maka-skill-featured-art span {
   position: absolute;
-  width: 94px;
-  height: 112px;
+  /* Cards sized + offset so the banner's overflow:hidden never crops
+     their copy: previous 94-122px heights with 28px+ top offsets cut
+     「总结沉淀」mid-glyph at the banner edge. Corners may still bleed
+     off (intentional sticker collage), text must not. */
+  width: 84px;
+  height: 96px;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -160,7 +164,7 @@ color: oklch(0.55 0.015 220);
 
 .maka-skill-featured-art span:first-child {
   left: 14px;
-  top: 28px;
+  top: 12px;
   transform: rotate(-14deg);
   color: oklch(64% 0.15 154);
 }
@@ -174,17 +178,17 @@ color: oklch(0.55 0.015 220);
      so they don't need a global token. The contract test
      `z-index-contract.test.ts` whitelists this exact site. */
   z-index: 2;
-  width: 104px;
-  height: 122px;
+  width: 92px;
+  height: 106px;
   transform: rotate(10deg);
   color: oklch(54% 0.10 236);
 }
 
 .maka-skill-featured-art span:nth-child(3) {
   right: 4px;
-  top: 34px;
-  width: 88px;
-  height: 104px;
+  top: 18px;
+  width: 78px;
+  height: 92px;
   transform: rotate(7deg);
   color: oklch(58% 0.18 32);
 }

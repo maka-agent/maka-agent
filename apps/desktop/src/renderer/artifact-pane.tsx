@@ -445,6 +445,11 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   id={`maka-artifact-row-${record.id}`}
                   type="button"
                   variant="ghost"
+                  // size="nav": className owns layout. The default md size
+                  // pins h-9 on the button, but deleted rows add a badge on
+                  // an implicit second grid row — fixed height + centering
+                  // painted the badge over the icon/name.
+                  size="nav"
                   className="maka-artifact-row"
                   role="option"
                   aria-selected={record.id === selectedId}
@@ -546,7 +551,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                     aria-busy={pendingArtifactAction === `${selected.id}:copy` ? 'true' : undefined}
                   >
                     <Copy size={14} aria-hidden="true" />
-                    <span>{pendingArtifactAction === `${selected.id}:copy` ? '复制中…' : '复制文本'}</span>
+                    <span>{pendingArtifactAction === `${selected.id}:copy` ? '复制中…' : '复制'}</span>
                   </Button>
                 )}
               </ToolbarGroup>
@@ -557,13 +562,17 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   variant="destructive"
                   size="sm"
                   className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive"
+                  title="删除"
                   onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
                   disabled={artifactActionBusy}
                   data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
                   aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
                 >
                   <Trash2 size={14} aria-hidden="true" />
-                  <span>{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
+                  {/* Icon-only at rest: the visible label wrapped the toolbar
+                      onto a second line at 1280 pane width, stranding 删除
+                      alone bottom-right. Label stays for screen readers. */}
+                  <span className="maka-artifact-toolbar-destructive-label">{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
                 </Button>
               </ToolbarGroup>
             </Toolbar>

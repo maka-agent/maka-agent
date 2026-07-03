@@ -56,6 +56,9 @@
 
 .maka-permission-raw > summary {
   list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
   padding: var(--space-1) var(--space-2-5);
   color: var(--foreground-60);
   font-size: var(--font-size-caption);
@@ -63,6 +66,24 @@
 
 .maka-permission-raw > summary::-webkit-details-marker { display: none; }
 .maka-permission-raw > summary::marker { content: ''; }
+
+/* Rotating disclosure triangle (same recipe as .maka-turn-thinking):
+   without it the bordered summary row read as a text input, not a
+   collapsible section. */
+.maka-permission-raw > summary::before {
+  content: '';
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 5px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-permission-raw[open] > summary::before {
+  transform: rotate(90deg);
+}
 
 .maka-permission-raw[open] > summary {
   border-bottom: 1px solid var(--border);

@@ -38,11 +38,14 @@ export function formatAbsoluteTimestamp(ts: number): string {
 }
 
 export function formatTurnDuration(ms: number): string {
+  // Same shape as tool-activity's formatDuration — the turn meta chip
+  // and tool cards sit stacked in one view;「1 m 0 s」vs「8.2s」read as
+  // two different products.
   if (ms < 1000) return `${ms} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
   const m = Math.floor(ms / 60_000);
   const s = Math.round((ms % 60_000) / 1000);
-  return `${m} m ${s} s`;
+  return `${m}m ${s}s`;
 }
 
 export function turnAbortMarkerLabel(abortSource: string | undefined): string {

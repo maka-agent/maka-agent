@@ -1250,6 +1250,13 @@
     margin: 0 0 var(--space-3);
     padding-left: var(--space-6);
   }
+  /* Tailwind v4 preflight strips list markers globally (`ul, ol
+     { list-style: none }` in @layer base); restore them for rendered
+     markdown or bulleted answers read as flat indented lines. Same
+     root cause as the permission-center fix (permission-center.css). */
+  .maka-bubble-assistant ul { list-style: disc; }
+  .maka-bubble-assistant ol { list-style: decimal; }
+  .maka-bubble-assistant li > ul { list-style: circle; }
   .maka-bubble-assistant li { margin: var(--space-0-5) 0; }
   .maka-bubble-assistant li > ul,
   .maka-bubble-assistant li > ol { margin-bottom: 0; }

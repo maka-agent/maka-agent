@@ -48,9 +48,9 @@ describe('capability audit visible system contract', () => {
     assert.match(markup, /aria-label="能力审计摘要"/);
     assert.match(markup, /能力审计/);
     assert.match(markup, /3 类声明工具/);
-    assert.match(markup, /1\/1 来源就绪/);
-    assert.match(markup, /1\/1 技能启用/);
-    assert.match(markup, /1\/1 自动化启用/);
+    assert.match(markup, /来源<\/dt><dd>1\/1 就绪/);
+    assert.match(markup, /技能<\/dt><dd>1\/1 启用/);
+    assert.match(markup, /自动化<\/dt><dd>1\/1 启用/);
     assert.match(markup, /1 个自动化上次失败/);
     assert.equal(report.skills[0].permissionMode, 'ask');
     assert.notEqual(report.skills[0].permissionMode, 'execute');

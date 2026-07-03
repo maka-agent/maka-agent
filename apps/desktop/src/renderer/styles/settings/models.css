@@ -655,6 +655,7 @@
 .maka-artifact-row-badge {
   grid-column: 1 / -1;
   justify-self: start;
+  margin-top: var(--space-0-5);
 }
 
 .maka-artifact-preview {
@@ -926,6 +927,24 @@
 .maka-artifact-toolbar-destructive {
   color: var(--destructive-text);
   border-color: oklch(from var(--destructive) l c h / 0.32);
+  /* Icon-only footprint (see artifact-pane.tsx destructive label note):
+     square-ish hit area, no text gap. */
+  gap: 0;
+  padding: var(--space-1) var(--space-1-5);
+}
+
+/* Visually hidden, still announced: the 删除/删除中… label only exists
+   for assistive tech. Keeping it in-flow reintroduces the toolbar wrap
+   this exists to prevent. */
+.maka-artifact-toolbar-destructive-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .maka-artifact-toolbar-destructive:hover {
