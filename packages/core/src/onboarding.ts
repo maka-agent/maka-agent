@@ -210,6 +210,7 @@ function hasHistory(sessions: ReadonlyArray<SessionSummary>): boolean {
  * field-set gate.
  */
 export const ONBOARDING_MILESTONE_IDS = [
+  'initial_onboarding',
   'first_chat_sent',
   'first_personalization',
   'first_model_swap',
@@ -323,4 +324,16 @@ export function sanitizeOnboardingMilestones(raw: unknown): OnboardingMilestone[
 
 function isValidTimestamp(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Whether the initial onboarding has been settled (completed or
+ * skipped). Used by the renderer to gate `showOnboardingHero` so
+ * onboarding is a one-time guide, not a gate that revives when
+ * the user deletes all sessions.
+ */
+export function hasSettledInitialOnboarding(milestones: ReadonlyArray<OnboardingMilestone>): boolean {
+  return milestones.some(
+    (m) => m.id === 'initial_onboarding' && (m.completedAt !== undefined || m.skippedAt !== undefined),
+  );
 }

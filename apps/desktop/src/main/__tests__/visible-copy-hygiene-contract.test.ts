@@ -623,10 +623,14 @@ describe('chat markdown copy feedback contract', () => {
   it('gates code-block copy and keeps code-copy accessibility copy Chinese-first', async () => {
     // PR-UI-LIB-EXTRACT-6 (round 7/10): `CodeBlock` moved out of
     // `components.tsx` into `markdown.tsx` (along with `Markdown`,
-    // `MarkdownLink`, and the helper functions). The behavioral
-    // assertions stay; we just read from the file where the
-    // component now lives.
-    const markdownPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'markdown.tsx');
+    // `MarkdownLink`, and the helper functions). A later lazy-load
+    // split then moved the heavy markdown pipeline (`Markdown`,
+    // `MarkdownLink`, `CodeBlock`, helpers) into `markdown-body.tsx`
+    // so the initial renderer chunk doesn't parse react-markdown /
+    // remark / rehype-highlight (highlight.js) before first paint.
+    // The behavioral assertions stay; we just read from the file where
+    // the component now lives.
+    const markdownPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'markdown-body.tsx');
     const src = await readFile(markdownPath, 'utf8');
     const block = src.match(/function CodeBlock[\s\S]*?function isElementWithClassName/)?.[0] ?? '';
 

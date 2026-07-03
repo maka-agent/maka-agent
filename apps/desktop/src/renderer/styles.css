@@ -69,5 +69,11 @@
   --text-sm: var(--font-size-ui);
   --text-base: var(--font-size-base);
 
+  /* PR-SPACING-CONVERGE-0: export the 4px ruler to Tailwind so the p-N,
+     gap-N, m-N utilities share one source with hand-written var(--space-N).
+     Without this, Tailwind default --spacing 0.25rem (3.75px under 15px
+     root) would keep p-2 at 7.5px while var(--space-2) is 8px — two scales. */
+  --spacing: 4px;
+
   --shadow-maka-panel: 0 0 0 1px var(--border), 0 1px 2px oklch(from var(--foreground) l c h / 0.04), 0 14px 40px oklch(from var(--foreground) l c h / 0.08);
 }

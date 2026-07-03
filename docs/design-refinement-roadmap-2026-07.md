@@ -101,14 +101,104 @@
 
 ## 2. 落地队列（按杠杆排序）
 
-1. **P-SHADOW**：三层阴影配方升级 `--shadow-minimal/-medium` 系 +
-   dark 塌缩 ring（纯 token，全 app 生效）
-2. **P-INSET**：composer / 搜索框 / palette 输入行做 input-略暗 inset 层级
-3. **P-RADIUS**：同心圆角审计（壳→卡→气泡→内嵌元素）
-4. **P-MOTION**：duration token 对照 Emil 表收敛 + 高频操作零动画审计
-5. **P-TEXT**：四档文字语义别名 + 新代码治理契约
-6. **P-4PT**：4pt 治理契约（新增声明检查 + 存量 allowlist）
-7. **P-DARK**：dark elevation 独立化（依赖 P-SHADOW）
-8. **P-STATE**：状态全周期补齐审计（skeleton 对形/empty 构图/inline error）
+1. **P-SHADOW** ✅ (#457)：三层阴影配方升级 + dark 塌缩 ring
+2. **P-INSET** ✅：palette/搜索输入行 3% 前景 wash step-down；通用
+   Input/Textarea 2% wash。composer 例外保持 elevated —— 它是主命令台
+   不是表单字段（PR-UI-LAYOUT-8 的有意设计）。
+3. **P-RADIUS** ✅（首轮）：palette/搜索 modal 输入行按同心公式修正
+   （12−8=4px，写法 `calc(var(--radius-modal)-8px)` —— 契约的 calc
+   allowlist 要求无空格）。其余嵌套对（settings modal 内卡、tool card
+   内 pre）审计通过或留待触碰时修正。
+4. **P-MOTION** ✅（已达标，无需动作）：duration token
+   120/150/180/280ms 完全符合 Emil 表且取下限；装饰性入场动画已被
+   #406 gap 3 清除；剩余 keyframes 全部是功能性流式动画（D3 豁免）
+5. **P-TEXT** ✅（首轮）：孤儿档 -20/-30 清除（8 处调用点：文字并入
+   -40 兼修对比度、装饰内联 color-mix）；文字主力收敛为
+   40/50/60/70/80。全量四档语义别名迁移留待逐面触碰。
+6. **P-4PT** ✅✅（#448 完全体）：#459 的渐进 ratchet 服役半天后被
+   #448（#430 PR3）取代 —— 它修复了 --spacing 0.25rem=3.75px 的真 bug
+   （Tailwind 与手写 px 两把尺），全量 687 CSS + 125 TSX 收敛到 14 档
+   --space-* scale，并用 spacing-converge-contract 硬 ban bare px。
+   ratchet 契约已删除（一个机制，留强的）
+7. **P-DARK** ✅：elevation 独立化由 P-SHADOW dark-collapse 完成；
+   语义色审计通过（dark 的 chroma 微调是感知补偿而非过饱和，
+   accent 0.135→0.15 配 L+0.04 在暗底维持等感知强度）
+8. **P-STATE** ✅（审计轮）：技能/回顾/聊天 empty 构图完备；发送失败
+   = toast + turn 级失败徽章双通道；会话列表本地快路径合理缺席
+   skeleton（300ms 延迟原则，本地 SQLite <50ms）；无通用 Skeleton
+   组件正符合「形状对齐」原则。缺口留逐面触碰时补。
 
 每项独立 PR，双主题截图验收（D2），契约测试锁行为。
+
+## 3. 队列完成记录（2026-07-03 首轮全清）
+
+- #457 P-SHADOW（roadmap + 阴影配方 + dark collapse）
+- #458 P-INSET + P-RADIUS 首轮 + P-MOTION 审计
+- #459 P-4PT ratchet 契约 + P-TEXT 孤儿档清理
+- 前置质感修复：#454（玻璃色板复活/token 卫生）、#452（blocked
+  语义/时间戳/i18n）、#451（copy-feedback 契约同步）
+
+下一轮候选（按杠杆）：文字档 60/80 的逐面归并（→四档制）、
+P-STATE 边缘面补齐、storybook Design System 页同步新阴影/层级规则。
+（原「module-pages 76 个 off-grid 值」已由 #448 全量收敛解决。）
+
+## 4. 第二轮全量精读增补（2026-07-03，四源全覆盖）
+
+> 覆盖：taste-skill 全部 26 文件（含 v2 遗漏章节、v1 §9、research/laziness）、
+> ui-skills registry 全部 126 条目（~110 份独立文档）、vercel-labs 88 文件
+> （react-best-practices 70 rules 全读）、superdesign 全段亲读。
+> 原文缓存：session scratchpad `skills2/` 与 `agent-skills/`。
+
+### 4.1 新增可落地规则（相对 §1 的真增量）
+
+**Motion 增补**
+- **300ms loading 阈值**：加载 <300ms 什么都不显示，杜绝闪烁 skeleton（ui-ux-pro-max）
+- **exit = enter × 60–75%**；动画必须可中断（快速触发用 transition/spring 可重定向，禁 keyframes 重播）；context menu 只做退场动画（Emil review-animations / transitions.dev）
+- **80ms 瞬时感知阈值**（micro-interaction 目标）；「慢即真」：AI 生成类复杂操作的可见工作过程传达真实感（pbakaus animate — 属 D3 的流式语义豁免区）
+- **transitions.dev 参数表**：dropdown open 250/close 150ms、pre-scale 0.97；modal 250/150、scale 0.96；text swap 200ms+8px+blur 2px；error shake 6px+4px overshoot、3s 自动回退；replay 前 `void el.offsetWidth`
+- **换字元素宽度锁定**：状态标签/token 计数/「已复制」按最宽态锁 min-width —— chat 工具最高频 layout-shift 根治（compact-landing）
+- spring 决策表：手势/可中断→spring(500/30)；系统状态→easing；时间表征→linear；高频→零动画
+
+**Color/表面增补**
+- **灰字禁上彩底**：彩底文字用同色相深一档或前景加 alpha（pbakaus 三处反复强调）
+- **OKLCH 三定律**：修对比只调 L 锁 C/H；palette 各阶 hue 漂移 >10° = bug；跨 hue 等鲜艳度用 max-chroma 相同百分比（oklch-skill）
+- dark 深度 = 三档 surface 亮度（15/20/25% L 同色相），不靠阴影 —— 与 P-SHADOW dark collapse 互证
+- alpha 滥用是 palette 不完整的信号：除 focus ring 外定义显式 overlay 色（对 @layer 陷阱也更友好）
+- Anti-Nested-Box：卡中卡中卡硬 ban；密集区用 border-t/divide-y/负空间替代套卡
+
+**排版/细节增补**
+- `…` 不用 `...`（loading 文案以 … 结尾）；快捷键 `⌘ K` 用 nbsp；ALL-CAPS 短标签 +5–12% tracking
+- 暗底亮字三轴补偿：line-height +0.05–0.1、letter-spacing +0.01–0.02em、字重调档
+- italic 含降部字符（y g j p q）最低 leading-[1.1]
+- kbd 键帽 recipe：1px 边 + 4px radius + 浅底 + mono（桌面快捷键提示刚需）
+- 负 inset 伪元素扩热区（44px 达标不改布局）；`dialog::backdrop` + blur 4px 替代手写遮罩
+
+**治理增补**
+- **icon 四条**：单 family、stroke 统一 1.5/2px、filled-outline 不同层级混用禁、尺寸 token（16/20/24）
+- z-index 显式 scale 立法（maka 已有语义 z token ✓ 复核覆盖率即可）；modal scrim 40–60% black
+- toast 纪律：3–5s 自动消失、aria-live polite、永不作关键信息唯一渠道、低风险删除用 Undo toast
+- 文案：按钮写确切动作、同意图全应用一个措辞（发送/确认/提交不混用）、error = 原因+修复路径、禁「轻松/简单/只需」、AI 腔清单（段首总结过渡/datasheet 腔/碎句连发）
+
+**React 性能（vercel 70 rules 全读 → maka grounding）**
+现状：全仓 0 处 useTransition/useDeferredValue；chat-view 仅 MessageBody 有 memo。
+- ✅ content-visibility 已落地（#468）
+- 待做（按序）：TurnView memo 化 + props 收窄（流式不重渲染旧 turn）→ 流式更新包 startTransition / 搜索过滤用 useDeferredValue → markdown parse 结果按 text 缓存 → 面板 hover 预热 `void import()` → 频繁 toggle 面板用 <Activity> → 滚动三件套（passive listener / 贴底判定走 ref / 读写分离）→ barrel import 审计（rollup-plugin-visualizer）
+- composition-patterns：composer.tsx 792 行按 compound components 重构候选；react19-no-forwardRef 全仓清理候选
+- 原生 `document.startViewTransition` 做 settings/panel 切换（Electron 固定 Chromium，零依赖）
+
+### 4.2 明确不采纳增补
+- Lucide→Phosphor 全量换 icon（80+ 调用点，见 §4.3 问题 1，待拍板）
+- Motion/GSAP 库编排、bento/hero/marquee 全家（landing 专属）
+- 声音反馈两篇（超 UI-only scope，规则已存档：默认音量 0.3、打字禁声）
+- react@canary 的 <ViewTransition> 组件（生产依赖不划算，用原生 API 替代）
+- brutalist/gpt-tasteskill/brandkit/imagegen 系（风格化/资产生成，与 QoderWork 镜像路线冲突）
+
+### 4.3 已拍板决策（2026-07-03 第二轮，jackwener）
+| # | 决策 | 含义 |
+|---|------|------|
+| D5 | **保留 Lucide + 治理** | 不迁 Phosphor；用治理抵消「默认感」：stroke 统一 1.5px、尺寸 16/20/24 token 化、禁 filled/outline 同层级混用 |
+| D6 | **AI 等待感全谱引入** | taste v1 §9 五套微动效全部评估落地：shimmer processing、typewriter 轮播、呼吸指示+overshoot 通知、layoutId 列表重排、横向流。流式语义豁免区，不违反 D3 |
+| ~~D7~~ **D7'** | **中性冷 zinc（hue 286）** | 2026-07-03 晚 owner 看到实际暖米观感后推翻 D7：暖褐与玻璃通透语言相抵触（「追求的是玻璃质感」）。全局 ink/壳/dark/darwin 玻璃板换 zinc 族；sage accent 与 sand 可选主题不动。参考基准：冷净白侧栏截图（zinc Canvas White + Charcoal Ink） |
+| D8 | **copy lint 做可机械化的那半** | check-copy.mjs 上线（pressure-word / ascii-ellipsis）；同意图同措辞、AI 腔清单留人工 review |
+
+**产品级附赠**（超 UI，存档）：research/laziness 的反截断体系 —— skill description 具体度决定 68%→90% 触发率、`[PAUSED - X of Y]` 续写协议、EmotionPrompt 量化数据，可用于 maka 自身的 agent prompt 设计。

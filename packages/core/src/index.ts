@@ -636,6 +636,7 @@ export type {
 export {
   ONBOARDING_MILESTONE_IDS,
   deriveOnboardingState,
+  hasSettledInitialOnboarding,
   isOnboardingMilestone,
   sanitizeOnboardingMilestones,
 } from './onboarding.js';

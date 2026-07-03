@@ -304,7 +304,6 @@ const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
-  ensureBundledOfficeSkills,
 });
 const safeSendToRenderer = mainWindowController.send;
 const openGateway = new OpenGatewayService({
@@ -918,6 +917,7 @@ function registerIpc(): void {
     artifactStore,
     mainWindowController,
     sendToRenderer: safeSendToRenderer,
+    bundledSkillsReady: bundledSkillsReady.promise,
   });
   ipcMain.handle('visualSmoke:getState', () => getVisualSmokeState(visualSmokeFixture));
   /**
@@ -1576,6 +1576,17 @@ function normalizeSessionModelSelection(input: unknown): { llmConnectionSlug: st
   return { llmConnectionSlug, model };
 }
 
+/**
+ * Deferred handle for the bundled-Office-skills copy that now runs in
+ * background startup (#456): skills:list awaits it so an early Skills
+ * page open cannot see a half-bundled workspace.
+ */
+const bundledSkillsReady: { promise: Promise<void>; resolve: () => void } = (() => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+})();
+
 async function recoverInterruptedSessionsOnStartup(): Promise<void> {
   try {
     await runtime.recoverInterruptedSessions();
@@ -1599,6 +1610,11 @@ async function ensureBootstrapConnection(): Promise<void> {
     });
     await credentialStore.setSecret(slug, 'api_key', process.env.ANTHROPIC_API_KEY);
     await connectionStore.setDefault(slug);
+    // Bootstrap runs in BACKGROUND startup (#456): the renderer may have
+    // already seeded its connection list from the onboarding snapshot,
+    // so push the change or the model picker stays empty until an
+    // unrelated action refreshes it.
+    emitConnectionListChanged();
     return;
   }
 
@@ -1612,6 +1628,7 @@ async function ensureBootstrapConnection(): Promise<void> {
     });
     await credentialStore.setSecret(slug, 'api_key', process.env.OPENAI_API_KEY);
     await connectionStore.setDefault(slug);
+    emitConnectionListChanged();
   }
 }
 
@@ -1640,6 +1657,37 @@ app.whenReady().then(async () => {
     }
   }
 
+  // Launch the window as early as possible so the user sees the app
+  // chrome (preload skeleton + backgroundColor) within milliseconds of
+  // launch. Everything below — credential migration, connection
+  // bootstrapping, telemetry/pricing load, interrupted-session recovery,
+  // bot bridges, gateway, schedulers — runs concurrently in the
+  // background and never blocks the first paint. The renderer's first
+  // IPC calls (session enumeration, settings read, connection listing)
+  // all read from stores that are initialized synchronously at module load,
+  // so they succeed regardless of whether background startup has
+  // settled. Any state that background startup mutates is pushed to the
+  // renderer via the existing `sessions:changed` / `connections:event`
+  // / `settings:bots:statusChanged` channels, so the UI converges lazily.
+  const backgroundStartup = runBackgroundStartup();
+  await mainWindowController.createWindow();
+  // Keep the process alive until background work settles so schedulers
+  // / bridges aren't torn down mid-start by a fast window-all-closed.
+  await backgroundStartup;
+});
+
+/**
+ * Non-critical startup work that must NOT block the first window paint.
+ *
+ * Order matters within this routine: `migrateLegacyCredentials` and
+ * `ensureBootstrapConnection` touch the credential store, so they run
+ * first; `setActiveProxy` must be applied before any network-bearing
+ * step (`botRegistry.applySettings`, `openGateway.sync`); pricing depends
+ * on `telemetryRepo.load()`. Everything here is best-effort and logged
+ * on failure — none of it should prevent the user from seeing and
+ * interacting with the app shell.
+ */
+async function runBackgroundStartup(): Promise<void> {
   // One-time migration of credentials.json off Electron safeStorage so
   // the pure-Node runtime can read it (issue #32). Runs before any
   // credential read/write below; failure is non-fatal (legacy file is
@@ -1659,13 +1707,19 @@ app.whenReady().then(async () => {
   setActiveProxy(toContractNetworkSettings(settings.network).proxy);
   await telemetryRepo.load();
   lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
+  try {
+    await ensureBundledOfficeSkills(workspaceRoot);
+  } catch (error) {
+    console.error('[skills] ensureBundledOfficeSkills failed:', error);
+  } finally {
+    bundledSkillsReady.resolve();
+  }
   await recoverInterruptedSessionsOnStartup();
   await botRegistry.applySettings(settings.botChat);
   await openGateway.sync(settings.openGateway);
-  await mainWindowController.createWindow();
   await planReminders.refreshTimers();
   dailyReview.startScheduler();
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

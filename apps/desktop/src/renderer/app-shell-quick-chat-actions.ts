@@ -61,6 +61,9 @@ export function createAppShellQuickChatActions(deps: {
         if (!prompt.trim() && activeIdRef.current === result.sessionId) {
           composerRef.current?.focus();
         }
+        // Best-effort: mark onboarding completed. Failure must not
+        // turn a successful chat into a failure — backfill covers it.
+        void window.maka.onboarding.setMilestone('initial_onboarding', 'completed').catch(() => {});
         return true;
       } else if (result.reason === 'setup_required') {
         refreshOnboarding();

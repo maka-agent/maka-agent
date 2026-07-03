@@ -319,6 +319,10 @@ export class SessionManager {
 
       if (!messagesReadable) {
         if (session.status === 'running' || session.status === 'waiting_for_user') {
+          // Recovery may run in BACKGROUND startup (#456): re-check for a
+          // run the user started while this session's recovery was in
+          // flight, so we never stomp a live run's status.
+          if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
           await this.updateStatus(session.id, 'active').catch(() => {});
           recovered.push(session.id);
         }
@@ -333,6 +337,12 @@ export class SessionManager {
         }).catch(() => {});
       }
       if (session.status === 'running' || session.status === 'waiting_for_user') {
+        // Same double-check as above: a message sent mid-recovery owns
+        // the session status now (its own transitions will settle it).
+        if (this.runtimeKernel.hasActiveRuns(session.id)) {
+          recovered.push(session.id);
+          continue;
+        }
         await this.updateStatus(session.id, 'active').catch(() => {});
       }
       recovered.push(session.id);

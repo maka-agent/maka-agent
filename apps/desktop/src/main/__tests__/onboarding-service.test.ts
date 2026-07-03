@@ -127,6 +127,65 @@ describe('createOnboardingService.getSnapshot', () => {
       assert.equal(snapshot.state.connectionSlug, 'broken');
     }
   });
+
+  it('backfills initial_onboarding as completed when user already has sessions', async () => {
+    const upsertCalls: Array<{ id: string; status: string }> = [];
+    const service = createOnboardingService(
+      fakeDeps({
+        listConnections: async () => [realConnection({ slug: 'a' })],
+        getDefaultSlug: async () => 'a',
+        hasCredential: async () => true,
+        listSessions: async () => [{ id: 's1', title: 'old', createdAt: 1, updatedAt: 1 } as unknown as SessionSummary],
+        getMilestones: async () => [],
+        upsertMilestone: async (id, status) => {
+          upsertCalls.push({ id, status });
+          return [{ id, completedAt: Date.now() }];
+        },
+      }),
+    );
+    const snapshot = await service.getSnapshot();
+    assert.equal(upsertCalls.length, 1);
+    assert.equal(upsertCalls[0].id, 'initial_onboarding');
+    assert.equal(upsertCalls[0].status, 'completed');
+    assert.ok(snapshot.milestones.some((m) => m.id === 'initial_onboarding' && m.completedAt !== undefined));
+  });
+
+  it('does NOT backfill when user has sessions but initial_onboarding already settled', async () => {
+    const upsertCalls: Array<{ id: string; status: string }> = [];
+    const service = createOnboardingService(
+      fakeDeps({
+        listConnections: async () => [realConnection({ slug: 'a' })],
+        getDefaultSlug: async () => 'a',
+        hasCredential: async () => true,
+        listSessions: async () => [{ id: 's1', title: 'old', createdAt: 1, updatedAt: 1 } as unknown as SessionSummary],
+        getMilestones: async () => [{ id: 'initial_onboarding', completedAt: 1 }],
+        upsertMilestone: async (id, status) => {
+          upsertCalls.push({ id, status });
+          return [{ id, completedAt: 1 }];
+        },
+      }),
+    );
+    await service.getSnapshot();
+    assert.equal(upsertCalls.length, 0);
+  });
+
+  it('does NOT backfill when user has zero sessions', async () => {
+    const upsertCalls: Array<{ id: string; status: string }> = [];
+    const service = createOnboardingService(
+      fakeDeps({
+        listConnections: async () => [realConnection({ slug: 'a' })],
+        getDefaultSlug: async () => 'a',
+        hasCredential: async () => true,
+        listSessions: async () => [],
+        upsertMilestone: async (id, status) => {
+          upsertCalls.push({ id, status });
+          return [{ id, completedAt: Date.now() }];
+        },
+      }),
+    );
+    await service.getSnapshot();
+    assert.equal(upsertCalls.length, 0);
+  });
 });
 
 describe('bindOnboardingDeps — hasCredential wiring', () => {

@@ -183,11 +183,11 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       block.includes('[&[open]>summary]:[border-bottom:1px_solid_var(--border)]'),
       'item must keep the `[open]>summary` divider literal (collapsed default has none)',
     );
-    // Anti-drift: the literalize vehicle stays arbitrary-value (immune to a later
-    // scale re-tuning silently shifting pixels). Pin the distinctive literals
-    // and ban the semantic-scale forms they would be swapped for. Radius now
-    // uses the `--radius-surface` token per #406 gap 4.
-    for (const literal of ['rounded-[var(--radius-surface)]', 'text-[12.5px]', 'gap-[10px]', 'min-w-[22px]']) {
+    // Anti-drift: pin the distinctive literals and ban the semantic-scale
+    // forms they would be swapped for. Radius uses the `--radius-surface`
+    // token per #406 gap 4. Spacing now uses the Tailwind scale (gap-2.5)
+    // per #430 PR3 spacing converge — arbitrary px literals are banned.
+    for (const literal of ['rounded-[var(--radius-surface)]', 'text-[12.5px]', 'gap-2.5', 'min-w-[22px]']) {
       assert.ok(block.includes(literal), `toolVariants must keep the literal "${literal}"`);
     }
     for (const scale of ['rounded-lg', 'rounded-xl', 'text-sm', 'text-xs']) {

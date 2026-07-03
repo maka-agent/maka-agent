@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -35,9 +35,14 @@ import type {
   PlanReminderUpdatePatch,
   SkillEntry,
 } from './module-panel-types.js';
-import { SkillsModuleMain } from './skills-panel.js';
-import { DailyReviewPanel } from './daily-review-panel.js';
-import { PlanReminderPanel } from './plan-reminder-panel.js';
+// The Skills / Automations / Daily-Review surfaces are whole nav sections of
+// their own — they only render when `mode` flips to `skills` / `automations` /
+// `daily-review`, never on the default chat first paint. Loading them lazily
+// keeps their code (incl. the base-ui Select primitive they pull in) out of
+// the initial chunk so the chat shell mounts faster.
+const SkillsModuleMain = lazy(() => import('./skills-panel.js').then((m) => ({ default: m.SkillsModuleMain })));
+const DailyReviewPanel = lazy(() => import('./daily-review-panel.js').then((m) => ({ default: m.DailyReviewPanel })));
+const PlanReminderPanel = lazy(() => import('./plan-reminder-panel.js').then((m) => ({ default: m.PlanReminderPanel })));
 import { RelativeTime } from './relative-time.js';
 import { ToolActivity } from './tool-activity.js';
 
@@ -256,13 +261,38 @@ export function ChatView(props: {
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
   // turn-grouping projection).
-  const visibleMessages = props.streamingComplete && props.streamingMessageId
-    ? props.messages.filter((message) => !(message.type === 'assistant' && message.id === props.streamingMessageId))
-    : props.messages;
-  const chat = materializeChat(visibleMessages);
-  const storedTools = materializeTools(visibleMessages);
-  const tools = mergeTools(storedTools, props.tools);
-  const turns = materializeTurns(visibleMessages, props.tools);
+  // Memoized derivation chain (vercel rerender rules): during PLAIN-TEXT
+  // streaming — the hottest path, dozens of state updates per second —
+  // `messages` and `tools` don't change, so every turn object keeps its
+  // identity and the memoized TurnViews below skip re-rendering entirely.
+  // Tool-activity updates legitimately invalidate the chain.
+  const visibleMessages = useMemo(
+    () =>
+      props.streamingComplete && props.streamingMessageId
+        ? props.messages.filter((message) => !(message.type === 'assistant' && message.id === props.streamingMessageId))
+        : props.messages,
+    [props.messages, props.streamingComplete, props.streamingMessageId],
+  );
+  const chat = useMemo(() => materializeChat(visibleMessages), [visibleMessages]);
+  const storedTools = useMemo(() => materializeTools(visibleMessages), [visibleMessages]);
+  const tools = useMemo(() => mergeTools(storedTools, props.tools), [storedTools, props.tools]);
+  const turns = useMemo(() => materializeTurns(visibleMessages, props.tools), [visibleMessages, props.tools]);
+  // Stable event wrappers (advanced-use-latest): parent handlers are
+  // recreated per render upstream; routing through refs keeps the
+  // memoized TurnView's function props identity-stable without
+  // demanding useCallback discipline from every caller.
+  const onTurnFooterActionRef = useRef(props.onTurnFooterAction);
+  onTurnFooterActionRef.current = props.onTurnFooterAction;
+  const stableTurnFooterAction = useCallback(
+    (turnId: string, actionId: TurnFooterActionMeta['id']) => onTurnFooterActionRef.current?.(turnId, actionId),
+    [],
+  );
+  const onLineageBadgeClickRef = useRef(props.onLineageBadgeClick);
+  onLineageBadgeClickRef.current = props.onLineageBadgeClick;
+  const stableLineageBadgeClick = useCallback(
+    (targetTurnId: string) => onLineageBadgeClickRef.current?.(targetTurnId),
+    [],
+  );
   const capabilityAuditReport = useMemo(
     () => deriveCapabilityAuditReport({
       skills: props.skills ?? [],
@@ -334,32 +364,36 @@ export function ChatView(props: {
 
   if (props.mode === 'skills') {
     return (
-      <SkillsModuleMain
-        skills={props.skills}
-        auditReport={capabilityAuditReport}
-        onRefreshSkills={props.onRefreshSkills}
-        onCreateSkillTemplate={props.onCreateSkillTemplate}
-        onOpenSkill={props.onOpenSkill}
-        onOpenSkillsFolder={props.onOpenSkillsFolder}
-      />
+      <Suspense fallback={null}>
+        <SkillsModuleMain
+          skills={props.skills}
+          auditReport={capabilityAuditReport}
+          onRefreshSkills={props.onRefreshSkills}
+          onCreateSkillTemplate={props.onCreateSkillTemplate}
+          onOpenSkill={props.onOpenSkill}
+          onOpenSkillsFolder={props.onOpenSkillsFolder}
+        />
+      </Suspense>
     );
   }
 
   if (props.mode === 'automations') {
     return (
       <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="定时任务">
-        <PlanReminderPanel
-          reminders={props.planReminders ?? []}
-          auditReport={capabilityAuditReport}
-          onRefresh={props.onRefreshPlanReminders}
-          onCreate={props.onCreatePlanReminder}
-          onUpdate={props.onUpdatePlanReminder}
-          onToggle={props.onTogglePlanReminder}
-          onTriggerNow={props.onTriggerPlanReminderNow}
-          onSnooze={props.onSnoozePlanReminder}
-          onClearRunHistory={props.onClearPlanReminderRunHistory}
-          onDelete={props.onDeletePlanReminder}
-        />
+        <Suspense fallback={null}>
+          <PlanReminderPanel
+            reminders={props.planReminders ?? []}
+            auditReport={capabilityAuditReport}
+            onRefresh={props.onRefreshPlanReminders}
+            onCreate={props.onCreatePlanReminder}
+            onUpdate={props.onUpdatePlanReminder}
+            onToggle={props.onTogglePlanReminder}
+            onTriggerNow={props.onTriggerPlanReminderNow}
+            onSnooze={props.onSnoozePlanReminder}
+            onClearRunHistory={props.onClearPlanReminderRunHistory}
+            onDelete={props.onDeletePlanReminder}
+          />
+        </Suspense>
       </main>
     );
   }
@@ -378,13 +412,15 @@ export function ChatView(props: {
           </div>
         </header>
         {props.dailyReviewBridge ? (
-          <DailyReviewPanel
-            bridge={props.dailyReviewBridge}
-            onSelectSession={props.onSelectSession}
-            onCopyMarkdown={props.onCopyDailyReviewMarkdown}
-            onAppendMarkdown={props.onAppendDailyReviewMarkdown}
-            onSaveMarkdown={props.onSaveDailyReviewMarkdown}
-          />
+          <Suspense fallback={null}>
+            <DailyReviewPanel
+              bridge={props.dailyReviewBridge}
+              onSelectSession={props.onSelectSession}
+              onCopyMarkdown={props.onCopyDailyReviewMarkdown}
+              onAppendMarkdown={props.onAppendDailyReviewMarkdown}
+              onSaveMarkdown={props.onSaveDailyReviewMarkdown}
+            />
+          </Suspense>
         ) : (
           <EmptyState
             Icon={CalendarDays}
@@ -551,11 +587,11 @@ export function ChatView(props: {
                 turn={turn}
                 userLabel={props.userLabel}
                 footerActions={props.turnFooterActionsByTurn?.[turn.turnId]}
-                onFooterAction={(actionId) => props.onTurnFooterAction?.(turn.turnId, actionId)}
+                onFooterAction={stableTurnFooterAction}
                 failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
-                onLineageBadgeClick={props.onLineageBadgeClick}
+                onLineageBadgeClick={stableLineageBadgeClick}
                 previousModelId={expectedModelId}
                 searchHighlighted={highlightedTurnId === turn.turnId}
               />
@@ -870,7 +906,7 @@ function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
  * "message stack + tools panel at end" layout so the user sees the
  * narrative of "ask → tools fired → answer" as one work unit.
  */
-function TurnView(props: {
+const TurnView = memo(function TurnView(props: {
   turn: TurnViewModel;
   userLabel?: string;
   /**
@@ -881,7 +917,7 @@ function TurnView(props: {
    * map is built.
    */
   footerActions?: ReadonlyArray<TurnFooterActionMeta>;
-  onFooterAction?: (actionId: TurnFooterActionMeta['id']) => void;
+  onFooterAction?: (turnId: string, actionId: TurnFooterActionMeta['id']) => void;
   /**
    * PR109e-d: pre-translated Chinese phrase for a failed turn's
    * `errorClass`. Caller computes via `describeTurnErrorClass()`.
@@ -1044,7 +1080,7 @@ function TurnView(props: {
           {props.footerActions && props.footerActions.length > 0 && (
             <TurnFooterActions
               actions={props.footerActions}
-              onAction={props.onFooterAction}
+              onAction={props.onFooterAction ? (actionId) => props.onFooterAction?.(turn.turnId, actionId) : undefined}
               assistantText={turn.assistant.text}
             />
           )}
@@ -1052,7 +1088,7 @@ function TurnView(props: {
       )}
     </section>
   );
-}
+});
 
 /**
  * Turn footer actions row (PR109d-b). Renders icon+text buttons for
@@ -1314,7 +1350,7 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
       <Markdown text={displayed} />
       {props.truncated && (
         <div
-          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-[5px] text-[10px] text-[color:var(--warning-text,var(--info-text))]"
+          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-[10px] text-[color:var(--warning-text,var(--info-text))]"
           role="status"
           aria-live="polite"
           title="助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。"

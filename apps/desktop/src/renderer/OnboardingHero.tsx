@@ -35,7 +35,7 @@ import {
   detectUiLocale,
   type UiLocale,
 } from '@maka/ui';
-import { ProviderLogo, providerDisplay } from './settings/ProvidersPanel';
+import { ProviderLogo, providerDisplay } from './settings/provider-display';
 import { FIRST_RUN_TASK_SUGGESTIONS } from './first-run-task-suggestions';
 import { getOnboardingSetupSteps, type OnboardingSetupStep } from './onboarding-hero-copy';
 
@@ -107,7 +107,7 @@ export interface OnboardingHeroProps {
    * for handling the discriminated-union result (setActiveId on
    * success, toast on `send_failed`, etc.). Returns true only after
    * the target session is created; the hero keeps the draft on false
-   * so a setup/send failure does not erase the user's first prompt.
+   * so a setup/send failure does not erate the user's first prompt.
    */
   onQuickChatSubmit: (prompt: string, mode?: QuickChatMode) => boolean | Promise<boolean>;
   /**
@@ -128,6 +128,13 @@ export interface OnboardingHeroProps {
    * the snapshot without restarting. Optional.
    */
   onRefreshConnections?: () => Promise<void> | void;
+  /**
+   * Skip the initial onboarding and enter the app. Writes
+   * `initial_onboarding` milestone as `skipped`. Only invoked from
+   * the `needs_*` / `blocked` branches; `ready_empty` does not show
+   * a skip button because the user is already configured.
+   */
+  onSkip?: () => Promise<void> | void;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
 }
 
@@ -164,6 +171,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           onOpenSettings={props.onOpenSettings}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
+          onSkip={props.onSkip}
         />
       );
     case 'needs_default_connection':
@@ -172,6 +180,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           onOpenSettings={props.onOpenSettings}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
+          onSkip={props.onSkip}
         />
       );
     case 'needs_connection_credentials':
@@ -182,6 +191,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           onOpenSettings={props.onOpenSettings}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
+          onSkip={props.onSkip}
         />
       );
     case 'needs_default_model':
@@ -192,6 +202,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           onOpenSettings={props.onOpenSettings}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
+          onSkip={props.onSkip}
         />
       );
     case 'ready_empty':
@@ -213,6 +224,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
           onOpenSettings={props.onOpenSettings}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
+          onSkip={props.onSkip}
         />
       );
     case 'ready_with_history':
@@ -245,6 +257,7 @@ function NeedsConnectionHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
+  onSkip?: () => Promise<void> | void;
 }) {
   const setupSteps = getOnboardingSetupSteps({ kind: 'needs_connection' });
   return (
@@ -319,6 +332,7 @@ function NeedsConnectionHero(props: {
             {props.refreshConnectionsPending === true ? '刷新中…' : '已经配好了？刷新检测'}
           </Button>
         )}
+        {props.onSkip && <SkipButton onSkip={props.onSkip} />}
       </footer>
     </section>
   );
@@ -349,6 +363,7 @@ function NeedsDefaultConnectionHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
+  onSkip?: () => Promise<void> | void;
 }) {
   return (
     <SetupHero
@@ -374,6 +389,7 @@ function NeedsDefaultConnectionHero(props: {
           }
           : undefined
       }
+      onSkip={props.onSkip}
     />
   );
 }
@@ -384,6 +400,7 @@ function NeedsConnectionCredentialsHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
+  onSkip?: () => Promise<void> | void;
 }) {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
@@ -418,6 +435,7 @@ function NeedsConnectionCredentialsHero(props: {
           }
           : undefined
       }
+      onSkip={props.onSkip}
     />
   );
 }
@@ -428,6 +446,7 @@ function NeedsDefaultModelHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
+  onSkip?: () => Promise<void> | void;
 }) {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
@@ -462,6 +481,7 @@ function NeedsDefaultModelHero(props: {
           }
           : undefined
       }
+      onSkip={props.onSkip}
     />
   );
 }
@@ -471,6 +491,7 @@ function BlockedHero(props: {
   onOpenSettings: (section?: SettingsSection) => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
+  onSkip?: () => Promise<void> | void;
 }) {
   // The reason is destructured to satisfy exhaustive type-checking;
   // when PR-future extends the enum, this branch must update too.
@@ -501,6 +522,7 @@ function BlockedHero(props: {
           }
           : undefined
       }
+      onSkip={props.onSkip}
       // PR-UI-LAYOUT-25: 'destructive' (vs the previous 'warning') so
       // the user sees "all connections unhealthy" at full gravity —
       // distinct from "missing default model" or "needs reauth" which
@@ -781,6 +803,35 @@ function ReadyEmptyHero(props: {
   );
 }
 
+function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string }) {
+  const [pending, setPending] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const onClick = useCallback(async () => {
+    if (pending) return;
+    setPending(true);
+    try {
+      await props.onSkip();
+    } finally {
+      if (mountedRef.current) setPending(false);
+    }
+  }, [pending, props]);
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onClick}
+      disabled={pending}
+      aria-busy={pending ? 'true' : undefined}
+    >
+      {pending ? '跳过中…' : (props.label ?? '跳过，先逛逛')}
+    </Button>
+  );
+}
+
 interface SetupHeroProps {
   icon: React.ReactNode;
   eyebrow: string;
@@ -797,6 +848,12 @@ interface SetupHeroProps {
    * unchanged.
    */
   secondaryCta?: { label: string; onClick: () => void; disabled?: boolean; busy?: boolean };
+  /**
+   * Optional skip affordance for the `needs_*` / `blocked` branches.
+   * Renders as a ghost button after the secondary CTA. Lets the user
+   * enter the app without configuring a provider.
+   */
+  onSkip?: () => Promise<void> | void;
   /**
    * PR-UI-LAYOUT-25 (@yuejing 2026-05-22): extended from `'warning'`
    * only to also accept `'destructive'` so a blocked-state hero
@@ -842,6 +899,7 @@ function SetupHero(props: SetupHeroProps) {
             {props.secondaryCta.label}
           </Button>
         )}
+        {props.onSkip && <SkipButton onSkip={props.onSkip} />}
       </footer>
     </section>
   );

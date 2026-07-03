@@ -108,7 +108,8 @@ export function SearchModal(props: {
   const searchMountedRef = useRef(true);
   const keyboardSelectionHandledRef = useRef(false);
   const searchThread = props.deps?.searchThread;
-  useModalA11y(dialogRef, props.onClose, inputRef);
+  const suppressFocusRestoreRef = useRef(false);
+  useModalA11y(dialogRef, props.onClose, inputRef, { suppressFocusRestoreRef });
 
   useEffect(() => {
     searchMountedRef.current = true;
@@ -178,6 +179,9 @@ export function SearchModal(props: {
     if (!props.onNavigateToSession) return;
     if (result.target?.kind !== 'thread') return;
     props.onNavigateToSession(result.target.sessionId, result.target.turnId);
+    // Navigating away owns focus now — stop the a11y hook's unmount
+    // cleanup from yanking focus back to the sidebar search trigger.
+    suppressFocusRestoreRef.current = true;
     props.onClose({ restoreFocus: false });
   }
 

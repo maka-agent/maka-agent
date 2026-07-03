@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import type {
   LlmConnection,
   PermissionRequestEvent,
@@ -9,8 +10,14 @@ import type {
 import { PermissionDialog, SearchModal } from '@maka/ui';
 import { KeyboardHelpModal } from './keyboard-help';
 import { CommandPalette } from './command-palette';
-import { SettingsModal } from './settings/SettingsModal';
 import { buildAppShellCommandList, type AppShellCommandListOptions } from './app-shell-command-actions';
+
+// Settings is a large surface (providers, OAuth, network, bots, daily-review,
+// usage, etc.) that is only needed once the user opens the Settings modal.
+// Loading it lazily keeps all of that out of the initial chunk so the first
+// paint of the chat shell isn't blocked on parsing hundreds of KB of settings
+// UI that may never be opened.
+const SettingsModal = lazy(() => import('./settings/SettingsModal').then((m) => ({ default: m.SettingsModal })));
 
 type SearchModalProps = Parameters<typeof SearchModal>[0];
 
@@ -76,20 +83,22 @@ export function AppShellOverlays(props: {
         />
       )}
       {settingsOpen && (
-        <SettingsModal
-          connections={connections}
-          defaultSlug={defaultConnection}
-          onRefresh={refreshConnections}
-          onClose={closeSettings}
-          themePref={themePref}
-          onThemeChange={setThemePref}
-          themePalette={themePalette}
-          onThemePaletteChange={setThemePalette}
-          onUserLabelChange={setUserLabel}
-          requestedSection={settingsRequestedSection}
-          onOpenDailyReview={props.onOpenDailyReview}
-          onOpenSession={props.onOpenSettingsSession}
-        />
+        <Suspense fallback={null}>
+          <SettingsModal
+            connections={connections}
+            defaultSlug={defaultConnection}
+            onRefresh={refreshConnections}
+            onClose={closeSettings}
+            themePref={themePref}
+            onThemeChange={setThemePref}
+            themePalette={themePalette}
+            onThemePaletteChange={setThemePalette}
+            onUserLabelChange={setUserLabel}
+            requestedSection={settingsRequestedSection}
+            onOpenDailyReview={props.onOpenDailyReview}
+            onOpenSession={props.onOpenSettingsSession}
+          />
+        </Suspense>
       )}
       {helpOpen && <KeyboardHelpModal onClose={closeHelp} />}
       {searchModalOpen && (

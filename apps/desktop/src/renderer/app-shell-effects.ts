@@ -213,17 +213,20 @@ export function useAppShellBootstrapSubscriptions(options: {
   } = options;
 
   useEffect(() => {
-    void bootstrapSessions();
-    void refreshConnections();
-    void refreshAppInfo();
-    // Pull the persisted theme preference (auto/light/dark) and apply it
-    // before any first paint settles. If settings are unreadable we leave the
-    // default `auto` which still produces a correct result.
-    void refreshMemoryActive('载入本地记忆状态失败');
+    // Critical data: sessions + connections are seeded from the onboarding
+    // snapshot (see AppShell useEffect above).  `refreshShellSettings` is
+    // waited because it drives theme + locale before first paint settles.
+    // Everything else is fire-and-forget on a rAF to keep the critical
+    // render path as short as possible.
     void refreshShellSettings();
-    void refreshSkills();
-    void refreshPlanReminders();
-    void applyVisualSmokeFixture();
+    // Non-critical: defer to next frame so the first paint isn't blocked.
+    requestAnimationFrame(() => {
+      void refreshAppInfo();
+      void refreshMemoryActive('载入本地记忆状态失败');
+      void refreshSkills();
+      void refreshPlanReminders();
+      void applyVisualSmokeFixture();
+    });
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges((event) => {
       void refreshSessions();

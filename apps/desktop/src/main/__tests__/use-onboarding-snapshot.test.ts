@@ -27,11 +27,17 @@ const READY_SNAPSHOT: OnboardingSnapshot = {
     defaultModel: 'm',
   } as OnboardingState,
   milestones: [],
+  sessions: [],
+  connections: [],
+  defaultSlug: null,
 };
 
 const NEEDS_CONNECTION_SNAPSHOT: OnboardingSnapshot = {
   state: { kind: 'needs_connection' } as OnboardingState,
   milestones: [],
+  sessions: [],
+  connections: [],
+  defaultSlug: null,
 };
 
 describe('createOnboardingSnapshotPoller', () => {

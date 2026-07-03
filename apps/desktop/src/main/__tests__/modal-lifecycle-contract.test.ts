@@ -54,7 +54,11 @@ const MODAL_DECLS: readonly ModalDecl[] = [
   {
     name: 'SettingsModal',
     source: join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'settings', 'SettingsModal.tsx'),
-    parentMountPattern: /\{settingsOpen\s*&&\s*\(?\s*<SettingsModal/,
+    // The renderer wraps the lazy-loaded SettingsModal in <Suspense> so the
+    // settings chunk stays out of the initial bundle. The lifecycle contract
+    // (parent owns the mount via `{settingsOpen && ...}`, no `open=` prop)
+    // is unchanged, so the pattern tolerates an optional Suspense boundary.
+    parentMountPattern: /\{settingsOpen\s*&&\s*\(?\s*(?:<Suspense[^>]*>\s*)?<SettingsModal/,
   },
   {
     name: 'CommandPalette',

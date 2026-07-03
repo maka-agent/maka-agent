@@ -72,6 +72,7 @@ function heroProps(state: OnboardingState) {
     onQuickChatSubmit: async () => true,
     connections,
     onRefreshConnections: async () => undefined,
+    onSkip: () => undefined,
   };
 }
 

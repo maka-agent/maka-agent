@@ -866,6 +866,11 @@ export function BotChatSettingsPage(props: {
               data-support={providerSupport}
               aria-current={selected === provider ? 'page' : undefined}
               disabled={botActionBusy}
+              /* Locked by contract: platform switching is blocked while a
+                 provider-owned action runs. The original gap (UI review
+                 P0) was that all seven rows froze with NO explanation —
+                 the title tells the user why and when it unlocks. */
+              title={botActionBusy ? '当前操作进行中，完成后可切换平台' : undefined}
               style={{ ['--bot-brand-color' as string]: BOT_BRAND[provider].color }}
               onClick={() => {
                 setSelected(provider);
