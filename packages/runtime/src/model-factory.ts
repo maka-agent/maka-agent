@@ -38,6 +38,14 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: { 'anthropic-beta': ANTHROPIC_BETA },
       }).chat(modelId);
 
+    case 'MiniMax':
+    case 'MiniMax-cn':
+      return createAnthropic({
+        apiKey,
+        baseURL,
+        headers: { 'anthropic-beta': ANTHROPIC_BETA },
+      }).chat(modelId);
+
     case 'claude-subscription':
       return createAnthropic({
         authToken: apiKey,
@@ -113,6 +121,8 @@ export function buildProviderOptions(
   switch (connection.providerType) {
     case 'anthropic':
     case 'kimi-coding-plan':
+    case 'MiniMax':
+    case 'MiniMax-cn':
     case 'claude-subscription':
       return { anthropic: {} };
     case 'codex-subscription':

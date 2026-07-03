@@ -92,6 +92,7 @@ const FEATURED: Array<{ type: ProviderType; tag: string; recommended?: boolean }
   { type: 'anthropic', tag: 'Claude · Anthropic', recommended: true },
   { type: 'openai', tag: 'OpenAI' },
   { type: 'zai-coding-plan', tag: 'GLM Coding Plan · Z.ai' },
+  { type: 'MiniMax', tag: 'MiniMax M-series' },
   { type: 'kimi-coding-plan', tag: 'Kimi · Moonshot' },
   { type: 'deepseek', tag: 'DeepSeek' },
   { type: 'ollama', tag: 'Ollama' },
