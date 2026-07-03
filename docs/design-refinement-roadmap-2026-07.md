@@ -141,3 +141,62 @@
 下一轮候选（按杠杆）：文字档 60/80 的逐面归并（→四档制）、
 P-STATE 边缘面补齐、storybook Design System 页同步新阴影/层级规则。
 （原「module-pages 76 个 off-grid 值」已由 #448 全量收敛解决。）
+
+## 4. 第二轮全量精读增补（2026-07-03，四源全覆盖）
+
+> 覆盖：taste-skill 全部 26 文件（含 v2 遗漏章节、v1 §9、research/laziness）、
+> ui-skills registry 全部 126 条目（~110 份独立文档）、vercel-labs 88 文件
+> （react-best-practices 70 rules 全读）、superdesign 全段亲读。
+> 原文缓存：session scratchpad `skills2/` 与 `agent-skills/`。
+
+### 4.1 新增可落地规则（相对 §1 的真增量）
+
+**Motion 增补**
+- **300ms loading 阈值**：加载 <300ms 什么都不显示，杜绝闪烁 skeleton（ui-ux-pro-max）
+- **exit = enter × 60–75%**；动画必须可中断（快速触发用 transition/spring 可重定向，禁 keyframes 重播）；context menu 只做退场动画（Emil review-animations / transitions.dev）
+- **80ms 瞬时感知阈值**（micro-interaction 目标）；「慢即真」：AI 生成类复杂操作的可见工作过程传达真实感（pbakaus animate — 属 D3 的流式语义豁免区）
+- **transitions.dev 参数表**：dropdown open 250/close 150ms、pre-scale 0.97；modal 250/150、scale 0.96；text swap 200ms+8px+blur 2px；error shake 6px+4px overshoot、3s 自动回退；replay 前 `void el.offsetWidth`
+- **换字元素宽度锁定**：状态标签/token 计数/「已复制」按最宽态锁 min-width —— chat 工具最高频 layout-shift 根治（compact-landing）
+- spring 决策表：手势/可中断→spring(500/30)；系统状态→easing；时间表征→linear；高频→零动画
+
+**Color/表面增补**
+- **灰字禁上彩底**：彩底文字用同色相深一档或前景加 alpha（pbakaus 三处反复强调）
+- **OKLCH 三定律**：修对比只调 L 锁 C/H；palette 各阶 hue 漂移 >10° = bug；跨 hue 等鲜艳度用 max-chroma 相同百分比（oklch-skill）
+- dark 深度 = 三档 surface 亮度（15/20/25% L 同色相），不靠阴影 —— 与 P-SHADOW dark collapse 互证
+- alpha 滥用是 palette 不完整的信号：除 focus ring 外定义显式 overlay 色（对 @layer 陷阱也更友好）
+- Anti-Nested-Box：卡中卡中卡硬 ban；密集区用 border-t/divide-y/负空间替代套卡
+
+**排版/细节增补**
+- `…` 不用 `...`（loading 文案以 … 结尾）；快捷键 `⌘ K` 用 nbsp；ALL-CAPS 短标签 +5–12% tracking
+- 暗底亮字三轴补偿：line-height +0.05–0.1、letter-spacing +0.01–0.02em、字重调档
+- italic 含降部字符（y g j p q）最低 leading-[1.1]
+- kbd 键帽 recipe：1px 边 + 4px radius + 浅底 + mono（桌面快捷键提示刚需）
+- 负 inset 伪元素扩热区（44px 达标不改布局）；`dialog::backdrop` + blur 4px 替代手写遮罩
+
+**治理增补**
+- **icon 四条**：单 family、stroke 统一 1.5/2px、filled-outline 不同层级混用禁、尺寸 token（16/20/24）
+- z-index 显式 scale 立法（maka 已有语义 z token ✓ 复核覆盖率即可）；modal scrim 40–60% black
+- toast 纪律：3–5s 自动消失、aria-live polite、永不作关键信息唯一渠道、低风险删除用 Undo toast
+- 文案：按钮写确切动作、同意图全应用一个措辞（发送/确认/提交不混用）、error = 原因+修复路径、禁「轻松/简单/只需」、AI 腔清单（段首总结过渡/datasheet 腔/碎句连发）
+
+**React 性能（vercel 70 rules 全读 → maka grounding）**
+现状：全仓 0 处 useTransition/useDeferredValue；chat-view 仅 MessageBody 有 memo。
+- ✅ content-visibility 已落地（#468）
+- 待做（按序）：TurnView memo 化 + props 收窄（流式不重渲染旧 turn）→ 流式更新包 startTransition / 搜索过滤用 useDeferredValue → markdown parse 结果按 text 缓存 → 面板 hover 预热 `void import()` → 频繁 toggle 面板用 <Activity> → 滚动三件套（passive listener / 贴底判定走 ref / 读写分离）→ barrel import 审计（rollup-plugin-visualizer）
+- composition-patterns：composer.tsx 792 行按 compound components 重构候选；react19-no-forwardRef 全仓清理候选
+- 原生 `document.startViewTransition` 做 settings/panel 切换（Electron 固定 Chromium，零依赖）
+
+### 4.2 明确不采纳增补
+- Lucide→Phosphor 全量换 icon（80+ 调用点，见 §4.3 问题 1，待拍板）
+- Motion/GSAP 库编排、bento/hero/marquee 全家（landing 专属）
+- 声音反馈两篇（超 UI-only scope，规则已存档：默认音量 0.3、打字禁声）
+- react@canary 的 <ViewTransition> 组件（生产依赖不划算，用原生 API 替代）
+- brutalist/gpt-tasteskill/brandkit/imagegen 系（风格化/资产生成，与 QoderWork 镜像路线冲突）
+
+### 4.3 待拍板问题（第二轮学习产生的新决策点）
+1. **Icon 语言**：maka 刚切 Lucide（b5ac69a1），但 taste v2 降级 Lucide 为 discouraged、soft-skill 只准 Phosphor Light/Remix 超细线。保留 Lucide + stroke 治理，还是迁 Phosphor？
+2. **AI 等待感**：taste v1 §9 的 shimmer processing / typewriter 谱系要不要引入生成等待态（不违反 D3 流式豁免）？
+3. **Tinted neutrals**：整个灰阶染 0.005–0.015 chroma 向 sage 偏（品牌一体感），还是保持现在的暖褐 hue 75（QoderWork 忠实）？
+4. **Copy lint 立法**：文案规则（CTA 同意图同措辞/禁轻松简单/AI 腔）要不要做成 check-copy 脚本进 CI？
+
+**产品级附赠**（超 UI，存档）：research/laziness 的反截断体系 —— skill description 具体度决定 68%→90% 触发率、`[PAUSED - X of Y]` 续写协议、EmotionPrompt 量化数据，可用于 maka 自身的 agent prompt 设计。
