@@ -3,7 +3,6 @@ import { Plus, Trash2 } from '@maka/ui/icons';
 import {
   Menu,
   MenuCheckboxItem,
-  MenuGroup,
   MenuGroupLabel,
   MenuItem,
   MenuPopup,
@@ -29,6 +28,18 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+function OpenMenuCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ minHeight: 220, minWidth: 180, position: 'relative' }}>
+      <span style={{ color: 'var(--muted-foreground)', fontSize: 11, position: 'absolute', top: 0, left: 0 }}>{label}</span>
+      <Menu open>
+        <MenuTrigger render={<Button variant="outline" />} style={{ marginTop: 20 }} />
+        <MenuPopup>{children}</MenuPopup>
+      </Menu>
+    </div>
+  );
+}
+
 export const Basic: Story = {
   render: () => (
     <Menu>
@@ -49,84 +60,66 @@ export const Basic: Story = {
 
 export const OpenMatrix: Story = {
   render: () => (
-    <div style={{ display: 'grid', gap: 32, padding: 24, gridTemplateColumns: 'repeat(3, auto)' }}>
-      <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} />
-        <MenuPopup>
-          <MenuGroupLabel>文件</MenuGroupLabel>
-          <MenuItem>新建文件</MenuItem>
-          <MenuItem>打开…</MenuItem>
-          <MenuSeparator />
-          <MenuItem variant="destructive">删除</MenuItem>
-        </MenuPopup>
-      </Menu>
+    <div style={{ display: 'grid', gap: 48, padding: 40, gridTemplateColumns: 'repeat(3, 200px)' }}>
+      <OpenMenuCell label="basic">
+        <MenuGroupLabel>文件</MenuGroupLabel>
+        <MenuItem>新建文件</MenuItem>
+        <MenuItem>打开…</MenuItem>
+        <MenuSeparator />
+        <MenuItem variant="destructive">删除</MenuItem>
+      </OpenMenuCell>
 
-      <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} />
-        <MenuPopup>
-          <MenuItem>
-            新建
-            <MenuShortcut>⌘N</MenuShortcut>
-          </MenuItem>
-          <MenuItem>
-            打开
-            <MenuShortcut>⌘O</MenuShortcut>
-          </MenuItem>
-          <MenuItem>
-            保存
-            <MenuShortcut>⌘S</MenuShortcut>
-          </MenuItem>
-        </MenuPopup>
-      </Menu>
+      <OpenMenuCell label="shortcuts">
+        <MenuItem>
+          新建
+          <MenuShortcut>⌘N</MenuShortcut>
+        </MenuItem>
+        <MenuItem>
+          打开
+          <MenuShortcut>⌘O</MenuShortcut>
+        </MenuItem>
+        <MenuItem>
+          保存
+          <MenuShortcut>⌘S</MenuShortcut>
+        </MenuItem>
+      </OpenMenuCell>
 
-      <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} />
-        <MenuPopup>
-          <MenuCheckboxItem checked>显示行号</MenuCheckboxItem>
-          <MenuCheckboxItem checked={false}>自动换行</MenuCheckboxItem>
-        </MenuPopup>
-      </Menu>
+      <OpenMenuCell label="checkbox">
+        <MenuCheckboxItem checked>显示行号</MenuCheckboxItem>
+        <MenuCheckboxItem checked={false}>自动换行</MenuCheckboxItem>
+      </OpenMenuCell>
 
-      <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} />
-        <MenuPopup>
-          <MenuGroupLabel>主题</MenuGroupLabel>
-          <MenuRadioGroup defaultValue="system">
-            <MenuRadioItem value="light">浅色</MenuRadioItem>
-            <MenuRadioItem value="dark">深色</MenuRadioItem>
-            <MenuRadioItem value="system">跟随系统</MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuPopup>
-      </Menu>
+      <OpenMenuCell label="radio">
+        <MenuGroupLabel>主题</MenuGroupLabel>
+        <MenuRadioGroup defaultValue="system">
+          <MenuRadioItem value="light">浅色</MenuRadioItem>
+          <MenuRadioItem value="dark">深色</MenuRadioItem>
+          <MenuRadioItem value="system">跟随系统</MenuRadioItem>
+        </MenuRadioGroup>
+      </OpenMenuCell>
 
-      <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} />
-        <MenuPopup>
-          <MenuItem>新建</MenuItem>
-          <MenuSub>
-            <MenuSubTrigger>导出为…</MenuSubTrigger>
-            <MenuSubPopup>
-              <MenuItem>PDF</MenuItem>
-              <MenuItem>Markdown</MenuItem>
-              <MenuItem>HTML</MenuItem>
-            </MenuSubPopup>
-          </MenuSub>
-        </MenuPopup>
-      </Menu>
+      <OpenMenuCell label="submenu">
+        <MenuItem>新建</MenuItem>
+        <MenuSub open>
+          <MenuSubTrigger>导出为…</MenuSubTrigger>
+          <MenuSubPopup>
+            <MenuItem>PDF</MenuItem>
+            <MenuItem>Markdown</MenuItem>
+            <MenuItem>HTML</MenuItem>
+          </MenuSubPopup>
+        </MenuSub>
+      </OpenMenuCell>
 
-      <Menu open>
-        <MenuTrigger render={<Button variant="outline" />} />
-        <MenuPopup>
-          <MenuItem>
-            <Plus size={14} aria-hidden="true" />
-            新建
-          </MenuItem>
-          <MenuItem variant="destructive">
-            <Trash2 size={14} aria-hidden="true" />
-            删除
-          </MenuItem>
-        </MenuPopup>
-      </Menu>
+      <OpenMenuCell label="icons">
+        <MenuItem>
+          <Plus size={14} aria-hidden="true" />
+          新建
+        </MenuItem>
+        <MenuItem variant="destructive">
+          <Trash2 size={14} aria-hidden="true" />
+          删除
+        </MenuItem>
+      </OpenMenuCell>
     </div>
   ),
 };
