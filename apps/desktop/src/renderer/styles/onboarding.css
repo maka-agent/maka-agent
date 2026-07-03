@@ -80,6 +80,26 @@
   padding-top: clamp(var(--space-3), 2vh, var(--space-6));
 }
 
+/* PR-READY-EMPTY-FOLD-0: mirror PR-FIRSTRUN-FOLD-0 for the ready_empty
+   hero ("今天想让 Maka 帮你做什么？"). The base home-surface rule stacks
+   chatContent clamp(72px,10vh,116px) + onboarding-stack clamp(40px,7vh,76px)
+   and centers vertically, which leaves a 100~190px top void on a tall
+   window. PR #436 flattened only .maka-firstrun and intentionally kept the
+   other states' centered rhythm; ready_empty is the actual landing page
+   once a model is configured, so we give it the same fold-flattening so
+   the hero + quickChat + first-run checklist all sit near the top instead
+   of floating mid-window. min-height:0 lets the stack size to content so
+   align-content:start on chatContent actually pins it to the top. */
+.mainColumn[data-home-surface="true"] .maka-chatContent:has(.maka-onboarding-ready) {
+  padding-top: clamp(24px, 3.5vh, 44px);
+  align-content: start;
+}
+
+.maka-onboarding-stack:has(.maka-onboarding-ready) {
+  min-height: 0;
+  padding-top: clamp(12px, 2vh, 24px);
+}
+
 /* PR-FRONTEND-AUDIT-CLEANUP-0 F1 (WAWQAQ msg `dde696a1`): the earlier
    `maka-agents-fade-in 150ms` block + nth-child delay ladder was
    completely overridden by the `maka-card-enter 280ms` block below,
