@@ -22,22 +22,17 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function ControlledSwitch({ initial = false }: { initial?: boolean }) {
-  const [checked, setChecked] = useState(initial);
-  return <Switch checked={checked} onChange={setChecked} aria-label="受控开关" />;
-}
-
 export const OnOff: Story = {
   render: () => (
     <div style={{ display: 'grid', gap: 14, width: 240 }}>
       <Row label="off">
-        <Switch checked={false} onChange={() => undefined} aria-label="关闭态" />
+        <Switch defaultChecked={false} aria-label="关闭态" />
       </Row>
       <Row label="on">
-        <Switch checked onChange={() => undefined} aria-label="开启态" />
+        <Switch defaultChecked aria-label="开启态" />
       </Row>
       <Row label="controlled">
-        <ControlledSwitch />
+        <ControlledSwitch initial={false} />
       </Row>
       <Row label="controlled on">
         <ControlledSwitch initial />
@@ -50,11 +45,16 @@ export const Disabled: Story = {
   render: () => (
     <div style={{ display: 'grid', gap: 14, width: 240 }}>
       <Row label="disabled off">
-        <Switch checked={false} disabled onChange={() => undefined} aria-label="禁用关闭" />
+        <Switch defaultChecked={false} disabled aria-label="禁用关闭" />
       </Row>
       <Row label="disabled on">
-        <Switch checked disabled onChange={() => undefined} aria-label="禁用开启" />
+        <Switch defaultChecked disabled aria-label="禁用开启" />
       </Row>
     </div>
   ),
 };
+
+function ControlledSwitch({ initial }: { initial: boolean }) {
+  const [checked, setChecked] = useState(initial);
+  return <Switch checked={checked} onCheckedChange={setChecked} aria-label="受控开关" />;
+}
