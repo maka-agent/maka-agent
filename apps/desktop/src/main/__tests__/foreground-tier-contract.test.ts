@@ -114,12 +114,22 @@ const TEXT_PREFIXES = new Set(['text', 'fill', 'stroke', 'caret', 'decoration'])
 
 /**
  * Strip Tailwind variant prefixes (hover:, sm:, disabled:, group-hover:,
- * etc.) from a class token. Handles stacked variants.
+ * data-[...]:, [&...]:, named-group /name, etc.) from a class token.
+ *
+ * Strategy: scan from right to left, tracking bracket/paren depth, and
+ * cut at the last `:` that is outside any `[]`/`()` nesting. This
+ * uniformly handles arbitrary variants like `data-[state=open]:` and
+ * `[&.is-dragging]:` without hand-writing a regex per variant form.
  */
 function stripVariant(cls: string): string {
-  let s = cls;
-  while (/^[a-z][a-z-]*:/.test(s)) s = s.replace(/^[a-z][a-z-]*:/, '');
-  return s;
+  let depth = 0;
+  for (let i = cls.length - 1; i >= 0; i--) {
+    const c = cls[i];
+    if (c === ']' || c === ')') depth++;
+    else if (c === '[' || c === '(') depth--;
+    else if (c === ':' && depth === 0) return cls.slice(i + 1);
+  }
+  return cls;
 }
 
 /** Does this class token have a text-like utility prefix? */
@@ -138,8 +148,9 @@ function isBareTextProperty(cls: string): boolean {
 /** Utility class form: text-foreground-N (no --). Captures N. */
 const UTILITY_CLASS_RE = /^(?:text|fill|stroke|caret|decoration)-foreground-(\d+)/;
 
-/** Inline-style declaration: color/fill/stroke: ... var(--foreground-N) ... */
-const INLINE_STYLE_RE = /(?:^|[\s;{])(?:color|fill|stroke)\s*:\s*var\(\s*--foreground-(\d+)/gi;
+/** Inline-style declaration: color/fill/stroke: ... var(--foreground-N) ...
+ *  Value may be quoted ("...", '...', `...`) or bare. */
+const INLINE_STYLE_RE = /(?:^|[\s;{])(?:color|fill|stroke)\s*:\s*["'`]?\s*var\(\s*--foreground-(\d+)/gi;
 
 /** Splits source into class-like tokens (non-whitespace, non-quote, non-brace). */
 const TOKEN_RE = /[^\s"'`;{}=]+/g;
@@ -555,5 +566,43 @@ describe('foreground-tier negative cases', () => {
 
   it('rejects border-color: var(--foreground-60) in renderer CSS (global raw ban)', async () => {
     assert.ok(stripCssComments('border-color: var(--foreground-60)').match(RAW_STOP_RE));
+  });
+
+  // P2: complex Tailwind variants must be stripped correctly
+  it('rejects data-[state=open]:text-[color:var(--foreground-5)] in TSX', () => {
+    assert.ok(scanTsxSnippet("data-[state=open]:text-[color:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects group-hover/item:text-[color:var(--foreground-5)] in TSX', () => {
+    assert.ok(scanTsxSnippet("group-hover/item:text-[color:var(--foreground-5)]").length > 0);
+  });
+
+  it('rejects [&.is-dragging]:text-[color:var(--foreground-5)] in TSX', () => {
+    assert.ok(scanTsxSnippet("[&.is-dragging]:text-[color:var(--foreground-5)]").length > 0);
+  });
+
+  it('accepts data-[state=open]:bg-[color:var(--foreground-5)] in TSX (surface variant)', () => {
+    assert.deepEqual(scanTsxSnippet("data-[state=open]:bg-[color:var(--foreground-5)]"), []);
+  });
+
+  it('accepts data-[state=open]:border-[color:var(--foreground-10)] in TSX (surface variant)', () => {
+    assert.deepEqual(scanTsxSnippet("data-[state=open]:border-[color:var(--foreground-10)]"), []);
+  });
+
+  // P2: quoted inline style — surface wash as text color
+  it('rejects style={{ color: "var(--foreground-5)" }} in TSX (quoted inline)', () => {
+    assert.ok(scanTsxSnippet('style={{ color: "var(--foreground-5)" }}').length > 0);
+  });
+
+  it('rejects style={{ color: `var(--foreground-5)` }} in TSX (template literal inline)', () => {
+    assert.ok(scanTsxSnippet('style={{ color: `var(--foreground-5)` }}').length > 0);
+  });
+
+  it('rejects style={{ fill: \'var(--foreground-5)\' }} in TSX (single-quoted inline)', () => {
+    assert.ok(scanTsxSnippet("style={{ fill: 'var(--foreground-5)' }}").length > 0);
+  });
+
+  it('accepts style={{ background: "var(--foreground-5)" }} in TSX (bg inline)', () => {
+    assert.deepEqual(scanTsxSnippet('style={{ background: "var(--foreground-5)" }}'), []);
   });
 });
