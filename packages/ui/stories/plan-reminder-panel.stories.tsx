@@ -3,7 +3,7 @@ import type { PlanReminder } from '@maka/core';
 import { PlanReminderPanel } from '../src/plan-reminder-panel.js';
 
 const meta = {
-  title: 'Product/Plan Reminder Module',
+  title: 'Product/Plan Reminder',
   parameters: {
     layout: 'fullscreen',
   },

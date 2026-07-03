@@ -3,7 +3,7 @@ import { SkillsModuleMain } from '../src/skills-panel.js';
 import type { SkillEntry } from '../src/module-panel-types.js';
 
 const meta = {
-  title: 'Product/Skills Module',
+  title: 'Product/Skills',
   parameters: {
     layout: 'fullscreen',
   },

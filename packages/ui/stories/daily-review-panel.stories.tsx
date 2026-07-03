@@ -4,7 +4,7 @@ import { DailyReviewPanel } from '../src/daily-review-panel.js';
 import type { DailyReviewBridge } from '../src/module-panel-types.js';
 
 const meta = {
-  title: 'Product/Daily Review Module',
+  title: 'Product/Daily Review',
   parameters: {
     layout: 'fullscreen',
   },
