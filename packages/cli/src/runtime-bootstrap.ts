@@ -1,4 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import {
   AiSdkBackend,
   BackendRegistry,
@@ -30,6 +32,10 @@ export interface CreateMakaCliRuntimeContextInput {
   workspaceRoot: string;
   cwd: string;
   requestedModel?: string;
+}
+
+export interface GetOrCreateCliClaudeDeviceIdDeps {
+  newId?: () => string;
 }
 
 export function isMakaClaudeSubscriptionCloakEnabled(
@@ -68,7 +74,7 @@ export async function createMakaCliRuntimeContext(
       ...(ready.connection.providerType === 'claude-subscription' ? {
         claude: {
           cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-          deviceId: stableClaudeDeviceId(input.workspaceRoot),
+          deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
           accountUuid: ready.oauthTokens?.account_uuid ?? '',
         },
       } : {}),
@@ -106,6 +112,25 @@ export async function createMakaCliRuntimeContext(
   };
 }
 
-function stableClaudeDeviceId(workspaceRoot: string): string {
-  return createHash('sha256').update(workspaceRoot, 'utf8').digest('hex');
+export async function getOrCreateCliClaudeDeviceId(
+  workspaceRoot: string,
+  deps: GetOrCreateCliClaudeDeviceIdDeps = {},
+): Promise<string> {
+  const deviceIdFilePath = join(workspaceRoot, '.maka_cli_claude_device_id');
+  try {
+    const existing = (await readFile(deviceIdFilePath, 'utf8')).trim();
+    if (/^[a-f0-9]{64}$/i.test(existing)) return existing.toLowerCase();
+  } catch {
+    // fall through to create; device id persistence is best-effort metadata.
+  }
+
+  const next = (deps.newId ?? (() => randomBytes(32).toString('hex')))().toLowerCase();
+  try {
+    await mkdir(dirname(deviceIdFilePath), { recursive: true });
+    await writeFile(deviceIdFilePath, next, { mode: 0o600 });
+    await chmod(deviceIdFilePath, 0o600);
+  } catch {
+    // best-effort persistence; use the generated id for this process if disk fails.
+  }
+  return next;
 }

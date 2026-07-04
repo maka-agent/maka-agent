@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +7,7 @@ import { describe, test } from 'node:test';
 import { createConnectionStore } from '@maka/storage';
 import {
   createMakaCliRuntimeContext,
+  getOrCreateCliClaudeDeviceId,
   isMakaClaudeSubscriptionCloakEnabled,
 } from '../runtime-bootstrap.js';
 
@@ -45,6 +47,22 @@ describe('Maka CLI runtime bootstrap', () => {
     assert.equal(isMakaClaudeSubscriptionCloakEnabled({}), true);
     assert.equal(isMakaClaudeSubscriptionCloakEnabled({ MAKA_CLAUDE_SUBSCRIPTION_CLOAK: '1' }), true);
     assert.equal(isMakaClaudeSubscriptionCloakEnabled({ MAKA_CLAUDE_SUBSCRIPTION_CLOAK: '0' }), false);
+  });
+
+  test('persists a random Claude device id instead of deriving it from the workspace path', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const pathHash = createHash('sha256').update(workspaceRoot, 'utf8').digest('hex');
+      const first = await getOrCreateCliClaudeDeviceId(workspaceRoot, {
+        newId: () => '1'.repeat(64),
+      });
+      const second = await getOrCreateCliClaudeDeviceId(workspaceRoot, {
+        newId: () => '2'.repeat(64),
+      });
+
+      assert.equal(first, '1'.repeat(64));
+      assert.equal(second, first);
+      assert.notEqual(first, pathHash);
+    });
   });
 });
 
