@@ -152,6 +152,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const showSessionList = async () => {
+    const sessions = await input.driver.listSessions();
+    const items = sessions.slice(0, 10).map((session) => {
+      const marker = session.cwd === input.cwd ? '*' : ' ';
+      return `${marker} ${session.id} ${session.name} ${session.model}`;
+    });
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: ['Recent sessions:', ...(items.length > 0 ? items : ['No sessions found.'])].join('\n'),
+    });
+    requestRender();
+  };
+
   const setPermissionMode = async (mode: PermissionMode) => {
     await input.driver.setPermissionMode(mode);
     permissionMode = mode;
@@ -187,6 +201,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return true;
     }
     if (parts[0] === '/session') {
+      if (parts.length === 1) {
+        void showSessionList().catch((error) => {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: error instanceof Error ? error.message : String(error),
+          });
+          requestRender();
+        });
+        return true;
+      }
       const sessionId = parts.length === 2 ? parts[1] : undefined;
       if (!sessionId) {
         state.entries.push({

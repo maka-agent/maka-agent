@@ -234,6 +234,37 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
   });
+
+  test('lists sessions for /session without an id', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Recent sessions'));
+    await waitFor(() => terminal.output().includes('session-2'));
+
+    assert.deepEqual(driver.sessionIds, []);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
