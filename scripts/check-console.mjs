@@ -76,7 +76,7 @@ const ALLOW = new Map([
   ],
   [
     'apps/desktop/src/main/config-file-watcher.ts',
-    'watcher startup failure is a main-process diagnostic; non-fatal, no secrets.',
+    'Watcher startup failure and runtime error diagnostics; non-fatal, no secrets.',
   ],
   [
     'scripts/check-console.mjs',

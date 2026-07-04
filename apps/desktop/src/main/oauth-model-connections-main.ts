@@ -21,6 +21,7 @@ interface OAuthModelConnectionsDeps {
   credentialStore: CredentialStore;
   claudeSubscription: ClaudeSubscriptionService;
   codexSubscription: CodexSubscriptionService;
+  suppressConfigWrite?: (filename: string) => void;
 }
 
 export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectionsDeps) {
@@ -39,6 +40,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     const existing = await deps.connectionStore.get(CLAUDE_SUBSCRIPTION_CONNECTION_SLUG);
     if (!isClaudeSubscriptionAuthenticatedState(state)) {
       if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' || state.runtimeState === 'not_logged_in')) {
+        deps.suppressConfigWrite?.('llm-connections.json');
         return deps.connectionStore.update(existing.slug, {
           enabled: false,
           lastTestStatus: 'needs_reauth',
@@ -72,6 +74,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+    deps.suppressConfigWrite?.('llm-connections.json');
     return deps.connectionStore.save(connection);
   }
 
@@ -87,6 +90,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     const existing = await deps.connectionStore.get(CODEX_SUBSCRIPTION_CONNECTION_SLUG);
     if (!isCodexSubscriptionAuthenticatedState(state)) {
       if (existing && (state.runtimeState === 'refresh_failed' || state.runtimeState === 'storage_failed' || state.runtimeState === 'not_logged_in')) {
+        deps.suppressConfigWrite?.('llm-connections.json');
         return deps.connectionStore.update(existing.slug, {
           enabled: false,
           lastTestStatus: 'needs_reauth',
@@ -126,6 +130,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+    deps.suppressConfigWrite?.('llm-connections.json');
     return deps.connectionStore.save(connection);
   }
 

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { startConfigFileWatcher } from '../config-file-watcher.js';
 
+const GRACE_SETTLE_MS = 400;
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -30,7 +32,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => {},
     });
     try {
-      await wait(100);
+      await wait(GRACE_SETTLE_MS);
       await writeFile(join(dir, 'llm-connections.json'), '{"changed": true}');
       await wait(800);
       assert.ok(called >= 1, `expected onConnectionsChanged to fire, got ${called} calls`);
@@ -46,7 +48,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => {},
     });
     try {
-      await wait(100);
+      await wait(GRACE_SETTLE_MS);
       await writeFile(join(dir, 'credentials.json'), '{"version":1,"values":{}}');
       await wait(800);
       assert.ok(called >= 1, `expected onConnectionsChanged to fire, got ${called} calls`);
@@ -62,7 +64,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => { called++; },
     });
     try {
-      await wait(100);
+      await wait(GRACE_SETTLE_MS);
       await writeFile(join(dir, 'settings.json'), '{"appearance":{"theme":"dark"}}');
       await wait(800);
       assert.ok(called >= 1, `expected onSettingsChanged to fire, got ${called} calls`);
@@ -79,6 +81,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => { settingsCalled++; },
     });
     try {
+      await wait(GRACE_SETTLE_MS);
       await writeFile(join(dir, 'telemetry.json'), '{}');
       await writeFile(join(dir, 'random.txt'), 'hello');
       await wait(500);
@@ -96,6 +99,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => {},
     });
     try {
+      await wait(GRACE_SETTLE_MS);
       watcher.suppressSelfWrite('llm-connections.json');
       await writeFile(join(dir, 'llm-connections.json'), '{"suppressed": true}');
       await wait(500);
@@ -112,13 +116,14 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => {},
     });
     try {
+      await wait(GRACE_SETTLE_MS);
       await writeFile(join(dir, 'llm-connections.json'), '{"v":1}');
       await wait(50);
       await writeFile(join(dir, 'llm-connections.json'), '{"v":2}');
       await wait(50);
       await writeFile(join(dir, 'llm-connections.json'), '{"v":3}');
       await wait(500);
-      assert.ok(called <= 2, `expected debounce to coalesce, got ${called} calls`);
+      assert.equal(called, 1, `expected debounce to coalesce into 1 call, got ${called} calls`);
     } finally {
       watcher.stop();
     }
@@ -130,6 +135,7 @@ describe('config-file-watcher', () => {
       onConnectionsChanged: () => { called++; },
       onSettingsChanged: () => {},
     });
+    await wait(GRACE_SETTLE_MS);
     watcher.stop();
     await writeFile(join(dir, 'llm-connections.json'), '{"after-stop": true}');
     await wait(500);

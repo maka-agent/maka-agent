@@ -26,6 +26,7 @@ interface ConnectionsIpcDeps extends ConnectionInputNormalizerDeps {
   syncOAuthModelConnections: () => Promise<void>;
   resolveConnectionSecret: (slug: string) => Promise<string | null>;
   emitConnectionListChanged: () => void;
+  suppressConfigWrite?: (filename: string) => void;
 }
 
 const IPC_CONNECTION_SLUG_MAX_LENGTH = 64;
@@ -123,6 +124,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     syncOAuthModelConnections,
     resolveConnectionSecret,
     emitConnectionListChanged,
+    suppressConfigWrite,
   } = deps;
 
   ipcMain.handle('connections:list', async () => {
@@ -135,11 +137,13 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     if (normalizedSlug && !(await connectionStore.get(normalizedSlug))) {
       throw new Error(`No such connection: ${normalizedSlug}`);
     }
+    suppressConfigWrite?.('llm-connections.json');
     await connectionStore.setDefault(normalizedSlug);
     emitConnectionListChanged();
   });
   ipcMain.handle('connections:setDefaultModel', async (_event, input: { slug: string; model: string } | null) => {
     if (input === null) {
+      suppressConfigWrite?.('llm-connections.json');
       await connectionStore.setDefault(null);
       emitConnectionListChanged();
       return;
@@ -158,6 +162,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     if (!selectable) {
       throw new Error(`Model is not available for chat default: ${model}`);
     }
+    suppressConfigWrite?.('llm-connections.json');
     if (connection.defaultModel !== model) {
       await connectionStore.update(slug, { defaultModel: model });
     }
@@ -169,8 +174,10 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     // store or credential write; OAuth-token providers must keep their
     // canonical provider endpoint.
     const normalizedInput = normalizeCreateConnectionInput(input);
+    suppressConfigWrite?.('llm-connections.json');
     const connection = await connectionStore.create(normalizedInput);
     if (normalizedInput.apiKey) {
+      suppressConfigWrite?.('credentials.json');
       await credentialStore.setSecret(connection.slug, 'api_key', normalizedInput.apiKey);
     }
     emitConnectionListChanged();
@@ -179,8 +186,10 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
   ipcMain.handle('connections:update', async (_event, slug: string, patch: UpdateConnectionInput) => {
     slug = normalizeConnectionSlugForIpc(slug, 'connection slug');
     const normalizedPatch = await normalizeUpdateConnectionInput(deps, slug, patch);
+    suppressConfigWrite?.('llm-connections.json');
     const connection = await connectionStore.update(slug, normalizedPatch);
     if (normalizedPatch.apiKey !== undefined) {
+      suppressConfigWrite?.('credentials.json');
       if (normalizedPatch.apiKey) await credentialStore.setSecret(slug, 'api_key', normalizedPatch.apiKey);
       else await credentialStore.deleteSecret(slug, 'api_key');
     }
@@ -189,7 +198,9 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
   });
   ipcMain.handle('connections:delete', async (_event, slug: string) => {
     slug = normalizeConnectionSlugForIpc(slug, 'connection slug');
+    suppressConfigWrite?.('llm-connections.json');
     await connectionStore.delete(slug);
+    suppressConfigWrite?.('credentials.json');
     await credentialStore.deleteSecret(slug);
     emitConnectionListChanged();
   });
@@ -208,6 +219,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
       };
     }
     const result = await testConnection(connection, apiKey ?? '', opts?.model);
+    suppressConfigWrite?.('llm-connections.json');
     await connectionStore.update(slug, connectionTestStatusPatch(result));
     emitConnectionListChanged();
     return result;
@@ -225,6 +237,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     try {
       const fetchedAt = Date.now();
       const models = await fetchProviderModels(connection, apiKey ?? '');
+      suppressConfigWrite?.('llm-connections.json');
       await connectionStore.update(slug, {
         models,
         modelSource: 'fetched',

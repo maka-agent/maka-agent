@@ -21,6 +21,7 @@ export interface ConfigFileWatcher {
 
 const DEBOUNCE_MS = 300;
 const SELF_WRITE_SUPPRESS_MS = 500;
+const STARTUP_GRACE_MS = 350;
 
 const WATCHED_FILES: Record<string, keyof ConfigFileWatcherCallbacks> = {
   'llm-connections.json': 'onConnectionsChanged',
@@ -34,10 +35,12 @@ export function startConfigFileWatcher(
 ): ConfigFileWatcher {
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const suppressUntil = new Map<string, number>();
+  const startedAt = Date.now();
 
   let watcher: FSWatcher | undefined;
   try {
     watcher = watch(workspaceRoot, (_eventType, filename) => {
+      if (Date.now() - startedAt < STARTUP_GRACE_MS) return;
       if (!filename) return;
       const name = basename(filename);
       const callbackKey = WATCHED_FILES[name];
@@ -65,12 +68,20 @@ export function startConfigFileWatcher(
     return { stop() {}, suppressSelfWrite() {} };
   }
 
+  watcher.on('error', (error) => {
+    console.error('[config-watcher] runtime error, stopping:', error);
+    cleanup();
+  });
+
+  function cleanup(): void {
+    watcher?.close();
+    watcher = undefined;
+    for (const timer of debounceTimers.values()) clearTimeout(timer);
+    debounceTimers.clear();
+  }
+
   return {
-    stop() {
-      watcher?.close();
-      for (const timer of debounceTimers.values()) clearTimeout(timer);
-      debounceTimers.clear();
-    },
+    stop: cleanup,
     suppressSelfWrite(filename: string) {
       suppressUntil.set(filename, Date.now() + SELF_WRITE_SUPPRESS_MS);
     },

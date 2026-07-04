@@ -537,6 +537,43 @@ function backendKind(value: string): BackendKind {
   throw new Error(`--backend must be fake, ai-sdk, or pi-agent, got ${JSON.stringify(value)}`);
 }
 
+/**
+ * When no explicit MAKA_MODEL is set, read the desktop workspace's
+ * llm-connections.json and inject the default connection's provider, model,
+ * slug, and baseUrl into env so downstream code resolves them naturally.
+ */
+export function applyConnectionDefaults(env: Record<string, string | undefined>): void {
+  if (env.MAKA_MODEL || env.HARBOR_MODEL) return;
+  if (env.MAKA_LLM_CONNECTION_SLUG) return; // User explicitly set a slug
+  const connectionsPath = env.MAKA_CONNECTIONS_PATH ?? resolveDefaultConnectionsPath();
+  try {
+    const file = JSON.parse(readFileSync(connectionsPath, 'utf8')) as {
+      defaultSlug?: string | null;
+      connections?: Array<{ slug: string; providerType?: string; defaultModel?: string; baseUrl?: string; enabled?: boolean }>;
+    };
+    if (!file.defaultSlug || !Array.isArray(file.connections)) return;
+    const conn = file.connections.find(c => c.slug === file.defaultSlug && c.enabled !== false);
+    if (!conn?.providerType || !conn.defaultModel) return;
+    env.MAKA_MODEL = `${conn.providerType}/${conn.defaultModel}`;
+    env.MAKA_LLM_CONNECTION_SLUG = conn.slug;
+    if (conn.baseUrl && !env.MAKA_BASE_URL) env.MAKA_BASE_URL = conn.baseUrl;
+  } catch {
+    // File doesn't exist or is malformed — fall through to existing hardcoded defaults
+  }
+}
+
+export function resolveDefaultConnectionsPath(): string {
+  const home = homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return join(home, 'Library', 'Application Support', 'Maka', 'workspaces', 'default', 'llm-connections.json');
+    case 'win32':
+      return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Maka', 'workspaces', 'default', 'llm-connections.json');
+    default:
+      return join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'Maka', 'workspaces', 'default', 'llm-connections.json');
+  }
+}
+
 function parseModelSpec(rawModel: string, rawProvider: string | undefined): { provider: ProviderType; model: string } {
   if (rawProvider !== undefined) return { provider: providerFromValue(rawProvider), model: requireModel(rawModel) };
   const separator = rawModel.indexOf('/');
