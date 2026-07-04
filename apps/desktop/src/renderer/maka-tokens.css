@@ -90,7 +90,6 @@
      (connected/ok semantics); running/focus-ring/link/nav-active/selection
      all follow --accent. */
   --accent: oklch(0.70 0.135 250);
-  --accent-rgb: 77, 169, 220;
   /* The primary CTA (--action) is a pale blue chip (L0.85, low chroma) with
      deep-blue text — a light, fresh button instead of a heavy solid. Checked
      controls (--control) use a slightly deeper blue (L0.65, one step below
@@ -403,7 +402,6 @@
   --foreground-rgb: 224, 222, 218;
 
   --accent: oklch(0.74 0.15 250);
-  --accent-rgb: 77, 182, 241;
   /* Dark mode keeps the same pale-blue CTA chip + deep-blue text as light
      mode, so the "light, fresh button" reads consistently across themes;
      --control uses the same L0.65 blue as light so the white glyph clears
