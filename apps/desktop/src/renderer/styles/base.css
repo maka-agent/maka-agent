@@ -24,7 +24,7 @@
     display: grid;
     place-items: center;
     padding: var(--space-4);
-    color: var(--foreground-50);
+    color: var(--muted-foreground);
     font-size: var(--font-size-ui);
     font-weight: 600;
     text-align: center;
