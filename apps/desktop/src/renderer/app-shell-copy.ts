@@ -1,6 +1,6 @@
 import type { ConnectionTestResult, PermissionMode, TextFileImportPreflightFailureReason } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import { openPathActionLabel } from './open-path';
+import { openPathActionLabel } from './open-path.js';
 
 const SESSION_READ_MESSAGES_ERROR_MARKER = 'MAKA_SESSION_READ_MESSAGES_ERROR:';
 

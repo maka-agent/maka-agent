@@ -22,7 +22,8 @@ import {
   noRealConnectionReasonFromEvent,
   noRealConnectionSetupDescription,
   sessionEventErrorMessage,
-} from './model-connection-errors';
+} from './model-connection-errors.js';
+import type { RefreshMessagesOptions } from './app-shell-chat-actions.js';
 
 type RefBox<T> = { current: T };
 type StateUpdater<T> = (updater: (current: T) => T) => void;
@@ -38,7 +39,7 @@ export interface AppShellSessionEventHandlers {
 
 export function createAppShellSessionEventHandlers(options: {
   activeIdRef: RefBox<string | undefined>;
-  refreshMessages: (sessionId: string) => Promise<boolean>;
+  refreshMessages: (sessionId: string, options?: RefreshMessagesOptions) => Promise<boolean>;
   refreshSessions: () => Promise<unknown>;
   setLiveToolsBySession: StateUpdater<Record<string, ToolActivityItem[]>>;
   setPermissionBySession: StateUpdater<PermissionQueues>;
@@ -108,7 +109,12 @@ export function createAppShellSessionEventHandlers(options: {
     const settledSlot = streamingBySessionRef.current[sessionId];
     if (!settledSlot || settledSlot.phase !== 'draining') return;
     if (messageId && settledSlot.messageId && settledSlot.messageId !== messageId) return;
-    await refreshMessages(sessionId).catch(() => false);
+    const requiredMessageId = messageId ?? settledSlot.messageId;
+    const refreshed = await refreshMessages(
+      sessionId,
+      requiredMessageId ? { requiredAssistantMessageId: requiredMessageId } : undefined,
+    ).catch(() => false);
+    if (requiredMessageId && !refreshed) return;
     setStreamingBySession((current) => clearSettledAssistantStreamSlot(current, sessionId, settledSlot, messageId));
   }
 
@@ -443,11 +449,15 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshMessages(sessionId);
         break;
       case 'complete':
+        let refreshMessagesOptions: RefreshMessagesOptions | undefined;
         if (event.stopReason !== 'permission_handoff') {
           const slot = streamingBySessionRef.current[sessionId];
           if (slot?.text) {
             setStreamingBySession((current) => markAssistantStreamSlotDraining(current, sessionId));
             clearThinking(sessionId);
+            if (slot.messageId) {
+              refreshMessagesOptions = { requiredAssistantMessageId: slot.messageId };
+            }
           } else {
             clearStreaming(sessionId);
           }
@@ -460,7 +470,7 @@ export function createAppShellSessionEventHandlers(options: {
           setPermissionBySession((current) => clearPermissions(current, sessionId));
         }
         void refreshSessions();
-        void refreshMessages(sessionId);
+        void refreshMessages(sessionId, refreshMessagesOptions);
         break;
       default:
         break;

@@ -2,7 +2,8 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChatView } from '@maka/ui';
+import type { SessionEvent, StoredMessage } from '@maka/core';
+import { ChatView, type AssistantStreamSlot, type PermissionQueues, type ToolActivityItem } from '@maka/ui';
 import {
   applyAssistantComplete,
   clearSettledAssistantStreamSlot,
@@ -10,6 +11,8 @@ import {
   markAssistantStreamSlotDraining,
   type AssistantStreamSlots,
 } from '@maka/ui/assistant-stream';
+import { createAppShellChatActions } from '../../renderer/app-shell-chat-actions.js';
+import { createAppShellSessionEventHandlers } from '../../renderer/app-shell-session-events.js';
 
 describe('assistant streaming handoff', () => {
   it('keeps a draining assistant answer as the single visible owner before committed handoff', () => {
@@ -100,8 +103,8 @@ describe('assistant streaming handoff', () => {
     assert.doesNotMatch(completeCase, /if \(!deferMessageRefresh\) \{[\s\S]*refreshMessages\(sessionId\)/);
     assert.match(
       completeCase,
-      /void refreshSessions\(\);\s*void refreshMessages\(sessionId\);/,
-      'complete must refresh committed history even when final text is draining through the smoother',
+      /refreshMessagesOptions = \{ requiredAssistantMessageId: slot\.messageId \};[\s\S]*void refreshSessions\(\);\s*void refreshMessages\(sessionId, refreshMessagesOptions\);/,
+      'complete must refresh committed history for the draining assistant message without making every refresh use settle delays',
     );
   });
 
@@ -130,6 +133,83 @@ describe('assistant streaming handoff', () => {
     const next = clearSettledAssistantStreamSlot(slots, 'session-1', settledSlot, 'assistant-1');
 
     assert.deepEqual(next['session-1'], { text: '', truncated: false, phase: 'streaming' });
+  });
+
+  it('waits for the committed assistant message when complete fires before storage settles', async () => {
+    const staleMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+    ];
+    const committedMessages: StoredMessage[] = [
+      ...staleMessages,
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'final answer', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([staleMessages, committedMessages, committedMessages]);
+    try {
+      const activeIdRef = { current: 'session-1' as string | undefined };
+      let messages: StoredMessage[] = [];
+      let streamingBySession: Record<string, AssistantStreamSlot> = {
+        'session-1': { text: 'final answer', truncated: false, phase: 'streaming', messageId: 'assistant-1' },
+      };
+      const streamingBySessionRef = { current: streamingBySession };
+
+      const chatActions = createAppShellChatActions({
+        activeIdRef,
+        addPendingSessionAction: () => true,
+        captureComposerImportOwner: () => ({ sessionId: 'session-1', navSection: 'sessions' }),
+        clearPendingSessionAction: () => {},
+        isNewChatSendSurfaceActive: () => false,
+        markSessionReadLocally: () => {},
+        messageRetryPendingRef: { current: new Set<string>() },
+        refreshSessions: async () => [],
+        setActiveId: (sessionId) => {
+          activeIdRef.current = sessionId;
+        },
+        setMessageLoadErrorBySession: () => {},
+        setMessageRetryPendingBySession: () => {},
+        setMessages: (next) => {
+          messages = typeof next === 'function' ? next(messages) : next;
+        },
+        setNavSelection: () => {},
+        showModelSetupToast: () => {},
+        toastApi: { error: () => {} },
+        upsertSessionSummary: () => {},
+        pendingNewChatPermissionMode: null,
+        setPendingNewChatPermissionMode: () => {},
+        validPendingNewChatModel: null,
+      });
+
+      const handlers = createAppShellSessionEventHandlers({
+        activeIdRef,
+        refreshMessages: chatActions.refreshMessages,
+        refreshSessions: async () => [],
+        setLiveToolsBySession: createStateSetter<Record<string, ToolActivityItem[]>>({}),
+        setPermissionBySession: createStateSetter<PermissionQueues>({}),
+        setStreamingBySession: (updater) => {
+          streamingBySession = updater(streamingBySession);
+          streamingBySessionRef.current = streamingBySession;
+        },
+        setThinkingBySession: createStateSetter<Record<string, string>>({}),
+        setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
+        showModelSetupToast: () => {},
+        streamingBySessionRef,
+        toastApi: { error: () => {} },
+      });
+
+      handlers.handleEvent('session-1', completeEvent());
+      await flushAsyncWork();
+
+      assert.ok(
+        messages.some((message) => message.type === 'assistant' && message.id === 'assistant-1'),
+        'complete refresh should wait for the committed assistant message, not keep the stale read',
+      );
+      assert.equal(windowFixture.readCount(), 2);
+
+      await handlers.settleAssistantStreaming('session-1', 'assistant-1');
+
+      assert.deepEqual(streamingBySession['session-1'], { text: '', truncated: false, phase: 'streaming' });
+    } finally {
+      windowFixture.restore();
+    }
   });
 
   it('settled slot reducer keeps refresh-before-clear callers race-safe for a newer stream slot', () => {
@@ -189,4 +269,62 @@ describe('assistant streaming handoff', () => {
 
 function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
+}
+
+function completeEvent(): SessionEvent {
+  return {
+    type: 'complete',
+    id: 'event-1',
+    turnId: 'turn-1',
+    ts: 3,
+    stopReason: 'end_turn',
+  };
+}
+
+function createStateSetter<T>(initial: T): (updater: (current: T) => T) => void {
+  let current = initial;
+  return (updater) => {
+    current = updater(current);
+  };
+}
+
+function installReadMessagesWindow(reads: StoredMessage[][]): {
+  readCount(): number;
+  restore(): void;
+} {
+  const globalObject = globalThis as unknown as { window?: unknown };
+  const previousWindow = globalObject.window;
+  let readIndex = 0;
+  globalObject.window = {
+    maka: {
+      sessions: {
+        readMessages: async () => {
+          const messages = reads[Math.min(readIndex, reads.length - 1)] ?? [];
+          readIndex += 1;
+          return messages;
+        },
+      },
+    },
+    setTimeout: (callback: () => void) => {
+      queueMicrotask(callback);
+      return 0;
+    },
+  };
+
+  return {
+    readCount: () => readIndex,
+    restore: () => {
+      if (previousWindow === undefined) {
+        delete globalObject.window;
+      } else {
+        globalObject.window = previousWindow;
+      }
+    },
+  };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
 }

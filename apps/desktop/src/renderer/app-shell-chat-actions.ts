@@ -1,16 +1,16 @@
 import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
-import { messageRefreshErrorMessage } from './app-shell-copy';
+import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import {
   isNoRealConnectionError,
   noRealConnectionReasonFromError,
   noRealConnectionSetupDescription,
-} from './model-connection-errors';
+} from './model-connection-errors.js';
 
 const USER_MESSAGE_VISIBLE_TIMEOUT_MS = 1_200;
 const USER_MESSAGE_VISIBLE_POLL_MS = 40;
-const REFRESH_MESSAGES_RETRY_DELAYS_MS = [120, 360] as const;
+const COMMITTED_ASSISTANT_SETTLE_DELAYS_MS = [120, 360] as const;
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -33,25 +33,47 @@ type ToastApi = {
   error(title: string, description?: string): void;
 };
 
-async function readMessagesWithSettleRetry(sessionId: string): Promise<StoredMessage[]> {
+export interface RefreshMessagesOptions {
+  requiredAssistantMessageId?: string;
+}
+
+function hasAssistantMessage(messages: readonly StoredMessage[], messageId: string): boolean {
+  return messages.some((message) => message.type === 'assistant' && message.id === messageId);
+}
+
+async function readMessagesForRefresh(
+  sessionId: string,
+  options: RefreshMessagesOptions = {},
+): Promise<{ messages: StoredMessage[]; settled: boolean }> {
+  const requiredMessageId = options.requiredAssistantMessageId;
+  if (!requiredMessageId) {
+    return { messages: await window.maka.sessions.readMessages(sessionId), settled: true };
+  }
+
   let lastError: unknown;
-  for (let attempt = 0; attempt <= REFRESH_MESSAGES_RETRY_DELAYS_MS.length; attempt += 1) {
+  let lastMessages: StoredMessage[] | undefined;
+  for (let attempt = 0; attempt <= COMMITTED_ASSISTANT_SETTLE_DELAYS_MS.length; attempt += 1) {
     try {
-      return await window.maka.sessions.readMessages(sessionId);
+      const messages = await window.maka.sessions.readMessages(sessionId);
+      if (hasAssistantMessage(messages, requiredMessageId)) {
+        return { messages, settled: true };
+      }
+      lastMessages = messages;
     } catch (error) {
       lastError = error;
-      const delayMs = REFRESH_MESSAGES_RETRY_DELAYS_MS[attempt];
-      if (delayMs === undefined) break;
-      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
     }
+    const delayMs = COMMITTED_ASSISTANT_SETTLE_DELAYS_MS[attempt];
+    if (delayMs === undefined) break;
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
   }
+  if (lastMessages) return { messages: lastMessages, settled: false };
   throw lastError;
 }
 
 export interface AppShellChatActions {
   send(text: string): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
-  refreshMessages(sessionId: string): Promise<boolean>;
+  refreshMessages(sessionId: string, options?: RefreshMessagesOptions): Promise<boolean>;
   retryMessages(sessionId: string): Promise<void>;
 }
 
@@ -213,9 +235,10 @@ export function createAppShellChatActions(deps: {
     }
   }
 
-  async function refreshMessages(sessionId: string): Promise<boolean> {
+  async function refreshMessages(sessionId: string, options: RefreshMessagesOptions = {}): Promise<boolean> {
     try {
-      const next = await readMessagesWithSettleRetry(sessionId);
+      const result = await readMessagesForRefresh(sessionId, options);
+      const next = result.messages;
       if (activeIdRef.current === sessionId) {
         markSessionReadLocally(sessionId, next);
         setMessages(next);
@@ -226,7 +249,7 @@ export function createAppShellChatActions(deps: {
           return updated;
         });
       }
-      return true;
+      return result.settled;
     } catch (error) {
       if (activeIdRef.current === sessionId) {
         const message = messageRefreshErrorMessage(error);

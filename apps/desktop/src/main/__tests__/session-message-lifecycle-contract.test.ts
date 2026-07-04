@@ -25,7 +25,7 @@ describe('active session message lifecycle contract', () => {
     const activeSessionEffect = src.match(/useLayoutEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
     const activeReadSuccess = src.match(/const applyReadMessages = useEffectEvent\([\s\S]*?const applyReadError = useEffectEvent/)?.[0] ?? '';
     const activeReadCatch = src.match(/const applyReadError = useEffectEvent[\s\S]*?const handleSessionEvent = useEffectEvent/)?.[0] ?? '';
-    const refreshMessages = src.match(/async function refreshMessages\(sessionId: string\)(?:: Promise<boolean>)? \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const refreshMessages = src.match(/async function refreshMessages\(sessionId: string[\s\S]*?\n  \}/)?.[0] ?? '';
     const retryMessages = src.match(/async function retryMessages\(sessionId: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
@@ -86,20 +86,10 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       refreshMessages,
-      /try \{[\s\S]*readMessagesWithSettleRetry\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
+      /try \{[\s\S]*readMessagesForRefresh\(sessionId, options\)[\s\S]*const next = result\.messages[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*return result\.settled;[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
       'shared refreshMessages path must surface stage-specific read failures through the same per-session load error state',
     );
-    assert.match(
-      src,
-      /const REFRESH_MESSAGES_RETRY_DELAYS_MS = \[120, 360\] as const;/,
-      'automatic message refresh should tolerate short read-model settle races before surfacing an error',
-    );
-    assert.match(
-      src,
-      /async function readMessagesWithSettleRetry\(sessionId: string\): Promise<StoredMessage\[]> \{[\s\S]*window\.maka\.sessions\.readMessages\(sessionId\)[\s\S]*REFRESH_MESSAGES_RETRY_DELAYS_MS/,
-      'refreshMessages should read through the settle-retry helper instead of a single IPC attempt',
-    );
-    assert.match(refreshMessages, /readMessagesWithSettleRetry\(sessionId\)/);
+    assert.match(refreshMessages, /readMessagesForRefresh\(sessionId, options\)/);
     assert.doesNotMatch(refreshMessages, /await window\.maka\.sessions\.readMessages\(sessionId\)/);
     assert.doesNotMatch(refreshMessages, /const message = cleanErrorMessage\(error\)/);
     assert.match(
