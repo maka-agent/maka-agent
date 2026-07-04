@@ -19,6 +19,8 @@ import {
   useModalA11y,
   useToast,
 } from '@maka/ui';
+import { SettingsBadge } from './settings-badge';
+import { statusBadgeVariant, type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
 import { useProviderSheetBackgroundInert } from './provider-config-sheet';
 
@@ -707,7 +709,7 @@ function ClaudeSubscriptionCard() {
             </div>
             <small>无法确认 Claude OAuth 是否可用。没有登录动作会被执行。</small>
           </div>
-          <span className="settingsConnectionBadge" data-tone="destructive">读取失败</span>
+          <SettingsBadge variant="destructive">读取失败</SettingsBadge>
         </div>
         <small className="settingsErrorText" role="alert">
           Claude 登录开关读取失败：{experimentalGateError}
@@ -887,7 +889,9 @@ function ClaudeSubscriptionCard() {
   }
 
   // Closed-state render mapping per the runtime state enum.
-  const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'muted', detail: '' };
+  const presentation: SubscriptionStatePresentation = state
+    ? presentSubscriptionState(state)
+    : { label: '加载中…', tone: 'muted', detail: '' };
   const canStartClaudeLogin =
     state?.runtimeState === 'not_logged_in' ||
     state?.runtimeState === 'refresh_failed' ||
@@ -909,9 +913,9 @@ function ClaudeSubscriptionCard() {
             {state?.profile?.email ? ` · ${state.profile.email}` : ''}
           </small>
         </div>
-        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+        <SettingsBadge variant={statusBadgeVariant(presentation.tone)}>
           {presentation.label}
-        </span>
+        </SettingsBadge>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
       {pasteError && !authRequestId && (
@@ -1021,7 +1025,7 @@ type ClaudeSubscriptionPendingAction = 'login' | 'submit' | 'cancel' | 'logout' 
 
 interface SubscriptionStatePresentation {
   label: string;
-  tone: string;
+  tone: StatusTone;
   detail: string;
 }
 

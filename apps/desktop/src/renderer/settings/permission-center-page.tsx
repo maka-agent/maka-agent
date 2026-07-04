@@ -18,8 +18,9 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, PrimitiveBadge, RelativeTime, useToast } from '@maka/ui';
+import { Button, RelativeTime, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsBadge } from './settings-badge';
 import { statusBadgeVariant } from './settings-status-badge';
 
 /**
@@ -385,7 +386,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
           <strong>{capability.label}</strong>
           <small className="settingsCapabilityId">{prettyCapabilityId(capability.id)}</small>
         </div>
-        <PrimitiveBadge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</PrimitiveBadge>
+        <SettingsBadge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</SettingsBadge>
       </div>
       <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
       <dl className="settingsCapabilityLayers" aria-label={`${capability.label}能力状态明细`}>
@@ -514,7 +515,7 @@ function OsPermissionRow(props: {
       <div className="settingsOsPermissionBody">
         <div className="settingsOsPermissionHeading">
           <strong>{label}</strong>
-          <PrimitiveBadge variant={statusBadgeVariant(stateCopy.tone)}>{stateCopy.label}</PrimitiveBadge>
+          <SettingsBadge variant={statusBadgeVariant(stateCopy.tone)}>{stateCopy.label}</SettingsBadge>
         </div>
         <small className="settingsOsPermissionPurpose">{purpose}</small>
         {impact ? (

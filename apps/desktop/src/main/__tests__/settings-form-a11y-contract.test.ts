@@ -42,8 +42,6 @@ describe('Settings form accessibility labels', () => {
   it('keeps Settings secondary surfaces close to reference implementation card geometry', async () => {
     const styles = await readRendererContractCss();
     const connectionRow = styles.match(/\.settingsConnectionRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const connectionBadge = styles.match(/\.settingsConnectionBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const settingsBadge = styles.match(/\.settingsBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
     const authContract = styles.match(/\.settingsAuthContract\s*\{[\s\S]*?\}/)?.[0] ?? '';
     // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
     // orphan classes (no TSX consumer); the comma-grouped rule
@@ -92,13 +90,27 @@ describe('Settings form accessibility labels', () => {
     assert.match(providerCatalogBadge, /border-radius:\s*var\(--radius-control\);/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
     assert.match(modelTableChip, /border-radius:\s*var\(--radius-control\);/, 'Settings model capability chips should use compact squared target-layout style corners, not pills');
     assert.match(modelTableDefaultBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings model default badge should use compact squared target-layout style corners, not pills');
-    assert.match(connectionBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings status badges should use compact squared target-layout style corners, not pills');
-    assert.match(settingsBadge, /border-radius:\s*var\(--radius-control\);/, 'Generic Settings badges should use compact squared target-layout style corners, not pills');
+    // PR-SETTINGS-BADGE-PRIMITIVE-0: `.settingsConnectionBadge` /
+    // `.settingsBadge` (and the earlier raw PrimitiveBadge call sites)
+    // migrated onto the SettingsBadge wrapper, which owns the settings
+    // decision that status chips use compact squared target-layout corners
+    // instead of the primitive's canonical pill.
+    const settingsBadgeWrapper = await readRepo('apps/desktop/src/renderer/settings/settings-badge.tsx');
+    assert.match(
+      settingsBadgeWrapper,
+      /rounded-\[var\(--radius-control\)\]/,
+      'SettingsBadge must square the primitive pill onto --radius-control corners',
+    );
+    const settingsSource = await readSettingsCombinedSource();
+    const providerSource = await readProviderSettingsCombinedSource();
+    assert.equal(
+      `${settingsSource}\n${providerSource}`.match(/<PrimitiveBadge\b/g),
+      null,
+      'Settings surfaces must render status chips through SettingsBadge (squared corners), never raw pill PrimitiveBadge',
+    );
     assert.doesNotMatch(providerCatalogBadge, /border-radius:\s*var\(--radius-pill\);/, 'Provider catalog badges must not regress to pill-shaped chrome');
     assert.doesNotMatch(modelTableChip, /border-radius:\s*var\(--radius-pill\);/, 'Settings model capability chips must not regress to pill-shaped chrome');
     assert.doesNotMatch(modelTableDefaultBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings model default badge must not regress to pill-shaped chrome');
-    assert.doesNotMatch(connectionBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings connection badges must not regress to pill-shaped chrome');
-    assert.doesNotMatch(settingsBadge, /border-radius:\s*var\(--radius-pill\);/, 'Generic Settings badges must not regress to pill-shaped chrome');
     assert.match(settingsRow, /display:\s*grid;/, 'Settings rows should use a stable label/value grid instead of flex auto sizing');
     assert.match(settingsRow, /grid-template-columns:\s*minmax\(150px,\s*0\.36fr\)\s+minmax\(0,\s*1fr\);/, 'Settings rows need a protected label column and shrinkable value column');
     assert.match(settingsRowValue, /overflow-wrap:\s*anywhere;/, 'Long Settings values such as workspace paths should wrap in the value column');

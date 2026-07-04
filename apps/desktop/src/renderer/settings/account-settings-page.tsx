@@ -3,6 +3,8 @@ import type { ConnectionTestResult, LlmConnection } from '@maka/core';
 import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { Button, RelativeTime, useToast } from '@maka/ui';
+import { SettingsBadge } from './settings-badge';
+import { statusBadgeVariant } from './settings-status-badge';
 import {
   deriveAccountAuthActions,
   presentAccountAuthState,
@@ -277,9 +279,9 @@ function AccountConnectionRow(props: {
           </div>
           <small>{subtitle}</small>
         </div>
-        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+        <SettingsBadge variant={statusBadgeVariant(presentation.tone)}>
           {presentation.label}
-        </span>
+        </SettingsBadge>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
       <div className="settingsAuthContract" data-state={authContractState}>

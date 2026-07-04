@@ -1,11 +1,13 @@
-export type StatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'destructive';
+export type StatusTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning' | 'destructive';
 export function statusBadgeVariant(tone: StatusTone): 'success' | 'warning' | 'destructive' | 'info' | 'secondary' {
   switch (tone) {
     case 'success': return 'success';
     case 'warning': return 'warning';
     case 'destructive': return 'destructive';
     case 'info': return 'info';
-    case 'neutral': return 'secondary';
+    case 'neutral':
+    case 'muted':
+      return 'secondary';
   }
 }
 

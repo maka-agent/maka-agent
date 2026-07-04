@@ -429,17 +429,6 @@
   transition: background var(--duration-base) var(--ease-out-strong);
 }
 
-.settingsBadge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 18px;
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  padding: 0 var(--space-1-5);
-  font-size: var(--font-size-caption);
-}
-
 /* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
    card pattern as `.settingsStructuredPage` — outer card + hairline
    dividers, no per-row chrome. */

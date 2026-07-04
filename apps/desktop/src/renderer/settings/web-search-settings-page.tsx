@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, WebSearchCredentialStatus } from '@maka/core';
 import { normalizeSearchUrl, webSearchCredentialStatusFromResponse } from '@maka/core';
 import { Button, Input, RelativeTime, SettingsSwitch as Switch, redactSecrets, useToast } from '@maka/ui';
+import { SettingsBadge } from './settings-badge';
+import { statusBadgeVariant } from './settings-status-badge';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -244,9 +246,9 @@ export function WebSearchSettingsPage(props: {
           </div>
           <div className="settingsWebSearchControlCluster">
             <div className="settingsWebSearchStatusCluster" role="group" aria-label="联网搜索凭据状态">
-              <span className="settingsConnectionBadge" data-tone={statusCopy.tone}>
+              <SettingsBadge variant={statusBadgeVariant(statusCopy.tone)}>
                 {statusCopy.label}
-              </span>
+              </SettingsBadge>
               {hasCheckedAt && (
                 <small>
                   最近测试 <RelativeTime ts={checkedAtMs} />
