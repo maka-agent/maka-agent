@@ -74,7 +74,7 @@
   gap: var(--space-1);
   padding: 1px var(--space-1-5);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   -webkit-app-region: no-drag;
   margin-right: var(--space-1);
   margin-bottom: var(--space-0-5);
@@ -101,7 +101,7 @@
   gap: var(--space-1);
   padding: 1px var(--space-1-5);
   font-size: var(--font-size-caption);
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   -webkit-app-region: no-drag;
   margin-right: var(--space-1);
   margin-bottom: var(--space-0-5);
@@ -122,8 +122,8 @@
     border-radius: var(--radius-pill);
     border: 1px solid transparent;
     font-size: var(--font-size-caption);
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wide);
     white-space: nowrap;
     flex: 0 0 auto;
     -webkit-app-region: no-drag;
@@ -168,8 +168,8 @@
     border-radius: var(--radius-pill);
     border: 1px solid transparent;
     font-size: var(--font-size-caption);
-    font-weight: 600;
-    line-height: 1.4;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-snug);
     /* Spacing from neighboring badges comes from the parent
        .maka-chat-status-cluster's `gap`, not a local margin. */
     -webkit-app-region: no-drag;
@@ -314,14 +314,14 @@
     margin: 0;
     color: var(--foreground);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .maka-error-copy p {
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     max-width: 56ch;
   }
 
@@ -336,7 +336,7 @@
     overflow: auto;
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -379,7 +379,7 @@
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .maka-fake-backend-banner svg {
@@ -393,7 +393,7 @@
 }
 
 .maka-fake-backend-banner strong {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-toast-viewport {
@@ -537,14 +537,14 @@
 .maka-toast-copy strong {
   color: var(--foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-wrap: balance;
 }
 
 .maka-toast-copy small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   text-wrap: pretty;
 }
 
@@ -556,7 +556,7 @@
   color: var(--toast-accent);
   padding: var(--space-0-5) var(--space-2);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   transition:
     background-color var(--duration-base) var(--ease-out-strong);
 }
@@ -626,8 +626,8 @@
   margin-bottom: var(--space-1);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
 }
 
@@ -642,8 +642,8 @@
   margin: 0 0 var(--space-1);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
 }
 
@@ -661,7 +661,7 @@
 .maka-help-section dt {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-help-section dd {
@@ -741,7 +741,7 @@
 .maka-palette-input {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   outline: none;
   box-shadow: none;
   -webkit-user-select: text;
@@ -798,8 +798,8 @@
   color: var(--foreground-secondary);
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  line-height: 1;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-none);
 }
 
 .maka-palette-input-hint .maka-shortcut-kbd {
@@ -827,8 +827,8 @@
   padding: var(--space-1) var(--space-2) var(--space-0-5);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
 }
 

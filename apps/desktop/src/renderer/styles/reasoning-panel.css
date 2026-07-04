@@ -25,8 +25,8 @@
     gap: var(--space-1-5);
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-caption);
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wide);
     color: var(--info-text);
     user-select: none;
     transition: background var(--duration-base) var(--ease-out-strong);
@@ -93,7 +93,7 @@
      the same visual family. */
 .maka-reasoning-panel-chevron {
     font-size: var(--font-size-ui);
-    line-height: 1;
+    line-height: var(--leading-none);
     color: var(--muted-foreground);
     transition: transform var(--duration-base) var(--ease-out-strong);
   }
@@ -108,7 +108,7 @@
     color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     max-height: 280px;
     overflow-y: auto;
     white-space: pre-wrap;

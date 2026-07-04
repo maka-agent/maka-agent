@@ -106,8 +106,8 @@ html[data-os="darwin"].dark {
    from --color-text-quaternary is enough hierarchy. */
 html[data-os="darwin"] .maka-list-group-label {
   font-size: var(--font-size-ui);
-  font-weight: 500;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
   color: var(--color-text-quaternary);
 }

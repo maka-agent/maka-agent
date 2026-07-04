@@ -17,7 +17,7 @@
   color: var(--foreground);
   padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   outline: none;
   transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
 }
@@ -25,7 +25,7 @@
 .settingsField textarea {
   border-radius: var(--radius-control);
   padding: var(--space-2) var(--space-2-5);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   font-family: inherit;
   font-size: var(--font-size-ui);
 }
@@ -50,7 +50,7 @@
   color: var(--info-text);
   padding: var(--space-3) var(--space-3);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .settingsNotice[data-tone="passive"] {
@@ -107,8 +107,8 @@
   margin: 0;
   color: var(--foreground);
   font-size: 1.4667em;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
 }
 
 .settingsAboutVersion {
@@ -126,14 +126,14 @@
   padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-pill);
   background: oklch(from var(--accent) l c h / 0.10);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsAboutTagline {
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .settingsAboutPrivacy {
@@ -149,8 +149,8 @@
   margin: 0;
   color: var(--success);
   font-size: var(--font-size-ui);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
 }
 
@@ -161,7 +161,7 @@
   gap: var(--space-1-5);
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .settingsAboutPrivacy li::marker {
@@ -358,9 +358,9 @@
 .settingsPaletteGroupHeading {
   margin: 0;
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   color: var(--muted-foreground);
-  letter-spacing: 0;
+  letter-spacing: var(--tracking-normal);
 }
 
 /* PR-BOT-SETTINGS-PASSWORD-EYE-0 (WAWQAQ msg `51c7b4ff` screenshots):
@@ -425,7 +425,7 @@
   background: transparent;
   color: var(--accent);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
 }
 .settingsBotAction:hover {
@@ -444,7 +444,7 @@
    "(仅用于 Bot 鉴权)" in the reference. */
 .settingsFieldHint {
   font-style: normal;
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   margin-left: var(--space-1-5);
@@ -462,13 +462,13 @@
   border: 1px solid oklch(from var(--info) l c h / 0.18);
   color: var(--info-text);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 .settingsBotInfoNoticeIcon {
   font-style: normal;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   color: var(--info-text);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): scan-login modal —
@@ -492,7 +492,7 @@
 .settingsBotScanLoginHeader h3 {
   margin: 0;
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 .settingsBotScanLoginBody {
   display: flex;
@@ -524,7 +524,7 @@
 .settingsBotScanLoginStatus {
   margin: 0;
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   color: var(--foreground-secondary);
 }
 .settingsBotScanLoginStatus[data-status="confirmed"] { color: var(--success-text); }
@@ -598,7 +598,7 @@
 .settingsWechatQrHeader h3 {
   margin: 0 0 var(--space-1);
   font-size: 1.0667em;
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsWechatQrHeader p,
@@ -606,7 +606,7 @@
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .settingsWechatQrClose {
@@ -669,12 +669,12 @@
   color: var(--foreground-secondary);
   padding: var(--space-4);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .settingsWechatQrState strong {
   color: inherit;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsWechatQrState[data-tone="success"] {
@@ -703,7 +703,7 @@
   color: var(--accent);
   padding: 0 var(--space-3);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .settingsWechatQrSecondary:hover {
@@ -724,7 +724,7 @@
 .settingsThemeLabel strong {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -733,7 +733,7 @@
 .settingsThemeLabel small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   overflow-wrap: anywhere;
 }
 
@@ -747,8 +747,8 @@
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
 }
 

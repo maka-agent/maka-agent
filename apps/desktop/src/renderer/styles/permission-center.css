@@ -26,14 +26,14 @@
 .settingsPermissionIntro h3 {
     margin: 0 0 var(--space-1-5);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .settingsPermissionIntro p {
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     max-width: 52ch;
   }
 
@@ -105,7 +105,7 @@
 .settingsPermissionSection > header h4 {
     margin: 0 0 var(--space-0-5);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground);
   }
 
@@ -165,7 +165,7 @@
 
 .settingsCapabilityHeading strong {
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .settingsCapabilityId {
@@ -178,7 +178,7 @@
     margin: 0;
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 
 .settingsCapabilityLayers {
@@ -199,7 +199,7 @@
 
 .settingsCapabilityLayers dt {
     font-size: var(--font-size-caption);
-    letter-spacing: 0.06em;
+    letter-spacing: var(--tracking-wider);
     text-transform: uppercase;
     color: var(--muted-foreground);
     margin: 0;
@@ -237,7 +237,7 @@
 
 .settingsCapabilityOsPermissions > span {
     font-size: var(--font-size-caption);
-    letter-spacing: 0.06em;
+    letter-spacing: var(--tracking-wider);
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
@@ -302,7 +302,7 @@
 
 .settingsCapabilityGuidance > span {
     font-size: var(--font-size-caption);
-    font-weight: 650;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground-secondary);
   }
 
@@ -311,7 +311,7 @@
     padding-left: var(--space-4);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }
 
 .settingsCapabilityGuidanceActions {
@@ -451,14 +451,14 @@
 
 .settingsOsPermissionHeading strong {
     font-size: var(--font-size-base);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground);
   }
 
 .settingsOsPermissionPurpose {
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }
 
 .settingsOsPermissionImpact {
@@ -467,7 +467,7 @@
     gap: var(--space-1-5);
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 
 .settingsOsPermissionImpactLabel {
@@ -478,8 +478,8 @@
     background: oklch(from var(--foreground) l c h / 0.05);
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wider);
   }
 
 .settingsOsPermissionReason {
@@ -566,8 +566,8 @@
 
 .settingsPermissionSummaryValue {
     font-size: 1.5em;
-    font-weight: 600;
-    line-height: 1.1;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-tight);
     font-variant-numeric: tabular-nums;
     color: var(--foreground);
   }
@@ -575,7 +575,7 @@
 .settingsPermissionSummaryLabel {
     font-size: var(--font-size-caption);
     color: var(--foreground-secondary);
-    letter-spacing: 0.02em;
+    letter-spacing: var(--tracking-wide);
   }
 
 .settingsPermissionSummaryTile[data-tone="success"] .settingsPermissionSummaryValue {
@@ -615,5 +615,5 @@
     background: var(--foreground-3);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }

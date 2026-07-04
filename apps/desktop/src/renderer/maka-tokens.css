@@ -264,6 +264,53 @@
   --font-size-ui: 13px;
   --font-size-caption: 11px;
 
+  /* === line-height ===
+     PR-LEADING-CONVERGE-0 (issue #520 PR1):
+     four-tier scale aligned to a Tailwind leading-scale subset (drop
+     relaxed/loose, zero sites). Token names mirror Tailwind's leading-*
+     utilities so `var(--leading-*)` in CSS and `leading-*` in TSX share
+     one source — same bridge pattern as --space-* / p-N.
+
+     Snug is the one tier that can't be cut: 40 sites at 1.3-1.4 (small-
+     title / UI text, 13/11px small-text dense zones) collapse to tight
+     (1.25, too tight) or normal (1.5, too loose) at ±0.1-0.2 on small
+     text. relaxed/loose had zero sites, dropped. */
+  --leading-none: 1;        /* single-line: kbd / tag / button label / count / timestamp */
+  --leading-tight: 1.25;   /* headings: h1-h4 / card titles */
+  --leading-snug: 1.375;   /* small titles / UI text: 13/11px dense zones */
+  --leading-normal: 1.5;   /* body / long-form / markdown */
+
+  /* === font-weight ===
+     PR-FONT-WEIGHT-CONVERGE-0 (issue #520 PR1):
+     four-tier scale aligned to Tailwind font-weight utilities (drop
+     thin/extralight/light/extrabold/black, zero sites). Token names
+     mirror Tailwind's font-* utilities so `var(--font-weight-*)` in CSS
+     and `font-*` in TSX share one source. Variable-weight Geist +
+     system-ui means 550/620/650/680 are mid-axis picks to snap:
+     550/620/650 → semibold (600), 680 → bold (700). */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* === letter-spacing ===
+     PR-TRACKING-CONVERGE-0 (issue #520 PR1):
+     four-tier scale aligned to a Tailwind tracking-scale subset. No
+     --tracking-tight: maka is a CJK-first app and roadmap §1.6 bans
+     tightening CJK letter-spacing, so all negative values snap to
+     normal (0). ALL-CAPS short labels use wider/widest (roadmap §4.1
+     +5-12% tracking). 1px absolute → widest (0.1em ≈ 1.3px @ 13px). */
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* === font-family (serif addition) ===
+     PR-FONT-FAMILY-MINOR-0 (issue #520 PR1): onboarding hero uses a
+     serif face; tokenize so font-family declarations reference tokens
+     instead of bare `Georgia, serif`. */
+  --font-serif: Georgia, "Times New Roman", Times, serif;
+
   /* === layout === */
   --radius: 0rem;
   --radius-control: 6px;
@@ -830,8 +877,8 @@
     min-width: 18px;
     font-family: var(--font-mono);
     font-size: 0.82em;
-    font-weight: 600;
-    line-height: 1;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-none);
     padding: var(--space-0-5) var(--space-1-5);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
@@ -876,7 +923,7 @@
     gap: var(--space-1);
     padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-ui);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     color: var(--foreground-secondary);
     background: var(--foreground-5);
     border: 1px solid var(--border);
@@ -928,9 +975,9 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--border);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     font-size: var(--font-size-ui);
-    letter-spacing: 0.02em;
+    letter-spacing: var(--tracking-wide);
     text-transform: uppercase;
     color: var(--foreground-secondary);
   }
@@ -945,7 +992,7 @@
     border-radius: var(--radius-control);
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
     user-select: none;
     transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong);
   }
@@ -953,7 +1000,7 @@
   .maka-sidebar-row[data-active="true"] {
     background: var(--state-selected-bg);
     color: var(--foreground);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
   }
   .maka-sidebar-row[data-unread="true"]::before {
     content: "";
@@ -997,7 +1044,7 @@
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
   }
-  .maka-titlebar strong { color: var(--foreground); font-weight: 500; }
+  .maka-titlebar strong { color: var(--foreground); font-weight: var(--font-weight-medium); }
 
   /* ---- Chat surface ----------------------------------------------- */
 
@@ -1090,9 +1137,9 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--focus-ring);
-    letter-spacing: 0.02em;
+    letter-spacing: var(--tracking-wide);
     list-style: none;
     /* `cursor: pointer` intentionally omitted — native macOS reserves
        the hand cursor for links; `<details>` summaries are button-like
@@ -1119,15 +1166,15 @@
 
   .maka-turn-thinking-note {
     font-size: var(--font-size-caption);
-    font-weight: 500;
-    letter-spacing: 0.04em;
+    font-weight: var(--font-weight-medium);
+    letter-spacing: var(--tracking-wider);
     color: var(--muted-foreground);
     text-transform: uppercase;
   }
 
   .maka-turn-thinking-body {
     margin-top: var(--space-1-5);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     font-style: italic;
     opacity: 0.9;
   }
@@ -1219,7 +1266,7 @@
          build outputs). */
   .maka-bubble-assistant {
     color: var(--foreground);
-    line-height: 1.68;
+    line-height: var(--leading-normal);
     padding: var(--space-0-5) 0 0;
     word-wrap: break-word;
     /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills
@@ -1251,13 +1298,13 @@
   .maka-bubble-assistant h3,
   .maka-bubble-assistant h4 {
     margin: var(--space-4) 0 var(--space-2);
-    line-height: 1.25;
-    font-weight: 600;
+    line-height: var(--leading-tight);
+    font-weight: var(--font-weight-semibold);
     text-wrap: balance;
   }
   .maka-bubble-assistant h1,
   .maka-bubble-assistant h2 {
-    letter-spacing: -0.012em;
+    letter-spacing: var(--tracking-normal);
   }
   .maka-bubble-assistant code {
     font-variant-numeric: tabular-nums;
@@ -1334,7 +1381,7 @@
     color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
-    letter-spacing: 0.02em;
+    letter-spacing: var(--tracking-wide);
   }
   .maka-code-block-lang {
     text-transform: lowercase;
@@ -1384,7 +1431,7 @@
     overflow-x: auto;
     font-family: var(--font-mono);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     white-space: pre;
   }
   .maka-bubble-assistant pre code {
@@ -1422,7 +1469,7 @@
   .hljs-deletion   { color: var(--destructive-text); background: oklch(from var(--destructive) l c h / 0.08); }
   .hljs-addition   { color: var(--success-text); background: oklch(from var(--success) l c h / 0.08); }
   .hljs-emphasis   { font-style: italic; }
-  .hljs-strong     { font-weight: 700; }
+  .hljs-strong     { font-weight: var(--font-weight-bold); }
   .maka-bubble-assistant blockquote {
     margin: 0 0 var(--space-3);
     /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
@@ -1471,13 +1518,13 @@
   }
   .maka-bubble-assistant th {
     color: var(--foreground-secondary);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     background: var(--foreground-3);
     /* PR-UI-LAYOUT-28: header tone slightly darker than body cell
      * to make the header row read at first glance — was the same
      * `--foreground-3` as nothing else, now sits between cell and
      * code-block tints. */
-    letter-spacing: 0.01em;
+    letter-spacing: var(--tracking-normal);
   }
   .maka-bubble-assistant hr {
     margin: var(--space-4) 0;
@@ -1533,7 +1580,7 @@
     gap: var(--space-1-5);
     padding: var(--space-0-5) var(--space-2);
     font-size: var(--font-size-caption);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     opacity: 1;
     background: transparent;
   }
@@ -1693,7 +1740,7 @@
     color: var(--foreground);
     font-family: var(--font-default);
     font-size: var(--font-size-base);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     min-height: var(--h-composer-min);
     max-height: 240px;
   }
@@ -1734,8 +1781,8 @@
     padding: var(--space-1-5) var(--space-3);
     border-radius: var(--radius-control);
     font-size: var(--font-size-ui);
-    font-weight: 500;
-    line-height: 1.2;
+    font-weight: var(--font-weight-medium);
+    line-height: var(--leading-tight);
     transition: background 120ms var(--ease-out-strong), border-color 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
   .maka-button:hover  { background: var(--state-hover-bg); }
@@ -1769,7 +1816,7 @@
   .maka-tabs-list[data-variant="pill"] .maka-tab[data-active] {
     border-color: oklch(from var(--foreground) l c h / 0.16);
     background: var(--state-selected-bg);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
   .maka-tabs-list[data-variant="underline"] .maka-tab[data-active] {
     color: var(--foreground);
@@ -1809,9 +1856,9 @@
   }
   .maka-modal-title {
     font-size: var(--font-size-base);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground);
-    letter-spacing: 0;
+    letter-spacing: var(--tracking-normal);
   }
   .maka-modal-subtitle {
     font-size: var(--font-size-ui);
@@ -1832,9 +1879,9 @@
 
   .maka-reason-text[data-reason="shell_dangerous"] { color: var(--info-text); }
   .maka-reason-text[data-reason="file_write"]       { color: var(--info-text); }
-  .maka-reason-text[data-reason="fs_destructive"]   { color: var(--destructive-text); font-weight: 500; }
-  .maka-reason-text[data-reason="git_destructive"]  { color: var(--destructive-text); font-weight: 500; }
-  .maka-reason-text[data-reason="privileged"]       { color: var(--destructive-text); font-weight: 500; }
+  .maka-reason-text[data-reason="fs_destructive"]   { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
+  .maka-reason-text[data-reason="git_destructive"]  { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
+  .maka-reason-text[data-reason="privileged"]       { color: var(--destructive-text); font-weight: var(--font-weight-medium); }
   .maka-reason-text[data-reason="network"]          { color: var(--info-text); }
   .maka-reason-text[data-reason="browser"]          { color: var(--info-text); }
   .maka-reason-text[data-reason="custom"]           { color: var(--foreground-secondary); }

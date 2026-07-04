@@ -2,14 +2,14 @@
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .providerEditor p {
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 .catalogTabs {
@@ -32,13 +32,13 @@
 
 .catalogTabs strong {
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .catalogTabs small {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  line-height: 1.2;
+  line-height: var(--leading-tight);
 }
 
 /* Provider catalog + OAuth login render as governed Item rows (media ·
@@ -68,7 +68,7 @@
 }
 
 .providerCatalogTitle {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Trailing badge + chevron live in ItemActions (a direct child of the row),
@@ -99,8 +99,8 @@
   padding: var(--space-0-5) var(--space-1-5);
   font-size: var(--font-size-caption);
   font-style: normal;
-  font-weight: 600;
-  line-height: 1.35;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-snug);
 }
 
 .providerEditor {
@@ -120,7 +120,7 @@
 
 .providerUnavailableNotice span {
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* Direct child only: this is the sheet's own title/badges header. The
@@ -144,7 +144,7 @@
   gap: var(--space-1-5);
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .providerEditor input,
@@ -192,7 +192,7 @@
   width: fit-content;
   color: var(--link);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-decoration: none;
   /* PR-UI-LAYOUT-33: explicit padding + radius so the focus halo
    * has a defined shape. Was a borderless inline link with no
@@ -247,13 +247,13 @@
 
 .modelTableHeaderText strong {
   font-size: var(--font-size-ui);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--foreground);
 }
 
 .modelTableHeaderText small {
   font-size: var(--font-size-caption);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   color: var(--foreground-secondary);
 }
 
@@ -295,7 +295,7 @@
   background: var(--background);
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
   text-align: center;
 }
 
@@ -310,7 +310,7 @@
   background: oklch(from var(--focus-ring) l c h / 0.06);
   color: var(--foreground);
   font-size: var(--font-size-caption);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   width: 100%;
 }
 
@@ -322,7 +322,7 @@
   font-family: var(--font-mono);
   background: transparent;
   color: var(--link);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .modelTableList {
@@ -443,8 +443,8 @@
   background: var(--foreground-5);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   text-transform: uppercase;
 }
 
@@ -454,8 +454,8 @@
   background: oklch(from var(--nav-active) l c h / 0.14);
   color: var(--nav-active);
   font-size: var(--font-size-caption);
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
 }
 
 .providerError {
@@ -468,7 +468,7 @@
 .settingsRow strong {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
@@ -489,10 +489,10 @@
    wraps into a ragged multi-line block. Mono + left-aligned + caption
    size reads as the file path it is. */
 .settingsRow > span[data-mono="true"] {
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: var(--font-size-caption);
   text-align: left;
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   word-break: break-all;
 }
 
@@ -547,7 +547,7 @@
   background: color-mix(in srgb, var(--warning) 10%, var(--background));
   color: var(--warning-text);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   padding: var(--space-2) var(--space-3);
 }
 .providerOAuthGrid {
@@ -558,8 +558,8 @@
 
 .providerOAuthCardBadge {
   font-size: var(--font-size-caption);
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--tracking-wide);
 }
 
 .providerOAuthCard[data-logged-in="true"] .providerOAuthCardBadge {
@@ -593,7 +593,7 @@
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .enabledStripHeader span,
@@ -602,7 +602,7 @@
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  line-height: 1.35;
+  line-height: var(--leading-snug);
 }
 
 /* Empty / load-error CTA shown when there are no connections yet. */
@@ -626,12 +626,12 @@
 
 .enabledEmptyChip strong {
   font-size: var(--font-size-ui);
-  font-weight: 700;
-  line-height: 1.35;
+  font-weight: var(--font-weight-bold);
+  line-height: var(--leading-snug);
 }
 
 .enabledEmptyChip small {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }

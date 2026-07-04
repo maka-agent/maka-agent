@@ -6,8 +6,8 @@
   display: inline-block;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  font-weight: 500;
-  line-height: 1;
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-none);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -137,7 +137,7 @@
   color: var(--foreground);
   font-family: var(--font-default);
   font-size: var(--font-size-base);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .maka-composer-streaming-hint .maka-shortcut-kbd {
@@ -200,7 +200,7 @@
   background: oklch(from var(--background) l c h / 0.82);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
@@ -268,13 +268,13 @@
 }
 .maka-composer-mode-menu-label {
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--foreground);
 }
 .maka-composer-mode-menu-hint {
   font-size: var(--font-size-caption);
   color: var(--muted-foreground);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   white-space: normal;
 }
 .maka-composer-mode-menu [data-active="true"] {
@@ -315,7 +315,7 @@
   max-width: 128px;
   color: inherit;
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .maka-composer-model-chip-text {

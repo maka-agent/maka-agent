@@ -46,7 +46,7 @@
 .settingsWebSearchDisabledReason {
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
   text-align: right;
 }
 .settingsWebSearchResults {
@@ -65,7 +65,7 @@
     background: var(--foreground-3);
   }
 .settingsWebSearchResult a {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground);
     text-decoration: none;
   }
@@ -76,13 +76,13 @@
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-wider);
   }
 .settingsWebSearchResult p {
     margin: 0;
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -143,7 +143,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -185,7 +185,7 @@
 .settingsMemoryPromptPreview small {
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
   }
 .settingsMemoryPromptPreviewBudget {
     font-family: var(--font-mono);
@@ -202,7 +202,7 @@
     color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -210,7 +210,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 .settingsMemoryEntryPreviewNotice {
     display: grid;
@@ -227,7 +227,7 @@
 .settingsMemoryEntryPreviewNotice small {
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
   }
 .settingsMemorySaveSummary {
     display: grid;
@@ -287,7 +287,7 @@
 .settingsMemoryBackupList small {
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
   }
 .settingsMemoryBackupCandidate {
     display: inline-flex;
@@ -337,7 +337,7 @@
     background: oklch(from var(--warning) l c h / 0.08);
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 
 .settingsMemoryEntryList {
@@ -408,7 +408,7 @@
     background: var(--foreground-5);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
   }
 
 .settingsMemoryPromptScope[data-active="true"] {
@@ -419,7 +419,7 @@
 
 .settingsMemoryDirtyState[data-dirty="true"] {
     color: var(--warning-text, var(--info-text));
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .settingsMemoryEntryCard p,
@@ -427,7 +427,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -486,7 +486,7 @@
   .settingsMemoryListEmpty small {
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 
 .settingsMemoryManualAdd {
@@ -558,7 +558,7 @@
 .settingsMemoryDraftWarning small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 .settingsMemoryEditor {
@@ -569,7 +569,7 @@
 .settingsMemoryEditor > span {
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsMemoryEditor textarea {
@@ -583,8 +583,8 @@
   color: var(--foreground);
   font-family: inherit;
   font-size: var(--font-size-ui);
-  line-height: 1.75;
-  letter-spacing: 0;
+  line-height: var(--leading-normal);
+  letter-spacing: var(--tracking-normal);
   tab-size: 2;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -646,7 +646,7 @@
 .maka-first-run-checklist-count {
     margin-left: auto;
     font-size: var(--font-size-caption);
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-wider);
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
@@ -661,7 +661,7 @@
   background: oklch(from var(--warning, var(--info)) l c h / 0.08);
   color: var(--warning-text, var(--info-text));
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
   padding: var(--space-2) var(--space-2-5);
 }
 
@@ -758,7 +758,7 @@
 
 .maka-first-run-checklist-copy strong {
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
 }
 
@@ -766,7 +766,7 @@
   display: none;
   font-size: var(--font-size-ui);
   color: var(--muted-foreground);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-first-run-checklist-arrow {
@@ -786,7 +786,7 @@
 
   .maka-onboarding-ready header h1 {
     font-size: 1.6em;
-    line-height: 1.2;
+    line-height: var(--leading-tight);
   }
 
   .maka-onboarding-ready header p {

@@ -4,7 +4,7 @@
   border-radius: var(--radius-control);
   padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-caption);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   color: var(--warning-text);
   background: oklch(from var(--warning) l c h / 0.10);
   border: 1px solid oklch(from var(--warning) l c h / 0.20);
@@ -33,8 +33,8 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-control);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
 }
 
