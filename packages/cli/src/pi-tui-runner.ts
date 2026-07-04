@@ -465,6 +465,8 @@ class MakaPiLayoutComponent extends Container {
 }
 
 class MakaAutocompleteAboveEditorComponent implements Component {
+  private autocompleteSlotRows = 0;
+
   constructor(private readonly editor: Editor) {}
 
   get focused(): boolean {
@@ -485,21 +487,41 @@ class MakaAutocompleteAboveEditorComponent implements Component {
 
   render(width: number): string[] {
     const lines = this.editor.render(width);
-    if (!this.editor.isShowingAutocomplete()) return lines;
-    return moveTrailingAutocompleteAboveEditor(lines);
+    if (!this.editor.isShowingAutocomplete()) {
+      this.autocompleteSlotRows = 0;
+      return lines;
+    }
+    const sections = splitTrailingAutocomplete(lines);
+    if (sections.autocompleteLines.length === 0) {
+      this.autocompleteSlotRows = 0;
+      return sections.editorLines;
+    }
+    this.autocompleteSlotRows = Math.max(this.autocompleteSlotRows, sections.autocompleteLines.length);
+    return [
+      ...sections.autocompleteLines,
+      ...Array.from({ length: this.autocompleteSlotRows - sections.autocompleteLines.length }, () => ''),
+      ...sections.editorLines,
+    ];
   }
 }
 
-function moveTrailingAutocompleteAboveEditor(lines: string[]): string[] {
-  const bottomBorderIndex = findLastIndex(lines, isEditorChromeLine);
-  if (bottomBorderIndex < 1 || bottomBorderIndex === lines.length - 1) return lines;
-  const topBorderIndex = findLastIndex(lines.slice(0, bottomBorderIndex), isEditorChromeLine);
-  if (topBorderIndex < 0) return lines;
+interface MakaAutocompleteSections {
+  autocompleteLines: string[];
+  editorLines: string[];
+}
 
-  return [
-    ...lines.slice(bottomBorderIndex + 1),
-    ...lines.slice(0, bottomBorderIndex + 1),
-  ];
+function splitTrailingAutocomplete(lines: string[]): MakaAutocompleteSections {
+  const bottomBorderIndex = findLastIndex(lines, isEditorChromeLine);
+  if (bottomBorderIndex < 1 || bottomBorderIndex === lines.length - 1) {
+    return { autocompleteLines: [], editorLines: lines };
+  }
+  const topBorderIndex = findLastIndex(lines.slice(0, bottomBorderIndex), isEditorChromeLine);
+  if (topBorderIndex < 0) return { autocompleteLines: [], editorLines: lines };
+
+  return {
+    autocompleteLines: lines.slice(bottomBorderIndex + 1),
+    editorLines: lines.slice(0, bottomBorderIndex + 1),
+  };
 }
 
 function isEditorChromeLine(line: string): boolean {

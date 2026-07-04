@@ -363,6 +363,51 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('keeps slash autocomplete filtering from collapsing the input area', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/');
+
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/session'));
+    const beforeLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    const beforeRows = inputSurfaceRows(beforeLines);
+    const beforeFirstSuggestionRow = beforeLines.findIndex((line) => line.includes('/exit'));
+    const beforeSessionRow = beforeLines.findIndex((line) => line.includes('/session'));
+
+    terminal.input('s');
+
+    await waitFor(() => {
+      const output = plainTerminalOutput(terminal.screenOutput());
+      return output.includes('/session') && !output.includes('/model');
+    });
+    const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    const afterRows = inputSurfaceRows(afterLines);
+    const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
+
+    assert.ok(beforeFirstSuggestionRow >= 0);
+    assert.ok(beforeSessionRow >= 0);
+    assert.deepEqual(afterRows, beforeRows);
+    assert.equal(afterSessionRow, beforeFirstSuggestionRow);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /exit without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -910,6 +955,17 @@ function plainTerminalOutput(output: string): string {
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
+function inputSurfaceRows(lines: readonly string[]): [number, number] {
+  const editorBorderIndexes = lines
+    .map((line, index) => (/^─+$/.test(line) ? index : -1))
+    .filter((index) => index >= 0);
+  assert.ok(editorBorderIndexes.length >= 2);
+  return [
+    editorBorderIndexes[editorBorderIndexes.length - 2]!,
+    editorBorderIndexes[editorBorderIndexes.length - 1]!,
+  ];
+}
+
 class FakeTerminal implements Terminal {
   readonly columns = 80;
   readonly rows = 24;
@@ -953,6 +1009,133 @@ class FakeTerminal implements Terminal {
   output(): string {
     return this.writes.join('');
   }
+
+  screenOutput(): string {
+    return renderTerminalScreen(this.writes, this.rows);
+  }
+}
+
+function renderTerminalScreen(writes: readonly string[], rows: number): string {
+  const screen: string[] = [];
+  let row = 0;
+  let col = 0;
+
+  const ensureRow = () => {
+    while (screen.length <= row) screen.push('');
+  };
+
+  const writeText = (text: string) => {
+    ensureRow();
+    const line = screen[row] ?? '';
+    screen[row] = `${line.slice(0, col)}${text}${line.slice(col + text.length)}`;
+    col += text.length;
+  };
+
+  for (const write of writes) {
+    for (let index = 0; index < write.length;) {
+      const char = write[index]!;
+      if (char === '\x1b') {
+        index = consumeEscapeSequence(write, index, {
+          clearScreen: () => {
+            screen.length = 0;
+            row = 0;
+            col = 0;
+          },
+          clearLine: () => {
+            ensureRow();
+            screen[row] = '';
+          },
+          moveTo: (nextRow, nextCol) => {
+            row = Math.max(0, nextRow);
+            col = Math.max(0, nextCol);
+          },
+          moveBy: (rowDelta, colDelta) => {
+            row = Math.max(0, row + rowDelta);
+            col = Math.max(0, col + colDelta);
+          },
+          moveCol: (nextCol) => {
+            col = Math.max(0, nextCol);
+          },
+        });
+        continue;
+      }
+      if (char === '\r') {
+        col = 0;
+        index += 1;
+        continue;
+      }
+      if (char === '\n') {
+        row += 1;
+        col = 0;
+        index += 1;
+        continue;
+      }
+      writeText(char);
+      index += 1;
+    }
+  }
+
+  while (screen.length < rows) screen.push('');
+  return screen.slice(0, rows).join('\n');
+}
+
+interface ScreenEscapeActions {
+  clearScreen(): void;
+  clearLine(): void;
+  moveTo(row: number, col: number): void;
+  moveBy(rowDelta: number, colDelta: number): void;
+  moveCol(col: number): void;
+}
+
+function consumeEscapeSequence(input: string, index: number, actions: ScreenEscapeActions): number {
+  const kind = input[index + 1];
+  if (kind === '[') {
+    const finalIndex = findCsiFinalIndex(input, index + 2);
+    if (finalIndex < 0) return input.length;
+    const params = input.slice(index + 2, finalIndex);
+    applyCsiSequence(params, input[finalIndex]!, actions);
+    return finalIndex + 1;
+  }
+  if (kind === ']') return skipUntilTerminator(input, index + 2);
+  if (kind === '_' || kind === 'P') return skipUntilTerminator(input, index + 2);
+  return index + 2;
+}
+
+function findCsiFinalIndex(input: string, start: number): number {
+  for (let index = start; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    if (code >= 0x40 && code <= 0x7e) return index;
+  }
+  return -1;
+}
+
+function skipUntilTerminator(input: string, start: number): number {
+  for (let index = start; index < input.length; index += 1) {
+    if (input[index] === '\x07') return index + 1;
+    if (input[index] === '\x1b' && input[index + 1] === '\\') return index + 2;
+  }
+  return input.length;
+}
+
+function applyCsiSequence(params: string, final: string, actions: ScreenEscapeActions): void {
+  const values = parseCsiValues(params);
+  const first = values[0] ?? 1;
+  if (final === 'A') actions.moveBy(-first, 0);
+  if (final === 'B') actions.moveBy(first, 0);
+  if (final === 'C') actions.moveBy(0, first);
+  if (final === 'D') actions.moveBy(0, -first);
+  if (final === 'G') actions.moveCol(first - 1);
+  if (final === 'H' || final === 'f') actions.moveTo((values[0] ?? 1) - 1, (values[1] ?? 1) - 1);
+  if (final === 'J' && (values[0] === 2 || values[0] === 3)) actions.clearScreen();
+  if (final === 'K' && (values[0] ?? 0) === 2) actions.clearLine();
+}
+
+function parseCsiValues(params: string): number[] {
+  return params
+    .replace(/^\?/, '')
+    .split(';')
+    .filter((part) => /^\d+$/.test(part))
+    .map((part) => Number(part));
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
