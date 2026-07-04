@@ -84,7 +84,7 @@ describe('ToolActivity result preview contract', () => {
           ids: { workflowRunId: 'wf_123', schedulerRunId: 'sch_123', rootWorkNodeId: 'root_123' },
           summary: 'workflow failed',
           stderrTail: `tail ${SECRET}`,
-          error: { reason: 'rive_failed', message: 'failed' },
+          error: { reason: 'rive_failed', message: `failed ${SECRET}` },
         },
         expected: [/data-kind="rive_workflow"/, /workflow_run: wf_123/, /Rive workflow failed/],
       },

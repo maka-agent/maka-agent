@@ -351,10 +351,10 @@ function RiveWorkflowPreview(props: {
     ? [
         '',
         '错误',
-        `reason: ${result.error.reason}`,
-        `message: ${result.error.message}`,
-        result.error.code ? `code: ${result.error.code}` : '',
-        result.error.suggestedAction ? `suggested_action: ${result.error.suggestedAction}` : '',
+        `reason: ${redactSecrets(result.error.reason)}`,
+        `message: ${redactSecrets(result.error.message)}`,
+        result.error.code ? `code: ${redactSecrets(result.error.code)}` : '',
+        result.error.suggestedAction ? `suggested_action: ${redactSecrets(result.error.suggestedAction)}` : '',
       ].filter(Boolean)
     : [];
   const diagnosticLines = [
