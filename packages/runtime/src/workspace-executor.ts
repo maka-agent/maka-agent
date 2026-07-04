@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { exec } from 'node:child_process';
 import { glob as nodeGlob } from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import { runShellWithBoundedTail } from './shell-exec.js';
@@ -58,6 +59,25 @@ export interface WorkspaceWriteFileResult {
   bytes: number;
 }
 
+export interface WorkspaceResolvePathInput {
+  cwd: string;
+  path: string;
+  label: string;
+}
+
+export interface WorkspaceResolvePathResult {
+  path: string;
+}
+
+export interface WorkspaceWriteLockKeyInput {
+  cwd: string;
+  path: string;
+}
+
+export interface WorkspaceWriteLockKeyResult {
+  key: string;
+}
+
 export interface WorkspaceGlobInput {
   cwd: string;
   pattern: string;
@@ -88,6 +108,9 @@ export interface WorkspaceExecutor {
   exec(input: WorkspaceExecInput): Promise<WorkspaceExecResult>;
   readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult>;
   writeFile(input: WorkspaceWriteFileInput): Promise<WorkspaceWriteFileResult>;
+  resolveExistingPath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult>;
+  resolveWritablePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult>;
+  writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult>;
   globFiles(input: WorkspaceGlobInput): Promise<WorkspaceGlobResult>;
   grepFiles(input: WorkspaceGrepInput): Promise<WorkspaceGrepResult>;
 }
@@ -122,6 +145,18 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
       path: input.path,
       bytes: Buffer.byteLength(input.content, 'utf8'),
     };
+  }
+
+  async resolveExistingPath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
+    return { path: await resolveExistingInsideCwd(input.cwd, input.path, input.label) };
+  }
+
+  async resolveWritablePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
+    return { path: await resolveWritableInsideCwd(input.cwd, input.path, input.label) };
+  }
+
+  async writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
+    return { key: resolve(await fs.realpath(input.cwd), input.path) };
   }
 
   async globFiles(input: WorkspaceGlobInput): Promise<WorkspaceGlobResult> {
@@ -160,4 +195,41 @@ export function createLocalWorkspaceExecutor(): WorkspaceExecutor {
 
 function shellEscape(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
+}
+
+async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+  if (isAbsolute(inputPath)) {
+    throw new Error(`${label} path must be relative to session cwd`);
+  }
+  const root = await fs.realpath(cwd);
+  const candidate = resolve(root, inputPath);
+  if (!isInside(root, candidate)) {
+    throw new Error(`${label} path must stay inside session cwd`);
+  }
+  const parent = await fs.realpath(dirname(candidate));
+  if (!isInside(root, parent)) {
+    throw new Error(`${label} path must stay inside session cwd`);
+  }
+  return candidate;
+}
+
+async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+  if (isAbsolute(inputPath)) {
+    throw new Error(`${label} path must be relative to session cwd`);
+  }
+  const root = await fs.realpath(cwd);
+  const candidate = resolve(root, inputPath);
+  if (!isInside(root, candidate)) {
+    throw new Error(`${label} path must stay inside session cwd`);
+  }
+  const target = await fs.realpath(candidate);
+  if (!isInside(root, target)) {
+    throw new Error(`${label} path must stay inside session cwd`);
+  }
+  return target;
+}
+
+function isInside(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }

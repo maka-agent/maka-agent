@@ -89,10 +89,14 @@ export type {
   WorkspaceNetworkMode,
   WorkspaceReadFileInput,
   WorkspaceReadFileResult,
+  WorkspaceResolvePathInput,
+  WorkspaceResolvePathResult,
   WorkspaceSecretMode,
   WorkspaceWriteBackMode,
   WorkspaceWriteFileInput,
   WorkspaceWriteFileResult,
+  WorkspaceWriteLockKeyInput,
+  WorkspaceWriteLockKeyResult,
 } from './workspace-executor.js';
 export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-replace.js';
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';

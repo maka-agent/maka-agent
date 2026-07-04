@@ -354,6 +354,28 @@ describe('builtin read tools path containment', () => {
 });
 
 describe('builtin write tools path containment', () => {
+  test('Write can delegate path resolution to a remote executor when cwd is not on the host', async () => {
+    const writes: Array<{ cwd: string; path: string; content: string }> = [];
+    const write = buildBuiltinTools({ executor: fakeExecutor({
+      writeLockKey: async ({ cwd, path }) => ({ key: JSON.stringify([cwd, path]) }),
+      resolveWritablePath: async ({ cwd, path }) => ({ path: `${cwd}/${path}` }),
+      writeFile: async ({ cwd, path, content }) => {
+        writes.push({ cwd, path, content });
+        return { ok: true, path, bytes: Buffer.byteLength(content, 'utf8') };
+      },
+    }) }).find((candidate) => candidate.name === 'Write');
+    if (!write) throw new Error('Write tool missing');
+
+    const result = await runTool(write, { path: 'created.txt', content: 'from-executor' }, '/workspace');
+
+    expect(writes).toEqual([{
+      cwd: '/workspace',
+      path: '/workspace/created.txt',
+      content: 'from-executor',
+    }]);
+    expect(result).toMatchObject({ ok: true, path: '/workspace/created.txt', bytes: 13 });
+  });
+
   test('Write delegates file writing to the injected workspace executor', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-write-executor-'));
     const writes: Array<{ path: string; content: string }> = [];
@@ -543,6 +565,9 @@ function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor 
       path,
       bytes: Buffer.byteLength(content, 'utf8'),
     }),
+    resolveExistingPath: async ({ path }) => ({ path }),
+    resolveWritablePath: async ({ path }) => ({ path }),
+    writeLockKey: async ({ cwd, path }) => ({ key: `${cwd}:${path}` }),
     globFiles: async () => ({ files: [] }),
     grepFiles: async () => ({ matches: [] }),
   };

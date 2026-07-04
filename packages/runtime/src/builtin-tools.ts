@@ -6,8 +6,7 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
-import { promises as fs } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
 import { truncateToolOutput } from './tool-output.js';
 import {
@@ -27,16 +26,6 @@ import { withFileWriteLock } from './file-write-lock.js';
 // near-instant; this only bounds a pathological hang now that the stream
 // watchdog is paused during tool execution.
 const GREP_TIMEOUT_MS = 120_000;
-
-// Key Write and Edit on the lexically resolved absolute path so both lock the
-// same file and spellings ("a", "./a", "d//a") collapse onto one key. realpath
-// canonicalizes only the cwd (which always exists); the path itself stays lexical,
-// so the key is stable across the file's creation and never splits it mid-flight.
-// (withFileWriteLock documents why concurrent writes are serialized and which
-// aliases a lexical key does not merge.)
-async function fileWriteLockKey(cwd: string, inputPath: string): Promise<string> {
-  return resolve(await fs.realpath(cwd), inputPath);
-}
 
 export interface BuildBuiltinToolsOptions {
   executor?: WorkspaceExecutor;
@@ -90,8 +79,8 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       permissionRequired: false,
       executionFacts,
       impl: async ({ path, offset, limit }, { cwd }) => {
-        const abs = await resolveExistingInsideCwd(cwd, path, 'Read');
-        const { content } = await executor.readFile({ cwd, path: abs });
+        const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
+        const { content } = await executor.readFile({ cwd, path: resolvedPath });
         if (offset === undefined && limit === undefined) return { content };
         const lines = content.split('\n');
         const start = offset ?? 0;
@@ -106,13 +95,10 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       permissionRequired: true,
       executionFacts,
       impl: async ({ path, content }, { cwd }) => {
-        // Resolve inside the lock so the containment check and the write are one
-        // atomic critical section per file (no concurrent op can alter the target
-        // between them). The key is lexical, so it is stable whether or not the
-        // file exists yet.
-        return await withFileWriteLock(await fileWriteLockKey(cwd, path), async () => {
-          const abs = await resolveWritableInsideCwd(cwd, path, 'Write');
-          return await executor.writeFile({ cwd, path: abs, content });
+        const { key } = await executor.writeLockKey({ cwd, path });
+        return await withFileWriteLock(key, async () => {
+          const { path: resolvedPath } = await executor.resolveWritablePath({ cwd, path, label: 'Write' });
+          return await executor.writeFile({ cwd, path: resolvedPath, content });
         });
       },
     },
@@ -132,18 +118,15 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       permissionRequired: true,
       executionFacts,
       impl: async ({ path, old_string, new_string }, { cwd }) => {
-        // Resolve + read + write all inside the lock so the read-modify-write is
-        // one atomic critical section per file. The key is lexical (stable across
-        // creation), so a Write that creates this file and a following Edit share
-        // the lock rather than racing.
-        return await withFileWriteLock(await fileWriteLockKey(cwd, path), async () => {
-          const abs = await resolveExistingInsideCwd(cwd, path, 'Edit');
-          const { content: current } = await executor.readFile({ cwd, path: abs });
+        const { key } = await executor.writeLockKey({ cwd, path });
+        return await withFileWriteLock(key, async () => {
+          const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Edit' });
+          const { content: current } = await executor.readFile({ cwd, path: resolvedPath });
           const result = computeEditedSource(current, old_string, new_string, path);
-          await executor.writeFile({ cwd, path: abs, content: result.content });
+          await executor.writeFile({ cwd, path: resolvedPath, content: result.content });
           return {
             ok: true,
-            path: abs,
+            path: resolvedPath,
             replacements: 1,
             matchedVia: result.matchedVia,
             startLine: result.startLine,
@@ -164,7 +147,11 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       executionFacts,
       impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
         assertRelativeGlobPattern(pattern);
-        const base = relCwd ? await resolveExistingInsideCwd(cwd, relCwd, 'Glob cwd') : await fs.realpath(cwd);
+        const { path: base } = await executor.resolveExistingPath({
+          cwd,
+          path: relCwd ?? '.',
+          label: 'Glob cwd',
+        });
         return await executor.globFiles({ cwd: base, pattern, limit: 200 });
       },
     },
@@ -179,7 +166,11 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       permissionRequired: false,
       executionFacts,
       impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
-        const searchPath = path ? await resolveExistingInsideCwd(cwd, path, 'Grep') : await fs.realpath(cwd);
+        const { path: searchPath } = await executor.resolveExistingPath({
+          cwd,
+          path: path ?? '.',
+          label: 'Grep',
+        });
         // Self-bound: ripgrep finishes in well under a second normally, but a
         // pathological tree (network mount, /proc, a FIFO) could hang it. The
         // stream watchdog no longer caps tool execution, so each spawning tool
@@ -207,43 +198,6 @@ function terminalError(
   const error = new Error(message);
   Object.assign(error, { stdout: result.stdout, stderr: result.stderr, code });
   return error;
-}
-
-async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
-  if (isAbsolute(inputPath)) {
-    throw new Error(`${label} path must be relative to session cwd`);
-  }
-  const root = await fs.realpath(cwd);
-  const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  const parent = await fs.realpath(dirname(candidate));
-  if (!isInside(root, parent)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  return candidate;
-}
-
-async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
-  if (isAbsolute(inputPath)) {
-    throw new Error(`${label} path must be relative to session cwd`);
-  }
-  const root = await fs.realpath(cwd);
-  const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  const target = await fs.realpath(candidate);
-  if (!isInside(root, target)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  return target;
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function assertRelativeGlobPattern(pattern: string): void {

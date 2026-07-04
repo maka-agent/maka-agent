@@ -3,6 +3,8 @@ import type {
   WorkspaceExecResult,
   WorkspaceExecutor,
   WorkspaceExecutorFacts,
+  WorkspaceResolvePathInput,
+  WorkspaceResolvePathResult,
   WorkspaceGlobInput,
   WorkspaceGlobResult,
   WorkspaceGrepInput,
@@ -11,7 +13,10 @@ import type {
   WorkspaceReadFileResult,
   WorkspaceWriteFileInput,
   WorkspaceWriteFileResult,
+  WorkspaceWriteLockKeyInput,
+  WorkspaceWriteLockKeyResult,
 } from '@maka/runtime/workspace-executor';
+import { posix as pathPosix } from 'node:path';
 import type { IsolatedToolExecutor } from './isolation.js';
 
 export const ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
@@ -39,6 +44,9 @@ export function isolatedToolExecutorToWorkspaceExecutor(
     exec: (input) => isolatedExec(executor, input),
     readFile: unsupportedReadFile,
     writeFile: (input) => isolatedWriteFile(executor, input),
+    resolveExistingPath: isolatedResolvePath,
+    resolveWritablePath: isolatedResolvePath,
+    writeLockKey: isolatedWriteLockKey,
     globFiles: (input) => isolatedGlobFiles(executor, input),
     grepFiles: (input) => isolatedGrepFiles(executor, input),
   };
@@ -81,6 +89,19 @@ async function isolatedWriteFile(
   });
 }
 
+async function isolatedResolvePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
+  return { path: resolveIsolatedWorkspacePath(input.cwd, input.path, input.label) };
+}
+
+async function isolatedWriteLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
+  return {
+    key: JSON.stringify([
+      pathPosix.normalize(input.cwd),
+      resolveIsolatedWorkspacePath(input.cwd, input.path, 'Write path'),
+    ]),
+  };
+}
+
 async function isolatedGlobFiles(
   executor: IsolatedToolExecutor,
   input: WorkspaceGlobInput,
@@ -109,4 +130,23 @@ async function isolatedGrepFiles(
     ...(input.glob ? { glob: input.glob } : {}),
   });
   return { matches: result.matches.slice(0, input.limit) };
+}
+
+function resolveIsolatedWorkspacePath(cwd: string, inputPath: string, label: string): string {
+  if (inputPath.length === 0 || /^[A-Za-z]:[\\/]/.test(inputPath)) {
+    throw new Error(`${label} must stay inside workspace`);
+  }
+  const root = pathPosix.normalize(cwd);
+  const target = inputPath.startsWith('/')
+    ? pathPosix.normalize(inputPath)
+    : pathPosix.resolve(root, inputPath);
+  if (!isInsidePosix(root, target)) {
+    throw new Error(`${label} must stay inside workspace`);
+  }
+  return target;
+}
+
+function isInsidePosix(root: string, target: string): boolean {
+  const rel = pathPosix.relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !pathPosix.isAbsolute(rel));
 }
