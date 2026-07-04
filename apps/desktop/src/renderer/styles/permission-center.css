@@ -411,7 +411,7 @@
     gap: var(--space-3);
     padding: var(--space-4) var(--space-4);
     background: var(--background);
-    transition: background 160ms var(--ease-out-strong);
+    transition: background var(--duration-base) var(--ease-out-strong);
   }
 
 .settingsOsPermissionIcon {

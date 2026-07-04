@@ -37,7 +37,7 @@
      feels physical. Same convention as the other interactive
      surfaces in this round (artifact-row, session-row,
      onboarding-card, prompt-chip). */
-  transition: background 140ms var(--ease-out-strong);
+  transition: background var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {

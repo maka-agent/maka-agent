@@ -164,7 +164,7 @@
   padding: 0 var(--space-3);
   outline: none;
   font-size: var(--font-size-ui);
-  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong), background 140ms var(--ease-out-strong);
+  transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong), background var(--duration-base) var(--ease-out-strong);
 }
 
 .providerEditor input:focus,
@@ -279,7 +279,7 @@
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-family: var(--font-mono);
-  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong);
+  transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
 }
 
 .modelTableSearch:focus {

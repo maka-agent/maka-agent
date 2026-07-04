@@ -807,8 +807,8 @@
   opacity: 0;
   transform: translateX(8px);
   transition:
-    opacity 140ms var(--ease-out-strong),
-    transform 140ms var(--ease-out-strong);
+    opacity var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-base) var(--ease-out-strong);
   pointer-events: none;
 }
 
@@ -915,8 +915,8 @@
   padding: var(--space-2-5) var(--space-3);
   text-align: left;
   transition:
-    border-color 140ms var(--ease-out-strong),
-    background 140ms var(--ease-out-strong);
+    border-color var(--duration-base) var(--ease-out-strong),
+    background var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-prompt-chip:hover {

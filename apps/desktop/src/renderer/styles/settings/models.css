@@ -31,7 +31,7 @@
   color: var(--foreground);
   font: inherit;
   text-align: left;
-  transition: background-color 130ms var(--ease-out-strong);
+  transition: background-color var(--duration-quick) var(--ease-out-strong);
 }
 
 .enabledProviderTrigger:hover { background: var(--state-hover-bg); }
@@ -56,7 +56,7 @@
 
 .enabledChevron {
   color: var(--muted-foreground);
-  transition: transform 160ms var(--ease-out-strong);
+  transition: transform var(--duration-base) var(--ease-out-strong);
 }
 
 .enabledProviderTrigger[data-panel-open] .enabledChevron,
@@ -557,8 +557,8 @@
   text-align: left;
   font-size: var(--font-size-caption);
   transition:
-    background 140ms var(--ease-out-strong),
-    border-color 140ms var(--ease-out-strong);
+    background var(--duration-base) var(--ease-out-strong),
+    border-color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-artifact-row:hover {

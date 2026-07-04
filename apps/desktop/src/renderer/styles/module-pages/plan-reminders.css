@@ -110,14 +110,14 @@
     background-color var(--duration-base) var(--ease-out-strong),
     border-color var(--duration-base) var(--ease-out-strong),
     transform var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow 200ms var(--ease-out-strong);
+    box-shadow var(--duration-emphasized) var(--ease-out-strong);
 }
 
 .maka-plan-new-task-button:hover {
   border-color: oklch(0.28 0 0);
   background: oklch(0.26 0 0);
   color: oklch(1 0 0);
-  transform: translateY(-0.5px);
+  transform: translateY(var(--lift-hover));
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.20),
     0 4px 14px -8px oklch(from var(--foreground) l c h / 0.32);
@@ -486,7 +486,7 @@
 .maka-plan-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.13);
   box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
-  transform: translateY(-1px);
+  transform: translateY(var(--lift-hover));
 }
 
 .maka-plan-card[data-status="completed"] {

@@ -100,7 +100,7 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
     for (const residue of [
       '[data-slot="tool"] {',
       'transform: translateY(0)',
-      'transition: border-color 160ms var(--ease-out-strong);',
+      'transition: border-color var(--duration-base) var(--ease-out-strong);',
       '[data-slot="tool"] > summary::-webkit-details-marker { display: none; }',
       "[data-slot=\"tool\"] > summary::marker { content: ''; }",
     ]) {

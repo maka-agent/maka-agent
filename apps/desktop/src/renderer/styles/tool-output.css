@@ -93,7 +93,7 @@
     0 1px 0 oklch(1 0 0 / 0.76);
   transition:
     border-color var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow 220ms var(--ease-out-strong);
+    box-shadow var(--duration-emphasized) var(--ease-out-strong);
 }
 
 .composer .maka-composer-inner::before,
@@ -367,7 +367,7 @@
 .maka-composer-tool-button:hover:not(:disabled) {
   color: var(--foreground);
   background: var(--state-hover-bg);
-  transform: scale(1.02);
+  transform: scale(var(--scale-hover));
 }
 
 .maka-composer-tool-button:active:not(:disabled) {

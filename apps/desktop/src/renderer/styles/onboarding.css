@@ -101,8 +101,8 @@
 }
 
 /* PR-FRONTEND-AUDIT-CLEANUP-0 F1 (WAWQAQ msg `dde696a1`): the earlier
-   `maka-agents-fade-in 150ms` block + nth-child delay ladder was
-   completely overridden by the `maka-card-enter 280ms` block below,
+   `maka-agents-fade-in var(--duration-base)` block + nth-child delay ladder was
+   completely overridden by the `maka-card-enter var(--duration-large)` block below,
    plus that block's own delay ladder. The dead rules silently caused
    any "polish" attempt on the upper block to look like a no-op. Deleted. */
 
@@ -443,9 +443,9 @@
     0 18px 42px oklch(from var(--foreground) l c h / 0.07),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.72) inset;
   transition:
-    border-color 160ms var(--ease-out-strong),
-    box-shadow 160ms var(--ease-out-strong),
-    transform 160ms var(--ease-out-strong);
+    border-color var(--duration-base) var(--ease-out-strong),
+    box-shadow var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-onboarding-quickchat-field {
@@ -533,7 +533,7 @@
 .maka-onboarding-quickchat-submit:hover:not(:disabled) {
   background: color-mix(in srgb, var(--action) 88%, black);
   color: var(--action-foreground);
-  transform: translateY(-1px);
+  transform: translateY(var(--lift-hover));
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.18),
     0 12px 24px oklch(from var(--action) l c h / 0.26);

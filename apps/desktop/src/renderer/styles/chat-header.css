@@ -131,7 +131,7 @@
   }
 
 .maka-chat-header-alert:hover {
-    transform: translateY(-1px);
+    transform: translateY(var(--lift-hover));
   }
 
 .maka-chat-header-alert:focus-visible {
@@ -258,13 +258,13 @@
   transition:
     transform var(--duration-emphasized) var(--ease-out-strong),
     opacity var(--duration-emphasized) var(--ease-out-strong),
-    background 120ms var(--ease-out-strong);
+    background var(--duration-quick) var(--ease-out-strong);
   }
 
 .maka-chat-jump-bottom:hover {
     color: var(--foreground);
     background: var(--state-hover-bg);
-    transform: translateX(-50%) translateY(-2px);
+    transform: translateX(-50%) translateY(var(--lift-hover));
   }
 
 .maka-chat-jump-bottom:active {
@@ -451,7 +451,7 @@
   pointer-events: auto;
   opacity: 1;
   transform: translateX(0);
-  transition: background 120ms var(--ease-out-strong);
+  transition: background var(--duration-quick) var(--ease-out-strong);
 }
 
 /* D6 waiting-state spectrum #1 (taste v1 §9 Live Status): toasts used
@@ -466,7 +466,7 @@
 }
 
 .maka-toast {
-  animation: maka-toast-enter 240ms var(--ease-out-strong);
+  animation: maka-toast-enter var(--duration-large) var(--ease-out-strong);
 }
 
 /* Exit = enter x 75% (roadmap §4.1), ease-in per the enter-out/exit-in
@@ -477,7 +477,7 @@
 }
 
 .maka-toast[data-exiting="true"] {
-  animation: maka-toast-exit 180ms var(--ease-in-out-strong) forwards;
+  animation: maka-toast-exit var(--duration-emphasized) var(--ease-in-out-strong) forwards;
   pointer-events: none;
 }
 
@@ -727,9 +727,9 @@
      here"), not up. foreground-derived so dark mode adapts. */
   background: oklch(from var(--foreground) l c h / 0.03);
   transition:
-    border-color var(--duration-fast) var(--ease-out-strong),
-    box-shadow var(--duration-fast) var(--ease-out-strong),
-    background var(--duration-fast) var(--ease-out-strong);
+    border-color var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong),
+    background var(--duration-quick) var(--ease-out-strong);
 }
 
 .maka-palette-input-wrap:has(input:focus) {
@@ -848,9 +848,9 @@
   font-size: var(--font-size-caption);
   cursor: default;
   transition:
-    background-color 140ms var(--ease-out-strong),
-    color 140ms var(--ease-out-strong),
-    opacity 140ms var(--ease-out-strong);
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    opacity var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-palette-item:hover:not([data-disabled="true"]) {
@@ -889,8 +889,8 @@
   border-radius: var(--radius-control);
   color: var(--muted-foreground);
   transition:
-    background-color 140ms var(--ease-out-strong),
-    color 140ms var(--ease-out-strong);
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-palette-item[data-active="true"] .maka-palette-icon {

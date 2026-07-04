@@ -389,8 +389,8 @@
      PR-MOTION-TOKEN-CONVERGE-0 (kenji's category 4, 2026-06-24):
      duration scale paired with the easing scale. The values come from
      the actual usage distribution in styles.css before the sweep:
-     150ms (58 sites) → base, 120ms (34) → quick, 180ms (13) → emphasized,
-     240/280ms (6) → large. Pick by intent, not by feel:
+     var(--duration-base) (58 sites) → base, var(--duration-quick) (34) → quick, var(--duration-emphasized) (13) → emphasized,
+     240/var(--duration-large) (6) → large. Pick by intent, not by feel:
        --duration-quick      — hover/press tactile feedback, focus rings
        --duration-base       — color/border/transform on interactive elements
        --duration-emphasized — stronger hover/focus/status feedback
@@ -432,6 +432,19 @@
       PR-FOCUS-RING-RECIPE-0 (issue #520 PR2). */
    --focus-ring-width: 2px;
    --focus-ring-offset: 2px;
+
+   /* === transform amplitude (motion) ===
+      Tokenize the geometric magnitude of press/hover feedback so the
+      motion contract covers amplitude, not just duration/easing. Press
+      scale (active 缩小), hover scale (悬停放大), hover lift (上浮). Reset
+      transform: translate(0)/scale(1) uses literal 0/1. Decorative
+      scale(1.1), strong lift -3px, sidebar slide translateX, and rotate
+      are NOT tokenized (diverse, low coverage). Keyframe transform
+      excluded — animation tracks, not interaction feedback.
+      PR-TRANSFORM-AMPLITUDE-0 (issue #520 PR2). */
+   --scale-press: 0.96;        /* active/press 缩小 (snap 0.96/0.97/0.98) */
+   --scale-hover: 1.03;        /* hover 放大 (snap 1.02/1.03) */
+   --lift-hover: -1px;         /* hover 上浮 (snap -0.5/-1) */
 
    /* === page-card recipe ===
       Single source of truth for the lifted "page card" chrome used by every
@@ -913,7 +926,7 @@
   ::-webkit-scrollbar-thumb  {
     background: transparent;
     border-radius: var(--radius-control);
-    transition: background 120ms var(--ease-out-strong);
+    transition: background var(--duration-quick) var(--ease-out-strong);
   }
   *:hover {
     scrollbar-color: oklch(from var(--foreground) l c h / 0.18) transparent;
@@ -1075,7 +1088,7 @@
     font-size: var(--font-size-ui);
     line-height: var(--leading-snug);
     user-select: none;
-    transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong);
+    transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
   }
   .maka-sidebar-row:hover    { background: var(--state-hover-bg); }
   .maka-sidebar-row[data-active="true"] {
@@ -1197,7 +1210,7 @@
    *   - Replace browser-default disclosure triangle (varies per UA)
    *     with a custom chevron that rotates 90deg on `[open]` using
    *     a spring-ish cubic-bezier from design-taste-frontend §5
-   *     (220ms `cubic-bezier(0.16, 1, 0.3, 1)`).
+   *     (var(--duration-emphasized) `cubic-bezier(0.16, 1, 0.3, 1)`).
    * `cursor: pointer` deliberately NOT applied to the summary —
    * macOS reserves the hand for links; details summaries use the
    * default arrow. Enforced by `cursor-convention-contract.test.ts`.
@@ -1239,7 +1252,7 @@
     border-style: solid;
     border-width: 4px 0 4px 5px;
     border-color: transparent transparent transparent currentColor;
-    transition: transform 220ms var(--ease-out-strong);
+    transition: transform var(--duration-emphasized) var(--ease-out-strong);
   }
   .maka-turn-thinking[open] > summary::before {
     transform: rotate(90deg);
@@ -1420,7 +1433,7 @@
     padding: 0 var(--space-0-5);
     margin: 0 calc(var(--space-0-5) * -1);
     border-radius: var(--radius-control);
-    transition: border-bottom-color 120ms var(--ease-out-strong), background 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
+    transition: border-bottom-color var(--duration-quick) var(--ease-out-strong), background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
   }
   .maka-bubble-assistant a:hover {
     border-bottom-color: var(--link);
@@ -1481,7 +1494,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--muted-foreground);
-    transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
+    transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
   }
   .maka-code-block-copy:hover {
     color: var(--foreground);
@@ -1640,13 +1653,13 @@
        on hover reads as "this just slid in from above" rather than
        a fade-only flash. transform stays GPU-accelerated; transition
        list keeps both axes coherent. */
-    transform: translateY(-3px) scale(0.96);
+    transform: translateY(-3px) scale(var(--scale-press));
     transition:
-      opacity 160ms var(--ease-out-strong),
-      transform 180ms var(--ease-out-strong),
-      color 120ms var(--ease-out-strong),
-      background 120ms var(--ease-out-strong),
-      box-shadow 120ms var(--ease-out-strong);
+      opacity var(--duration-base) var(--ease-out-strong),
+      transform var(--duration-emphasized) var(--ease-out-strong),
+      color var(--duration-quick) var(--ease-out-strong),
+      background var(--duration-quick) var(--ease-out-strong),
+      box-shadow var(--duration-quick) var(--ease-out-strong);
   }
 
   /* Labelled variant (e.g. "复制思考过程") — flows inline, doesn't absolute-
@@ -1729,7 +1742,7 @@
   [data-slot="tool"] {
     opacity: 1;
     transform: translateY(0);
-    transition: border-color 160ms var(--ease-out-strong);
+    transition: border-color var(--duration-base) var(--ease-out-strong);
   }
   /* Native <details>/<summary> marker reset — the summary IS the header row
      (laid out by `toolVariants({ part: 'header' })`), so the default disclosure
@@ -1788,7 +1801,7 @@
     flex-direction: column;
     gap: var(--space-2-5);
     border: var(--border-width-hairline) solid var(--border);
-    transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong), background 160ms var(--ease-out-strong);
+    transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong), background var(--duration-base) var(--ease-out-strong);
   }
 
   /* Composer focus ring — `:focus-within` lets the wrapping shell glow
@@ -1833,7 +1846,7 @@
        listening" instead of "the placeholder is just sitting
        there." The fade is small (1 → 0.55) — enough to register,
        small enough not to feel like a glitch. */
-    transition: opacity 180ms var(--ease-out-strong);
+    transition: opacity var(--duration-emphasized) var(--ease-out-strong);
   }
   .maka-composer textarea:focus::placeholder {
     opacity: var(--opacity-disabled);
@@ -1864,7 +1877,7 @@
     font-size: var(--font-size-ui);
     font-weight: var(--font-weight-medium);
     line-height: var(--leading-tight);
-    transition: background 120ms var(--ease-out-strong), border-color 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
+    transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
   }
   .maka-button:hover  { background: var(--state-hover-bg); }
   .maka-button:active { background: var(--state-selected-bg); }
