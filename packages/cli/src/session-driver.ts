@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SessionEvent } from '@maka/core/events';
-import type { PermissionMode } from '@maka/core/permission';
+import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary } from '@maka/core/session';
 
@@ -8,6 +8,7 @@ export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
+  respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
 }
 
 export interface MakaSessionDriverInput {
@@ -21,6 +22,7 @@ export interface MakaSessionDriverInput {
 
 export interface MakaSessionDriver {
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
+  respondToPermission(response: PermissionResponse): Promise<void>;
   stop(): Promise<void>;
   getSessionId(): string | null;
 }
@@ -48,6 +50,11 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async stop(): Promise<void> {
     if (!this.sessionId) return;
     await this.input.runtime.stopSession(this.sessionId, { source: 'stop_button' });
+  }
+
+  async respondToPermission(response: PermissionResponse): Promise<void> {
+    if (!this.sessionId) throw new Error('Cannot respond to permission before a session starts.');
+    await this.input.runtime.respondToPermission(this.sessionId, response);
   }
 
   getSessionId(): string | null {

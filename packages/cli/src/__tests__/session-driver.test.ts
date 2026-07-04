@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { CreateSessionInput, SessionEvent, SessionSummary, UserMessageInput } from '@maka/core';
+import type { CreateSessionInput, PermissionResponse, SessionEvent, SessionSummary, UserMessageInput } from '@maka/core';
 import { createMakaSessionDriver } from '../session-driver.js';
 
 describe('Maka session driver', () => {
@@ -61,11 +61,39 @@ describe('Maka session driver', () => {
 
     assert.match(runtime.sent[0]?.input.turnId ?? '', /^[0-9a-f-]{36}$/);
   });
+
+  test('routes permission responses to the active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.respondToPermission({
+      requestId: 'permission-1',
+      decision: 'allow',
+      rememberForTurn: true,
+    });
+
+    assert.deepEqual(runtime.permissionResponses, [{
+      sessionId: 'session-1',
+      response: {
+        requestId: 'permission-1',
+        decision: 'allow',
+        rememberForTurn: true,
+      },
+    }]);
+  });
 });
 
 class RecordingRuntime {
   readonly created: CreateSessionInput[] = [];
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
+  readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
@@ -104,6 +132,10 @@ class RecordingRuntime {
   }
 
   async stopSession(_sessionId: string): Promise<void> {}
+
+  async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
+    this.permissionResponses.push({ sessionId, response });
+  }
 }
 
 function nextId(prefix: string): () => string {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import type { Terminal } from '@earendil-works/pi-tui';
+import type { PermissionResponse } from '@maka/core';
 import type { MakaSessionDriver } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 
@@ -43,6 +44,8 @@ class RejectingStopDriver implements MakaSessionDriver {
     this.stopCalls += 1;
     throw new Error('stop failed');
   }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
 
   getSessionId(): string {
     return 'session-1';
