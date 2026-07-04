@@ -171,6 +171,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const showBottomPicker = (picker: Component): OverlayHandle => tui.showOverlay(picker, {
+    anchor: 'bottom-left',
+    width: '100%',
+    maxHeight: Math.max(1, terminal.rows - BOTTOM_PICKER_MARGIN_ROWS),
+    margin: { bottom: BOTTOM_PICKER_MARGIN_ROWS },
+  });
+
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
     const currentCwdSessions = sessions.filter((session) => session.cwd === cwd);
@@ -212,13 +219,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     list.onCancel = () => {
       overlay?.hide();
     };
-    overlay = tui.showOverlay(picker, {
-      anchor: 'top-left',
-      row: 0,
-      col: 0,
-      width: '100%',
-      maxHeight: '100%',
-    });
+    overlay = showBottomPicker(picker);
   };
 
   const showModelList = async () => {
@@ -246,13 +247,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     list.onCancel = () => {
       overlay?.hide();
     };
-    overlay = tui.showOverlay(picker, {
-      anchor: 'top-left',
-      row: 0,
-      col: 0,
-      width: '100%',
-      maxHeight: '100%',
-    });
+    overlay = showBottomPicker(picker);
   };
 
   const setPermissionMode = async (mode: PermissionMode) => {
@@ -623,17 +618,13 @@ class PickerOverlay implements Component {
 
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
-    const lines = [
+    return [
       alignColumns(this.input.title, ansi.accent(this.input.rightLabel), safeWidth),
       padLine(ansi.dim('enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
-    while (lines.length < PICKER_SURFACE_ROWS) {
-      lines.push(' '.repeat(safeWidth));
-    }
-    return lines;
   }
 }
 
@@ -705,7 +696,7 @@ const ansi = {
   reverse: style(7, 27),
 };
 
-const PICKER_SURFACE_ROWS = 200;
+const BOTTOM_PICKER_MARGIN_ROWS = 4;
 
 function style(open: number, close: number): (text: string) => string {
   return (text) => `\x1b[${open}m${text}\x1b[${close}m`;

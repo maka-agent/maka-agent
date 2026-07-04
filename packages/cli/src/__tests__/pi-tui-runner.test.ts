@@ -551,6 +551,7 @@ describe('Maka Pi TUI runner', () => {
     const titleLine = latestPlainLineContaining(terminal.output(), 'Select Model');
     assert.equal(titleLine.startsWith('Select Model'), true);
     assert.equal(visibleWidth(titleLine), terminal.columns);
+    assertBottomPickerPlacement(terminal, 'Select Model', 'Maka deepseek-v4-flash deepseek ask /repo');
     terminal.input('\x1b[B');
     terminal.input('\r');
     await waitFor(() => driver.models.length === 1);
@@ -621,6 +622,11 @@ describe('Maka Pi TUI runner', () => {
     const titleLine = latestPlainLineContaining(terminal.output(), 'Resume Session (Current Folder)');
     assert.equal(titleLine.startsWith('Resume Session (Current Folder)'), true);
     assert.equal(visibleWidth(titleLine), terminal.columns);
+    assertBottomPickerPlacement(
+      terminal,
+      'Resume Session (Current Folder)',
+      'Maka claude-sonnet-4-5 claude-subscription ask /repo',
+    );
     terminal.input('\r');
     await waitFor(() => driver.sessionIds.length === 1);
     await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
@@ -964,6 +970,18 @@ function inputSurfaceRows(lines: readonly string[]): [number, number] {
     editorBorderIndexes[editorBorderIndexes.length - 2]!,
     editorBorderIndexes[editorBorderIndexes.length - 1]!,
   ];
+}
+
+function assertBottomPickerPlacement(terminal: FakeTerminal, title: string, statusText: string): void {
+  const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+  const titleIndex = lines.findIndex((line) => line.includes(title));
+  const statusLineIndex = lines.findIndex((line) => line.includes(statusText));
+  const [topEditorBorderIndex, bottomEditorBorderIndex] = inputSurfaceRows(lines);
+
+  assert.ok(titleIndex > 0);
+  assert.ok(titleIndex < topEditorBorderIndex);
+  assert.equal(bottomEditorBorderIndex, terminal.rows - 2);
+  assert.equal(statusLineIndex, terminal.rows - 1);
 }
 
 class FakeTerminal implements Terminal {
