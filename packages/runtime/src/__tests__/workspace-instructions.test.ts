@@ -28,4 +28,9 @@ describe('isPathInside', () => {
     assert.equal(isPathInside('/repo', '/repo/sub', posix), true);
     assert.equal(isPathInside('/repo', '/repo', posix), true);
   });
+
+  test('allows paths whose first segment starts with ".." but is not a parent reference (e.g. ..rules)', () => {
+    assert.equal(isPathInside('/repo', '/repo/..rules/AGENTS.md', posix), true);
+    assert.equal(isPathInside('C:\\repo', 'C:\\repo\\..rules\\AGENTS.md', win32), true);
+  });
 });

@@ -181,5 +181,8 @@ export function isPathInside(root: string, target: string, pathApi: PathInsideAp
   // target is not reachable from root via a relative path, so reject it before
   // the `..` escape check.
   if (pathApi.isAbsolute(rel)) return false;
-  return rel === '' || (!rel.startsWith('..') && rel !== '..' && !rel.includes(`..${pathApi.sep}`));
+  // Reject only a real parent-reference segment: the exact ".." or a path
+  // starting with `..${sep}`. A leading ".." followed by anything else (e.g.
+  // "..rules") is a legitimate directory name, not an escape.
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathApi.sep}`));
 }
