@@ -186,7 +186,6 @@
 .settingsSidebar .settingsNavItem:hover {
   border: 0;
   box-shadow: none;
-  transform: none;
 }
 
 .settingsNavItem:hover {

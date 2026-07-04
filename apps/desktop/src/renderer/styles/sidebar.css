@@ -729,9 +729,7 @@
   background: transparent;
   color: var(--foreground);
   overflow: hidden;
-  transition:
-    background-color var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-emphasized) var(--ease-out-strong);
+  transition: background-color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-list-row:hover {
