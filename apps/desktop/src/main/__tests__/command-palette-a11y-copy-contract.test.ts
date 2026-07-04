@@ -86,7 +86,7 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(rowStyle, /transform 140ms var\(--ease-out-strong\)/);
     assert.match(
       styles,
-      /\.maka-palette-item:hover:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*background:\s*var\(--foreground-5\);/,
+      /\.maka-palette-item:hover:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*background:\s*var\(--state-hover-bg\);/,
       'Palette rows need a hover state independent of keyboard active state',
     );
     assert.match(
@@ -96,7 +96,11 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(styles, /\.maka-palette-item:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--ring\);/);
     assert.match(styles, /\.maka-palette-item\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/);
-    assert.match(styles, /\.maka-palette-item\[data-active="true"\]::before\s*\{[\s\S]*var\(--accent\)/);
+    assert.match(
+      styles,
+      /\.maka-palette-item\[data-active="true"\]\s*\{[\s\S]*background:\s*var\(--state-selected-bg\)/,
+      'Palette active row uses the neutral state-selected token, not a brand rail',
+    );
     assert.match(styles, /\.maka-palette-icon\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/);
     assert.match(styles, /\.maka-palette-hint\s*\{[\s\S]*font-variant-numeric:\s*tabular-nums;/);
   });

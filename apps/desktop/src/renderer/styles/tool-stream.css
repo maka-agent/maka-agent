@@ -412,8 +412,8 @@
   }
 
 .settingsMemoryPromptScope[data-active="true"] {
-    border-color: oklch(from var(--success) l c h / 0.32);
-    background: oklch(from var(--success) l c h / 0.08);
+    border-color: var(--border-strong);
+    background: var(--state-selected-bg);
     color: var(--foreground-secondary);
   }
 

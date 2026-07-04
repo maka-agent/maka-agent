@@ -145,12 +145,12 @@
 }
 
 .maka-daily-review-archive-row:hover {
-  background: oklch(from var(--foreground) l c h / 0.04);
+  background: var(--state-hover-bg);
 }
 
 .maka-daily-review-archive-row[data-active="true"] {
-  background: oklch(from var(--nav-active) l c h / 0.10);
-  border-color: oklch(from var(--nav-active) l c h / 0.18);
+  background: var(--state-selected-bg);
+  border-color: var(--border-strong);
 }
 
 .maka-daily-review-archive-row-title {

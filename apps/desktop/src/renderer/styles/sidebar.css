@@ -457,16 +457,15 @@
     transform var(--duration-emphasized) var(--ease-out-strong);
 }
 .maka-search-modal-result:hover:not([disabled]) {
-  background: oklch(from var(--foreground) l c h / 0.05);
+  background: var(--state-hover-bg);
   transform: translateX(1px);
 }
 .maka-search-modal-result[data-active="true"]:not([disabled]) {
-  background: oklch(from var(--nav-active) l c h / 0.08);
-  box-shadow: inset 2px 0 0 var(--nav-active);
+  background: var(--state-selected-bg);
 }
 .maka-search-modal-result:focus-visible {
   outline: none;
-  background: oklch(from var(--foreground) l c h / 0.04);
+  background: var(--state-hover-bg);
   box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.18);
 }
 .maka-search-modal-result[disabled] {

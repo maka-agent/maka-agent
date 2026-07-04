@@ -109,7 +109,7 @@
 }
 
 .enabledConnRow[data-default="true"] {
-  background: oklch(from var(--control) l c h / 0.07);
+  background: var(--state-selected-bg);
 }
 
 .enabledConnRow[data-disabled="true"] {
@@ -599,7 +599,7 @@
 }
 
 .maka-artifact-row:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-artifact-row:active:not([data-deleted="true"]) {
@@ -607,8 +607,8 @@
 }
 
 .maka-artifact-row[data-selected="true"] {
-  background: oklch(from var(--nav-active) l c h / 0.10);
-  border-color: oklch(from var(--nav-active) l c h / 0.24);
+  background: var(--state-selected-bg);
+  border-color: var(--border-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {

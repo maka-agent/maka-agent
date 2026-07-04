@@ -494,7 +494,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   盘选中作为默认。
 - **位置**：`apps/desktop/src/renderer/settings/ProvidersPanel.tsx` 内；键盘
   helper 拆出到 `model-table-keyboard.ts`（PR94），有 14 个 node:test。
-- **token**：选中行 `--state-selected-bg` + 左侧 accent bar；search box 走 composer focus
+- **token**：选中行 `--state-selected-bg`；search box 走 composer focus
   ring 同款。
 - **ARIA**：
   - 表外层 `role="radiogroup" aria-label="模型选择"`

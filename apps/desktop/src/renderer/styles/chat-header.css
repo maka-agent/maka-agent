@@ -844,16 +844,12 @@
 }
 
 .maka-palette-item:hover:not([data-disabled="true"]) {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-palette-item[data-active="true"] {
-  background: oklch(from var(--nav-active) l c h / 0.10);
+  background: var(--state-selected-bg);
   color: var(--foreground);
-}
-
-.maka-palette-item[data-active="true"]::before {
-  background: oklch(from var(--nav-active) l c h / 0.72);
 }
 
 .maka-palette-item:active:not([data-disabled="true"]) {
