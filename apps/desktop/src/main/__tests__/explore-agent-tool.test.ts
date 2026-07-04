@@ -473,8 +473,9 @@ describe('ExploreAgent read-only worker', () => {
   });
 
   it('has a structured chat preview instead of raw JSON fallback', async () => {
-    const [components, events] = await Promise.all([
+    const [toolActivity, agentPreview, events] = await Promise.all([
       readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8'),
+      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/agent-preview.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/core/src/events.ts'), 'utf8'),
     ]);
 
@@ -487,9 +488,9 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(events, /limitReasons\?: ReadonlyArray/);
     assert.match(events, /summary\?: string/);
     assert.match(events, /recentEvents\?: ReadonlyArray/);
-    assert.match(components, /function ExploreAgentPreview/);
-    assert.match(components, /content\.kind === 'explore_agent'/);
-    const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
+    assert.match(toolActivity, /content\.kind === 'explore_agent'/);
+    assert.match(agentPreview, /export function ExploreAgentPreview/);
+    const previewBlock = agentPreview.match(/export function ExploreAgentPreview[\s\S]*$/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
     assert.match(previewBlock, /result\.recentEvents/);
     assert.match(previewBlock, /formatExploreAgentEvent/);
