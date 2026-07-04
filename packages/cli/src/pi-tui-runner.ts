@@ -9,6 +9,9 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
   type Component,
   type EditorTheme,
   type OverlayHandle,
@@ -68,7 +71,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const statusLine = new MakaStatusLineComponent(metadata);
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
   const layout = new MakaPiLayoutComponent(transcript, editor, statusLine, terminal);
-  editor.setAutocompleteProvider(new CombinedAutocompleteProvider([], input.cwd));
+  editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd));
 
   const requestRender = () => {
     transcript.invalidate();
@@ -431,6 +434,67 @@ class MakaPiLayoutComponent extends Container {
   }
 }
 
+class MakaAutocompleteProvider implements AutocompleteProvider {
+  private readonly fileProvider: CombinedAutocompleteProvider;
+  private readonly slashCommands = MAKA_SLASH_COMMANDS;
+
+  constructor(basePath: string) {
+    this.fileProvider = new CombinedAutocompleteProvider([], basePath);
+  }
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { signal: AbortSignal; force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const slashPrefix = slashCommandPrefix(lines, cursorLine, cursorCol);
+    if (slashPrefix !== null && !options.force) {
+      const query = slashPrefix.slice(1).toLowerCase();
+      const items = this.slashCommands
+        .filter((command) => command.name.startsWith(query))
+        .map((command) => ({
+          value: command.name,
+          label: `/${command.name}`,
+          description: command.description,
+        }));
+      return items.length > 0 ? { items, prefix: slashPrefix } : null;
+    }
+    return this.fileProvider.getSuggestions(lines, cursorLine, cursorCol, options);
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    const currentLine = lines[cursorLine] || '';
+    const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
+    if (prefix.startsWith('/') && beforePrefix.trim() === '') {
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}/${item.value} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + item.value.length + 2,
+      };
+    }
+    return this.fileProvider.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+  }
+
+  shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    return this.fileProvider.shouldTriggerFileCompletion(lines, cursorLine, cursorCol);
+  }
+}
+
+function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
+  const currentLine = lines[cursorLine] || '';
+  const textBeforeCursor = currentLine.slice(0, cursorCol);
+  return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ') ? textBeforeCursor : null;
+}
+
 class PickerOverlay implements Component {
   constructor(
     private readonly list: SelectList,
@@ -525,6 +589,12 @@ const ansi = {
   cyan: style(36, 39),
   reverse: style(7, 27),
 };
+
+const MAKA_SLASH_COMMANDS = [
+  { name: 'model', description: 'Select model' },
+  { name: 'permissions', description: 'Set permission mode' },
+  { name: 'session', description: 'Resume session' },
+] as const;
 
 const PICKER_SURFACE_ROWS = 200;
 

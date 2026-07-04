@@ -208,6 +208,74 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('shows slash commands alphabetically when typing /', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
+    const output = plainTerminalOutput(terminal.output());
+    const modelIndex = output.indexOf('/model');
+    const permissionsIndex = output.indexOf('/permissions');
+    const sessionIndex = output.indexOf('/session');
+
+    assert.ok(modelIndex >= 0);
+    assert.ok(permissionsIndex >= 0);
+    assert.ok(sessionIndex >= 0);
+    assert.ok(modelIndex < permissionsIndex);
+    assert.ok(permissionsIndex < sessionIndex);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('applies the selected slash command from autocomplete', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      models: ['deepseek-v4-flash', 'gpt-5.3-codex-spark'],
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Select Model'));
+
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /permissions without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
