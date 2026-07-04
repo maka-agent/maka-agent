@@ -1,0 +1,145 @@
+import type { PlanReminder } from '@maka/core';
+import { Clock, LineChart, Settings, Sparkles, SquarePen } from './icons.js';
+import type { NavSelection } from './nav-selection.js';
+import { Button as UiButton, cn } from './ui.js';
+import { cva } from 'class-variance-authority';
+
+const navRowVariants = cva(
+  [
+    'min-h-[30px] gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
+    'text-left text-sm leading-[1.43] text-[var(--foreground-secondary)]',
+    'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)]',
+    'hover:bg-foreground/6 hover:text-foreground',
+    'data-[active=true]:bg-foreground/9 data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
+    'data-[active=true]:[&_.maka-nav-icon]:text-foreground',
+    '[&_.maka-nav-count]:bg-foreground/6 [&_.maka-nav-count]:text-[var(--muted-foreground)]',
+    'data-[active=true]:[&_.maka-nav-count]:bg-foreground/8 data-[active=true]:[&_.maka-nav-count]:text-foreground',
+    'aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:hover:bg-transparent',
+    'data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-55 data-[disabled=true]:hover:bg-transparent',
+  ],
+  {
+    variants: {
+      tone: {
+        default: '',
+        newTask: 'text-foreground [&_.maka-nav-icon]:text-[var(--foreground-secondary)]',
+      },
+    },
+    defaultVariants: {
+      tone: 'default',
+    },
+  },
+);
+
+type ModuleNavId = NavSelection['section'];
+
+const settingsButtonClass =
+  'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-2 py-1.5 ' +
+  'text-left text-sm font-medium text-[var(--foreground-secondary)] ' +
+  'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)] ' +
+  'hover:bg-foreground/6 hover:text-foreground';
+
+const MODULE_NAV_LABEL: Record<ModuleNavId, string> = {
+  sessions: '会话',
+  automations: '定时任务',
+  skills: '技能',
+  'daily-review': '每日回顾',
+};
+
+export function SessionSidebarNav(props: {
+  selection: NavSelection;
+  planReminders?: PlanReminder[];
+  onSelect(selection: NavSelection): void;
+  onNew(): void;
+}) {
+  const isModuleActive = (id: ModuleNavId) => props.selection.section === id;
+  const activePlanReminderCount = (props.planReminders ?? [])
+    .filter((reminder) => reminder.status !== 'completed')
+    .length;
+
+  function selectModule(id: ModuleNavId) {
+    if (id === 'sessions') {
+      props.onSelect({ section: 'sessions', filter: 'chats' });
+      return;
+    }
+    if (id === 'automations') props.onSelect({ section: 'automations' });
+    else if (id === 'skills') props.onSelect({ section: 'skills' });
+    else if (id === 'daily-review') props.onSelect({ section: 'daily-review' });
+  }
+
+  return (
+    <nav className="maka-sidebar-modules" aria-label="主导航">
+      <UiButton
+        variant="quiet"
+        size="nav"
+        className={cn('maka-nav-row maka-nav-new-task', navRowVariants({ tone: 'newTask' }))}
+        aria-label="新任务"
+        type="button"
+        onClick={props.onNew}
+      >
+        <SquarePen className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <span>新任务</span>
+      </UiButton>
+      <UiButton
+        variant="quiet"
+        size="nav"
+        className={cn('maka-nav-row', navRowVariants())}
+        data-active={isModuleActive('daily-review')}
+        aria-current={isModuleActive('daily-review') ? 'page' : undefined}
+        aria-label={MODULE_NAV_LABEL['daily-review']}
+        type="button"
+        onClick={() => selectModule('daily-review')}
+      >
+        <LineChart className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <span>{MODULE_NAV_LABEL['daily-review']}</span>
+      </UiButton>
+      <UiButton
+        variant="quiet"
+        size="nav"
+        className={cn('maka-nav-row', navRowVariants())}
+        data-active={isModuleActive('skills')}
+        aria-current={isModuleActive('skills') ? 'page' : undefined}
+        aria-label={MODULE_NAV_LABEL.skills}
+        type="button"
+        onClick={() => selectModule('skills')}
+      >
+        <Sparkles className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <span>{MODULE_NAV_LABEL.skills}</span>
+      </UiButton>
+      <UiButton
+        variant="quiet"
+        size="nav"
+        className={cn('maka-nav-row', navRowVariants())}
+        data-active={isModuleActive('automations')}
+        aria-current={isModuleActive('automations') ? 'page' : undefined}
+        type="button"
+        onClick={() => selectModule('automations')}
+        aria-label={activePlanReminderCount > 0 ? `定时任务，${activePlanReminderCount} 个未完成提醒` : MODULE_NAV_LABEL.automations}
+      >
+        <Clock className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <span>{MODULE_NAV_LABEL.automations}</span>
+        {activePlanReminderCount > 0 && (
+          <small className="maka-nav-count" aria-hidden="true">{activePlanReminderCount}</small>
+        )}
+      </UiButton>
+    </nav>
+  );
+}
+
+export function SessionSidebarFooter(props: { onOpenSettings(): void }) {
+  return (
+    <footer className="maka-session-panel-footer">
+      <UiButton
+        className={cn('maka-sidebar-settings-button', settingsButtonClass)}
+        variant="quiet"
+        size="nav"
+        type="button"
+        onClick={props.onOpenSettings}
+        aria-label="设置"
+        title="设置"
+      >
+        <Settings className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <span>设置</span>
+      </UiButton>
+    </footer>
+  );
+}

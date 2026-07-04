@@ -104,7 +104,7 @@ describe('describeBlockedReason (@kenji generalized copy contract)', () => {
   });
 
   it('keeps the shared UI blocked-reason tooltip in sync with actionable waiting copy', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/session-list-panel.tsx'), 'utf8');
+    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/session-history-list.tsx'), 'utf8');
 
     assert.match(ui, /NO_REAL_CONNECTION:\s*'等待配置可用模型连接'/);
     assert.doesNotMatch(ui, /NO_REAL_CONNECTION:\s*'缺少可用模型连接'/);

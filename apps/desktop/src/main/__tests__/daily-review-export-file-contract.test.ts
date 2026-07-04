@@ -45,7 +45,7 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
 
     // The main Daily Review panel exposes save next to copy, so export
     // is not hidden behind command palette muscle memory.
-    assert.match(sessionListPanel, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
+    assert.doesNotMatch(sessionListPanel, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
     assert.match(chatView, /onSaveMarkdown=\{props\.onSaveDailyReviewMarkdown\}/);
     assert.match(ui, /maka-daily-review-save[\s\S]*保存/);
     assert.match(css, /\.maka-daily-review-actions/);

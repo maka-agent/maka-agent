@@ -185,7 +185,6 @@ function ComposedShell(props: {
           <div className="maka-panel maka-panel-list maka-floating-panel">
             <SessionListPanel
               selection={{ section: 'sessions', filter: 'chats' }}
-              sessionCounts={{ chats: sidebarSessions.length, flagged: 1, archived: 0 }}
               sessions={sidebarSessions}
               activeId={activeSession.id}
               statusGroups={statusGroups}

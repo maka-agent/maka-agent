@@ -67,7 +67,7 @@ import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
 import { safeLocalStorageSet } from './browser-storage';
 import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
-import { countSessions, filterSessions, readNavSelection } from './nav-selection';
+import { filterSessions, readNavSelection } from './nav-selection';
 import {
   readSessionListCollapsed,
   readSessionListWidth,
@@ -649,7 +649,6 @@ export function AppShell() {
     permissionMode: 'ask',
   } : undefined);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
-  const sessionCounts = useMemo(() => countSessions(sessions), [sessions]);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
   // `useOnboardingSnapshot()` pulls the derived state from the main
@@ -1222,13 +1221,8 @@ export function AppShell() {
         >
           <SessionListPanel
             selection={navSelection}
-            sessionCounts={sessionCounts}
             sessions={visibleSessions}
             activeId={activeId}
-            skills={skills}
-            onRefreshSkills={() => refreshSkills()}
-            onCreateSkillTemplate={() => createSkillTemplate()}
-            onOpenSkill={(skillId) => openSkill(skillId)}
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
@@ -1238,19 +1232,7 @@ export function AppShell() {
               openSessionInChat(sessionId);
             }}
             onOpenSettings={openSettings}
-            userLabel={userLabel}
             onNew={createSession}
-            onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
-            onCreatePlanReminder={(input) => createPlanReminder(input)}
-            onUpdatePlanReminder={(id, patch) => updatePlanReminder(id, patch)}
-            onTogglePlanReminder={(id, enabled) => togglePlanReminder(id, enabled)}
-            onTriggerPlanReminderNow={(id) => triggerPlanReminderNow(id)}
-            onSnoozePlanReminder={(id) => snoozePlanReminder(id)}
-            onClearPlanReminderRunHistory={(id) => clearPlanReminderRunHistory(id)}
-            onDeletePlanReminder={(id) => deletePlanReminder(id)}
-            onCopyDailyReviewMarkdown={(input) => copyDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
-            onSaveDailyReviewMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
-            dailyReviewBridge={dailyReviewBridge}
             rowActions={{
               onToggleFlag: (sessionId, next) => flagSession(sessionId, next),
               onArchive: (sessionId) => archiveSession(sessionId),

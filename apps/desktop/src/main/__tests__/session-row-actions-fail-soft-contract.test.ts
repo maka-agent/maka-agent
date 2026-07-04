@@ -1,10 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
-
-const SESSION_LIST_PANEL_PATH = join(process.cwd(), '../../packages/ui/src/session-list-panel.tsx');
+import { readSessionListCombinedSource } from './session-list-source-helpers.js';
 
 describe('session row actions fail soft', () => {
   it('surfaces sidebar session action failures instead of leaving fire-and-forget rejections', async () => {
@@ -77,7 +74,7 @@ describe('session row actions fail soft', () => {
   });
 
   it('renders visible busy state while a sidebar row action is pending', async () => {
-    const ui = await readFile(SESSION_LIST_PANEL_PATH, 'utf8');
+    const ui = await readSessionListCombinedSource();
     const sessionRow = ui.slice(ui.indexOf('function SessionRow'), ui.indexOf('interface SessionGroup'));
 
     assert.match(ui, /type SessionRowActionId = 'flag' \| 'archive' \| 'rename' \| 'delete';/);

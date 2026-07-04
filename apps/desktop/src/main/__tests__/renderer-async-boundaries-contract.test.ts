@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { readSessionListCombinedSource } from './session-list-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const CHAT_MODEL_SWITCHER_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-model-switcher.tsx');
-const SESSION_LIST_PANEL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'session-list-panel.tsx');
 const SESSION_SETTINGS_ACTIONS_PATH = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'app-shell-session-settings-actions.ts');
 const SESSION_ROW_ACTIONS_PATH = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'app-shell-session-row-actions.ts');
 
@@ -36,7 +36,7 @@ describe('renderer async action boundary contract', () => {
 
   it('keeps session row actions on a rejection-safe local async boundary', async () => {
     const [source, rowActions] = await Promise.all([
-      readFile(SESSION_LIST_PANEL_PATH, 'utf8'),
+      readSessionListCombinedSource(),
       readFile(SESSION_ROW_ACTIONS_PATH, 'utf8'),
     ]);
 

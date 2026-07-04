@@ -51,14 +51,6 @@ function makeSession(input: {
   };
 }
 
-function countSessions(sessions: readonly SessionSummary[]): SessionListPanelProps['sessionCounts'] {
-  return {
-    chats: sessions.filter((session) => !session.isArchived).length,
-    flagged: sessions.filter((session) => session.isFlagged).length,
-    archived: sessions.filter((session) => session.isArchived).length,
-  };
-}
-
 const rowActions: NonNullable<SessionListPanelProps['rowActions']> = {
   onToggleFlag: noop,
   onArchive: noop,
@@ -77,7 +69,6 @@ function panelProps(input: {
 }): SessionListPanelProps {
   return {
     selection: { section: 'sessions', filter: 'chats' },
-    sessionCounts: countSessions(input.sessions),
     sessions: input.sessions,
     ...(input.activeId ? { activeId: input.activeId } : {}),
     ...(input.statusGroups ? { statusGroups: input.statusGroups } : {}),
