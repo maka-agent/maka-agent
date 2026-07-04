@@ -175,6 +175,39 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('keeps the input editor and statusline at the terminal bottom', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka deepseek-v4-flash deepseek ask /repo'));
+
+    const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
+    const statusLineIndex = lines.findIndex((line) => line.includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    const editorBorderIndexes = lines
+      .map((line, index) => (/^─+$/.test(line) ? index : -1))
+      .filter((index) => index >= 0);
+
+    assert.equal(statusLineIndex, terminal.rows - 1);
+    assert.equal(editorBorderIndexes[editorBorderIndexes.length - 1], terminal.rows - 2);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /permissions without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

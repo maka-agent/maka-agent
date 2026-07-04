@@ -1,5 +1,6 @@
 import {
   CombinedAutocompleteProvider,
+  Container,
   Editor,
   Key,
   ProcessTerminal,
@@ -66,6 +67,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const transcript = new MakaTranscriptComponent(state, metadata);
   const statusLine = new MakaStatusLineComponent(metadata);
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
+  const layout = new MakaPiLayoutComponent(transcript, editor, statusLine, terminal);
   editor.setAutocompleteProvider(new CombinedAutocompleteProvider([], input.cwd));
 
   const requestRender = () => {
@@ -371,9 +373,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   });
 
   terminal.setTitle(input.title);
-  tui.addChild(transcript);
-  tui.addChild(editor);
-  tui.addChild(statusLine);
+  tui.addChild(layout);
   tui.setFocus(editor);
   tui.start();
 
@@ -400,6 +400,34 @@ class MakaStatusLineComponent implements Component {
 
   render(width: number): string[] {
     return [renderMakaPiStatusLine(this.metadata(), width)];
+  }
+}
+
+class MakaPiLayoutComponent extends Container {
+  constructor(
+    private readonly transcript: Component,
+    private readonly editor: Component,
+    private readonly statusLine: Component,
+    private readonly terminal: Terminal,
+  ) {
+    super();
+    this.addChild(transcript);
+    this.addChild(editor);
+    this.addChild(statusLine);
+  }
+
+  render(width: number): string[] {
+    const transcriptLines = this.transcript.render(width);
+    const editorLines = this.editor.render(width);
+    const statusLines = this.statusLine.render(width);
+    const transcriptRows = Math.max(0, this.terminal.rows - editorLines.length - statusLines.length);
+    const paddingRows = Math.max(0, transcriptRows - transcriptLines.length);
+    return [
+      ...transcriptLines,
+      ...Array.from({ length: paddingRows }, () => ''),
+      ...editorLines,
+      ...statusLines,
+    ];
   }
 }
 
