@@ -418,7 +418,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   打开；Delete 触发删除 confirm（通过 toast.confirm）。
 - **5 态**：
   - default：text + meta
-  - hover：`--state-hover-bg` 背景 + 微小 translate（PR40）
+  - hover：`--state-hover-bg` 背景
   - focus：focus-visible ring
   - active（current session）：`data-active="true"` → `--state-selected-bg` 背景 + name weight 600
   - editing：rename input + select-all on focus
