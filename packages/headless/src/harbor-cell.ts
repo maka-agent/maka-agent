@@ -246,7 +246,7 @@ const PI_PROVIDER_ENV_RULES = [
     includes: ['zai'],
     keys: ['ZAI_API_KEY', 'ZAI_API_KEY_FILE', 'ZAI_CODING_CN_API_KEY', 'ZAI_CODING_CN_API_KEY_FILE', 'ZAI_BASE_URL'],
   },
-  { includes: ['MiniMax'], keys: ['MINIMAX_API_KEY', 'MINIMAX_API_KEY_FILE', 'MINIMAX_BASE_URL'] },
+  { includes: ['minimax'], keys: ['MINIMAX_API_KEY', 'MINIMAX_API_KEY_FILE', 'MINIMAX_BASE_URL'] },
 ] satisfies Array<{ includes: string[]; keys?: string[]; prefixes?: string[] }>;
 
 export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarborCellResult> {
