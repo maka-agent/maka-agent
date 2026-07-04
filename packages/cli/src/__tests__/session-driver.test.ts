@@ -81,6 +81,39 @@ describe('Maka session driver', () => {
     }]);
   });
 
+  test('uses an updated model for a new session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await driver.setModel('claude-opus-4-1');
+    await collect(driver.sendPrompt('run tests'));
+
+    assert.equal(runtime.created[0]?.model, 'claude-opus-4-1');
+  });
+
+  test('updates model on an active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.setModel('claude-opus-4-1');
+
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { model: 'claude-opus-4-1' },
+    }]);
+  });
+
   test('uses the default turn id generator when one is not injected', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -128,6 +161,7 @@ class RecordingRuntime {
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
+  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string } }> = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
@@ -185,6 +219,23 @@ class RecordingRuntime {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
       permissionMode: mode,
+    };
+  }
+
+  async updateSession(sessionId: string, patch: { model?: string }): Promise<SessionSummary> {
+    this.sessionUpdates.push({ sessionId, patch });
+    return {
+      id: sessionId,
+      name: 'New Chat',
+      isFlagged: false,
+      isArchived: false,
+      labels: [],
+      hasUnread: false,
+      status: 'active',
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'anthropic',
+      model: patch.model ?? 'claude-sonnet-4-5',
+      permissionMode: 'ask',
     };
   }
 }

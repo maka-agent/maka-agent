@@ -10,6 +10,7 @@ export interface MakaSessionRuntime {
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
+  updateSession(sessionId: string, patch: { model: string }): Promise<SessionSummary>;
 }
 
 export interface MakaSessionDriverInput {
@@ -24,6 +25,7 @@ export interface MakaSessionDriverInput {
 export interface MakaSessionDriver {
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
+  setModel(model: string): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   stop(): Promise<void>;
   getSessionId(): string | null;
@@ -35,11 +37,13 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
+  private model: string;
   private permissionMode: PermissionMode;
   private readonly newId: () => string;
 
   constructor(private readonly input: MakaSessionDriverInput) {
     this.newId = input.newId ?? randomUUID;
+    this.model = input.model;
     this.permissionMode = input.permissionMode ?? 'ask';
   }
 
@@ -59,6 +63,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async respondToPermission(response: PermissionResponse): Promise<void> {
     if (!this.sessionId) throw new Error('Cannot respond to permission before a session starts.');
     await this.input.runtime.respondToPermission(this.sessionId, response);
+  }
+
+  async setModel(model: string): Promise<void> {
+    if (this.sessionId) {
+      const summary = await this.input.runtime.updateSession(this.sessionId, { model });
+      this.model = summary.model;
+      return;
+    }
+    this.model = model;
   }
 
   async setPermissionMode(mode: PermissionMode): Promise<void> {
@@ -81,7 +94,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       name: prompt.slice(0, 42) || '新建对话',
       backend: 'ai-sdk',
       llmConnectionSlug: this.input.llmConnectionSlug,
-      model: this.input.model,
+      model: this.model,
       permissionMode: this.permissionMode,
     });
     this.sessionId = session.id;
