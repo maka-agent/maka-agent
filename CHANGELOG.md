@@ -35,8 +35,27 @@ Rive deep-read follow-up work.
 | 4 | Credential-store secret kind expansion | Extended encrypted credential-store support for bot tokens, bot app secrets, proxy passwords, gateway tokens, and Tavily API keys while preserving legacy API-key/OAuth-token key formats. |
 | 5 | Connection credential IPC input hardening | Added shared main-process validation for renderer-controlled connection slugs and API keys before store, credential, or provider side effects. |
 
+### Active tool-result pruning default-on
+
+`activeToolResultPrune` (current-turn large tool-result pruning) is now
+enabled by default on both desktop and headless. Tool results above the
+2048 estimated-token threshold are archived and replaced with a
+metadata-only placeholder (artifact id + content hash) in the next
+provider-visible request; the raw payload is preserved in the archive
+and is not lost. On desktop this runs before the already-default-on
+`semanticCompact` summary step. On headless the placeholder reaches the
+next provider step directly (no default compaction/retrieval), which
+benchmark A/B evidence in #340 showed is non-inferior within the 10pp
+margin while saving ~31.6% cost.
+
+Opt out with `MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE=off` (both sides).
+Tune the threshold with `MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS`
+and the start step with `MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER`.
+
 ### Verification
 
+- Headless and desktop context-budget tests for activeToolResultPrune
+  default-on, opt-out, and env knobs.
 - Runtime package typecheck/build and full runtime test suite.
 - Desktop main build/typecheck.
 - Storage package build and AgentRun store tests.
