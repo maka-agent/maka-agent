@@ -22,7 +22,7 @@ import {
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
-const TOOL_ACTIVITY = join(REPO_ROOT, 'packages/ui/src/tool-activity.tsx');
+const OVERLAY_PREVIEW = join(REPO_ROOT, 'packages/ui/src/tool-activity/overlay-preview.tsx');
 const WEB_SEARCH_PREVIEW = join(REPO_ROOT, 'packages/ui/src/tool-activity/web-search-preview.tsx');
 
 const RENDERER_FILES = [
@@ -438,12 +438,12 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
   });
 
   it('WebSearch agent errors render as repair-oriented cards, not raw JSON', async () => {
-    const toolActivity = await readFile(TOOL_ACTIVITY, 'utf8');
+    const overlaySource = await readFile(OVERLAY_PREVIEW, 'utf8');
     const previewSource = await readFile(WEB_SEARCH_PREVIEW, 'utf8');
     const runtime = await readFile(join(REPO_ROOT, 'packages/runtime/src/tool-runtime.ts'), 'utf8');
     const agentTool = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/web-search/agent-tool.ts'), 'utf8');
     const coreEvents = await readFile(join(REPO_ROOT, 'packages/core/src/events.ts'), 'utf8');
-    const overlay = toolActivity.match(/function OverlayPreview[\s\S]*?if \(content\.kind === 'json'\)/);
+    const overlay = overlaySource.match(/export function OverlayPreview[\s\S]*?if \(content\.kind === 'json'\)/);
     const errorPreview = previewSource.match(/export function WebSearchErrorPreview[\s\S]*$/);
 
     assert.match(coreEvents, /kind:\s*'web_search_error'/);

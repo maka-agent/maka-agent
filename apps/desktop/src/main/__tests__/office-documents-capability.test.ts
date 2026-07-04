@@ -17,7 +17,7 @@ const CHECK_OFFICECLI_BUNDLE = join(REPO_ROOT, 'scripts', 'check-officecli-bundl
 const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
 const PERMISSION = join(REPO_ROOT, 'packages', 'core', 'src', 'permission.ts');
 const CORE_EVENTS = join(REPO_ROOT, 'packages', 'core', 'src', 'events.ts');
-const TOOL_ACTIVITY = join(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity.tsx');
+const OVERLAY_PREVIEW = join(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity', 'overlay-preview.tsx');
 const OFFICE_DOCUMENT_PREVIEW = join(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity', 'office-document-preview.tsx');
 const PERMISSION_DIALOG = join(REPO_ROOT, 'packages', 'ui', 'src', 'permission-dialog.tsx');
 
@@ -142,15 +142,15 @@ describe('Office document capability contract', () => {
   });
 
   it('renders Office document tool results through a structured preview, not raw JSON', async () => {
-    const [events, toolActivity, officePreview, styles] = await Promise.all([
+    const [events, overlayPreview, officePreview, styles] = await Promise.all([
       readFile(CORE_EVENTS, 'utf8'),
-      readFile(TOOL_ACTIVITY, 'utf8'),
+      readFile(OVERLAY_PREVIEW, 'utf8'),
       readFile(OFFICE_DOCUMENT_PREVIEW, 'utf8'),
       readAllRendererCss(),
     ]);
 
     assert.match(events, /kind:\s*'office_document'/);
-    assert.match(toolActivity, /content\.kind === 'office_document'/);
+    assert.match(overlayPreview, /content\.kind === 'office_document'/);
     assert.match(officePreview, /export function OfficeDocumentPreview/);
     assert.match(officePreview, /redactSecrets\(result\.stdout/);
     assert.match(officePreview, /redactSecrets\(result\.stderr/);
@@ -165,8 +165,8 @@ describe('Office document capability contract', () => {
     const officeReasonBlock = officePreview.match(/function presentOfficeDocumentReason[\s\S]*?\n\}/)?.[0] ?? '';
     assert.doesNotMatch(`${officePreviewBlock}\n${officeReasonBlock}`, /Office 文档读取未完成。|读取超时|读取失败|read-only Office adapter/, 'Office result preview must describe read and edit operations, not only reads');
     assert.doesNotMatch(officePreview, /诊断：\{redactSecrets\(result\.reason\)\}/);
-    const officeBranch = toolActivity.indexOf("content.kind === 'office_document'");
-    const jsonBranch = toolActivity.indexOf("content.kind === 'json'");
+    const officeBranch = overlayPreview.indexOf("content.kind === 'office_document'");
+    const jsonBranch = overlayPreview.indexOf("content.kind === 'json'");
     assert.ok(officeBranch > 0, 'Office document branch must exist');
     assert.ok(jsonBranch > 0, 'JSON branch must exist');
     assert.ok(officeBranch < jsonBranch, 'Office document results must be intercepted before raw JSON rendering');

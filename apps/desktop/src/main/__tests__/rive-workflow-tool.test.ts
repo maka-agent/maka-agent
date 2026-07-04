@@ -222,8 +222,9 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
 
   it('has a bounded UI preview and error text for rive_workflow results', async () => {
     const root = await repoRoot();
-    const [toolActivity, previewSource, events] = await Promise.all([
+    const [toolActivity, overlaySource, previewSource, events] = await Promise.all([
       readFile(join(root, 'packages/ui/src/tool-activity.tsx'), 'utf8'),
+      readFile(join(root, 'packages/ui/src/tool-activity/overlay-preview.tsx'), 'utf8'),
       readFile(join(root, 'packages/ui/src/tool-activity/rive-workflow-preview.tsx'), 'utf8'),
       readFile(join(root, 'packages/core/src/events.ts'), 'utf8'),
     ]);
@@ -233,7 +234,7 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
     assert.doesNotMatch(events, /protocol\?: unknown/);
     assert.doesNotMatch(events, /display\?: unknown/);
     assert.match(toolActivity, /case 'rive_workflow'/);
-    assert.match(toolActivity, /content\.kind === 'rive_workflow'/);
+    assert.match(overlaySource, /content\.kind === 'rive_workflow'/);
     assert.match(previewSource, /export function RiveWorkflowPreview/);
     const previewBlock = previewSource.match(/export function RiveWorkflowPreview[\s\S]*?function formatRiveWorkflowNode/)?.[0] ?? '';
     assert.match(previewBlock, /workflow_run/);
