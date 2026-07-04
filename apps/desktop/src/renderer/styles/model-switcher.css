@@ -52,9 +52,6 @@
   .maka-model-switcher-trigger {
     transition: background 0ms;
   }
-  .maka-model-switcher-trigger:active:not(:disabled):not([data-disabled]) {
-    transform: none;
-  }
 }
 
 .maka-model-switcher-trigger[data-popup-open] {

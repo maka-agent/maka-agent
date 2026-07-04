@@ -882,14 +882,6 @@
   color: var(--foreground);
 }
 
-.maka-list-row:hover .maka-list-row-main {
-  transform: none;
-}
-
-.maka-list-row[data-active="true"] .maka-list-row-main {
-  transform: translateX(0);
-}
-
 .maka-empty-state {
   position: absolute;
   left: 50%;

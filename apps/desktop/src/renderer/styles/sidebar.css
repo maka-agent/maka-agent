@@ -738,13 +738,6 @@
   background: var(--state-hover-bg);
 }
 
-/* PR-SESSION-ROW-TACTILE-0 (WAWQAQ msg `ed67a267`, skills round
-   task #116): consistent `:active scale(0.98)` press feedback —
-   sidebar session rows are the most-clicked surface in the app
-   and previously had no press signal. Pattern matches
-   .maka-onboarding-card / .maka-skill-library-row / .maka-prompt-chip
-   / .maka-artifact-row. Reduced-motion clause below keeps
-   contracts clean. */
 .maka-list-row:active {
   background: var(--state-selected-bg);
 }
@@ -777,7 +770,6 @@
   color: inherit;
   padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-2-5);
   text-align: left;
-  transition: transform 160ms var(--ease-out-strong);
 }
 
 .maka-list-row-actions {

@@ -613,18 +613,6 @@
   background: var(--state-hover-bg);
 }
 
-/* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15) — tactile press
-   feedback. 12-principles `physics-active-state` + Taste-Skill +
-   UIDB all converge on `:active { scale(0.98) }` as the cheapest way
-   to make UI feel handled vs simulated. Applied only when reduced-
-   motion is not preferred — the @media block above already strips
-   transition; here we keep `transform` declarations so the
-   `:active` *snap* still fires (it's instant, not animated). */
-/* Self-review: `.settingsFormRow` and `.settingsRow` are <div>
-   containers wrapping <input>/<Switch>/<button> children. `:active`
-   on the wrapper fires when the user presses ANY of those children
-   (event bubbles), so pressing an input or switch knob scaled the
-   whole row — visually buggy. Restricted to actual <button>s. */
 .settingsBackButton:active,
 .settingsNavItem:active {
   background: var(--state-selected-bg);
