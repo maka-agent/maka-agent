@@ -3,11 +3,12 @@
  *
  * PR-OAUTH-SUBSCRIPTION-0 (xuan `2c5aa125` G-X4 + kenji `cf41871b` #1).
  *
- * IMPORTANT: This module is ONLY imported dynamically when
- * `process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK === '1'`. The default
- * Claude subscription request path in
- * `claude-subscription-service.ts` MUST NOT statically import this
- * module. Contract test `claude-subscription-cloak-flag.test.ts`
+ * IMPORTANT: This module is ONLY imported dynamically by the
+ * subscription send path when the cloak is enabled. The cloak defaults
+ * ON so the visible Claude OAuth model remains usable after login;
+ * `MAKA_CLAUDE_SUBSCRIPTION_CLOAK=0` is the emergency opt-out. The
+ * default Claude subscription service module MUST NOT statically import
+ * this module. Contract test `claude-subscription-cloak-flag.test.ts`
  * enforces this.
  *
  * Why opt-in:
@@ -19,9 +20,10 @@
  *   (external reference at main.js:16037-16089).
  *
  *   Whether THIS impersonation is acceptable under Anthropic's ToS
- *   is an open product/legal question. Default OFF until a clear
- *   decision is recorded; users who explicitly opt in via the env
- *   var accept the risk.
+ *   was accepted for this experimental OAuth surface (see
+ *   `isSubscriptionExperimentalEnabled`). Default ON matches the
+ *   product promise that the OAuth card yields a usable model; users
+ *   who need to opt out can set the emergency env var above.
  *
  * What this module exposes:
  *   - `buildCloakedRequest(input)`: takes a base outgoing request

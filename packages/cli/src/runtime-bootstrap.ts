@@ -32,6 +32,12 @@ export interface CreateMakaCliRuntimeContextInput {
   requestedModel?: string;
 }
 
+export function isMakaClaudeSubscriptionCloakEnabled(
+  env: { MAKA_CLAUDE_SUBSCRIPTION_CLOAK?: string } = process.env,
+): boolean {
+  return env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK !== '0';
+}
+
 export async function createMakaCliRuntimeContext(
   input: CreateMakaCliRuntimeContextInput,
 ): Promise<MakaCliRuntimeContext> {
@@ -61,7 +67,7 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       ...(ready.connection.providerType === 'claude-subscription' ? {
         claude: {
-          cloakEnabled: process.env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK !== '0',
+          cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
           deviceId: stableClaudeDeviceId(input.workspaceRoot),
           accountUuid: ready.oauthTokens?.account_uuid ?? '',
         },

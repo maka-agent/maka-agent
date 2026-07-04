@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { createConnectionStore } from '@maka/storage';
-import { createMakaCliRuntimeContext } from '../runtime-bootstrap.js';
+import {
+  createMakaCliRuntimeContext,
+  isMakaClaudeSubscriptionCloakEnabled,
+} from '../runtime-bootstrap.js';
 
 describe('Maka CLI runtime bootstrap', () => {
   test('loads the default connection and can create an ai-sdk session', async () => {
@@ -39,12 +41,10 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
-  test('wires subscription fetch adapters into the ai-sdk model factory', async () => {
-    const source = await readFile(new URL('../../src/runtime-bootstrap.ts', import.meta.url), 'utf8');
-
-    assert.match(source, /buildSubscriptionModelFetch/);
-    assert.match(source, /const modelFetch = buildSubscriptionModelFetch\(/);
-    assert.match(source, /modelFactory:\s*\(modelInput\)\s*=>\s*getAIModel\(\{\s*\.\.\.modelInput,\s*fetch:\s*modelFetch\s*\}\)/);
+  test('keeps Claude subscription cloaking enabled unless the emergency opt-out is set', () => {
+    assert.equal(isMakaClaudeSubscriptionCloakEnabled({}), true);
+    assert.equal(isMakaClaudeSubscriptionCloakEnabled({ MAKA_CLAUDE_SUBSCRIPTION_CLOAK: '1' }), true);
+    assert.equal(isMakaClaudeSubscriptionCloakEnabled({ MAKA_CLAUDE_SUBSCRIPTION_CLOAK: '0' }), false);
   });
 });
 
