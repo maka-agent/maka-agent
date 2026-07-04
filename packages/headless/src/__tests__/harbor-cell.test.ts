@@ -1320,13 +1320,15 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor context budget env treats explicit false-like booleans as disabled', () => {
-    assert.equal(
-      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'false' }).contextBudget,
-      undefined,
+    // stale and archive default off; activeToolResultPrune defaults on, so disabling
+    // stale/archive alone still leaves an enabled activeToolResultPrune policy.
+    assert.deepEqual(
+      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'false' }).contextBudget?.activeToolResultPrune,
+      { enabled: true },
     );
-    assert.equal(
-      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'off' }).contextBudget,
-      undefined,
+    assert.deepEqual(
+      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'off' }).contextBudget?.activeToolResultPrune,
+      { enabled: true },
     );
     assert.deepEqual(
       buildHarborCellContextBudgetBackendOptions({
@@ -1344,6 +1346,29 @@ describe('runHarborCell', () => {
     assert.equal(snapshot?.enabled, true);
     if (!snapshot?.enabled) throw new Error('expected context budget snapshot to be enabled');
     assert.equal(snapshot.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 2048);
+  });
+
+  test('Harbor active tool result prune is enabled by default without any env', () => {
+    const backend = buildHarborCellContextBudgetBackendOptions({});
+    assert.equal(backend.contextBudget?.activeToolResultPrune?.enabled, true);
+    assert.deepEqual(backend.contextBudget?.activeToolResultPrune, { enabled: true });
+
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
+    assert.equal(snapshot?.enabled, true);
+    assert.equal(snapshot?.activeToolResultPrune?.enabled, true);
+    assert.equal(snapshot?.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 2048);
+    assert.equal(snapshot?.activeToolResultPrune?.minStepNumber, 1);
+  });
+
+  test('Harbor active tool result prune can be disabled with explicit off', () => {
+    assert.equal(
+      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }).contextBudget,
+      undefined,
+    );
+    assert.equal(
+      buildHarborCellContextBudgetPolicySnapshot({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }),
+      undefined,
+    );
   });
 
   test('Harbor parses semantic compact policy for headless runs', () => {

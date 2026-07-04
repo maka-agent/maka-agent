@@ -673,7 +673,7 @@ export function buildHarborCellContextBudgetBackendOptions(
     env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
     env.MAKA_ACTIVE_TOOL_RESULT_PRUNE,
     'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
-  ) ?? false;
+  ) ?? true;
   const archiveRetrievalEnabled = booleanEnv(
     env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL ??
     env.MAKA_HARBOR_CONTEXT_ARCHIVE_RETRIEVAL,
