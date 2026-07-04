@@ -342,11 +342,13 @@ export const Composer = forwardRef<
       props.onStop();
       return;
     }
+    // PR-GLOBAL-INPUT-HISTORY: up/down arrow navigates the global input
+    // history at any time (not only when the textarea is empty). When
+    // navigating away from the current draft, the current value is saved
+    // as the draft so pressing ArrowDown (next) returns to it.
     if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
       const el = textareaRef.current;
-      const isNavigatingHistory = promptHistoryRef.current.index >= 0;
-      const canStartHistory = Boolean(el && !el.value.trim());
-      if (el && (isNavigatingHistory || canStartHistory)) {
+      if (el) {
         const next = navigateComposerHistory(
           promptHistoryRef.current,
           event.key === 'ArrowUp' ? 'previous' : 'next',
