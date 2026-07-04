@@ -4,6 +4,7 @@ import type { SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
+import type { ThinkingLevel } from '@maka/core/model-thinking';
 
 export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
@@ -13,7 +14,7 @@ export interface MakaSessionRuntime {
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
-  updateSession(sessionId: string, patch: { model: string }): Promise<SessionSummary>;
+  updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: ThinkingLevel | undefined }): Promise<SessionSummary>;
 }
 
 export interface MakaSessionDriverInput {
@@ -35,6 +36,7 @@ export interface MakaSessionDriver {
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   setModel(model: string): Promise<void>;
+  setThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
   stop(): Promise<void>;
@@ -48,6 +50,7 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
   private model: string;
+  private thinkingLevel: ThinkingLevel | undefined;
   private permissionMode: PermissionMode;
   private readonly newId: () => string;
 
@@ -87,11 +90,23 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 
   async setModel(model: string): Promise<void> {
     if (this.sessionId) {
-      const summary = await this.input.runtime.updateSession(this.sessionId, { model });
+      // Switching model clears the per-model thinking variant.
+      const summary = await this.input.runtime.updateSession(this.sessionId, { model, thinkingLevel: undefined });
       this.model = summary.model;
+      this.thinkingLevel = summary.thinkingLevel;
       return;
     }
     this.model = model;
+    this.thinkingLevel = undefined;
+  }
+
+  async setThinkingLevel(level: ThinkingLevel | undefined): Promise<void> {
+    if (this.sessionId) {
+      const summary = await this.input.runtime.updateSession(this.sessionId, { thinkingLevel: level });
+      this.thinkingLevel = summary.thinkingLevel;
+      return;
+    }
+    this.thinkingLevel = level;
   }
 
   async setPermissionMode(mode: PermissionMode): Promise<void> {
@@ -118,6 +133,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
     this.model = summary.model;
+    this.thinkingLevel = summary.thinkingLevel;
     this.permissionMode = summary.permissionMode;
     return { summary, messages };
   }
@@ -135,6 +151,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       llmConnectionSlug: this.input.llmConnectionSlug,
       model: this.model,
       permissionMode: this.permissionMode,
+      ...(this.thinkingLevel !== undefined ? { thinkingLevel: this.thinkingLevel } : {}),
     });
     this.sessionId = session.id;
     return session.id;

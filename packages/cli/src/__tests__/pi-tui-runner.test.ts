@@ -443,7 +443,10 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('s');
 
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/s'));
+    await waitFor(() => {
+      const output = plainTerminalOutput(terminal.screenOutput());
+      return output.includes('/session') && !output.includes('/model');
+    });
     const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
@@ -1002,6 +1005,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
@@ -1064,6 +1068,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
   }
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
@@ -1117,6 +1122,7 @@ class ToolOutputDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
@@ -1160,6 +1166,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
   }
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     this.sessionIds.push(sessionId);
     this.sessionId = sessionId;
@@ -1229,6 +1236,7 @@ class DeferredControlDriver implements MakaSessionDriver {
   }
 
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
@@ -1271,6 +1279,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
 
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
@@ -1345,6 +1354,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
 
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }

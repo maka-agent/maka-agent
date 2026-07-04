@@ -93,7 +93,7 @@ export async function createMakaCliRuntimeContext(
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools,
-      providerOptions: buildProviderOptions(ready.connection, ready.model),
+      providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
