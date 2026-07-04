@@ -29,7 +29,7 @@
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, assertCustomPropPinnedOnce, parseCssCustomProps } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, stripKeyframes, assertCustomPropPinnedOnce, parseCssCustomProps } from './css-test-helpers.js';
 
 // --- token whitelist --------------------------------------------------------
 
@@ -41,12 +41,6 @@ const OPACITY_TOKEN_WHITELIST = new Set([
 ]);
 
 const LITERAL_OK = /^(?:0|1|inherit|initial|unset|revert)$/;
-
-/** Strip `@keyframes` blocks (one level of nested `{}`) so opacity inside
- *  animation tracks isn't flagged — it's animation intent, not element state. */
-function stripKeyframes(css: string): string {
-  return css.replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
-}
 
 function extractOpacityValue(decl: string): string {
   return decl.replace(/^opacity:\s*/i, '').replace(/;$/, '').trim();

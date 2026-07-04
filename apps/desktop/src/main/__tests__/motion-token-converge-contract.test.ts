@@ -24,13 +24,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, assertCustomPropPinnedOnce } from './css-test-helpers.js';
-
-/** Strip `@keyframes` blocks (one level of nested `{}`) so opacity/transform
- *  inside animation tracks isn't flagged — animation intent, not state. */
-function stripKeyframes(css: string): string {
-  return css.replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
-}
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, stripKeyframes, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
   it('bare cubic-bezier(0.16, 1, 0.3, 1) appears ONLY in the --ease-out-strong token declaration', async () => {

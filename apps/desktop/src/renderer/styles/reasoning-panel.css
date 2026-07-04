@@ -54,7 +54,7 @@
     animation: maka-reasoning-panel-pulse 1.4s var(--ease-in-out-strong) infinite;
   }
 @keyframes maka-reasoning-panel-pulse {
-    0%, 100% { opacity: var(--opacity-muted); transform: scale(1); }
+    0%, 100% { opacity: 0.65; transform: scale(1); }
     /* PR-FE-BUG-HUNT-6 (kenji aesthetic audit reminder 9, finding #5):
        standardize live-dot pulse amplitude across the three streaming
        indicators. The semantic is identical ("live work happening")

@@ -51,6 +51,15 @@ export function stripCssComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+/** Strip `@keyframes <name> { … }` blocks so converge contracts can scan
+ * element-state declarations without false-positiving on animation frames
+ * (keyframe opacity/transform are animation intent, not element state).
+ * One level of `{}` nesting is enough for all current keyframes (0%/50%/100%
+ * frames with no nested blocks). */
+export function stripKeyframes(css: string): string {
+  return css.replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+}
+
 /** Ban non-literal `font:` shorthand in renderer CSS.
  *
  * `font:` shorthand can hide bare font-weight (`font: 600 12px sans-serif`),
