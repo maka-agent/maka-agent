@@ -829,16 +829,6 @@
     transform 140ms var(--ease-out-strong);
 }
 
-.maka-palette-item::before {
-  content: "";
-  position: absolute;
-  inset: 5px auto 5px 3px;
-  width: 2px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  transition: background-color 140ms var(--ease-out-strong);
-}
-
 .maka-palette-item:hover:not([data-disabled="true"]) {
   background: var(--state-hover-bg);
 }
