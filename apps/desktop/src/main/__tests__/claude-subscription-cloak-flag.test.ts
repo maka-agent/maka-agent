@@ -1,9 +1,8 @@
 /**
  * Static-analysis gate: cloak module isolation.
  *
- * xuan `2c5aa125` G-X4: the cloak header logic MUST live in a
- * separate module AND MUST NOT be statically imported by the
- * default Claude subscription request path.
+ * xuan `2c5aa125` G-X4: the cloak header logic MUST live in
+ * runtime request construction, not in the desktop OAuth service.
  *
  * This test scans source files; it does not execute the cloak path.
  */
@@ -23,46 +22,13 @@ const SERVICE_SOURCE = resolve(
   'oauth',
   'claude-subscription-service.ts',
 );
-const CLOAK_SOURCE = resolve(
-  DESKTOP_ROOT,
-  'src',
-  'main',
-  'oauth',
-  'cloaked-request.ts',
-);
-
 describe('cloaked request module isolation (xuan G-X4)', () => {
-  it('cloak module exists at the canonical path', async () => {
-    const src = await readFile(CLOAK_SOURCE, 'utf8');
-    assert.ok(
-      src.includes('buildCloakedRequest'),
-      'cloaked-request.ts must export buildCloakedRequest',
-    );
-  });
-
-  it('subscription service does NOT statically import the cloak module', async () => {
+  it('subscription service does NOT statically import cloak request construction', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
-    // Allow comment mentions (e.g. "cloaked-request.ts" in a
-    // docstring justification), forbid static `import ... from
-    // './cloaked-request'`. The forbidden pattern is the literal
-    // import statement.
     assert.doesNotMatch(
       src,
-      /^\s*import\s+[^;]+from\s+['"]\.\/cloaked-request[^'"]*['"]/m,
-      'claude-subscription-service.ts must NOT statically import ./cloaked-request — load dynamically inside the env-gated branch',
-    );
-  });
-
-  it('desktop cloak module reuses the runtime builder instead of duplicating request construction', async () => {
-    const src = await readFile(CLOAK_SOURCE, 'utf8');
-    assert.match(src, /@maka\/runtime\/subscription-cloaked-request/, 'desktop cloak wrapper must import the runtime builder');
-    assert.doesNotMatch(src, /CLAUDE_CODE_PRODUCT_VERSION/, 'desktop wrapper must not duplicate product version constants');
-    assert.doesNotMatch(src, /X-Stainless-/, 'desktop wrapper must not duplicate Stainless header construction');
-    assert.doesNotMatch(src, /You are Claude Code/, 'desktop wrapper must not duplicate the system prefix');
-    assert.doesNotMatch(
-      src,
-      /'X-Stainless-Runtime-Version':\s*process\.version/,
-      'cloak must NOT use dynamic process.version — gateway allowlist parity with the upstream Claude Code cloak',
+      /^\s*import\s+[^;]+from\s+['"].*cloaked-request[^'"]*['"]/m,
+      'claude-subscription-service.ts must NOT statically import cloak request construction',
     );
   });
 
@@ -88,7 +54,7 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
   it('subscription service keeps the MAKA_CLAUDE_SUBSCRIPTION_CLOAK emergency opt-out', async () => {
     // The service should expose `isCloakEnabled()` (or otherwise
     // check the env var) so the send-path can decide whether to
-    // dynamic-import the cloak module.
+    // delegate to the runtime cloak request builder.
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(
       src,
@@ -102,31 +68,19 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     assert.match(src, /buildSubscriptionModelFetch\(connection,\s*ctx\.sessionId,\s*model\)/);
     assert.match(src, /isCloakEnabled\(\)[\s\S]*buildClaudeSubscriptionCloakedFetch\([\s\S]*sessionId,\s*modelId\)/);
     assert.match(src, /modelFactory:\s*\(input\)\s*=>\s*getAIModel\(\{\s*\.\.\.input,\s*fetch:\s*modelFetch\s*\}\)/);
-    assert.match(src, /import\('\.\/oauth\/cloaked-request\.js'\)/, 'cloak module must be dynamically imported from the send path');
-    assert.match(src, /buildCloakedRequest\(\{[\s\S]*deviceId[\s\S]*accountUuid[\s\S]*sessionId/, 'cloak wrapper must stamp Claude Code identity metadata');
-    // PR-CLAUDE-OAUTH-XAPIKEY-STRIP-0: the upstream Claude Code OAuth
-    // send explicitly deletes the x-api-key header from the outbound
-    // Claude OAuth send so that only `Authorization: Bearer <token>`
-    // is presented. AI SDK's Anthropic provider adds an empty
-    // x-api-key when `apiKey` isn't set; Anthropic's OAuth endpoint
-    // rejects requests that present both an empty x-api-key AND a
-    // Bearer header (user-visible as `鉴权失败` / 401-403). Match the
-    // upstream behavior exactly.
-    assert.match(src, /headers\.delete\(['"]x-api-key['"]\)/, 'cloak fetch must strip x-api-key to match the upstream Claude OAuth send');
+    assert.match(src, /buildRuntimeSubscriptionModelFetch\(\{[\s\S]*connection[\s\S]*sessionId[\s\S]*modelId/);
+    assert.match(src, /claudeSubscription\.getOrCreateDeviceId\(\)/);
+    assert.match(src, /claude:\s*\{[\s\S]*cloakEnabled:\s*true[\s\S]*deviceId[\s\S]*accountUuid/);
+    assert.doesNotMatch(src, /buildCloakedRequest\(/, 'desktop must delegate Claude request construction to runtime');
+    assert.doesNotMatch(src, /headers\.delete\(['"]x-api-key['"]\)/, 'x-api-key stripping belongs in runtime request construction');
   });
 
-  it('main maps Codex OAuth system prompt into ChatGPT backend instructions', async () => {
+  it('main delegates Codex OAuth request construction to runtime', async () => {
     const src = await readMainProcessCombinedSource();
-    assert.match(src, /providerType === 'codex-subscription'[\s\S]*buildCodexSubscriptionFetch\(sessionId\)/);
-    assert.match(
-      src,
-      /instructions:\s*codexInstructionsFromBody\(parsedBody\)/,
-      'Codex OAuth backend rejects requests without top-level instructions',
-    );
-    assert.match(src, /function codexInstructionsFromBody\(body:\s*Record<string,\s*unknown>\):\s*string/);
-    assert.match(src, /typeof body\.system === 'string'/, 'Codex instructions must inherit the AI SDK system prompt when present');
-    assert.match(src, /record\.role !== 'system'/, 'Codex instructions must also recover system input items defensively');
-    assert.match(src, /You are Maka, a helpful AI assistant\./, 'Codex instructions must have a non-empty fallback');
+    assert.match(src, /providerType === 'codex-subscription'[\s\S]*buildRuntimeSubscriptionModelFetch\(\{[\s\S]*connection[\s\S]*sessionId[\s\S]*modelId/);
+    assert.doesNotMatch(src, /function buildCodexSubscriptionFetch/, 'desktop must not duplicate the Codex fetch adapter');
+    assert.doesNotMatch(src, /codexInstructionsFromBody/, 'Codex instruction mapping belongs in runtime');
+    assert.doesNotMatch(src, /OpenAI-Beta/, 'Codex subscription headers belong in runtime');
   });
 
   it('token exchange uses the pasted OAuth state and can recover the verifier from Claude Code state', async () => {

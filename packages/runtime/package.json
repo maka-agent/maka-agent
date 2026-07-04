@@ -19,7 +19,6 @@
     "./active-full-compact": "./dist/active-full-compact.js",
     "./semantic-compact": "./dist/semantic-compact.js",
     "./test-connection": "./dist/test-connection.js",
-    "./subscription-cloaked-request": "./dist/subscription-cloaked-request.js",
     "./model-fetcher": "./dist/model-fetcher.js",
     "./materializer": "./dist/materializer.js",
     "./async-queue": "./dist/async-queue.js",

@@ -791,8 +791,8 @@ export class ClaudeSubscriptionService {
 
 /**
  * Resolve whether the cloak path is enabled. Used by the future
- * subscription send-path to decide whether to dynamic-import the
- * cloaked-request module. Centralized here so the contract test
+ * subscription send-path to decide whether to delegate to the runtime
+ * cloaked request builder. Centralized here so the contract test
  * has a single anchor.
  */
 export function isCloakEnabled(): boolean {

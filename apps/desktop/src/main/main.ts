@@ -234,7 +234,6 @@ const codexSubscription = new CodexSubscriptionService({
 });
 const buildSubscriptionModelFetch = createSubscriptionModelFetch({
   claudeSubscription,
-  codexSubscription,
 });
 const oauthModelConnections = createOAuthModelConnectionsMainService({
   connectionStore,
