@@ -34,7 +34,7 @@
   transition: background-color 130ms var(--ease-out-strong);
 }
 
-.enabledProviderTrigger:hover { background: var(--hover); }
+.enabledProviderTrigger:hover { background: var(--state-hover-bg); }
 
 .enabledProviderName {
   font-size: var(--font-size-ui);

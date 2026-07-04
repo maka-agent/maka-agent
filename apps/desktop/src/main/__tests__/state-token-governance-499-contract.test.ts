@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { describe, it } from 'node:test';
+import { REPO_ROOT, TOKENS_FILE, RENDERER_STYLES_DIR, STYLES_FILE, readCssTree, stripCssComments } from './css-test-helpers.js';
+
+function readCssToken(source: string, selector: ':root' | '.dark', token: string): string {
+  const block = source.match(new RegExp(`${selector.replace('.', '\\.')}(?:\\s*,\\s*[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
+  return block.match(new RegExp(`--${token}:\\s*([^;]+);`))?.[1].trim() ?? '';
+}
+
+describe('issue #499 state-token governance contract', () => {
+  it('defines --state-hover-bg (4%) and --state-selected-bg (6.5%) in :root', async () => {
+    // --state-* are foreground-alpha derivations; like --border/--hover/--active
+    // they are defined once in :root and auto-follow .dark via the relative-color
+    // var(--foreground) lazy substitution. No .dark override needed.
+    const tokens = await readFile(TOKENS_FILE, 'utf8');
+    const hover = readCssToken(tokens, ':root', 'state-hover-bg');
+    const selected = readCssToken(tokens, ':root', 'state-selected-bg');
+    assert.match(
+      hover, /^oklch\(from var\(--foreground\) l c h \/ 0\.04\)$/,
+      ':root --state-hover-bg must be 4% foreground alpha',
+    );
+    assert.match(
+      selected, /^oklch\(from var\(--foreground\) l c h \/ 0\.065\)$/,
+      ':root --state-selected-bg must be 6.5% foreground alpha',
+    );
+  });
+
+  it('retires --hover and --active: no definition and no var() consumer in renderer CSS', async () => {
+    const allCss = [
+      TOKENS_FILE,
+      ...(await readCssTree(RENDERER_STYLES_DIR)),
+      STYLES_FILE,
+    ];
+    const violations: string[] = [];
+    for (const file of allCss) {
+      const source = stripCssComments(await readFile(file, 'utf8'));
+      if (source.includes('var(--hover)')) violations.push(`${file}: var(--hover) consumer`);
+      if (source.includes('var(--active)')) violations.push(`${file}: var(--active) consumer`);
+      // Bare --hover: / --active: token definitions must be gone.
+      // --color-hover / --color-active Tailwind bridges are fine (different name).
+      for (const defMatch of source.matchAll(/^\s*--(hover|active):\s*/gm)) {
+        violations.push(`${file}: --${defMatch[1]}: definition still present`);
+      }
+    }
+    assert.deepEqual(violations, [], `--hover/--active must be fully retired:\n${violations.join('\n')}`);
+  });
+
+  it('design-system.md registers the new state tokens in the §1.1 color table', async () => {
+    const docs = await readFile(resolve(REPO_ROOT, 'docs', 'design-system.md'), 'utf8');
+    assert.match(docs, /`--state-hover-bg`/, 'design-system.md must register --state-hover-bg');
+    assert.match(docs, /`--state-selected-bg`/, 'design-system.md must register --state-selected-bg');
+  });
+});

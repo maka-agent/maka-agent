@@ -397,7 +397,7 @@
   transition: background var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }
 .settingsPasswordToggle:hover {
-  background: var(--hover);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 .settingsPasswordToggle:focus-visible {
@@ -621,7 +621,7 @@
 }
 
 .settingsWechatQrClose:hover {
-  background: var(--hover);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 

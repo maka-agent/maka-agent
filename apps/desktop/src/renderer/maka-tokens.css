@@ -156,8 +156,8 @@
   --muted-foreground: color-mix(in oklch, var(--foreground) 50%, var(--background));
   --foreground-secondary: color-mix(in oklch, var(--foreground) 80%, var(--background));
   --ring:          oklch(from var(--foreground) l c h / 0.25);
-  --hover:         oklch(from var(--foreground) l c h / 0.04);
-  --active:        oklch(from var(--foreground) l c h / 0.08);
+  --state-hover-bg:    oklch(from var(--foreground) l c h / 0.04);
+  --state-selected-bg: oklch(from var(--foreground) l c h / 0.065);
   /* User bubble color is intentionally distinct from `--accent` so users can
      re-tint the accent without ruining chat legibility.
      PR-GRAY-CARD-LIFT-0: bubble shifts to neutral gray (hue 0)
@@ -730,8 +730,8 @@
   --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-hover: var(--hover);
-  --color-active: var(--active);
+  --color-hover: var(--state-hover-bg);
+  --color-active: var(--state-selected-bg);
   --color-user-message-bubble: var(--user-message-bubble);
 }
 
@@ -929,9 +929,9 @@
     user-select: none;
     transition: background 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong);
   }
-  .maka-sidebar-row:hover    { background: var(--hover); }
+  .maka-sidebar-row:hover    { background: var(--state-hover-bg); }
   .maka-sidebar-row[data-active="true"] {
-    background: var(--active);
+    background: var(--state-selected-bg);
     color: var(--foreground);
     font-weight: 500;
   }
@@ -952,7 +952,7 @@
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
   }
-  .maka-sidebar-button:hover { background: var(--hover); color: var(--foreground); }
+  .maka-sidebar-button:hover { background: var(--state-hover-bg); color: var(--foreground); }
 
   /* ---- Main column ------------------------------------------------ */
 
@@ -1718,8 +1718,8 @@
     line-height: 1.2;
     transition: background 120ms var(--ease-out-strong), border-color 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), transform 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
-  .maka-button:hover  { background: var(--hover); }
-  .maka-button:active { background: var(--active); transform: translateY(0.5px); }
+  .maka-button:hover  { background: var(--state-hover-bg); }
+  .maka-button:active { background: var(--state-selected-bg); transform: translateY(0.5px); }
   .maka-button:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.16);

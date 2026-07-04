@@ -79,7 +79,7 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 
 派生规则：
 - 灰阶不是单独的 hue。`--foreground-N` 是把 foreground 按 N% 与 background 做
-  `color-mix(in oklch, …)`；`--border / --hover / --active / --muted / --ring`
+  `color-mix(in oklch, ...)`;`--border / --state-hover-bg / --state-selected-bg / --muted / --ring`
   是 foreground 的 alpha 叠加（`oklch(from var(--foreground) l c h / α)`）。
 - 状态 tone（accent/info/success/destructive）配套的 `*-text` 变体已经把饱和
   度向 foreground 拉，专门给"在 token 背景上要可读的文字"用。
@@ -112,8 +112,8 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 | `--border-strong` | 选中态/active 卡片框 | 不要做默认外框 |
 | `--muted` | 与 border 同 α，语义上"作为背景而非分割" | 不要混用 |
 | `--ring` | focus-visible 的 2px box-shadow | 不要做静态边框 |
-| `--hover` | sidebar row / button ghost hover 填充 | 不要用作 active（那是 `--active`） |
-| `--active` | sidebar row active / button :active | 不要做 hover（视觉会"提前"） |
+| `--state-hover-bg` | sidebar row / button ghost hover 填充 | 不要用作 selected/pressed（那是 `--state-selected-bg`） |
+| `--state-selected-bg` | sidebar row selected / button :active (pressed) | 不要做 hover（那是 `--state-hover-bg`，视觉会“提前”） |
 
 不 flip 到 `--foreground`：黑/白 primary 只会救主按钮对比度，选中控件继续留在原 accent 绿时仍是约 2.46:1，不达标。主操作用深绿 `--action`，选中/进度用 `--control`，链接、focus ring、在线点、nav active、toast accent 继续走 emphasis alias。
 | `--chat-user-bg` / `--user-message-bubble` | user 气泡背景（slate，区别于 accent） | 不要用作 assistant 气泡（assistant 不要气泡） |
@@ -293,7 +293,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   recipe 在 `maka-tokens.css` 末尾 `@layer components` 也定义了一份兜底）。
 - **变体**：`UiButton` 的 `variant` prop（`default | secondary | ghost | outline | destructive | quiet`），
   通过 cva class 控制，不再使用 `data-variant` 属性。
-- **token**：背景 `--background / --hover / --active`；边框 `--border`；
+- **token**：背景 `--background / --state-hover-bg / --state-selected-bg`；边框 `--border`；
   destructive 用 `oklch(from var(--destructive) … / 0.35)` border + `--destructive-text`
   文字；default/primary 用 `--primary` + `--primary-foreground`。
 - **ARIA**：原生 `<button>`，禁用态 `disabled` + `aria-disabled="true"`（推荐
@@ -303,9 +303,9 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 | 状态 | 视觉 | token |
 |---|---|---|
 | default | 边框 + foreground 文字 | `--background` / `--border` |
-| hover | 灰底，边框不变 | `--hover` |
+| hover | 灰底，边框不变 | `--state-hover-bg` |
 | focus（visible） | 2px ring + 原 border | `--ring`（全局 `*:focus-visible`） |
-| active (pressed) | 更深底 | `--active` |
+| active (pressed) | 更深底 | `--state-selected-bg` |
 | disabled | opacity 0.45 + cursor: not-allowed | — |
 | loading / error | **N/A** — button 自己不持有 loading 态；调用方在父表面（例如 ConnectionDetail）持有 `testing` 状态并替换 label 为"测试中…"。永远不引入"按钮自旋转"。 | — |
 
@@ -406,7 +406,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 ### 3.6 SessionListPanel + SessionRow（`components.tsx:180`, `:487`）
 
 - **职责**：会话侧边栏。Active state + streaming pulse + unread halo。
-- **token**：active row `--active`；hover row `--hover`；streaming dot
+- **token**：active row `--state-selected-bg`；hover row `--state-hover-bg`；streaming dot
   `--accent` + box-shadow pulse；unread halo `--accent`。
 - **优先级硬规则**：**streaming dot 优先于 unread halo**（PR85 验证）。即如果
   session 正在 streaming，**不**显示 unread 圆点。代码逻辑在
@@ -418,9 +418,9 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   打开；Delete 触发删除 confirm（通过 toast.confirm）。
 - **5 态**：
   - default：text + meta
-  - hover：`--hover` 背景 + 微小 translate（PR40）
+  - hover：`--state-hover-bg` 背景 + 微小 translate（PR40）
   - focus：focus-visible ring
-  - active（current session）：`data-active="true"` → `--active` + 左侧 accent bar
+  - active（current session）：`data-active="true"` → `--state-selected-bg` + 左侧 accent bar
   - editing：rename input + select-all on focus
   - streaming：`data-streaming="true"` → 顶部加 pulse dot + 副文本 "Maka 正
     在思考…" 覆盖 lastMessagePreview
@@ -494,7 +494,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   盘选中作为默认。
 - **位置**：`apps/desktop/src/renderer/settings/ProvidersPanel.tsx` 内；键盘
   helper 拆出到 `model-table-keyboard.ts`（PR94），有 14 个 node:test。
-- **token**：选中行 `--active` + 左侧 accent bar；search box 走 composer focus
+- **token**：选中行 `--state-selected-bg` + 左侧 accent bar；search box 走 composer focus
   ring 同款。
 - **ARIA**：
   - 表外层 `role="radiogroup" aria-label="模型选择"`
@@ -514,7 +514,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   - `modelSource === 'fallback'` → info tone "静态备用列表"
 - **5 态**：
   - default：列表 + 默认选中行高亮
-  - hover：行 hover 走 `--hover`
+  - hover：行 hover 走 `--state-hover-bg`
   - focus：行 focus-visible 走 ring；selection 同步移动
   - active：单选状态 `data-default="true"`
   - disabled：禁用某行（如 provider 报告该 model 不可用）→ opacity 0.5 + 不可
