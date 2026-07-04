@@ -199,7 +199,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // active session untouched and the next prompt still lands on the old one.
   const switchSession = async (sessionId: string) => {
     const { summary, messages } = await input.driver.switchSession(sessionId);
-    cwd = summary.cwd ?? cwd;
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;

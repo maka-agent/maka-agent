@@ -26,6 +26,7 @@ export interface MakaCliRuntimeContext {
   cwd: string;
   runtime: SessionManager;
   target: ReadySessionTarget;
+  tools: ReturnType<typeof buildBuiltinTools>;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -109,6 +110,7 @@ export async function createMakaCliRuntimeContext(
     cwd: input.cwd,
     runtime,
     target,
+    tools,
   };
 }
 

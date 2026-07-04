@@ -43,6 +43,30 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('registers Edit in the TUI runtime toolset and still requires permission', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+      });
+
+      const edit = context.tools.find((tool) => tool.name === 'Edit');
+      assert.ok(
+        edit,
+        'Edit must be registered (regression: it was once filtered out of the TUI runtime)',
+      );
+      assert.equal(edit?.permissionRequired, true);
+    });
+  });
+
   test('keeps Claude subscription cloaking enabled unless the emergency opt-out is set', () => {
     assert.equal(isMakaClaudeSubscriptionCloakEnabled({}), true);
     assert.equal(isMakaClaudeSubscriptionCloakEnabled({ MAKA_CLAUDE_SUBSCRIPTION_CLOAK: '1' }), true);

@@ -126,38 +126,70 @@ describe('Maka session driver', () => {
   });
 
   test('switches to an existing session for the next prompt', async () => {
-    const runtime = new RecordingRuntime();
-    runtime.sessionSummaries = [{
-      id: 'session-2',
-      name: 'Existing chat',
-      isFlagged: false,
-      isArchived: false,
-      labels: [],
-      hasUnread: false,
-      status: 'active',
-      backend: 'ai-sdk',
-      llmConnectionSlug: 'anthropic',
-      model: 'claude-opus-4-1',
-      permissionMode: 'execute',
-    }];
-    runtime.sessionMessages.set('session-2', [
-      storedUserMessage('user-1', 'turn-1', 'previous question'),
-      storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
-    ]);
-    const driver = createMakaSessionDriver({
-      runtime,
-      cwd: '/repo',
-      llmConnectionSlug: 'anthropic',
-      model: 'claude-sonnet-4-5',
-    });
+    const repo = await mkdtemp(join(tmpdir(), 'maka-switch-cwd-'));
+    try {
+      const runtime = new RecordingRuntime();
+      runtime.sessionSummaries = [{
+        id: 'session-2',
+        cwd: repo,
+        name: 'Existing chat',
+        isFlagged: false,
+        isArchived: false,
+        labels: [],
+        hasUnread: false,
+        status: 'active',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-opus-4-1',
+        permissionMode: 'execute',
+      }];
+      runtime.sessionMessages.set('session-2', [
+        storedUserMessage('user-1', 'turn-1', 'previous question'),
+        storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
+      ]);
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: repo,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
 
-    const summary = await driver.switchSession('session-2');
-    await collect(driver.sendPrompt('continue'));
+      const summary = await driver.switchSession('session-2');
+      await collect(driver.sendPrompt('continue'));
 
-    assert.equal(summary.summary.id, 'session-2');
-    assert.deepEqual(summary.messages.map((message) => message.id), ['user-1', 'assistant-1']);
-    assert.deepEqual(runtime.created, []);
-    assert.equal(runtime.sent[0]?.sessionId, 'session-2');
+      assert.equal(summary.summary.id, 'session-2');
+      assert.deepEqual(summary.messages.map((message) => message.id), ['user-1', 'assistant-1']);
+      assert.deepEqual(runtime.created, []);
+      assert.equal(runtime.sent[0]?.sessionId, 'session-2');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a session summary without a cwd and leaves the active session unchanged', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-active-cwd-'));
+    try {
+      const runtime = new RecordingRuntime();
+      runtime.sessionSummaries = [{ ...sessionSummary({ id: 'no-cwd' }), cwd: undefined }];
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: repo,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+      await collect(driver.sendPrompt('hi'));
+
+      await assert.rejects(
+        driver.switchSession('no-cwd'),
+        /Session belongs to a different folder/,
+      );
+
+      await collect(driver.sendPrompt('again'));
+      assert.equal(runtime.sent[0]?.sessionId, 'session-1');
+      assert.equal(runtime.sent[1]?.sessionId, 'session-1');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 
   test('rejects switching to a session whose cwd no longer exists', async () => {

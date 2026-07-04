@@ -109,7 +109,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     if (summary.cwd) await assertSessionCwdExists(summary.cwd);
     // Enforce folder/connection before reading messages or committing any
     // internal state, so a rejected switch leaves the active session untouched.
-    if (summary.cwd && summary.cwd !== this.input.cwd) {
+    if (summary.cwd !== this.input.cwd) {
       throw new Error('Session belongs to a different folder; run Maka in that folder to resume it.');
     }
     if (summary.llmConnectionSlug !== this.input.llmConnectionSlug) {
