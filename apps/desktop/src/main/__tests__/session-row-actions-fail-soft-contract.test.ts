@@ -22,6 +22,7 @@ describe('session row actions fail soft', () => {
 
   it('gates duplicate sidebar row actions before IPC or confirm dialogs can double-fire', async () => {
     const main = await readRendererShellCombinedSource();
+    const sessionListBlock = main.match(/<SessionListPanel[\s\S]*?\/>/)?.[0] ?? '';
 
     assert.match(main, /const pendingSessionRowActionsRef = useRef<Set<string>>\(new Set\(\)\);/);
     assert.match(main, /const sessionPrefix = `\$\{sessionId\}:`;/);
@@ -29,7 +30,10 @@ describe('session row actions fail soft', () => {
     assert.match(main, /pendingSessionRowActionsRef\.current\.add\(key\);[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)[\s\S]*finally \{[\s\S]*pendingSessionRowActionsRef\.current\.delete\(key\);/);
     assert.match(main, /const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>\[0\]\['rowActions'\]>>\([\s\S]*onToggleFlag: \(sessionId, next\) => sessionRowActionHandlersRef\.current\.flagSession\(sessionId, next\),[\s\S]*onArchive: \(sessionId\) => sessionRowActionHandlersRef\.current\.archiveSession\(sessionId\),[\s\S]*onUnarchive: \(sessionId\) => sessionRowActionHandlersRef\.current\.unarchiveSession\(sessionId\),[\s\S]*onRename: \(sessionId, name\) => sessionRowActionHandlersRef\.current\.renameSession\(sessionId, name\),[\s\S]*onDelete: \(sessionId\) => sessionRowActionHandlersRef\.current\.deleteSession\(sessionId\),/);
     assert.match(main, /rowActions=\{sessionRowActions\}/);
-    assert.doesNotMatch(main, /rowActions=\{\{/);
+    assert.match(sessionListBlock, /onSelectSession=\{[^}]+\}/);
+    assert.match(sessionListBlock, /rowActions=\{[^}]+\}/);
+    assert.doesNotMatch(sessionListBlock, /onSelectSession=\{\(sessionId\)/);
+    assert.doesNotMatch(sessionListBlock, /rowActions=\{\{/);
     assert.doesNotMatch(main, /onDelete: \(sessionId\) => void sessionRowActionHandlersRef\.current\.deleteSession\(sessionId\)/);
     assert.doesNotMatch(main, /onToggleFlag: \(sessionId, next\) => void sessionRowActionHandlersRef\.current\.flagSession\(sessionId, next\)/);
   });

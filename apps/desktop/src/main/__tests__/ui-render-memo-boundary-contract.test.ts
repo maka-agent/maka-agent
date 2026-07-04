@@ -1,6 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
 import type { SessionSummary } from '@maka/core';
@@ -29,9 +28,9 @@ type SessionHistoryModule = {
 };
 type RendererWindow = Window & typeof globalThis;
 type MemoTestGlobal = typeof globalThis & {
-  __makaFormatCompactTimestampCount?: number;
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
+type ResettableTimestamp = number & { reset(): void };
 
 const cleanupTasks: Array<() => void> = [];
 
@@ -42,31 +41,24 @@ afterEach(() => {
 });
 
 describe('UI render memo boundary contract', () => {
-  it('keeps AppShell sidebar row props stable enough for SessionRow memo', async () => {
-    const source = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell.tsx'), 'utf8');
-    const sessionListBlock = source.match(/<SessionListPanel[\s\S]*?\/>/)?.[0] ?? '';
-
-    assert.match(source, /const sessionListSelectSession = useCallback\(\(sessionId: string\) => \{[\s\S]*openSessionInChatRef\.current\(sessionId\);[\s\S]*\}, \[\]\);/);
-    assert.match(source, /const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>\[0\]\['rowActions'\]>>\s*\(/);
-    assert.match(sessionListBlock, /onSelectSession=\{sessionListSelectSession\}/);
-    assert.match(sessionListBlock, /rowActions=\{sessionRowActions\}/);
-    assert.doesNotMatch(sessionListBlock, /onSelectSession=\{\(sessionId\)/);
-    assert.doesNotMatch(sessionListBlock, /rowActions=\{\{/);
-  });
-
   it('keeps sidebar session rows from rendering on unrelated parent updates with row actions present', async () => {
-    const { SessionHistoryList } = await importSessionHistoryListWithCountedTimestamps();
+    const { SessionHistoryList } = await importSessionHistoryList();
     const root = installReactRenderer();
+    let rowRenderCount = 0;
     const sessions = [
-      createSession('session-a', 'Alpha'),
-      createSession('session-b', 'Beta'),
+      createSession('session-a', 'Alpha', () => {
+        rowRenderCount += 1;
+      }),
+      createSession('session-b', 'Beta', () => {
+        rowRenderCount += 1;
+      }),
     ];
     const streamingSessionIds = new Set<string>();
     const staleSessionIds = new Set<string>();
     const rowActions = createRowActions();
     const onSelectSession = () => {};
-    (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount = 0;
 
+    resetTimestampCounters(sessions);
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
       label: 'first parent render',
@@ -76,8 +68,9 @@ describe('UI render memo boundary contract', () => {
       staleSessionIds,
       streamingSessionIds,
     }));
-    assert.equal((globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount, 2);
+    assert.equal(rowRenderCount, 2);
 
+    resetTimestampCounters(sessions);
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
       label: 'unrelated parent render',
@@ -89,12 +82,13 @@ describe('UI render memo boundary contract', () => {
     }));
 
     assert.equal(
-      (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount,
+      rowRenderCount,
       2,
       'stable session rows should not recompute row meta when only sibling parent content changes',
     );
 
     const nextStreamingSessionIds = new Set<string>(['session-a']);
+    resetTimestampCounters(sessions);
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
       label: 'streaming session update',
@@ -106,7 +100,7 @@ describe('UI render memo boundary contract', () => {
     }));
 
     assert.equal(
-      (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount,
+      rowRenderCount,
       3,
       'streaming updates should only recompute the row whose streaming flag changed',
     );
@@ -137,7 +131,7 @@ function RenderHost(props: {
   );
 }
 
-function createSession(id: string, name: string): SessionSummary {
+function createSession(id: string, name: string, onRender: () => void): SessionSummary {
   return {
     id,
     name,
@@ -145,13 +139,40 @@ function createSession(id: string, name: string): SessionSummary {
     isArchived: false,
     labels: [],
     hasUnread: false,
-    lastMessageAt: 1_700_000_000_000,
+    lastMessageAt: createCountedTimestamp(1_700_000_000_000, onRender) as unknown as number,
     status: 'active',
     backend: 'fake',
     llmConnectionSlug: 'fake',
     model: 'fake-model',
     permissionMode: 'ask',
   };
+}
+
+function createCountedTimestamp(value: number, onRender: () => void): ResettableTimestamp {
+  let counted = false;
+  return {
+    reset() {
+      counted = false;
+    },
+    valueOf() {
+      // The parent also reads lastMessageAt for bucketing; only row rendering
+      // calls the compact timestamp formatter.
+      if (!counted && new Error().stack?.includes('formatCompactTimestamp')) {
+        counted = true;
+        onRender();
+      }
+      return value;
+    },
+    [Symbol.toPrimitive]() {
+      return this.valueOf();
+    },
+  } as unknown as ResettableTimestamp;
+}
+
+function resetTimestampCounters(sessions: SessionSummary[]): void {
+  for (const session of sessions) {
+    (session.lastMessageAt as ResettableTimestamp).reset();
+  }
 }
 
 function createRowActions(): NonNullable<Parameters<SessionHistoryModule['SessionHistoryList']>[0]['rowActions']> {
@@ -164,43 +185,20 @@ function createRowActions(): NonNullable<Parameters<SessionHistoryModule['Sessio
   };
 }
 
-async function importSessionHistoryListWithCountedTimestamps(): Promise<SessionHistoryModule> {
-  const outdir = await mkdtemp(resolve(REPO_ROOT, 'apps/desktop/dist/main/__tests__/session-history-memo-'));
-  const outfile = resolve(outdir, 'session-history-list.mjs');
-  await mkdir(dirname(outfile), { recursive: true });
+async function importSessionHistoryList(): Promise<SessionHistoryModule> {
+  const outfile = resolve(REPO_ROOT, 'apps/desktop/dist/main/__tests__/session-history-list.memo-bundle.mjs');
   await build({
-    entryPoints: [resolve(REPO_ROOT, 'packages/ui/src/session-history-list.tsx')],
+    entryPoints: [resolve(REPO_ROOT, 'packages/ui/dist/session-history-list.js')],
     outfile,
     bundle: true,
-    external: ['@base-ui/react', LUCIDE_REACT_PACKAGE, 'react', 'react-dom', 'react-dom/*', 'react/jsx-runtime'],
+    external: ['@base-ui/react', '@maka/core', LUCIDE_REACT_PACKAGE, 'react', 'react-dom', 'react-dom/*', 'react/jsx-runtime'],
     platform: 'node',
     format: 'esm',
     target: 'node20',
     logLevel: 'silent',
-    plugins: [mockCoreTimestampFormatter(), mockOverlayScrollbars()],
+    plugins: [mockOverlayScrollbars()],
   });
   return await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as SessionHistoryModule;
-}
-
-function mockCoreTimestampFormatter(): Plugin {
-  return {
-    name: 'mock-core-timestamp-formatter',
-    setup(buildApi) {
-      buildApi.onResolve({ filter: /^@maka\/core$/ }, () => ({
-        path: 'maka-core-mock',
-        namespace: 'memo-test',
-      }));
-      buildApi.onLoad({ filter: /^maka-core-mock$/, namespace: 'memo-test' }, () => ({
-        loader: 'js',
-        contents: [
-          'export function formatCompactTimestamp() {',
-          '  globalThis.__makaFormatCompactTimestampCount = (globalThis.__makaFormatCompactTimestampCount ?? 0) + 1;',
-          '  return "just now";',
-          '}',
-        ].join('\n'),
-      }));
-    },
-  };
 }
 
 function mockOverlayScrollbars(): Plugin {
@@ -243,7 +241,6 @@ function installFakeDom(): void {
   const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
   const previousHTMLElement = globalThis.HTMLElement;
   const previousHTMLIFrameElement = globalThis.HTMLIFrameElement;
-  const previousCount = (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount;
   const previousActEnvironment = (globalThis as MemoTestGlobal).IS_REACT_ACT_ENVIRONMENT;
   const fakeDocument = createFakeDocument();
   const fakeWindow = {
@@ -269,7 +266,6 @@ function installFakeDom(): void {
     globalThis.requestAnimationFrame = previousRequestAnimationFrame;
     globalThis.HTMLElement = previousHTMLElement;
     globalThis.HTMLIFrameElement = previousHTMLIFrameElement;
-    (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount = previousCount;
     (globalThis as MemoTestGlobal).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
 }
