@@ -83,20 +83,20 @@ html[data-os="darwin"] {
   /* Neutral-cool glass (owner decision 2026-07-03): the QoderWork
      light-glass extraction was warm ivory (#fdfcfa/#faf9f6/#f5f3ee),
      which read beige against vibrancy blur. zinc-family equivalents
-     keep the same lightness steps but zero warm cast. Mint selection
-     stays — sage is the accent, not the neutral. */
+     keep the same lightness steps but zero warm cast. Selected-row
+     fill follows the brand accent (logo blue), hue repointed to 250. */
   --color-bg-layout: #fcfcfd;
   --color-bg-highlight: #d4d4d8;
   --color-bg-container: #fafafa;
   --color-bg-element: #f4f4f5;
-  --color-state-selected: #8ee5a1;
+  --color-state-selected: oklch(0.85 0.09 250);
   --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
 }
 
 /* Dark-mode variants for the darwin glass palette. The light hexes above
    are QoderWork light-glass extractions; reused verbatim in dark mode the
    mint selected-row fill sat under near-white foreground text (unreadable)
-   and the parchment surfaces glowed against the dark shell. Deep sage keeps
+   and the parchment surfaces glowed against the dark shell. Deep blue keeps
    the selected row's "color block IS the signal" behavior with ~7:1
    contrast against the dark foreground. */
 html[data-os="darwin"].dark {
@@ -104,7 +104,7 @@ html[data-os="darwin"].dark {
   --color-bg-highlight: oklch(0.34 0.005 286);
   --color-bg-container: oklch(0.24 0.004 286);
   --color-bg-element: oklch(0.27 0.004 286);
-  --color-state-selected: oklch(0.42 0.075 152);
+  --color-state-selected: oklch(0.42 0.075 250);
 }
 
 /* L3 — selected list-row uses the QoderWork mint state fill instead of
