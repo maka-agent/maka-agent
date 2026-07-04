@@ -142,6 +142,39 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('renders the statusline below the input editor', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka deepseek-v4-flash deepseek ask /repo'));
+
+    const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
+    const statusLineIndex = lines.findIndex((line) => line.includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    const editorBorderIndexes = lines
+      .map((line, index) => (/^─+$/.test(line) ? index : -1))
+      .filter((index) => index >= 0);
+
+    assert.ok(editorBorderIndexes.length >= 2);
+    assert.ok(statusLineIndex > editorBorderIndexes[editorBorderIndexes.length - 1]!);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /permissions without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -518,7 +551,10 @@ function latestPlainLineContaining(output: string, text: string): string {
 }
 
 function plainTerminalOutput(output: string): string {
-  return output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
+  return output
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b_pi:c\x07/g, '')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
 class FakeTerminal implements Terminal {

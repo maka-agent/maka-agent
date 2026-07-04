@@ -206,16 +206,11 @@ export function applyMakaSessionEventToTranscript(
 
 export function renderMakaPiTranscript(
   state: MakaPiTranscriptState,
-  metadata: MakaPiTranscriptMetadata,
+  _metadata: MakaPiTranscriptMetadata,
   width: number,
 ): string[] {
   const safeWidth = Math.max(1, width);
-  const lines: string[] = [
-    fitLine(`${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)} ${ansi.dim(metadata.cwd)}`, safeWidth),
-    ansi.dim('-'.repeat(safeWidth)),
-  ];
-  const sessionId = metadata.sessionId ? `session ${metadata.sessionId}` : 'new session';
-  lines.push(fitLine(ansi.dim(metadata.busy ? `${sessionId} running` : `${sessionId} ready`), safeWidth));
+  const lines: string[] = [];
 
   for (const entry of state.entries) {
     lines.push('');
@@ -240,7 +235,15 @@ export function renderMakaPiTranscript(
     lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
   }
 
-  return lines.length > 0 ? lines : [''];
+  return lines;
+}
+
+export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {
+  const safeWidth = Math.max(1, width);
+  return fitLine(
+    `${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)} ${ansi.dim(metadata.cwd)}`,
+    safeWidth,
+  );
 }
 
 function appendAssistantText(state: MakaPiTranscriptState, messageId: string, text: string): void {

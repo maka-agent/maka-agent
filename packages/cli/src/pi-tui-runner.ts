@@ -19,6 +19,7 @@ import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/c
 import type { MakaSessionDriver } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
+  renderMakaPiStatusLine,
   renderMakaPiTranscript,
   submitPromptToTranscript,
   toggleLatestToolExpansion,
@@ -62,6 +63,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   });
 
   const transcript = new MakaTranscriptComponent(state, metadata);
+  const statusLine = new MakaStatusLineComponent(metadata);
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
   editor.setAutocompleteProvider(new CombinedAutocompleteProvider([], input.cwd));
 
@@ -322,6 +324,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   terminal.setTitle(input.title);
   tui.addChild(transcript);
   tui.addChild(editor);
+  tui.addChild(statusLine);
   tui.setFocus(editor);
   tui.start();
 
@@ -338,6 +341,16 @@ class MakaTranscriptComponent implements Component {
 
   render(width: number): string[] {
     return renderMakaPiTranscript(this.state, this.metadata(), width);
+  }
+}
+
+class MakaStatusLineComponent implements Component {
+  constructor(private readonly metadata: () => MakaPiTranscriptMetadata) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return [renderMakaPiStatusLine(this.metadata(), width)];
   }
 }
 
