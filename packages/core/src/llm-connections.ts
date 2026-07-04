@@ -161,7 +161,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
   google: {
     label: 'Google Gemini',
     description: 'Gemini API key access from Google AI Studio.',
-    baseUrl: 'https://generativelanguage.googleapis.com',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     authKind: 'api_key',
     backendKind: 'ai-sdk',
     fallbackModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'],

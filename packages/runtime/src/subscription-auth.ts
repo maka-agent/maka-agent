@@ -32,6 +32,24 @@ export function anthropicV1Url(baseUrl: string, path: string): string {
   return `${anthropicV1BaseUrl(baseUrl)}${cleanPath}`;
 }
 
+/**
+ * Normalize a Google AI base URL to a single `/v1beta` suffix: a bare-root
+ * override (e.g. a connection that stored the pre-fix default) self-heals to
+ * `/v1beta` instead of 404ing on `/models/{model}:generateContent`.
+ */
+export function googleV1BetaBaseUrl(baseUrl: string): string {
+  return `${stripTrailing(baseUrl).replace(/\/v1beta$/i, '')}/v1beta`;
+}
+
+/**
+ * The model-list fetcher and the connection probe route through here; the chat
+ * path uses `googleV1BetaBaseUrl` directly via `createGoogleGenerativeAI`.
+ */
+export function googleApiUrl(baseUrl: string, path: string, apiKey: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${googleV1BetaBaseUrl(baseUrl)}${cleanPath}?key=${encodeURIComponent(apiKey)}`;
+}
+
 export function codexSubscriptionHeaders(accessToken: string): Record<string, string> {
   const accountId = extractCodexAccountId(accessToken);
   return {

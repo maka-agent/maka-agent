@@ -42,7 +42,7 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
       const canonical = [
         'https://api.anthropic.com',
         'https://api.openai.com/v1',
-        'https://generativelanguage.googleapis.com',
+        'https://generativelanguage.googleapis.com/v1beta',
         'https://api.deepseek.com',
         'https://api.z.ai/api/coding/paas/v4',
         'https://api.kimi.com/coding/v1',

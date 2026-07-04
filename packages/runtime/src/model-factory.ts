@@ -8,6 +8,7 @@ import {
   anthropicV1BaseUrl,
   claudeSubscriptionHeaders,
   codexSubscriptionHeaders,
+  googleV1BetaBaseUrl,
 } from './subscription-auth.js';
 
 export interface ModelFactoryInput {
@@ -73,7 +74,10 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
     }
 
     case 'google':
-      return createGoogleGenerativeAI({ apiKey, baseURL }).chat(modelId);
+      // Normalize the base URL to /v1beta (googleV1BetaBaseUrl) so a baseUrl
+      // override omitting `/v1beta` sends to `<root>/v1beta/models/{model}`
+      // instead of 404ing, matching the probe/model-fetch paths.
+      return createGoogleGenerativeAI({ apiKey, baseURL: googleV1BetaBaseUrl(baseURL) }).chat(modelId);
 
     case 'deepseek':
       return createOpenAICompatible({
