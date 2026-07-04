@@ -195,12 +195,10 @@
 }
 
 .settingsNavItem[data-active="true"] {
-  /* PR-SETTINGS-NAV-FOCUS-0 (round 14/15): bump the active state from
-     the muted `--settings-nav-row-selected-bg` token to a slightly
-     more visible 6.5% foreground overlay + 500 weight.
-     WAWQAQ msg 49bd00e1: keep the selected row neutral. A leading
+  /* Active state via the shared --state-selected-bg token + 500 weight.
+     Keep the selected row neutral (WAWQAQ msg 49bd00e1): a leading
      accent rail reads like a stray status marker in the Settings nav. */
-  background: oklch(from var(--foreground) l c h / 0.065);
+  background: var(--state-selected-bg);
   color: var(--foreground);
   font-weight: 500;
   box-shadow: none;
@@ -237,7 +235,7 @@
 }
 
 /* PR-UI-11 (@yuejing 2026-05-22): inactive glyph stays muted; active
- * glyph is overridden above to `--accent` for selection visibility. */
+ * glyph is overridden above to `--foreground` for selection visibility. */
 
 .settingsNavItem strong {
   overflow: hidden;

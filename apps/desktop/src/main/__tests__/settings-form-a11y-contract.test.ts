@@ -287,7 +287,7 @@ describe('Settings form accessibility labels', () => {
     const styles = await readRendererContractCss();
     const activeRule = styles.match(/\.settingsNavItem\[data-active="true"\]\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
 
-    assert.match(activeRule, /background:\s*oklch\(from var\(--foreground\) l c h \/ 0\.065\);/);
+    assert.match(activeRule, /background:\s*var\(--state-selected-bg\);/);
     assert.match(activeRule, /box-shadow:\s*none;/);
     assert.doesNotMatch(
       activeRule,
