@@ -35,7 +35,9 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void reset()}', minW: '5rem', note: '重置中… ↔ 重置并备份' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void restoreLatestBackup()}', minW: '5rem', note: '恢复中… ↔ 恢复上一版' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void copyLocalMemoryPromptPreview()}', minW: '5rem', note: 'settingsInlineTextButton: 复制中… ↔ 复制上下文' },
-  // open-gateway-settings-page.tsx — settingsActionRow curl copy buttons
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void copyPath()}', minW: '4rem', note: '复制中… ↔ 复制路径' },
+  // open-gateway-settings-page.tsx — settingsActionRow copy buttons
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyBaseUrl()}', minW: '4rem', note: '复制中… ↔ 复制地址' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOverviewCurl()}', minW: '8rem', note: '复制总览 curl' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOpenApiCurl()}', minW: '9rem', note: '复制接口说明 curl' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copySessionStateCurl()}', minW: '9.5rem', note: '复制单会话状态 curl' },
@@ -47,6 +49,7 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "triggerManualRun('deep')", minW: '6rem', note: '生成中… ↔ 生成深度分析' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "runDailyReviewAction('copy'", minW: '4rem', note: '复制中… ↔ 复制' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "runDailyReviewAction('save'", minW: '4rem', note: '保存中… ↔ 保存' },
+  { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "runDailyReviewAction('append'", minW: '5rem', note: '追加中… ↔ 粘到输入框' },
   // error-boundary.tsx — maka-error-copy-action
   { file: 'apps/desktop/src/renderer/error-boundary.tsx', onClick: 'onClick={this.handleCopyReport}', minW: '5.5rem', note: '复制诊断信息 ↔ 复制中… ↔ 已复制 ↔ 复制失败' },
 ];

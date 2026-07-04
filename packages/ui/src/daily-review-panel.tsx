@@ -435,7 +435,7 @@ export function DailyReviewPanel(props: {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="maka-daily-review-append"
+                className="maka-daily-review-append min-w-[5rem]"
                 onClick={() => void runDailyReviewAction('append', async () => {
                   const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
                   await props.onAppendMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });

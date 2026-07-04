@@ -958,7 +958,7 @@ export function MemorySettingsPage(props: {
         <Button type="button" variant="ghost" className="min-w-[5rem]" disabled={memoryControlsDisabled || !effective.enabled || !effective.latestBackup || isMemoryActionPending('backup:latest:open')} onClick={() => void openLatestBackup()}>
           {isMemoryActionPending('backup:latest:open') ? '打开中…' : '打开上一版'}
         </Button>
-        <Button type="button" variant="ghost" disabled={!effective.path || isMemoryActionPending('memory:path:copy')} onClick={() => void copyPath()}>
+        <Button type="button" variant="ghost" className="min-w-[4rem]" disabled={!effective.path || isMemoryActionPending('memory:path:copy')} onClick={() => void copyPath()}>
           {isMemoryActionPending('memory:path:copy') ? '复制中…' : '复制路径'}
         </Button>
         <Button type="button" variant="ghost" className="min-w-[7rem]" disabled={!effective.latestBackup || (effective.latestBackup ? isMemoryActionPending(`backup:${effective.latestBackup.kind}:copy`) : false)} onClick={() => void copyLatestBackupReference()}>

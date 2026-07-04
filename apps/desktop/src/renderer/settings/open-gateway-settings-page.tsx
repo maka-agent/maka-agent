@@ -282,7 +282,7 @@ export function OpenGatewaySettingsPage(props: {
         <Button variant="secondary" type="button" disabled={!gatewayDraft.token || saving} onClick={() => void saveToken('')}>
           清空 token
         </Button>
-        <Button variant="secondary" type="button" disabled={gatewayCopyDisabled} onClick={() => void copyBaseUrl()}>
+        <Button variant="secondary" type="button" className="min-w-[4rem]" disabled={gatewayCopyDisabled} onClick={() => void copyBaseUrl()}>
           {isCopyingGatewayAction('base-url') ? '复制中…' : '复制地址'}
         </Button>
         <Button variant="secondary" type="button" className="min-w-[8rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
