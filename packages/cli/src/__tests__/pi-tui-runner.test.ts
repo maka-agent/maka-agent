@@ -154,6 +154,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
 
   getSessionId(): string {
     return 'session-1';
@@ -207,6 +208,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
     this.permissionResponses.push(response);
     this.continueAfterPermission?.();
   }
+  async setPermissionMode(): Promise<void> {}
 
   getSessionId(): string {
     return 'session-1';
@@ -251,6 +253,7 @@ class ToolOutputDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
   getSessionId(): string {
     return 'session-1';
   }

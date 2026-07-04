@@ -9,6 +9,7 @@ export interface MakaSessionRuntime {
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+  setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
 }
 
 export interface MakaSessionDriverInput {
@@ -23,6 +24,7 @@ export interface MakaSessionDriverInput {
 export interface MakaSessionDriver {
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
+  setPermissionMode(mode: PermissionMode): Promise<void>;
   stop(): Promise<void>;
   getSessionId(): string | null;
 }
@@ -33,10 +35,12 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
+  private permissionMode: PermissionMode;
   private readonly newId: () => string;
 
   constructor(private readonly input: MakaSessionDriverInput) {
     this.newId = input.newId ?? randomUUID;
+    this.permissionMode = input.permissionMode ?? 'ask';
   }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
@@ -57,6 +61,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     await this.input.runtime.respondToPermission(this.sessionId, response);
   }
 
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    if (this.sessionId) {
+      const summary = await this.input.runtime.setPermissionMode(this.sessionId, mode);
+      this.permissionMode = summary.permissionMode;
+      return;
+    }
+    this.permissionMode = mode;
+  }
+
   getSessionId(): string | null {
     return this.sessionId;
   }
@@ -69,7 +82,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       backend: 'ai-sdk',
       llmConnectionSlug: this.input.llmConnectionSlug,
       model: this.input.model,
-      permissionMode: this.input.permissionMode ?? 'ask',
+      permissionMode: this.permissionMode,
     });
     this.sessionId = session.id;
     return session.id;

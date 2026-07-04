@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { CreateSessionInput, PermissionResponse, SessionEvent, SessionSummary, UserMessageInput } from '@maka/core';
+import type { CreateSessionInput, PermissionMode, PermissionResponse, SessionEvent, SessionSummary, UserMessageInput } from '@maka/core';
 import { createMakaSessionDriver } from '../session-driver.js';
 
 describe('Maka session driver', () => {
@@ -46,6 +46,39 @@ describe('Maka session driver', () => {
     await collect(driver.sendPrompt('ship fast'));
 
     assert.equal(runtime.created[0]?.permissionMode, 'bypass');
+  });
+
+  test('uses an updated permission mode for a new session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await driver.setPermissionMode('execute');
+    await collect(driver.sendPrompt('run tests'));
+
+    assert.equal(runtime.created[0]?.permissionMode, 'execute');
+  });
+
+  test('updates permission mode on an active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.setPermissionMode('execute');
+
+    assert.deepEqual(runtime.permissionModes, [{
+      sessionId: 'session-1',
+      mode: 'execute',
+    }]);
   });
 
   test('uses the default turn id generator when one is not injected', async () => {
@@ -94,6 +127,7 @@ class RecordingRuntime {
   readonly created: CreateSessionInput[] = [];
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
+  readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
@@ -135,6 +169,23 @@ class RecordingRuntime {
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     this.permissionResponses.push({ sessionId, response });
+  }
+
+  async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary> {
+    this.permissionModes.push({ sessionId, mode });
+    return {
+      id: sessionId,
+      name: 'New Chat',
+      isFlagged: false,
+      isArchived: false,
+      labels: [],
+      hasUnread: false,
+      status: 'active',
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      permissionMode: mode,
+    };
   }
 }
 
