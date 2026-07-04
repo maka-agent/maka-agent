@@ -345,5 +345,5 @@
   color: var(--destructive);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }

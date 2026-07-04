@@ -42,7 +42,7 @@
   background: transparent;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   text-align: left;
   justify-content: initial;
   -webkit-app-region: no-drag;
@@ -76,7 +76,7 @@
   gap: var(--space-1);
   color: var(--foreground);
   font-size: 1.2em;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .settingsSidebar header .maka-shortcut-kbd {
@@ -106,8 +106,8 @@
   display: flex;
   align-items: center;
   font-size: var(--font-size-caption);
-  font-weight: 500;
-  letter-spacing: 0.05em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--tracking-wider);
   text-transform: none;
   color: var(--muted-foreground);
   padding: var(--space-4) var(--space-3) var(--space-1-5);
@@ -170,8 +170,8 @@
   background: oklch(from var(--nav-active) l c h / 0.12);
   color: var(--nav-active);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wider);
   text-transform: none;
 }
 
@@ -199,7 +199,7 @@
      accent rail reads like a stray status marker in the Settings nav. */
   background: var(--state-selected-bg);
   color: var(--foreground);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   box-shadow: none;
 }
 
@@ -241,7 +241,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsFeatureStatusPage {
@@ -267,8 +267,8 @@
 }
 .settingsFeatureStatusBanner strong {
   color: var(--info-text);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wide);
 }
 .settingsFeatureStatusBannerDot {
   width: 8px;
@@ -303,7 +303,7 @@
   margin: 0 0 var(--space-0-5);
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsFeatureStatusHero p {
@@ -391,8 +391,8 @@
   background: oklch(from var(--nav-active) l c h / 0.12);
   color: var(--nav-active);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
   white-space: nowrap;
 }
 
@@ -482,8 +482,8 @@
   margin: 0;
   color: var(--foreground);
   font-size: 1.7333em;
-  font-weight: 650;
-  letter-spacing: -0.012em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   line-height: var(--leading-tight);
   text-wrap: balance;
 }
@@ -568,8 +568,8 @@
   margin: var(--space-6) var(--space-0-5) var(--space-2-5);
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-widest);
   text-transform: uppercase;
 }
 .settingsStructuredPage > .settingsSectionHeading:first-child {
@@ -700,7 +700,7 @@
   display: block;
   color: var(--foreground);
   font-size: var(--font-size-base);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
 }
 

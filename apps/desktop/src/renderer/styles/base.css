@@ -26,7 +26,7 @@
     padding: var(--space-4);
     color: var(--muted-foreground);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     text-align: center;
   }
 .maka-lazy-fallback[data-surface="panel"] {

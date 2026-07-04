@@ -41,9 +41,9 @@
   max-width: 32ch;
   color: var(--foreground);
   font-size: 1.2em;
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
-  letter-spacing: 0;
+  letter-spacing: var(--tracking-normal);
 }
 
 .maka-onboarding header p {
@@ -110,9 +110,9 @@
   margin: 0;
   max-width: none;
   font-size: 1.7333em;
-  font-weight: 680;
+  font-weight: var(--font-weight-bold);
   line-height: var(--leading-tight);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-normal);
   color: var(--foreground);
 }
 
@@ -149,7 +149,7 @@
   height: 21px;
   border-radius: var(--radius-pill);
   font-size: var(--font-size-caption);
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   border: 1.5px solid var(--border-strong);
   color: var(--muted-foreground);
 }
@@ -170,7 +170,7 @@
 }
 .maka-firstrun-step[data-state="active"] .maka-firstrun-step-label {
   color: var(--foreground);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-firstrun-step[data-state="done"] .maka-firstrun-step-dot {
@@ -202,7 +202,7 @@
 }
 .maka-firstrun-pick-label {
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--foreground);
 }
 .maka-firstrun-pick-hint {
@@ -235,7 +235,7 @@
 .maka-firstrun-tag {
   flex: 0 0 auto;
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-none);
   color: var(--nav-active);
   background: oklch(from var(--nav-active) l c h / 0.12);
@@ -304,7 +304,7 @@
   background: var(--background-elevated);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-onboarding-setup-steps > li[data-state="active"] .maka-onboarding-setup-step-marker {
@@ -326,7 +326,7 @@
 .maka-onboarding-setup-step-copy strong {
   color: var(--foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
@@ -343,7 +343,7 @@
   background: var(--background-elevated);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
 }
 
@@ -400,7 +400,7 @@
 }
 
 .maka-onboarding-slug {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: var(--font-size-ui);
   padding: var(--space-0-5) var(--space-1-5);
   /* PR-UI-LAYOUT-25: slug radius 6 → 8 to join the form input
@@ -414,10 +414,10 @@
    main composer but lives inside the hero card so the first-run
    surface stays self-contained. */
 .maka-onboarding-ready header h1 {
-  font-family: Georgia, "Times New Roman", Times, serif;
+  font-family: var(--font-serif);
   font-size: 1.9333em;
-  font-weight: 680;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
   line-height: var(--leading-tight);
 }
 .maka-onboarding-ready header p {
@@ -496,7 +496,7 @@
 .maka-onboarding-quickchat-example[data-pending="true"] {
   color: var(--status-running);
   font-style: normal;
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
 }
 .maka-onboarding-quickchat-mode {
   width: fit-content;
@@ -570,7 +570,7 @@
 .maka-first-run-task-suggestions-header > strong {
   font-size: var(--font-size-ui);
   color: var(--muted-foreground);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-first-run-task-suggestion-list {
@@ -674,7 +674,7 @@
   gap: var(--space-1-5);
   overflow: hidden;
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   min-width: 0;
 }
 
@@ -730,7 +730,7 @@
   white-space: nowrap;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -858,7 +858,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .maka-list-row-stale-pill {
@@ -874,7 +874,7 @@
   background: oklch(from var(--warning, var(--info)) l c h / 0.18);
   color: var(--warning-text, var(--info-text));
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-snug);
 }
 
@@ -910,7 +910,7 @@
 .maka-empty-state-title {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-empty-state-body {
@@ -942,7 +942,7 @@
 .maka-session-list .maka-session-empty-state .maka-empty-state-title {
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-session-list .maka-session-empty-state .maka-empty-state-body {

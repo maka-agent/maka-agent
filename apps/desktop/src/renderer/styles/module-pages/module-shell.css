@@ -41,8 +41,8 @@
   margin: 0;
   color: var(--foreground);
   font-size: 2em;
-  font-weight: 600;
-  letter-spacing: -0.012em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   line-height: var(--leading-tight);
 }
 

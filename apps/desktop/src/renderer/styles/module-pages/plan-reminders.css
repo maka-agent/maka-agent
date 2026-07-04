@@ -54,16 +54,16 @@
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
 }
 
 .maka-plan-heading h2 {
   margin: 0;
   color: var(--foreground);
   font-size: 2em;
-  font-weight: 600;
-  letter-spacing: -0.012em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   line-height: var(--leading-tight);
 }
 
@@ -89,7 +89,7 @@
   border-color: transparent;
   border-radius: var(--radius-pill);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* PR-UI-PIXEL-3: signature off-black CTA, matching the reference's restrained
@@ -105,7 +105,7 @@
     0 1px 2px oklch(0 0 0 / 0.10);
   color: oklch(1 0 0);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
     border-color var(--duration-base) var(--ease-out-strong),
@@ -190,7 +190,7 @@
   justify-self: end;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  letter-spacing: 1px;
+  letter-spacing: var(--tracking-widest);
   line-height: var(--leading-normal);
 }
 
@@ -248,7 +248,7 @@
 .maka-plan-template-title {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
@@ -263,7 +263,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
 }
 
@@ -287,7 +287,7 @@
   background: var(--foreground-2);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-none);
   padding: var(--space-0-5) var(--space-1-5);
   white-space: nowrap;
@@ -359,7 +359,7 @@
   flex: 0 0 auto;
   color: oklch(0.38 0.075 245);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
 }
 
@@ -373,7 +373,7 @@
   border: 1px solid oklch(0.56 0.08 245 / 0.4);
   border-radius: var(--radius-pill);
   background: oklch(0.56 0.08 245 / 0.10);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .dark .maka-plan-system-alert {
@@ -418,7 +418,7 @@
   background: transparent;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-plan-tab span {
@@ -576,7 +576,7 @@
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
@@ -591,7 +591,7 @@
   gap: var(--space-0-5);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-plan-field input,
@@ -603,7 +603,7 @@
   color: var(--foreground);
   font: inherit;
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   padding: var(--space-1-5) var(--space-2);
   outline: none;
   resize: vertical;
@@ -624,7 +624,7 @@
 .maka-plan-preset {
   min-width: 0;
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -641,7 +641,7 @@
   background: oklch(from var(--warning) l c h / 0.08);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-snug);
   padding: var(--space-1) var(--space-2);
 }
@@ -656,7 +656,7 @@
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
 }
 
@@ -670,7 +670,7 @@
   gap: var(--space-1);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-plan-search {
@@ -707,7 +707,7 @@
   color: var(--foreground);
   font: inherit;
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   outline: none;
   padding: var(--space-1-5) var(--space-2);
 }
@@ -725,7 +725,7 @@
   gap: var(--space-1-5);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-plan-empty {
@@ -752,7 +752,7 @@
   min-width: 0;
   color: var(--foreground);
   font-size: var(--font-size-base);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-snug);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -789,7 +789,7 @@
   background: oklch(from var(--foreground) l c h / 0.05);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-none);
   padding: var(--space-0-5) var(--space-2);
 }
@@ -808,9 +808,9 @@
   border-radius: var(--radius-pill);
   background: oklch(from var(--nav-active) l c h / 0.10);
   color: var(--nav-active);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-caption);
-  letter-spacing: 0;
+  letter-spacing: var(--tracking-normal);
 }
 
 /* PR-UI-PIXEL-1: note clamps to two lines (reference cards show a 2-line
@@ -844,7 +844,7 @@
   background: var(--foreground-3);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   padding: var(--space-0-5) var(--space-1-5);
 }
 

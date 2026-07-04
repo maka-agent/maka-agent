@@ -65,7 +65,7 @@
     background: var(--foreground-3);
   }
 .settingsWebSearchResult a {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground);
     text-decoration: none;
   }
@@ -76,7 +76,7 @@
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-wider);
   }
 .settingsWebSearchResult p {
     margin: 0;
@@ -419,7 +419,7 @@
 
 .settingsMemoryDirtyState[data-dirty="true"] {
     color: var(--warning-text, var(--info-text));
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .settingsMemoryEntryCard p,
@@ -569,7 +569,7 @@
 .settingsMemoryEditor > span {
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsMemoryEditor textarea {
@@ -584,7 +584,7 @@
   font-family: inherit;
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
-  letter-spacing: 0;
+  letter-spacing: var(--tracking-normal);
   tab-size: 2;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -646,7 +646,7 @@
 .maka-first-run-checklist-count {
     margin-left: auto;
     font-size: var(--font-size-caption);
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-wider);
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
@@ -758,7 +758,7 @@
 
 .maka-first-run-checklist-copy strong {
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   white-space: nowrap;
 }
 

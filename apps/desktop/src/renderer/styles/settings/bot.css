@@ -64,7 +64,7 @@
   padding: 0 var(--space-1-5);
   color: var(--muted-foreground);
   font-style: normal;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wider);
 }
 
 /* PR-BOT-LOGO-NEUTRAL-PLATE-0 (WAWQAQ msg `f3d263b4` 2026-06-26):
@@ -87,8 +87,8 @@
     background: transparent;
     color: var(--bot-brand-color, var(--bot-brand-default));
     font-size: var(--font-size-ui);
-    font-weight: 700;
-    letter-spacing: 0;
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--tracking-normal);
     flex-shrink: 0;
   }
 .settingsBotLogo svg {
@@ -180,7 +180,7 @@
 .settingsBotConfigDocLink {
     color: var(--bot-brand-color, var(--bot-brand-default));
     text-decoration: none;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     white-space: nowrap;
   }
 .settingsBotConfigDocLink:hover {
@@ -195,8 +195,8 @@
     background: color-mix(in srgb, var(--foreground) 5%, transparent);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    font-weight: 500;
-    letter-spacing: 0.01em;
+    font-weight: var(--font-weight-medium);
+    letter-spacing: var(--tracking-normal);
   }
 .settingsBotStatusPillDot {
     width: 6px;
@@ -285,7 +285,7 @@
   gap: var(--space-1-5);
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   line-height: var(--leading-none);
   white-space: nowrap;
 }
@@ -391,7 +391,7 @@
 
 .settingsStatsTable th {
   color: var(--foreground-secondary);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .settingsCloseButton {

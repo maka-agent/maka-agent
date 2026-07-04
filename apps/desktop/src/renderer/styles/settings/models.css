@@ -38,8 +38,8 @@
 
 .enabledProviderName {
   font-size: var(--font-size-ui);
-  font-weight: 620;
-  letter-spacing: -0.002em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -124,7 +124,7 @@
 
 .enabledDefaultTag {
   font-size: var(--font-size-caption);
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   color: var(--nav-active);
   background: oklch(from var(--nav-active) l c h / 0.14);
   border-radius: var(--radius-pill);
@@ -147,7 +147,7 @@
 
 .catalogPillTabs strong {
   font-size: var(--font-size-ui);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .providerMarketGrid,
@@ -244,7 +244,7 @@
   color: var(--link);
   padding: 0 var(--space-3);
   font-size: var(--font-size-ui);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .providerConfigOverlay {
@@ -443,8 +443,8 @@
 
 .maka-artifact-pane-title {
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
   color: var(--foreground);
 }
@@ -480,7 +480,7 @@
   display: block;
   margin-bottom: var(--space-0-5);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-artifact-list-error p {
@@ -592,7 +592,7 @@
 }
 
 .maka-artifact-row-name {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -609,7 +609,7 @@
 }
 
 .maka-artifact-row-size {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-artifact-row-badge {
@@ -715,7 +715,7 @@
 
 .maka-artifact-preview-unsupported-title {
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--foreground);
 }
 
@@ -740,7 +740,7 @@
 }
 .maka-artifact-preview-unsupported-meta dt {
   color: var(--foreground-secondary);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 .maka-artifact-preview-unsupported-meta dd {
   margin: 0;
@@ -808,7 +808,7 @@
 }
 
 .maka-artifact-preview-fail-title {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-artifact-preview-fail-body {

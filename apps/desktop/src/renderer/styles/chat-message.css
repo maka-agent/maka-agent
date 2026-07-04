@@ -20,7 +20,7 @@
     background: var(--foreground-3);
     color: var(--muted-foreground);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     line-height: var(--leading-none);
     white-space: nowrap;
     padding: 0 var(--space-3);
@@ -59,7 +59,7 @@
     background: oklch(0.93 0.006 286);
     color: var(--foreground);
     font-size: 1.4667em;
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
   }
 .maka-hero-eyebrow {
     display: inline-flex;
@@ -67,25 +67,26 @@
     gap: var(--space-1-5);
     color: var(--brand-deep);
     font-size: var(--font-size-caption);
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--tracking-widest);
     text-transform: uppercase;
   }
 .maka-hero h1 {
     margin: 0;
     max-width: 34ch;
     /* Phase 4A hero typography — atlas §15 deep RE notes reference uses
-       `.welcome-title` with `Instrument Sans` variable font at wdth:100/
-       wght:500 for hero. Maka uses Geist Variable which also has wdth +
-       wght axes. Pulling the heading to 32px / wght 550 / -0.018em
-       tracking + setting font-variation-settings wdth 105 gives the
-       hero the same "wider, slightly heavier, optically distinct from
-       chrome" feel without adding a second variable font asset. */
+       `.welcome-title` with `Instrument Sans` variable font at wght:500
+       for hero. Maka uses Geist Variable; the heading is pulled to 32px
+       with semibold weight + tight leading (PR-FONT-WEIGHT-CONVERGE-0 /
+       PR-LEADING-CONVERGE-0, #520 PR1). The earlier `font-variation-settings
+       "wght" 550, "wdth" 105` was dropped: wght folds into the font-weight
+       token, and the wdth:105 "wider" axis was a one-off that bypassed the
+       token scale. Standard width keeps the hero optically distinct via
+       size + weight + leading alone. */
     font-size: 2.1333em;
-    font-weight: 550;
-    letter-spacing: -0.018em;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-normal);
     line-height: var(--leading-tight);
-    font-variation-settings: "wght" 550, "wdth" 105;
     text-wrap: balance;
   }
 .maka-hero p {

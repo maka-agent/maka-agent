@@ -25,8 +25,8 @@
     gap: var(--space-1-5);
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-caption);
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wide);
     color: var(--info-text);
     user-select: none;
     transition: background var(--duration-base) var(--ease-out-strong);

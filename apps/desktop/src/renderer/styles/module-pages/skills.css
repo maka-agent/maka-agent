@@ -40,7 +40,7 @@
     0 1px 2px oklch(0.1 0 0 / 0.10);
   color: oklch(1 0 0);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-skill-add-button:hover {
@@ -100,7 +100,7 @@
   margin: 0;
   color: oklch(0.26 0.025 224);
   font-size: 1.2em;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
@@ -151,14 +151,14 @@
 .maka-skill-featured-art strong {
 color: oklch(0.34 0.02 224);
   font-size: var(--font-size-caption);
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
 .maka-skill-featured-art small {
 color: oklch(0.55 0.015 220);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
@@ -218,10 +218,9 @@ color: oklch(0.55 0.015 220);
   background: transparent;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   padding: 0 1px;
 }
-
 .maka-skill-tab span {
   min-width: 16px;
   height: 16px;
@@ -232,7 +231,7 @@ color: oklch(0.55 0.015 220);
   background: oklch(from var(--foreground) l c h / 0.06);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   padding: 0 var(--space-1);
 }
 
@@ -254,7 +253,7 @@ color: oklch(0.55 0.015 220);
   background: var(--background);
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   padding: 0 var(--space-3);
   opacity: 1;
 }
@@ -274,7 +273,7 @@ color: oklch(0.55 0.015 220);
 .maka-skill-section-row small {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-skill-market-grid {
@@ -316,7 +315,7 @@ color: oklch(0.55 0.015 220);
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-base);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
@@ -324,7 +323,7 @@ color: oklch(0.55 0.015 220);
 .maka-skill-market-card-foot span {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-skill-market-card p {
@@ -372,7 +371,7 @@ color: oklch(0.55 0.015 220);
   background: var(--foreground-2);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   padding: 0 var(--space-2-5);
 }
 
@@ -388,8 +387,8 @@ color: oklch(0.55 0.015 220);
 .maka-skill-section-label {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-widest);
   text-transform: uppercase;
 }
 
@@ -442,7 +441,7 @@ color: oklch(0.55 0.015 220);
   white-space: nowrap;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-snug);
 }
 
@@ -566,7 +565,7 @@ color: oklch(0.55 0.015 220);
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .maka-skill-library-description {
@@ -602,9 +601,9 @@ color: oklch(0.55 0.015 220);
   border-radius: var(--radius-pill);
   background: oklch(from var(--foreground) l c h / 0.05);
   color: var(--muted-foreground);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: var(--font-size-caption);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-normal);
 }
 
 .maka-skill-library-action {
@@ -616,7 +615,7 @@ color: oklch(0.55 0.015 220);
   background: var(--background);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-align: center;
   transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }

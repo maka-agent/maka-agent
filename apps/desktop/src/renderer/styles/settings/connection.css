@@ -75,7 +75,7 @@
     border: 1px solid var(--border);
     background: var(--background);
     color: var(--foreground);
-    font-family: var(--mono-font, monospace);
+    font-family: var(--font-mono);
     font-size: var(--font-size-ui);
     resize: vertical;
   }
@@ -102,8 +102,8 @@
     background: oklch(from var(--nav-active) l c h / 0.14);
     color: var(--nav-active);
     font-size: var(--font-size-caption);
-    font-weight: 700;
-    letter-spacing: 0;
+    font-weight: var(--font-weight-bold);
+    letter-spacing: var(--tracking-normal);
   }
 .settingsConnectionRowHead {
     display: flex;
@@ -119,7 +119,7 @@
 .settingsConnectionRowText strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 .settingsConnectionRowText small {
     color: var(--muted-foreground);
@@ -133,8 +133,8 @@
     padding: var(--space-0-5) var(--space-2);
     border-radius: var(--radius-control);
     font-size: var(--font-size-caption);
-    font-weight: 600;
-    letter-spacing: 0;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-normal);
     background: var(--foreground-5);
     color: var(--foreground-secondary);
     white-space: nowrap;
@@ -150,12 +150,12 @@
 .settingsConnectionBadge[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
   }
 .settingsConnectionBadge[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.15);
     color: var(--destructive);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
   }
 .settingsConnectionDetail {
     margin: 0;
@@ -182,7 +182,7 @@
 .settingsAuthContractText strong {
     color: var(--foreground);
     font-size: var(--font-size-ui);
-    font-weight: 650;
+    font-weight: var(--font-weight-semibold);
   }
 .settingsAuthContractText span {
     color: var(--foreground-secondary);
@@ -197,7 +197,7 @@
     border-radius: var(--radius-control);
     white-space: nowrap;
     font-size: var(--font-size-caption);
-    font-weight: 650;
+    font-weight: var(--font-weight-semibold);
   }
 .settingsAuthContractBadge {
     padding: var(--space-0-5) var(--space-2);

@@ -27,7 +27,7 @@
 .settingsHealthIntro h3 {
     margin: 0 0 var(--space-1-5);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .settingsHealthIntro p {
@@ -127,13 +127,13 @@
 
 .settingsHealthSummaryTile strong {
     font-size: 1.4em;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     line-height: var(--leading-tight);
   }
 
 .settingsHealthSummaryTile small {
     font-size: var(--font-size-caption);
-    letter-spacing: 0.06em;
+    letter-spacing: var(--tracking-wider);
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
@@ -193,7 +193,7 @@
 .settingsHealthLayer > header h4 {
     margin: 0 0 var(--space-0-5);
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--foreground);
   }
 
@@ -248,13 +248,13 @@
 
 .settingsHealthSignalHeading strong {
     font-size: var(--font-size-ui);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
   }
 
 .settingsHealthSignalScope {
     font-size: var(--font-size-caption);
     color: var(--muted-foreground);
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-wider);
   }
 
 .settingsHealthSignalMessage {

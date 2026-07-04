@@ -67,7 +67,7 @@
 .maka-model-switcher-label {
   flex: 0 0 auto;
   font-size: var(--font-size-caption);
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   color: var(--muted-foreground);
 }
 
@@ -79,7 +79,7 @@
   white-space: nowrap;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* The popup, group headings, and option rows now render through the shared

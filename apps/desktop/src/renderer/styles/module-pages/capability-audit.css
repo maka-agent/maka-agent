@@ -20,22 +20,22 @@
 .maka-capability-audit-kicker {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
   text-transform: uppercase;
 }
 
 .maka-capability-audit-copy strong {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   line-height: var(--leading-tight);
 }
 
 .maka-capability-audit-copy small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: var(--leading-normal);
 }
 
@@ -58,8 +58,8 @@
 .maka-capability-audit-metrics dt {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
   text-transform: uppercase;
 }
 
@@ -67,7 +67,7 @@
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   line-height: var(--leading-snug);
   overflow-wrap: anywhere;
 }
