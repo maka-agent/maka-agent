@@ -13,7 +13,6 @@
   --color-text-secondary: var(--foreground-secondary);
   --color-text-tertiary: var(--muted-foreground);
   --color-text-quaternary: var(--muted-foreground);
-  --color-text-on-primary: #fff;
   --color-border: var(--border);
   --color-border-secondary: var(--border);
   --color-fill: var(--foreground-8);

@@ -82,7 +82,6 @@
      cool like the reference sidebar. */
   --foreground: oklch(0.17 0.005 286);
   --foreground-dimmed: color-mix(in srgb, var(--foreground) 80%, var(--background));
-  --foreground-rgb: 32, 31, 30; /* light-mode RGB triplet used by shadow rings */
 
   /* Brand accent = logo blue (oklch L0.70 C0.135 h250), sampled from
      apps/desktop/assets/icon.png (owner decision 2026-07-03). --success stays
@@ -105,11 +104,8 @@
   --nav-active: var(--accent);
   --toast-accent: var(--accent);
   --info: oklch(0.75 0.16 70);          /* amber — "ask" mode, warnings */
-  --info-rgb: 180, 120, 40;
   --success: oklch(0.55 0.17 145);      /* green — connected, ok */
-  --success-rgb: 34, 120, 60;
   --destructive: oklch(0.58 0.24 28);   /* red — errors, denied */
-  --destructive-rgb: 180, 60, 50;
 
   /* Legacy brand affordance for a few emphasized surfaces. New CTA and checked
      control states use --action / --control instead.
@@ -344,7 +340,6 @@
       6px radius + 0 1px 2px @ 4% lift` — every workbench-card, aux-panel,
       and agents-chat-panel uses these three values. See
       notes/reference-atlas.md §9 for the per-surface gap analysis. */
-  --card-gap: 4px;
   --card-border-color: oklch(from var(--foreground) l c h / 0.08);
   --card-bg: var(--background);
   --card-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.04);
@@ -411,7 +406,6 @@
   --surface-canvas: oklch(0.14 0.004 286);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
   --foreground: oklch(0.92 0.004 286);
-  --foreground-rgb: 224, 222, 218;
 
   --accent: oklch(0.74 0.15 250);
   /* Dark mode keeps the same pale-blue CTA chip + deep-blue text as light
@@ -428,11 +422,8 @@
   --nav-active: var(--accent);
   --toast-accent: var(--accent);
   --info: oklch(0.70 0.16 70);
-  --info-rgb: 200, 140, 60;
   --success: oklch(0.60 0.17 145);
-  --success-rgb: 50, 140, 80;
   --destructive: oklch(0.70 0.19 22);
-  --destructive-rgb: 200, 80, 70;
 
   --shadow-border-opacity: 0.15;
   --shadow-blur-opacity:   0.12;

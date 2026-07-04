@@ -80,10 +80,7 @@ html[data-os="darwin"] {
      light-glass extraction was warm ivory (#fdfcfa/#faf9f6/#f5f3ee),
      which read beige against vibrancy blur. zinc-family equivalents
      keep the same lightness steps but zero warm cast. */
-  --color-bg-layout: #fcfcfd;
-  --color-bg-highlight: #d4d4d8;
   --color-bg-container: #fafafa;
-  --color-bg-element: #f4f4f5;
   --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
 }
 
@@ -92,10 +89,7 @@ html[data-os="darwin"] {
    sat under near-white foreground text and the parchment surfaces glowed
    against the dark shell, so the dark variants below re-tune lightness. */
 html[data-os="darwin"].dark {
-  --color-bg-layout: oklch(0.22 0.004 286);
-  --color-bg-highlight: oklch(0.34 0.005 286);
   --color-bg-container: oklch(0.24 0.004 286);
-  --color-bg-element: oklch(0.27 0.004 286);
 }
 
 
