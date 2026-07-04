@@ -194,29 +194,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  // The TUI is bound to one folder and one connection (its autocomplete base
-  // path and model candidates come from the startup target). Refuse to resume
-  // a session from another folder/connection rather than silently desyncing.
-  const assertSwitchable = async (sessionId: string) => {
-    const sessions = await input.driver.listSessions();
-    const target = sessions.find((session) => session.id === sessionId);
-    if (!target) throw new Error(`Session not found: ${sessionId}`);
-    if (target.cwd !== cwd) {
-      throw new Error('Session belongs to a different folder; run Maka in that folder to resume it.');
-    }
-    if (target.llmConnectionSlug !== connectionSlug) {
-      throw new Error('Session uses a different connection; run Maka with that connection to resume it.');
-    }
-  };
-
+  // Folder/connection safety is enforced inside driver.switchSession(),
+  // before it commits any internal state, so a rejected switch leaves the
+  // active session untouched and the next prompt still lands on the old one.
   const switchSession = async (sessionId: string) => {
-    await assertSwitchable(sessionId);
     const { summary, messages } = await input.driver.switchSession(sessionId);
-    // Re-check against the driver's authoritative summary: the list snapshot we
-    // validated in assertSwitchable can be stale by the time the switch returns.
-    if (summary.cwd !== cwd || summary.llmConnectionSlug !== connectionSlug) {
-      throw new Error('Session no longer matches the current folder or connection.');
-    }
     cwd = summary.cwd ?? cwd;
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;

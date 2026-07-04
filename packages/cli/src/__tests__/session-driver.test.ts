@@ -181,6 +181,64 @@ describe('Maka session driver', () => {
     assert.equal(driver.getSessionId(), null);
   });
 
+  test('refuses to switch across folders and leaves the active session unchanged', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-active-cwd-'));
+    const elsewhere = await mkdtemp(join(tmpdir(), 'maka-other-cwd-'));
+    try {
+      const runtime = new RecordingRuntime();
+      runtime.sessionSummaries = [sessionSummary({ id: 'other-folder', cwd: elsewhere })];
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: repo,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+      await collect(driver.sendPrompt('hi'));
+
+      await assert.rejects(
+        driver.switchSession('other-folder'),
+        /Session belongs to a different folder/,
+      );
+
+      // The rejected switch must not move the active session: the next prompt
+      // still lands on the original session.
+      await collect(driver.sendPrompt('again'));
+      assert.equal(runtime.sent[0]?.sessionId, 'session-1');
+      assert.equal(runtime.sent[1]?.sessionId, 'session-1');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to switch across connections and leaves the active session unchanged', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-active-cwd-'));
+    try {
+      const runtime = new RecordingRuntime();
+      runtime.sessionSummaries = [
+        sessionSummary({ id: 'other-conn', cwd: repo, llmConnectionSlug: 'other-connection' }),
+      ];
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: repo,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+      await collect(driver.sendPrompt('hi'));
+
+      await assert.rejects(
+        driver.switchSession('other-conn'),
+        /Session uses a different connection/,
+      );
+
+      await collect(driver.sendPrompt('again'));
+      assert.equal(runtime.sent[0]?.sessionId, 'session-1');
+      assert.equal(runtime.sent[1]?.sessionId, 'session-1');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   test('lists current-cwd sessions before other recent sessions', async () => {
     const runtime = new RecordingRuntime();
     runtime.sessionSummaries = [

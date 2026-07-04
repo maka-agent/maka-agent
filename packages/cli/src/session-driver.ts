@@ -107,6 +107,14 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
     if (summary.cwd) await assertSessionCwdExists(summary.cwd);
+    // Enforce folder/connection before reading messages or committing any
+    // internal state, so a rejected switch leaves the active session untouched.
+    if (summary.cwd && summary.cwd !== this.input.cwd) {
+      throw new Error('Session belongs to a different folder; run Maka in that folder to resume it.');
+    }
+    if (summary.llmConnectionSlug !== this.input.llmConnectionSlug) {
+      throw new Error('Session uses a different connection; run Maka with that connection to resume it.');
+    }
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
     this.model = summary.model;

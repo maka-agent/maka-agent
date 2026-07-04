@@ -875,64 +875,6 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('rejects /session for a session in a different folder', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver([fakeSessionSummary('session-other', '/elsewhere')]);
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-
-    terminal.input('/session session-other');
-    terminal.input('\r');
-    await waitFor(() => terminal.output().includes('different folder'));
-
-    assert.deepEqual(driver.sessionIds, []);
-
-    terminal.input('\x03');
-    await Promise.race([
-      run,
-      delay(50).then(() => {
-        throw new Error('TUI did not close after Ctrl-C');
-      }),
-    ]);
-  });
-
-  test('rejects /session for a session on a different connection', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver([
-      { ...fakeSessionSummary('session-conn', '/repo'), llmConnectionSlug: 'other-connection' },
-    ]);
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-
-    terminal.input('/session session-conn');
-    terminal.input('\r');
-    await waitFor(() => terminal.output().includes('different connection'));
-
-    assert.deepEqual(driver.sessionIds, []);
-
-    terminal.input('\x03');
-    await Promise.race([
-      run,
-      delay(50).then(() => {
-        throw new Error('TUI did not close after Ctrl-C');
-      }),
-    ]);
-  });
-
   test('keeps the permission prompt visible when responding rejects', async () => {
     const terminal = new FakeTerminal();
     const driver = new RejectingPermissionDriver();
@@ -996,35 +938,6 @@ describe('Maka Pi TUI runner', () => {
     await delay(30);
 
     terminal.input('\x1b');
-    terminal.input('\x03');
-    await Promise.race([
-      run,
-      delay(50).then(() => {
-        throw new Error('TUI did not close after Ctrl-C');
-      }),
-    ]);
-  });
-
-  test('refuses to switch when the driver returns a mismatched folder', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new InconsistentSwitchDriver([fakeSessionSummary('session-2', '/repo')]);
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-
-    terminal.input('/session session-2');
-    terminal.input('\r');
-    await waitFor(() => terminal.output().includes('no longer matches'));
-
-    assert.deepEqual(driver.sessionIds, ['session-2']);
-    assert.deepEqual(driver.prompts, []);
-
     terminal.input('\x03');
     await Promise.race([
       run,
@@ -1382,13 +1295,6 @@ class DeferredListSessionsDriver extends SlashCommandDriver {
   releaseList(): void {
     this.resolveList?.();
     this.resolveList = null;
-  }
-}
-
-class InconsistentSwitchDriver extends SlashCommandDriver {
-  override async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
-    const result = await super.switchSession(sessionId);
-    return { summary: { ...result.summary, cwd: '/unexpected' }, messages: result.messages };
   }
 }
 
